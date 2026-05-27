@@ -111,6 +111,7 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Housekeeping (staff submit)
     ['/housekeeping/log', housekeepingController.submitCleaningLog],
     ['/housekeeping/request', housekeepingController.raiseRequest],
+    ['/housekeeping/requests/:id/start', housekeepingController.startRequest],
     ['/housekeeping/requests/:id/complete', housekeepingController.completeRequest],
     // Compliance: staff self-service POST
     ['/payroll/declarations/submit', payrollController.upsertDeclaration],

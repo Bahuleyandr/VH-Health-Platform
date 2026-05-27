@@ -91,7 +91,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/logs', housekeepingController.getAllCleaningLogs],
     ['/housekeeping/requests', housekeepingController.getAllRequests],
     ['/housekeeping/stats', housekeepingController.getHousekeepingStats],
-    ['/housekeeping/zones', housekeepingController.getZones],
+    ['/housekeeping/zones', housekeepingController.getAdminZones],
 
     // Payroll (admin)
     ['/payroll/runs', payrollController.getPayrollRuns],
@@ -208,7 +208,10 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/purge/old-records', staffAdminController.purgeOldRecords],
 
     // Deactivate custom shift
-    ['/shifts/custom/:id', shiftController.deactivateShift]
+    ['/shifts/custom/:id', shiftController.deactivateShift],
+
+    // Housekeeping zone remove is a soft-deactivate so historical requests stay intact.
+    ['/housekeeping/zones/:id', housekeepingController.deleteZone]
   ]
 });
 

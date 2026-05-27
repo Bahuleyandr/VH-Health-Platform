@@ -25,6 +25,17 @@ async function resolveCurrentUserRef(req) {
   });
 }
 
+function hasZoneAdminRole(req) {
+  const role = String(req.user?.rawRole || req.user?.role || '').toUpperCase();
+  return role === 'ADMIN' || role === 'SUPER_ADMIN';
+}
+
+function requireZoneAdmin(req, res) {
+  if (hasZoneAdminRole(req)) return true;
+  error(res, 'Admin role required to manage housekeeping zones', HTTP_STATUS.FORBIDDEN);
+  return false;
+}
+
 function extractLinkedBedId(requestRow = {}) {
   const haystack = [requestRow.description, requestRow.notes, requestRow.location_text]
     .filter(Boolean)
@@ -125,11 +136,31 @@ async function resolveAssignableHousekeepingStaff({ staffId, staffUid }) {
 export const getZones = async (req, res) => {
   try {
     const zones = await prisma.$queryRawUnsafe(
-      'SELECT id, name, zone_type, is_active, created_at FROM housekeeping_zones WHERE is_active = true ORDER BY zone_type, name'
+      `SELECT id, name, zone_type, floor, building, is_active, created_at, updated_at
+         FROM housekeeping_zones
+        WHERE is_active = true
+        ORDER BY COALESCE(building, ''), COALESCE(floor, ''), zone_type, name`
     );
     success(res, zones, 'Zones fetched');
   } catch (err) {
     logger.error('Get Zones Error:', err);
+    error(res, 'Failed to fetch zones', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── ADMIN: GET /zones — include inactive zones for setup screens ────────────
+export const getAdminZones = async (req, res) => {
+  try {
+    if (!requireZoneAdmin(req, res)) return;
+
+    const zones = await prisma.$queryRawUnsafe(
+      `SELECT id, name, zone_type, floor, building, is_active, created_at, updated_at
+         FROM housekeeping_zones
+        ORDER BY is_active DESC, COALESCE(building, ''), COALESCE(floor, ''), zone_type, name`
+    );
+    success(res, zones, 'Zones fetched');
+  } catch (err) {
+    logger.error('Get Admin Zones Error:', err);
     error(res, 'Failed to fetch zones', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
@@ -336,10 +367,74 @@ export const getMyRequests = async (req, res) => {
       staff.id
     );
 
-    success(res, { raised: raised, assigned: assigned }, 'Requests fetched');
+    const completed = await prisma.$queryRawUnsafe(
+      `
+      SELECT hr.id, hr.request_number, hr.requester_id, hr.zone_id, hr.location_text,
+        hr.assigned_to, hr.request_type, hr.request_type as task_type,
+        hr.urgency, hr.description, hr.description as notes, hr.status,
+        hr.completed_at, hr.created_at, hr.sla_due_at,
+        hz.name as zone_name, u.name as requester_name
+      FROM housekeeping_requests hr
+      LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
+      LEFT JOIN users u ON hr.requester_id = u.id
+      WHERE hr.assigned_to = $1 AND hr.status IN ('completed','verified','closed')
+      ORDER BY COALESCE(hr.completed_at, hr.updated_at, hr.created_at) DESC LIMIT 20
+    `,
+      staff.id
+    );
+
+    success(res, { raised: raised, assigned: assigned, completed: completed }, 'Requests fetched');
   } catch (err) {
     logger.error('Get My HK Requests Error:', err);
     error(res, 'Failed to fetch requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── POST /requests/:id/start — assigned HK staff starts work ───────────────
+export const startRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const staff = await resolveCurrentUserRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const result = await prisma.$queryRawUnsafe(
+      `
+      UPDATE housekeeping_requests
+         SET status = 'in_progress',
+             updated_at = NOW()
+       WHERE id = $1::int
+         AND assigned_to = $2
+         AND status = 'assigned'
+      RETURNING id, request_number, requester_id, zone_id, assigned_to,
+        request_type, request_type as task_type, urgency, status, description,
+        description as notes, completed_at, created_at, sla_due_at
+    `,
+      id,
+      staff.id
+    );
+
+    if (result.length === 0) {
+      return error(res, 'Request not found or not ready to start', HTTP_STATUS.NOT_FOUND);
+    }
+
+    await markLinkedDirtyBedCleaning(result[0], staff.uid);
+
+    await prisma.$queryRawUnsafe(
+      `
+      INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
+      VALUES ($1::int, $2, $3::uuid, 'hk_staff', 'Task started by housekeeping staff.', false)
+    `,
+      id,
+      staff.id,
+      staff.uid
+    );
+
+    success(res, result[0], 'Request started');
+  } catch (err) {
+    logger.error('Start HK Request Error:', err);
+    error(res, 'Failed to start request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -1091,20 +1186,23 @@ export const getRequestDetail = async (req, res) => {
 // ─── POST /zones — admin create zone ─────────────────────────────────────────
 export const createZone = async (req, res) => {
   try {
+    if (!requireZoneAdmin(req, res)) return;
+
     const { name, zone_type = 'general', floor, building } = req.body;
 
-    if (!name) return error(res, 'name is required', HTTP_STATUS.BAD_REQUEST);
+    const zoneName = String(name || '').trim();
+    if (!zoneName) return error(res, 'name is required', HTTP_STATUS.BAD_REQUEST);
 
     const result = await prisma.$queryRawUnsafe(
       `
       INSERT INTO housekeeping_zones (name, zone_type, floor, building, is_active)
       VALUES ($1, $2, $3, $4, true)
-      RETURNING id, name, zone_type, is_active, floor, building, created_at
+      RETURNING id, name, zone_type, is_active, floor, building, created_at, updated_at
     `,
-      name,
-      zone_type,
-      floor || null,
-      building || null
+      zoneName,
+      String(zone_type || 'general').trim() || 'general',
+      floor ? String(floor).trim() : null,
+      building ? String(building).trim() : null
     );
 
     success(res, result[0], 'Zone created');
@@ -1117,6 +1215,8 @@ export const createZone = async (req, res) => {
 // ─── PUT /zones/:id — admin update zone ──────────────────────────────────────
 export const updateZone = async (req, res) => {
   try {
+    if (!requireZoneAdmin(req, res)) return;
+
     const { id } = req.params;
     const { name, zone_type, floor, building, is_active } = req.body;
 
@@ -1128,14 +1228,15 @@ export const updateZone = async (req, res) => {
         zone_type = COALESCE($2, zone_type),
         floor = COALESCE($3, floor),
         building = COALESCE($4, building),
-        is_active = COALESCE($5, is_active)
+        is_active = COALESCE($5, is_active),
+        updated_at = NOW()
       WHERE id = $6::int
-      RETURNING id, name, zone_type, is_active, floor, building, created_at
+      RETURNING id, name, zone_type, is_active, floor, building, created_at, updated_at
     `,
-      name || null,
-      zone_type || null,
-      floor || null,
-      building || null,
+      name === undefined ? null : String(name).trim() || null,
+      zone_type === undefined ? null : String(zone_type).trim() || null,
+      floor === undefined ? null : String(floor).trim() || null,
+      building === undefined ? null : String(building).trim() || null,
       is_active !== undefined ? is_active : null,
       id
     );
@@ -1146,6 +1247,58 @@ export const updateZone = async (req, res) => {
   } catch (err) {
     logger.error('Update Zone Error:', err);
     error(res, 'Failed to update zone', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── DELETE /zones/:id — admin soft-removes an unused zone ──────────────────
+export const deleteZone = async (req, res) => {
+  try {
+    if (!requireZoneAdmin(req, res)) return;
+
+    const { id } = req.params;
+
+    const activeRequests = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM housekeeping_requests
+        WHERE zone_id = $1::int
+          AND COALESCE(status, 'open') = ANY($2::text[])`,
+      id,
+      ACTIVE_REQUEST_STATUSES
+    );
+    const activeAssignments = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count
+         FROM housekeeping_floor_assignments
+        WHERE zone_id = $1::int
+          AND status = 'active'
+          AND effective_from <= NOW()
+          AND (effective_to IS NULL OR effective_to > NOW())`,
+      id
+    );
+
+    const requestCount = Number(activeRequests[0]?.count || 0);
+    const assignmentCount = Number(activeAssignments[0]?.count || 0);
+    if (requestCount > 0 || assignmentCount > 0) {
+      return error(
+        res,
+        'Zone has active housekeeping requests or staff assignments',
+        HTTP_STATUS.CONFLICT
+      );
+    }
+
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE housekeeping_zones
+          SET is_active = false, updated_at = NOW()
+        WHERE id = $1::int
+        RETURNING id, name, zone_type, is_active, floor, building, created_at, updated_at`,
+      id
+    );
+
+    if (result.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
+
+    success(res, result[0], 'Zone removed');
+  } catch (err) {
+    logger.error('Delete Zone Error:', err);
+    error(res, 'Failed to remove zone', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

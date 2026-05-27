@@ -1,4 +1,4 @@
-import { getJSON, postJSON, putJSON } from "./core";
+import { deleteJSON, getJSON, postJSON, putJSON } from "./core";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,12 @@ export interface HousekeepingStats {
     currently_breached: string;
     avg_completion_minutes: string | null;
   };
-  top_staff: Array<{ id: number; name: string; completions: string; avg_minutes: string | null }>;
+  top_staff: Array<{
+    id: number;
+    name: string;
+    completions: string;
+    avg_minutes: string | null;
+  }>;
   recent_flags: HousekeepingLog[];
 }
 
@@ -98,7 +103,9 @@ export function getHousekeepingZones<T = HousekeepingZone[]>() {
 
 // ─── Logs ────────────────────────────────────────────────────────────────────
 
-export function getHousekeepingLogs<T = { logs: HousekeepingLog[]; total: number }>(params?: {
+export function getHousekeepingLogs<
+  T = { logs: HousekeepingLog[]; total: number },
+>(params?: {
   staff_id?: string;
   zone_id?: string;
   status?: string;
@@ -107,16 +114,27 @@ export function getHousekeepingLogs<T = { logs: HousekeepingLog[]; total: number
   limit?: number;
   offset?: number;
 }) {
-  return getJSON<T>("/api/v1/staff/admin/housekeeping/logs", params as Record<string, string | number | boolean | undefined | null>);
+  return getJSON<T>(
+    "/api/v1/staff/admin/housekeeping/logs",
+    params as Record<string, string | number | boolean | undefined | null>,
+  );
 }
 
-export function verifyLog<T = unknown>(id: number, data: { flag_reason?: string }) {
-  return postJSON<T>(`/api/v1/staff/admin/housekeeping/logs/${id}/verify`, data);
+export function verifyLog<T = unknown>(
+  id: number,
+  data: { flag_reason?: string },
+) {
+  return postJSON<T>(
+    `/api/v1/staff/admin/housekeeping/logs/${id}/verify`,
+    data,
+  );
 }
 
 // ─── Requests ────────────────────────────────────────────────────────────────
 
-export function getHousekeepingRequests<T = { requests: HousekeepingRequest[]; total: number }>(params?: {
+export function getHousekeepingRequests<
+  T = { requests: HousekeepingRequest[]; total: number },
+>(params?: {
   status?: string;
   urgency?: string;
   assigned_to?: string;
@@ -125,18 +143,27 @@ export function getHousekeepingRequests<T = { requests: HousekeepingRequest[]; t
   limit?: number;
   offset?: number;
 }) {
-  return getJSON<T>("/api/v1/staff/admin/housekeeping/requests", params as Record<string, string | number | boolean | undefined | null>);
+  return getJSON<T>(
+    "/api/v1/staff/admin/housekeeping/requests",
+    params as Record<string, string | number | boolean | undefined | null>,
+  );
 }
 
 export function assignHousekeepingRequest<T = unknown>(
   id: number,
-  data: { assigned_to: number; note?: string }
+  data: { assigned_to: number; note?: string },
 ) {
-  return postJSON<T>(`/api/v1/staff/admin/housekeeping/requests/${id}/assign`, data);
+  return postJSON<T>(
+    `/api/v1/staff/admin/housekeeping/requests/${id}/assign`,
+    data,
+  );
 }
 
 export function verifyHousekeepingRequest<T = unknown>(id: number) {
-  return postJSON<T>(`/api/v1/staff/admin/housekeeping/requests/${id}/verify`, {});
+  return postJSON<T>(
+    `/api/v1/staff/admin/housekeeping/requests/${id}/verify`,
+    {},
+  );
 }
 
 // ─── Zone CRUD ───────────────────────────────────────────────────────────────
@@ -152,9 +179,19 @@ export function createHousekeepingZone<T = HousekeepingZone>(data: {
 
 export function updateHousekeepingZone<T = HousekeepingZone>(
   id: number,
-  data: { name?: string; zone_type?: string; floor?: string; building?: string; is_active?: boolean }
+  data: {
+    name?: string;
+    zone_type?: string;
+    floor?: string;
+    building?: string;
+    is_active?: boolean;
+  },
 ) {
   return putJSON<T>(`/api/v1/staff/admin/housekeeping/zones/${id}`, data);
+}
+
+export function deleteHousekeepingZone<T = HousekeepingZone>(id: number) {
+  return deleteJSON<T>(`/api/v1/staff/admin/housekeeping/zones/${id}`);
 }
 
 export function adminCreateHousekeepingRequest<T = HousekeepingRequest>(data: {

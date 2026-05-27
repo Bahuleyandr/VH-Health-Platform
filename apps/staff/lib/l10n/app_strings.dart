@@ -2183,7 +2183,7 @@ class AppStrings {
   String splashDeviceUnsupportedBody(String reasons) =>
       '${_t('splash.device_unsupported_body')} $reasons. ${_t('splash.device_unsupported_use_hospital_device')}';
 
-  // ── Housekeeping tasks (placeholder screen) ────────────────────────
+  // ── Housekeeping tasks ─────────────────────────────────────────────
   String get housekeepingTasksTitle => _t('housekeeping.tasks_title');
   String get housekeepingSampleNotice => _t('housekeeping.sample_notice');
   String get housekeepingTaskCompleted => _t('housekeeping.task_completed');
@@ -3977,10 +3977,9 @@ class AppStrings {
           'For patient data safety, VHHealth Staff cannot run on this device. Reason:',
       'splash.device_unsupported_use_hospital_device':
           'Please use a hospital-issued, unmodified device.',
-      // Housekeeping tasks (placeholder)
+      // Housekeeping tasks
       'housekeeping.tasks_title': 'My Tasks',
-      'housekeeping.sample_notice':
-          'Showing sample tasks. Backend API coming soon.',
+      'housekeeping.sample_notice': 'Live tasks from housekeeping queue.',
       'housekeeping.task_completed': '✅ Task marked as complete',
       'housekeeping.task_started': 'Task started',
       'housekeeping.no_tasks': 'No tasks here',
@@ -5956,10 +5955,9 @@ class AppStrings {
           'रोगी डेटा सुरक्षा के लिए, VHHealth स्टाफ इस डिवाइस पर नहीं चल सकता। कारण:',
       'splash.device_unsupported_use_hospital_device':
           'कृपया अस्पताल द्वारा जारी, अनसंशोधित डिवाइस का उपयोग करें।',
-      // Housekeeping tasks (placeholder)
+      // Housekeeping tasks
       'housekeeping.tasks_title': 'मेरे कार्य',
-      'housekeeping.sample_notice':
-          'नमूना कार्य दिखाए जा रहे हैं। बैकएंड API जल्द आ रहा है।',
+      'housekeeping.sample_notice': 'हाउसकीपिंग कतार से लाइव कार्य।',
       'housekeeping.task_completed': '✅ कार्य पूर्ण के रूप में चिह्नित',
       'housekeeping.task_started': 'कार्य शुरू किया गया',
       'housekeeping.no_tasks': 'यहाँ कोई कार्य नहीं',
@@ -7193,7 +7191,7 @@ class AppStrings {
       'housekeeping.tasks_title': 'என் பணிகள்',
       // REVIEW:
       'housekeeping.sample_notice':
-          'மாதிரி பணிகள் காட்டப்படுகின்றன. பின்-முனை API விரைவில் வருகிறது.',
+          'வீட்டு பராமரிப்பு வரிசையிலிருந்து நேரடி பணிகள்.',
       // REVIEW:
       'housekeeping.task_completed': '✅ பணி முடிந்ததாக குறிக்கப்பட்டது',
       // REVIEW:
@@ -9612,8 +9610,7 @@ class AppStrings {
       // REVIEW:
       'housekeeping.tasks_title': 'నా పనులు',
       // REVIEW:
-      'housekeeping.sample_notice':
-          'నమూనా పనులు చూపబడుతున్నాయి. బ్యాకెండ్ API త్వరలో వస్తుంది.',
+      'housekeeping.sample_notice': 'హౌస్ కీపింగ్ క్యూ నుండి ప్రత్యక్ష పనులు.',
       // REVIEW:
       'housekeeping.task_completed': '✅ పని పూర్తైనట్లు గుర్తించబడింది',
       // REVIEW:

@@ -25,10 +25,19 @@ class HrApiService {
   }
 
   static Map<String, dynamic> _handle(ApiResponse resp) {
+    if (resp.isSuccess && resp.data is Map) {
+      return Map<String, dynamic>.from(resp.data as Map);
+    }
+    if (resp.isSuccess && resp.data is List) {
+      return {'data': resp.data};
+    }
     if (resp.isSuccess && resp.raw is Map) {
       final raw = resp.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
-        return (raw['data'] as Map<String, dynamic>?) ?? raw;
+        final data = raw['data'];
+        if (data is Map) return Map<String, dynamic>.from(data);
+        if (data is List) return {'data': data};
+        return raw;
       }
     }
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
@@ -298,6 +307,13 @@ class HrApiService {
   /// GET /housekeeping/requests/my
   static Future<Map<String, dynamic>> getMyHousekeepingRequests() async {
     return await _get('/housekeeping/requests/my');
+  }
+
+  /// POST /housekeeping/requests/:id/start
+  static Future<Map<String, dynamic>> startHousekeepingRequest({
+    required String requestId,
+  }) async {
+    return await _post('/housekeeping/requests/$requestId/start', {});
   }
 
   /// POST /housekeeping/requests/:id/complete
