@@ -77,6 +77,8 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: theme.colorScheme.surface,
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
@@ -432,27 +434,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
                   onPressed: () => _showSignerDetails(summary),
                 ),
                 _chip('$citations sources', Colors.blue, Icons.source),
-                ActionChip(
-                  avatar: Icon(
-                    Icons.health_and_safety,
-                    size: 16,
-                    color: flags == 0
-                        ? AppTheme.successOnSurface
-                        : AppTheme.errorOnSurface,
-                  ),
-                  label: Text('$flags safety flags'),
-                  side: BorderSide(
-                    color: flags == 0
-                        ? AppTheme.successOnSurface
-                        : AppTheme.errorOnSurface,
-                  ),
-                  backgroundColor:
-                      (flags == 0
-                              ? AppTheme.successOnSurface
-                              : AppTheme.errorOnSurface)
-                          .withValues(alpha: 0.10),
-                  onPressed: () => _showSafetyFlags(summary),
-                ),
+                _safetyFlagButton(theme, summary, flags),
               ],
             ),
             const SizedBox(height: 12),
@@ -465,6 +447,36 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _safetyFlagButton(
+    ThemeData theme,
+    Map<String, dynamic> summary,
+    dynamic rawCount,
+  ) {
+    final count = int.tryParse('$rawCount') ?? 0;
+    final hasFlags = count > 0;
+    final color = hasFlags
+        ? AppTheme.errorOnSurface
+        : AppTheme.successOnSurface;
+    return OutlinedButton.icon(
+      onPressed: () => _showSafetyFlags(summary),
+      icon: Icon(Icons.health_and_safety, size: 18, color: color),
+      label: Text(
+        hasFlags
+            ? 'Review $count safety ${count == 1 ? 'flag' : 'flags'}'
+            : 'No safety flags',
+      ),
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        foregroundColor: color,
+        side: BorderSide(color: color),
+        backgroundColor: color.withValues(alpha: 0.10),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }

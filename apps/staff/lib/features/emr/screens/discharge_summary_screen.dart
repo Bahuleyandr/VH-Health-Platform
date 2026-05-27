@@ -353,6 +353,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: theme.colorScheme.surface,
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
@@ -804,27 +806,105 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          Chip(
-            visualDensity: VisualDensity.compact,
-            label: Text('$sourceCount sources'),
-          ),
-          ActionChip(
-            visualDensity: VisualDensity.compact,
-            avatar: Icon(
-              Icons.health_and_safety,
-              color: flagCount > 0
-                  ? AppTheme.errorOnSurface
-                  : theme.colorScheme.primary,
-              size: 16,
-            ),
-            side: flagCount > 0
-                ? BorderSide(color: AppTheme.errorOnSurface)
-                : null,
-            onPressed: _showSafetyFlags,
-            label: Text('$flagCount safety flags'),
-          ),
+          _infoPill(theme, '$sourceCount sources', Icons.source_outlined),
+          _safetyFlagButton(theme, flagCount),
         ],
       ),
+    );
+  }
+
+  Widget _infoPill(ThemeData theme, String label, IconData icon) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: Icon(icon, size: 16, color: theme.colorScheme.primary),
+      label: Text(label),
+      side: BorderSide(color: theme.colorScheme.outlineVariant),
+      backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.65,
+      ),
+    );
+  }
+
+  Widget _safetyFlagButton(ThemeData theme, int flagCount) {
+    final hasFlags = flagCount > 0;
+    final color = hasFlags
+        ? AppTheme.errorOnSurface
+        : theme.colorScheme.primary;
+    return OutlinedButton.icon(
+      onPressed: _showSafetyFlags,
+      icon: Icon(Icons.health_and_safety, size: 18, color: color),
+      label: Text(
+        hasFlags
+            ? 'Review $flagCount safety ${flagCount == 1 ? 'flag' : 'flags'}'
+            : 'No safety flags',
+      ),
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        foregroundColor: color,
+        side: BorderSide(color: color),
+        backgroundColor: color.withValues(alpha: 0.10),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  InputDecoration _summaryFieldDecoration(ThemeData theme, String label) {
+    final fill = theme.brightness == Brightness.dark
+        ? const Color(0xFF202032)
+        : theme.colorScheme.surface;
+    final border = theme.brightness == Brightness.dark
+        ? const Color(0xFF4A4A63)
+        : theme.colorScheme.outlineVariant;
+    final labelColor = theme.brightness == Brightness.dark
+        ? const Color(0xFFC8C8D8)
+        : theme.colorScheme.onSurfaceVariant;
+    final focused = theme.colorScheme.primary;
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: fill,
+      labelStyle: TextStyle(color: labelColor, fontWeight: FontWeight.w600),
+      floatingLabelStyle: TextStyle(
+        color: focused,
+        fontWeight: FontWeight.w700,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: focused, width: 1.5),
+      ),
+      disabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: border.withValues(alpha: 0.70)),
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: border),
+      ),
+    );
+  }
+
+  TextStyle _summaryFieldTextStyle(ThemeData theme) {
+    return (theme.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+      color: theme.brightness == Brightness.dark
+          ? const Color(0xFFF1F1F7)
+          : theme.colorScheme.onSurface,
+      height: 1.35,
+      fontWeight: FontWeight.w500,
+    );
+  }
+
+  TextStyle _summaryFieldLabelStyle(ThemeData theme) {
+    return (theme.textTheme.titleSmall ?? const TextStyle()).copyWith(
+      color: theme.brightness == Brightness.dark
+          ? const Color(0xFFD9D9E6)
+          : theme.colorScheme.onSurface,
+      fontWeight: FontWeight.w700,
     );
   }
 
@@ -833,17 +913,27 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     TextEditingController controller, {
     int maxLines = 4,
   }) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: TextField(
-        controller: controller,
-        maxLines: maxLines,
-        readOnly: _isSigned,
-        style: Theme.of(context).textTheme.bodyMedium,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 6),
+            child: Text(label, style: _summaryFieldLabelStyle(theme)),
+          ),
+          TextField(
+            controller: controller,
+            maxLines: maxLines,
+            readOnly: _isSigned,
+            style: _summaryFieldTextStyle(theme),
+            decoration: _summaryFieldDecoration(
+              theme,
+              label,
+            ).copyWith(labelText: null),
+          ),
+        ],
       ),
     );
   }
