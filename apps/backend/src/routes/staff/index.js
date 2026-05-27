@@ -5,6 +5,7 @@ import multer from 'multer';
 import attendanceRoutes from './attendanceRoutes.js';
 import hrRoutes from './hrRoutes.js';
 import pharmacyRoutes from './pharmacyRoutes.js';
+import rosterBoardRoutes from './rosterBoardRoutes.js';
 import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
@@ -70,6 +71,7 @@ router.use('/', staffRoutes);           // Staff management
 router.use('/attendance', attendanceRoutes);  // Attendance operations
 router.use('/hr', hrRoutes);            // HR management
 router.use('/pharmacy', pharmacyRoutes); // Pharmacy order updates
+router.use('/roster-board', rosterBoardRoutes); // Central shift roster board
 router.use('/admin', staffAdminRoutes);  // Staff admin operations
 
 // ─── /staff/replacements/* aliases ────────────────────────────────────────
