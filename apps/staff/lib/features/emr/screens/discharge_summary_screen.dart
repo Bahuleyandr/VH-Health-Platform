@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -33,10 +34,12 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   bool _signing = false;
   bool _saving = false;
   Map<String, dynamic>? _summary;
+  Map<String, dynamic>? _summaryEnvelope;
   bool _isSigned = false;
   String? _error;
 
   // Editable controllers
+  final _formattedSummaryCtrl = TextEditingController();
   final _hospitalCourseCtrl = TextEditingController();
   final _dischargeDiagnosisCtrl = TextEditingController();
   final _dischargeConditionCtrl = TextEditingController();
@@ -53,6 +56,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
 
   @override
   void dispose() {
+    _formattedSummaryCtrl.dispose();
     _hospitalCourseCtrl.dispose();
     _dischargeDiagnosisCtrl.dispose();
     _dischargeConditionCtrl.dispose();
@@ -78,9 +82,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         final content = item['content'];
         if (content is Map) {
           final summary = Map<String, dynamic>.from(content);
+          _mergeSummaryEnvelope(summary, item);
           _populateControllers(summary);
           setState(() {
             _summary = summary;
+            _summaryEnvelope = item;
             _isSigned =
                 item['is_signed'] == true || summary['is_signed'] == true;
           });
@@ -107,6 +113,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       _populateControllers(summary);
       setState(() {
         _summary = summary;
+        _summaryEnvelope = null;
         _isSigned = false;
       });
     } catch (e) {
@@ -116,7 +123,32 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     }
   }
 
+  void _mergeSummaryEnvelope(
+    Map<String, dynamic> summary,
+    Map<String, dynamic> envelope,
+  ) {
+    for (final key in [
+      'ai_metadata',
+      'safety_flags',
+      'source_citations',
+      'is_signed',
+      'signed_by',
+      'signed_by_name',
+      'signed_by_role',
+      'signed_at',
+      'source',
+      'note_id',
+    ]) {
+      if (summary[key] == null && envelope[key] != null) {
+        summary[key] = envelope[key];
+      }
+    }
+  }
+
   void _populateControllers(Map<String, dynamic> summary) {
+    _formattedSummaryCtrl.text =
+        summary['formatted_summary']?.toString() ??
+        _fallbackFormattedSummary(summary);
     _hospitalCourseCtrl.text = summary['hospital_course']?.toString() ?? '';
     _dischargeDiagnosisCtrl.text =
         summary['discharge_diagnosis']?.toString() ?? '';
@@ -131,6 +163,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   Map<String, dynamic> _buildSummaryFromControllers() {
     return {
       ...?_summary,
+      'formatted_summary': _formattedSummaryCtrl.text,
       'hospital_course': _hospitalCourseCtrl.text,
       'discharge_diagnosis': _dischargeDiagnosisCtrl.text,
       'discharge_condition': _dischargeConditionCtrl.text,
@@ -139,6 +172,44 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       'diet_instructions': _dietCtrl.text,
       'warning_signs': _warningSignsCtrl.text,
     };
+  }
+
+  String _fallbackFormattedSummary(Map<String, dynamic> summary) {
+    final meds = summary['medications_on_discharge'];
+    final medLines = meds is List
+        ? meds
+              .map((med) {
+                if (med is! Map) return med.toString();
+                final name =
+                    med['name'] ?? med['medication_name'] ?? 'Medication';
+                final dose = med['dose'] ?? med['dosage'] ?? '';
+                final route = med['route'] ?? '';
+                final frequency = med['frequency'] ?? '';
+                final duration = med['duration'] ?? '';
+                return '$name $dose $route $frequency $duration'.trim();
+              })
+              .join('\n')
+        : 'Not documented';
+    return [
+      'DISCHARGE SUMMARY',
+      '',
+      'Name of the Patient : ${widget.patientName}',
+      '',
+      'DIAGNOSIS:',
+      summary['discharge_diagnosis'] ?? 'Not documented',
+      '',
+      'COURSE IN THE HOSPITAL:',
+      summary['hospital_course'] ?? 'Not documented',
+      '',
+      'CONDITION AT DISCHARGE:',
+      summary['discharge_condition'] ?? 'Not documented',
+      '',
+      'ADVISED TO CONTINUE:',
+      medLines,
+      '',
+      'FOLLOW UP:',
+      summary['follow_up_instructions'] ?? 'Review as advised.',
+    ].join('\n');
   }
 
   Future<void> _save() async {
@@ -150,6 +221,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     try {
       final edited = _buildSummaryFromControllers();
       await MedicalApiService.saveDischargeSummary(widget.admissionId, edited);
+      if (mounted) setState(() => _summary = edited);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -196,7 +268,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     });
     try {
       await MedicalApiService.signDischargeSummary(widget.admissionId);
-      setState(() => _isSigned = true);
+      await _loadExistingSummary();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -265,6 +337,143 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  List<Map<String, dynamic>> _listOfMaps(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  Future<void> _showSafetyFlags() async {
+    final flags = _listOfMaps(_summary?['safety_flags']);
+    final theme = Theme.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Safety flags', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 12),
+              if (flags.isEmpty)
+                Text(
+                  'No safety flags are attached to this summary.',
+                  style: theme.textTheme.bodyMedium,
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: flags.length,
+                    separatorBuilder: (_, separatorIndex) =>
+                        const Divider(height: 16),
+                    itemBuilder: (context, index) {
+                      final flag = flags[index];
+                      final severity = (flag['severity'] ?? 'review')
+                          .toString()
+                          .toUpperCase();
+                      final code = (flag['code'] ?? flag['type'] ?? 'FLAG')
+                          .toString();
+                      final message =
+                          (flag['message'] ??
+                                  flag['description'] ??
+                                  flag['reason'] ??
+                                  'Doctor review required')
+                              .toString();
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.health_and_safety,
+                          color: theme.colorScheme.error,
+                        ),
+                        title: Text('$severity - $code'),
+                        subtitle: Text(message),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                  if (!_isSigned && flags.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.edit_note),
+                        label: const Text('Correct summary'),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSignerDetails() async {
+    final summary = _summary ?? const <String, dynamic>{};
+    final envelope = _summaryEnvelope ?? const <String, dynamic>{};
+    final signedByName =
+        (summary['signed_by_name'] ?? envelope['signed_by_name'] ?? '')
+            .toString()
+            .trim();
+    final signedByRole =
+        (summary['signed_by_role'] ?? envelope['signed_by_role'] ?? '')
+            .toString()
+            .trim();
+    final signedBy = (summary['signed_by'] ?? envelope['signed_by'] ?? '')
+        .toString()
+        .trim();
+    final signedAt = (summary['signed_at'] ?? envelope['signed_at'] ?? '')
+        .toString()
+        .trim();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Signature details'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!_isSigned)
+              const Text('This summary has not been signed yet.')
+            else ...[
+              Text(
+                signedByName.isNotEmpty ? signedByName : 'Signer unavailable',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (signedByRole.isNotEmpty) Text(signedByRole),
+              if (signedBy.isNotEmpty) Text('User ID: $signedBy'),
+              if (signedAt.isNotEmpty) Text('Signed at: $signedAt'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -396,27 +605,41 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_isSigned)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.verified, color: Colors.green),
-                  const SizedBox(width: 8),
-                  Text(
-                    s.dischargeSignedBadge,
-                    style: const TextStyle(
-                      color: Colors.green,
-                      fontWeight: FontWeight.w600,
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Material(
+                color: AppTheme.successOnSurface.withValues(alpha: 0.12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: AppTheme.successOnSurface),
+                ),
+                child: InkWell(
+                  onTap: _showSignerDetails,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.verified, color: AppTheme.successOnSurface),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            s.dischargeSignedBadge,
+                            style: TextStyle(
+                              color: AppTheme.successOnSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.info_outline,
+                          color: AppTheme.successOnSurface,
+                          size: 18,
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           if (_error != null)
@@ -425,17 +648,25 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: AppTheme.errorOnSurface.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppTheme.errorOnSurface.withValues(alpha: 0.35),
+                ),
               ),
               child: Text(
                 _error!,
-                style: TextStyle(color: theme.colorScheme.error),
+                style: TextStyle(color: AppTheme.errorOnSurface),
               ),
             ),
           _buildAiBanner(theme),
           const SizedBox(height: 16),
 
+          _buildSection(
+            'Hospital formatted summary',
+            _formattedSummaryCtrl,
+            maxLines: 18,
+          ),
           _buildSection(
             s.dischargeSectionHospitalCourse,
             _hospitalCourseCtrl,
@@ -567,13 +798,29 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Icon(Icons.auto_awesome, color: theme.colorScheme.primary, size: 18),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           Chip(
             visualDensity: VisualDensity.compact,
             label: Text('$sourceCount sources'),
           ),
-          Chip(
+          ActionChip(
             visualDensity: VisualDensity.compact,
+            avatar: Icon(
+              Icons.health_and_safety,
+              color: flagCount > 0
+                  ? AppTheme.errorOnSurface
+                  : theme.colorScheme.primary,
+              size: 16,
+            ),
+            side: flagCount > 0
+                ? BorderSide(color: AppTheme.errorOnSurface)
+                : null,
+            onPressed: _showSafetyFlags,
             label: Text('$flagCount safety flags'),
           ),
         ],
@@ -592,11 +839,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         controller: controller,
         maxLines: maxLines,
         readOnly: _isSigned,
+        style: Theme.of(context).textTheme.bodyMedium,
         decoration: InputDecoration(
           labelText: label,
           border: const OutlineInputBorder(),
-          filled: _isSigned,
-          fillColor: _isSigned ? Colors.grey.shade100 : null,
         ),
       ),
     );

@@ -189,6 +189,12 @@ class _DischargeHubCard extends StatelessWidget {
     final ward = (admission['ward'] ?? admission['bed_ward_name'] ?? '')
         .toString();
     final bed = (admission['bed_number'] ?? '').toString();
+    final hospitalNumber =
+        (admission['patient_hospital_number'] ??
+                admission['hospital_number'] ??
+                '')
+            .toString()
+            .trim();
     final ready = readiness['ready'] == true;
     final signed = summary['is_signed'] == true;
     final pending = int.tryParse('${counts['pending'] ?? 0}') ?? 0;
@@ -224,6 +230,8 @@ class _DischargeHubCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           [
+                            if (hospitalNumber.isNotEmpty)
+                              'Hospital ID $hospitalNumber',
                             if (ward.isNotEmpty) ward,
                             if (bed.isNotEmpty) 'Bed $bed',
                             if (admissionId != null) 'Admission #$admissionId',

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 
 class DischargeHubScreen extends StatefulWidget {
@@ -68,6 +69,107 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     if (fromHub.isNotEmpty) return fromHub;
     if (widget.patientName.trim().isNotEmpty) return widget.patientName;
     return 'Patient';
+  }
+
+  Future<void> _showSafetyFlags(Map<String, dynamic> summary) async {
+    final flags = _list(summary['safety_flags']);
+    final theme = Theme.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Safety flags', style: theme.textTheme.titleLarge),
+              const SizedBox(height: 12),
+              if (flags.isEmpty)
+                const Text('No safety flags are attached to this summary.')
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: flags.length,
+                    separatorBuilder: (_, separatorIndex) =>
+                        const Divider(height: 16),
+                    itemBuilder: (_, index) {
+                      final flag = flags[index];
+                      final severity = (flag['severity'] ?? 'review')
+                          .toString()
+                          .toUpperCase();
+                      final code = (flag['code'] ?? flag['type'] ?? 'FLAG')
+                          .toString();
+                      final message =
+                          (flag['message'] ??
+                                  flag['description'] ??
+                                  flag['reason'] ??
+                                  'Doctor review required')
+                              .toString();
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          Icons.health_and_safety,
+                          color: AppTheme.errorOnSurface,
+                        ),
+                        title: Text('$severity - $code'),
+                        subtitle: Text(message),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSignerDetails(Map<String, dynamic> summary) async {
+    final signedByName = (summary['signed_by_name'] ?? '').toString().trim();
+    final signedByRole = (summary['signed_by_role'] ?? '').toString().trim();
+    final signedBy = (summary['signed_by'] ?? '').toString().trim();
+    final signedAt = (summary['signed_at'] ?? '').toString().trim();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Signature details'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (summary['is_signed'] != true)
+              const Text('This discharge summary still needs doctor sign-off.')
+            else ...[
+              Text(
+                signedByName.isNotEmpty ? signedByName : 'Signer unavailable',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (signedByRole.isNotEmpty) Text(signedByRole),
+              if (signedBy.isNotEmpty) Text('User ID: $signedBy'),
+              if (signedAt.isNotEmpty) Text('Signed at: $signedAt'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _startAiPackage() async {
@@ -235,6 +337,12 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
     final ward = (admission['ward'] ?? admission['bed_ward_name'] ?? '')
         .toString();
     final bed = (admission['bed_number'] ?? '').toString();
+    final hospitalNumber =
+        (admission['patient_hospital_number'] ??
+                admission['hospital_number'] ??
+                '')
+            .toString()
+            .trim();
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -248,6 +356,7 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
           const SizedBox(height: 6),
           Text(
             [
+              if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
               if (ward.isNotEmpty) ward,
               if (bed.isNotEmpty) 'Bed $bed',
               'Admission #${widget.admissionId}',
@@ -301,16 +410,48 @@ class _DischargeHubScreenState extends State<DischargeHubScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _chip(
-                  signed ? 'Signed' : 'Doctor review needed',
-                  signed ? Colors.green : Colors.orange,
-                  Icons.draw,
+                ActionChip(
+                  avatar: Icon(
+                    Icons.draw,
+                    size: 16,
+                    color: signed
+                        ? AppTheme.successOnSurface
+                        : AppTheme.warningOnSurface,
+                  ),
+                  label: Text(signed ? 'Signed' : 'Doctor review needed'),
+                  side: BorderSide(
+                    color: signed
+                        ? AppTheme.successOnSurface
+                        : AppTheme.warningOnSurface,
+                  ),
+                  backgroundColor:
+                      (signed
+                              ? AppTheme.successOnSurface
+                              : AppTheme.warningOnSurface)
+                          .withValues(alpha: 0.10),
+                  onPressed: () => _showSignerDetails(summary),
                 ),
                 _chip('$citations sources', Colors.blue, Icons.source),
-                _chip(
-                  '$flags safety flags',
-                  flags == 0 ? Colors.green : Colors.red,
-                  Icons.health_and_safety,
+                ActionChip(
+                  avatar: Icon(
+                    Icons.health_and_safety,
+                    size: 16,
+                    color: flags == 0
+                        ? AppTheme.successOnSurface
+                        : AppTheme.errorOnSurface,
+                  ),
+                  label: Text('$flags safety flags'),
+                  side: BorderSide(
+                    color: flags == 0
+                        ? AppTheme.successOnSurface
+                        : AppTheme.errorOnSurface,
+                  ),
+                  backgroundColor:
+                      (flags == 0
+                              ? AppTheme.successOnSurface
+                              : AppTheme.errorOnSurface)
+                          .withValues(alpha: 0.10),
+                  onPressed: () => _showSafetyFlags(summary),
                 ),
               ],
             ),

@@ -78,10 +78,25 @@ class OtpService {
       final isNewUser = user?['isNewUser'] ?? false;
       final jwt = data?['accessToken'];
       final userPhone = user?['phone'];
+      final userName = user?['name'];
+      final hospitalNumber =
+          user?['hospital_number'] ?? user?['hospitalNumber'];
 
       if (jwt != null && userPhone != null) {
         await secureStorage.write(key: 'jwt', value: jwt);
         await secureStorage.write(key: 'user_phone', value: userPhone);
+        if (userName != null) {
+          await secureStorage.write(
+            key: 'user_name',
+            value: userName.toString(),
+          );
+        }
+        if (hospitalNumber != null) {
+          await secureStorage.write(
+            key: 'hospital_number',
+            value: hospitalNumber.toString(),
+          );
+        }
         await secureStorage.write(
           key: 'isNewUser',
           value: isNewUser.toString(),

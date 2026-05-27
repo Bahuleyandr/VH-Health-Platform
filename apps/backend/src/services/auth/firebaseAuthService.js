@@ -7,6 +7,7 @@ import logger from '../../logging/logger.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
+import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 
 
@@ -38,6 +39,15 @@ const query = async (sql, params = []) => {
   return [];
 };
 
+async function attachHospitalNumber(user) {
+  if (!user?.uid || String(user.role || '').toUpperCase() !== 'PATIENT') return user;
+  const hospitalNumber = await ensureHospitalNumber({
+    tenantId: user.tenant_id || null,
+    patientUid: user.uid,
+    createdBy: user.uid,
+  });
+  return { ...user, hospital_number: hospitalNumber };
+}
 
 // Authenticate with Firebase ID token
 export const authenticateWithFirebase = async (idToken, deviceInfo, req, { deviceType } = {}) => {
@@ -56,7 +66,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   
   // Check if user exists in our database
   const userResult = await query(
-    'SELECT id, uid, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login FROM users WHERE phone = $1 OR firebase_uid = $2',
+    'SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login FROM users WHERE phone = $1 OR firebase_uid = $2',
     [phone, firebaseUid]
   );
   
@@ -70,7 +80,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
         phone, firebase_uid, role, registered_at, updated_at, last_login,
         name, email, email_verified
       ) VALUES ($1, $2, $3, NOW(), NOW(), NOW(), $4, $5, $6)
-      RETURNING id, uid, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login`,
+      RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login`,
       [
         phone,
         firebaseUid,
@@ -101,6 +111,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     
     logger.info(`🔥 Existing Firebase user logged in: ${phone}`);
   }
+  user = await attachHospitalNumber(user);
   
   // Generate our JWT token + register it as this user's single active session.
   // Any previously-active patient access token for this user is blacklisted
@@ -133,6 +144,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       id: user.id,
       phone: user.phone,
       name: user.name,
+      hospital_number: user.hospital_number || null,
       email: user.email,
       role: user.role,
       profileComplete: !!(user.name && user.gender),
@@ -156,7 +168,7 @@ export const completeUserProfile = async (profileData) => {
       anniversary = $5::date, address = $6, emergency_contact = $7,
       profile_completed_at = NOW(), updated_at = NOW()
     WHERE phone = $8
-    RETURNING id, uid, name, phone, email, role, gender, is_active`,
+    RETURNING id, uid, tenant_id, name, phone, email, role, gender, is_active`,
     [
       name, gender, email, birthday || null,
       anniversary || null, address || null, emergency_contact || null,
@@ -170,7 +182,7 @@ export const completeUserProfile = async (profileData) => {
     throw error;
   }
   
-  const user = result[0];
+  const user = await attachHospitalNumber(result[0]);
   
   logger.info(`👤 Profile completed for user: ${normalizedPhone}`);
   
@@ -180,6 +192,7 @@ export const completeUserProfile = async (profileData) => {
       id: user.id,
       phone: user.phone,
       name: user.name,
+      hospital_number: user.hospital_number || null,
       gender: user.gender,
       email: user.email,
       role: user.role,
@@ -211,7 +224,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
   
   // Check if user exists
   const userResult = await query(
-    'SELECT id, uid, name, phone, email, role, firebase_uid, is_active FROM users WHERE phone = $1',
+    'SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid, is_active FROM users WHERE phone = $1',
     [normalizedPhone]
   );
   
@@ -221,7 +234,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     throw error;
   }
   
-  const user = userResult[0];
+  const user = await attachHospitalNumber(userResult[0]);
   
   // Link Firebase UID to existing user
   await query(
@@ -252,6 +265,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
       id: user.id,
       phone: user.phone,
       name: user.name,
+      hospital_number: user.hospital_number || null,
       role: user.role,
       linkedToFirebase: true
     }

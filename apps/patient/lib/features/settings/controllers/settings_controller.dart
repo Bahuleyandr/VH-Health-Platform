@@ -20,6 +20,7 @@ class SettingsController {
   final void Function() refresh;
   final String phone;
   final String name;
+  final String hospitalNumber;
 
   final LocalAuthentication _auth = LocalAuthentication();
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
@@ -39,7 +40,12 @@ class SettingsController {
   bool _initialized = false;
 
   // Context is passed later via initialize() — not the constructor.
-  SettingsController(this.phone, this.name, this.refresh);
+  SettingsController(
+    this.phone,
+    this.name,
+    this.refresh, {
+    this.hospitalNumber = '',
+  });
 
   void initialize(BuildContext ctx) {
     if (_initialized) return;

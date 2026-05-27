@@ -141,7 +141,8 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
                   controller: _controller,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
-                    hintText: 'Find a patient by name, phone, or ABHA…',
+                    hintText:
+                        'Find a patient by Hospital ID, name, phone, or ABHA…',
                     prefixIcon: const ExcludeSemantics(
                       child: Icon(Icons.search),
                     ),
@@ -184,7 +185,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
     if (_lastQuery.isEmpty && _controller.text.isEmpty) {
       return _emptyHint(
         Icons.search_outlined,
-        'Type a name, phone, or ABHA address to find a patient.',
+        'Type a Hospital ID, name, phone, or ABHA address to find a patient.',
       );
     }
     if (_loading && _results.isEmpty) {
@@ -208,8 +209,12 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
         final age = p['age'];
         final gender = (p['gender'] ?? '').toString();
         final phone = (p['phone'] ?? '').toString();
+        final hospitalNumber =
+            (p['hospital_number'] ?? p['patient_hospital_number'] ?? '')
+                .toString();
         final abha = (p['abha_address'] ?? '').toString();
         final subtitleParts = <String>[
+          if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
           if (age != null && age.toString().isNotEmpty) '${age.toString()} yr',
           if (gender.isNotEmpty)
             gender[0].toUpperCase() + gender.substring(1).toLowerCase(),

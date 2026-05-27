@@ -122,10 +122,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       const storage = FlutterSecureStorage();
       await storage.write(key: 'user_name', value: _nameController.text.trim());
       await storage.write(key: 'isNewUser', value: 'false');
+      final hospitalNumber = await storage.read(key: 'hospital_number') ?? '';
       if (mounted) {
         context.read<UserProvider>().setUser(
           widget.phone,
           _nameController.text.trim(),
+          hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
         );
         context.go('/home');
       }
@@ -133,8 +135,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     if (mounted) setState(() => _isSubmitting = false);
   }
 
-  void _skip() {
-    context.read<UserProvider>().setUser(widget.phone, 'User');
+  Future<void> _skip() async {
+    const storage = FlutterSecureStorage();
+    final hospitalNumber = await storage.read(key: 'hospital_number') ?? '';
+    if (!mounted) return;
+    context.read<UserProvider>().setUser(
+      widget.phone,
+      'User',
+      hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+    );
     context.go('/home');
   }
 

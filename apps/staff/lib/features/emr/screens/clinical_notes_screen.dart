@@ -4,6 +4,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
 import '../../productivity/widgets/smart_phrase_field.dart';
 
@@ -191,20 +192,23 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final content = _contentMap(note);
     final raw = content['vitals'];
     final vitals = raw is Map ? Map<String, dynamic>.from(raw) : content;
-    String value(List<String> keys) {
+    String value(List<String> keys, String unit) {
       for (final key in keys) {
         final text = vitals[key]?.toString().trim() ?? '';
-        if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+        if (text.isNotEmpty && text.toLowerCase() != 'null') {
+          return vitalValueWithUnit(text, unit);
+        }
       }
       return '';
     }
 
     return {
-      'Pulse': value(['pulse_rate', 'pulse', 'heart_rate']),
-      'BP': value(['blood_pressure', 'bp']),
-      'SpO2': value(['spo2', 'sp_o2']),
-      'CBG': value(['cbg', 'blood_glucose']),
-      'Weight': value(['weight_kg', 'weight']),
+      'Pulse': value(['pulse_rate', 'pulse', 'heart_rate'], VitalUnit.pulse),
+      'BP': value(['blood_pressure', 'bp'], VitalUnit.bp),
+      'SpO2': value(['spo2', 'sp_o2'], VitalUnit.spo2),
+      'CBG': value(['cbg', 'blood_glucose'], VitalUnit.cbg),
+      'Weight': value(['weight_kg', 'weight'], VitalUnit.weight),
+      'Temp': value(['temperature', 'temp'], VitalUnit.temperature),
     }..removeWhere((_, v) => v.isEmpty);
   }
 
@@ -822,19 +826,29 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     required TextEditingController spo2,
     required TextEditingController cbg,
     required TextEditingController weight,
+    required TextEditingController temperature,
   }) {
-    final sys = bpSystolic.text.trim();
-    final dia = bpDiastolic.text.trim();
+    final pulseText = normalizeVitalValue(pulse.text, VitalUnit.pulse);
+    final sys = normalizeVitalValue(bpSystolic.text, VitalUnit.bp);
+    final dia = normalizeVitalValue(bpDiastolic.text, VitalUnit.bp);
+    final spo2Text = normalizeVitalValue(spo2.text, VitalUnit.spo2);
+    final cbgText = normalizeVitalValue(cbg.text, VitalUnit.cbg);
+    final weightText = normalizeVitalValue(weight.text, VitalUnit.weight);
+    final tempText = normalizeVitalValue(
+      temperature.text,
+      VitalUnit.temperature,
+    );
     return {
-      if (pulse.text.trim().isNotEmpty) 'pulse_rate': pulse.text.trim(),
+      if (pulseText.isNotEmpty) 'pulse_rate': pulseText,
       if (sys.isNotEmpty || dia.isNotEmpty)
         'blood_pressure': [
           if (sys.isNotEmpty) sys,
           if (dia.isNotEmpty) dia,
         ].join('/'),
-      if (spo2.text.trim().isNotEmpty) 'spo2': spo2.text.trim(),
-      if (cbg.text.trim().isNotEmpty) 'cbg': cbg.text.trim(),
-      if (weight.text.trim().isNotEmpty) 'weight_kg': weight.text.trim(),
+      if (spo2Text.isNotEmpty) 'spo2': spo2Text,
+      if (cbgText.isNotEmpty) 'cbg': cbgText,
+      if (weightText.isNotEmpty) 'weight_kg': weightText,
+      if (tempText.isNotEmpty) 'temperature': tempText,
     };
   }
 
@@ -851,6 +865,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final spo2 = TextEditingController();
     final cbg = TextEditingController();
     final weight = TextEditingController();
+    final temperature = TextEditingController();
 
     _showNoteFormSheet(
       title: s.clinicalNotesNewProgress,
@@ -865,14 +880,14 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           ),
         ),
         const SizedBox(height: 10),
-        _buildOptionalNumberField(pulse, 'Pulse Rate', 'bpm'),
+        _buildOptionalNumberField(pulse, 'Pulse Rate', VitalUnit.pulse),
         Row(
           children: [
             Expanded(
               child: _buildOptionalNumberField(
                 bpSystolic,
                 'BP Systolic',
-                'mmHg',
+                VitalUnit.bp,
               ),
             ),
             const SizedBox(width: 10),
@@ -880,14 +895,19 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
               child: _buildOptionalNumberField(
                 bpDiastolic,
                 'BP Diastolic',
-                'mmHg',
+                VitalUnit.bp,
               ),
             ),
           ],
         ),
         _buildOptionalNumberField(spo2, 'SpO2', '%'),
-        _buildOptionalNumberField(cbg, 'CBG', 'mg/dL'),
-        _buildOptionalNumberField(weight, 'Weight', 'kg'),
+        _buildOptionalNumberField(cbg, 'CBG', VitalUnit.cbg),
+        _buildOptionalNumberField(weight, 'Weight', VitalUnit.weight),
+        _buildOptionalNumberField(
+          temperature,
+          'Temperature',
+          VitalUnit.temperature,
+        ),
         const Divider(height: 28),
         _buildTextArea(
           subjective,
@@ -914,6 +934,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           spo2: spo2,
           cbg: cbg,
           weight: weight,
+          temperature: temperature,
         );
         _submitNote(
           formKey: formKey,
@@ -1034,19 +1055,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
+      child: VitalTextField(
         controller: controller,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: InputDecoration(
-          labelText: label,
-          suffixText: suffix,
-          border: const OutlineInputBorder(),
-        ),
-        validator: (value) {
-          final text = value?.trim() ?? '';
-          if (text.isEmpty) return null;
-          return num.tryParse(text) == null ? 'Enter a valid number' : null;
-        },
+        label: label,
+        unit: suffix,
+        validateNumber: true,
       ),
     );
   }

@@ -207,14 +207,24 @@ describe('Bed + ward management — deep integration', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('discharges the patient and sets bed to dirty', async () => {
+    it('refuses to start discharge workflow when no active admission is linked', async () => {
       const res = await admin.post(`/api/v1/beds/${admitBedId}/discharge`);
-      expect(res.statusCode).toBe(200);
-      const b = res.body.data.bed;
-      // Discharge now marks the room clinically dirty first; the assigned
-      // housekeeping ticket moves it to cleaning, then ready closes the loop.
-      expect(b.status).toBe('dirty');
-      expect(b.patient_uid).toBeNull();
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/No active admission/i);
+
+      await prisma.$executeRawUnsafe(
+        `UPDATE beds
+            SET status = 'available',
+                patient_id = NULL,
+                patient_name = NULL,
+                patient_uid = NULL,
+                admission_id = NULL,
+                admitted_at = NULL,
+                expected_discharge = NULL,
+                updated_at = NOW()
+          WHERE id = $1`,
+        admitBedId,
+      );
     });
 
     it('refuses to discharge a non-occupied bed', async () => {

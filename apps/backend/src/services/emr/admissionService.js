@@ -27,6 +27,10 @@ import {
   createWardIndentForClinicalMedicationOrder,
 } from '../ipd/ipdSupportService.js';
 import { createClaim as createTpaClaim, createPreauth } from '../insurance/claimsService.js';
+import {
+  ensureHospitalNumber,
+  getHospitalNumberMap,
+} from '../patient/patientIdentifierService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -52,6 +56,7 @@ const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
 // a Prisma `select` so the public response shape is unchanged.
 const ADMISSION_RETURNING_SELECT = {
   id: true,
+  tenant_id: true,
   encounter_id: true,
   patient_uid: true,
   status: true,
@@ -931,6 +936,16 @@ async function admitPatient(data) {
 
     return admission;
   });
+
+  try {
+    await ensureHospitalNumber({
+      tenantId: admission.tenant_id || tenant_id || null,
+      patientUid: patient_uid,
+      createdBy: created_by,
+    });
+  } catch (e) {
+    logger.warn(`admitPatient: hospital-number ensure failed for patient ${patient_uid}: ${e.message}`);
+  }
 
   if (carriedErOrders.length) {
     logger.info(
@@ -2747,6 +2762,7 @@ async function getActiveAdmissions(filters = {}) {
       where,
       select: {
         id: true,
+        tenant_id: true,
         encounter_id: true,
         patient_uid: true,
         admitting_doctor: true,
@@ -2778,7 +2794,7 @@ async function getActiveAdmissions(filters = {}) {
   const patientUids = Array.from(new Set(rows.map((r) => r.patient_uid).filter(Boolean)));
   const bedIds = Array.from(new Set(rows.map((r) => r.bed_id).filter((id) => id != null)));
 
-  const [patients, beds] = await Promise.all([
+  const [patients, beds, hospitalNumbers] = await Promise.all([
     patientUids.length
       ? prisma.users.findMany({
           where: { uid: { in: patientUids } },
@@ -2791,6 +2807,7 @@ async function getActiveAdmissions(filters = {}) {
           select: { id: true, wards: { select: { name: true } } },
         })
       : [],
+    getHospitalNumberMap({ patientUids }),
   ]);
 
   const patientByUid = new Map(patients.map((p) => [p.uid, p]));
@@ -2803,6 +2820,8 @@ async function getActiveAdmissions(filters = {}) {
       ...row,
       patient_name: patient?.name ?? null,
       patient_phone: patient?.phone ?? null,
+      patient_hospital_number: hospitalNumbers.get(row.patient_uid) ?? null,
+      hospital_number: hospitalNumbers.get(row.patient_uid) ?? null,
       bed_ward_name: bed?.wards?.name ?? null,
     };
   });
@@ -2826,7 +2845,7 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
   // only need the display name.
   const doctorUids = [admission.admitting_doctor, admission.attending_doctor]
     .filter(Boolean);
-  const [patient, bed, doctors, priorAdmission] = await Promise.all([
+  const [patient, bed, doctors, priorAdmission, hospitalNumbers] = await Promise.all([
     admission.patient_uid
       ? prisma.users.findUnique({
           where: { uid: admission.patient_uid },
@@ -2862,6 +2881,12 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
           },
         })
       : null,
+    admission.patient_uid
+      ? getHospitalNumberMap({
+          tenantId: admission.tenant_id,
+          patientUids: [admission.patient_uid],
+        })
+      : Promise.resolve(new Map()),
   ]);
 
   const doctorByUid = new Map(doctors.map((d) => [d.uid, d.name]));
@@ -2870,6 +2895,8 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
     ...admission,
     patient_name: patient?.name ?? null,
     patient_phone: patient?.phone ?? null,
+    patient_hospital_number: hospitalNumbers.get(admission.patient_uid) ?? null,
+    hospital_number: hospitalNumbers.get(admission.patient_uid) ?? null,
     patient_gender: patient?.gender ?? null,
     patient_email: patient?.email ?? null,
     patient_birthday: patient?.birthday ?? null,
@@ -2905,6 +2932,320 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
   }
 
   return row;
+}
+
+const CASE_SHEET_TEXT_FIELDS = [
+  'chief_complaints',
+  'history_of_presenting_illness',
+  'past_history',
+  'past_medical_surgical_history',
+  'personal_history',
+  'menstrual_pregnancy_history',
+  'family_history',
+  'allergies',
+  'cvs',
+  'rs',
+  'pa',
+  'cns',
+  'provisional_diagnosis',
+];
+
+const CASE_SHEET_VITAL_FIELDS = [
+  'pulse_rate',
+  'bp',
+  'spo2',
+  'cbg',
+  'weight',
+  'temperature',
+];
+
+function normalizeCaseSheet(input = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const vitals = source.vitals && typeof source.vitals === 'object' && !Array.isArray(source.vitals)
+    ? source.vitals
+    : {};
+  const content = {};
+
+  CASE_SHEET_TEXT_FIELDS.forEach((field) => {
+    content[field] = String(source[field] ?? '').trim();
+  });
+
+  content.vitals = {};
+  CASE_SHEET_VITAL_FIELDS.forEach((field) => {
+    content.vitals[field] = String(vitals[field] ?? source[field] ?? '').trim();
+  });
+
+  content.updated_at = new Date().toISOString();
+  return content;
+}
+
+function hasCaseSheetValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  return String(value ?? '').trim().length > 0;
+}
+
+function caseSheetText(value) {
+  return String(value ?? '').trim();
+}
+
+function caseSheetContentFromNote(note) {
+  return note?.content && typeof note.content === 'object' && !Array.isArray(note.content)
+    ? note.content
+    : {};
+}
+
+function collectCaseSheetChangedFields(previousContent, nextContent) {
+  const changed = [];
+  CASE_SHEET_TEXT_FIELDS.forEach((field) => {
+    const before = caseSheetText(previousContent[field]);
+    const after = caseSheetText(nextContent[field]);
+    if (before !== after) changed.push({ field, before, after });
+  });
+
+  const previousVitals = previousContent.vitals
+    && typeof previousContent.vitals === 'object'
+    && !Array.isArray(previousContent.vitals)
+    ? previousContent.vitals
+    : {};
+  const nextVitals = nextContent.vitals
+    && typeof nextContent.vitals === 'object'
+    && !Array.isArray(nextContent.vitals)
+    ? nextContent.vitals
+    : {};
+  CASE_SHEET_VITAL_FIELDS.forEach((field) => {
+    const before = caseSheetText(previousVitals[field] ?? previousContent[field]);
+    const after = caseSheetText(nextVitals[field] ?? nextContent[field]);
+    if (before !== after) changed.push({ field: `vitals.${field}`, before, after });
+  });
+  return changed;
+}
+
+function shouldRouteCaseSheetText(admissionValue, previousCaseSheetValue, nextCaseSheetValue) {
+  if (!hasCaseSheetValue(nextCaseSheetValue)) return false;
+  if (!hasCaseSheetValue(admissionValue)) return true;
+  return hasCaseSheetValue(previousCaseSheetValue)
+    && caseSheetText(admissionValue) === caseSheetText(previousCaseSheetValue)
+    && caseSheetText(admissionValue) !== caseSheetText(nextCaseSheetValue);
+}
+
+function splitCaseSheetAllergies(value) {
+  return caseSheetText(value)
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function sameStringList(a = [], b = []) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((item, index) => caseSheetText(item) === caseSheetText(b[index]));
+}
+
+function shouldRouteCaseSheetList(admissionValue, previousCaseSheetValue, nextCaseSheetValue) {
+  if (!nextCaseSheetValue.length) return false;
+  if (!hasCaseSheetValue(admissionValue)) return true;
+  const previous = splitCaseSheetAllergies(previousCaseSheetValue);
+  return previous.length > 0
+    && sameStringList(admissionValue, previous)
+    && !sameStringList(admissionValue, nextCaseSheetValue);
+}
+
+async function getAdmissionCaseSheet(admissionId, actor = {}) {
+  const admission = await getAdmissionDetail(admissionId, {
+    userId: actor.uid,
+    userRole: actor.role,
+  });
+  const note = admission.encounter_id
+    ? await prisma.clinical_notes.findFirst({
+        where: {
+          encounter_id: admission.encounter_id,
+          note_type: 'case_sheet',
+          is_addendum: false,
+        },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          version: true,
+          author_uid: true,
+          author_role: true,
+          created_at: true,
+          updated_at: true,
+        },
+        orderBy: [{ version: 'desc' }, { id: 'desc' }],
+      })
+    : null;
+
+  return {
+    admission,
+    case_sheet: note
+      ? {
+          note_id: note.id,
+          title: note.title,
+          content: note.content && typeof note.content === 'object' && !Array.isArray(note.content)
+            ? note.content
+            : {},
+          version: note.version,
+          author_uid: note.author_uid,
+          author_role: note.author_role,
+          created_at: note.created_at,
+          updated_at: note.updated_at,
+        }
+      : null,
+  };
+}
+
+async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRole) {
+  if (!savedBy) throw AppError.badRequest('savedBy is required');
+  if (!savedByRole) throw AppError.badRequest('savedByRole is required');
+  const content = normalizeCaseSheet(caseSheet);
+  return prisma.$transaction(async (tx) => {
+    const admission = await tx.admissions.findUnique({
+      where: { id: Number(admissionId) },
+      select: {
+        id: true,
+        encounter_id: true,
+        patient_uid: true,
+        status: true,
+        chief_complaint: true,
+        admitting_diagnosis: true,
+        allergies: true,
+      },
+    });
+    if (!admission) throw AppError.notFound('Admission not found');
+
+    const existing = admission.encounter_id
+      ? await tx.clinical_notes.findFirst({
+          where: {
+            encounter_id: admission.encounter_id,
+            note_type: 'case_sheet',
+            is_addendum: false,
+          },
+          select: { id: true, content: true },
+          orderBy: [{ version: 'desc' }, { id: 'desc' }],
+        })
+      : null;
+
+    const previousContent = caseSheetContentFromNote(existing);
+    const noteData = {
+      content,
+      author_uid: savedBy,
+      author_role: savedByRole,
+      updated_at: new Date(),
+    };
+
+    let result;
+    if (existing) {
+      const updated = await tx.clinical_notes.update({
+        where: { id: existing.id },
+        data: {
+          ...noteData,
+          version: { increment: 1 },
+        },
+        select: { id: true, version: true },
+      });
+      result = { note_id: updated.id, version: updated.version, action: 'updated' };
+    } else {
+      const created = await tx.clinical_notes.create({
+        data: {
+          encounter_id: admission.encounter_id,
+          patient_uid: admission.patient_uid,
+          author_uid: savedBy,
+          author_role: savedByRole,
+          note_type: 'case_sheet',
+          title: 'In-hospital admission case sheet',
+          content,
+          version: 1,
+          is_addendum: false,
+          is_signed: false,
+        },
+        select: { id: true, version: true },
+      });
+      result = { note_id: created.id, version: created.version, action: 'created' };
+    }
+
+    const admissionUpdate = { updated_at: new Date() };
+    const admissionRoutedFields = {};
+    if (shouldRouteCaseSheetText(
+      admission.chief_complaint,
+      previousContent.chief_complaints,
+      content.chief_complaints,
+    )) {
+      admissionUpdate.chief_complaint = content.chief_complaints;
+      admissionRoutedFields.chief_complaint = {
+        before: admission.chief_complaint ?? null,
+        after: content.chief_complaints,
+        mode: hasCaseSheetValue(admission.chief_complaint) ? 'synced_from_case_sheet' : 'seeded_from_case_sheet',
+      };
+    }
+    if (shouldRouteCaseSheetText(
+      admission.admitting_diagnosis,
+      previousContent.provisional_diagnosis,
+      content.provisional_diagnosis,
+    )) {
+      admissionUpdate.admitting_diagnosis = content.provisional_diagnosis;
+      admissionRoutedFields.admitting_diagnosis = {
+        before: admission.admitting_diagnosis ?? null,
+        after: content.provisional_diagnosis,
+        mode: hasCaseSheetValue(admission.admitting_diagnosis) ? 'synced_from_case_sheet' : 'seeded_from_case_sheet',
+      };
+    }
+    const caseAllergies = splitCaseSheetAllergies(content.allergies);
+    if (shouldRouteCaseSheetList(admission.allergies, previousContent.allergies, caseAllergies)) {
+      admissionUpdate.allergies = caseAllergies;
+      admissionRoutedFields.allergies = {
+        before: admission.allergies ?? [],
+        after: caseAllergies,
+        mode: hasCaseSheetValue(admission.allergies) ? 'synced_from_case_sheet' : 'seeded_from_case_sheet',
+      };
+    }
+
+    if (Object.keys(admissionUpdate).length > 1) {
+      await tx.admissions.update({
+        where: { id: Number(admissionId) },
+        data: admissionUpdate,
+        select: { id: true },
+      });
+    }
+
+    const changedFields = collectCaseSheetChangedFields(previousContent, content);
+    await tx.audit_logs.create({
+      data: {
+        uid: savedBy,
+        role: savedByRole,
+        action: 'SAVE_ADMISSION_CASE_SHEET',
+        resource: 'admission_case_sheet',
+        resource_id: String(result.note_id),
+        subject_uid: admission.patient_uid,
+        metadata: {
+          admission_id: Number(admissionId),
+          patient_uid: admission.patient_uid,
+          note_action: result.action,
+          version: result.version,
+          changed_fields: changedFields,
+          admission_routed_fields: admissionRoutedFields,
+          bed_board_sync_policy: 'seed_then_follow_until_manually_edited',
+          bed_board_manual_override_detected: {
+            chief_complaint: hasCaseSheetValue(admission.chief_complaint)
+              && hasCaseSheetValue(previousContent.chief_complaints)
+              && caseSheetText(admission.chief_complaint) !== caseSheetText(previousContent.chief_complaints),
+            admitting_diagnosis: hasCaseSheetValue(admission.admitting_diagnosis)
+              && hasCaseSheetValue(previousContent.provisional_diagnosis)
+              && caseSheetText(admission.admitting_diagnosis) !== caseSheetText(previousContent.provisional_diagnosis),
+            allergies: hasCaseSheetValue(admission.allergies)
+              && splitCaseSheetAllergies(previousContent.allergies).length > 0
+              && !sameStringList(admission.allergies, splitCaseSheetAllergies(previousContent.allergies)),
+          },
+        },
+        ip_address: null,
+      },
+    });
+
+    return {
+      ...result,
+      admission_routed_fields: admissionRoutedFields,
+      case_sheet: content,
+    };
+  });
 }
 
 async function getPatientAdmissionHistory(patientUid) {
@@ -3176,13 +3517,14 @@ async function getAdmissionStats(dateFrom, dateTo) {
 // flows can reuse them if/when needed.
 // ---------------------------------------------------------------------------
 
-async function findPatientByPhoneOrName({ phone, name }) {
+async function findPatientByPhoneOrName({ phone, name, tenantId = null }) {
   if (phone) {
     const last10 = String(phone).replace(/\D/g, '').slice(-10);
     return prisma.$queryRawUnsafe(
       `SELECT uid, id, name, phone
          FROM users
         WHERE role = 'PATIENT'
+          AND ($4::uuid IS NULL OR tenant_id = $4::uuid)
           AND (
             phone = $1
             OR phone = $2
@@ -3192,15 +3534,44 @@ async function findPatientByPhoneOrName({ phone, name }) {
       String(phone),
       `+91${last10}`,
       `%${last10}`,
+      tenantId,
     );
   }
   if (name) {
+    const q = String(name).trim();
     return prisma.$queryRawUnsafe(
-      `SELECT uid, id, name, phone
-         FROM users
-        WHERE role = 'PATIENT' AND name ILIKE $1
+      `SELECT u.uid, u.id, u.name, u.phone
+         FROM users u
+         LEFT JOIN LATERAL (
+           SELECT pi.identifier_value
+             FROM patient_identifiers pi
+            WHERE pi.tenant_id = u.tenant_id
+              AND pi.patient_uid = u.uid
+              AND pi.identifier_type IN ('mrn', 'uhid')
+              AND pi.status = 'active'
+            ORDER BY pi.is_primary DESC,
+                     CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                     pi.created_at ASC
+            LIMIT 1
+         ) hn ON TRUE
+        WHERE u.role = 'PATIENT'
+          AND ($3::uuid IS NULL OR u.tenant_id = $3::uuid)
+          AND (
+            u.name ILIKE $1
+            OR LOWER(COALESCE(hn.identifier_value, '')) = LOWER($2)
+            OR LOWER('VH-' || LPAD(u.id::text, 6, '0')) = LOWER($2)
+            OR LOWER(COALESCE(hn.identifier_value, '')) LIKE LOWER($1)
+            OR LOWER('VH-' || LPAD(u.id::text, 6, '0')) LIKE LOWER($1)
+          )
+        ORDER BY CASE
+          WHEN LOWER(COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0'))) = LOWER($2) THEN 0
+          ELSE 1
+        END,
+        u.name ASC
         LIMIT 2`,
-      `%${String(name).trim()}%`,
+      `%${q}%`,
+      q,
+      tenantId,
     );
   }
   return [];
@@ -3249,6 +3620,8 @@ export default {
   getDischargeHub,
   listDischargeHubAdmissions,
   canCompleteDischargeWorkItem,
+  getAdmissionCaseSheet,
+  saveAdmissionCaseSheet,
   dischargePatient,
   transferPatient,
   getActiveAdmissions,

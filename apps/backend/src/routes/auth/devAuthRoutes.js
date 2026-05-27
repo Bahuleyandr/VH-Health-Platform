@@ -17,6 +17,7 @@ import logger from '../../logging/logger.js';
 import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { ensureHospitalNumber } from '../../services/patient/patientIdentifierService.js';
 
 const router = express.Router();
 
@@ -41,7 +42,7 @@ router.post('/patient-login', async (req, res) => {
     let user = await prisma.users.findFirst({
       where: { phone },
       select: {
-        uid: true, id: true, name: true, phone: true, email: true,
+        uid: true, id: true, tenant_id: true, name: true, phone: true, email: true,
         role: true, gender: true, is_active: true,
       },
     });
@@ -59,7 +60,7 @@ router.post('/patient-login', async (req, res) => {
           last_sign_in_at: now,
         },
         select: {
-          uid: true, id: true, name: true, phone: true, email: true,
+          uid: true, id: true, tenant_id: true, name: true, phone: true, email: true,
           role: true, gender: true, is_active: true,
         },
       });
@@ -72,6 +73,12 @@ router.post('/patient-login', async (req, res) => {
       });
       logger.info(`[dev-login] existing patient ${phone} (${user.uid})`);
     }
+
+    const hospitalNumber = await ensureHospitalNumber({
+      tenantId: user.tenant_id || null,
+      patientUid: user.uid,
+      createdBy: user.uid,
+    });
 
     const accessToken = generateToken({
       uid: user.uid,
@@ -87,6 +94,7 @@ router.post('/patient-login', async (req, res) => {
         id: user.id,
         phone: user.phone,
         name: user.name,
+        hospital_number: hospitalNumber,
         email: user.email,
         role: user.role,
         profileComplete: !!(user.name && user.gender),
