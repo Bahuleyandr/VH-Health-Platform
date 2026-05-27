@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import '../../../core/config/role_config.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
-/// Housekeeping Tasks screen — General staff view/complete assigned tasks.
-/// TODO: Integrate with backend when /staff/housekeeping/tasks endpoint is available.
 class HousekeepingTasksScreen extends StatefulWidget {
   const HousekeepingTasksScreen({super.key});
 
@@ -15,54 +17,18 @@ class HousekeepingTasksScreen extends StatefulWidget {
 
 class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  // ignore: unused_field
-  final bool _loading = false;
-
-  // Placeholder tasks — will be replaced by API data
-  final List<_Task> _tasks = [
-    _Task(
-      id: '1',
-      title: 'Clean Ward 3A',
-      location: 'Ward 3A',
-      priority: 'high',
-      status: 'pending',
-      dueTime: '09:00 AM',
-      category: 'Cleaning',
-    ),
-    _Task(
-      id: '2',
-      title: 'Restock supplies in OPD',
-      location: 'OPD',
-      priority: 'normal',
-      status: 'pending',
-      dueTime: '10:30 AM',
-      category: 'Restocking',
-    ),
-    _Task(
-      id: '3',
-      title: 'Sanitize ICU entry',
-      location: 'ICU',
-      priority: 'urgent',
-      status: 'in_progress',
-      dueTime: '08:00 AM',
-      category: 'Sanitation',
-    ),
-    _Task(
-      id: '4',
-      title: 'Waste disposal - Lab',
-      location: 'Laboratory',
-      priority: 'high',
-      status: 'completed',
-      dueTime: '07:30 AM',
-      category: 'Waste Management',
-    ),
-  ];
+  late final TabController _tabController;
+  List<_Task> _assignedTasks = [];
+  List<_Task> _completedTasks = [];
+  bool _loading = true;
+  String? _error;
+  String? _busyTaskId;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _loadTasks();
   }
 
   @override
@@ -71,37 +37,124 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     super.dispose();
   }
 
-  List<_Task> get _pendingTasks => _tasks
-      .where((t) => t.status == 'pending' || t.status == 'in_progress')
-      .toList();
-  List<_Task> get _completedTasks =>
-      _tasks.where((t) => t.status == 'completed').toList();
+  List<_Task> get _pendingTasks =>
+      _assignedTasks.where((task) => !task.isFinished).toList(growable: false);
 
-  void _markComplete(String id) {
-    // TODO: Call PATCH /staff/housekeeping/tasks/:id/complete when API available
-    setState(() {
-      final task = _tasks.firstWhere((t) => t.id == id);
-      task.status = 'completed';
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(AppStrings.of(context).housekeepingTaskCompleted),
-        backgroundColor: AppTheme.successGreen,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  List<_Task> get _allTasks => [..._pendingTasks, ..._completedTasks];
+
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    if (value is! List) return [];
+    return value
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
   }
 
-  void _startTask(String id) {
-    // TODO: Call PATCH /staff/housekeeping/tasks/:id/start when API available
-    setState(() {
-      final task = _tasks.firstWhere((t) => t.id == id);
-      task.status = 'in_progress';
-    });
+  Future<void> _loadTasks({bool showSpinner = true}) async {
+    if (mounted) {
+      setState(() {
+        if (showSpinner) _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final data = await HrApiService.getMyHousekeepingRequests();
+      final assigned = _asMapList(data['assigned']).map(_Task.fromJson);
+      final completed = _asMapList(data['completed']).map(_Task.fromJson);
+      if (!mounted) return;
+      setState(() {
+        _assignedTasks = assigned.toList(growable: false);
+        _completedTasks = completed.toList(growable: false);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _startTask(_Task task) async {
+    setState(() => _busyTaskId = task.id);
+    try {
+      await HrApiService.startHousekeepingRequest(requestId: task.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.of(context).housekeepingTaskStarted)),
+      );
+      await _loadTasks(showSpinner: false);
+    } catch (e) {
+      _showError(e);
+    } finally {
+      if (mounted) setState(() => _busyTaskId = null);
+    }
+  }
+
+  Future<void> _completeTask(_Task task) async {
+    final notes = await _showCompleteDialog();
+    if (notes == null) return;
+
+    setState(() => _busyTaskId = task.id);
+    try {
+      await HrApiService.completeHousekeepingRequest(
+        requestId: task.id,
+        completionNotes: notes.trim().isEmpty ? null : notes.trim(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.of(context).housekeepingTaskCompleted),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+      await _loadTasks(showSpinner: false);
+    } catch (e) {
+      _showError(e);
+    } finally {
+      if (mounted) setState(() => _busyTaskId = null);
+    }
+  }
+
+  Future<String?> _showCompleteDialog() async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(AppStrings.of(context).housekeepingCompleteDialogTitle),
+          content: TextField(
+            controller: controller,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: AppStrings.of(context).housekeepingCompletionNotes,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(AppStrings.of(context).actionCancel),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(context, controller.text),
+              icon: const Icon(Icons.check_circle_outline),
+              label: Text(AppStrings.of(context).housekeepingActionDone),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  void _showError(Object e) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(AppStrings.of(context).housekeepingTaskStarted),
-        duration: const Duration(seconds: 2),
+        content: Text(e.toString().replaceFirst('Exception: ', '')),
+        backgroundColor: AppTheme.errorRed,
       ),
     );
   }
@@ -111,43 +164,51 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     final s = AppStrings.of(context);
     return StaffScaffold(
       title: s.housekeepingTasksTitle,
+      role: StaffRole.housekeeping,
+      actions: [
+        IconButton(
+          tooltip: 'Refresh',
+          onPressed: _loading ? null : () => _loadTasks(),
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
       body: Column(
         children: [
-          // API notice
-          Container(
-            color: AppTheme.warningAmber.withValues(alpha: 0.08),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.info_outline,
-                  color: AppTheme.warningAmber,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    s.housekeepingSampleNotice,
-                    style: const TextStyle(
-                      color: AppTheme.warningAmber,
-                      fontSize: 11,
+          if (_error != null)
+            Container(
+              width: double.infinity,
+              color: AppTheme.errorOnSurface.withValues(alpha: 0.12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    color: AppTheme.errorOnSurface,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        color: AppTheme.errorOnSurface,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-
-          // Tabs
-          Container(
-            color: Colors.white,
+          Material(
+            color: AppTheme.cardSurface,
             child: TabBar(
               controller: _tabController,
-              labelColor: AppTheme.successGreen,
+              labelColor: AppTheme.successOnSurface,
               unselectedLabelColor: AppTheme.textSecondary,
-              indicatorColor: AppTheme.successGreen,
+              indicatorColor: AppTheme.successOnSurface,
+              dividerColor: AppTheme.divider,
               tabs: [
-                Tab(text: '${s.housekeepingTabAll} (${_tasks.length})'),
+                Tab(text: '${s.housekeepingTabAll} (${_allTasks.length})'),
                 Tab(
                   text: '${s.housekeepingTabPending} (${_pendingTasks.length})',
                 ),
@@ -157,28 +218,35 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
               ],
             ),
           ),
-
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _TaskList(
-                  tasks: _tasks,
-                  onComplete: _markComplete,
-                  onStart: _startTask,
-                ),
-                _TaskList(
-                  tasks: _pendingTasks,
-                  onComplete: _markComplete,
-                  onStart: _startTask,
-                ),
-                _TaskList(
-                  tasks: _completedTasks,
-                  onComplete: _markComplete,
-                  onStart: _startTask,
-                ),
-              ],
-            ),
+            child: _loading && _allTasks.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _TaskList(
+                        tasks: _allTasks,
+                        busyTaskId: _busyTaskId,
+                        onRefresh: _loadTasks,
+                        onStart: _startTask,
+                        onComplete: _completeTask,
+                      ),
+                      _TaskList(
+                        tasks: _pendingTasks,
+                        busyTaskId: _busyTaskId,
+                        onRefresh: _loadTasks,
+                        onStart: _startTask,
+                        onComplete: _completeTask,
+                      ),
+                      _TaskList(
+                        tasks: _completedTasks,
+                        busyTaskId: _busyTaskId,
+                        onRefresh: _loadTasks,
+                        onStart: _startTask,
+                        onComplete: _completeTask,
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -188,30 +256,37 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
 
 class _TaskList extends StatelessWidget {
   final List<_Task> tasks;
-  final Function(String) onComplete;
-  final Function(String) onStart;
+  final String? busyTaskId;
+  final Future<void> Function({bool showSpinner}) onRefresh;
+  final ValueChanged<_Task> onStart;
+  final ValueChanged<_Task> onComplete;
 
   const _TaskList({
     required this.tasks,
-    required this.onComplete,
+    required this.busyTaskId,
+    required this.onRefresh,
     required this.onStart,
+    required this.onComplete,
   });
 
   @override
   Widget build(BuildContext context) {
     if (tasks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return RefreshIndicator(
+        onRefresh: () => onRefresh(showSpinner: false),
+        child: ListView(
           children: [
+            SizedBox(height: MediaQuery.sizeOf(context).height * 0.25),
             Icon(Icons.task_alt, size: 56, color: AppTheme.textSecondary),
             const SizedBox(height: 16),
-            Text(
-              AppStrings.of(context).housekeepingNoTasks,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
+            Center(
+              child: Text(
+                AppStrings.of(context).housekeepingNoTasks,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary,
+                ),
               ),
             ),
           ],
@@ -219,13 +294,17 @@ class _TaskList extends StatelessWidget {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: tasks.length,
-      itemBuilder: (_, i) => _TaskCard(
-        task: tasks[i],
-        onComplete: () => onComplete(tasks[i].id),
-        onStart: () => onStart(tasks[i].id),
+    return RefreshIndicator(
+      onRefresh: () => onRefresh(showSpinner: false),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: tasks.length,
+        itemBuilder: (_, i) => _TaskCard(
+          task: tasks[i],
+          busy: busyTaskId == tasks[i].id,
+          onStart: () => onStart(tasks[i]),
+          onComplete: () => onComplete(tasks[i]),
+        ),
       ),
     );
   }
@@ -233,31 +312,35 @@ class _TaskList extends StatelessWidget {
 
 class _TaskCard extends StatelessWidget {
   final _Task task;
-  final VoidCallback onComplete;
+  final bool busy;
   final VoidCallback onStart;
+  final VoidCallback onComplete;
 
   const _TaskCard({
     required this.task,
-    required this.onComplete,
+    required this.busy,
     required this.onStart,
+    required this.onComplete,
   });
 
   @override
   Widget build(BuildContext context) {
     final priorityColor = switch (task.priority) {
-      'urgent' => AppTheme.errorRed,
-      'high' => AppTheme.warningAmber,
-      'normal' => AppTheme.primaryBlue,
-      _ => AppTheme.textSecondary,
+      'urgent' => AppTheme.errorOnSurface,
+      'high' => AppTheme.warningOnSurface,
+      'low' => AppTheme.successOnSurface,
+      _ => AppTheme.primaryBlue,
     };
 
     final statusColor = switch (task.status) {
-      'completed' => AppTheme.successGreen,
+      'completed' || 'verified' || 'closed' => AppTheme.successOnSurface,
       'in_progress' => AppTheme.accentCyan,
+      'assigned' => AppTheme.primaryBlue,
       _ => AppTheme.textSecondary,
     };
 
     return Card(
+      color: AppTheme.cardSurface,
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -265,11 +348,11 @@ class _TaskCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Priority indicator
                 Container(
                   width: 4,
-                  height: 48,
+                  height: 52,
                   decoration: BoxDecoration(
                     color: priorityColor,
                     borderRadius: BorderRadius.circular(2),
@@ -286,66 +369,38 @@ class _TaskCard extends StatelessWidget {
                             child: Text(
                               task.title,
                               style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: task.status == 'completed'
+                                fontWeight: FontWeight.w700,
+                                color: task.isFinished
                                     ? AppTheme.textSecondary
                                     : AppTheme.textPrimary,
-                                decoration: task.status == 'completed'
+                                decoration: task.isFinished
                                     ? TextDecoration.lineThrough
                                     : null,
                               ),
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              task.status.replaceAll('_', ' ').toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: statusColor,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                          _Pill(
+                            label: task.statusLabel,
+                            color: statusColor,
+                            filled: false,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Row(
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Icon(
-                            Icons.location_on_outlined,
-                            size: 12,
-                            color: AppTheme.textSecondary,
+                          _IconText(
+                            icon: Icons.location_on_outlined,
+                            label: task.location,
                           ),
-                          const SizedBox(width: 2),
-                          Text(
-                            task.location,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textSecondary,
+                          if (task.slaLabel.isNotEmpty)
+                            _IconText(
+                              icon: Icons.schedule_outlined,
+                              label: task.slaLabel,
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Icon(
-                            Icons.schedule_outlined,
-                            size: 12,
-                            color: AppTheme.textSecondary,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            task.dueTime,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
                         ],
                       ),
                     ],
@@ -353,80 +408,116 @@ class _TaskCard extends StatelessWidget {
                 ),
               ],
             ),
-
-            // Category chip
-            const SizedBox(height: 8),
+            if (task.description.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                task.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ),
+            ],
+            const SizedBox(height: 10),
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryBlue.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    task.category,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: AppTheme.primaryBlue,
-                    ),
-                  ),
-                ),
-                Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: priorityColor.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    task.priority.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: priorityColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+                _Pill(label: task.category, color: AppTheme.primaryBlue),
+                const SizedBox(width: 6),
+                _Pill(label: task.priorityLabel, color: priorityColor),
                 const Spacer(),
-
-                // Action buttons
-                if (task.status == 'pending') ...[
-                  TextButton(
-                    onPressed: onStart,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.accentCyan,
-                      visualDensity: VisualDensity.compact,
+                if (busy)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else ...[
+                  if (task.status == 'assigned') ...[
+                    TextButton.icon(
+                      onPressed: onStart,
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: Text(
+                        AppStrings.of(context).housekeepingActionStart,
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.accentCyan,
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
-                    child: Text(
-                      AppStrings.of(context).housekeepingActionStart,
-                      style: const TextStyle(fontSize: 12),
+                    const SizedBox(width: 4),
+                  ],
+                  if (!task.isFinished)
+                    FilledButton.icon(
+                      onPressed: onComplete,
+                      icon: const Icon(Icons.check_circle_outline, size: 17),
+                      label: Text(
+                        AppStrings.of(context).housekeepingActionDone,
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.successGreen,
+                        foregroundColor: Colors.white,
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
                 ],
-                if (task.status != 'completed')
-                  ElevatedButton(
-                    onPressed: onComplete,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.successGreen,
-                      minimumSize: const Size(80, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    child: Text(
-                      AppStrings.of(context).housekeepingActionDone,
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
-                    ),
-                  ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IconText extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _IconText({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: AppTheme.textSecondary),
+        const SizedBox(width: 3),
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width * 0.62,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool filled;
+
+  const _Pill({required this.label, required this.color, this.filled = true});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: filled ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: filled ? null : Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -438,17 +529,85 @@ class _Task {
   final String title;
   final String location;
   final String priority;
-  String status;
-  final String dueTime;
+  final String status;
   final String category;
+  final String description;
+  final String slaLabel;
 
-  _Task({
+  const _Task({
     required this.id,
     required this.title,
     required this.location,
     required this.priority,
     required this.status,
-    required this.dueTime,
     required this.category,
+    required this.description,
+    required this.slaLabel,
   });
+
+  factory _Task.fromJson(Map<String, dynamic> json) {
+    final requestType = _normalize(json['request_type'] ?? json['task_type']);
+    final location = _firstText([
+      json['zone_name'],
+      json['location_text'],
+      json['request_number'],
+    ]);
+    final createdLabel = _formatDate(json['created_at']);
+    final slaLabel = _formatDate(json['sla_due_at']);
+    final category = _label(requestType);
+
+    return _Task(
+      id: json['id'].toString(),
+      title: '$category - $location',
+      location: location,
+      priority: _normalize(json['urgency'], fallback: 'normal'),
+      status: _normalize(json['status'], fallback: 'assigned'),
+      category: category,
+      description: _firstText([
+        json['description'],
+        json['notes'],
+      ], fallback: ''),
+      slaLabel: slaLabel.isNotEmpty ? 'SLA $slaLabel' : createdLabel,
+    );
+  }
+
+  bool get isFinished =>
+      status == 'completed' || status == 'verified' || status == 'closed';
+
+  String get priorityLabel => priority.toUpperCase();
+
+  String get statusLabel => _label(status).toUpperCase();
+
+  static String _normalize(dynamic value, {String fallback = 'cleaning'}) {
+    final text = value?.toString().trim().toLowerCase();
+    return text == null || text.isEmpty ? fallback : text;
+  }
+
+  static String _firstText(
+    List<dynamic> values, {
+    String fallback = 'Unspecified',
+  }) {
+    for (final value in values) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return fallback;
+  }
+
+  static String _formatDate(dynamic value) {
+    final text = value?.toString();
+    if (text == null || text.isEmpty) return '';
+    final parsed = DateTime.tryParse(text);
+    if (parsed == null) return '';
+    return DateFormat('dd MMM, HH:mm').format(parsed.toLocal());
+  }
+
+  static String _label(String value) {
+    return value
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((part) => part.isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
+  }
 }

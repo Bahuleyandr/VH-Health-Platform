@@ -29,11 +29,12 @@ wrapAutoRBAC(router, 'housekeepingRoutes', {
   post: [
     ['/logs', housekeepingController.submitCleaningLog],
     ['/requests', housekeepingController.raiseRequest],
+    ['/requests/:id/start', housekeepingController.startRequest],
     ['/requests/:id/complete', housekeepingController.completeRequest]
   ]
 });
 
-// Admin-facing list + verify + zone admin + emergency requests.
+// Admin/incharge-facing list + verify + emergency requests.
 wrapAutoRBAC(router, 'housekeepingAdminRoutes', {
   get: [
     ['/delegation/overview', housekeepingController.getDelegationOverview],
@@ -42,15 +43,21 @@ wrapAutoRBAC(router, 'housekeepingAdminRoutes', {
     ['/stats', housekeepingController.getHousekeepingStats]
   ],
   post: [
-    ['/zones', housekeepingController.createZone],
     ['/delegation/assignments', housekeepingController.delegateFloorAssignment],
     ['/delegation/assignments/:id/end', housekeepingController.endFloorAssignment],
     ['/requests/create', housekeepingController.adminCreateRequest],
     ['/requests/:id/assign', housekeepingController.assignRequest],
     ['/requests/:id/verify', housekeepingController.verifyRequest],
     ['/logs/:id/verify', housekeepingController.verifyLog]
-  ],
-  put: [['/zones/:id', housekeepingController.updateZone]]
+  ]
+});
+
+// Admin-only zone setup. Incharges delegate staff to existing zones; they do
+// not create/remove hospital floor geography.
+wrapAutoRBAC(router, 'housekeepingZoneAdminRoutes', {
+  post: [['/zones', housekeepingController.createZone]],
+  put: [['/zones/:id', housekeepingController.updateZone]],
+  delete: [['/zones/:id', housekeepingController.deleteZone]]
 });
 
 export default router;
