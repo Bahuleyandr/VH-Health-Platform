@@ -46,7 +46,9 @@ class StaffScaffold extends StatelessWidget {
             // from any StaffScaffold screen via this icon (or Cmd+K
             // when shortcuts are wired). Non-clinical roles will get
             // a 403 displayed inside the sheet, not a crash.
-            if (role != StaffRole.housekeeping && role != StaffRole.maintenance)
+            if (role != StaffRole.housekeeping &&
+                role != StaffRole.housekeepingIncharge &&
+                role != StaffRole.maintenance)
               const PatientSearchAction(),
             // Universal logout — visible from every screen so the user
             // doesn't have to navigate to Settings (the nurse / doctor /
@@ -257,6 +259,39 @@ class StaffScaffold extends StatelessWidget {
             Icons.local_hotel_outlined,
             Icons.local_hotel,
             '/beds',
+          ),
+          const _NavItem(
+            'Cleaning',
+            Icons.cleaning_services_outlined,
+            Icons.cleaning_services,
+            '/housekeeping',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.housekeepingIncharge:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Beds',
+            Icons.local_hotel_outlined,
+            Icons.local_hotel,
+            '/beds',
+          ),
+          const _NavItem(
+            'Command',
+            Icons.supervisor_account_outlined,
+            Icons.supervisor_account,
+            '/housekeeping-command',
           ),
           const _NavItem(
             'Cleaning',

@@ -9538,6 +9538,32 @@ model housekeeping_request_updates {
   @@index([request_id, created_at], map: "idx_housekeeping_request_updates_request")
 }
 
+model housekeeping_floor_assignments {
+  id                   Int       @id @default(autoincrement())
+  staff_id             Int
+  staff_uid            String?   @db.Uuid
+  zone_id              Int?
+  zone_name            String?   @db.VarChar(255)
+  floor                String?   @db.VarChar(80)
+  building             String?   @db.VarChar(120)
+  shift_label          String    @default("current") @db.VarChar(40)
+  assigned_by          Int
+  assigned_by_uid      String?   @db.Uuid
+  reason               String?
+  source_assignment_id Int?
+  is_temporary         Boolean   @default(false)
+  effective_from       DateTime  @default(now()) @db.Timestamptz(6)
+  effective_to         DateTime? @db.Timestamptz(6)
+  status               String    @default("active") @db.VarChar(20)
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([assigned_by, created_at], map: "idx_hk_floor_assignments_incharge")
+  @@index([shift_label, effective_from, effective_to], map: "idx_hk_floor_assignments_shift")
+  @@index([staff_id, status, effective_to], map: "idx_hk_floor_assignments_staff_active")
+  @@index([zone_id, status, effective_to], map: "idx_hk_floor_assignments_zone_active")
+}
+
 model housekeeping_requests {
   id                                                 Int                            @id @default(autoincrement())
   request_number                                     String                         @unique @default(dbgenerated("((('HKR-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_request_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)

@@ -295,6 +295,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const ThemeToggleAction(),
                 if (_role != StaffRole.housekeeping &&
+                    _role != StaffRole.housekeepingIncharge &&
                     _role != StaffRole.maintenance)
                   const PatientSearchAction(),
                 const LogoutAction(),
@@ -650,6 +651,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
       StaffRole.housekeeping => {
         'bed_board',
+        'housekeeping_hub',
+        'housekeeping_tasks',
+      },
+      StaffRole.housekeepingIncharge => {
+        'bed_board',
+        'housekeeping_command',
         'housekeeping_hub',
         'housekeeping_tasks',
       },

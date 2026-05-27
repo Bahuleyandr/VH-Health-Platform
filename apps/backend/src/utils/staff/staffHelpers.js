@@ -19,7 +19,21 @@ export function getStaffHierarchy(userRole) {
   const hierarchy = {
     SUPER_ADMIN: [...allStaffRoles, 'SUPER_ADMIN'],
     ADMIN: allStaffRoles,
-    HR_STAFF: ['HR_STAFF', 'DOCTOR', 'ANAESTHETIST', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'RADIOLOGY_STAFF', 'GENERAL_STAFF', 'HOUSEKEEPING_STAFF', 'RECEPTIONIST', 'SECURITY', 'MAINTENANCE'],
+    HR_STAFF: [
+      'HR_STAFF',
+      'DOCTOR',
+      'ANAESTHETIST',
+      'NURSING_STAFF',
+      'PHARMACY_STAFF',
+      'LAB_STAFF',
+      'RADIOLOGY_STAFF',
+      'GENERAL_STAFF',
+      'HOUSEKEEPING_STAFF',
+      'HOUSEKEEPING_INCHARGE',
+      'RECEPTIONIST',
+      'SECURITY',
+      'MAINTENANCE'
+    ],
     DOCTOR: ['DOCTOR', 'ANAESTHETIST', 'NURSING_STAFF'],
     ANAESTHETIST: ['ANAESTHETIST', 'NURSING_STAFF'],
     NURSING_STAFF: ['NURSING_STAFF'],
@@ -28,6 +42,7 @@ export function getStaffHierarchy(userRole) {
     RADIOLOGY_STAFF: ['RADIOLOGY_STAFF'],
     GENERAL_STAFF: ['GENERAL_STAFF'],
     HOUSEKEEPING_STAFF: ['HOUSEKEEPING_STAFF'],
+    HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
     RECEPTIONIST: ['RECEPTIONIST'],
     SECURITY: ['SECURITY'],
     MAINTENANCE: ['MAINTENANCE'],
@@ -39,14 +54,18 @@ export function getStaffHierarchy(userRole) {
 
 // Calculate working hours
 export function calculateWorkingHours(checkIn, checkOut) {
-  if (!checkIn || !checkOut) {return 0;}
+  if (!checkIn || !checkOut) {
+    return 0;
+  }
   const diff = new Date(checkOut) - new Date(checkIn);
   return Math.max(0, diff / (1000 * 60 * 60)); // Hours
 }
 
 // Format date to DD-MM-YYYY
 export function formatDateDDMMYYYY(date) {
-  if (!date) {return null;}
+  if (!date) {
+    return null;
+  }
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -56,7 +75,9 @@ export function formatDateDDMMYYYY(date) {
 
 // Format date time to DD-MM-YYYY HH:mm
 export function formatDateTimeDDMMYYYY(date) {
-  if (!date) {return null;}
+  if (!date) {
+    return null;
+  }
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');

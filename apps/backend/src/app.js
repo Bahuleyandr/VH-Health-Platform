@@ -581,7 +581,7 @@ app.use('/api/v1/staff', staffRoutes);
 // 2026-05-09-inpatient-admission-housekeeping-api-routes-absent.
 app.use(
   '/api/v1/housekeeping',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'HOUSEKEEPING_STAFF'),
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'),
   housekeepingRoutes,
 );
 
@@ -595,11 +595,11 @@ app.use(
 //   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
 const BED_PARENT_ROLES = [
   'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
-  'HOUSEKEEPING_STAFF',
+  'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
 ];
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedRouter);
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedManagementRoutes);
-app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'HOUSEKEEPING_STAFF'), wardRouter);
+app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
 app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);

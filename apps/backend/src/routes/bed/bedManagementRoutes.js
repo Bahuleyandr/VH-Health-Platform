@@ -19,7 +19,7 @@ const requireClinicalForBedMovement = requireRole(
   'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
 );
 const requireHousekeepingForBedReady = requireRole(
-  'ADMIN', 'SUPER_ADMIN', 'HOUSEKEEPING_STAFF',
+  'ADMIN', 'SUPER_ADMIN', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
 );
 
 // ---------------------------------------------------------------------------

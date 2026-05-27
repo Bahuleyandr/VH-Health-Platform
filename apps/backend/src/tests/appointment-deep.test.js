@@ -7,6 +7,7 @@ import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
+import { istDateString } from '../utils/dateUtils.js';
 
 const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
 const OTHER_PATIENT_UID = 'a7777777-7777-4777-8777-777777777a02';
@@ -563,7 +564,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
 
   describe('follow-up list metadata', () => {
     it('preserves visit_type in patient history and the doctor queue', async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = istDateString();
       const rows = await prisma.$queryRawUnsafe(
         `INSERT INTO appointments
            (patient_id, doctor_id, phone, appointment_date, appointment_time,
@@ -589,7 +590,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     });
 
     it('includes prior diagnosis, prescription, and note context when opening a follow-up chart', async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = istDateString();
       const prior = await prisma.$queryRawUnsafe(
         `INSERT INTO appointments
            (patient_id, doctor_id, phone, appointment_date, appointment_time,
@@ -713,7 +714,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
   // manchester) onto the shared 1..5 urgency rank, mirroring
   // edOperationsService.PRIORITY_RANK_SQL.
   describe('doctor queue honors ATS triage acuity', () => {
-    const TODAY = new Date().toISOString().slice(0, 10);
+    const TODAY = istDateString();
     const TENANT = '00000000-0000-4000-8000-000000000001';
     let edVisitId, emergentApptId, routineApptId;
 

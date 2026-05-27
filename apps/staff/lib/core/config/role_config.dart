@@ -11,6 +11,7 @@ enum StaffRole {
   pharmacy('PHARMACY_STAFF'),
   lab('LAB_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
+  housekeepingIncharge('HOUSEKEEPING_INCHARGE'),
   maintenance('MAINTENANCE'),
   general('GENERAL_STAFF');
 
@@ -33,6 +34,7 @@ enum StaffRole {
     StaffRole.pharmacy => 'Pharmacy',
     StaffRole.lab => 'Lab Technician',
     StaffRole.housekeeping => 'Housekeeping',
+    StaffRole.housekeepingIncharge => 'Housekeeping Incharge',
     StaffRole.maintenance => 'Maintenance',
     StaffRole.general => 'Staff',
   };
@@ -45,6 +47,7 @@ enum StaffRole {
     StaffRole.pharmacy => const Color(0xFFE65100),
     StaffRole.lab => const Color(0xFF0097A7),
     StaffRole.housekeeping => const Color(0xFF007A64),
+    StaffRole.housekeepingIncharge => const Color(0xFF00695C),
     StaffRole.maintenance => const Color(0xFFF9A825),
     StaffRole.general => const Color(0xFF37474F),
   };
@@ -191,6 +194,13 @@ class RoleFeatures {
     icon: Icons.cleaning_services_outlined,
     route: '/housekeeping',
     color: Color(0xFF007A64),
+  );
+  static const DashboardFeature _housekeepingCommand = DashboardFeature(
+    id: 'housekeeping_command',
+    title: 'HK Command',
+    icon: Icons.supervisor_account,
+    route: '/housekeeping-command',
+    color: Color(0xFF00695C),
   );
   static const DashboardFeature _vitals = DashboardFeature(
     id: 'vitals',
@@ -388,6 +398,8 @@ class RoleFeatures {
         _hrDashboard,
         _staffManagement,
         _performance,
+        _housekeepingCommand,
+        _housekeepingHub,
         _housekeepingTasks,
         _staffDirectory,
         _messaging,
@@ -423,6 +435,17 @@ class RoleFeatures {
         _bedBoard,
         _housekeepingHub,
         _housekeepingTasks,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.housekeepingIncharge => [
+        _schedule,
+        _bedBoard,
+        _housekeepingCommand,
+        _housekeepingHub,
+        _housekeepingTasks,
+        _staffDirectory,
         _messaging,
         _profile,
         _settings,
@@ -704,6 +727,48 @@ class RoleFeatures {
             label: 'Beds',
           ),
           route: '/beds',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.cleaning_services_outlined),
+            activeIcon: Icon(Icons.cleaning_services),
+            label: 'Cleaning',
+          ),
+          route: '/housekeeping',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.housekeepingIncharge => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.local_hotel_outlined),
+            activeIcon: Icon(Icons.local_hotel),
+            label: 'Beds',
+          ),
+          route: '/beds',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.supervisor_account_outlined),
+            activeIcon: Icon(Icons.supervisor_account),
+            label: 'Command',
+          ),
+          route: '/housekeeping-command',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(

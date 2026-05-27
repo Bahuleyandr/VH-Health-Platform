@@ -43,7 +43,7 @@ if (!DATABASE_URL) {
 
 // Migrations that the memory file notes will fully fail — skip to keep noise down.
 const SKIP_MIGRATIONS = new Set([
-  '017_seed_departments_doctors.sql', // replaced by seed-departments-doctors-local.mjs
+  '017_seed_departments_doctors.sql' // replaced by seed-departments-doctors-local.mjs
 ]);
 
 // Tables created exclusively by `000_baseline.sql`. Presence of all three
@@ -64,7 +64,7 @@ if (!existsSync(MIGRATIONS_DIR)) {
 async function trackerTableExists() {
   const { rowCount } = await client.query(
     `SELECT 1 FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = '_migrations'`,
+       WHERE table_schema = 'public' AND table_name = '_migrations'`
   );
   return rowCount > 0;
 }
@@ -73,7 +73,7 @@ async function baselineCanonicalTablesPresent() {
   const { rows } = await client.query(
     `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
-    [BASELINE_CANONICAL_TABLES],
+    [BASELINE_CANONICAL_TABLES]
   );
   return rows.length === BASELINE_CANONICAL_TABLES.length;
 }
@@ -89,12 +89,11 @@ if (await trackerTableExists()) {
   // 2. Baseline auto-detect: full baseline schema present, tracker row missing.
   if (!applied.has(BASELINE_FILE) && (await baselineCanonicalTablesPresent())) {
     logger.info(
-      `→ Detected pre-existing baseline schema without tracker entry — recording ${BASELINE_FILE} as applied`,
+      `→ Detected pre-existing baseline schema without tracker entry — recording ${BASELINE_FILE} as applied`
     );
-    await client.query(
-      'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-      [BASELINE_FILE],
-    );
+    await client.query('INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [
+      BASELINE_FILE
+    ]);
     applied.add(BASELINE_FILE);
   }
 }
@@ -126,7 +125,7 @@ function fileStartsWithBegin(sql) {
 
 logger.info('→ Applying raw src/migrations/*.sql …');
 const files = readdirSync(MIGRATIONS_DIR)
-  .filter((f) => f.endsWith('.sql'))
+  .filter(f => f.endsWith('.sql'))
   .sort();
 
 if (files.length === 0) {
@@ -164,7 +163,7 @@ for (const file of files) {
       await client.query(sql);
       await client.query(
         'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-        [file],
+        [file]
       );
     } else {
       await client.query('BEGIN');
@@ -172,7 +171,7 @@ for (const file of files) {
         await client.query(sql);
         await client.query(
           'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
-          [file],
+          [file]
         );
         await client.query('COMMIT');
       } catch (innerErr) {
@@ -193,7 +192,7 @@ for (const file of files) {
   }
 }
 logger.info(
-  `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} with non-fatal errors\n`,
+  `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} with non-fatal errors\n`
 );
 
 // Seed minimal lookup data the tests rely on
@@ -213,11 +212,11 @@ try {
   logger.info(`  ! Seed ICD-10 failed: ${err.message}\n`);
 }
 
-// Test staff accounts (EMP-1001..EMP-1021) — required for every staff-side
+// Test staff accounts (EMP-1001..EMP-1022) — required for every staff-side
 // login in tests, smoke runs, and the agent-driven QA swarm. Without these
 // a fresh vhhealth_test has zero rows in staff/users and every EMP-100X
 // login returns "Login failed", blocking all journey drivers at step 1.
-logger.info('→ Seeding test staff accounts (EMP-1001..EMP-1021) …');
+logger.info('→ Seeding test staff accounts (EMP-1001..EMP-1022) …');
 try {
   await import('./seed-test-staff-accounts.mjs');
   logger.info('  ✓ Test staff accounts seeded\n');

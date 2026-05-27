@@ -1,60 +1,61 @@
 // src/utils/roles.js
 
 // ✅ Centralized Role Definitions
-export const SUPER_ADMIN   = 'SUPER_ADMIN';
-export const ADMIN         = 'ADMIN';
-export const PATIENT       = 'PATIENT';
+export const SUPER_ADMIN = 'SUPER_ADMIN';
+export const ADMIN = 'ADMIN';
+export const PATIENT = 'PATIENT';
 export const NURSING_STAFF = 'NURSING_STAFF';
-export const PHARMACY_STAFF= 'PHARMACY_STAFF';
-export const LAB_STAFF     = 'LAB_STAFF';
-export const DOCTOR        = 'DOCTOR';
+export const PHARMACY_STAFF = 'PHARMACY_STAFF';
+export const LAB_STAFF = 'LAB_STAFF';
+export const DOCTOR = 'DOCTOR';
 export const GENERAL_STAFF = 'GENERAL_STAFF';
 export const HOUSEKEEPING_STAFF = 'HOUSEKEEPING_STAFF';
-export const MAINTENANCE    = 'MAINTENANCE';
-export const HR_STAFF      = 'HR_STAFF';
+export const HOUSEKEEPING_INCHARGE = 'HOUSEKEEPING_INCHARGE';
+export const MAINTENANCE = 'MAINTENANCE';
+export const HR_STAFF = 'HR_STAFF';
 export const MEDICAL_RECORDS = 'MEDICAL_RECORDS';
-export const RECEPTIONIST    = 'RECEPTIONIST';
-export const DELIVERY_STAFF  = 'DELIVERY_STAFF';
-export const IT              = 'IT';
-export const IT_STAFF        = 'IT_STAFF';
-export const IT_ADMIN        = 'IT_ADMIN';
-export const SYSTEM_ADMIN    = 'SYSTEM_ADMIN';
+export const RECEPTIONIST = 'RECEPTIONIST';
+export const DELIVERY_STAFF = 'DELIVERY_STAFF';
+export const IT = 'IT';
+export const IT_STAFF = 'IT_STAFF';
+export const IT_ADMIN = 'IT_ADMIN';
+export const SYSTEM_ADMIN = 'SYSTEM_ADMIN';
 
 // Clinical specialty
-export const RADIOLOGIST     = 'RADIOLOGIST';
-export const ANESTHETIST     = 'ANESTHETIST';
+export const RADIOLOGIST = 'RADIOLOGIST';
+export const ANESTHETIST = 'ANESTHETIST';
 
 // Allied health
-export const DIETITIAN       = 'DIETITIAN';
+export const DIETITIAN = 'DIETITIAN';
 export const PHYSIOTHERAPIST = 'PHYSIOTHERAPIST';
-export const SOCIAL_WORKER   = 'SOCIAL_WORKER';
+export const SOCIAL_WORKER = 'SOCIAL_WORKER';
 
 // Security & emergency
-export const SECURITY            = 'SECURITY';
+export const SECURITY = 'SECURITY';
 export const EMERGENCY_RESPONDER = 'EMERGENCY_RESPONDER';
 
 // Finance
-export const BILLING_STAFF        = 'BILLING_STAFF';
+export const BILLING_STAFF = 'BILLING_STAFF';
 export const INSURANCE_COORDINATOR = 'INSURANCE_COORDINATOR';
 
 // Admissions desk (Stage-5 — seeded by seed-test-staff-accounts.mjs;
 // already referenced by app.js CLINICAL_STAFF_ROLES + /ipd + /bed-inspections
 // route gates, but were missing from this constants file).
-export const ADMISSION_OFFICER    = 'ADMISSION_OFFICER';
-export const IPD_COUNSELLOR       = 'IPD_COUNSELLOR';
+export const ADMISSION_OFFICER = 'ADMISSION_OFFICER';
+export const IPD_COUNSELLOR = 'IPD_COUNSELLOR';
 
 // Quality & safety
-export const QUALITY_OFFICER          = 'QUALITY_OFFICER';
+export const QUALITY_OFFICER = 'QUALITY_OFFICER';
 export const INFECTION_CONTROL_OFFICER = 'INFECTION_CONTROL_OFFICER';
 
 // Specialized services
-export const OT_STAFF              = 'OT_STAFF';
+export const OT_STAFF = 'OT_STAFF';
 export const BLOOD_BANK_TECHNICIAN = 'BLOOD_BANK_TECHNICIAN';
 
 // Leadership
 export const DEPARTMENT_HEAD = 'DEPARTMENT_HEAD';
-export const CMO             = 'CMO';
-export const CNO             = 'CNO';
+export const CMO = 'CMO';
+export const CNO = 'CNO';
 
 // Useful aggregate (keep in a predictable order for UIs)
 export const ALL_ROLES = [
@@ -73,6 +74,7 @@ export const ALL_ROLES = [
   MEDICAL_RECORDS,
   GENERAL_STAFF,
   HOUSEKEEPING_STAFF,
+  HOUSEKEEPING_INCHARGE,
   MAINTENANCE,
   RECEPTIONIST,
   DELIVERY_STAFF,
@@ -132,9 +134,7 @@ export function hasRole(userOrRole, allowedRoles = []) {
   if (!Array.isArray(allowedRoles) || allowedRoles.length === 0) return true;
 
   const role =
-    typeof userOrRole === 'string'
-      ? normalizeRole(userOrRole)
-      : normalizeRole(userOrRole?.role);
+    typeof userOrRole === 'string' ? normalizeRole(userOrRole) : normalizeRole(userOrRole?.role);
 
   if (!role) return false;
 

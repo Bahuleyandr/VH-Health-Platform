@@ -6,6 +6,7 @@ import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
 import request from 'supertest';
 import app from '../app.js';
+import { istDateString } from '../utils/dateUtils.js';
 
 const PATIENT_UID = 'a2222222-2222-4222-8222-222222222a01';
 const RECORDER_UID = 'a2222222-2222-4222-8222-222222222a02';
@@ -259,6 +260,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
 
     it('records ATS triage acuity and preserves terminology on the emergency queue spine', async () => {
       const visitNo = `EMER-VITALS-${Date.now()}`;
+      const today = istDateString();
       const visitRows = await prisma.$queryRawUnsafe(
         `INSERT INTO emergency_visits
            (tenant_id, visit_number, patient_uid, arrival_mode, chief_complaint,
@@ -273,14 +275,15 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       );
       await prisma.$executeRawUnsafe(
         `INSERT INTO appointments
-           (phone, patient_id, doctor_name, patient_name, appointment_date,
+         (phone, patient_id, doctor_name, patient_name, appointment_date,
             appointment_time, status, token_number, department, visit_type,
             visit_no, confirmed_at, created_at, updated_at)
-         VALUES ($1, $2, '', 'Vitals Test Patient', CURRENT_DATE,
+         VALUES ($1, $2, '', 'Vitals Test Patient', $3::date,
                  '09:15', 'CONFIRMED', 'EMER-001', 'Emergency', 'EMERGENCY',
-                 $3, NOW(), NOW(), NOW())`,
+                 $4, NOW(), NOW(), NOW())`,
         PATIENT_PHONE,
         patientIntId,
+        today,
         visitNo,
       );
 
@@ -318,18 +321,20 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
 
     it('propagates ANC vitals triage acuity to the doctor queue appointment row', async () => {
       const visitNo = `ANC-VITALS-${Date.now()}`;
+      const today = istDateString();
       const apptRows = await prisma.$queryRawUnsafe(
         `INSERT INTO appointments
            (phone, patient_id, doctor_id, doctor_name, patient_name,
             appointment_date, appointment_time, status, token_number,
             department, visit_type, visit_no, confirmed_at, created_at, updated_at)
          VALUES ($1, $2, $3, 'Vitals Test Doctor', 'ANC Vitals Test Patient',
-                 CURRENT_DATE, '10:15', 'CONFIRMED', 'ANC-001',
-                 'Obstetric ANC', 'NEW', $4, NOW(), NOW(), NOW())
+                 $4::date, '10:15', 'CONFIRMED', 'ANC-001',
+                 'Obstetric ANC', 'NEW', $5, NOW(), NOW(), NOW())
          RETURNING id`,
         ANC_PHONE,
         ancPatientIntId,
         recorderIntId,
+        today,
         visitNo,
       );
       const appointmentId = apptRows[0].id;
@@ -793,23 +798,17 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     });
 
     it('records intake and computes fluid balance for the day', async () => {
-      // Use Postgres's `current_date` (server timezone) instead of JS UTC.
-      // recorded_at is stored via NOW() with the server's timezone, and the
-      // route filters with `recorded_at::date = $1::date` — so we have to
-      // align with whatever date Postgres considers "today".
-      const dateRows = await prisma.$queryRawUnsafe(
-        `SELECT current_date::text AS today`);
-      const today = dateRows[0].today;
       const intake = await doctor.post('/api/v1/emr/io').send({
         patient_uid: PATIENT_UID, io_type: 'intake', category: 'oral', amount_ml: 500,
       });
       expect(intake.statusCode).toBe(201);
+      const balanceDate = new Date(intake.body.data.recorded_at).toISOString().slice(0, 10);
       const output = await doctor.post('/api/v1/emr/io').send({
         patient_uid: PATIENT_UID, io_type: 'output', category: 'urine', amount_ml: 300,
       });
       expect(output.statusCode).toBe(201);
 
-      const bal = await doctor.get(`/api/v1/emr/io/${PATIENT_UID}/balance?date=${today}`);
+      const bal = await doctor.get(`/api/v1/emr/io/${PATIENT_UID}/balance?date=${balanceDate}`);
       expect(bal.statusCode).toBe(200);
       expect(bal.body.data.total_intake).toBe(500);
       expect(bal.body.data.total_output).toBe(300);
