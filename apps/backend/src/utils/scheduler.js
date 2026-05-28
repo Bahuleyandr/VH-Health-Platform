@@ -52,6 +52,10 @@ import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliv
 // Visit-status reaper — A8. Flips stale SCHEDULED appointments to MISSED.
 import { reapStaleScheduledVisits } from '../services/appointment/appointmentReaperService.js';
 
+// Staff roster deadline escalation — next week's roster must be published
+// before the configured cutoff, otherwise HR gets an in-app alert.
+import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
+
 // Bed inspection sweeper — D1. Marks stale pending inspections as expired.
 import { expireStaleInspections } from '../services/bed/bedInspectionService.js';
 
@@ -142,6 +146,17 @@ cron.schedule('0 * * * *', withJobLock('expire-bed-inspections', async () => {
 
 // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
 cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
+
+// 🗓️ Friday 17:00 by default — next week's roster deadline.
+// Override with ROSTER_NEXT_WEEK_DEADLINE_CRON plus the weekday/hour envs used
+// by the service when hospitals pick a different cutoff.
+cron.schedule(
+  process.env.ROSTER_NEXT_WEEK_DEADLINE_CRON || '0 17 * * 5',
+  withJobLock('roster-deadline-escalation', async () => {
+    await runRosterDeadlineEscalation({ force: true });
+  }),
+  { timezone: process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata' }
+);
 
 // 🗓️ Daily at 03:30 - Purge audit logs older than 90 days
 cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
@@ -242,6 +257,7 @@ export async function runAllScheduledTasksNow() {
     await sendTimedReminders();
     await processPendingScheduledNotifications();
     await sendInvestigationNotifications();
+    await runRosterDeadlineEscalation({ force: true });
 
     // Purge file deletion log entries older than 90 days
     const fileDeletionResult = await prisma.$queryRawUnsafe(

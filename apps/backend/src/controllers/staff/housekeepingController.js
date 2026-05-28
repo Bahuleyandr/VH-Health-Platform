@@ -3,6 +3,10 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
+import {
+  fanOutHousekeepingRequest,
+  resolveHousekeepingRecipientsForTarget,
+} from '../../services/staff/housekeepingTaskDispatchService.js';
 
 // ─── SLA durations (minutes) ─────────────────────────────────────────────────
 const SLA_MINUTES = { urgent: 30, high: 120, normal: 240, low: 1440 };
@@ -67,32 +71,6 @@ async function markLinkedDirtyBedCleaning(requestRow, actorUid) {
     actorUid || null,
     `Linked bed ${bedId} moved from dirty to cleaning when housekeeping work was assigned.`
   );
-}
-
-async function findActiveZoneAssignee(zoneId) {
-  if (!zoneId) return null;
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT hfa.staff_id, hfa.staff_uid, u.name,
-            COUNT(hr.id)::int AS active_requests
-       FROM housekeeping_floor_assignments hfa
-       JOIN users u ON u.id = hfa.staff_id
-       LEFT JOIN housekeeping_requests hr
-         ON hr.assigned_to = hfa.staff_id
-        AND COALESCE(hr.status, 'open') = ANY($2::text[])
-      WHERE hfa.zone_id = $1::int
-        AND hfa.status = 'active'
-        AND hfa.effective_from <= NOW()
-        AND (hfa.effective_to IS NULL OR hfa.effective_to > NOW())
-        AND u.is_active = true
-      GROUP BY hfa.id, hfa.staff_id, hfa.staff_uid, u.name, hfa.created_at
-      ORDER BY CASE WHEN hfa.assignment_kind = 'redeploy' OR hfa.is_temporary = true THEN 0 ELSE 1 END,
-               active_requests ASC,
-               hfa.created_at ASC
-      LIMIT 1`,
-    zoneId,
-    ACTIVE_REQUEST_STATUSES
-  );
-  return rows[0] || null;
 }
 
 async function resolveHousekeepingZone(zoneId) {
@@ -280,7 +258,13 @@ export const raiseRequest = async (req, res) => {
 
     const slaMinutes = SLA_MINUTES[urgency] || 240;
     const slaDueAt = new Date(Date.now() + slaMinutes * 60000).toISOString();
-    const activeAssignee = await findActiveZoneAssignee(zone_id);
+    const recipients = await resolveHousekeepingRecipientsForTarget({
+      zoneId: zone_id || null,
+    });
+    const primaryAssignee =
+      recipients.find(row => row.recipient_kind !== 'incharge') ||
+      recipients[0] ||
+      null;
 
     const result = await prisma.$queryRawUnsafe(
       `
@@ -305,10 +289,10 @@ export const raiseRequest = async (req, res) => {
       description || null,
       photo_key || null,
       photo_url || null,
-      activeAssignee?.staff_id || null,
-      activeAssignee?.staff_uid || null,
-      activeAssignee ? new Date().toISOString() : null,
-      activeAssignee ? 'assigned' : 'open',
+      primaryAssignee?.id || null,
+      primaryAssignee?.uid || null,
+      primaryAssignee ? new Date().toISOString() : null,
+      primaryAssignee ? 'assigned' : 'open',
       slaDueAt
     );
 
@@ -319,8 +303,23 @@ export const raiseRequest = async (req, res) => {
       VALUES ($1, 'system', $2, false)
     `,
       result[0].id,
-      `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes / 60}h`}.${activeAssignee ? ` Routed to ${activeAssignee.name || 'assigned housekeeping staff'}.` : ''}`
+      `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes / 60}h`}.${recipients.length ? ` Routed to ${recipients.length} housekeeping recipient(s).` : ''}`
     );
+
+    await fanOutHousekeepingRequest({
+      requestId: result[0].id,
+      recipients,
+      title: 'Housekeeping request raised',
+      body: `${urgency.toUpperCase()} ${request_type} request for ${location_text || 'assigned area'}.`,
+      urgency,
+      data: {
+        housekeeping_request_id: result[0].id,
+        request_number: result[0].request_number,
+        zone_id: zone_id || null,
+        request_type,
+        source: 'housekeeping_request',
+      },
+    });
 
     success(res, result[0], `Request ${result[0].request_number} raised`);
   } catch (err) {
@@ -359,11 +358,16 @@ export const getMyRequests = async (req, res) => {
         hr.assigned_to, hr.request_type, hr.request_type as task_type,
         hr.urgency, hr.description, hr.description as notes, hr.status,
         hr.completed_at, hr.created_at, hr.sla_due_at,
-        hz.name as zone_name, u.name as requester_name
+        hz.name as zone_name, u.name as requester_name,
+        hrr.recipient_kind, hrr.source AS recipient_source
       FROM housekeeping_requests hr
       LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
       LEFT JOIN users u ON hr.requester_id = u.id
-      WHERE hr.assigned_to = $1 AND hr.status NOT IN ('completed','verified','closed','cancelled')
+      LEFT JOIN housekeeping_request_recipients hrr
+        ON hrr.request_id = hr.id
+       AND hrr.staff_id = $1
+      WHERE (hr.assigned_to = $1 OR hrr.staff_id = $1)
+        AND hr.status NOT IN ('completed','verified','closed','cancelled')
       ORDER BY hr.urgency DESC, hr.created_at ASC LIMIT 20
     `,
       staff.id
@@ -375,11 +379,16 @@ export const getMyRequests = async (req, res) => {
         hr.assigned_to, hr.request_type, hr.request_type as task_type,
         hr.urgency, hr.description, hr.description as notes, hr.status,
         hr.completed_at, hr.created_at, hr.sla_due_at,
-        hz.name as zone_name, u.name as requester_name
+        hz.name as zone_name, u.name as requester_name,
+        hrr.recipient_kind, hrr.source AS recipient_source
       FROM housekeeping_requests hr
       LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
       LEFT JOIN users u ON hr.requester_id = u.id
-      WHERE hr.assigned_to = $1 AND hr.status IN ('completed','verified','closed')
+      LEFT JOIN housekeeping_request_recipients hrr
+        ON hrr.request_id = hr.id
+       AND hrr.staff_id = $1
+      WHERE (hr.assigned_to = $1 OR hrr.staff_id = $1)
+        AND hr.status IN ('completed','verified','closed')
       ORDER BY COALESCE(hr.completed_at, hr.updated_at, hr.created_at) DESC LIMIT 20
     `,
       staff.id
@@ -405,16 +414,28 @@ export const startRequest = async (req, res) => {
       `
       UPDATE housekeeping_requests
          SET status = 'in_progress',
+             assigned_to = $2,
+             assigned_to_uid = $3::uuid,
+             assigned_at = COALESCE(assigned_at, NOW()),
              updated_at = NOW()
        WHERE id = $1::int
-         AND assigned_to = $2
-         AND status = 'assigned'
+         AND (
+           assigned_to = $2
+           OR EXISTS (
+             SELECT 1
+               FROM housekeeping_request_recipients hrr
+              WHERE hrr.request_id = housekeeping_requests.id
+                AND hrr.staff_id = $2
+           )
+         )
+         AND status IN ('assigned', 'open')
       RETURNING id, request_number, requester_id, zone_id, assigned_to,
         request_type, request_type as task_type, urgency, status, description,
         description as notes, completed_at, created_at, sla_due_at
     `,
       id,
-      staff.id
+      staff.id,
+      staff.uid
     );
 
     if (result.length === 0) {
@@ -454,7 +475,16 @@ export const completeRequest = async (req, res) => {
       `SELECT id, zone_id, assigned_to, request_type, request_type as task_type,
         status, description, description as notes, completed_at, created_at
        FROM housekeeping_requests
-       WHERE id = $1::int AND assigned_to = $2`,
+       WHERE id = $1::int
+         AND (
+           assigned_to = $2
+           OR EXISTS (
+             SELECT 1
+               FROM housekeeping_request_recipients hrr
+              WHERE hrr.request_id = housekeeping_requests.id
+                AND hrr.staff_id = $2
+           )
+         )`,
       id,
       staff.id
     );

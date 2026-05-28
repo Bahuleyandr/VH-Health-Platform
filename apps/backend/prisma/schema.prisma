@@ -8584,153 +8584,155 @@ model user_status_history {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model users {
-  id                                                                          Int                            @id @default(autoincrement())
-  uid                                                                         String                         @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                                                                       String                         @unique @db.VarChar(15)
-  name                                                                        String?                        @db.VarChar(255)
-  gender                                                                      String?                        @db.VarChar(20)
-  address                                                                     String?
-  email                                                                       String?                        @db.VarChar(255)
-  birthday                                                                    DateTime?                      @db.Date
-  anniversary                                                                 DateTime?                      @db.Date
-  guardian_name                                                               String?                        @db.VarChar(160)
-  guardian_phone                                                              String?                        @db.VarChar(20)
-  guardian_relationship                                                       String?                        @db.VarChar(40)
-  profile_picture                                                             String?
-  role                                                                        String?                        @default("PATIENT") @db.VarChar(50)
-  is_active                                                                   Boolean                        @default(true)
-  registered_at                                                               DateTime                       @default(now()) @db.Timestamp(6)
-  updated_at                                                                  DateTime                       @db.Timestamp(6)
-  e2e_public_key                                                              String?
-  e2e_key_updated_at                                                          DateTime?                      @db.Timestamptz(6)
-  tenant_id                                                                   String                         @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  preferred_language                                                          String                         @default("en") @db.VarChar(5)
-  encrypted_password                                                          String?
-  is_pregnant                                                                 Boolean?                       @default(false)
-  pregnancy_lmp_date                                                          DateTime?                      @db.Date
-  last_sign_in_at                                                             DateTime?                      @db.Timestamptz(6)
-  pan_number                                                                  String?                        @db.VarChar(20)
-  abha_address                                                                String?                        @db.VarChar(100)
-  abha_number                                                                 String?                        @db.VarChar(20)
-  device_token                                                                String?
-  role_updated_at                                                             DateTime?                      @db.Timestamp(6)
-  status                                                                      String                         @default("active") @db.VarChar(50)
-  status_reason                                                               String?
-  status_updated_at                                                           DateTime?                      @db.Timestamp(6)
-  status_updated_by                                                           String?                        @db.Uuid
-  emergency_contact                                                           Json?
-  blood_group                                                                 String?                        @db.VarChar(10)
-  allergies                                                                   String?
-  medical_history                                                             String?
-  profile_completed_at                                                        DateTime?                      @db.Timestamptz(6)
-  name_encrypted                                                              String?
-  phone_encrypted                                                             String?
-  phone_search_hash                                                           String?                        @db.Char(64)
-  address_encrypted                                                           String?
-  weight_kg                                                                   Decimal?                       @db.Decimal(6, 2)
-  guardian_id_type                                                            String?                        @db.VarChar(30)
-  guardian_id_reference                                                       String?                        @db.VarChar(80)
-  guardian_user_id                                                            Int?
-  is_minor                                                                    Boolean                        @default(false)
-  is_unidentified                                                             Boolean                        @default(false)
-  chronic_medications                                                         Json                           @default("[]")
-  chronic_medications_updated_at                                              DateTime?                      @db.Timestamptz(6)
-  preferred_channel                                                           String                         @default("app") @db.VarChar(10)
-  abdm_consents                                                               abdm_consents[]
-  abdm_data_requests                                                          abdm_data_requests[]
-  annual_review_reminders                                                     annual_review_reminders[]
-  annual_tax_summaries                                                        annual_tax_summaries[]
-  appointment_documents_appointment_documents_doctor_idTousers                appointment_documents[]        @relation("appointment_documents_doctor_idTousers")
-  appointment_documents_appointment_documents_patient_idTousers               appointment_documents[]        @relation("appointment_documents_patient_idTousers")
-  appointment_documents_appointment_documents_uploaded_byTousers              appointment_documents[]        @relation("appointment_documents_uploaded_byTousers")
-  appointment_status_history                                                  appointment_status_history[]
-  appointments_appointments_doctor_idTousers                                  appointments[]                 @relation("appointments_doctor_idTousers")
-  appointments_appointments_patient_idTousers                                 appointments[]                 @relation("appointments_patient_idTousers")
-  attendance_disputes_attendance_disputes_resolved_byTousers                  attendance_disputes[]          @relation("attendance_disputes_resolved_byTousers")
-  attendance_disputes_attendance_disputes_reviewed_byTousers                  attendance_disputes[]          @relation("attendance_disputes_reviewed_byTousers")
-  attendance_disputes_attendance_disputes_reviewed_by_uidTousers              attendance_disputes[]          @relation("attendance_disputes_reviewed_by_uidTousers")
-  attendance_disputes_attendance_disputes_staff_idTousers                     attendance_disputes[]          @relation("attendance_disputes_staff_idTousers")
-  attendance_disputes_attendance_disputes_staff_uidTousers                    attendance_disputes[]          @relation("attendance_disputes_staff_uidTousers")
-  attendance_logs                                                             attendance_logs[]
-  attendance_regularization_attendance_regularization_reviewed_byTousers      attendance_regularization[]    @relation("attendance_regularization_reviewed_byTousers")
-  attendance_regularization_attendance_regularization_staff_idTousers         attendance_regularization[]    @relation("attendance_regularization_staff_idTousers")
-  beds                                                                        beds[]
-  doctors                                                                     doctors[]
-  family_members                                                              family_members[]
-  full_final_settlements                                                      full_final_settlements[]
-  geofence_breaches_geofence_breaches_staff_idTousers                         geofence_breaches[]            @relation("geofence_breaches_staff_idTousers")
-  geofence_breaches_geofence_breaches_staff_uidTousers                        geofence_breaches[]            @relation("geofence_breaches_staff_uidTousers")
-  housekeeping_logs_housekeeping_logs_staff_idTousers                         housekeeping_logs[]            @relation("housekeeping_logs_staff_idTousers")
-  housekeeping_logs_housekeeping_logs_staff_uidTousers                        housekeeping_logs[]            @relation("housekeeping_logs_staff_uidTousers")
-  housekeeping_logs_housekeeping_logs_verified_byTousers                      housekeeping_logs[]            @relation("housekeeping_logs_verified_byTousers")
-  housekeeping_logs_housekeeping_logs_verified_by_uidTousers                  housekeeping_logs[]            @relation("housekeeping_logs_verified_by_uidTousers")
-  housekeeping_request_updates_housekeeping_request_updates_author_idTousers  housekeeping_request_updates[] @relation("housekeeping_request_updates_author_idTousers")
-  housekeeping_request_updates_housekeeping_request_updates_author_uidTousers housekeeping_request_updates[] @relation("housekeeping_request_updates_author_uidTousers")
-  housekeeping_requests_housekeeping_requests_assigned_byTousers              housekeeping_requests[]        @relation("housekeeping_requests_assigned_byTousers")
-  housekeeping_requests_housekeeping_requests_assigned_by_uidTousers          housekeeping_requests[]        @relation("housekeeping_requests_assigned_by_uidTousers")
-  housekeeping_requests_housekeeping_requests_assigned_toTousers              housekeeping_requests[]        @relation("housekeeping_requests_assigned_toTousers")
-  housekeeping_requests_housekeeping_requests_assigned_to_uidTousers          housekeeping_requests[]        @relation("housekeeping_requests_assigned_to_uidTousers")
-  housekeeping_requests_housekeeping_requests_requester_idTousers             housekeeping_requests[]        @relation("housekeeping_requests_requester_idTousers")
-  housekeeping_requests_housekeeping_requests_requester_uidTousers            housekeeping_requests[]        @relation("housekeeping_requests_requester_uidTousers")
-  housekeeping_requests_housekeeping_requests_verified_byTousers              housekeeping_requests[]        @relation("housekeeping_requests_verified_byTousers")
-  housekeeping_requests_housekeeping_requests_verified_by_uidTousers          housekeeping_requests[]        @relation("housekeeping_requests_verified_by_uidTousers")
-  hr_activity_logs                                                            hr_activity_logs[]
-  incident_reports_incident_reports_assigned_toTousers                        incident_reports[]             @relation("incident_reports_assigned_toTousers")
-  incident_reports_incident_reports_patient_uidTousers                        incident_reports[]             @relation("incident_reports_patient_uidTousers")
-  incident_reports_incident_reports_reporter_idTousers                        incident_reports[]             @relation("incident_reports_reporter_idTousers")
-  incident_reports_incident_reports_resolved_byTousers                        incident_reports[]             @relation("incident_reports_resolved_byTousers")
-  investigation_bookings_investigation_bookings_patient_idTousers             investigation_bookings[]       @relation("investigation_bookings_patient_idTousers")
-  investigation_bookings_investigation_bookings_phlebotomist_idTousers        investigation_bookings[]       @relation("investigation_bookings_phlebotomist_idTousers")
-  investigations_investigations_patient_idTousers                             investigations[]               @relation("investigations_patient_idTousers")
-  investigations_investigations_requested_byTousers                           investigations[]               @relation("investigations_requested_byTousers")
-  investment_declarations                                                     investment_declarations[]
-  leave_applications                                                          leave_applications[]
-  leave_encashments                                                           leave_encashments[]
-  medical_records_medical_records_created_byTousers                           medical_records[]              @relation("medical_records_created_byTousers")
-  medical_records_medical_records_deleted_byTousers                           medical_records[]              @relation("medical_records_deleted_byTousers")
-  medical_records_medical_records_doctor_idTousers                            medical_records[]              @relation("medical_records_doctor_idTousers")
-  medical_records_medical_records_patient_idTousers                           medical_records[]              @relation("medical_records_patient_idTousers")
-  medical_records_medical_records_updated_byTousers                           medical_records[]              @relation("medical_records_updated_byTousers")
-  medication_reminders                                                        medication_reminders[]
-  overtime_requests_overtime_requests_approved_byTousers                      overtime_requests[]            @relation("overtime_requests_approved_byTousers")
-  overtime_requests_overtime_requests_approved_by_uidTousers                  overtime_requests[]            @relation("overtime_requests_approved_by_uidTousers")
-  overtime_requests_overtime_requests_staff_idTousers                         overtime_requests[]            @relation("overtime_requests_staff_idTousers")
-  overtime_requests_overtime_requests_staff_uidTousers                        overtime_requests[]            @relation("overtime_requests_staff_uidTousers")
-  patient_records                                                             patient_records[]
-  payroll_runs_payroll_runs_generated_byTousers                               payroll_runs[]                 @relation("payroll_runs_generated_byTousers")
-  payroll_runs_payroll_runs_locked_byTousers                                  payroll_runs[]                 @relation("payroll_runs_locked_byTousers")
-  payslips                                                                    payslips[]
-  pharmacy_order_history                                                      pharmacy_order_history[]
-  pharmacy_orders_pharmacy_orders_dispensed_byTousers                         pharmacy_orders[]              @relation("pharmacy_orders_dispensed_byTousers")
-  pharmacy_orders_pharmacy_orders_patient_idTousers                           pharmacy_orders[]              @relation("pharmacy_orders_patient_idTousers")
-  pharmacy_orders_pharmacy_orders_prescribed_byTousers                        pharmacy_orders[]              @relation("pharmacy_orders_prescribed_byTousers")
-  referrals_referrals_accepted_byTousers                                      referrals[]                    @relation("referrals_accepted_byTousers")
-  referrals_referrals_patient_uidTousers                                      referrals[]                    @relation("referrals_patient_uidTousers")
-  referrals_referrals_referred_to_doctorTousers                               referrals[]                    @relation("referrals_referred_to_doctorTousers")
-  referrals_referrals_referring_doctorTousers                                 referrals[]                    @relation("referrals_referring_doctorTousers")
-  report_updates                                                              report_updates[]
-  salary_advances_salary_advances_approved_byTousers                          salary_advances[]              @relation("salary_advances_approved_byTousers")
-  salary_advances_salary_advances_staff_uidTousers                            salary_advances[]              @relation("salary_advances_staff_uidTousers")
-  salary_arrears                                                              salary_arrears[]
-  salary_revisions_salary_revisions_admin_signed_byTousers                    salary_revisions[]             @relation("salary_revisions_admin_signed_byTousers")
-  salary_revisions_salary_revisions_hr_signed_byTousers                       salary_revisions[]             @relation("salary_revisions_hr_signed_byTousers")
-  salary_revisions_salary_revisions_proposed_byTousers                        salary_revisions[]             @relation("salary_revisions_proposed_byTousers")
-  salary_revisions_salary_revisions_rejected_byTousers                        salary_revisions[]             @relation("salary_revisions_rejected_byTousers")
-  salary_revisions_salary_revisions_staff_uidTousers                          salary_revisions[]             @relation("salary_revisions_staff_uidTousers")
-  scheduled_notifications                                                     scheduled_notifications[]
-  staff                                                                       staff[]
-  staff_attendance                                                            staff_attendance[]
-  staff_breaks_staff_breaks_staff_idTousers                                   staff_breaks[]                 @relation("staff_breaks_staff_idTousers")
-  staff_breaks_staff_breaks_staff_uidTousers                                  staff_breaks[]                 @relation("staff_breaks_staff_uidTousers")
-  staff_grievances_staff_grievances_assigned_toTousers                        staff_grievances[]             @relation("staff_grievances_assigned_toTousers")
-  staff_grievances_staff_grievances_reporter_idTousers                        staff_grievances[]             @relation("staff_grievances_reporter_idTousers")
-  staff_grievances_staff_grievances_resolved_byTousers                        staff_grievances[]             @relation("staff_grievances_resolved_byTousers")
-  staff_onboarding_tasks                                                      staff_onboarding_tasks[]
-  staff_performance_reviews                                                   staff_performance_reviews[]
-  staff_salary                                                                staff_salary?
-  guardian_user                                                               users?                         @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
-  dependents                                                                  users[]                        @relation("users_guardian_user_fk")
-  tenants                                                                     tenants                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                                                                               Int                               @id @default(autoincrement())
+  uid                                                                              String                            @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone                                                                            String                            @unique @db.VarChar(15)
+  name                                                                             String?                           @db.VarChar(255)
+  gender                                                                           String?                           @db.VarChar(20)
+  address                                                                          String?
+  email                                                                            String?                           @db.VarChar(255)
+  birthday                                                                         DateTime?                         @db.Date
+  anniversary                                                                      DateTime?                         @db.Date
+  guardian_name                                                                    String?                           @db.VarChar(160)
+  guardian_phone                                                                   String?                           @db.VarChar(20)
+  guardian_relationship                                                            String?                           @db.VarChar(40)
+  profile_picture                                                                  String?
+  role                                                                             String?                           @default("PATIENT") @db.VarChar(50)
+  is_active                                                                        Boolean                           @default(true)
+  registered_at                                                                    DateTime                          @default(now()) @db.Timestamp(6)
+  updated_at                                                                       DateTime                          @db.Timestamp(6)
+  e2e_public_key                                                                   String?
+  e2e_key_updated_at                                                               DateTime?                         @db.Timestamptz(6)
+  tenant_id                                                                        String                            @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  preferred_language                                                               String                            @default("en") @db.VarChar(5)
+  encrypted_password                                                               String?
+  is_pregnant                                                                      Boolean?                          @default(false)
+  pregnancy_lmp_date                                                               DateTime?                         @db.Date
+  last_sign_in_at                                                                  DateTime?                         @db.Timestamptz(6)
+  pan_number                                                                       String?                           @db.VarChar(20)
+  abha_address                                                                     String?                           @db.VarChar(100)
+  abha_number                                                                      String?                           @db.VarChar(20)
+  device_token                                                                     String?
+  role_updated_at                                                                  DateTime?                         @db.Timestamp(6)
+  status                                                                           String                            @default("active") @db.VarChar(50)
+  status_reason                                                                    String?
+  status_updated_at                                                                DateTime?                         @db.Timestamp(6)
+  status_updated_by                                                                String?                           @db.Uuid
+  emergency_contact                                                                Json?
+  blood_group                                                                      String?                           @db.VarChar(10)
+  allergies                                                                        String?
+  medical_history                                                                  String?
+  profile_completed_at                                                             DateTime?                         @db.Timestamptz(6)
+  name_encrypted                                                                   String?
+  phone_encrypted                                                                  String?
+  phone_search_hash                                                                String?                           @db.Char(64)
+  address_encrypted                                                                String?
+  weight_kg                                                                        Decimal?                          @db.Decimal(6, 2)
+  guardian_id_type                                                                 String?                           @db.VarChar(30)
+  guardian_id_reference                                                            String?                           @db.VarChar(80)
+  guardian_user_id                                                                 Int?
+  is_minor                                                                         Boolean                           @default(false)
+  is_unidentified                                                                  Boolean                           @default(false)
+  chronic_medications                                                              Json                              @default("[]")
+  chronic_medications_updated_at                                                   DateTime?                         @db.Timestamptz(6)
+  preferred_channel                                                                String                            @default("app") @db.VarChar(10)
+  abdm_consents                                                                    abdm_consents[]
+  abdm_data_requests                                                               abdm_data_requests[]
+  annual_review_reminders                                                          annual_review_reminders[]
+  annual_tax_summaries                                                             annual_tax_summaries[]
+  appointment_documents_appointment_documents_doctor_idTousers                     appointment_documents[]           @relation("appointment_documents_doctor_idTousers")
+  appointment_documents_appointment_documents_patient_idTousers                    appointment_documents[]           @relation("appointment_documents_patient_idTousers")
+  appointment_documents_appointment_documents_uploaded_byTousers                   appointment_documents[]           @relation("appointment_documents_uploaded_byTousers")
+  appointment_status_history                                                       appointment_status_history[]
+  appointments_appointments_doctor_idTousers                                       appointments[]                    @relation("appointments_doctor_idTousers")
+  appointments_appointments_patient_idTousers                                      appointments[]                    @relation("appointments_patient_idTousers")
+  attendance_disputes_attendance_disputes_resolved_byTousers                       attendance_disputes[]             @relation("attendance_disputes_resolved_byTousers")
+  attendance_disputes_attendance_disputes_reviewed_byTousers                       attendance_disputes[]             @relation("attendance_disputes_reviewed_byTousers")
+  attendance_disputes_attendance_disputes_reviewed_by_uidTousers                   attendance_disputes[]             @relation("attendance_disputes_reviewed_by_uidTousers")
+  attendance_disputes_attendance_disputes_staff_idTousers                          attendance_disputes[]             @relation("attendance_disputes_staff_idTousers")
+  attendance_disputes_attendance_disputes_staff_uidTousers                         attendance_disputes[]             @relation("attendance_disputes_staff_uidTousers")
+  attendance_logs                                                                  attendance_logs[]
+  attendance_regularization_attendance_regularization_reviewed_byTousers           attendance_regularization[]       @relation("attendance_regularization_reviewed_byTousers")
+  attendance_regularization_attendance_regularization_staff_idTousers              attendance_regularization[]       @relation("attendance_regularization_staff_idTousers")
+  beds                                                                             beds[]
+  doctors                                                                          doctors[]
+  family_members                                                                   family_members[]
+  full_final_settlements                                                           full_final_settlements[]
+  geofence_breaches_geofence_breaches_staff_idTousers                              geofence_breaches[]               @relation("geofence_breaches_staff_idTousers")
+  geofence_breaches_geofence_breaches_staff_uidTousers                             geofence_breaches[]               @relation("geofence_breaches_staff_uidTousers")
+  housekeeping_logs_housekeeping_logs_staff_idTousers                              housekeeping_logs[]               @relation("housekeeping_logs_staff_idTousers")
+  housekeeping_logs_housekeeping_logs_staff_uidTousers                             housekeeping_logs[]               @relation("housekeeping_logs_staff_uidTousers")
+  housekeeping_logs_housekeeping_logs_verified_byTousers                           housekeeping_logs[]               @relation("housekeeping_logs_verified_byTousers")
+  housekeeping_logs_housekeeping_logs_verified_by_uidTousers                       housekeeping_logs[]               @relation("housekeeping_logs_verified_by_uidTousers")
+  housekeeping_request_recipients_housekeeping_request_recipients_staff_idTousers  housekeeping_request_recipients[] @relation("housekeeping_request_recipients_staff_idTousers")
+  housekeeping_request_recipients_housekeeping_request_recipients_staff_uidTousers housekeeping_request_recipients[] @relation("housekeeping_request_recipients_staff_uidTousers")
+  housekeeping_request_updates_housekeeping_request_updates_author_idTousers       housekeeping_request_updates[]    @relation("housekeeping_request_updates_author_idTousers")
+  housekeeping_request_updates_housekeeping_request_updates_author_uidTousers      housekeeping_request_updates[]    @relation("housekeeping_request_updates_author_uidTousers")
+  housekeeping_requests_housekeeping_requests_assigned_byTousers                   housekeeping_requests[]           @relation("housekeeping_requests_assigned_byTousers")
+  housekeeping_requests_housekeeping_requests_assigned_by_uidTousers               housekeeping_requests[]           @relation("housekeeping_requests_assigned_by_uidTousers")
+  housekeeping_requests_housekeeping_requests_assigned_toTousers                   housekeeping_requests[]           @relation("housekeeping_requests_assigned_toTousers")
+  housekeeping_requests_housekeeping_requests_assigned_to_uidTousers               housekeeping_requests[]           @relation("housekeeping_requests_assigned_to_uidTousers")
+  housekeeping_requests_housekeeping_requests_requester_idTousers                  housekeeping_requests[]           @relation("housekeeping_requests_requester_idTousers")
+  housekeeping_requests_housekeeping_requests_requester_uidTousers                 housekeeping_requests[]           @relation("housekeeping_requests_requester_uidTousers")
+  housekeeping_requests_housekeeping_requests_verified_byTousers                   housekeeping_requests[]           @relation("housekeeping_requests_verified_byTousers")
+  housekeeping_requests_housekeeping_requests_verified_by_uidTousers               housekeeping_requests[]           @relation("housekeeping_requests_verified_by_uidTousers")
+  hr_activity_logs                                                                 hr_activity_logs[]
+  incident_reports_incident_reports_assigned_toTousers                             incident_reports[]                @relation("incident_reports_assigned_toTousers")
+  incident_reports_incident_reports_patient_uidTousers                             incident_reports[]                @relation("incident_reports_patient_uidTousers")
+  incident_reports_incident_reports_reporter_idTousers                             incident_reports[]                @relation("incident_reports_reporter_idTousers")
+  incident_reports_incident_reports_resolved_byTousers                             incident_reports[]                @relation("incident_reports_resolved_byTousers")
+  investigation_bookings_investigation_bookings_patient_idTousers                  investigation_bookings[]          @relation("investigation_bookings_patient_idTousers")
+  investigation_bookings_investigation_bookings_phlebotomist_idTousers             investigation_bookings[]          @relation("investigation_bookings_phlebotomist_idTousers")
+  investigations_investigations_patient_idTousers                                  investigations[]                  @relation("investigations_patient_idTousers")
+  investigations_investigations_requested_byTousers                                investigations[]                  @relation("investigations_requested_byTousers")
+  investment_declarations                                                          investment_declarations[]
+  leave_applications                                                               leave_applications[]
+  leave_encashments                                                                leave_encashments[]
+  medical_records_medical_records_created_byTousers                                medical_records[]                 @relation("medical_records_created_byTousers")
+  medical_records_medical_records_deleted_byTousers                                medical_records[]                 @relation("medical_records_deleted_byTousers")
+  medical_records_medical_records_doctor_idTousers                                 medical_records[]                 @relation("medical_records_doctor_idTousers")
+  medical_records_medical_records_patient_idTousers                                medical_records[]                 @relation("medical_records_patient_idTousers")
+  medical_records_medical_records_updated_byTousers                                medical_records[]                 @relation("medical_records_updated_byTousers")
+  medication_reminders                                                             medication_reminders[]
+  overtime_requests_overtime_requests_approved_byTousers                           overtime_requests[]               @relation("overtime_requests_approved_byTousers")
+  overtime_requests_overtime_requests_approved_by_uidTousers                       overtime_requests[]               @relation("overtime_requests_approved_by_uidTousers")
+  overtime_requests_overtime_requests_staff_idTousers                              overtime_requests[]               @relation("overtime_requests_staff_idTousers")
+  overtime_requests_overtime_requests_staff_uidTousers                             overtime_requests[]               @relation("overtime_requests_staff_uidTousers")
+  patient_records                                                                  patient_records[]
+  payroll_runs_payroll_runs_generated_byTousers                                    payroll_runs[]                    @relation("payroll_runs_generated_byTousers")
+  payroll_runs_payroll_runs_locked_byTousers                                       payroll_runs[]                    @relation("payroll_runs_locked_byTousers")
+  payslips                                                                         payslips[]
+  pharmacy_order_history                                                           pharmacy_order_history[]
+  pharmacy_orders_pharmacy_orders_dispensed_byTousers                              pharmacy_orders[]                 @relation("pharmacy_orders_dispensed_byTousers")
+  pharmacy_orders_pharmacy_orders_patient_idTousers                                pharmacy_orders[]                 @relation("pharmacy_orders_patient_idTousers")
+  pharmacy_orders_pharmacy_orders_prescribed_byTousers                             pharmacy_orders[]                 @relation("pharmacy_orders_prescribed_byTousers")
+  referrals_referrals_accepted_byTousers                                           referrals[]                       @relation("referrals_accepted_byTousers")
+  referrals_referrals_patient_uidTousers                                           referrals[]                       @relation("referrals_patient_uidTousers")
+  referrals_referrals_referred_to_doctorTousers                                    referrals[]                       @relation("referrals_referred_to_doctorTousers")
+  referrals_referrals_referring_doctorTousers                                      referrals[]                       @relation("referrals_referring_doctorTousers")
+  report_updates                                                                   report_updates[]
+  salary_advances_salary_advances_approved_byTousers                               salary_advances[]                 @relation("salary_advances_approved_byTousers")
+  salary_advances_salary_advances_staff_uidTousers                                 salary_advances[]                 @relation("salary_advances_staff_uidTousers")
+  salary_arrears                                                                   salary_arrears[]
+  salary_revisions_salary_revisions_admin_signed_byTousers                         salary_revisions[]                @relation("salary_revisions_admin_signed_byTousers")
+  salary_revisions_salary_revisions_hr_signed_byTousers                            salary_revisions[]                @relation("salary_revisions_hr_signed_byTousers")
+  salary_revisions_salary_revisions_proposed_byTousers                             salary_revisions[]                @relation("salary_revisions_proposed_byTousers")
+  salary_revisions_salary_revisions_rejected_byTousers                             salary_revisions[]                @relation("salary_revisions_rejected_byTousers")
+  salary_revisions_salary_revisions_staff_uidTousers                               salary_revisions[]                @relation("salary_revisions_staff_uidTousers")
+  scheduled_notifications                                                          scheduled_notifications[]
+  staff                                                                            staff[]
+  staff_attendance                                                                 staff_attendance[]
+  staff_breaks_staff_breaks_staff_idTousers                                        staff_breaks[]                    @relation("staff_breaks_staff_idTousers")
+  staff_breaks_staff_breaks_staff_uidTousers                                       staff_breaks[]                    @relation("staff_breaks_staff_uidTousers")
+  staff_grievances_staff_grievances_assigned_toTousers                             staff_grievances[]                @relation("staff_grievances_assigned_toTousers")
+  staff_grievances_staff_grievances_reporter_idTousers                             staff_grievances[]                @relation("staff_grievances_reporter_idTousers")
+  staff_grievances_staff_grievances_resolved_byTousers                             staff_grievances[]                @relation("staff_grievances_resolved_byTousers")
+  staff_onboarding_tasks                                                           staff_onboarding_tasks[]
+  staff_performance_reviews                                                        staff_performance_reviews[]
+  staff_salary                                                                     staff_salary?
+  guardian_user                                                                    users?                            @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
+  dependents                                                                       users[]                           @relation("users_guardian_user_fk")
+  tenants                                                                          tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([preferred_language], map: "idx_users_preferred_language")
   @@index([status], map: "idx_users_status")
@@ -9697,47 +9699,48 @@ model staff_shift_roster_requests {
 }
 
 model housekeeping_requests {
-  id                                                 Int                            @id @default(autoincrement())
-  request_number                                     String                         @unique @default(dbgenerated("((('HKR-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_request_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
+  id                                                 Int                               @id @default(autoincrement())
+  request_number                                     String                            @unique @default(dbgenerated("((('HKR-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_request_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
   requester_id                                       Int
-  requester_uid                                      String?                        @db.Uuid
+  requester_uid                                      String?                           @db.Uuid
   zone_id                                            Int?
-  location_text                                      String                         @default("")
-  latitude                                           Decimal?                       @db.Decimal(10, 7)
-  longitude                                          Decimal?                       @db.Decimal(10, 7)
-  request_type                                       String                         @default("cleaning") @db.VarChar(40)
-  urgency                                            String?                        @default("normal") @db.VarChar(20)
+  location_text                                      String                            @default("")
+  latitude                                           Decimal?                          @db.Decimal(10, 7)
+  longitude                                          Decimal?                          @db.Decimal(10, 7)
+  request_type                                       String                            @default("cleaning") @db.VarChar(40)
+  urgency                                            String?                           @default("normal") @db.VarChar(20)
   description                                        String?
   photo_key                                          String?
   photo_url                                          String?
-  status                                             String?                        @default("open") @db.VarChar(20)
+  status                                             String?                           @default("open") @db.VarChar(20)
   assigned_to                                        Int?
-  assigned_to_uid                                    String?                        @db.Uuid
-  assigned_at                                        DateTime?                      @db.Timestamptz(6)
+  assigned_to_uid                                    String?                           @db.Uuid
+  assigned_at                                        DateTime?                         @db.Timestamptz(6)
   assigned_by                                        Int?
-  assigned_by_uid                                    String?                        @db.Uuid
-  completed_at                                       DateTime?                      @db.Timestamptz(6)
+  assigned_by_uid                                    String?                           @db.Uuid
+  completed_at                                       DateTime?                         @db.Timestamptz(6)
   completion_notes                                   String?
   completion_photo_key                               String?
   completion_photo_url                               String?
-  completion_signature_hash                          String?                        @db.VarChar(64)
+  completion_signature_hash                          String?                           @db.VarChar(64)
   verified_by                                        Int?
-  verified_by_uid                                    String?                        @db.Uuid
-  verified_at                                        DateTime?                      @db.Timestamptz(6)
-  sla_due_at                                         DateTime?                      @db.Timestamptz(6)
-  sla_breached                                       Boolean?                       @default(false)
-  created_at                                         DateTime?                      @default(now()) @db.Timestamptz(6)
-  updated_at                                         DateTime?                      @default(now()) @db.Timestamptz(6)
+  verified_by_uid                                    String?                           @db.Uuid
+  verified_at                                        DateTime?                         @db.Timestamptz(6)
+  sla_due_at                                         DateTime?                         @db.Timestamptz(6)
+  sla_breached                                       Boolean?                          @default(false)
+  created_at                                         DateTime?                         @default(now()) @db.Timestamptz(6)
+  updated_at                                         DateTime?                         @default(now()) @db.Timestamptz(6)
+  housekeeping_request_recipients                    housekeeping_request_recipients[]
   housekeeping_request_updates                       housekeeping_request_updates[]
-  users_housekeeping_requests_assigned_byTousers     users?                         @relation("housekeeping_requests_assigned_byTousers", fields: [assigned_by], references: [id], onUpdate: NoAction)
-  users_housekeeping_requests_assigned_by_uidTousers users?                         @relation("housekeeping_requests_assigned_by_uidTousers", fields: [assigned_by_uid], references: [uid], onUpdate: NoAction)
-  users_housekeeping_requests_assigned_toTousers     users?                         @relation("housekeeping_requests_assigned_toTousers", fields: [assigned_to], references: [id], onUpdate: NoAction)
-  users_housekeeping_requests_assigned_to_uidTousers users?                         @relation("housekeeping_requests_assigned_to_uidTousers", fields: [assigned_to_uid], references: [uid], onUpdate: NoAction)
-  users_housekeeping_requests_requester_idTousers    users                          @relation("housekeeping_requests_requester_idTousers", fields: [requester_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users_housekeeping_requests_requester_uidTousers   users?                         @relation("housekeeping_requests_requester_uidTousers", fields: [requester_uid], references: [uid], onUpdate: NoAction)
-  users_housekeeping_requests_verified_byTousers     users?                         @relation("housekeeping_requests_verified_byTousers", fields: [verified_by], references: [id], onUpdate: NoAction)
-  users_housekeeping_requests_verified_by_uidTousers users?                         @relation("housekeeping_requests_verified_by_uidTousers", fields: [verified_by_uid], references: [uid], onUpdate: NoAction)
-  housekeeping_zones                                 housekeeping_zones?            @relation(fields: [zone_id], references: [id], onUpdate: NoAction)
+  users_housekeeping_requests_assigned_byTousers     users?                            @relation("housekeeping_requests_assigned_byTousers", fields: [assigned_by], references: [id], onUpdate: NoAction)
+  users_housekeeping_requests_assigned_by_uidTousers users?                            @relation("housekeeping_requests_assigned_by_uidTousers", fields: [assigned_by_uid], references: [uid], onUpdate: NoAction)
+  users_housekeeping_requests_assigned_toTousers     users?                            @relation("housekeeping_requests_assigned_toTousers", fields: [assigned_to], references: [id], onUpdate: NoAction)
+  users_housekeeping_requests_assigned_to_uidTousers users?                            @relation("housekeeping_requests_assigned_to_uidTousers", fields: [assigned_to_uid], references: [uid], onUpdate: NoAction)
+  users_housekeeping_requests_requester_idTousers    users                             @relation("housekeeping_requests_requester_idTousers", fields: [requester_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_housekeeping_requests_requester_uidTousers   users?                            @relation("housekeeping_requests_requester_uidTousers", fields: [requester_uid], references: [uid], onUpdate: NoAction)
+  users_housekeeping_requests_verified_byTousers     users?                            @relation("housekeeping_requests_verified_byTousers", fields: [verified_by], references: [id], onUpdate: NoAction)
+  users_housekeeping_requests_verified_by_uidTousers users?                            @relation("housekeeping_requests_verified_by_uidTousers", fields: [verified_by_uid], references: [uid], onUpdate: NoAction)
+  housekeeping_zones                                 housekeeping_zones?               @relation(fields: [zone_id], references: [id], onUpdate: NoAction)
 
   @@index([assigned_to, status], map: "idx_housekeeping_requests_assigned")
   @@index([requester_id, created_at], map: "idx_housekeeping_requests_requester")
@@ -11917,4 +11920,23 @@ model staff_leave_forecast_shift_risks {
   tenants                   tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([run_id, forecast_date, shift_label], map: "idx_staff_leave_forecast_shift_risks_run_date")
+}
+
+model housekeeping_request_recipients {
+  id                                                     Int                   @id @default(autoincrement())
+  request_id                                             Int
+  staff_id                                               Int
+  staff_uid                                              String?               @db.Uuid
+  recipient_kind                                         String                @default("assignee") @db.VarChar(40)
+  source                                                 String                @default("manual") @db.VarChar(80)
+  notified_at                                            DateTime?             @db.Timestamptz(6)
+  created_at                                             DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                                             DateTime              @default(now()) @db.Timestamptz(6)
+  housekeeping_requests                                  housekeeping_requests @relation(fields: [request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_housekeeping_request_recipients_staff_idTousers  users                 @relation("housekeeping_request_recipients_staff_idTousers", fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_housekeeping_request_recipients_staff_uidTousers users?                @relation("housekeeping_request_recipients_staff_uidTousers", fields: [staff_uid], references: [uid], onUpdate: NoAction)
+
+  @@unique([request_id, staff_id], map: "housekeeping_request_recipients_unique")
+  @@index([request_id], map: "idx_housekeeping_request_recipients_request")
+  @@index([staff_id, request_id], map: "idx_housekeeping_request_recipients_staff")
 }

@@ -8,6 +8,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
+import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
 
 class BedManagementService {
   // =========================================================================
@@ -218,6 +219,17 @@ class BedManagementService {
       `Patient ${patientUid || 'unknown'} discharged from bed ${bedId}, `
       + `admission ${admissionId || 'none'} ended, bed set to cleaning`,
     );
+    try {
+      await createBedCleaningRequest({
+        bedId,
+        requesterUid: dischargedBy,
+        trigger: 'final_discharge',
+        urgency: 'high',
+        description: `Discharge cleaning required after direct bed discharge. bed_id=${bedId}.`,
+      });
+    } catch (e) {
+      logger.warn(`dischargePatient: housekeeping dispatch failed for bed ${bedId} (continuing): ${e.message}`);
+    }
     return updated;
   }
 
@@ -449,6 +461,17 @@ class BedManagementService {
     });
 
     logger.info(`Patient ${patientUid} transferred from bed ${result.fromBedId} to bed ${toBedId}`);
+    try {
+      await createBedCleaningRequest({
+        bedId: result.fromBedId,
+        requesterUid: transferredBy,
+        trigger: 'bed_transfer',
+        urgency: 'high',
+        description: `Transfer cleaning required after patient moved to bed ${toBedId}. bed_id=${result.fromBedId}.`,
+      });
+    } catch (e) {
+      logger.warn(`transferPatient: housekeeping dispatch failed for bed ${result.fromBedId} (continuing): ${e.message}`);
+    }
 
     return {
       from_bed_id: result.fromBedId,
