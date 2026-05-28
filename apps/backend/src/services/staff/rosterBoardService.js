@@ -93,6 +93,29 @@ export function canManageRosterDepartment(user, department, capability = 'work')
   return canManageRosterDepartmentWork(user, department);
 }
 
+function ownRosterDepartmentForActor(user) {
+  const role = String(user?.role || user?.rawRole || '').trim().toUpperCase();
+  if (!role) return null;
+  for (const [department, policy] of Object.entries(ROSTER_DEPARTMENT_POLICIES)) {
+    if (policy.staffRoles.includes(role)) return department;
+  }
+  return null;
+}
+
+function resolveRequestDepartmentForActor({ department, actorUser, staffId }) {
+  const requested = normalizeRosterDepartment(department);
+  const ownDepartment = ownRosterDepartmentForActor(actorUser);
+  const isSelfService = staffId == null || String(staffId).trim() === '';
+  if (
+    isSelfService &&
+    ownDepartment &&
+    (!requested || !canReviewRosterDepartmentRequest(actorUser, requested))
+  ) {
+    return ownDepartment;
+  }
+  return requested || ownDepartment;
+}
+
 function assertCanManageRosterWork(actorUser, department) {
   if (!canManageRosterDepartmentWork(actorUser, department)) {
     throw Object.assign(new Error('You are not allowed to publish or edit this roster department'), {
@@ -825,7 +848,12 @@ export async function createRosterPreferenceRequest({
   actorUser,
   metadata
 }) {
-  const config = getDepartmentConfig(department);
+  const effectiveDepartment = resolveRequestDepartmentForActor({
+    department,
+    actorUser,
+    staffId
+  });
+  const config = getDepartmentConfig(effectiveDepartment);
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
   }
