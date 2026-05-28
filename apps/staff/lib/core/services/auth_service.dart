@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
@@ -9,6 +10,40 @@ import 'telemetry_service.dart';
 class AuthService {
   static const _storage = FlutterSecureStorage();
 
+  static Future<void> _saveAuthenticatedStaffSession({
+    required String employeeId,
+    required Map<String, dynamic> data,
+    required String loginMethod,
+  }) async {
+    final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
+    if (token == null) return;
+
+    final refreshToken = data['refreshToken'];
+    await core_auth.AuthService.setTokens(
+      accessToken: token.toString(),
+      refreshToken: refreshToken?.toString(),
+    );
+    await ApiConfig.saveEmployeeId(employeeId);
+
+    final staffId =
+        data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
+    if (staffId != null) {
+      await ApiConfig.saveStaffId(staffId.toString());
+    }
+
+    final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+    await ApiConfig.saveRole(role.toString());
+
+    final phone = data['staff']?['phone'] ?? data['phone'];
+    if (phone != null) await ApiConfig.savePhone(phone.toString());
+
+    await Telemetry.setUserProperties(role: role.toString());
+    await Telemetry.event('auth.login_success', {
+      'role': role.toString(),
+      'method': loginMethod,
+    });
+  }
+
   /// Staff login with employee ID + password
   static Future<Map<String, dynamic>> login({
     required String employeeId,
@@ -16,6 +51,7 @@ class AuthService {
   }) async {
     final response = await ApiClient.post(
       '/auth/staff/login',
+      auth: false,
       body: {
         'employeeId': employeeId,
         'password': password,
@@ -31,35 +67,11 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
-        final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
-        if (token != null) {
-          await ApiConfig.saveJwt(token.toString());
-          await ApiConfig.saveEmployeeId(employeeId);
-
-          final staffId =
-              data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
-          if (staffId != null) {
-            await ApiConfig.saveStaffId(staffId.toString());
-          }
-
-          // Save staff role for role-based feature access
-          final role =
-              data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
-          await ApiConfig.saveRole(role.toString());
-
-          // Save phone if available (needed for device/notification registration)
-          final phone = data['staff']?['phone'] ?? data['phone'];
-          if (phone != null) await ApiConfig.savePhone(phone.toString());
-
-          // Telemetry — record the role so subsequent events can be
-          // sliced by clinician cohort. Never pass raw employee id —
-          // hash it first if you need stable per-user analytics.
-          await Telemetry.setUserProperties(role: role.toString());
-          await Telemetry.event('auth.login_success', {
-            'role': role.toString(),
-            'method': 'password',
-          });
-        }
+        await _saveAuthenticatedStaffSession(
+          employeeId: employeeId,
+          data: data,
+          loginMethod: 'password',
+        );
         return data.isNotEmpty ? data : raw;
       }
     }
@@ -73,6 +85,7 @@ class AuthService {
   }) async {
     final response = await ApiClient.post(
       '/auth/staff/login-pin',
+      auth: false,
       body: {
         'employeeId': employeeId,
         'pin': pin,
@@ -84,26 +97,11 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
-        final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
-        if (token != null) {
-          await ApiConfig.saveJwt(token.toString());
-          await ApiConfig.saveEmployeeId(employeeId);
-
-          final staffId =
-              data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
-          if (staffId != null) {
-            await ApiConfig.saveStaffId(staffId.toString());
-          }
-
-          // Save staff role for role-based feature access
-          final role =
-              data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
-          await ApiConfig.saveRole(role.toString());
-
-          // Save phone if available (needed for device/notification registration)
-          final phone = data['staff']?['phone'] ?? data['phone'];
-          if (phone != null) await ApiConfig.savePhone(phone.toString());
-        }
+        await _saveAuthenticatedStaffSession(
+          employeeId: employeeId,
+          data: data,
+          loginMethod: 'pin',
+        );
         return data.isNotEmpty ? data : raw;
       }
     }
@@ -142,6 +140,7 @@ class AuthService {
   }) async {
     final response = await ApiClient.post(
       '/auth/staff/quick-login',
+      auth: false,
       body: {
         'employeeId': employeeId,
         'pin': ?pin,
@@ -155,21 +154,11 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
-        final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
-        if (token != null) {
-          await ApiConfig.saveJwt(token.toString());
-          await ApiConfig.saveEmployeeId(employeeId);
-
-          final staffId =
-              data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
-          if (staffId != null) {
-            await ApiConfig.saveStaffId(staffId.toString());
-          }
-
-          final role =
-              data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
-          await ApiConfig.saveRole(role.toString());
-        }
+        await _saveAuthenticatedStaffSession(
+          employeeId: employeeId,
+          data: data,
+          loginMethod: 'quick',
+        );
         return data.isNotEmpty ? data : raw;
       }
     }
