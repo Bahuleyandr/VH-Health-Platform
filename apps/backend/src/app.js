@@ -522,7 +522,21 @@ app.use(
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
 app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+app.use('/api/v1/investigations', patientRateLimiter, requireRole(
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'MEDICAL_SUPERINTENDENT',
+  'CNO',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'LAB_STAFF',
+  'MEDICAL_RECORDS',
+  'PATIENT',
+), phiAccessLogger('INVESTIGATION'), investigationRoutes);
 app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 // Alias mount: /api/v1/pharmacy/* → same sub-routes as /api/v1/pharmacy-orders/*.
 // The admin /dashboard/pharmacy/inventory page calls /pharmacy/inventory/*
@@ -902,7 +916,19 @@ app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'N
 app.use('/api/v1/dashboards', requireRole('ADMIN', 'SUPER_ADMIN'), dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
-app.use('/api/v1/staff-messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF'), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
+app.use('/api/v1/staff-messaging', requireRole(
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'MEDICAL_SUPERINTENDENT',
+  'CNO',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'BILLING_STAFF',
+), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
 app.use('/api/v1/discharge-summaries', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
@@ -915,7 +941,35 @@ app.use('/api/v1/referrals', phiAccessLogger('REFERRAL'), referralRoutes);
 // billing / TPA / admission-counter desk roles; the role-workflow sweep
 // caught all four 403ing here because this hand-maintained allowlist was
 // never updated for them.
-app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST', 'BILLING_STAFF', 'INSURANCE_COORDINATOR', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR'), messagingRoutes);
+app.use('/api/v1/messaging', requireRole(
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'MEDICAL_SUPERINTENDENT',
+  'CNO',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'LAB_STAFF',
+  'RADIOLOGY_STAFF',
+  'HR_STAFF',
+  'GENERAL_STAFF',
+  'HOUSEKEEPING_STAFF',
+  'HOUSEKEEPING_INCHARGE',
+  'MAINTENANCE',
+  'DELIVERY_STAFF',
+  'DRIVER',
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
+  'BILLING_STAFF',
+  'INSURANCE_COORDINATOR',
+  'ADMISSION_OFFICER',
+  'IPD_COUNSELLOR',
+), messagingRoutes);
 
 // Compliance: Breach Notification + Audit Search (admin only)
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
