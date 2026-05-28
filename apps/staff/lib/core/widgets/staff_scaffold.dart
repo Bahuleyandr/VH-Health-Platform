@@ -113,6 +113,7 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.nurse:
+      case StaffRole.nursingSuperintendent:
       case StaffRole.nursingIncharge:
       case StaffRole.opStaffNurse:
       case StaffRole.opIncharge:

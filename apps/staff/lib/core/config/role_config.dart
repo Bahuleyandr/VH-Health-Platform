@@ -6,6 +6,7 @@ enum StaffRole {
   doctor('DOCTOR'),
   dutyDoctor('DUTY_DOCTOR'),
   medicalSuperintendent('MEDICAL_SUPERINTENDENT'),
+  nursingSuperintendent('CNO'),
   nurse('NURSING_STAFF'),
   nursingIncharge('NURSING_INCHARGE'),
   opStaffNurse('OP_STAFF_NURSE'),
@@ -37,6 +38,7 @@ enum StaffRole {
     StaffRole.doctor => 'Doctor',
     StaffRole.dutyDoctor => 'Duty Doctor',
     StaffRole.medicalSuperintendent => 'Medical Superintendent',
+    StaffRole.nursingSuperintendent => 'Nursing Superintendent',
     StaffRole.nurse => 'Nurse',
     StaffRole.nursingIncharge => 'Nursing Incharge',
     StaffRole.opStaffNurse => 'OP Staff Nurse',
@@ -59,6 +61,7 @@ enum StaffRole {
     StaffRole.doctor => const Color(0xFF1565C0),
     StaffRole.dutyDoctor => const Color(0xFF1565C0),
     StaffRole.medicalSuperintendent => const Color(0xFF0D47A1),
+    StaffRole.nursingSuperintendent => const Color(0xFF004D40),
     StaffRole.nurse => const Color(0xFF00796B),
     StaffRole.nursingIncharge => const Color(0xFF00695C),
     StaffRole.opStaffNurse => const Color(0xFF00838F),
@@ -84,7 +87,9 @@ enum StaffRole {
     StaffRole.doctor ||
     StaffRole.dutyDoctor ||
     StaffRole.medicalSuperintendent => 'medical',
-    StaffRole.nurse || StaffRole.nursingIncharge => 'nursing',
+    StaffRole.nurse ||
+    StaffRole.nursingIncharge ||
+    StaffRole.nursingSuperintendent => 'nursing',
     StaffRole.opStaffNurse || StaffRole.opIncharge => 'op_nursing',
     StaffRole.pharmacy => 'pharmacy',
     StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
@@ -513,6 +518,29 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.nursingSuperintendent => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _nursingRoster,
+        _opNursingRoster,
+        _appointments,
+        _appointmentQueue,
+        _clinicalAiReviewQueue,
+        _patientRecords,
+        _vitals,
+        _nursingNotes,
+        _handover,
+        _bedBoard,
+        _dischargeHub,
+        _leave,
+        _organizationHierarchy,
+        _performance,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.opStaffNurse => [
         _attendance,
         _schedule,
@@ -782,6 +810,7 @@ class RoleFeatures {
         ),
       ],
       StaffRole.nurse ||
+      StaffRole.nursingSuperintendent ||
       StaffRole.nursingIncharge ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge => [
