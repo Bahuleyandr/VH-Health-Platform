@@ -38,6 +38,9 @@ class _HousekeepingRosterBoardScreenState
   final Map<String, List<Map<String, dynamic>>> _boardsByDate = {};
   final Map<String, List<Map<String, dynamic>>> _requestsByDate = {};
   final Map<String, List<Map<String, dynamic>>> _leaveCoverageByDate = {};
+  final Map<String, Map<String, dynamic>> _forecastByDate = {};
+  final Map<int, Map<String, dynamic>> _staffForecastById = {};
+  Map<String, dynamic> _forecastOverlay = {};
 
   @override
   void initState() {
@@ -259,10 +262,16 @@ class _HousekeepingRosterBoardScreenState
         _boardsByDate.clear();
         _requestsByDate.clear();
         _leaveCoverageByDate.clear();
+        _forecastByDate.clear();
+        _staffForecastById.clear();
+        _forecastOverlay = {};
 
         for (var index = 0; index < days.length; index += 1) {
           final dateText = days[index]['date'] as String;
           final data = Map<String, dynamic>.from(days[index]['data'] as Map);
+          final forecast = data['forecast_overlay'] is Map
+              ? Map<String, dynamic>.from(data['forecast_overlay'] as Map)
+              : <String, dynamic>{};
           if (index == 0) {
             _shifts = _asMapList(data['shifts']);
             _staff = _asMapList(data['staff']);
@@ -272,10 +281,21 @@ class _HousekeepingRosterBoardScreenState
               data['department_label'],
               fallback: _departmentLabel,
             );
+            _forecastOverlay = forecast;
           }
           _boardsByDate[dateText] = _asMapList(data['boards']);
           _requestsByDate[dateText] = _asMapList(data['requests']);
           _leaveCoverageByDate[dateText] = _asMapList(data['leave_coverage']);
+          final selectedDateRisk = forecast['selected_date_risk'];
+          if (selectedDateRisk is Map) {
+            _forecastByDate[dateText] = Map<String, dynamic>.from(
+              selectedDateRisk,
+            );
+          }
+          for (final score in _asMapList(forecast['staff_scores'])) {
+            final staffId = _asInt(score['staff_id']);
+            if (staffId != null) _staffForecastById[staffId] = score;
+          }
         }
         _applyWeekSelections();
       });
@@ -434,6 +454,34 @@ class _HousekeepingRosterBoardScreenState
 
   String? _approvedLeaveMessageForSelectedDate(int staffId) =>
       _approvedLeaveMessageForDate(staffId, _selectedDateText);
+
+  Map<String, dynamic>? _staffForecast(int staffId) =>
+      _staffForecastById[staffId];
+
+  Map<String, dynamic>? _forecastForSelectedDate() =>
+      _forecastByDate[_selectedDateText];
+
+  Color _riskColor(dynamic band) {
+    switch (_asText(band, fallback: 'low').toLowerCase()) {
+      case 'high':
+        return AppTheme.errorOnSurface;
+      case 'medium':
+        return AppTheme.warningOnSurface;
+      default:
+        return AppTheme.successOnSurface;
+    }
+  }
+
+  String _forecastStateLabel() {
+    final state = _asText(
+      _forecastOverlay['governance_state'],
+      fallback: 'blocked',
+    );
+    final review = _asText(_forecastOverlay['review_status'], fallback: '');
+    if (state == 'schema-unavailable') return 'schema unavailable';
+    if (state == 'blocked') return 'not generated';
+    return review.isEmpty ? state : '$state - $review';
+  }
 
   bool _showApprovedLeaveBlock(int staffId, {String? dateText}) {
     final targetDate = dateText ?? _selectedDateText;
@@ -798,6 +846,54 @@ class _HousekeepingRosterBoardScreenState
     }
   }
 
+  Future<void> _generateForecast() async {
+    setState(() => _saving = true);
+    try {
+      await HrApiService.generateRosterLeaveForecast(
+        department: widget.department,
+        startDate: _dateText(_weekStart),
+        endDate: _dateText(_weekStart.add(const Duration(days: 83))),
+      );
+      _showSnack(
+        '12-week advisory forecast generated for HR review',
+        AppTheme.successGreen,
+      );
+      await _load();
+    } catch (e) {
+      _showSnack(
+        e.toString().replaceFirst('Exception: ', ''),
+        AppTheme.errorRed,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _reviewForecast(String decision) async {
+    final runId = _asInt(_forecastOverlay['run_id']);
+    if (runId == null) {
+      _showSnack('Generate a forecast first.', AppTheme.errorRed);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await HrApiService.reviewRosterLeaveForecast(
+        runId: runId,
+        decision: decision,
+        reviewerNotes: 'Reviewed from $_departmentLabel roster board',
+      );
+      _showSnack('Forecast $decision', AppTheme.successGreen);
+      await _load();
+    } catch (e) {
+      _showSnack(
+        e.toString().replaceFirst('Exception: ', ''),
+        AppTheme.errorRed,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _addCustomShift() async {
     final result = await showDialog<_CustomShiftDraft>(
       context: context,
@@ -868,11 +964,14 @@ class _HousekeepingRosterBoardScreenState
                     status: status,
                     assigned: assigned,
                     gaps: gaps,
+                    forecastState: _forecastStateLabel(),
+                    forecastRisk: _forecastForSelectedDate(),
                     saving: _saving,
                     onPickWeek: _pickWeek,
                     onCopyPrevious: _copyPrevious,
                     onCopySelectedDayToWeek: _copySelectedDayToWeek,
                     onAddCustomShift: _addCustomShift,
+                    onGenerateForecast: _generateForecast,
                   ),
                   const SizedBox(height: 12),
                   _WeekStrip(
@@ -883,6 +982,8 @@ class _HousekeepingRosterBoardScreenState
                     dayLabel: _dayShortLabel,
                     assignedCountForDate: _assignedCountForDate,
                     gapCountForDate: _gapCountForDate,
+                    forecastForDate: (dateText) => _forecastByDate[dateText],
+                    riskColor: _riskColor,
                     onChanged: (index) => setState(() {
                       _selectedDayIndex = index;
                     }),
@@ -897,10 +998,14 @@ class _HousekeepingRosterBoardScreenState
                   _RosterSignals(
                     requests: _selectedRequests,
                     leaveCoverage: _selectedLeaveCoverage,
+                    forecastOverlay: _forecastOverlay,
+                    selectedDateRisk: _forecastForSelectedDate(),
                     saving: _saving,
                     asInt: _asInt,
                     asText: _asText,
+                    riskColor: _riskColor,
                     onReview: _reviewRequest,
+                    onForecastReview: _reviewForecast,
                   ),
                   const SizedBox(height: 12),
                   _RosterTabs(
@@ -929,6 +1034,8 @@ class _HousekeepingRosterBoardScreenState
                           _isStaffOnApprovedLeaveForSelectedDate,
                       approvedLeaveMessage:
                           _approvedLeaveMessageForSelectedDate,
+                      staffForecast: _staffForecast,
+                      riskColor: _riskColor,
                       assignedCountForShift: _assignedCountForShift,
                       onChanged: _setCellAssignment,
                       onAddCustomShift: _addCustomShift,
@@ -949,6 +1056,8 @@ class _HousekeepingRosterBoardScreenState
                           _isStaffOnApprovedLeaveForSelectedDate,
                       approvedLeaveMessage:
                           _approvedLeaveMessageForSelectedDate,
+                      staffForecast: _staffForecast,
+                      riskColor: _riskColor,
                       onShiftChanged: _setStaffShift,
                       onTargetChanged: _setStaffTarget,
                     ),
@@ -1010,11 +1119,14 @@ class _HeaderPanel extends StatelessWidget {
   final String status;
   final int assigned;
   final int gaps;
+  final String forecastState;
+  final Map<String, dynamic>? forecastRisk;
   final bool saving;
   final VoidCallback onPickWeek;
   final VoidCallback onCopyPrevious;
   final VoidCallback onCopySelectedDayToWeek;
   final VoidCallback onAddCustomShift;
+  final VoidCallback onGenerateForecast;
 
   const _HeaderPanel({
     required this.weekRangeText,
@@ -1023,11 +1135,14 @@ class _HeaderPanel extends StatelessWidget {
     required this.status,
     required this.assigned,
     required this.gaps,
+    required this.forecastState,
+    required this.forecastRisk,
     required this.saving,
     required this.onPickWeek,
     required this.onCopyPrevious,
     required this.onCopySelectedDayToWeek,
     required this.onAddCustomShift,
+    required this.onGenerateForecast,
   });
 
   @override
@@ -1086,6 +1201,28 @@ class _HeaderPanel extends StatelessWidget {
                       ? AppTheme.successOnSurface
                       : AppTheme.errorOnSurface,
                 ),
+                _StatusPill(
+                  label: 'Forecast $forecastState',
+                  color: forecastState.contains('ai')
+                      ? AppTheme.primaryBlue
+                      : forecastState.contains('unavailable') ||
+                            forecastState.contains('not generated')
+                      ? AppTheme.warningOnSurface
+                      : AppTheme.primaryTeal,
+                ),
+                if (forecastRisk != null)
+                  _StatusPill(
+                    label:
+                        '${forecastRisk!['risk_band'] ?? 'low'} risk - buffer ${forecastRisk!['recommended_buffer_count'] ?? 0}',
+                    color:
+                        (forecastRisk!['risk_band']?.toString() ?? 'low') ==
+                            'high'
+                        ? AppTheme.errorOnSurface
+                        : (forecastRisk!['risk_band']?.toString() ?? 'low') ==
+                              'medium'
+                        ? AppTheme.warningOnSurface
+                        : AppTheme.successOnSurface,
+                  ),
               ],
             ),
             const SizedBox(height: 12),
@@ -1117,6 +1254,14 @@ class _HeaderPanel extends StatelessWidget {
                     label: const Text('Add custom shift'),
                   ),
                 ),
+                SizedBox(
+                  width: 260,
+                  child: FilledButton.icon(
+                    onPressed: saving ? null : onGenerateForecast,
+                    icon: const Icon(Icons.auto_graph_outlined),
+                    label: const Text('Generate 12-week forecast'),
+                  ),
+                ),
               ],
             ),
           ],
@@ -1134,6 +1279,8 @@ class _WeekStrip extends StatelessWidget {
   final String Function(DateTime date) dayLabel;
   final int Function(String dateText) assignedCountForDate;
   final int Function(String dateText) gapCountForDate;
+  final Map<String, dynamic>? Function(String dateText) forecastForDate;
+  final Color Function(dynamic band) riskColor;
   final ValueChanged<int> onChanged;
 
   const _WeekStrip({
@@ -1144,6 +1291,8 @@ class _WeekStrip extends StatelessWidget {
     required this.dayLabel,
     required this.assignedCountForDate,
     required this.gapCountForDate,
+    required this.forecastForDate,
+    required this.riskColor,
     required this.onChanged,
   });
 
@@ -1162,6 +1311,8 @@ class _WeekStrip extends StatelessWidget {
               final selected = index == selectedIndex;
               final assigned = assignedCountForDate(text);
               final gaps = gapCountForDate(text);
+              final forecast = forecastForDate(text);
+              final riskBand = forecast?['risk_band'] ?? 'none';
               return Padding(
                 padding: EdgeInsets.only(
                   right: index == dates.length - 1 ? 0 : 8,
@@ -1194,6 +1345,17 @@ class _WeekStrip extends StatelessWidget {
                             fontSize: 12,
                           ),
                         ),
+                        if (forecast != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '$riskBand risk - buffer ${forecast['recommended_buffer_count'] ?? 0}',
+                            style: TextStyle(
+                              color: riskColor(riskBand),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1341,6 +1503,8 @@ class _FloorShiftGrid extends StatelessWidget {
   isStaffAssignedInOtherShift;
   final bool Function(int staffId) isStaffOnApprovedLeave;
   final String? Function(int staffId) approvedLeaveMessage;
+  final Map<String, dynamic>? Function(int staffId) staffForecast;
+  final Color Function(dynamic band) riskColor;
   final int Function(String shiftLabel) assignedCountForShift;
   final void Function(String shiftLabel, int targetId, int? staffId) onChanged;
   final VoidCallback onAddCustomShift;
@@ -1357,6 +1521,8 @@ class _FloorShiftGrid extends StatelessWidget {
     required this.isStaffAssignedInOtherShift,
     required this.isStaffOnApprovedLeave,
     required this.approvedLeaveMessage,
+    required this.staffForecast,
+    required this.riskColor,
     required this.assignedCountForShift,
     required this.onChanged,
     required this.onAddCustomShift,
@@ -1452,6 +1618,8 @@ class _FloorShiftGrid extends StatelessWidget {
                                     isStaffAssignedInOtherShift,
                                 isStaffOnApprovedLeave: isStaffOnApprovedLeave,
                                 approvedLeaveMessage: approvedLeaveMessage,
+                                staffForecast: staffForecast,
+                                riskColor: riskColor,
                                 onChanged: onChanged,
                               ),
                             ),
@@ -1649,6 +1817,8 @@ class _AssignmentDropdownCell extends StatelessWidget {
   isStaffAssignedInOtherShift;
   final bool Function(int staffId) isStaffOnApprovedLeave;
   final String? Function(int staffId) approvedLeaveMessage;
+  final Map<String, dynamic>? Function(int staffId) staffForecast;
+  final Color Function(dynamic band) riskColor;
   final void Function(String shiftLabel, int targetId, int? staffId) onChanged;
 
   const _AssignmentDropdownCell({
@@ -1663,6 +1833,8 @@ class _AssignmentDropdownCell extends StatelessWidget {
     required this.isStaffAssignedInOtherShift,
     required this.isStaffOnApprovedLeave,
     required this.approvedLeaveMessage,
+    required this.staffForecast,
+    required this.riskColor,
     required this.onChanged,
   });
 
@@ -1716,6 +1888,10 @@ class _AssignmentDropdownCell extends StatelessWidget {
                   final reason = staffId == null
                       ? null
                       : approvedLeaveMessage(staffId);
+                  final forecast = staffId == null
+                      ? null
+                      : staffForecast(staffId);
+                  final riskBand = forecast?['risk_band'];
                   return DropdownMenuItem<int?>(
                     value: staffId,
                     enabled: !disabled,
@@ -1729,10 +1905,13 @@ class _AssignmentDropdownCell extends StatelessWidget {
                         [
                           '${asText(row['name'])} - ${asText(row['employee_id'], fallback: 'no ID')}',
                           if (blockedByLeave) 'approved leave',
+                          if (riskBand != null) '$riskBand risk',
                         ].join(' - '),
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: blockedByLeave
+                          color: riskBand != null && !blockedByLeave
+                              ? riskColor(riskBand)
+                              : blockedByLeave
                               ? AppTheme.errorOnSurface
                               : disabled
                               ? AppTheme.textSecondary
@@ -1766,6 +1945,8 @@ class _StaffWiseRoster extends StatelessWidget {
   final String? Function(int staffId) staffAssignedTargetLabel;
   final bool Function(int staffId) isStaffOnApprovedLeave;
   final String? Function(int staffId) approvedLeaveMessage;
+  final Map<String, dynamic>? Function(int staffId) staffForecast;
+  final Color Function(dynamic band) riskColor;
   final bool Function({
     required String shiftLabel,
     required int targetId,
@@ -1787,6 +1968,8 @@ class _StaffWiseRoster extends StatelessWidget {
     required this.staffAssignedTargetLabel,
     required this.isStaffOnApprovedLeave,
     required this.approvedLeaveMessage,
+    required this.staffForecast,
+    required this.riskColor,
     required this.targetOccupiedByOtherStaff,
     required this.onShiftChanged,
     required this.onTargetChanged,
@@ -1809,6 +1992,11 @@ class _StaffWiseRoster extends StatelessWidget {
         final selectedTarget = staffAssignedTarget(staffId);
         final blockedByLeave = isStaffOnApprovedLeave(staffId);
         final leaveMessage = approvedLeaveMessage(staffId);
+        final forecast = staffForecast(staffId);
+        final riskBand = forecast?['risk_band'];
+        final topFactors = forecast?['top_factors'] is List
+            ? (forecast!['top_factors'] as List)
+            : const [];
         return Card(
           color: AppTheme.cardSurface,
           child: Padding(
@@ -1856,6 +2044,26 @@ class _StaffWiseRoster extends StatelessWidget {
                                 color: AppTheme.errorOnSurface,
                               ),
                             ),
+                          if (riskBand != null) ...[
+                            const SizedBox(width: 6),
+                            Tooltip(
+                              message: topFactors
+                                  .take(3)
+                                  .map((item) {
+                                    if (item is Map) {
+                                      return item['label']?.toString() ?? '';
+                                    }
+                                    return '';
+                                  })
+                                  .where((item) => item.isNotEmpty)
+                                  .join(' - '),
+                              child: _StatusPill(
+                                label: '$riskBand ${forecast?['score'] ?? ''}'
+                                    .trim(),
+                                color: riskColor(riskBand),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       if (blockedByLeave && leaveMessage != null) ...[
@@ -1985,28 +2193,49 @@ class _StaffWiseRoster extends StatelessWidget {
 class _RosterSignals extends StatelessWidget {
   final List<Map<String, dynamic>> requests;
   final List<Map<String, dynamic>> leaveCoverage;
+  final Map<String, dynamic> forecastOverlay;
+  final Map<String, dynamic>? selectedDateRisk;
   final bool saving;
   final int? Function(dynamic value) asInt;
   final String Function(dynamic value, {String fallback}) asText;
+  final Color Function(dynamic band) riskColor;
   final void Function(int requestId, String decision) onReview;
+  final void Function(String decision) onForecastReview;
 
   const _RosterSignals({
     required this.requests,
     required this.leaveCoverage,
+    required this.forecastOverlay,
+    required this.selectedDateRisk,
     required this.saving,
     required this.asInt,
     required this.asText,
+    required this.riskColor,
     required this.onReview,
+    required this.onForecastReview,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (requests.isEmpty && leaveCoverage.isEmpty) {
+    final hasForecast = forecastOverlay.isNotEmpty;
+    if (requests.isEmpty && leaveCoverage.isEmpty && !hasForecast) {
       return const SizedBox.shrink();
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (hasForecast) ...[
+          _ForecastSignalCard(
+            forecastOverlay: forecastOverlay,
+            selectedDateRisk: selectedDateRisk,
+            saving: saving,
+            asInt: asInt,
+            asText: asText,
+            riskColor: riskColor,
+            onForecastReview: onForecastReview,
+          ),
+          const SizedBox(height: 8),
+        ],
         if (requests.isNotEmpty) ...[
           Text(
             'Duty requests',
@@ -2137,6 +2366,159 @@ class _RosterSignals extends StatelessWidget {
               ),
         ],
       ],
+    );
+  }
+}
+
+class _ForecastSignalCard extends StatelessWidget {
+  final Map<String, dynamic> forecastOverlay;
+  final Map<String, dynamic>? selectedDateRisk;
+  final bool saving;
+  final int? Function(dynamic value) asInt;
+  final String Function(dynamic value, {String fallback}) asText;
+  final Color Function(dynamic band) riskColor;
+  final void Function(String decision) onForecastReview;
+
+  const _ForecastSignalCard({
+    required this.forecastOverlay,
+    required this.selectedDateRisk,
+    required this.saving,
+    required this.asInt,
+    required this.asText,
+    required this.riskColor,
+    required this.onForecastReview,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final state = asText(
+      forecastOverlay['governance_state'],
+      fallback: 'blocked',
+    );
+    final review = asText(
+      forecastOverlay['review_status'],
+      fallback: 'pending',
+    );
+    final summary = forecastOverlay['summary'] is Map
+        ? Map<String, dynamic>.from(forecastOverlay['summary'] as Map)
+        : <String, dynamic>{};
+    final riskBand = selectedDateRisk?['risk_band'] ?? 'low';
+    final runId = asInt(forecastOverlay['run_id']);
+    final sources = forecastOverlay['source_count'] ?? 0;
+    final sourceBreakdown = forecastOverlay['source_breakdown'] is Map
+        ? Map<String, dynamic>.from(forecastOverlay['source_breakdown'] as Map)
+        : <String, dynamic>{};
+    final sourceLabels = sourceBreakdown.entries
+        .map((entry) {
+          final value = entry.value is Map
+              ? Map<String, dynamic>.from(entry.value as Map)
+              : <String, dynamic>{};
+          return '${entry.key.replaceAll('_', ' ')}: ${value['state'] ?? 'unknown'}';
+        })
+        .take(6)
+        .join(' - ');
+
+    return Card(
+      color: AppTheme.cardSurface,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_graph_outlined,
+                  color: AppTheme.primaryBlue,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'AI/rules roster forecast',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                _StatusPill(
+                  label: state,
+                  color: state == 'ai'
+                      ? AppTheme.primaryBlue
+                      : state == 'schema-unavailable'
+                      ? AppTheme.errorOnSurface
+                      : AppTheme.warningOnSurface,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              asText(
+                summary['narrative'],
+                fallback:
+                    'Generate a 12-week forecast to see staffing risk signals.',
+              ),
+              style: TextStyle(color: AppTheme.textPrimary),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _StatusPill(
+                  label: 'Review $review',
+                  color: AppTheme.primaryTeal,
+                ),
+                _StatusPill(
+                  label: '$sources sources',
+                  color: AppTheme.primaryBlue,
+                ),
+                if (selectedDateRisk != null)
+                  _StatusPill(
+                    label:
+                        '$riskBand today - buffer ${selectedDateRisk!['recommended_buffer_count'] ?? 0}',
+                    color: riskColor(riskBand),
+                  ),
+              ],
+            ),
+            if (sourceLabels.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                sourceLabels,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+              ),
+            ],
+            if (runId != null && review == 'pending') ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () => onForecastReview('discarded'),
+                      icon: const Icon(Icons.close),
+                      label: const Text('Discard forecast'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: saving
+                          ? null
+                          : () => onForecastReview('accepted'),
+                      icon: const Icon(Icons.check),
+                      label: const Text('Accept for planning'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

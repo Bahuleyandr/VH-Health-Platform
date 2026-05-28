@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { getLatestRosterLeaveForecast } from '../ai/staffLeaveForecastService.js';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -431,19 +432,25 @@ async function getLeaveCoverageSignals(config, rosterDate) {
   );
 }
 
-export async function getRosterSnapshot({ department, rosterDate }) {
+export async function getRosterSnapshot({ department, rosterDate, tenantId = null }) {
   const config = getDepartmentConfig(department);
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
   }
   const date = assertRosterDate(rosterDate);
-  const [shifts, staff, targets, boards, requests, leaveCoverage] = await Promise.all([
+  const [shifts, staff, targets, boards, requests, leaveCoverage, forecastOverlay] = await Promise.all([
     getActiveShifts(config.department),
     getStaffPool(config),
     getTargets(config),
     getBoardsWithAssignments(config.department, date),
     getRosterRequestsForSnapshot(config, date),
-    getLeaveCoverageSignals(config, date)
+    getLeaveCoverageSignals(config, date),
+    getLatestRosterLeaveForecast({
+      tenantId,
+      department: config.department,
+      rosterDate: date,
+      includeStaffScores: true
+    })
   ]);
 
   return {
@@ -457,6 +464,7 @@ export async function getRosterSnapshot({ department, rosterDate }) {
     boards,
     requests,
     leave_coverage: leaveCoverage,
+    forecast_overlay: forecastOverlay,
     coverage: summarizeCoverage({ boards, targets, config })
   };
 }
