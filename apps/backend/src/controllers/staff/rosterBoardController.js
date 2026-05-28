@@ -10,7 +10,8 @@ import {
   listMyRosterPreferenceRequests,
   publishRosterBoard,
   reviewRosterPreferenceRequest,
-  saveRosterBoard
+  saveRosterBoard,
+  saveRosterDay
 } from '../../services/staff/rosterBoardService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -56,6 +57,25 @@ export async function saveDepartmentRoster(req, res) {
   } catch (err) {
     logger.error('Save roster board failed:', err);
     error(res, err.message || 'Failed to save roster board', statusFromError(err));
+  }
+}
+
+export async function saveDepartmentRosterDay(req, res) {
+  try {
+    const { department } = req.params;
+    if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
+
+    const board = await saveRosterDay({
+      department,
+      rosterDate: req.body?.roster_date,
+      boards: req.body?.boards,
+      actorUser: req.user,
+      reason: req.body?.reason || 'Saved from roster day grid'
+    });
+    success(res, board, 'Roster day saved');
+  } catch (err) {
+    logger.error('Save roster day failed:', err);
+    error(res, err.message || 'Failed to save roster day', statusFromError(err));
   }
 }
 

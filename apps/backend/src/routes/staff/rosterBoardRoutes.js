@@ -13,6 +13,7 @@ wrapAutoRBAC(router, 'staffRosterBoardRoutes', {
   post: [
     ['/requests', rosterBoardController.createDutyPreferenceRequest],
     ['/requests/:id/review', rosterBoardController.reviewDutyPreferenceRequest],
+    ['/departments/:department/day-boards', rosterBoardController.saveDepartmentRosterDay],
     ['/departments/:department/boards', rosterBoardController.saveDepartmentRoster],
     ['/departments/:department/copy-previous', rosterBoardController.copyPreviousDepartmentRoster],
     ['/boards/:id/publish', rosterBoardController.publishDepartmentRoster]

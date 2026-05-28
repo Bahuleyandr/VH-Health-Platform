@@ -33,6 +33,7 @@ describe('housekeeping floor delegation', () => {
   let assignmentId;
   let requestId;
   let rosterBoardId;
+  const rosterBoardIds = [];
   let rosterPreferenceRequestId;
   let leaveApplicationId;
 
@@ -118,6 +119,20 @@ describe('housekeeping floor delegation', () => {
         .$executeRawUnsafe(
           `DELETE FROM staff_shift_roster_boards WHERE id = $1::int`,
           rosterBoardId
+        )
+        .catch(() => {});
+    }
+    if (rosterBoardIds.length) {
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM housekeeping_floor_assignments WHERE roster_board_id = ANY($1::int[])`,
+          rosterBoardIds
+        )
+        .catch(() => {});
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_boards WHERE id = ANY($1::int[])`,
+          rosterBoardIds
         )
         .catch(() => {});
     }
@@ -274,6 +289,7 @@ describe('housekeeping floor delegation', () => {
 
     expect(saved.statusCode).toBe(200);
     rosterBoardId = saved.body.data.id;
+    rosterBoardIds.push(rosterBoardId);
     expect(saved.body.data).toMatchObject({
       department: 'housekeeping',
       roster_date: tomorrow,
@@ -308,6 +324,72 @@ describe('housekeeping floor delegation', () => {
       is_temporary: false,
       status: 'active'
     });
+  });
+
+  it('saves a day roster grid and blocks assigning one staff member to two shifts', async () => {
+    const rosterDate = new Date(Date.now() + 345_600_000).toISOString().slice(0, 10);
+    const incharge = authed('HOUSEKEEPING_INCHARGE', INCHARGE_UID, inchargeId);
+
+    const saved = await incharge
+      .post('/api/v1/staff/roster-board/departments/housekeeping/day-boards')
+      .send({
+        roster_date: rosterDate,
+        boards: [
+          {
+            shift_label: 'Morning',
+            notes: 'Grid save morning',
+            assignments: [
+              {
+                staff_id: staffId,
+                assignment_target_type: 'housekeeping_zone',
+                assignment_target_id: zoneId
+              }
+            ]
+          },
+          {
+            shift_label: 'Evening',
+            notes: 'Grid save evening',
+            assignments: []
+          }
+        ]
+      });
+
+    expect(saved.statusCode).toBe(200);
+    rosterBoardIds.push(...(saved.body.data.boards ?? []).map(row => row.id));
+    expect(saved.body.data.saved_count).toBe(2);
+    expect(saved.body.data.boards[0].assignments).toHaveLength(1);
+
+    const blockedDate = new Date(Date.now() + 432_000_000).toISOString().slice(0, 10);
+    const blocked = await incharge
+      .post('/api/v1/staff/roster-board/departments/housekeeping/day-boards')
+      .send({
+        roster_date: blockedDate,
+        boards: [
+          {
+            shift_label: 'Morning',
+            assignments: [
+              {
+                staff_id: staffId,
+                assignment_target_type: 'housekeeping_zone',
+                assignment_target_id: zoneId
+              }
+            ]
+          },
+          {
+            shift_label: 'Night',
+            assignments: [
+              {
+                staff_id: staffId,
+                assignment_target_type: 'housekeeping_zone',
+                assignment_target_id: zoneId
+              }
+            ]
+          }
+        ]
+      });
+
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.body.message).toMatch(/only one shift per day/i);
   });
 
   it('keeps ordinary housekeeping staff out of the central roster board', async () => {
