@@ -33,6 +33,7 @@ describe('housekeeping floor delegation', () => {
   let assignmentId;
   let requestId;
   let rosterBoardId;
+  let rosterPreferenceRequestId;
 
   beforeAll(async () => {
     const users = await prisma.$queryRawUnsafe(
@@ -116,6 +117,20 @@ describe('housekeeping floor delegation', () => {
         .$executeRawUnsafe(
           `DELETE FROM staff_shift_roster_boards WHERE id = $1::int`,
           rosterBoardId
+        )
+        .catch(() => {});
+    }
+    if (rosterPreferenceRequestId) {
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_request_audit WHERE request_id = $1::int`,
+          rosterPreferenceRequestId
+        )
+        .catch(() => {});
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_requests WHERE id = $1::int`,
+          rosterPreferenceRequestId
         )
         .catch(() => {});
     }
@@ -284,6 +299,60 @@ describe('housekeeping floor delegation', () => {
     const staff = authed('HOUSEKEEPING_STAFF', STAFF_UID, staffId);
     const res = await staff.get('/api/v1/staff/roster-board/departments/housekeeping');
     expect(res.statusCode).toBe(403);
+  });
+
+  it('lets staff request duty preferences and manager approval leaves an audit trail', async () => {
+    const rosterDate = new Date(Date.now() + 172_800_000).toISOString().slice(0, 10);
+    const nurse = authed('NURSING_STAFF', NURSE_UID, nurseId);
+
+    const created = await nurse.post('/api/v1/staff/roster-board/requests').send({
+      department: 'nursing',
+      requested_start_date: rosterDate,
+      requested_end_date: rosterDate,
+      period_type: 'day',
+      shift_label: 'Morning',
+      reason: 'Prefers ward duty that day'
+    });
+
+    expect(created.statusCode).toBe(200);
+    rosterPreferenceRequestId = created.body.data.id;
+    expect(created.body.data).toMatchObject({
+      staff_id: nurseId,
+      department: 'nursing',
+      status: 'pending',
+      shift_label: 'Morning'
+    });
+
+    const mine = await nurse.get('/api/v1/staff/roster-board/requests/my');
+    expect(mine.statusCode).toBe(200);
+    expect((mine.body.data ?? []).some(row => row.id === rosterPreferenceRequestId)).toBe(true);
+
+    const admin = authed('ADMIN', ADMIN_UID, adminId);
+    const snapshot = await admin.get(`/api/v1/staff/roster-board/departments/nursing?date=${rosterDate}`);
+    expect(snapshot.statusCode).toBe(200);
+    expect(
+      (snapshot.body.data.requests ?? []).some(row => row.id === rosterPreferenceRequestId)
+    ).toBe(true);
+
+    const reviewed = await admin
+      .post(`/api/v1/staff/roster-board/requests/${rosterPreferenceRequestId}/review`)
+      .send({ decision: 'approved', review_notes: 'Rostered preference accepted' });
+    expect(reviewed.statusCode).toBe(200);
+    expect(reviewed.body.data).toMatchObject({
+      id: rosterPreferenceRequestId,
+      status: 'approved',
+      reviewed_by: adminId
+    });
+
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT action, actor_id
+         FROM staff_shift_roster_request_audit
+        WHERE request_id = $1::int
+        ORDER BY created_at DESC`,
+      rosterPreferenceRequestId
+    );
+    expect(audit.map(row => row.action)).toEqual(expect.arrayContaining(['created', 'approved']));
+    expect(audit.some(row => row.actor_id === adminId)).toBe(true);
   });
 
   it('auto-routes new zone requests to the active delegated staff member', async () => {

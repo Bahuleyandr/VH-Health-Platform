@@ -5,7 +5,14 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 
 class HousekeepingRosterBoardScreen extends StatefulWidget {
-  const HousekeepingRosterBoardScreen({super.key});
+  final String department;
+  final String title;
+
+  const HousekeepingRosterBoardScreen({
+    super.key,
+    this.department = 'housekeeping',
+    this.title = 'Shift Roster',
+  });
 
   @override
   State<HousekeepingRosterBoardScreen> createState() =>
@@ -19,13 +26,17 @@ class _HousekeepingRosterBoardScreenState
   String? _error;
   DateTime _date = DateTime.now();
   String? _selectedShiftLabel;
-  final Map<int, int?> _zoneStaff = {};
+  final Map<int, int?> _targetStaff = {};
+  String _targetType = 'housekeeping_zone';
+  String _departmentLabel = 'Housekeeping';
 
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _staff = [];
   List<Map<String, dynamic>> _targets = [];
   List<Map<String, dynamic>> _boards = [];
   List<Map<String, dynamic>> _coverage = [];
+  List<Map<String, dynamic>> _requests = [];
+  List<Map<String, dynamic>> _leaveCoverage = [];
 
   @override
   void initState() {
@@ -87,10 +98,10 @@ class _HousekeepingRosterBoardScreenState
   }
 
   void _applyBoardSelections() {
-    _zoneStaff.clear();
+    _targetStaff.clear();
     for (final target in _targets) {
       final targetId = _asInt(target['id']);
-      if (targetId != null) _zoneStaff[targetId] = null;
+      if (targetId != null) _targetStaff[targetId] = null;
     }
 
     final board = _currentBoard;
@@ -101,7 +112,7 @@ class _HousekeepingRosterBoardScreenState
       );
       final staffId = _asInt(assignment['staff_id']);
       if (targetId != null && staffId != null) {
-        _zoneStaff[targetId] = staffId;
+        _targetStaff[targetId] = staffId;
       }
     }
   }
@@ -115,7 +126,7 @@ class _HousekeepingRosterBoardScreenState
     }
     try {
       final data = await HrApiService.getRosterBoard(
-        department: 'housekeeping',
+        department: widget.department,
         rosterDate: _dateText(_date),
       );
       final shifts = _asMapList(data['shifts']);
@@ -126,6 +137,13 @@ class _HousekeepingRosterBoardScreenState
         _targets = _asMapList(data['targets']);
         _boards = _asMapList(data['boards']);
         _coverage = _asMapList(data['coverage']);
+        _requests = _asMapList(data['requests']);
+        _leaveCoverage = _asMapList(data['leave_coverage']);
+        _targetType = _asText(data['target_type'], fallback: _targetType);
+        _departmentLabel = _asText(
+          data['department_label'],
+          fallback: _departmentLabel,
+        );
         _selectedShiftLabel ??= shifts.isNotEmpty
             ? _asText(shifts.first['name'])
             : 'Morning';
@@ -159,12 +177,16 @@ class _HousekeepingRosterBoardScreenState
     for (final target in _targets) {
       final targetId = _asInt(target['id']);
       if (targetId == null) continue;
-      final staffId = _zoneStaff[targetId];
+      final staffId = _targetStaff[targetId];
+      final label = _asText(target['label'] ?? target['name']);
       if (staffId == null) continue;
       result.add({
         'staff_id': staffId,
-        'assignment_target_type': 'housekeeping_zone',
+        'assignment_target_type': _targetType,
         'assignment_target_id': targetId,
+        'assignment_target_label': label,
+        'floor': target['floor'],
+        'building': target['building'],
       });
     }
     return result;
@@ -183,11 +205,11 @@ class _HousekeepingRosterBoardScreenState
     setState(() => _saving = true);
     try {
       final saved = await HrApiService.saveRosterBoard(
-        department: 'housekeeping',
+        department: widget.department,
         rosterDate: _dateText(_date),
         shiftLabel: shiftLabel,
         shiftId: _asInt(shift?['id']),
-        notes: 'Housekeeping shift roster',
+        notes: '$_departmentLabel shift roster',
         assignments: assignments,
       );
       if (!quiet) _showSnack('Roster draft saved', AppTheme.successGreen);
@@ -216,7 +238,7 @@ class _HousekeepingRosterBoardScreenState
     try {
       await HrApiService.publishRosterBoard(
         rosterId: boardId,
-        reason: 'Published from housekeeping roster board',
+        reason: 'Published from $_departmentLabel roster board',
       );
       _showSnack('Roster published for live routing', AppTheme.successGreen);
       await _load();
@@ -236,11 +258,31 @@ class _HousekeepingRosterBoardScreenState
     setState(() => _saving = true);
     try {
       await HrApiService.copyPreviousRosterBoard(
-        department: 'housekeeping',
+        department: widget.department,
         rosterDate: _dateText(_date),
         shiftLabel: shiftLabel,
       );
       _showSnack('Previous roster copied', AppTheme.successGreen);
+      await _load();
+    } catch (e) {
+      _showSnack(
+        e.toString().replaceFirst('Exception: ', ''),
+        AppTheme.errorRed,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _reviewRequest(int requestId, String decision) async {
+    setState(() => _saving = true);
+    try {
+      await HrApiService.reviewRosterPreferenceRequest(
+        requestId: requestId,
+        decision: decision,
+        reviewNotes: 'Reviewed from $_departmentLabel roster board',
+      );
+      _showSnack('Duty request $decision', AppTheme.successGreen);
       await _load();
     } catch (e) {
       _showSnack(
@@ -272,7 +314,7 @@ class _HousekeepingRosterBoardScreenState
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Shift Roster'),
+        title: Text(widget.title),
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -292,6 +334,7 @@ class _HousekeepingRosterBoardScreenState
                   if (_error != null) _ErrorBanner(error: _error!),
                   _HeaderPanel(
                     dateText: _dateText(_date),
+                    departmentLabel: _departmentLabel,
                     status: status,
                     assigned: assigned,
                     gaps: gapCount,
@@ -314,25 +357,35 @@ class _HousekeepingRosterBoardScreenState
                   const SizedBox(height: 12),
                   _RosterLegend(
                     staffCount: _staff.length,
-                    zoneCount: _targets.length,
+                    targetCount: _targets.length,
+                  ),
+                  const SizedBox(height: 8),
+                  _RosterSignals(
+                    requests: _requests,
+                    leaveCoverage: _leaveCoverage,
+                    saving: _saving,
+                    asInt: _asInt,
+                    asText: _asText,
+                    onReview: _reviewRequest,
                   ),
                   const SizedBox(height: 8),
                   if (_targets.isEmpty)
-                    const _EmptyCard(
+                    _EmptyCard(
                       icon: Icons.map_outlined,
-                      text: 'No active housekeeping zones configured',
+                      text:
+                          'No active $_departmentLabel roster targets configured',
                     )
                   else
                     ..._targets.map(
                       (target) => _ZoneAssignmentCard(
                         target: target,
                         staff: _staff,
-                        selectedStaffId: _zoneStaff[_asInt(target['id'])],
+                        selectedStaffId: _targetStaff[_asInt(target['id'])],
                         saving: _saving,
                         onChanged: (staffId) {
                           final targetId = _asInt(target['id']);
                           if (targetId == null) return;
-                          setState(() => _zoneStaff[targetId] = staffId);
+                          setState(() => _targetStaff[targetId] = staffId);
                         },
                         asInt: _asInt,
                         asText: _asText,
@@ -375,6 +428,7 @@ class _HousekeepingRosterBoardScreenState
 
 class _HeaderPanel extends StatelessWidget {
   final String dateText;
+  final String departmentLabel;
   final String status;
   final int assigned;
   final int gaps;
@@ -384,6 +438,7 @@ class _HeaderPanel extends StatelessWidget {
 
   const _HeaderPanel({
     required this.dateText,
+    required this.departmentLabel,
     required this.status,
     required this.assigned,
     required this.gaps,
@@ -408,7 +463,7 @@ class _HeaderPanel extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Planned shift deployment',
+                    '$departmentLabel planned duty roster',
                     style: TextStyle(
                       color: AppTheme.textPrimary,
                       fontSize: 18,
@@ -504,9 +559,9 @@ class _ShiftSelector extends StatelessWidget {
 
 class _RosterLegend extends StatelessWidget {
   final int staffCount;
-  final int zoneCount;
+  final int targetCount;
 
-  const _RosterLegend({required this.staffCount, required this.zoneCount});
+  const _RosterLegend({required this.staffCount, required this.targetCount});
 
   @override
   Widget build(BuildContext context) {
@@ -520,7 +575,166 @@ class _RosterLegend extends StatelessWidget {
         ),
         _StatusPill(label: '$staffCount staff', color: AppTheme.primaryTeal),
         const SizedBox(width: 8),
-        _StatusPill(label: '$zoneCount zones', color: AppTheme.primaryBlue),
+        _StatusPill(label: '$targetCount posts', color: AppTheme.primaryBlue),
+      ],
+    );
+  }
+}
+
+class _RosterSignals extends StatelessWidget {
+  final List<Map<String, dynamic>> requests;
+  final List<Map<String, dynamic>> leaveCoverage;
+  final bool saving;
+  final int? Function(dynamic value) asInt;
+  final String Function(dynamic value, {String fallback}) asText;
+  final void Function(int requestId, String decision) onReview;
+
+  const _RosterSignals({
+    required this.requests,
+    required this.leaveCoverage,
+    required this.saving,
+    required this.asInt,
+    required this.asText,
+    required this.onReview,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (requests.isEmpty && leaveCoverage.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (requests.isNotEmpty) ...[
+          Text(
+            'Duty requests',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...requests.take(6).map((request) {
+            final id = asInt(request['id']);
+            final status = asText(request['status'], fallback: 'pending');
+            return Card(
+              color: AppTheme.cardSurface,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.how_to_reg_outlined,
+                          color: AppTheme.primaryBlue,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            asText(request['staff_name'], fallback: 'Staff'),
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        _StatusPill(
+                          label: status,
+                          color: status == 'approved'
+                              ? AppTheme.successOnSurface
+                              : AppTheme.warningOnSurface,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      [
+                        asText(request['shift_label'], fallback: 'Any shift'),
+                        asText(
+                          request['assignment_target_label'],
+                          fallback: 'Any post',
+                        ),
+                        asText(request['reason'], fallback: ''),
+                      ].where((part) => part.isNotEmpty).join(' - '),
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                    if (status == 'pending' && id != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: saving
+                                  ? null
+                                  : () => onReview(id, 'rejected'),
+                              icon: const Icon(Icons.close),
+                              label: const Text('Reject'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: saving
+                                  ? null
+                                  : () => onReview(id, 'approved'),
+                              icon: const Icon(Icons.check),
+                              label: const Text('Approve'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
+        ],
+        if (leaveCoverage.isNotEmpty) ...[
+          Text(
+            'Leave and alternate cover',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...leaveCoverage
+              .take(6)
+              .map(
+                (leave) => Card(
+                  color: AppTheme.cardSurface,
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.event_busy_outlined,
+                      color: AppTheme.warningOnSurface,
+                    ),
+                    title: Text(
+                      asText(leave['staff_name'], fallback: 'Staff on leave'),
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      [
+                        asText(leave['leave_type'], fallback: 'Leave'),
+                        asText(leave['leave_status'], fallback: ''),
+                        asText(
+                          leave['replacement_staff_name'],
+                          fallback: 'No alternate approved',
+                        ),
+                      ].where((part) => part.isNotEmpty).join(' - '),
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                ),
+              ),
+        ],
       ],
     );
   }

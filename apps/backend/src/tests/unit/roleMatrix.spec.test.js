@@ -54,17 +54,21 @@ const GATES = [
   {
     name: 'isDoctor',
     fn: isDoctor,
-    allow: new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'])
+    allow: new Set(['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'])
   },
   {
     name: 'isClinical',
     fn: isClinical,
     allow: new Set([
       'DOCTOR',
+      'DUTY_DOCTOR',
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'RESIDENT',
       'NURSING_STAFF',
+      'NURSING_INCHARGE',
+      'OP_STAFF_NURSE',
+      'OP_INCHARGE',
       'RADIOLOGIST',
       'ANESTHETIST',
       'PHYSIOTHERAPIST',
@@ -75,7 +79,7 @@ const GATES = [
   {
     name: 'isLeadership',
     fn: isLeadership,
-    allow: new Set(['CMO', 'CNO', 'DEPARTMENT_HEAD', 'ADMIN'])
+    allow: new Set(['CMO', 'CNO', 'DEPARTMENT_HEAD', 'MEDICAL_SUPERINTENDENT', 'ADMIN'])
   },
   {
     name: 'isSupportStaff',
@@ -90,6 +94,8 @@ const GATES = [
       'CARE_COORDINATOR',
       'CLAIMS_MANAGER',
       'AMBULANCE_COORDINATOR',
+      'RECEPTION_INCHARGE',
+      'DRIVER',
       'HOUSEKEEPING_STAFF',
       'HOUSEKEEPING_INCHARGE',
       'MAINTENANCE'
@@ -120,10 +126,14 @@ const GATES = [
     fn: canViewDischargeSummary,
     allow: new Set([
       'DOCTOR',
+      'DUTY_DOCTOR',
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'RESIDENT',
       'NURSING_STAFF',
+      'NURSING_INCHARGE',
+      'OP_STAFF_NURSE',
+      'OP_INCHARGE',
       'MEDICAL_RECORDS',
       'ADMIN'
     ])
@@ -133,10 +143,14 @@ const GATES = [
     fn: canViewMedicalData,
     allow: new Set([
       'DOCTOR',
+      'DUTY_DOCTOR',
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'RESIDENT',
       'NURSING_STAFF',
+      'NURSING_INCHARGE',
+      'OP_STAFF_NURSE',
+      'OP_INCHARGE',
       'RADIOLOGIST',
       'ANESTHETIST',
       'PHYSIOTHERAPIST',
@@ -151,6 +165,7 @@ const GATES = [
     fn: canAccessRadiology,
     allow: new Set([
       'DOCTOR',
+      'DUTY_DOCTOR',
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'RESIDENT',
@@ -164,6 +179,7 @@ const GATES = [
     fn: canAccessOT,
     allow: new Set([
       'DOCTOR',
+      'DUTY_DOCTOR',
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'OT_STAFF',
@@ -177,6 +193,7 @@ const GATES = [
     fn: canAccessBloodBank,
     allow: new Set([
       'DOCTOR',
+      'DUTY_DOCTOR',
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'NURSING_STAFF',

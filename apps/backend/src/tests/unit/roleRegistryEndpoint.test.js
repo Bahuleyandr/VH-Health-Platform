@@ -29,7 +29,7 @@ describe('buildRoleRegistry', () => {
   });
 
   it('exposes the canonical group lists', () => {
-    expect(payload.doctor_tiers).toEqual(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']);
+    expect(payload.doctor_tiers).toEqual(['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']);
     expect(payload.clinical_roles).toContain('COUNSELLOR');
     expect(payload.platform_roles).toContain('DATA_PROTECTION_OFFICER');
     expect(payload.machine_roles).toEqual(['WEBHOOK_CLIENT']);

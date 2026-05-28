@@ -423,6 +423,45 @@ class HrApiService {
     );
   }
 
+  /// POST /staff/roster-board/requests
+  static Future<Map<String, dynamic>> createRosterPreferenceRequest({
+    required String department,
+    required String requestedStartDate,
+    String? requestedEndDate,
+    String periodType = 'day',
+    String requestType = 'duty_preference',
+    String? shiftLabel,
+    String? reason,
+  }) async {
+    return await _post('/staff/roster-board/requests', {
+      'department': department,
+      'requested_start_date': requestedStartDate,
+      'requested_end_date': requestedEndDate ?? requestedStartDate,
+      'period_type': periodType,
+      'request_type': requestType,
+      'shift_label': ?shiftLabel,
+      'reason': ?reason,
+    });
+  }
+
+  /// GET /staff/roster-board/requests/my
+  static Future<List<dynamic>> getMyRosterPreferenceRequests() async {
+    final result = await _get('/staff/roster-board/requests/my');
+    return result['data'] as List? ?? (result is List ? result as List : []);
+  }
+
+  /// POST /staff/roster-board/requests/:id/review
+  static Future<Map<String, dynamic>> reviewRosterPreferenceRequest({
+    required int requestId,
+    required String decision,
+    String? reviewNotes,
+  }) async {
+    return await _post('/staff/roster-board/requests/$requestId/review', {
+      'decision': decision,
+      'review_notes': ?reviewNotes,
+    });
+  }
+
   // ─── Payroll ──────────────────────────────────────────────────────────────
 
   /// GET /staff/hr/payslips?months=N

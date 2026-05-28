@@ -57,6 +57,7 @@ import '../../features/notifications/screens/notifications_screen.dart';
 
 // Schedule
 import '../../features/schedule/screens/schedule_screen.dart';
+import '../../features/schedule/screens/duty_preference_screen.dart';
 
 // Handover
 import '../../features/nursing/screens/handover_screen.dart';
@@ -427,6 +428,27 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: HousekeepingRosterBoardScreen()),
         ),
+        GoRoute(
+          path: '/staff-roster/:department',
+          name: 'staff-roster',
+          pageBuilder: (context, state) {
+            final department =
+                state.pathParameters['department'] ?? 'housekeeping';
+            final title = switch (department) {
+              'nursing' => 'Nursing Roster',
+              'op_nursing' => 'OP Nursing Roster',
+              'reception' => 'Reception Roster',
+              'ambulance' || 'drivers' => 'Driver Roster',
+              _ => 'Shift Roster',
+            };
+            return NoTransitionPage(
+              child: HousekeepingRosterBoardScreen(
+                department: department,
+                title: title,
+              ),
+            );
+          },
+        ),
 
         // Directory
         GoRoute(
@@ -442,6 +464,12 @@ final GoRouter appRouter = GoRouter(
           name: 'schedule',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: ScheduleScreen()),
+        ),
+        GoRoute(
+          path: '/duty-preference',
+          name: 'duty-preference',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: DutyPreferenceScreen()),
         ),
 
         // Handover — accepts optional `patient_ref` and `phone` query
