@@ -89,8 +89,33 @@ export default {
   // ✅ Fix: use NURSING_STAFF constant instead of string 'NURSE'
   healthRecordsRoutes: [PATIENT, ADMIN, DOCTOR, NURSING_STAFF],
 
-  investigationRoutes: [PATIENT, LAB_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
-  medicalStaffRoutes: [DOCTOR, NURSING_STAFF, LAB_STAFF, ADMIN],
+  investigationRoutes: [
+    PATIENT,
+    LAB_STAFF,
+    NURSING_STAFF,
+    NURSING_INCHARGE,
+    OP_STAFF_NURSE,
+    OP_INCHARGE,
+    DOCTOR,
+    DUTY_DOCTOR,
+    MEDICAL_SUPERINTENDENT,
+    CNO,
+    ADMIN,
+    SUPER_ADMIN
+  ],
+  medicalStaffRoutes: [
+    DOCTOR,
+    DUTY_DOCTOR,
+    MEDICAL_SUPERINTENDENT,
+    CNO,
+    NURSING_STAFF,
+    NURSING_INCHARGE,
+    OP_STAFF_NURSE,
+    OP_INCHARGE,
+    LAB_STAFF,
+    ADMIN,
+    SUPER_ADMIN
+  ],
 
   // Mixed/utility
   feedbackRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
