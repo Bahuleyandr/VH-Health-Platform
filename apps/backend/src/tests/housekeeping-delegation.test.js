@@ -34,6 +34,7 @@ describe('housekeeping floor delegation', () => {
   let doctorId;
   let zoneId;
   let unusedZoneId;
+  let rosterWardId;
   let assignmentId;
   let requestId;
   let rosterBoardId;
@@ -107,6 +108,14 @@ describe('housekeeping floor delegation', () => {
       `Delegation Ward ${STAMP}`
     );
     zoneId = zones[0].id;
+
+    const wards = await prisma.$queryRawUnsafe(
+      `INSERT INTO wards (name, floor, total_beds, created_at, updated_at)
+       VALUES ($1, 2, 12, NOW(), NOW())
+       RETURNING id`,
+      `Delegation Roster Ward ${STAMP}`
+    );
+    rosterWardId = wards[0].id;
   });
 
   afterAll(async () => {
@@ -209,20 +218,27 @@ describe('housekeeping floor delegation', () => {
         .$executeRawUnsafe(`DELETE FROM housekeeping_zones WHERE id = $1::int`, unusedZoneId)
         .catch(() => {});
     }
+    if (rosterWardId) {
+      await prisma
+        .$executeRawUnsafe(`DELETE FROM wards WHERE id = $1::int`, rosterWardId)
+        .catch(() => {});
+    }
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid,$3::uuid)`,
+        `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid)`,
         INCHARGE_UID,
         STAFF_UID,
+        SECOND_STAFF_UID,
         DOCTOR_UID
       )
       .catch(() => {});
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid)`,
+        `DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid)`,
         ADMIN_UID,
         INCHARGE_UID,
         STAFF_UID,
+        SECOND_STAFF_UID,
         NURSE_UID,
         DOCTOR_UID
       )
@@ -242,6 +258,29 @@ describe('housekeeping floor delegation', () => {
       building: 'Main',
       is_active: true
     });
+  });
+
+  it('uses the Bed Board ward list for housekeeping roster targets', async () => {
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const incharge = authed('HOUSEKEEPING_INCHARGE', INCHARGE_UID, inchargeId);
+    const res = await incharge.get(
+      `/api/v1/staff/roster-board/departments/housekeeping?date=${tomorrow}`
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.target_type).toBe('housekeeping_zone');
+    const targets = res.body.data.targets ?? [];
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: rosterWardId,
+          label: `Delegation Roster Ward ${STAMP}`,
+          source: 'bed_board',
+          zone_type: 'ward'
+        })
+      ])
+    );
+    expect(targets.some(row => row.label === `Delegation Ward ${STAMP}`)).toBe(false);
   });
 
   it('lets housekeeping incharge delegate staff to a busy floor zone', async () => {
@@ -318,13 +357,13 @@ describe('housekeeping floor delegation', () => {
           {
             staff_id: staffId,
             assignment_target_type: 'housekeeping_zone',
-            assignment_target_id: zoneId,
+            assignment_target_id: rosterWardId,
             is_lead: true
           },
           {
             staff_id: secondStaffId,
             assignment_target_type: 'housekeeping_zone',
-            assignment_target_id: zoneId
+            assignment_target_id: rosterWardId
           }
         ]
       });
@@ -363,7 +402,7 @@ describe('housekeeping floor delegation', () => {
       [staffId, secondStaffId].sort((a, b) => a - b)
     );
     expect(projection[0]).toMatchObject({
-      zone_id: zoneId,
+      zone_id: rosterWardId,
       shift_label: 'Morning',
       assignment_kind: 'roster',
       is_temporary: false,
@@ -387,7 +426,7 @@ describe('housekeeping floor delegation', () => {
               {
                 staff_id: staffId,
                 assignment_target_type: 'housekeeping_zone',
-                assignment_target_id: zoneId
+                assignment_target_id: rosterWardId
               }
             ]
           },
@@ -416,7 +455,7 @@ describe('housekeeping floor delegation', () => {
               {
                 staff_id: staffId,
                 assignment_target_type: 'housekeeping_zone',
-                assignment_target_id: zoneId
+                assignment_target_id: rosterWardId
               }
             ]
           },
@@ -426,7 +465,7 @@ describe('housekeeping floor delegation', () => {
               {
                 staff_id: staffId,
                 assignment_target_type: 'housekeeping_zone',
-                assignment_target_id: zoneId
+                assignment_target_id: rosterWardId
               }
             ]
           }
@@ -466,7 +505,7 @@ describe('housekeeping floor delegation', () => {
           {
             staff_id: staffId,
             assignment_target_type: 'housekeeping_zone',
-            assignment_target_id: zoneId,
+            assignment_target_id: rosterWardId,
           }
         ]
       });

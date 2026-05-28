@@ -210,36 +210,39 @@ async function getStaffPool(config) {
 }
 
 async function getHousekeepingZoneTargets() {
-  const zones = await prisma.$queryRawUnsafe(`
-    SELECT id, name AS label, zone_type, floor, building
+  const wards = await getWardTargets();
+  if (wards.length) {
+    return wards.map(row => ({
+      ...row,
+      zone_type: 'ward',
+      source: 'bed_board'
+    }));
+  }
+
+  return prisma.$queryRawUnsafe(`
+    SELECT id,
+           name AS label,
+           zone_type,
+           floor,
+           building,
+           'housekeeping_zones'::text AS source
       FROM housekeeping_zones
      WHERE is_active = true
      ORDER BY COALESCE(floor, ''), name
-  `);
-  if (zones.length) return zones;
-
-  return prisma.$queryRawUnsafe(`
-    SELECT MIN(id)::int AS id,
-           CONCAT('Floor ', COALESCE(floor::text, 'Unassigned')) AS label,
-           'floor'::text AS zone_type,
-           floor::text AS floor,
-           'Main'::text AS building,
-           true AS synthetic
-      FROM wards
-     GROUP BY floor
-     ORDER BY COALESCE(floor, 999)
   `);
 }
 
 async function getWardTargets() {
   return prisma.$queryRawUnsafe(`
-    SELECT id,
-           name AS label,
-           floor::text AS floor,
+    SELECT w.id,
+           w.name AS label,
+           w.floor::text AS floor,
            NULL::text AS building,
-           total_beds
-      FROM wards
-     ORDER BY COALESCE(floor, 999), name
+           w.total_beds,
+           (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id) AS bed_count,
+           (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id AND b.status = 'occupied') AS occupied_count
+      FROM wards w
+     ORDER BY w.name
   `);
 }
 
@@ -572,8 +575,24 @@ async function resolveTarget(config, assignment) {
   }
 
   if (config.department === 'housekeeping') {
+    const wardRows = await prisma.$queryRawUnsafe(
+      `SELECT id,
+              name AS label,
+              floor::text AS floor,
+              NULL::text AS building,
+              'ward'::text AS zone_type,
+              'bed_board'::text AS source
+         FROM wards
+        WHERE id = $1::int
+        LIMIT 1`,
+      targetId
+    );
+    if (wardRows.length) {
+      return { ...wardRows[0], target_type: targetType };
+    }
+
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, name AS label, floor, building
+      `SELECT id, name AS label, floor, building, zone_type, 'housekeeping_zones'::text AS source
          FROM housekeeping_zones
         WHERE id = $1::int
           AND is_active = true
@@ -581,7 +600,7 @@ async function resolveTarget(config, assignment) {
       targetId
     );
     if (!rows.length) {
-      throw Object.assign(new Error('Housekeeping zone not found or inactive. Ask Admin/HR to enable this floor/zone before assigning roster duty.'), {
+      throw Object.assign(new Error('Ward or housekeeping zone not found. Ask Admin/HR to align the Bed Board ward list before assigning roster duty.'), {
         statusCode: 404
       });
     }

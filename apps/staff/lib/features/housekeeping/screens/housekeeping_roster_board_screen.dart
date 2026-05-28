@@ -1496,13 +1496,13 @@ class _RosterLegend extends StatelessWidget {
       children: [
         Expanded(
           child: Text(
-            'Assign each floor or zone under Morning, Evening, Night, or a custom shift.',
+            'Assign each ward, unit, or floor under Morning, Evening, Night, or a custom shift.',
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ),
         _StatusPill(label: '$staffCount staff', color: AppTheme.primaryTeal),
         const SizedBox(width: 8),
-        _StatusPill(label: '$targetCount floors', color: AppTheme.primaryBlue),
+        _StatusPill(label: '$targetCount areas', color: AppTheme.primaryBlue),
         const SizedBox(width: 8),
         _StatusPill(
           label: '$shiftCount shifts',
@@ -1528,7 +1528,7 @@ class _RosterTabs extends StatelessWidget {
           Expanded(
             child: _TabButton(
               icon: Icons.view_week_outlined,
-              label: 'By floor',
+              label: 'By ward',
               selected: selectedIndex == 0,
               onPressed: () => onChanged(0),
             ),
@@ -1680,7 +1680,7 @@ class _FloorShiftGrid extends StatelessWidget {
                         children: [
                           _GridHeaderCell(
                             width: floorWidth,
-                            title: 'Floor / Zone',
+                            title: 'Ward / Unit',
                             subtitle: '${targets.length} active',
                           ),
                           ...shifts.map(
@@ -2335,7 +2335,7 @@ class _StaffWiseRoster extends StatelessWidget {
                     initialValue: selectedTarget,
                     isExpanded: true,
                     decoration: const InputDecoration(
-                      labelText: 'Floor / Zone',
+                      labelText: 'Ward / Unit',
                       prefixIcon: Icon(Icons.location_on_outlined),
                     ),
                     items: [
