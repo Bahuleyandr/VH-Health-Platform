@@ -803,11 +803,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.monitor_heart_outlined),
-            activeIcon: Icon(Icons.monitor_heart),
-            label: 'Vitals',
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+            label: 'My Roster',
           ),
-          route: '/vitals',
+          route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
