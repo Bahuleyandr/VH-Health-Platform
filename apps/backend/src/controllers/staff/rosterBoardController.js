@@ -6,6 +6,7 @@ import {
   createRosterPreferenceRequest,
   getRosterBoardDepartment,
   getRosterSnapshot,
+  listMyRosterAssignments,
   listDepartmentRosterPreferenceRequests,
   listMyRosterPreferenceRequests,
   publishRosterBoard,
@@ -160,6 +161,21 @@ export async function getMyDutyPreferenceRequests(req, res) {
   } catch (err) {
     logger.error('Get my roster preference requests failed:', err);
     error(res, err.message || 'Failed to fetch roster preference requests', statusFromError(err));
+  }
+}
+
+export async function getMyRosterAssignments(req, res) {
+  try {
+    const assignments = await listMyRosterAssignments({
+      actorUser: req.user,
+      startDate: req.query?.start_date || req.query?.startDate,
+      endDate: req.query?.end_date || req.query?.endDate,
+      limit: req.query?.limit
+    });
+    success(res, assignments, 'Roster assignments fetched');
+  } catch (err) {
+    logger.error('Get my roster assignments failed:', err);
+    error(res, err.message || 'Failed to fetch roster assignments', statusFromError(err));
   }
 }
 

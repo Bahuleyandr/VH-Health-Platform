@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -12,19 +14,23 @@ class DutyPreferenceScreen extends StatefulWidget {
 }
 
 class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
-  static const _departments = <String, String>{
+  static const _departmentLabels = <String, String>{
+    'medical': 'Duty Doctors',
     'nursing': 'Nursing',
-    'op_nursing': 'OP Nursing',
+    'op_nursing': 'OP Staff Nursing',
+    'pharmacy': 'Pharmacy',
     'reception': 'Reception',
     'housekeeping': 'Housekeeping',
-    'ambulance': 'Drivers',
+    'ambulance': 'Ambulance / Drivers',
+    'maintenance': 'Maintenance',
   };
   static const _periods = ['day', 'week', 'month'];
   static const _shifts = ['Morning', 'Afternoon', 'Night', 'Any'];
 
   bool _loading = true;
   bool _saving = false;
-  String _department = 'nursing';
+  StaffRole _role = StaffRole.general;
+  String? _department;
   String _period = 'day';
   String _shift = 'Morning';
   DateTime _startDate = DateTime.now().add(const Duration(days: 1));
@@ -64,15 +70,30 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
         .toList();
   }
 
+  String get _departmentLabel {
+    final department = _department;
+    if (department == null) return 'Not configured';
+    return _departmentLabels[department] ?? _role.rosterDepartmentLabel;
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
+    final role = StaffRole.fromString(await ApiConfig.getRole());
     try {
       final rows = await HrApiService.getMyRosterPreferenceRequests();
       if (!mounted) return;
-      setState(() => _requests = _asMapList(rows));
+      setState(() {
+        _role = role;
+        _department = role.rosterDepartment;
+        _requests = _asMapList(rows);
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _requests = []);
+      setState(() {
+        _role = role;
+        _department = role.rosterDepartment;
+        _requests = [];
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -91,18 +112,42 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
         _endDate = picked.isBefore(_startDate) ? _startDate : picked;
       } else {
         _startDate = picked;
-        if (_endDate.isBefore(_startDate)) _endDate = _startDate;
+        if (_period == 'day' || _endDate.isBefore(_startDate)) {
+          _endDate = _startDate;
+        }
+      }
+    });
+  }
+
+  void _setPeriod(String period) {
+    setState(() {
+      _period = period;
+      if (_period == 'day' || _endDate.isBefore(_startDate)) {
+        _endDate = _startDate;
       }
     });
   }
 
   Future<void> _submit() async {
+    final department = _department;
+    if (department == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Duty requests are not configured for ${_role.displayName}.',
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
+      final endDate = _period == 'day' ? _startDate : _endDate;
       await HrApiService.createRosterPreferenceRequest(
-        department: _department,
+        department: department,
         requestedStartDate: _dateText(_startDate),
-        requestedEndDate: _dateText(_endDate),
+        requestedEndDate: _dateText(endDate),
         periodType: _period,
         shiftLabel: _shift == 'Any' ? null : _shift,
         reason: _reasonController.text.trim(),
@@ -163,25 +208,21 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: _department,
+                    InputDecorator(
                       decoration: const InputDecoration(
                         labelText: 'Department',
                         prefixIcon: Icon(Icons.apartment_outlined),
                       ),
-                      items: _departments.entries
-                          .map(
-                            (entry) => DropdownMenuItem(
-                              value: entry.key,
-                              child: Text(entry.value),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: _saving
-                          ? null
-                          : (value) => setState(
-                              () => _department = value ?? _department,
-                            ),
+                      child: Text(
+                        _departmentLabel,
+                        style: TextStyle(
+                          color: _department == null
+                              ? AppTheme.errorRed
+                              : AppTheme.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Wrap(
@@ -193,7 +234,7 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                               selected: _period == period,
                               onSelected: _saving
                                   ? null
-                                  : (_) => setState(() => _period = period),
+                                  : (_) => _setPeriod(period),
                             ),
                           )
                           .toList(),
@@ -214,29 +255,41 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                           .toList(),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _saving
-                                ? null
-                                : () => _pickDate(end: false),
-                            icon: const Icon(Icons.event_outlined),
-                            label: Text(_dateText(_startDate)),
-                          ),
+                    if (_period == 'day')
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _saving
+                              ? null
+                              : () => _pickDate(end: false),
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text('Date  ${_dateText(_startDate)}'),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _saving
-                                ? null
-                                : () => _pickDate(end: true),
-                            icon: const Icon(Icons.event_available_outlined),
-                            label: Text(_dateText(_endDate)),
+                      )
+                    else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _pickDate(end: false),
+                              icon: const Icon(Icons.event_outlined),
+                              label: Text('From  ${_dateText(_startDate)}'),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _pickDate(end: true),
+                              icon: const Icon(Icons.event_available_outlined),
+                              label: Text('To  ${_dateText(_endDate)}'),
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _reasonController,
@@ -300,7 +353,7 @@ class _DutyPreferenceScreenState extends State<DutyPreferenceScreen> {
                       color: AppTheme.primaryBlue,
                     ),
                     title: Text(
-                      '${_departments[_asText(request['department'])] ?? _asText(request['department'])} - ${_asText(request['shift_label'], fallback: 'Any shift')}',
+                      '${_departmentLabels[_asText(request['department'])] ?? _asText(request['department'])} - ${_asText(request['shift_label'], fallback: 'Any shift')}',
                       style: TextStyle(
                         color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w700,

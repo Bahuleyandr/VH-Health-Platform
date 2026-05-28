@@ -507,6 +507,23 @@ class HrApiService {
     return result['data'] as List? ?? (result is List ? result as List : []);
   }
 
+  /// GET /staff/roster-board/assignments/my
+  static Future<List<dynamic>> getMyRosterAssignments({
+    required String startDate,
+    required String endDate,
+    int limit = 100,
+  }) async {
+    final result = await _get(
+      '/staff/roster-board/assignments/my',
+      query: {
+        'start_date': startDate,
+        'end_date': endDate,
+        'limit': limit.toString(),
+      },
+    );
+    return result['data'] as List? ?? (result is List ? result as List : []);
+  }
+
   /// POST /staff/roster-board/requests/:id/review
   static Future<Map<String, dynamic>> reviewRosterPreferenceRequest({
     required int requestId,

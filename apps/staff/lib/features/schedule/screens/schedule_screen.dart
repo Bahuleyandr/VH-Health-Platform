@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/attendance_api_service.dart';
+import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
@@ -16,8 +17,10 @@ class ScheduleScreen extends StatefulWidget {
 class _ScheduleScreenState extends State<ScheduleScreen> {
   DateTime _weekStart = _getWeekStart(DateTime.now());
   List<Map<String, dynamic>> _records = [];
+  List<Map<String, dynamic>> _assignments = [];
   bool _loading = true;
   String? _error;
+  String? _rosterError;
 
   static DateTime _getWeekStart(DateTime date) {
     final diff = date.weekday - DateTime.monday;
@@ -34,42 +37,80 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _rosterError = null;
     });
     try {
       final weekEnd = _weekStart.add(const Duration(days: 6));
       final startStr = DateFormat('yyyy-MM-dd').format(_weekStart);
       final endStr = DateFormat('yyyy-MM-dd').format(weekEnd);
 
-      // Try auth attendance history first, fall back to staff attendance
-      Map<String, dynamic> result;
-      try {
-        result = await AttendanceApiService.getAttendanceHistory(
-          startDate: startStr,
-          endDate: endStr,
-          limit: 50,
-        );
-      } catch (e) {
-        final staffId = await ApiConfig.getStaffId();
-        result = await AttendanceApiService.getAttendance(
-          staffId ?? '',
-          startDate: startStr,
-          endDate: endStr,
-          limit: 50,
-        );
-      }
-
       final records = <Map<String, dynamic>>[];
-      if (result['records'] is List) {
-        for (final r in result['records']) {
-          if (r is Map<String, dynamic>) records.add(r);
+      String? attendanceError;
+      try {
+        final result = await AttendanceApiService.getAttendanceHistory(
+          startDate: startStr,
+          endDate: endStr,
+          limit: 50,
+        );
+        if (result['records'] is List) {
+          for (final r in result['records']) {
+            if (r is Map) records.add(Map<String, dynamic>.from(r));
+          }
+        } else if (result['attendance'] is List) {
+          for (final r in result['attendance']) {
+            if (r is Map) records.add(Map<String, dynamic>.from(r));
+          }
         }
-      } else if (result['attendance'] is List) {
-        for (final r in result['attendance']) {
-          if (r is Map<String, dynamic>) records.add(r);
+      } catch (e) {
+        try {
+          final staffId = await ApiConfig.getStaffId();
+          final fallback = await AttendanceApiService.getAttendance(
+            staffId ?? '',
+            startDate: startStr,
+            endDate: endStr,
+            limit: 50,
+          );
+          if (fallback['records'] is List) {
+            for (final r in fallback['records']) {
+              if (r is Map) records.add(Map<String, dynamic>.from(r));
+            }
+          } else if (fallback['attendance'] is List) {
+            for (final r in fallback['attendance']) {
+              if (r is Map) records.add(Map<String, dynamic>.from(r));
+            }
+          }
+        } catch (fallbackError) {
+          attendanceError = fallbackError.toString().replaceFirst(
+            'Exception: ',
+            '',
+          );
         }
       }
 
-      if (mounted) setState(() => _records = records);
+      final rosterAssignments = <Map<String, dynamic>>[];
+      String? rosterError;
+      try {
+        final rows = await HrApiService.getMyRosterAssignments(
+          startDate: startStr,
+          endDate: endStr,
+        );
+        for (final row in rows) {
+          if (row is Map) {
+            rosterAssignments.add(Map<String, dynamic>.from(row));
+          }
+        }
+      } catch (e) {
+        rosterError = e.toString().replaceFirst('Exception: ', '');
+      }
+
+      if (mounted) {
+        setState(() {
+          _records = records;
+          _assignments = rosterAssignments;
+          _error = attendanceError;
+          _rosterError = rosterError;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -92,6 +133,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (rDate.toString().startsWith(dateStr)) return r;
     }
     return null;
+  }
+
+  List<Map<String, dynamic>> _assignmentsForDate(DateTime date) {
+    final dateStr = DateFormat('yyyy-MM-dd').format(date);
+    return _assignments
+        .where((row) => row['roster_date'].toString().startsWith(dateStr))
+        .toList();
+  }
+
+  String _asText(dynamic value, {String fallback = '-'}) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? fallback : text;
   }
 
   double get _totalHours {
@@ -130,7 +183,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     try {
       return DateFormat('HH:mm').format(DateTime.parse(isoStr));
     } catch (e) {
-      return isoStr.length > 5 ? isoStr.substring(11, 16) : isoStr;
+      if (RegExp(r'^\d{2}:\d{2}').hasMatch(isoStr)) {
+        return isoStr.substring(0, 5);
+      }
+      return isoStr.length >= 16 ? isoStr.substring(11, 16) : isoStr;
     }
   }
 
@@ -149,6 +205,62 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     if (diff == 7) return 'Next Week';
     if (diff == -7) return 'Last Week';
     return '${DateFormat('d MMM').format(_weekStart)} – ${DateFormat('d MMM').format(_weekStart.add(const Duration(days: 6)))}';
+  }
+
+  String _assignmentLocation(Map<String, dynamic> assignment) {
+    final parts = [
+      _asText(assignment['assignment_target_label'], fallback: ''),
+      _asText(assignment['floor'], fallback: ''),
+      _asText(assignment['building'], fallback: ''),
+    ].where((part) => part.isNotEmpty).toList();
+    return parts.isEmpty ? 'Assigned duty' : parts.join(' - ');
+  }
+
+  Widget _buildRosterLine(Map<String, dynamic> assignment) {
+    final shift = _asText(assignment['shift_label'], fallback: 'Duty');
+    final start = _formatTime(assignment['shift_start']?.toString());
+    final end = _formatTime(assignment['shift_end']?.toString());
+    final isLead = assignment['is_lead'] == true;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.10),
+        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.25)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.work_history_outlined,
+            size: 18,
+            color: AppTheme.primaryBlue,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$shift  $start-$end${isLead ? '  Lead' : ''}',
+                  style: const TextStyle(
+                    color: AppTheme.primaryBlue,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _assignmentLocation(assignment),
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -190,29 +302,36 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Total hours
+            // Published duty roster + attendance summary
             Card(
               color: AppTheme.primaryBlue,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    const Icon(Icons.access_time, color: Colors.white),
+                    const Icon(Icons.event_available, color: Colors.white),
                     const SizedBox(width: 12),
-                    Text(
-                      'Total: ${_totalHours.toStringAsFixed(1)}h',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${_records.length} days logged',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${_assignments.length} rostered shift${_assignments.length == 1 ? '' : 's'}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_records.length} attendance days - ${_totalHours.toStringAsFixed(1)}h logged',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -220,29 +339,68 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            if (_rosterError != null)
+              Card(
+                color: AppTheme.warningOnSurface.withValues(alpha: 0.12),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: AppTheme.warningOnSurface,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Published roster unavailable: $_rosterError',
+                          style: TextStyle(
+                            color: AppTheme.warningOnSurface,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_error != null)
+              Card(
+                color: AppTheme.warningOnSurface.withValues(alpha: 0.12),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: AppTheme.warningOnSurface,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Attendance unavailable: $_error',
+                          style: TextStyle(
+                            color: AppTheme.warningOnSurface,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(32),
                 child: Center(child: CircularProgressIndicator()),
               )
-            else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    'Could not load schedule: $_error',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              )
             else
               // Day-by-day timeline
               ...List.generate(7, (i) {
                 final day = _weekStart.add(Duration(days: i));
                 final rec = _recordForDate(day);
+                final assignments = _assignmentsForDate(day);
                 final isToday = _isToday(day);
                 final hours = rec != null ? _hoursForRecord(rec) : null;
                 final checkIn = rec?['checkInTime'] ?? rec?['checkIn'];
@@ -297,8 +455,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         const SizedBox(width: 12),
                         // Times
                         Expanded(
-                          child: rec != null
-                              ? Column(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ...assignments.map(_buildRosterLine),
+                              if (rec != null)
+                                Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
@@ -339,15 +501,20 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                       ),
                                   ],
                                 )
-                              : Text(
-                                  day.isAfter(DateTime.now())
-                                      ? 'Upcoming'
-                                      : 'No record',
+                              else
+                                Text(
+                                  assignments.isNotEmpty
+                                      ? 'No attendance logged yet'
+                                      : (day.isAfter(DateTime.now())
+                                            ? 'No published duty'
+                                            : 'No record'),
                                   style: const TextStyle(
                                     color: Colors.grey,
                                     fontSize: 13,
                                   ),
                                 ),
+                            ],
+                          ),
                         ),
                         // Status indicator
                         Container(
@@ -357,7 +524,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                             shape: BoxShape.circle,
                             color: rec != null
                                 ? Colors.green
-                                : (day.isAfter(DateTime.now())
+                                : (assignments.isNotEmpty
+                                      ? AppTheme.primaryBlue
+                                      : day.isAfter(DateTime.now())
                                       ? Colors.grey.shade300
                                       : Colors.orange.shade300),
                           ),

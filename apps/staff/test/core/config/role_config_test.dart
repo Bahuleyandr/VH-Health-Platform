@@ -44,6 +44,27 @@ void main() {
     });
   });
 
+  group('StaffRole.rosterDepartment', () {
+    test('maps normal staff roles to their own roster department only', () {
+      expect(StaffRole.nurse.rosterDepartment, 'nursing');
+      expect(StaffRole.nursingIncharge.rosterDepartment, 'nursing');
+      expect(StaffRole.opStaffNurse.rosterDepartment, 'op_nursing');
+      expect(StaffRole.housekeeping.rosterDepartment, 'housekeeping');
+      expect(StaffRole.receptionist.rosterDepartment, 'reception');
+      expect(StaffRole.driver.rosterDepartment, 'ambulance');
+      expect(StaffRole.maintenance.rosterDepartment, 'maintenance');
+      expect(StaffRole.pharmacy.rosterDepartment, 'pharmacy');
+      expect(StaffRole.doctor.rosterDepartment, 'medical');
+    });
+
+    test('does not invent a roster department for roles without one', () {
+      expect(StaffRole.hr.rosterDepartment, isNull);
+      expect(StaffRole.admin.rosterDepartment, isNull);
+      expect(StaffRole.lab.rosterDepartment, isNull);
+      expect(StaffRole.general.rosterDepartment, isNull);
+    });
+  });
+
   group('RoleFeatures.getFeaturesForRole', () {
     test('doctor gets clinical features but NOT HR dashboard', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.doctor);
