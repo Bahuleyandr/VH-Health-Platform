@@ -446,6 +446,9 @@ final GoRouter appRouter = GoRouter(
               'op_nursing' => 'OP Nursing Roster',
               'reception' => 'Reception Roster',
               'ambulance' || 'drivers' => 'Driver Roster',
+              'maintenance' => 'Maintenance Roster',
+              'pharmacy' => 'Pharmacy Roster',
+              'medical' => 'Doctor Roster',
               _ => 'Shift Roster',
             };
             return NoTransitionPage(
