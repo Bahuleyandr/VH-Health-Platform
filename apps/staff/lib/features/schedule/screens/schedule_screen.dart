@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/attendance_api_service.dart';
@@ -263,6 +264,82 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
+  Widget _buildShiftActions() {
+    const actions = [
+      _RosterAction(
+        icon: Icons.swap_calls_outlined,
+        label: 'Duty Request',
+        route: '/duty-preference',
+        color: AppTheme.primaryBlue,
+      ),
+      _RosterAction(
+        icon: Icons.event_available_outlined,
+        label: 'Leave',
+        route: '/leave',
+        color: Color(0xFF007A64),
+      ),
+      _RosterAction(
+        icon: Icons.fingerprint,
+        label: 'Attendance',
+        route: '/attendance',
+        color: Color(0xFF6A1B9A),
+      ),
+    ];
+
+    return Card(
+      color: AppTheme.cardSurface,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Shift actions',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 620;
+                final width = isWide
+                    ? (constraints.maxWidth - 16) / 3
+                    : constraints.maxWidth;
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: actions
+                      .map(
+                        (action) => SizedBox(
+                          width: width,
+                          height: 56,
+                          child: OutlinedButton.icon(
+                            onPressed: () => context.push(action.route),
+                            icon: Icon(action.icon, color: action.color),
+                            label: Text(action.label),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: action.color,
+                              alignment: Alignment.centerLeft,
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -338,6 +415,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            _buildShiftActions(),
             const SizedBox(height: 12),
             if (_rosterError != null)
               Card(
@@ -541,4 +620,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       ),
     );
   }
+}
+
+class _RosterAction {
+  final IconData icon;
+  final String label;
+  final String route;
+  final Color color;
+
+  const _RosterAction({
+    required this.icon,
+    required this.label,
+    required this.route,
+    required this.color,
+  });
 }

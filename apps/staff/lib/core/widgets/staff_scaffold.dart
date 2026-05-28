@@ -124,10 +124,10 @@ class StaffScaffold extends StatelessWidget {
             '/dashboard',
           ),
           const _NavItem(
-            'Vitals',
-            Icons.monitor_heart_outlined,
-            Icons.monitor_heart,
-            '/vitals',
+            'My Roster',
+            Icons.schedule_outlined,
+            Icons.schedule,
+            '/schedule',
           ),
           const _NavItem(
             'Notes',
