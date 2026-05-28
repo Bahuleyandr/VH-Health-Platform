@@ -26,11 +26,16 @@ function statusFromError(err) {
 export async function getDepartmentRoster(req, res) {
   try {
     const { department } = req.params;
-    if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
+    if (!canManageRosterDepartment(req.user, department, 'view')) return forbidden(res);
 
     const rosterDate =
       req.query?.date || req.query?.roster_date || new Date().toISOString().slice(0, 10);
-    const snapshot = await getRosterSnapshot({ department, rosterDate, tenantId: req.tenantId });
+    const snapshot = await getRosterSnapshot({
+      department,
+      rosterDate,
+      tenantId: req.tenantId,
+      actorUser: req.user
+    });
     success(res, snapshot, 'Roster board fetched');
   } catch (err) {
     logger.error('Get roster board failed:', err);
@@ -161,7 +166,7 @@ export async function getMyDutyPreferenceRequests(req, res) {
 export async function getDepartmentDutyPreferenceRequests(req, res) {
   try {
     const { department } = req.params;
-    if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
+    if (!canManageRosterDepartment(req.user, department, 'request_review')) return forbidden(res);
 
     const requests = await listDepartmentRosterPreferenceRequests({
       department,

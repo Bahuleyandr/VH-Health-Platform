@@ -29,6 +29,10 @@ class _HousekeepingRosterBoardScreenState
   int _tabIndex = 0;
   String _targetType = 'housekeeping_zone';
   String _departmentLabel = 'Housekeeping';
+  String _governanceNote = '';
+  bool _canEditRoster = true;
+  bool _canReviewRosterRequests = true;
+  bool _canForecastRoster = true;
 
   final Map<String, Map<String, Map<int, int?>>> _assignmentsByDate = {};
 
@@ -273,6 +277,9 @@ class _HousekeepingRosterBoardScreenState
               ? Map<String, dynamic>.from(data['forecast_overlay'] as Map)
               : <String, dynamic>{};
           if (index == 0) {
+            final capabilities = data['capabilities'] is Map
+                ? Map<String, dynamic>.from(data['capabilities'] as Map)
+                : const <String, dynamic>{};
             _shifts = _asMapList(data['shifts']);
             _staff = _asMapList(data['staff']);
             _targets = _asMapList(data['targets']);
@@ -281,6 +288,11 @@ class _HousekeepingRosterBoardScreenState
               data['department_label'],
               fallback: _departmentLabel,
             );
+            _governanceNote = _asText(data['governance_note'], fallback: '');
+            _canEditRoster = capabilities['can_edit'] != false;
+            _canReviewRosterRequests =
+                capabilities['can_review_requests'] != false;
+            _canForecastRoster = capabilities['can_forecast'] != false;
             _forecastOverlay = forecast;
           }
           _boardsByDate[dateText] = _asMapList(data['boards']);
@@ -675,6 +687,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<Map<String, dynamic>?> _saveDraft({bool quiet = false}) async {
+    if (!_canEditRoster) {
+      _showSnack(
+        'Roster editing needs the department incharge or Admin role.',
+        AppTheme.errorRed,
+      );
+      return null;
+    }
     if (_shiftColumns.isEmpty) {
       _showSnack('No roster shifts are configured.', AppTheme.errorRed);
       return null;
@@ -713,6 +732,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _publish() async {
+    if (!_canEditRoster) {
+      _showSnack(
+        'Publishing needs the department incharge or Admin role.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     final leaveConflict = _firstApprovedLeaveConflictForWeek();
     if (leaveConflict != null) {
       _showSnack(leaveConflict, AppTheme.errorRed);
@@ -759,6 +785,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _copyPrevious() async {
+    if (!_canEditRoster) {
+      _showSnack(
+        'Copying rosters needs the department incharge or Admin role.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       var copied = 0;
@@ -794,6 +827,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   void _copySelectedDayToWeek() {
+    if (!_canEditRoster) {
+      _showSnack(
+        'Roster editing needs the department incharge or Admin role.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     final source = _assignmentsByShift;
     var blocked = 0;
     setState(() {
@@ -827,6 +867,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _reviewRequest(int requestId, String decision) async {
+    if (!_canReviewRosterRequests) {
+      _showSnack(
+        'Duty request review needs HR or department incharge access.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       await HrApiService.reviewRosterPreferenceRequest(
@@ -847,6 +894,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _generateForecast() async {
+    if (!_canForecastRoster) {
+      _showSnack(
+        'Forecast generation needs HR or department incharge access.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       await HrApiService.generateRosterLeaveForecast(
@@ -870,6 +924,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _reviewForecast(String decision) async {
+    if (!_canForecastRoster) {
+      _showSnack(
+        'Forecast review needs HR or department incharge access.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     final runId = _asInt(_forecastOverlay['run_id']);
     if (runId == null) {
       _showSnack('Generate a forecast first.', AppTheme.errorRed);
@@ -895,6 +956,13 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _addCustomShift() async {
+    if (!_canEditRoster) {
+      _showSnack(
+        'Custom shifts need the department incharge or Admin role.',
+        AppTheme.errorRed,
+      );
+      return;
+    }
     final result = await showDialog<_CustomShiftDraft>(
       context: context,
       builder: (context) =>
@@ -967,12 +1035,20 @@ class _HousekeepingRosterBoardScreenState
                     forecastState: _forecastStateLabel(),
                     forecastRisk: _forecastForSelectedDate(),
                     saving: _saving,
+                    canEdit: _canEditRoster,
+                    canForecast: _canForecastRoster,
                     onPickWeek: _pickWeek,
                     onCopyPrevious: _copyPrevious,
                     onCopySelectedDayToWeek: _copySelectedDayToWeek,
                     onAddCustomShift: _addCustomShift,
                     onGenerateForecast: _generateForecast,
                   ),
+                  if (!_canEditRoster)
+                    _InfoBanner(
+                      text: _governanceNote.isEmpty
+                          ? 'Viewing only: roster edits need the department incharge or Admin role.'
+                          : 'Viewing only: $_governanceNote',
+                    ),
                   const SizedBox(height: 12),
                   _WeekStrip(
                     dates: _weekDates,
@@ -1000,7 +1076,7 @@ class _HousekeepingRosterBoardScreenState
                     leaveCoverage: _selectedLeaveCoverage,
                     forecastOverlay: _forecastOverlay,
                     selectedDateRisk: _forecastForSelectedDate(),
-                    saving: _saving,
+                    saving: _saving || !_canReviewRosterRequests,
                     asInt: _asInt,
                     asText: _asText,
                     riskColor: _riskColor,
@@ -1024,7 +1100,7 @@ class _HousekeepingRosterBoardScreenState
                       shifts: _shiftColumns,
                       targets: _targets,
                       staff: _staff,
-                      saving: _saving,
+                      saving: _saving || !_canEditRoster,
                       asInt: _asInt,
                       asText: _asText,
                       shiftWindow: _shiftWindow,
@@ -1045,7 +1121,7 @@ class _HousekeepingRosterBoardScreenState
                       shifts: _shiftColumns,
                       targets: _targets,
                       staff: _staff,
-                      saving: _saving,
+                      saving: _saving || !_canEditRoster,
                       asInt: _asInt,
                       asText: _asText,
                       staffAssignedShift: _staffAssignedShift,
@@ -1066,7 +1142,9 @@ class _HousekeepingRosterBoardScreenState
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: _saving ? null : () => _saveDraft(),
+                          onPressed: _saving || !_canEditRoster
+                              ? null
+                              : () => _saveDraft(),
                           icon: const Icon(Icons.save_outlined),
                           label: const Text('Save draft'),
                         ),
@@ -1074,7 +1152,9 @@ class _HousekeepingRosterBoardScreenState
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: _saving ? null : _publish,
+                          onPressed: _saving || !_canEditRoster
+                              ? null
+                              : _publish,
                           icon: _saving
                               ? const SizedBox(
                                   height: 18,
@@ -1122,6 +1202,8 @@ class _HeaderPanel extends StatelessWidget {
   final String forecastState;
   final Map<String, dynamic>? forecastRisk;
   final bool saving;
+  final bool canEdit;
+  final bool canForecast;
   final VoidCallback onPickWeek;
   final VoidCallback onCopyPrevious;
   final VoidCallback onCopySelectedDayToWeek;
@@ -1138,6 +1220,8 @@ class _HeaderPanel extends StatelessWidget {
     required this.forecastState,
     required this.forecastRisk,
     required this.saving,
+    required this.canEdit,
+    required this.canForecast,
     required this.onPickWeek,
     required this.onCopyPrevious,
     required this.onCopySelectedDayToWeek,
@@ -1233,7 +1317,7 @@ class _HeaderPanel extends StatelessWidget {
                 SizedBox(
                   width: 220,
                   child: OutlinedButton.icon(
-                    onPressed: saving ? null : onCopyPrevious,
+                    onPressed: saving || !canEdit ? null : onCopyPrevious,
                     icon: const Icon(Icons.content_copy_outlined),
                     label: const Text('Copy previous day'),
                   ),
@@ -1241,7 +1325,9 @@ class _HeaderPanel extends StatelessWidget {
                 SizedBox(
                   width: 250,
                   child: OutlinedButton.icon(
-                    onPressed: saving ? null : onCopySelectedDayToWeek,
+                    onPressed: saving || !canEdit
+                        ? null
+                        : onCopySelectedDayToWeek,
                     icon: const Icon(Icons.copy_all_outlined),
                     label: const Text('Copy day to week'),
                   ),
@@ -1249,7 +1335,7 @@ class _HeaderPanel extends StatelessWidget {
                 SizedBox(
                   width: 220,
                   child: OutlinedButton.icon(
-                    onPressed: saving ? null : onAddCustomShift,
+                    onPressed: saving || !canEdit ? null : onAddCustomShift,
                     icon: const Icon(Icons.add_alarm_outlined),
                     label: const Text('Add custom shift'),
                   ),
@@ -1257,7 +1343,9 @@ class _HeaderPanel extends StatelessWidget {
                 SizedBox(
                   width: 260,
                   child: FilledButton.icon(
-                    onPressed: saving ? null : onGenerateForecast,
+                    onPressed: saving || !canForecast
+                        ? null
+                        : onGenerateForecast,
                     icon: const Icon(Icons.auto_graph_outlined),
                     label: const Text('Generate 12-week forecast'),
                   ),
@@ -2711,6 +2799,34 @@ class _ErrorBanner extends StatelessWidget {
               error,
               style: TextStyle(color: AppTheme.errorOnSurface),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoBanner extends StatelessWidget {
+  final String text;
+
+  const _InfoBanner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.10),
+        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.32)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: AppTheme.primaryBlue),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(color: AppTheme.textPrimary)),
           ),
         ],
       ),

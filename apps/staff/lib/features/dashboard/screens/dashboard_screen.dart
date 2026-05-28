@@ -629,9 +629,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'performance',
         'staff_directory',
       },
-      StaffRole.admin ||
-      StaffRole.superAdmin ||
       StaffRole.medicalSuperintendent => {
+        'appointments',
+        'appointment_queue',
+        'clinical_ai_review_queue',
+        'patient_records',
+        'bed_board',
+        'theatre',
+        'radiology',
+        'blood_bank',
+        'dietary',
+        'medical_roster',
+        'nursing_roster',
+        'op_nursing_roster',
+      },
+      StaffRole.admin || StaffRole.superAdmin => {
         'appointments',
         'appointment_queue',
         'clinical_ai_review_queue',
@@ -645,10 +657,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'radiology',
         'blood_bank',
         'dietary',
+        'medical_roster',
+        'nursing_roster',
+        'op_nursing_roster',
+        'reception_roster',
+        'housekeeping_roster',
+        'maintenance_roster',
+        'pharmacy_roster',
         'hr_dashboard',
         'staff_management',
       },
-      StaffRole.pharmacy => {'pharmacy_orders', 'clinical_ai_review_queue'},
+      StaffRole.pharmacy => {
+        'pharmacy_roster',
+        'pharmacy_orders',
+        'clinical_ai_review_queue',
+      },
       StaffRole.lab => {
         'investigations_upload',
         'investigation_results',
@@ -661,6 +684,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
       StaffRole.housekeepingIncharge => {
         'bed_board',
+        'housekeeping_roster',
         'housekeeping_command',
         'housekeeping_hub',
         'housekeeping_tasks',
@@ -668,7 +692,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.receptionist ||
       StaffRole.receptionIncharge => {'appointment_queue', 'reception_roster'},
       StaffRole.driver => {'driver_roster'},
-      StaffRole.maintenance => {'staff_directory'},
+      StaffRole.maintenance => {'maintenance_roster', 'staff_directory'},
       StaffRole.general => {
         'appointment_queue',
         'housekeeping_hub',

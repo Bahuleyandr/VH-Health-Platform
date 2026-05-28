@@ -33,7 +33,7 @@ function canManageForecastConfig(user) {
 export async function createDepartmentForecast(req, res) {
   try {
     const { department } = req.params;
-    if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
+    if (!canManageRosterDepartment(req.user, department, 'forecast')) return forbidden(res);
     const startDate =
       req.body?.start_date ||
       req.body?.startDate ||
@@ -56,7 +56,7 @@ export async function createDepartmentForecast(req, res) {
 export async function getDepartmentForecast(req, res) {
   try {
     const { department } = req.params;
-    if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
+    if (!canManageRosterDepartment(req.user, department, 'forecast')) return forbidden(res);
     const result = await getLatestRosterLeaveForecast({
       tenantId: req.tenantId,
       department,

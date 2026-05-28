@@ -1,134 +1,104 @@
 import prisma from '../../lib/prisma.js';
+import {
+  ROSTER_DEPARTMENT_POLICIES,
+  canManageRosterDepartmentWork,
+  canPlanRosterForecast,
+  canReviewRosterDepartmentRequest,
+  canViewRosterDepartment,
+  getRosterDepartmentPolicy,
+  normalizeRosterDepartment
+} from '../../config/rosterDepartmentConfig.js';
 import { getLatestRosterLeaveForecast } from '../ai/staffLeaveForecastService.js';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export const ROSTER_DEPARTMENTS = {
-  housekeeping: {
-    department: 'housekeeping',
-    label: 'Housekeeping',
-    managerRoles: ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF', 'HOUSEKEEPING_INCHARGE'],
-    staffRoles: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
-    targetType: 'housekeeping_zone',
-    getTargets: getHousekeepingZoneTargets
+const ROSTER_TARGET_LOADERS = {
+  housekeeping: getHousekeepingZoneTargets,
+  nursing: getWardTargets,
+  op_nursing() {
+    return getDepartmentTargets({
+      matchTerms: ['op', 'opd', 'outpatient', 'out patient'],
+      fallback: [
+        { id: 1, label: 'OPD Registration', floor: 'Ground', building: 'Main' },
+        { id: 2, label: 'OPD Triage', floor: 'Ground', building: 'Main' },
+        { id: 3, label: 'Procedure Room', floor: 'Ground', building: 'Main' }
+      ]
+    });
   },
-  nursing: {
-    department: 'nursing',
-    label: 'Nursing',
-    managerRoles: [
-      'ADMIN',
-      'SUPER_ADMIN',
-      'HR_STAFF',
-      'NURSING_INCHARGE',
-      'DUTY_DOCTOR',
-      'MEDICAL_SUPERINTENDENT',
-      'CNO'
-    ],
-    staffRoles: ['NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE', 'OT_NURSE'],
-    targetType: 'ward',
-    getTargets: getWardTargets
+  reception() {
+    return getDepartmentTargets({
+      matchTerms: ['reception', 'front desk', 'admission'],
+      fallback: [
+        { id: 1, label: 'Front Desk', floor: 'Ground', building: 'Main' },
+        { id: 2, label: 'Admission Desk', floor: 'Ground', building: 'Main' },
+        { id: 3, label: 'Billing Helpdesk', floor: 'Ground', building: 'Main' }
+      ]
+    });
   },
-  op_nursing: {
-    department: 'op_nursing',
-    label: 'OP Staff Nursing',
-    managerRoles: [
-      'ADMIN',
-      'SUPER_ADMIN',
-      'HR_STAFF',
-      'OP_INCHARGE',
-      'NURSING_INCHARGE',
-      'MEDICAL_SUPERINTENDENT',
-      'CNO'
-    ],
-    staffRoles: ['OP_STAFF_NURSE', 'NURSING_STAFF', 'OP_INCHARGE'],
-    targetType: 'op_area',
-    getTargets() {
-      return getDepartmentTargets({
-        matchTerms: ['op', 'opd', 'outpatient', 'out patient'],
-        fallback: [
-          { id: 1, label: 'OPD Registration', floor: 'Ground', building: 'Main' },
-          { id: 2, label: 'OPD Triage', floor: 'Ground', building: 'Main' },
-          { id: 3, label: 'Procedure Room', floor: 'Ground', building: 'Main' }
-        ]
-      });
-    }
+  pharmacy() {
+    return getDepartmentTargets({
+      matchTerms: ['pharmacy', 'dispensary', 'drug store'],
+      fallback: [
+        { id: 1, label: 'OP Pharmacy', floor: 'Ground', building: 'Main' },
+        { id: 2, label: 'IP Pharmacy', floor: 'First', building: 'Main' },
+        { id: 3, label: 'Pharmacy Store', floor: 'Ground', building: 'Main' }
+      ]
+    });
   },
-  reception: {
-    department: 'reception',
-    label: 'Reception',
-    managerRoles: ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF', 'RECEPTION_INCHARGE'],
-    staffRoles: ['RECEPTIONIST', 'RECEPTION_INCHARGE', 'ADMISSION_OFFICER'],
-    targetType: 'reception_desk',
-    getTargets() {
-      return getDepartmentTargets({
-        matchTerms: ['reception', 'front desk', 'admission'],
-        fallback: [
-          { id: 1, label: 'Front Desk', floor: 'Ground', building: 'Main' },
-          { id: 2, label: 'Admission Desk', floor: 'Ground', building: 'Main' },
-          { id: 3, label: 'Billing Helpdesk', floor: 'Ground', building: 'Main' }
-        ]
-      });
-    }
+  ambulance: getAmbulanceTargets,
+  maintenance() {
+    return getDepartmentTargets({
+      matchTerms: ['maintenance', 'facility', 'facilities', 'electrical', 'plumbing', 'biomedical'],
+      fallback: [
+        { id: 1, label: 'Electrical', floor: 'All floors', building: 'Main' },
+        { id: 2, label: 'Plumbing', floor: 'All floors', building: 'Main' },
+        { id: 3, label: 'Biomedical Support', floor: 'All floors', building: 'Main' },
+        { id: 4, label: 'General Facilities', floor: 'All floors', building: 'Main' }
+      ]
+    });
   },
-  pharmacy: {
-    department: 'pharmacy',
-    label: 'Pharmacy',
-    managerRoles: ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF', 'PHARMACY_STAFF'],
-    staffRoles: ['PHARMACY_STAFF'],
-    targetType: 'pharmacy_counter'
-  },
-  ambulance: {
-    department: 'ambulance',
-    label: 'Ambulance / Drivers',
-    managerRoles: ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF'],
-    staffRoles: [
-      'DRIVER',
-      'AMBULANCE_DRIVER',
-      'DELIVERY_STAFF',
-      'EMERGENCY_RESPONDER',
-      'AMBULANCE_COORDINATOR'
-    ],
-    targetType: 'ambulance_unit',
-    getTargets() {
-      return getAmbulanceTargets();
-    }
-  },
-  drivers: {
-    department: 'ambulance',
-    label: 'Ambulance / Drivers',
-    managerRoles: ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF'],
-    staffRoles: [
-      'DRIVER',
-      'AMBULANCE_DRIVER',
-      'DELIVERY_STAFF',
-      'EMERGENCY_RESPONDER',
-      'AMBULANCE_COORDINATOR'
-    ],
-    targetType: 'ambulance_unit',
-    getTargets() {
-      return getAmbulanceTargets();
-    }
+  medical() {
+    return getDepartmentTargets({
+      matchTerms: ['emergency', 'icu', 'ward', 'opd', 'medical'],
+      fallback: [
+        { id: 1, label: 'Emergency', floor: 'Ground', building: 'Main' },
+        { id: 2, label: 'ICU', floor: 'First', building: 'Main' },
+        { id: 3, label: 'Ward Rounds', floor: 'All floors', building: 'Main' },
+        { id: 4, label: 'OPD Consults', floor: 'Ground', building: 'Main' }
+      ]
+    });
   }
 };
 
-function normalizeDepartment(department) {
-  return String(department || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
+export const ROSTER_DEPARTMENTS = Object.fromEntries(
+  Object.entries(ROSTER_DEPARTMENT_POLICIES).map(([key, policy]) => [
+    key,
+    {
+      ...policy,
+      getTargets: ROSTER_TARGET_LOADERS[key]
+    }
+  ])
+);
 
 export function getDepartmentConfig(department) {
-  const key = normalizeDepartment(department);
+  const key = normalizeRosterDepartment(department);
   return ROSTER_DEPARTMENTS[key] || null;
 }
 
-export function canManageRosterDepartment(user, department) {
-  const config = getDepartmentConfig(department);
-  if (!config) return false;
-  const role = String(user?.rawRole || user?.role || '').toUpperCase();
-  return config.managerRoles.includes(role);
+export function canManageRosterDepartment(user, department, capability = 'work') {
+  if (!getRosterDepartmentPolicy(department)) return false;
+  if (capability === 'view') return canViewRosterDepartment(user, department);
+  if (capability === 'request_review') return canReviewRosterDepartmentRequest(user, department);
+  if (capability === 'forecast') return canPlanRosterForecast(user, department);
+  return canManageRosterDepartmentWork(user, department);
+}
+
+function assertCanManageRosterWork(actorUser, department) {
+  if (!canManageRosterDepartmentWork(actorUser, department)) {
+    throw Object.assign(new Error('You are not allowed to publish or edit this roster department'), {
+      statusCode: 403
+    });
+  }
 }
 
 function assertRosterDate(date) {
@@ -432,7 +402,7 @@ async function getLeaveCoverageSignals(config, rosterDate) {
   );
 }
 
-export async function getRosterSnapshot({ department, rosterDate, tenantId = null }) {
+export async function getRosterSnapshot({ department, rosterDate, tenantId = null, actorUser = null }) {
   const config = getDepartmentConfig(department);
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
@@ -456,6 +426,15 @@ export async function getRosterSnapshot({ department, rosterDate, tenantId = nul
   return {
     department: config.department,
     department_label: config.label,
+    governance_note: config.governanceNote,
+    capabilities: {
+      can_view: actorUser ? canViewRosterDepartment(actorUser, config.department) : null,
+      can_edit: actorUser ? canManageRosterDepartmentWork(actorUser, config.department) : null,
+      can_review_requests: actorUser
+        ? canReviewRosterDepartmentRequest(actorUser, config.department)
+        : null,
+      can_forecast: actorUser ? canPlanRosterForecast(actorUser, config.department) : null
+    },
     roster_date: date,
     target_type: config.targetType,
     shifts,
@@ -783,8 +762,7 @@ function assertDateWindow(startDate, endDate) {
 
 async function resolveRosterRequester(config, actorUser, requestedStaffId = null) {
   const actor = await resolveActor(actorUser);
-  const actorRole = String(actorUser?.rawRole || actorUser?.role || '').toUpperCase();
-  const canManage = config.managerRoles.includes(actorRole);
+  const canManage = canReviewRosterDepartmentRequest(actorUser, config.department);
   const staffId = Number.parseInt(String(requestedStaffId || actor.id || ''), 10);
   if (!Number.isInteger(staffId) || staffId <= 0) {
     throw Object.assign(new Error('Unable to resolve staff member for roster request'), {
@@ -984,8 +962,7 @@ export async function reviewRosterPreferenceRequest({
     if (!config) {
       throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
     }
-    const actorRole = String(actorUser?.rawRole || actorUser?.role || '').toUpperCase();
-    if (!config.managerRoles.includes(actorRole)) {
+    if (!canReviewRosterDepartmentRequest(actorUser, config.department)) {
       throw Object.assign(new Error('You are not allowed to review this roster request'), {
         statusCode: 403
       });
@@ -1034,6 +1011,7 @@ export async function saveRosterBoard({
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
   }
+  assertCanManageRosterWork(actorUser, config.department);
   const date = assertRosterDate(rosterDate);
   const actor = await resolveActor(actorUser);
   const boardInput = {
@@ -1173,6 +1151,7 @@ export async function saveRosterDay({
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
   }
+  assertCanManageRosterWork(actorUser, config.department);
   const date = assertRosterDate(rosterDate);
   const boardInputs = Array.isArray(boards) ? boards : [];
   if (!boardInputs.length) {
@@ -1249,6 +1228,7 @@ export async function publishRosterBoard({ rosterId, actorUser, reason }) {
     if (!board) {
       throw Object.assign(new Error('Roster board not found'), { statusCode: 404 });
     }
+    assertCanManageRosterWork(actorUser, board.department);
 
     const assignments = await tx.$queryRawUnsafe(
       `SELECT * FROM staff_shift_roster_assignments
@@ -1364,6 +1344,7 @@ export async function copyPreviousRosterBoard({
   if (!config) {
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
   }
+  assertCanManageRosterWork(actorUser, config.department);
   const date = assertRosterDate(targetDate);
   const label = normalizeShiftLabel(shiftLabel);
   const sourceRows = await prisma.$queryRawUnsafe(

@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import {
+  getRosterDepartmentPolicy,
+  normalizeRosterDepartment,
+} from '../../config/rosterDepartmentConfig.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { generateClinicalText } from './localLlmClient.js';
@@ -9,16 +13,6 @@ export const STAFF_LEAVE_FORECAST_MODULE_KEY = 'staff_roster_optimizer';
 const DEFAULT_FORECAST_DAYS = 84;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const STAFF_SCORE_LIMIT = 500;
-
-const DEPARTMENT_STAFF_ROLES = {
-  housekeeping: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
-  nursing: ['NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE', 'OT_NURSE'],
-  op_nursing: ['OP_STAFF_NURSE', 'NURSING_STAFF', 'OP_INCHARGE'],
-  reception: ['RECEPTIONIST', 'RECEPTION_INCHARGE', 'ADMISSION_OFFICER'],
-  pharmacy: ['PHARMACY_STAFF'],
-  ambulance: ['DRIVER', 'AMBULANCE_DRIVER', 'DELIVERY_STAFF', 'EMERGENCY_RESPONDER', 'AMBULANCE_COORDINATOR'],
-  drivers: ['DRIVER', 'AMBULANCE_DRIVER', 'DELIVERY_STAFF', 'EMERGENCY_RESPONDER', 'AMBULANCE_COORDINATOR'],
-};
 
 const COMMUTE_BAND_WEIGHTS = {
   unknown: 0,
@@ -51,14 +45,11 @@ function cleanText(value, fallback = '') {
 }
 
 function normalizeDepartment(department) {
-  return cleanText(department, 'housekeeping')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+  return normalizeRosterDepartment(cleanText(department, 'housekeeping'));
 }
 
 function rolesForDepartment(department) {
-  return DEPARTMENT_STAFF_ROLES[normalizeDepartment(department)] || [];
+  return getRosterDepartmentPolicy(department)?.staffRoles || [];
 }
 
 function assertIsoDate(value, fieldName) {
