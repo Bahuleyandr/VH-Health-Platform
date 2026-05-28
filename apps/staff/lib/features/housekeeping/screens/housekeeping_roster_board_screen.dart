@@ -34,7 +34,7 @@ class _HousekeepingRosterBoardScreenState
   bool _canReviewRosterRequests = true;
   bool _canForecastRoster = true;
 
-  final Map<String, Map<String, Map<int, int?>>> _assignmentsByDate = {};
+  final Map<String, Map<String, Map<int, List<int>>>> _assignmentsByDate = {};
 
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _staff = [];
@@ -191,11 +191,11 @@ class _HousekeepingRosterBoardScreenState
     return result;
   }
 
-  Map<String, Map<int, int?>> get _assignmentsByShift =>
+  Map<String, Map<int, List<int>>> get _assignmentsByShift =>
       _assignmentsByDate.putIfAbsent(_selectedDateText, _emptyShiftMap);
 
-  Map<String, Map<int, int?>> _emptyShiftMap() {
-    final map = <String, Map<int, int?>>{};
+  Map<String, Map<int, List<int>>> _emptyShiftMap() {
+    final map = <String, Map<int, List<int>>>{};
     for (final shift in _shiftColumns) {
       map[shift.label] = _emptyTargetMap();
     }
@@ -227,18 +227,19 @@ class _HousekeepingRosterBoardScreenState
           );
           final staffId = _asInt(assignment['staff_id']);
           if (targetId != null && staffId != null) {
-            shiftMap[targetId] = staffId;
+            final staffIds = shiftMap.putIfAbsent(targetId, () => <int>[]);
+            if (!staffIds.contains(staffId)) staffIds.add(staffId);
           }
         }
       }
     }
   }
 
-  Map<int, int?> _emptyTargetMap() {
-    final map = <int, int?>{};
+  Map<int, List<int>> _emptyTargetMap() {
+    final map = <int, List<int>>{};
     for (final target in _targets) {
       final id = _asInt(target['id']);
-      if (id != null) map[id] = null;
+      if (id != null) map[id] = <int>[];
     }
     return map;
   }
@@ -341,9 +342,10 @@ class _HousekeepingRosterBoardScreenState
       _leaveCoverageByDate[_selectedDateText] ?? const [];
 
   int _assignedCountForShift(String shiftLabel) {
-    return _assignmentsByShift[shiftLabel]?.values
-            .where((staffId) => staffId != null)
-            .length ??
+    return _assignmentsByShift[shiftLabel]?.values.fold<int>(
+          0,
+          (sum, staffIds) => sum + staffIds.length,
+        ) ??
         0;
   }
 
@@ -352,7 +354,12 @@ class _HousekeepingRosterBoardScreenState
     if (rows == null) return 0;
     return rows.values.fold<int>(
       0,
-      (sum, row) => sum + row.values.where((staffId) => staffId != null).length,
+      (sum, row) =>
+          sum +
+          row.values.fold<int>(
+            0,
+            (cellSum, staffIds) => cellSum + staffIds.length,
+          ),
     );
   }
 
@@ -369,7 +376,7 @@ class _HousekeepingRosterBoardScreenState
     return _shiftColumns.fold<int>(0, (sum, shift) {
       final assigned =
           rows[shift.label]?.values
-              .where((staffId) => staffId != null)
+              .where((staffIds) => staffIds.isNotEmpty)
               .length ??
           0;
       return sum + (_targets.length - assigned);
@@ -392,17 +399,27 @@ class _HousekeepingRosterBoardScreenState
     return published.length == boards.length ? 'published' : 'draft';
   }
 
-  bool _isStaffAssignedInOtherShift(int staffId, String shiftLabel) {
-    for (final entry in _assignmentsByShift.entries) {
-      if (_shiftKey(entry.key) == _shiftKey(shiftLabel)) continue;
-      if (entry.value.values.contains(staffId)) return true;
+  bool _isStaffAssignedOutsideCell(
+    int staffId,
+    String shiftLabel,
+    int targetId,
+  ) {
+    for (final shiftEntry in _assignmentsByShift.entries) {
+      for (final targetEntry in shiftEntry.value.entries) {
+        final sameCell =
+            _shiftKey(shiftEntry.key) == _shiftKey(shiftLabel) &&
+            targetEntry.key == targetId;
+        if (!sameCell && targetEntry.value.contains(staffId)) return true;
+      }
     }
     return false;
   }
 
   String? _staffAssignedShift(int staffId) {
     for (final entry in _assignmentsByShift.entries) {
-      if (entry.value.values.contains(staffId)) return entry.key;
+      if (entry.value.values.any((staffIds) => staffIds.contains(staffId))) {
+        return entry.key;
+      }
     }
     return null;
   }
@@ -410,7 +427,7 @@ class _HousekeepingRosterBoardScreenState
   int? _staffAssignedTarget(int staffId) {
     for (final entry in _assignmentsByShift.entries) {
       for (final targetEntry in entry.value.entries) {
-        if (targetEntry.value == staffId) return targetEntry.key;
+        if (targetEntry.value.contains(staffId)) return targetEntry.key;
       }
     }
     return null;
@@ -510,8 +527,10 @@ class _HousekeepingRosterBoardScreenState
     return null;
   }
 
-  int? _assignedStaffForCell(String shiftLabel, int targetId) {
-    return _assignmentsByShift[shiftLabel]?[targetId];
+  List<int> _assignedStaffForCell(String shiftLabel, int targetId) {
+    final staffIds = _assignmentsByShift[shiftLabel]?[targetId];
+    if (staffIds == null) return const [];
+    return List<int>.unmodifiable(staffIds);
   }
 
   bool _targetOccupiedByOtherStaff({
@@ -519,21 +538,20 @@ class _HousekeepingRosterBoardScreenState
     required int targetId,
     required int staffId,
   }) {
-    final assigned = _assignedStaffForCell(shiftLabel, targetId);
-    return assigned != null && assigned != staffId;
+    return false;
   }
 
-  void _setCellAssignment(String shiftLabel, int targetId, int? staffId) {
-    if (staffId != null && _isStaffAssignedInOtherShift(staffId, shiftLabel)) {
+  void _addCellAssignment(String shiftLabel, int targetId, int staffId) {
+    if (_isStaffAssignedOutsideCell(staffId, shiftLabel, targetId)) {
       final staff = _staffById(staffId);
       final otherShift = _staffAssignedShift(staffId);
       _showSnack(
-        '${_asText(staff?['name'], fallback: 'Staff')} is already assigned to $otherShift on this date.',
+        '${_asText(staff?['name'], fallback: 'Staff')} is already assigned to ${otherShift ?? 'another floor'} on this date.',
         AppTheme.errorRed,
       );
       return;
     }
-    if (staffId != null && _showApprovedLeaveBlock(staffId)) {
+    if (_showApprovedLeaveBlock(staffId)) {
       return;
     }
     setState(() {
@@ -541,26 +559,33 @@ class _HousekeepingRosterBoardScreenState
         shiftLabel,
         _emptyTargetMap,
       );
-      shiftMap[targetId] = staffId;
+      final staffIds = shiftMap.putIfAbsent(targetId, () => <int>[]);
+      if (!staffIds.contains(staffId)) staffIds.add(staffId);
+    });
+  }
+
+  void _removeCellAssignment(String shiftLabel, int targetId, int staffId) {
+    setState(() {
+      _assignmentsByShift[shiftLabel]?[targetId]?.remove(staffId);
     });
   }
 
   void _clearStaffFromAllShifts(int staffId) {
     for (final shiftMap in _assignmentsByShift.values) {
       for (final targetId in shiftMap.keys.toList()) {
-        if (shiftMap[targetId] == staffId) shiftMap[targetId] = null;
+        shiftMap[targetId]?.remove(staffId);
       }
     }
   }
 
   int? _firstAvailableTarget(String shiftLabel, {int? preferredTargetId}) {
     final shiftMap = _assignmentsByShift[shiftLabel] ?? _emptyTargetMap();
-    if (preferredTargetId != null && shiftMap[preferredTargetId] == null) {
+    if (preferredTargetId != null && shiftMap.containsKey(preferredTargetId)) {
       return preferredTargetId;
     }
     for (final target in _targets) {
       final targetId = _asInt(target['id']);
-      if (targetId != null && shiftMap[targetId] == null) return targetId;
+      if (targetId != null && shiftMap.containsKey(targetId)) return targetId;
     }
     return null;
   }
@@ -582,7 +607,8 @@ class _HousekeepingRosterBoardScreenState
           shiftLabel,
           _emptyTargetMap,
         );
-        shiftMap[targetId] = staffId;
+        final staffIds = shiftMap.putIfAbsent(targetId, () => <int>[]);
+        if (!staffIds.contains(staffId)) staffIds.add(staffId);
       }
     });
   }
@@ -600,24 +626,14 @@ class _HousekeepingRosterBoardScreenState
     if (_showApprovedLeaveBlock(staffId)) {
       return;
     }
-    if (_targetOccupiedByOtherStaff(
-      shiftLabel: shiftLabel,
-      targetId: targetId,
-      staffId: staffId,
-    )) {
-      _showSnack(
-        'That floor already has staff for this shift.',
-        AppTheme.errorRed,
-      );
-      return;
-    }
     setState(() {
       _clearStaffFromAllShifts(staffId);
       final shiftMap = _assignmentsByShift.putIfAbsent(
         shiftLabel,
         _emptyTargetMap,
       );
-      shiftMap[targetId] = staffId;
+      final staffIds = shiftMap.putIfAbsent(targetId, () => <int>[]);
+      if (!staffIds.contains(staffId)) staffIds.add(staffId);
     });
   }
 
@@ -632,18 +648,20 @@ class _HousekeepingRosterBoardScreenState
     final shiftMap = rows?[shiftLabel] ?? {};
     for (final entry in shiftMap.entries) {
       final targetId = entry.key;
-      final staffId = entry.value;
-      if (staffId == null) continue;
+      final staffIds = entry.value;
+      if (staffIds.isEmpty) continue;
       final target = _targetById(targetId);
       if (target == null) continue;
-      result.add({
-        'staff_id': staffId,
-        'assignment_target_type': _targetType,
-        'assignment_target_id': targetId,
-        'assignment_target_label': _asText(target['label'] ?? target['name']),
-        'floor': target['floor'],
-        'building': target['building'],
-      });
+      for (final staffId in staffIds) {
+        result.add({
+          'staff_id': staffId,
+          'assignment_target_type': _targetType,
+          'assignment_target_id': targetId,
+          'assignment_target_label': _asText(target['label'] ?? target['name']),
+          'floor': target['floor'],
+          'building': target['building'],
+        });
+      }
     }
     return result;
   }
@@ -651,11 +669,12 @@ class _HousekeepingRosterBoardScreenState
   String? _firstApprovedLeaveConflictForDate(String dateText) {
     final rows = _assignmentsByDate[dateText] ?? const {};
     for (final shiftEntry in rows.entries) {
-      for (final staffId in shiftEntry.value.values) {
-        if (staffId == null) continue;
-        final message = _approvedLeaveMessageForDate(staffId, dateText);
-        if (message != null) {
-          return '$message Clear the ${shiftEntry.key} assignment on $dateText before saving.';
+      for (final staffIds in shiftEntry.value.values) {
+        for (final staffId in staffIds) {
+          final message = _approvedLeaveMessageForDate(staffId, dateText);
+          if (message != null) {
+            return '$message Clear the ${shiftEntry.key} assignment on $dateText before saving.';
+          }
         }
       }
     }
@@ -843,16 +862,17 @@ class _HousekeepingRosterBoardScreenState
         final target = _assignmentsByDate.putIfAbsent(dateText, _emptyShiftMap);
         target.clear();
         for (final entry in source.entries) {
-          final shiftTargetMap = <int, int?>{};
+          final shiftTargetMap = <int, List<int>>{};
           for (final targetEntry in entry.value.entries) {
-            final staffId = targetEntry.value;
-            if (staffId != null &&
-                _isStaffOnApprovedLeaveForDate(staffId, dateText)) {
-              blocked += 1;
-              shiftTargetMap[targetEntry.key] = null;
-            } else {
-              shiftTargetMap[targetEntry.key] = staffId;
+            final copiedStaffIds = <int>[];
+            for (final staffId in targetEntry.value) {
+              if (_isStaffOnApprovedLeaveForDate(staffId, dateText)) {
+                blocked += 1;
+              } else {
+                copiedStaffIds.add(staffId);
+              }
             }
+            shiftTargetMap[targetEntry.key] = copiedStaffIds;
           }
           target[entry.key] = shiftTargetMap;
         }
@@ -1104,8 +1124,8 @@ class _HousekeepingRosterBoardScreenState
                       asInt: _asInt,
                       asText: _asText,
                       shiftWindow: _shiftWindow,
-                      selectedStaffForCell: _assignedStaffForCell,
-                      isStaffAssignedInOtherShift: _isStaffAssignedInOtherShift,
+                      assignedStaffForCell: _assignedStaffForCell,
+                      isStaffAssignedOutsideCell: _isStaffAssignedOutsideCell,
                       isStaffOnApprovedLeave:
                           _isStaffOnApprovedLeaveForSelectedDate,
                       approvedLeaveMessage:
@@ -1113,7 +1133,8 @@ class _HousekeepingRosterBoardScreenState
                       staffForecast: _staffForecast,
                       riskColor: _riskColor,
                       assignedCountForShift: _assignedCountForShift,
-                      onChanged: _setCellAssignment,
+                      onAdd: _addCellAssignment,
+                      onRemove: _removeCellAssignment,
                       onAddCustomShift: _addCustomShift,
                     )
                   else
@@ -1586,15 +1607,17 @@ class _FloorShiftGrid extends StatelessWidget {
   final int? Function(dynamic value) asInt;
   final String Function(dynamic value, {String fallback}) asText;
   final String Function(_ShiftColumn shift) shiftWindow;
-  final int? Function(String shiftLabel, int targetId) selectedStaffForCell;
-  final bool Function(int staffId, String shiftLabel)
-  isStaffAssignedInOtherShift;
+  final List<int> Function(String shiftLabel, int targetId)
+  assignedStaffForCell;
+  final bool Function(int staffId, String shiftLabel, int targetId)
+  isStaffAssignedOutsideCell;
   final bool Function(int staffId) isStaffOnApprovedLeave;
   final String? Function(int staffId) approvedLeaveMessage;
   final Map<String, dynamic>? Function(int staffId) staffForecast;
   final Color Function(dynamic band) riskColor;
   final int Function(String shiftLabel) assignedCountForShift;
-  final void Function(String shiftLabel, int targetId, int? staffId) onChanged;
+  final void Function(String shiftLabel, int targetId, int staffId) onAdd;
+  final void Function(String shiftLabel, int targetId, int staffId) onRemove;
   final VoidCallback onAddCustomShift;
 
   const _FloorShiftGrid({
@@ -1605,14 +1628,15 @@ class _FloorShiftGrid extends StatelessWidget {
     required this.asInt,
     required this.asText,
     required this.shiftWindow,
-    required this.selectedStaffForCell,
-    required this.isStaffAssignedInOtherShift,
+    required this.assignedStaffForCell,
+    required this.isStaffAssignedOutsideCell,
     required this.isStaffOnApprovedLeave,
     required this.approvedLeaveMessage,
     required this.staffForecast,
     required this.riskColor,
     required this.assignedCountForShift,
-    required this.onChanged,
+    required this.onAdd,
+    required this.onRemove,
     required this.onAddCustomShift,
   });
 
@@ -1680,7 +1704,7 @@ class _FloorShiftGrid extends StatelessWidget {
                       final targetId = asInt(target['id']);
                       if (targetId == null) return const SizedBox.shrink();
                       return SizedBox(
-                        height: 86,
+                        height: 132,
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1695,25 +1719,26 @@ class _FloorShiftGrid extends StatelessWidget {
                                 shiftLabel: shift.label,
                                 targetId: targetId,
                                 staff: staff,
-                                selectedStaffId: selectedStaffForCell(
+                                selectedStaffIds: assignedStaffForCell(
                                   shift.label,
                                   targetId,
                                 ),
                                 saving: saving,
                                 asInt: asInt,
                                 asText: asText,
-                                isStaffAssignedInOtherShift:
-                                    isStaffAssignedInOtherShift,
+                                isStaffAssignedOutsideCell:
+                                    isStaffAssignedOutsideCell,
                                 isStaffOnApprovedLeave: isStaffOnApprovedLeave,
                                 approvedLeaveMessage: approvedLeaveMessage,
                                 staffForecast: staffForecast,
                                 riskColor: riskColor,
-                                onChanged: onChanged,
+                                onAdd: onAdd,
+                                onRemove: onRemove,
                               ),
                             ),
                             Container(
                               width: addWidth,
-                              height: 86,
+                              height: 132,
                               decoration: BoxDecoration(
                                 border: Border(
                                   left: BorderSide(
@@ -1835,7 +1860,7 @@ class _TargetCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      height: 86,
+      height: 132,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         border: Border(
@@ -1897,41 +1922,148 @@ class _AssignmentDropdownCell extends StatelessWidget {
   final String shiftLabel;
   final int targetId;
   final List<Map<String, dynamic>> staff;
-  final int? selectedStaffId;
+  final List<int> selectedStaffIds;
   final bool saving;
   final int? Function(dynamic value) asInt;
   final String Function(dynamic value, {String fallback}) asText;
-  final bool Function(int staffId, String shiftLabel)
-  isStaffAssignedInOtherShift;
+  final bool Function(int staffId, String shiftLabel, int targetId)
+  isStaffAssignedOutsideCell;
   final bool Function(int staffId) isStaffOnApprovedLeave;
   final String? Function(int staffId) approvedLeaveMessage;
   final Map<String, dynamic>? Function(int staffId) staffForecast;
   final Color Function(dynamic band) riskColor;
-  final void Function(String shiftLabel, int targetId, int? staffId) onChanged;
+  final void Function(String shiftLabel, int targetId, int staffId) onAdd;
+  final void Function(String shiftLabel, int targetId, int staffId) onRemove;
 
   const _AssignmentDropdownCell({
     required this.width,
     required this.shiftLabel,
     required this.targetId,
     required this.staff,
-    required this.selectedStaffId,
+    required this.selectedStaffIds,
     required this.saving,
     required this.asInt,
     required this.asText,
-    required this.isStaffAssignedInOtherShift,
+    required this.isStaffAssignedOutsideCell,
     required this.isStaffOnApprovedLeave,
     required this.approvedLeaveMessage,
     required this.staffForecast,
     required this.riskColor,
-    required this.onChanged,
+    required this.onAdd,
+    required this.onRemove,
   });
+
+  Map<String, dynamic>? _staffById(int staffId) {
+    for (final row in staff) {
+      if (asInt(row['id']) == staffId) return row;
+    }
+    return null;
+  }
+
+  Future<void> _pickStaff(BuildContext context) async {
+    final pickedStaffId = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AppTheme.cardSurface,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Add staff',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: staff.length,
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final row = staff[index];
+                      final staffId = asInt(row['id']);
+                      if (staffId == null) return const SizedBox.shrink();
+                      final alreadyInCell = selectedStaffIds.contains(staffId);
+                      final assignedElsewhere = isStaffAssignedOutsideCell(
+                        staffId,
+                        shiftLabel,
+                        targetId,
+                      );
+                      final blockedByLeave = isStaffOnApprovedLeave(staffId);
+                      final reason = blockedByLeave
+                          ? approvedLeaveMessage(staffId)
+                          : assignedElsewhere
+                          ? 'Already assigned elsewhere on this date'
+                          : alreadyInCell
+                          ? 'Already added to this floor'
+                          : null;
+                      final disabled =
+                          alreadyInCell || assignedElsewhere || blockedByLeave;
+                      final forecast = staffForecast(staffId);
+                      final riskBand = forecast?['risk_band'];
+                      return ListTile(
+                        enabled: !disabled,
+                        leading: Icon(
+                          disabled
+                              ? Icons.block_outlined
+                              : Icons.person_add_alt_1_outlined,
+                          color: disabled
+                              ? AppTheme.textSecondary
+                              : AppTheme.primaryBlue,
+                        ),
+                        title: Text(
+                          asText(row['name']),
+                          style: TextStyle(
+                            color: disabled
+                                ? AppTheme.textSecondary
+                                : AppTheme.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          [
+                            asText(row['employee_id'], fallback: 'no ID'),
+                            if (riskBand != null) '$riskBand risk',
+                            ?reason,
+                          ].join(' - '),
+                          style: TextStyle(
+                            color: blockedByLeave
+                                ? AppTheme.errorOnSurface
+                                : riskBand != null && !disabled
+                                ? riskColor(riskBand)
+                                : AppTheme.textSecondary,
+                          ),
+                        ),
+                        onTap: disabled
+                            ? null
+                            : () => Navigator.of(context).pop(staffId),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (pickedStaffId != null) onAdd(shiftLabel, targetId, pickedStaffId);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      height: 86,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      height: 132,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         border: Border(
           right: BorderSide(color: AppTheme.divider.withValues(alpha: 0.5)),
@@ -1945,75 +2077,53 @@ class _AssignmentDropdownCell extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<int?>(
-              key: ValueKey('$shiftLabel-$targetId-$selectedStaffId'),
-              value: selectedStaffId,
-              isExpanded: true,
-              hint: Text(
-                'Assign staff',
-                style: TextStyle(color: AppTheme.textSecondary),
-              ),
-              dropdownColor: AppTheme.cardSurface,
-              icon: const Icon(Icons.expand_more),
-              items: [
-                const DropdownMenuItem<int?>(
-                  value: null,
-                  child: Text('Unassigned'),
-                ),
-                ...staff.map((row) {
-                  final staffId = asInt(row['id']);
-                  final assignedElsewhere =
-                      staffId != null &&
-                      staffId != selectedStaffId &&
-                      isStaffAssignedInOtherShift(staffId, shiftLabel);
-                  final blockedByLeave =
-                      staffId != null &&
-                      staffId != selectedStaffId &&
-                      isStaffOnApprovedLeave(staffId);
-                  final disabled = assignedElsewhere || blockedByLeave;
-                  final reason = staffId == null
-                      ? null
-                      : approvedLeaveMessage(staffId);
-                  final forecast = staffId == null
-                      ? null
-                      : staffForecast(staffId);
-                  final riskBand = forecast?['risk_band'];
-                  return DropdownMenuItem<int?>(
-                    value: staffId,
-                    enabled: !disabled,
-                    child: Tooltip(
-                      message: blockedByLeave
-                          ? (reason ?? 'Approved leave on this date')
-                          : assignedElsewhere
-                          ? 'Already assigned to another shift on this date'
-                          : '',
-                      child: Text(
-                        [
-                          '${asText(row['name'])} - ${asText(row['employee_id'], fallback: 'no ID')}',
-                          if (blockedByLeave) 'approved leave',
-                          if (riskBand != null) '$riskBand risk',
-                        ].join(' - '),
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: riskBand != null && !blockedByLeave
-                              ? riskColor(riskBand)
-                              : blockedByLeave
-                              ? AppTheme.errorOnSurface
-                              : disabled
-                              ? AppTheme.textSecondary
-                              : AppTheme.textPrimary,
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            children: [
+              Expanded(
+                child: selectedStaffIds.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Unassigned',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: selectedStaffIds.map((staffId) {
+                            final row = _staffById(staffId);
+                            return InputChip(
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              avatar: const Icon(Icons.person, size: 16),
+                              label: Text(
+                                asText(row?['name'], fallback: 'Staff'),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onDeleted: saving
+                                  ? null
+                                  : () =>
+                                        onRemove(shiftLabel, targetId, staffId),
+                            );
+                          }).toList(),
                         ),
                       ),
-                    ),
-                  );
-                }),
-              ],
-              onChanged: saving
-                  ? null
-                  : (staffId) => onChanged(shiftLabel, targetId, staffId),
-            ),
+              ),
+              const SizedBox(height: 6),
+              SizedBox(
+                width: double.infinity,
+                height: 32,
+                child: OutlinedButton.icon(
+                  onPressed: saving ? null : () => _pickStaff(context),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: Text(
+                    selectedStaffIds.isEmpty ? 'Add staff' : 'Add more',
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
