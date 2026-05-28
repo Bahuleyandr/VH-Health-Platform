@@ -62,16 +62,35 @@ class HrApiService {
   /// the backend's staffRoutes router does not register (no GET `/`),
   /// so it returned `Cannot GET /api/v1/staff` (404). The actual
   /// listing endpoint is `/staff/list`.
-  static Future<List<dynamic>> getStaffList({String? department}) async {
-    final url =
-        '/staff/list${department != null ? '?department=$department' : ''}';
+  static Future<List<dynamic>> getStaffList({
+    String? department,
+    String? search,
+    int page = 1,
+    int limit = 100,
+    bool? active,
+    bool suppressErrors = true,
+  }) async {
+    final query = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+    };
+    if (department != null && department.trim().isNotEmpty) {
+      query['department'] = department.trim();
+    }
+    if (search != null && search.trim().isNotEmpty) {
+      query['search'] = search.trim();
+    }
+    if (active != null) {
+      query['active'] = active.toString();
+    }
     try {
-      final result = await _get(url);
+      final result = await _get('/staff/list', query: query);
       return result['data'] as List? ??
           result['staff'] as List? ??
           result['staffList'] as List? ??
           [];
     } catch (e) {
+      if (!suppressErrors) rethrow;
       debugPrint('HrApiService.getStaffList error: $e');
       return [];
     }

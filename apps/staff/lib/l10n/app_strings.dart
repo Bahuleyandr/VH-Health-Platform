@@ -3285,9 +3285,9 @@ class AppStrings {
       'directory.empty': 'Directory is empty',
       'directory.search_empty': 'Try a different search term',
       'directory.api_pending':
-          'Staff members will appear here once the API is connected',
+          'No staff records were returned for your current access level.',
       'directory.api_unavailable':
-          'Staff directory API may not be available yet.',
+          'Check the backend connection or your staff-directory permission.',
       'directory.staff_empty_body': 'No staff found',
       // Reports & Grievances
       'reports.hub.title': 'Reports & Grievances',

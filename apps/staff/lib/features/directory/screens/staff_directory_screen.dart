@@ -37,9 +37,7 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
       _error = null;
     });
     try {
-      // TODO: Use GET /staff or GET /staff/directory when endpoint is available.
-      final data = await HrApiService.getHRDashboard();
-      final list = data['staff'] as List? ?? data['staffList'] as List? ?? [];
+      final list = await HrApiService.getStaffList(suppressErrors: false);
       if (mounted) setState(() => _staff = list);
     } catch (e) {
       if (mounted) {
@@ -54,17 +52,22 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
     if (_searchQuery.isEmpty) return _staff;
     final q = _searchQuery.toLowerCase();
     return _staff.where((s) {
-      final name = (s['name'] ?? s['fullName'] ?? '').toString().toLowerCase();
-      final dept = (s['department'] ?? '').toString().toLowerCase();
-      final role = (s['role'] ?? '').toString().toLowerCase();
-      return name.contains(q) || dept.contains(q) || role.contains(q);
+      final haystack = [
+        _staffText(s, const ['name', 'fullName']),
+        _staffText(s, const ['employee_id', 'employeeId', 'empId']),
+        _staffText(s, const ['department']),
+        _staffText(s, const ['role']),
+        _staffText(s, const ['position']),
+        _staffText(s, const ['shift']),
+      ].join(' ').toLowerCase();
+      return haystack.contains(q);
     }).toList();
   }
 
   Map<String, List<dynamic>> get _groupedByDept {
     final grouped = <String, List<dynamic>>{};
     for (final s in _filtered) {
-      final dept = s['department']?.toString() ?? 'Other';
+      final dept = _staffText(s, const ['department'], fallback: 'Other');
       grouped.putIfAbsent(dept, () => []).add(s);
     }
     final sorted = Map.fromEntries(
@@ -82,13 +85,16 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
         children: [
           // Search bar
           Container(
-            color: Colors.white,
+            color: AppTheme.surfaceWhite,
             padding: const EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
+              style: TextStyle(color: AppTheme.textPrimary),
               decoration: InputDecoration(
                 hintText: s.directorySearchHint,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
+                prefixIcon: ExcludeSemantics(
+                  child: Icon(Icons.search, color: AppTheme.textSecondary),
+                ),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
@@ -171,20 +177,36 @@ class _StaffTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = staff['name'] ?? staff['fullName'] ?? 'Unknown';
-    final role = staff['role']?.toString().replaceAll('_', ' ') ?? '—';
-    final dept = staff['department'] ?? '—';
-    final phone = staff['phone'] ?? staff['contact'] ?? '';
-    final empId = staff['employeeId'] ?? staff['empId'] ?? '';
-    final isActive = staff['isActive'] != false;
+    final name = _staffText(staff, const [
+      'name',
+      'fullName',
+    ], fallback: 'Unknown');
+    final rawRole = _staffText(staff, const ['role']);
+    final role = rawRole.isEmpty ? '-' : rawRole.replaceAll('_', ' ');
+    final dept = _staffText(staff, const ['department'], fallback: '-');
+    final position = _staffText(staff, const ['position']);
+    final shift = _staffText(staff, const ['shift']);
+    final phone = _staffText(staff, const ['phone', 'contact']);
+    final empId = _staffText(staff, const [
+      'employee_id',
+      'employeeId',
+      'empId',
+    ]);
+    final isActive = _staffBool(staff, const [
+      'is_active',
+      'isActive',
+    ], defaultValue: true);
 
-    Color roleColor = switch (staff['role']?.toString() ?? '') {
+    Color roleColor = switch (rawRole.toUpperCase()) {
       String r when r.contains('DOCTOR') => AppTheme.primaryBlue,
       String r when r.contains('NURSING') => AppTheme.primaryTeal,
       String r when r.contains('HR') => const Color(0xFF6A1B9A),
       String r when r.contains('PHARMACY') => const Color(0xFFE65100),
       String r when r.contains('LAB') => AppTheme.accentCyan,
       String r when r.contains('ADMIN') => AppTheme.errorRed,
+      String r when r.contains('HOUSEKEEPING') => const Color(0xFF00897B),
+      String r when r.contains('MAINTENANCE') => const Color(0xFF5D4037),
+      String r when r.contains('RECEPTION') => const Color(0xFF3949AB),
       _ => AppTheme.textSecondary,
     };
 
@@ -209,9 +231,19 @@ class _StaffTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(role, style: TextStyle(fontSize: 12, color: roleColor)),
+            if (position.isNotEmpty)
+              Text(
+                position,
+                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+              ),
             if (empId.isNotEmpty)
               Text(
                 'ID: $empId',
+                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+              ),
+            if (shift.isNotEmpty)
+              Text(
+                'Shift: $shift',
                 style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
               ),
           ],
@@ -272,7 +304,7 @@ class _StaffTile extends StatelessWidget {
           children: [
             _DialogRow(Icons.badge_outlined, role),
             _DialogRow(Icons.business_outlined, dept),
-            _DialogRow(Icons.phone_outlined, phone),
+            if (phone.isNotEmpty) _DialogRow(Icons.phone_outlined, phone),
           ],
         ),
         actions: [
@@ -371,4 +403,33 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _staffText(dynamic staff, List<String> keys, {String fallback = ''}) {
+  if (staff is! Map) return fallback;
+  for (final key in keys) {
+    final value = staff[key];
+    if (value == null) continue;
+    final text = value.toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return fallback;
+}
+
+bool _staffBool(
+  dynamic staff,
+  List<String> keys, {
+  required bool defaultValue,
+}) {
+  if (staff is! Map) return defaultValue;
+  for (final key in keys) {
+    final value = staff[key];
+    if (value is bool) return value;
+    if (value is String) {
+      final lower = value.toLowerCase();
+      if (lower == 'true') return true;
+      if (lower == 'false') return false;
+    }
+  }
+  return defaultValue;
 }
