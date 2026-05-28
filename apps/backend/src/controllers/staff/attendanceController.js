@@ -174,7 +174,7 @@ export const getAttendanceCalendar = async (req, res) => {
       leaves = await prisma.leave_applications.findMany({
         where: {
           staff_id: staffId,
-          status: 'approved',
+          status: { in: ['approved', 'APPROVED'] },
           start_date: { lte: endDateObj },
           end_date: { gte: startDateObj },
         },

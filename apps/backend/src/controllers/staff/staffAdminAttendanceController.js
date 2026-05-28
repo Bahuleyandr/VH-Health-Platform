@@ -167,7 +167,7 @@ export const getAbsentReport = async (req, res) => {
       LEFT JOIN staff_attendance a ON s.id = a.staff_id
         AND a.check_in_time::date = $1::date
       LEFT JOIN leave_applications la ON s.id = la.staff_id
-        AND la.status = 'approved'
+        AND LOWER(la.status) = 'approved'
         AND $1::date BETWEEN la.start_date AND la.end_date
       WHERE 
         s.is_active = true

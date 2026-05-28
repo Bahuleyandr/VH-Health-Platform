@@ -34,6 +34,7 @@ describe('housekeeping floor delegation', () => {
   let requestId;
   let rosterBoardId;
   let rosterPreferenceRequestId;
+  let leaveApplicationId;
 
   beforeAll(async () => {
     const users = await prisma.$queryRawUnsafe(
@@ -131,6 +132,20 @@ describe('housekeeping floor delegation', () => {
         .$executeRawUnsafe(
           `DELETE FROM staff_shift_roster_requests WHERE id = $1::int`,
           rosterPreferenceRequestId
+        )
+        .catch(() => {});
+    }
+    if (leaveApplicationId) {
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM replacement_requests WHERE leave_request_id = $1::int`,
+          leaveApplicationId
+        )
+        .catch(() => {});
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM leave_applications WHERE id = $1::int`,
+          leaveApplicationId
         )
         .catch(() => {});
     }
@@ -299,6 +314,48 @@ describe('housekeeping floor delegation', () => {
     const staff = authed('HOUSEKEEPING_STAFF', STAFF_UID, staffId);
     const res = await staff.get('/api/v1/staff/roster-board/departments/housekeeping');
     expect(res.statusCode).toBe(403);
+  });
+
+  it('blocks roster assignments for staff already on approved leave', async () => {
+    const leaveDate = new Date(Date.now() + 259_200_000).toISOString().slice(0, 10);
+    const insertedLeave = await prisma.$queryRawUnsafe(
+      `INSERT INTO leave_applications
+         (staff_id, leave_type, start_date, end_date, days_taken, reason, status, applied_by)
+       VALUES ($1::int, 'casual', $2::date, $2::date, 1, 'Roster conflict regression', 'APPROVED', $3::uuid)
+       RETURNING id`,
+      staffId,
+      leaveDate,
+      STAFF_UID
+    );
+    leaveApplicationId = insertedLeave[0].id;
+
+    const incharge = authed('HOUSEKEEPING_INCHARGE', INCHARGE_UID, inchargeId);
+    const saved = await incharge
+      .post('/api/v1/staff/roster-board/departments/housekeeping/boards')
+      .send({
+        roster_date: leaveDate,
+        shift_label: 'Evening',
+        assignments: [
+          {
+            staff_id: staffId,
+            assignment_target_type: 'housekeeping_zone',
+            assignment_target_id: zoneId,
+          }
+        ]
+      });
+
+    expect(saved.statusCode).toBe(409);
+    expect(saved.body.message).toMatch(/approved casual/i);
+
+    const snapshot = await incharge.get(
+      `/api/v1/staff/roster-board/departments/housekeeping?date=${leaveDate}`
+    );
+    expect(snapshot.statusCode).toBe(200);
+    expect(
+      (snapshot.body.data.leave_coverage ?? []).some(
+        row => row.leave_application_id === leaveApplicationId && row.leave_status === 'approved'
+      )
+    ).toBe(true);
   });
 
   it('lets staff request duty preferences and manager approval leaves an audit trail', async () => {

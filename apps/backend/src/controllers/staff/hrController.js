@@ -278,12 +278,13 @@ export const getMyLeaveApplications = async (req, res) => {
 
     const applications = rows.map((leave) => ({
       id: leave.id,
+      leave_type: leave.leave_type,
       type: leave.leave_type,
       start_date: formatISODate(leave.start_date),
       end_date: formatISODate(leave.end_date),
       days: Number(leave.days_taken) || inclusiveDays(leave.start_date, leave.end_date),
       reason: leave.reason,
-      status: String(leave.status || 'PENDING').toUpperCase(),
+      status: String(leave.status || 'pending').toLowerCase(),
       created_at: leave.applied_date,
       reviewed_by: leave.reviewed_by,
       review_notes: leave.review_notes,
@@ -334,7 +335,8 @@ export const applyForLeave = async (req, res) => {
       start_date,
       end_date,
       reason,
-      emergency_contact
+      emergency_contact,
+      replacement_staff_id
     } = req.body;
     
     const appliedBy = req.user?.uid;
@@ -355,6 +357,7 @@ export const applyForLeave = async (req, res) => {
       end_date,
       reason,
       emergency_contact,
+      replacement_staff_id,
       appliedBy
     });
 
@@ -373,6 +376,10 @@ export const applyForLeave = async (req, res) => {
       error(res, 'Invalid date range for leave application', HTTP_STATUS.BAD_REQUEST);
     } else if (err.message === 'STAFF_NOT_FOUND') {
       error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    } else if (err.message === 'REPLACEMENT_STAFF_NOT_FOUND') {
+      error(res, 'Replacement staff member not found', HTTP_STATUS.NOT_FOUND);
+    } else if (err.message === 'REPLACEMENT_STAFF_SAME_AS_REQUESTER') {
+      error(res, 'Replacement staff must be different from requester', HTTP_STATUS.BAD_REQUEST);
     } else {
       error(res, 'Failed to apply for leave', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
