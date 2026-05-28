@@ -52,6 +52,11 @@ class HrApiService {
     return _get('/staff/hr/dashboard', query: {'timeframe': timeframe});
   }
 
+  /// GET /staff/admin/hierarchy — central org chart and role boundary map.
+  static Future<Map<String, dynamic>> getOrganizationHierarchy() async {
+    return _get('/staff/admin/hierarchy');
+  }
+
   /// GET /staff/list — list of all staff (for replacement picker).
   /// Path was `/staff` historically; that hits `/api/v1/staff` which
   /// the backend's staffRoutes router does not register (no GET `/`),

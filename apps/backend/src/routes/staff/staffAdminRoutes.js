@@ -7,6 +7,7 @@ import * as bulkController from '../../controllers/staff/bulkAttendanceControlle
 import * as grievanceController from '../../controllers/staff/grievanceController.js';
 import * as housekeepingController from '../../controllers/staff/housekeepingController.js';
 import * as incidentController from '../../controllers/staff/incidentController.js';
+import * as organizationHierarchyController from '../../controllers/staff/organizationHierarchyController.js';
 import * as overtimeController from '../../controllers/staff/overtimeController.js';
 import * as payrollController from '../../controllers/staff/payrollController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
@@ -41,6 +42,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/hr/pending-reviews', staffAdminController.getPendingReviews],
     ['/hr/leave-requests', staffAdminController.getAllLeaveRequests],
     ['/hr/onboarding-status', staffAdminController.getOnboardingStatus],
+    ['/hierarchy', organizationHierarchyController.getOrganizationHierarchy],
 
     // Leave Approvals (portal-facing)
     ['/leave/pending', staffAdminController.getAllLeaveRequests],

@@ -198,6 +198,13 @@ class RoleFeatures {
     route: '/staff-management',
     color: Color(0xFF4527A0),
   );
+  static const DashboardFeature _organizationHierarchy = DashboardFeature(
+    id: 'organization_hierarchy',
+    title: 'Hierarchy',
+    icon: Icons.account_tree_outlined,
+    route: '/organization-hierarchy',
+    color: Color(0xFF00695C),
+  );
   static const DashboardFeature _performance = DashboardFeature(
     id: 'performance',
     title: 'Performance',
@@ -449,6 +456,7 @@ class RoleFeatures {
         _bedBoard,
         _dischargeHub,
         _leave,
+        _organizationHierarchy,
         _staffDirectory,
         _messaging,
         _profile,
@@ -463,6 +471,7 @@ class RoleFeatures {
         _patientRecords,
         _vitals,
         _leave,
+        _organizationHierarchy,
         _staffDirectory,
         _messaging,
         _profile,
@@ -493,6 +502,7 @@ class RoleFeatures {
         _housekeepingRoster,
         _hrDashboard,
         _staffManagement,
+        _organizationHierarchy,
         _performance,
         _leave,
         _staffDirectory,
@@ -527,6 +537,7 @@ class RoleFeatures {
         _leave,
         _hrDashboard,
         _staffManagement,
+        _organizationHierarchy,
         _performance,
         _housekeepingRoster,
         _housekeepingCommand,
@@ -604,6 +615,7 @@ class RoleFeatures {
         _receptionRoster,
         _appointments,
         _appointmentQueue,
+        _organizationHierarchy,
         _staffDirectory,
         _messaging,
         _profile,

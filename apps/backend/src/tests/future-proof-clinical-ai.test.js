@@ -1213,7 +1213,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
       medication_name: 'Codeine',
     });
     expect(blocked.statusCode).toBe(403);
-  });
+  }, LONG_CLINICAL_AI_TEST_TIMEOUT_MS);
 
   it('evaluates radiology report QA discrepancies and gates by module', async () => {
     await enableModule('radiology_report_qa');

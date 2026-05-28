@@ -40,6 +40,7 @@ import '../../features/nursing/screens/mar_scan_screen.dart';
 
 // HR
 import '../../features/hr/screens/hr_dashboard_screen.dart';
+import '../../features/hr/screens/organization_hierarchy_screen.dart';
 import '../../features/hr/screens/staff_management_screen.dart';
 import '../../features/hr/screens/performance_screen.dart';
 
@@ -395,6 +396,12 @@ final GoRouter appRouter = GoRouter(
           name: 'staff-management',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: StaffManagementScreen()),
+        ),
+        GoRoute(
+          path: '/organization-hierarchy',
+          name: 'organization-hierarchy',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: OrganizationHierarchyScreen()),
         ),
         GoRoute(
           path: '/performance',
