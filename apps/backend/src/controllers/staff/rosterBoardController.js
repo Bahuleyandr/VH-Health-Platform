@@ -30,7 +30,7 @@ export async function getDepartmentRoster(req, res) {
 
     const rosterDate =
       req.query?.date || req.query?.roster_date || new Date().toISOString().slice(0, 10);
-    const snapshot = await getRosterSnapshot({ department, rosterDate });
+    const snapshot = await getRosterSnapshot({ department, rosterDate, tenantId: req.tenantId });
     success(res, snapshot, 'Roster board fetched');
   } catch (err) {
     logger.error('Get roster board failed:', err);

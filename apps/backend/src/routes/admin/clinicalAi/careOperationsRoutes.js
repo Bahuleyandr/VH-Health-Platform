@@ -33,6 +33,12 @@ import {
   listRosterRuns,
   publishRoster,
 } from '../../../services/ai/rosterOptimizerService.js';
+import {
+  createRosterLeaveForecast,
+  getLatestRosterLeaveForecast,
+  listRosterForecastAudit,
+  reviewRosterLeaveForecast,
+} from '../../../services/ai/staffLeaveForecastService.js';
 
 const router = express.Router();
 
@@ -101,6 +107,73 @@ router.patch('/roster/:id/discard', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_DISCARDED', String(discarded.id), null, discarded);
     return success(res, discarded, 'Roster discarded');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/roster/leave-forecast', async (req, res, next) => {
+  try {
+    const result = await createRosterLeaveForecast({
+      tenantId: req.tenantId,
+      department: req.body?.department,
+      startDate: req.body?.start_date,
+      endDate: req.body?.end_date || null,
+      actorUser: req.user,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_LEAVE_FORECAST_CREATED', String(result.run_id || 'inline'), null, {
+      department: result.department,
+      governance_state: result.governance_state,
+      source_count: result.source_count,
+      review_status: result.review_status,
+      decision_support_only: true,
+    });
+    return success(res, result, 'Roster leave forecast generated', result.run_id ? 201 : 200);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/roster/leave-forecast', async (req, res, next) => {
+  try {
+    const result = await getLatestRosterLeaveForecast({
+      tenantId: req.tenantId,
+      department: req.query?.department,
+      rosterDate: req.query?.date || req.query?.roster_date || null,
+      includeStaffScores: true,
+    });
+    return success(res, result, 'Roster leave forecast retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.patch('/roster/leave-forecast/:id/review', async (req, res, next) => {
+  try {
+    const result = await reviewRosterLeaveForecast({
+      tenantId: req.tenantId,
+      runId: req.params.id,
+      decision: req.body?.decision,
+      reviewerNotes: req.body?.reviewer_notes || req.body?.notes || null,
+      actorUser: req.user,
+    });
+    await logClinicalAiAudit(req, 'CLINICAL_AI_ROSTER_LEAVE_FORECAST_REVIEWED', String(result.id), null, {
+      department: result.department,
+      review_status: result.review_status,
+    });
+    return success(res, result, 'Roster leave forecast reviewed');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/roster/leave-forecast/:id/audit', async (req, res, next) => {
+  try {
+    const result = await listRosterForecastAudit({
+      tenantId: req.tenantId,
+      runId: req.params.id,
+    });
+    return success(res, result, 'Roster leave forecast audit retrieved');
   } catch (err) {
     return next(err);
   }

@@ -2119,6 +2119,7 @@ model clinical_ai_generations {
   clinical_ai_voice_ivr_sessions                                                                                      clinical_ai_voice_ivr_sessions[]
   clinical_document_intake                                                                                            clinical_document_intake[]
   clinical_nursing_ambient_sessions                                                                                   clinical_nursing_ambient_sessions[]
+  staff_leave_forecast_runs                                                                                           staff_leave_forecast_runs[]
 
   @@index([admission_id, created_at(sort: Desc)], map: "idx_clinical_ai_admission")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_clinical_ai_generations_tenant")
@@ -8376,12 +8377,20 @@ model tenants {
   radiology_orders                           radiology_orders[]
   referrals                                  referrals[]
   remote_prescriptions                       remote_prescriptions[]
+  roster_calendar_events                     roster_calendar_events[]
+  roster_weather_signals                     roster_weather_signals[]
   service_catalog                            service_catalog[]
   sla_definitions                            sla_definitions[]
   smart_access_tokens                        smart_access_tokens[]
   smart_apps                                 smart_apps[]
   smart_authz_codes                          smart_authz_codes[]
+  staff_commute_profile_audit                staff_commute_profile_audit[]
+  staff_commute_profiles                     staff_commute_profiles[]
   staff_grievances                           staff_grievances[]
+  staff_leave_forecast_audit                 staff_leave_forecast_audit[]
+  staff_leave_forecast_runs                  staff_leave_forecast_runs[]
+  staff_leave_forecast_scores                staff_leave_forecast_scores[]
+  staff_leave_forecast_shift_risks           staff_leave_forecast_shift_risks[]
   staff_messages                             staff_messages[]
   staff_roster_preferences                   staff_roster_preferences[]
   staff_roster_runs                          staff_roster_runs[]
@@ -11724,4 +11733,188 @@ model maternity_anc_advice {
 
   @@unique([tenant_id, trimester, language, category], map: "maternity_anc_advice_uniq")
   @@index([tenant_id, language, trimester, active], map: "idx_maternity_anc_advice_lookup")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roster_calendar_events {
+  id                  Int      @id @default(autoincrement())
+  tenant_id           String   @db.Uuid
+  title               String   @db.VarChar(180)
+  event_type          String   @default("custom") @db.VarChar(60)
+  start_date          DateTime @db.Date
+  end_date            DateTime @db.Date
+  risk_weight         Int      @default(10)
+  applies_departments String[] @default([])
+  notes               String?
+  is_active           Boolean  @default(true)
+  created_by          Int?
+  created_by_uid      String?  @db.Uuid
+  updated_by          Int?
+  updated_by_uid      String?  @db.Uuid
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roster_weather_signals {
+  id              Int      @id @default(autoincrement())
+  tenant_id       String   @db.Uuid
+  signal_date     DateTime @db.Date
+  area_label      String?  @db.VarChar(160)
+  signal_type     String   @db.VarChar(80)
+  severity        String   @default("normal") @db.VarChar(20)
+  provider        String   @default("manual") @db.VarChar(80)
+  provider_status String   @default("manual") @db.VarChar(40)
+  confidence_pct  Int      @default(60)
+  risk_weight     Int      @default(0)
+  is_manual       Boolean  @default(true)
+  payload         Json     @default("{}")
+  notes           String?
+  created_by      Int?
+  created_by_uid  String?  @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+  tenants         tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, signal_date], map: "idx_roster_weather_signals_tenant_date")
+}
+
+model staff_commute_profile_audit {
+  id                     Int                     @id @default(autoincrement())
+  tenant_id              String                  @db.Uuid
+  commute_profile_id     Int?
+  staff_id               Int?
+  actor_id               Int?
+  actor_uid              String?                 @db.Uuid
+  action                 String                  @db.VarChar(40)
+  reason                 String?
+  before_snapshot        Json                    @default("{}")
+  after_snapshot         Json                    @default("{}")
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  staff_commute_profiles staff_commute_profiles? @relation(fields: [commute_profile_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, staff_id, created_at(sort: Desc)], map: "idx_staff_commute_profile_audit_staff")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_commute_profiles {
+  id                          Int                           @id @default(autoincrement())
+  tenant_id                   String                        @db.Uuid
+  staff_id                    Int
+  staff_uid                   String?                       @db.Uuid
+  commute_band                String                        @default("unknown") @db.VarChar(40)
+  travel_mode                 String?                       @db.VarChar(60)
+  area_label                  String?                       @db.VarChar(160)
+  risk_weight                 Int                           @default(0)
+  notes                       String?
+  is_active                   Boolean                       @default(true)
+  updated_by                  Int?
+  updated_by_uid              String?                       @db.Uuid
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  staff_commute_profile_audit staff_commute_profile_audit[]
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, staff_id], map: "staff_commute_profiles_unique_staff")
+}
+
+model staff_leave_forecast_audit {
+  id                        Int                        @id @default(autoincrement())
+  tenant_id                 String                     @db.Uuid
+  run_id                    Int?
+  actor_id                  Int?
+  actor_uid                 String?                    @db.Uuid
+  action                    String                     @db.VarChar(60)
+  reason                    String?
+  before_snapshot           Json                       @default("{}")
+  after_snapshot            Json                       @default("{}")
+  created_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  staff_leave_forecast_runs staff_leave_forecast_runs? @relation(fields: [run_id], references: [id], onUpdate: NoAction)
+  tenants                   tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, run_id, created_at(sort: Desc)], map: "idx_staff_leave_forecast_audit_run")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_leave_forecast_runs {
+  id                               Int                                @id @default(autoincrement())
+  tenant_id                        String                             @db.Uuid
+  department                       String                             @db.VarChar(80)
+  start_date                       DateTime                           @db.Date
+  end_date                         DateTime                           @db.Date
+  forecast_window_days             Int                                @default(84)
+  generation_id                    Int?
+  governance_state                 String                             @default("fallback") @db.VarChar(30)
+  generation_mode                  String                             @default("rules_forecast") @db.VarChar(40)
+  provider_status                  String                             @default("not_used") @db.VarChar(40)
+  fallback_reason                  String?
+  source_count                     Int                                @default(0)
+  review_status                    String                             @default("pending") @db.VarChar(30)
+  reviewed_by                      Int?
+  reviewed_by_uid                  String?                            @db.Uuid
+  reviewed_at                      DateTime?                          @db.Timestamptz(6)
+  reviewer_notes                   String?
+  requested_by                     Int?
+  requested_by_uid                 String?                            @db.Uuid
+  summary                          Json                               @default("{}")
+  source_breakdown                 Json                               @default("{}")
+  safety_flags                     Json                               @default("[]")
+  metadata                         Json                               @default("{}")
+  created_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  staff_leave_forecast_audit       staff_leave_forecast_audit[]
+  clinical_ai_generations          clinical_ai_generations?           @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
+  tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  staff_leave_forecast_scores      staff_leave_forecast_scores[]
+  staff_leave_forecast_shift_risks staff_leave_forecast_shift_risks[]
+
+  @@index([tenant_id, department, start_date, end_date, created_at(sort: Desc)], map: "idx_staff_leave_forecast_runs_dept_range")
+  @@index([tenant_id, review_status, created_at(sort: Desc)], map: "idx_staff_leave_forecast_runs_review")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_leave_forecast_scores {
+  id                        Int                       @id @default(autoincrement())
+  run_id                    Int
+  tenant_id                 String                    @db.Uuid
+  department                String                    @db.VarChar(80)
+  staff_id                  Int
+  staff_uid                 String?                   @db.Uuid
+  staff_name                String?                   @db.VarChar(255)
+  staff_role                String?                   @db.VarChar(80)
+  score                     Decimal                   @default(0) @db.Decimal(5, 2)
+  risk_band                 String                    @default("low") @db.VarChar(20)
+  confidence_pct            Int                       @default(0)
+  top_factors               Json                      @default("[]")
+  date_risks                Json                      @default("[]")
+  source_snapshot           Json                      @default("{}")
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  staff_leave_forecast_runs staff_leave_forecast_runs @relation(fields: [run_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([run_id, score(sort: Desc)], map: "idx_staff_leave_forecast_scores_run")
+  @@index([tenant_id, staff_id, created_at(sort: Desc)], map: "idx_staff_leave_forecast_scores_staff")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_leave_forecast_shift_risks {
+  id                        Int                       @id @default(autoincrement())
+  run_id                    Int
+  tenant_id                 String                    @db.Uuid
+  department                String                    @db.VarChar(80)
+  forecast_date             DateTime                  @db.Date
+  shift_label               String                    @default("all") @db.VarChar(80)
+  risk_score                Decimal                   @default(0) @db.Decimal(5, 2)
+  risk_band                 String                    @default("low") @db.VarChar(20)
+  predicted_absences        Int                       @default(0)
+  recommended_buffer_count  Int                       @default(0)
+  top_factors               Json                      @default("[]")
+  source_snapshot           Json                      @default("{}")
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  staff_leave_forecast_runs staff_leave_forecast_runs @relation(fields: [run_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([run_id, forecast_date, shift_label], map: "idx_staff_leave_forecast_shift_risks_run_date")
 }

@@ -383,6 +383,30 @@ class HrApiService {
     );
   }
 
+  /// POST /staff/roster-board/departments/:department/forecast
+  static Future<Map<String, dynamic>> generateRosterLeaveForecast({
+    required String department,
+    required String startDate,
+    String? endDate,
+  }) async {
+    return await _post('/staff/roster-board/departments/$department/forecast', {
+      'start_date': startDate,
+      'end_date': ?endDate,
+    });
+  }
+
+  /// POST /staff/roster-board/forecast/runs/:id/review
+  static Future<Map<String, dynamic>> reviewRosterLeaveForecast({
+    required int runId,
+    required String decision,
+    String? reviewerNotes,
+  }) async {
+    return await _post('/staff/roster-board/forecast/runs/$runId/review', {
+      'decision': decision,
+      'reviewer_notes': ?reviewerNotes,
+    });
+  }
+
   /// POST /staff/roster-board/departments/:department/boards
   static Future<Map<String, dynamic>> saveRosterBoard({
     required String department,

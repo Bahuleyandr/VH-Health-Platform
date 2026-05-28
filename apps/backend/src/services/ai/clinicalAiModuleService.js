@@ -1419,7 +1419,7 @@ export const CLINICAL_AI_MODULES = [
   {
     module_key: 'staff_roster_optimizer',
     display_name: 'Staff Roster Optimizer',
-    description: 'Heuristic scheduler: suggests shift assignments from historical demand + preferences. Manager reviews and publishes.',
+    description: 'Advisory scheduler and leave-clustering forecast from historical demand, leave reasons, calendar, commute, and weather signals. Manager reviews before use.',
     enabled: false,
     settings: {
       surface: 'operations',
@@ -1427,8 +1427,10 @@ export const CLINICAL_AI_MODULES = [
       status: 'available',
       requiresClinicianSignoff: false,
       reviewRoles: ['ADMIN', 'HR_STAFF', 'DEPARTMENT_HEAD'],
-      outputSchema: { type: 'object', required: ['assignments', 'coverage_gaps', 'preference_conflicts'] },
+      outputSchema: { type: 'object', required: ['assignments', 'coverage_gaps', 'preference_conflicts', 'leave_forecast'] },
       retentionDays: 365,
+      decisionSupportOnly: true,
+      forecastWindowDays: 84,
     },
   },
   // ── Tier A patient explainers ────────────────────────────────────────────
