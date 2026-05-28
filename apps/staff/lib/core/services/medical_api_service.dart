@@ -480,6 +480,8 @@ class MedicalApiService {
     required String route,
     required String frequency,
     int? durationDays,
+    List<String>? doseTimes,
+    String? foodTiming,
     String? instructions,
     String priority = 'routine',
     DateTime? startDate,
@@ -496,9 +498,27 @@ class MedicalApiService {
         'route': route,
         'frequency': frequency,
         'duration_days': ?durationDays,
+        'dose_times': ?doseTimes,
+        'food_timing': ?foodTiming,
         'instructions': ?instructions,
       },
     });
+  }
+
+  /// GET /pharmacy-orders/catalog — medication catalog suggestions for
+  /// inpatient drug chart type-ahead.
+  static Future<List<Map<String, dynamic>>> searchMedicationCatalog(
+    String search,
+  ) async {
+    final q = search.trim();
+    if (q.length < 2) return const [];
+    final data = await _get('/pharmacy-orders/catalog', query: {'search': q});
+    final rows = data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
   }
 
   /// PUT /emr/orders/:id/discontinue — doctor-only stop order.

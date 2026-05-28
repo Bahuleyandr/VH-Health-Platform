@@ -75,6 +75,9 @@ function medicationPayloadFromOrder(order) {
     route: cleanText(details.route || order.route),
     frequency: cleanText(details.frequency || details.dosage_frequency || details.freq || details.dose_interval),
     duration: cleanText(details.duration || details.duration_days),
+    duration_days: details.duration_days ?? details.duration ?? null,
+    dose_times: Array.isArray(details.dose_times) ? details.dose_times : [],
+    food_timing: cleanText(details.food_timing),
     instructions: cleanText(details.instructions || details.instruction || order.notes),
     quantity: details.quantity_requested ?? details.quantity ?? details.qty ?? null,
   };

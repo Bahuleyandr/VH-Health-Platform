@@ -56,6 +56,10 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 // before the configured cutoff, otherwise HR gets an in-app alert.
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
 
+// Inpatient drug-chart SLA — once a patient has reached a ward/ICU bed,
+// doctors and that ward's nurses must not silently miss first medication charting.
+import { runMissingDrugChartSweep } from '../services/clinical/drugChartSlaService.js';
+
 // Bed inspection sweeper — D1. Marks stale pending inspections as expired.
 import { expireStaleInspections } from '../services/bed/bedInspectionService.js';
 
@@ -121,6 +125,11 @@ cron.schedule('0 * * * *', withJobLock('timed-reminders', sendTimedReminders));
 
 // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
 cron.schedule('*/5 * * * *', withJobLock('process-scheduled-notifications', processPendingScheduledNotifications));
+
+// 💊 Every 5 minutes - Alert if an active ward/ICU admission still has no drug chart after 1 hour.
+cron.schedule('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
+  await runMissingDrugChartSweep();
+}));
 
 // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
 cron.schedule('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
@@ -256,6 +265,7 @@ export async function runAllScheduledTasksNow() {
     await sendAppointmentReminders();
     await sendTimedReminders();
     await processPendingScheduledNotifications();
+    await runMissingDrugChartSweep();
     await sendInvestigationNotifications();
     await runRosterDeadlineEscalation({ force: true });
 
