@@ -8,6 +8,7 @@ const ADMIN_UID = '11111111-2222-4333-8444-000000010099';
 const INCHARGE_UID = '11111111-2222-4333-8444-000000010022';
 const STAFF_UID = '11111111-2222-4333-8444-000000010020';
 const NURSE_UID = '11111111-2222-4333-8444-000000010001';
+const DOCTOR_UID = '11111111-2222-4333-8444-000000010004';
 
 function authed(role, uid, id) {
   const token = generateTestToken(role, { uid, id });
@@ -28,6 +29,7 @@ describe('housekeeping floor delegation', () => {
   let inchargeId;
   let staffId;
   let nurseId;
+  let doctorId;
   let zoneId;
   let unusedZoneId;
   let assignmentId;
@@ -35,6 +37,7 @@ describe('housekeeping floor delegation', () => {
   let rosterBoardId;
   const rosterBoardIds = [];
   let rosterPreferenceRequestId;
+  let mismatchedRosterPreferenceRequestId;
   let leaveApplicationId;
 
   beforeAll(async () => {
@@ -44,7 +47,8 @@ describe('housekeeping floor delegation', () => {
          ($1::uuid, $2, 'Delegation Admin', 'ADMIN', true, NOW()),
          ($3::uuid, $4, 'Delegation Incharge', 'HOUSEKEEPING_INCHARGE', true, NOW()),
          ($5::uuid, $6, 'Delegation Staff', 'HOUSEKEEPING_STAFF', true, NOW()),
-         ($7::uuid, $8, 'Delegation Nurse', 'NURSING_STAFF', true, NOW())
+         ($7::uuid, $8, 'Delegation Nurse', 'NURSING_STAFF', true, NOW()),
+         ($9::uuid, $10, 'Delegation Doctor', 'DOCTOR', true, NOW())
        ON CONFLICT (uid) DO UPDATE
          SET is_active = EXCLUDED.is_active, role = EXCLUDED.role, updated_at = NOW()
        RETURNING id, uid`,
@@ -55,28 +59,35 @@ describe('housekeeping floor delegation', () => {
       STAFF_UID,
       `98${STAMP.slice(-8)}2`,
       NURSE_UID,
-      `98${STAMP.slice(-8)}3`
+      `98${STAMP.slice(-8)}3`,
+      DOCTOR_UID,
+      `98${STAMP.slice(-8)}4`
     );
     adminId = users.find(u => u.uid === ADMIN_UID)?.id;
     inchargeId = users.find(u => u.uid === INCHARGE_UID)?.id;
     staffId = users.find(u => u.uid === STAFF_UID)?.id;
     nurseId = users.find(u => u.uid === NURSE_UID)?.id;
+    doctorId = users.find(u => u.uid === DOCTOR_UID)?.id;
 
     await prisma.$executeRawUnsafe(
-      `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid)`,
+      `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid,$3::uuid)`,
       INCHARGE_UID,
-      STAFF_UID
+      STAFF_UID,
+      DOCTOR_UID
     );
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO staff (user_id, employee_id, name, designation, department, position, is_active, updated_at)
        VALUES
          ($1::uuid, $2, 'Delegation Incharge', 'Housekeeping Incharge', 'Housekeeping', 'Housekeeping Incharge', true, NOW()),
-         ($3::uuid, $4, 'Delegation Staff', 'Housekeeping Staff', 'Housekeeping', 'Housekeeping Staff', true, NOW())`,
+         ($3::uuid, $4, 'Delegation Staff', 'Housekeeping Staff', 'Housekeeping', 'Housekeeping Staff', true, NOW()),
+         ($5::uuid, $6, 'Delegation Doctor', 'Consultant', 'General Medicine', 'Consultant', true, NOW())`,
       INCHARGE_UID,
       `EMP-HKI-${STAMP.slice(-5)}`,
       STAFF_UID,
-      `EMP-HKS-${STAMP.slice(-5)}`
+      `EMP-HKS-${STAMP.slice(-5)}`,
+      DOCTOR_UID,
+      `EMP-DOC-${STAMP.slice(-5)}`
     );
 
     const zones = await prisma.$queryRawUnsafe(
@@ -150,6 +161,20 @@ describe('housekeeping floor delegation', () => {
         )
         .catch(() => {});
     }
+    if (mismatchedRosterPreferenceRequestId) {
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_request_audit WHERE request_id = $1::int`,
+          mismatchedRosterPreferenceRequestId
+        )
+        .catch(() => {});
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_requests WHERE id = $1::int`,
+          mismatchedRosterPreferenceRequestId
+        )
+        .catch(() => {});
+    }
     if (leaveApplicationId) {
       await prisma
         .$executeRawUnsafe(
@@ -176,18 +201,20 @@ describe('housekeeping floor delegation', () => {
     }
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid)`,
+        `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid,$3::uuid)`,
         INCHARGE_UID,
-        STAFF_UID
+        STAFF_UID,
+        DOCTOR_UID
       )
       .catch(() => {});
     await prisma
       .$executeRawUnsafe(
-        `DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid)`,
+        `DELETE FROM users WHERE uid IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid)`,
         ADMIN_UID,
         INCHARGE_UID,
         STAFF_UID,
-        NURSE_UID
+        NURSE_UID,
+        DOCTOR_UID
       )
       .catch(() => {});
     await prisma.$disconnect().catch(() => {});
@@ -492,6 +519,29 @@ describe('housekeeping floor delegation', () => {
     );
     expect(audit.map(row => row.action)).toEqual(expect.arrayContaining(['created', 'approved']));
     expect(audit.some(row => row.actor_id === adminId)).toBe(true);
+  });
+
+  it('derives self-service duty request department from the logged-in staff role', async () => {
+    const rosterDate = new Date(Date.now() + 259_200_000).toISOString().slice(0, 10);
+    const doctor = authed('DOCTOR', DOCTOR_UID, doctorId);
+
+    const created = await doctor.post('/api/v1/staff/roster-board/requests').send({
+      department: 'nursing',
+      requested_start_date: rosterDate,
+      requested_end_date: rosterDate,
+      period_type: 'day',
+      shift_label: 'Morning',
+      reason: 'Client had stale local role cache'
+    });
+
+    expect(created.statusCode).toBe(200);
+    mismatchedRosterPreferenceRequestId = created.body.data.id;
+    expect(created.body.data).toMatchObject({
+      staff_id: doctorId,
+      department: 'medical',
+      status: 'pending',
+      shift_label: 'Morning'
+    });
   });
 
   it('auto-routes new zone requests to the active delegated staff member', async () => {

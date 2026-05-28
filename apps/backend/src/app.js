@@ -211,10 +211,15 @@ const CLINICAL_STAFF_ROLES = [
   'ADMIN',
   'SUPER_ADMIN',
   'DOCTOR',
+  'DUTY_DOCTOR',
   'CONSULTANT',
   'JUNIOR_DOCTOR',
   'RESIDENT',
+  'MEDICAL_SUPERINTENDENT',
   'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
   'MEDICAL_RECORDS',
   // E-4 — pharmacy needs read access on /emr/orders (medication orders
   // they're about to dispense) + verify/complete on the same. Per
