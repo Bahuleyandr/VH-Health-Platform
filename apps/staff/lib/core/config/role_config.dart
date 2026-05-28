@@ -79,6 +79,36 @@ enum StaffRole {
   /// Whether this role has admin-level access (ADMIN or SUPER_ADMIN)
   bool get isAdminTier =>
       this == StaffRole.admin || this == StaffRole.superAdmin;
+
+  String? get rosterDepartment => switch (this) {
+    StaffRole.doctor ||
+    StaffRole.dutyDoctor ||
+    StaffRole.medicalSuperintendent => 'medical',
+    StaffRole.nurse || StaffRole.nursingIncharge => 'nursing',
+    StaffRole.opStaffNurse || StaffRole.opIncharge => 'op_nursing',
+    StaffRole.pharmacy => 'pharmacy',
+    StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
+    StaffRole.receptionist || StaffRole.receptionIncharge => 'reception',
+    StaffRole.driver => 'ambulance',
+    StaffRole.maintenance => 'maintenance',
+    StaffRole.hr ||
+    StaffRole.admin ||
+    StaffRole.superAdmin ||
+    StaffRole.lab ||
+    StaffRole.general => null,
+  };
+
+  String get rosterDepartmentLabel => switch (rosterDepartment) {
+    'medical' => 'Duty Doctors',
+    'nursing' => 'Nursing',
+    'op_nursing' => 'OP Staff Nursing',
+    'pharmacy' => 'Pharmacy',
+    'housekeeping' => 'Housekeeping',
+    'reception' => 'Reception',
+    'ambulance' => 'Ambulance / Drivers',
+    'maintenance' => 'Maintenance',
+    _ => 'Not configured',
+  };
 }
 
 // ─── Dashboard Feature ──────────────────────────────────────────────────────

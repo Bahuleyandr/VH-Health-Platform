@@ -7,6 +7,7 @@ const router = express.Router();
 
 wrapAutoRBAC(router, 'staffRosterBoardRoutes', {
   get: [
+    ['/assignments/my', rosterBoardController.getMyRosterAssignments],
     ['/requests/my', rosterBoardController.getMyDutyPreferenceRequests],
     ['/forecast/calendar-events', rosterForecastController.listCalendarEvents],
     ['/forecast/commute-profiles', rosterForecastController.listCommuteProfiles],

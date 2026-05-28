@@ -898,6 +898,56 @@ export async function listMyRosterPreferenceRequests({ actorUser, limit = 50 }) 
   );
 }
 
+export async function listMyRosterAssignments({ actorUser, startDate, endDate, limit = 100 }) {
+  const actor = await resolveActor(actorUser);
+  if (!actor.id) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  const start = assertRosterDate(startDate || today);
+  const end = assertRosterDate(endDate || start);
+  if (end < start) {
+    throw Object.assign(new Error('end_date cannot be before start_date'), { statusCode: 400 });
+  }
+
+  return prisma.$queryRawUnsafe(
+    `SELECT a.id AS assignment_id,
+            a.roster_id,
+            b.department,
+            b.roster_date::text AS roster_date,
+            b.shift_id,
+            b.shift_label,
+            b.shift_start::text AS shift_start,
+            b.shift_end::text AS shift_end,
+            b.status AS roster_status,
+            b.published_at,
+            a.staff_id,
+            a.staff_uid,
+            a.staff_role,
+            a.assignment_target_type,
+            a.assignment_target_id,
+            a.assignment_target_label,
+            a.floor,
+            a.building,
+            a.is_lead,
+            a.status AS assignment_status,
+            a.notes,
+            u.name AS staff_name
+       FROM staff_shift_roster_assignments a
+       JOIN staff_shift_roster_boards b ON b.id = a.roster_id
+       LEFT JOIN users u ON u.id = a.staff_id
+      WHERE a.staff_id = $1::int
+        AND b.roster_date >= $2::date
+        AND b.roster_date <= $3::date
+        AND b.status = 'published'
+        AND a.status = 'published'
+      ORDER BY b.roster_date ASC, b.shift_start ASC, b.shift_label ASC
+      LIMIT $4::int`,
+    actor.id,
+    start,
+    end,
+    Math.min(Math.max(Number(limit) || 100, 1), 200)
+  );
+}
+
 export async function listDepartmentRosterPreferenceRequests({
   department,
   rosterDate,
