@@ -2,6 +2,12 @@
 import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
+const APPROVED_LEAVE_STATUSES = ['approved', 'APPROVED'];
+
+function normalizeLeaveStatus(status, fallback = 'pending') {
+  return String(status || fallback).trim().toLowerCase();
+}
+
 // Fetch users row + associated staff row via the users↔staff relation
 // (FK declared in migration 090). Used by the balance + apply flows.
 //
@@ -80,7 +86,7 @@ async function getLeaveBalanceByType(staffIntId, year, { leaveType = null } = {}
     prisma.leave_applications.findMany({
       where: {
         staff_id: Number(staffIntId),
-        status: 'APPROVED',
+        status: { in: APPROVED_LEAVE_STATUSES },
         start_date: { gte: yearStart, lt: yearEnd },
         ...(leaveType ? { leave_type: leaveType } : {}),
       },
@@ -162,6 +168,7 @@ export const getStaffLeaveBalance = async (staffId, year) => {
       end_date: fmtDate(leave.end_date),
       days_taken: leave.days_taken,
       status: leave.status,
+      status_normalized: normalizeLeaveStatus(leave.status),
       reason: leave.reason,
       approved_by: leave.reviewed_by,           // preserve public field name
       approved_date: fmtDate(leave.reviewed_at), // preserve public field name
@@ -187,6 +194,8 @@ export const applyForLeave = async (leaveData) => {
     end_date,
     reason,
     emergency_contact,
+    replacement_staff_id,
+    replacementStaffId,
     appliedBy,
   } = leaveData;
 
@@ -215,33 +224,83 @@ export const applyForLeave = async (leaveData) => {
     throw new Error('INSUFFICIENT_LEAVE_BALANCE');
   }
 
-  // Create leave application.
-  const application = await prisma.leave_applications.create({
-    data: {
-      staff_id: staff.id,
-      leave_type,
-      start_date: startDate,
-      end_date: endDate,
-      days_taken: daysDifference,
-      reason: reason ?? null,
-      emergency_contact: emergency_contact ?? null,
-      status: 'PENDING',
-      applied_by: appliedBy,
-    },
-    select: {
-      id: true,
-      staff_id: true,
-      leave_type: true,
-      start_date: true,
-      end_date: true,
-      days_taken: true,
-      reason: true,
-      emergency_contact: true,
-      status: true,
-      applied_by: true,
-      applied_date: true,
-      created_at: true,
-    },
+  const requestedReplacementId = replacement_staff_id ?? replacementStaffId;
+
+  // Create leave application and optional replacement request atomically,
+  // so roster coverage can see both sides of the same leave event.
+  const { application, replacementRequest } = await prisma.$transaction(async tx => {
+    const createdApplication = await tx.leave_applications.create({
+      data: {
+        staff_id: staff.id,
+        leave_type,
+        start_date: startDate,
+        end_date: endDate,
+        days_taken: daysDifference,
+        reason: reason ?? null,
+        emergency_contact: emergency_contact ?? null,
+        status: 'pending',
+        applied_by: appliedBy,
+      },
+      select: {
+        id: true,
+        staff_id: true,
+        leave_type: true,
+        start_date: true,
+        end_date: true,
+        days_taken: true,
+        reason: true,
+        emergency_contact: true,
+        status: true,
+        applied_by: true,
+        applied_date: true,
+        created_at: true,
+      },
+    });
+
+    let createdReplacement = null;
+    if (requestedReplacementId != null && String(requestedReplacementId).trim() !== '') {
+      const replacementUserId = Number.parseInt(String(requestedReplacementId), 10);
+      if (!Number.isInteger(replacementUserId) || replacementUserId <= 0) {
+        throw new Error('REPLACEMENT_STAFF_NOT_FOUND');
+      }
+      if (replacementUserId === staff.id) {
+        throw new Error('REPLACEMENT_STAFF_SAME_AS_REQUESTER');
+      }
+
+      const replacementUser = await tx.users.findFirst({
+        where: { id: replacementUserId, is_active: true },
+        select: { id: true },
+      });
+      if (!replacementUser) {
+        throw new Error('REPLACEMENT_STAFF_NOT_FOUND');
+      }
+
+      createdReplacement = await tx.replacement_requests.create({
+        data: {
+          leave_request_id: createdApplication.id,
+          requester_id: staff.id,
+          replacement_staff_id: replacementUser.id,
+          dates: JSON.stringify({
+            start_date,
+            end_date,
+            days: daysDifference,
+          }),
+          status: 'pending',
+          requester_message: reason ?? null,
+        },
+        select: {
+          id: true,
+          leave_request_id: true,
+          requester_id: true,
+          replacement_staff_id: true,
+          dates: true,
+          status: true,
+          requested_at: true,
+        },
+      });
+    }
+
+    return { application: createdApplication, replacementRequest: createdReplacement };
   });
 
   // Notify supervisor. `notifications.phone` is NOT NULL and the
@@ -278,7 +337,9 @@ export const applyForLeave = async (leaveData) => {
       start_date: fmtDate(application.start_date),
       end_date: fmtDate(application.end_date),
       applied_date: fmtDate(application.applied_date),
+      status: normalizeLeaveStatus(application.status),
     },
+    replacementRequest,
     staffInfo: {
       name: staff.name,
       employee_id: staff.employee_id,

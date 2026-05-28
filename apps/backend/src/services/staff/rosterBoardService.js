@@ -388,27 +388,27 @@ async function getLeaveCoverageSignals(config, rosterDate) {
             u.name AS staff_name,
             u.role AS staff_role,
             la.leave_type,
-            la.status AS leave_status,
+            LOWER(la.status) AS leave_status,
             la.start_date::text AS start_date,
             la.end_date::text AS end_date,
             la.reason,
             rr.id AS replacement_request_id,
             rr.replacement_staff_id,
             ru.name AS replacement_staff_name,
-            rr.status AS replacement_status,
+            LOWER(rr.status) AS replacement_status,
             rr.hr_approved_at
        FROM leave_applications la
        JOIN users u ON u.id = la.staff_id
        LEFT JOIN replacement_requests rr
               ON rr.leave_request_id = la.id
-             AND rr.status IN ('pending', 'accepted', 'hr_approved')
+             AND LOWER(rr.status) IN ('pending', 'accepted', 'hr_approved')
        LEFT JOIN users ru ON ru.id = rr.replacement_staff_id
       WHERE la.start_date <= $1::date
         AND la.end_date >= $1::date
-        AND la.status IN ('pending', 'approved')
+        AND LOWER(la.status) IN ('pending', 'approved')
         AND u.role = ANY($2::text[])
       ORDER BY
-        CASE la.status WHEN 'approved' THEN 0 ELSE 1 END,
+        CASE LOWER(la.status) WHEN 'approved' THEN 0 ELSE 1 END,
         la.start_date ASC,
         u.name ASC`,
     rosterDate,
@@ -454,6 +454,57 @@ export async function getRosterBoardDepartment(rosterId) {
     id
   );
   return rows[0]?.department || null;
+}
+
+async function assertRosterAssignmentsNotOnApprovedLeave(config, rosterDate, assignments) {
+  const staffIds = [
+    ...new Set(
+      assignments
+        .map(item => Number(item.staff?.id))
+        .filter(id => Number.isInteger(id) && id > 0)
+    )
+  ];
+  if (!staffIds.length) return;
+
+  const conflicts = await prisma.$queryRawUnsafe(
+    `SELECT la.id AS leave_application_id,
+            la.staff_id,
+            u.name AS staff_name,
+            u.role AS staff_role,
+            la.leave_type,
+            LOWER(la.status) AS leave_status,
+            la.start_date::text AS start_date,
+            la.end_date::text AS end_date,
+            rr.replacement_staff_id,
+            ru.name AS replacement_staff_name
+       FROM leave_applications la
+       JOIN users u ON u.id = la.staff_id
+       LEFT JOIN replacement_requests rr
+              ON rr.leave_request_id = la.id
+             AND LOWER(rr.status) IN ('accepted', 'hr_approved')
+       LEFT JOIN users ru ON ru.id = rr.replacement_staff_id
+      WHERE la.staff_id = ANY($1::int[])
+        AND la.start_date <= $2::date
+        AND la.end_date >= $2::date
+        AND LOWER(la.status) = 'approved'
+        AND u.role = ANY($3::text[])
+      ORDER BY u.name, la.start_date`,
+    staffIds,
+    rosterDate,
+    config.staffRoles
+  );
+
+  if (!conflicts.length) return;
+
+  const conflict = conflicts[0];
+  const alternate = conflict.replacement_staff_name
+    ? ` Alternate cover: ${conflict.replacement_staff_name}.`
+    : ' No approved alternate cover is recorded.';
+  const message = `Cannot save roster: ${conflict.staff_name || 'staff'} is on approved ${conflict.leave_type || 'leave'} from ${conflict.start_date} to ${conflict.end_date}.${alternate}`;
+  const err = new Error(message);
+  err.statusCode = 409;
+  err.details = { conflicts };
+  throw err;
 }
 
 async function resolveRosterStaff(config, staffId) {
@@ -873,6 +924,8 @@ export async function saveRosterBoard({
       notes: assignment.notes || null
     });
   }
+
+  await assertRosterAssignmentsNotOnApprovedLeave(config, date, normalizedAssignments);
 
   return prisma.$transaction(async tx => {
     const beforeRows = await tx.$queryRawUnsafe(

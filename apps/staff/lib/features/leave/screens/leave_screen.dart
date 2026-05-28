@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
@@ -643,7 +645,8 @@ class _LeaveScreenState extends State<LeaveScreen>
                   itemCount: filtered.length,
                   itemBuilder: (ctx, i) {
                     final leave = filtered[i] as Map<String, dynamic>;
-                    final status = leave['status'] as String? ?? 'pending';
+                    final status = (leave['status'] as String? ?? 'pending')
+                        .toLowerCase();
                     final statusColor = status == 'approved'
                         ? Colors.green
                         : status == 'rejected'
@@ -690,6 +693,30 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
+  String _formatReplacementDates(dynamic rawDates) {
+    if (rawDates == null) return '';
+    if (rawDates is Map) {
+      final start = rawDates['start_date'] ?? rawDates['start'];
+      final end = rawDates['end_date'] ?? rawDates['end'];
+      if (start != null && end != null) return '$start to $end';
+      return rawDates.values.whereType<String>().join(', ');
+    }
+
+    final text = rawDates.toString();
+    if (text.trim().isEmpty) return '';
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is Map) {
+        final start = decoded['start_date'] ?? decoded['start'];
+        final end = decoded['end_date'] ?? decoded['end'];
+        if (start != null && end != null) return '$start to $end';
+      }
+    } catch (_) {
+      // Legacy rows may store plain text dates; show those unchanged.
+    }
+    return text;
+  }
+
   Widget _buildReplacementRequestsTab() {
     final s = AppStrings.of(context);
     if (_replacementRequests.isEmpty) {
@@ -715,8 +742,8 @@ class _LeaveScreenState extends State<LeaveScreen>
         final req = _replacementRequests[i] as Map<String, dynamic>;
         final requesterName =
             req['requester_name'] as String? ?? s.leaveRequesterUnknown;
-        final dates = req['dates'] as String? ?? '';
-        final status = req['status'] as String? ?? 'pending';
+        final dates = _formatReplacementDates(req['dates']);
+        final status = (req['status'] as String? ?? 'pending').toLowerCase();
         final isPending = status == 'pending';
 
         return Card(

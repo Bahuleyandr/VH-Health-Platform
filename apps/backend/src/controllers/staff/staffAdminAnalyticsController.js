@@ -52,7 +52,7 @@ export const getDepartmentAnalytics = async (req, res) => {
       FROM staff s
       LEFT JOIN staff_attendance a ON s.id = a.staff_id AND a.check_in_time::date = CURRENT_DATE
       LEFT JOIN leave_applications la ON s.id = la.staff_id 
-        AND la.status = 'approved' 
+        AND LOWER(la.status) = 'approved'
         AND CURRENT_DATE BETWEEN la.start_date AND la.end_date
       GROUP BY s.department
       ORDER BY s.department

@@ -45,7 +45,7 @@ export const advancedStaffSearch = async (req, res) => {
         GROUP BY staff_id
       ) pr ON s.id = pr.staff_id
       LEFT JOIN leave_applications la ON s.id = la.staff_id
-        AND la.status = 'approved'
+        AND LOWER(la.status) = 'approved'
         AND CURRENT_DATE BETWEEN la.start_date AND la.end_date
       WHERE s.is_active = true
     `;
@@ -240,7 +240,7 @@ export const generatePayrollData = async (req, res) => {
         AND EXTRACT(MONTH FROM a.check_in_time)::int = $1::int
         AND EXTRACT(YEAR FROM a.check_in_time)::int = $2::int
       LEFT JOIN leave_applications la ON s.id = la.staff_id
-        AND la.status = 'approved'
+        AND LOWER(la.status) = 'approved'
         AND EXTRACT(MONTH FROM la.start_date)::int = $1::int
         AND EXTRACT(YEAR FROM la.start_date)::int = $2::int
       WHERE 

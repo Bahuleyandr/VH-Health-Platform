@@ -19,7 +19,7 @@ export const getLeavePatterns = async (req, res) => {
       JOIN staff s ON la.staff_id = s.id
       WHERE 
         EXTRACT(YEAR FROM la.start_date)::int = $1::int
-        AND la.status = 'approved'
+        AND LOWER(la.status) = 'approved'
         ${department ? 'AND s.department = $2' : ''}
       GROUP BY month, la.leave_type
       ORDER BY month, la.leave_type
@@ -50,13 +50,13 @@ export const getAllLeaveRequests = async (req, res) => {
         la.start_date,
         la.end_date,
         la.reason,
-        la.status,
+        LOWER(la.status) AS status,
         la.created_at,
         la.end_date - la.start_date + 1 as total_days
       FROM leave_applications la
       JOIN staff s ON la.staff_id = s.id
       WHERE 
-        la.status = $1
+        LOWER(la.status) = LOWER($1)
         ${department ? 'AND s.department = $2' : ''}
       ORDER BY la.created_at DESC
     `, status, ...(department ? [department] : []));

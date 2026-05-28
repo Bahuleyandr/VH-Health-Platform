@@ -85,9 +85,9 @@ class LeaveApiService {
     });
   }
 
-  /// GET /staff/hr/leave-balance/:staff_id — my leave list (reuses balance endpoint)
+  /// GET /staff/hr/leave/my — current staff member's leave applications.
   static Future<Map<String, dynamic>> getMyLeaves(String staffId) async {
-    return _get('/staff/hr/leave-balance/$staffId');
+    return _get('/staff/hr/leave/my');
   }
 
   /// GET /staff/hr/replacement/pending — pending replacement requests for me

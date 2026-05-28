@@ -61,7 +61,10 @@ describe('getAttendanceCalendar', () => {
     );
     expect(leaveFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ staff_id: 8, status: 'approved' }),
+        where: expect.objectContaining({
+          staff_id: 8,
+          status: { in: ['approved', 'APPROVED'] },
+        }),
       })
     );
     expect(res.status).toHaveBeenCalledWith(200);
