@@ -7,6 +7,56 @@ const BED_RETURNING = `id, ward_id, bed_number, status, patient_id, patient_name
     admitted_at, notes, assigned_at, created_at, updated_at`;
 const WARD_RETURNING = `id, name, floor, department_id, total_beds, created_at, updated_at`;
 const VALID_BED_STATUSES = new Set(['available', 'occupied', 'reserved', 'maintenance', 'cleaning', 'dirty']);
+const ACTIVE_HOUSEKEEPING_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
+const BED_CLEANING_REQUEST_SELECT = `
+        hkr.id AS housekeeping_request_id,
+        hkr.request_number AS housekeeping_request_number,
+        hkr.status AS housekeeping_request_status,
+        hkr.urgency AS housekeeping_request_urgency,
+        hkr.assigned_to AS housekeeping_primary_assignee_id,
+        hka.assignee_names AS housekeeping_assignee_names,
+        hka.staff_names AS housekeeping_staff_names,
+        COALESCE(hka.assignees, '[]'::jsonb) AS housekeeping_assignees`;
+const BED_CLEANING_REQUEST_JOINS = `
+      LEFT JOIN LATERAL (
+        SELECT hr.id, hr.request_number, hr.status, hr.urgency, hr.assigned_to
+          FROM housekeeping_requests hr
+         WHERE b.status = 'cleaning'
+           AND COALESCE(hr.status, 'open') = ANY($1::text[])
+           AND hr.request_type IN ('bed_cleaning', 'cleaning')
+           AND (
+             COALESCE(hr.description, '') ~* ('(^|[^0-9])bed_id\\s*=\\s*' || b.id::text || '([^0-9]|$)')
+             OR LOWER(COALESCE(hr.location_text, '')) = LOWER(CONCAT_WS(' / ', NULLIF(w.name, ''), b.bed_number))
+           )
+         ORDER BY CASE WHEN hr.request_type = 'bed_cleaning' THEN 0 ELSE 1 END,
+                  hr.created_at DESC,
+                  hr.id DESC
+         LIMIT 1
+      ) hkr ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          string_agg(NULLIF(TRIM(u.name), ''), ', ' ORDER BY u.name)
+            FILTER (WHERE NULLIF(TRIM(u.name), '') IS NOT NULL) AS assignee_names,
+          string_agg(NULLIF(TRIM(u.name), ''), ', ' ORDER BY u.name)
+            FILTER (WHERE u.role = 'HOUSEKEEPING_STAFF' AND NULLIF(TRIM(u.name), '') IS NOT NULL) AS staff_names,
+          COALESCE(
+            jsonb_agg(
+              jsonb_build_object(
+                'id', u.id,
+                'uid', u.uid,
+                'name', u.name,
+                'role', u.role,
+                'kind', hrr.recipient_kind,
+                'source', hrr.source
+              )
+              ORDER BY u.role, u.name
+            ) FILTER (WHERE u.id IS NOT NULL),
+            '[]'::jsonb
+          ) AS assignees
+          FROM housekeeping_request_recipients hrr
+          JOIN users u ON u.id = hrr.staff_id
+         WHERE hrr.request_id = hkr.id
+      ) hka ON TRUE`;
 
 function truthyParam(value) {
   return value === true || value === 'true' || value === '1' || value === 1;
@@ -23,12 +73,12 @@ function addAvailableBedConditions(conditions) {
   );
 }
 
-function buildBedListFilters(filters = {}, fixedWardId = null) {
+function buildBedListFilters(filters = {}, fixedWardId = null, paramOffset = 0) {
   const conditions = [];
   const params = [];
   const addParam = (value) => {
     params.push(value);
-    return `$${params.length}`;
+    return `$${params.length + paramOffset}`;
   };
 
   const rawStatus = filters.status ? String(filters.status).trim().toLowerCase() : null;
@@ -115,14 +165,16 @@ class BedService {
   // ===== BED OPERATIONS =====
 
   async listBeds(filters = {}) {
-    const { where, params } = buildBedListFilters(filters);
+    const { where, params } = buildBedListFilters(filters, null, 1);
     return prisma.$queryRawUnsafe(`
-      SELECT b.*, w.name as ward_name, w.floor as ward_floor
+      SELECT b.*, w.name as ward_name, w.floor as ward_floor,
+        ${BED_CLEANING_REQUEST_SELECT}
       FROM beds b
       LEFT JOIN wards w ON b.ward_id = w.id
+      ${BED_CLEANING_REQUEST_JOINS}
       ${where}
       ORDER BY w.name, b.bed_number
-    `, ...params);
+    `, ACTIVE_HOUSEKEEPING_REQUEST_STATUSES, ...params);
   }
 
   async getBedsByWard(wardId, filters = {}) {
@@ -137,7 +189,7 @@ class BedService {
     // details come from users via `b.patient_uid = u.uid`. The age
     // column is computed in SQL from `users.birthday` (NOT `dob` —
     // that's a schema-dump-vs-live mismatch).
-    const { where, params } = buildBedListFilters(filters, wardId);
+    const { where, params } = buildBedListFilters(filters, wardId, 1);
     return prisma.$queryRawUnsafe(
       `SELECT b.*,
               w.name AS ward_name,
@@ -165,7 +217,8 @@ class BedService {
               a.summary_signed_at,
               a.discharge_drugs_dispensed_at,
               a.attending_doctor AS attending_doctor_uid,
-              doc.name   AS attending_doctor_name
+              doc.name   AS attending_doctor_name,
+              ${BED_CLEANING_REQUEST_SELECT}
        FROM beds b
        LEFT JOIN wards w
          ON b.ward_id = w.id
@@ -187,8 +240,10 @@ class BedService {
        ) hn ON TRUE
        LEFT JOIN users doc
          ON doc.uid = a.attending_doctor
+       ${BED_CLEANING_REQUEST_JOINS}
        ${where}
        ORDER BY b.bed_number`,
+      ACTIVE_HOUSEKEEPING_REQUEST_STATUSES,
       ...params
     );
   }
