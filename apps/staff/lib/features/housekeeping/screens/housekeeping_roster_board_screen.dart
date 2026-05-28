@@ -24,19 +24,20 @@ class _HousekeepingRosterBoardScreenState
   bool _loading = true;
   bool _saving = false;
   String? _error;
-  DateTime _date = DateTime.now();
+  late DateTime _weekStart = _startOfWeek(DateTime.now());
+  int _selectedDayIndex = DateTime.now().weekday - DateTime.monday;
   int _tabIndex = 0;
   String _targetType = 'housekeeping_zone';
   String _departmentLabel = 'Housekeeping';
 
-  final Map<String, Map<int, int?>> _assignmentsByShift = {};
+  final Map<String, Map<String, Map<int, int?>>> _assignmentsByDate = {};
 
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _staff = [];
   List<Map<String, dynamic>> _targets = [];
-  List<Map<String, dynamic>> _boards = [];
-  List<Map<String, dynamic>> _requests = [];
-  List<Map<String, dynamic>> _leaveCoverage = [];
+  final Map<String, List<Map<String, dynamic>>> _boardsByDate = {};
+  final Map<String, List<Map<String, dynamic>>> _requestsByDate = {};
+  final Map<String, List<Map<String, dynamic>>> _leaveCoverageByDate = {};
 
   @override
   void initState() {
@@ -68,6 +69,28 @@ class _HousekeepingRosterBoardScreenState
     final m = date.month.toString().padLeft(2, '0');
     final d = date.day.toString().padLeft(2, '0');
     return '$y-$m-$d';
+  }
+
+  static DateTime _startOfWeek(DateTime date) {
+    final clean = DateTime(date.year, date.month, date.day);
+    return clean.subtract(Duration(days: clean.weekday - DateTime.monday));
+  }
+
+  List<DateTime> get _weekDates =>
+      List.generate(7, (index) => _weekStart.add(Duration(days: index)));
+
+  DateTime get _selectedDate =>
+      _weekDates[_selectedDayIndex.clamp(0, 6).toInt()];
+
+  String get _selectedDateText => _dateText(_selectedDate);
+
+  String get _weekRangeText =>
+      '${_dateText(_weekStart)} to ${_dateText(_weekStart.add(const Duration(days: 6)))}';
+
+  String _dayShortLabel(DateTime date) {
+    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final label = labels[date.weekday - DateTime.monday];
+    return '$label ${date.day}/${date.month}';
   }
 
   String _shiftKey(String value) => value.trim().toLowerCase();
@@ -139,46 +162,66 @@ class _HousekeepingRosterBoardScreenState
       );
     }
 
-    for (final board in _boards) {
-      final label = _asText(board['shift_label']);
-      addColumn(
-        _ShiftColumn(
-          label: label,
-          shiftId: _asInt(board['shift_id']),
-          startTime: _asText(board['shift_start'], fallback: '08:00:00'),
-          endTime: _asText(board['shift_end'], fallback: '16:00:00'),
-          isCustom: ![
-            'morning',
-            'evening',
-            'night',
-          ].any((part) => _shiftKey(label).contains(part)),
-        ),
-      );
+    for (final boards in _boardsByDate.values) {
+      for (final board in boards) {
+        final label = _asText(board['shift_label']);
+        addColumn(
+          _ShiftColumn(
+            label: label,
+            shiftId: _asInt(board['shift_id']),
+            startTime: _asText(board['shift_start'], fallback: '08:00:00'),
+            endTime: _asText(board['shift_end'], fallback: '16:00:00'),
+            isCustom: ![
+              'morning',
+              'evening',
+              'night',
+            ].any((part) => _shiftKey(label).contains(part)),
+          ),
+        );
+      }
     }
 
     return result;
   }
 
-  void _applyBoardSelections() {
-    _assignmentsByShift.clear();
-    for (final shift in _shiftColumns) {
-      _assignmentsByShift[shift.label] = _emptyTargetMap();
-    }
+  Map<String, Map<int, int?>> get _assignmentsByShift =>
+      _assignmentsByDate.putIfAbsent(_selectedDateText, _emptyShiftMap);
 
-    for (final board in _boards) {
-      final shiftLabel = _asText(board['shift_label']);
-      final shiftMap = _assignmentsByShift.putIfAbsent(
-        shiftLabel,
-        _emptyTargetMap,
+  Map<String, Map<int, int?>> _emptyShiftMap() {
+    final map = <String, Map<int, int?>>{};
+    for (final shift in _shiftColumns) {
+      map[shift.label] = _emptyTargetMap();
+    }
+    return map;
+  }
+
+  void _applyWeekSelections() {
+    _assignmentsByDate.clear();
+    for (final date in _weekDates) {
+      final dateText = _dateText(date);
+      final dateAssignments = _assignmentsByDate.putIfAbsent(
+        dateText,
+        _emptyShiftMap,
       );
-      final assignments = _asMapList(board['assignments']);
-      for (final assignment in assignments) {
-        final targetId = _asInt(
-          assignment['assignment_target_id'] ?? assignment['target_id'],
+      for (final shift in _shiftColumns) {
+        dateAssignments.putIfAbsent(shift.label, _emptyTargetMap);
+      }
+      final boards = _boardsByDate[dateText] ?? [];
+      for (final board in boards) {
+        final shiftLabel = _asText(board['shift_label']);
+        final shiftMap = dateAssignments.putIfAbsent(
+          shiftLabel,
+          _emptyTargetMap,
         );
-        final staffId = _asInt(assignment['staff_id']);
-        if (targetId != null && staffId != null) {
-          shiftMap[targetId] = staffId;
+        final assignments = _asMapList(board['assignments']);
+        for (final assignment in assignments) {
+          final targetId = _asInt(
+            assignment['assignment_target_id'] ?? assignment['target_id'],
+          );
+          final staffId = _asInt(assignment['staff_id']);
+          if (targetId != null && staffId != null) {
+            shiftMap[targetId] = staffId;
+          }
         }
       }
     }
@@ -201,24 +244,40 @@ class _HousekeepingRosterBoardScreenState
       });
     }
     try {
-      final data = await HrApiService.getRosterBoard(
-        department: widget.department,
-        rosterDate: _dateText(_date),
+      final days = await Future.wait(
+        _weekDates.map((date) async {
+          final dateText = _dateText(date);
+          final data = await HrApiService.getRosterBoard(
+            department: widget.department,
+            rosterDate: dateText,
+          );
+          return {'date': dateText, 'data': data};
+        }),
       );
       if (!mounted) return;
       setState(() {
-        _shifts = _asMapList(data['shifts']);
-        _staff = _asMapList(data['staff']);
-        _targets = _asMapList(data['targets']);
-        _boards = _asMapList(data['boards']);
-        _requests = _asMapList(data['requests']);
-        _leaveCoverage = _asMapList(data['leave_coverage']);
-        _targetType = _asText(data['target_type'], fallback: _targetType);
-        _departmentLabel = _asText(
-          data['department_label'],
-          fallback: _departmentLabel,
-        );
-        _applyBoardSelections();
+        _boardsByDate.clear();
+        _requestsByDate.clear();
+        _leaveCoverageByDate.clear();
+
+        for (var index = 0; index < days.length; index += 1) {
+          final dateText = days[index]['date'] as String;
+          final data = Map<String, dynamic>.from(days[index]['data'] as Map);
+          if (index == 0) {
+            _shifts = _asMapList(data['shifts']);
+            _staff = _asMapList(data['staff']);
+            _targets = _asMapList(data['targets']);
+            _targetType = _asText(data['target_type'], fallback: _targetType);
+            _departmentLabel = _asText(
+              data['department_label'],
+              fallback: _departmentLabel,
+            );
+          }
+          _boardsByDate[dateText] = _asMapList(data['boards']);
+          _requestsByDate[dateText] = _asMapList(data['requests']);
+          _leaveCoverageByDate[dateText] = _asMapList(data['leave_coverage']);
+        }
+        _applyWeekSelections();
       });
     } catch (e) {
       if (!mounted) return;
@@ -228,17 +287,26 @@ class _HousekeepingRosterBoardScreenState
     }
   }
 
-  Future<void> _pickDate() async {
+  Future<void> _pickWeek() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _date,
+      initialDate: _selectedDate,
       firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 90)),
+      lastDate: DateTime.now().add(const Duration(days: 180)),
     );
     if (picked == null) return;
-    setState(() => _date = picked);
+    setState(() {
+      _weekStart = _startOfWeek(picked);
+      _selectedDayIndex = picked.weekday - DateTime.monday;
+    });
     await _load();
   }
+
+  List<Map<String, dynamic>> get _selectedRequests =>
+      _requestsByDate[_selectedDateText] ?? const [];
+
+  List<Map<String, dynamic>> get _selectedLeaveCoverage =>
+      _leaveCoverageByDate[_selectedDateText] ?? const [];
 
   int _assignedCountForShift(String shiftLabel) {
     return _assignmentsByShift[shiftLabel]?.values
@@ -247,28 +315,49 @@ class _HousekeepingRosterBoardScreenState
         0;
   }
 
-  int _totalAssignedCount() {
-    return _assignmentsByShift.values.fold<int>(
+  int _assignedCountForDate(String dateText) {
+    final rows = _assignmentsByDate[dateText];
+    if (rows == null) return 0;
+    return rows.values.fold<int>(
       0,
       (sum, row) => sum + row.values.where((staffId) => staffId != null).length,
     );
   }
 
-  int _gapCount() {
-    if (_targets.isEmpty || _shiftColumns.isEmpty) return 0;
-    return _shiftColumns.fold<int>(
+  int _weekAssignedCount() {
+    return _weekDates.fold<int>(
       0,
-      (sum, shift) =>
-          sum + (_targets.length - _assignedCountForShift(shift.label)),
+      (sum, date) => sum + _assignedCountForDate(_dateText(date)),
+    );
+  }
+
+  int _gapCountForDate(String dateText) {
+    if (_targets.isEmpty || _shiftColumns.isEmpty) return 0;
+    final rows = _assignmentsByDate[dateText] ?? {};
+    return _shiftColumns.fold<int>(0, (sum, shift) {
+      final assigned =
+          rows[shift.label]?.values
+              .where((staffId) => staffId != null)
+              .length ??
+          0;
+      return sum + (_targets.length - assigned);
+    });
+  }
+
+  int _weekGapCount() {
+    return _weekDates.fold<int>(
+      0,
+      (sum, date) => sum + _gapCountForDate(_dateText(date)),
     );
   }
 
   String _statusText() {
-    if (_boards.isEmpty) return 'draft';
-    final published = _boards.where(
+    final boards = _boardsByDate.values.expand((rows) => rows).toList();
+    if (boards.isEmpty) return 'draft';
+    final published = boards.where(
       (row) => _asText(row['status']) == 'published',
     );
-    return published.length == _boards.length ? 'published' : 'draft';
+    return published.length == boards.length ? 'published' : 'draft';
   }
 
   bool _isStaffAssignedInOtherShift(int staffId, String shiftLabel) {
@@ -310,6 +399,50 @@ class _HousekeepingRosterBoardScreenState
     return null;
   }
 
+  Map<String, dynamic>? _approvedLeaveForDate(int staffId, String dateText) {
+    final leaveRows = _leaveCoverageByDate[dateText] ?? const [];
+    for (final leave in leaveRows) {
+      final leaveStaffId = _asInt(leave['staff_id']);
+      final status = _asText(leave['leave_status'], fallback: '').toLowerCase();
+      if (leaveStaffId == staffId && status == 'approved') {
+        return leave;
+      }
+    }
+    return null;
+  }
+
+  bool _isStaffOnApprovedLeaveForDate(int staffId, String dateText) =>
+      _approvedLeaveForDate(staffId, dateText) != null;
+
+  bool _isStaffOnApprovedLeaveForSelectedDate(int staffId) =>
+      _isStaffOnApprovedLeaveForDate(staffId, _selectedDateText);
+
+  String? _approvedLeaveMessageForDate(int staffId, String dateText) {
+    final leave = _approvedLeaveForDate(staffId, dateText);
+    if (leave == null) return null;
+    final staff = _asText(
+      leave['staff_name'] ?? _staffById(staffId)?['name'],
+      fallback: 'Staff',
+    );
+    final leaveType = _asText(leave['leave_type'], fallback: 'leave');
+    final start = _asText(leave['start_date'], fallback: dateText);
+    final end = _asText(leave['end_date'], fallback: dateText);
+    final replacement = _asText(leave['replacement_staff_name'], fallback: '');
+    final suffix = replacement.isEmpty ? '' : ' Alternate cover: $replacement.';
+    return '$staff is on approved $leaveType leave from $start to $end.$suffix';
+  }
+
+  String? _approvedLeaveMessageForSelectedDate(int staffId) =>
+      _approvedLeaveMessageForDate(staffId, _selectedDateText);
+
+  bool _showApprovedLeaveBlock(int staffId, {String? dateText}) {
+    final targetDate = dateText ?? _selectedDateText;
+    final message = _approvedLeaveMessageForDate(staffId, targetDate);
+    if (message == null) return false;
+    _showSnack('Cannot assign on $targetDate: $message', AppTheme.errorRed);
+    return true;
+  }
+
   Map<String, dynamic>? _targetById(int targetId) {
     for (final target in _targets) {
       if (_asInt(target['id']) == targetId) return target;
@@ -338,6 +471,9 @@ class _HousekeepingRosterBoardScreenState
         '${_asText(staff?['name'], fallback: 'Staff')} is already assigned to $otherShift on this date.',
         AppTheme.errorRed,
       );
+      return;
+    }
+    if (staffId != null && _showApprovedLeaveBlock(staffId)) {
       return;
     }
     setState(() {
@@ -370,6 +506,9 @@ class _HousekeepingRosterBoardScreenState
   }
 
   void _setStaffShift(int staffId, String? shiftLabel) {
+    if (shiftLabel != null && _showApprovedLeaveBlock(staffId)) {
+      return;
+    }
     setState(() {
       final previousTarget = _staffAssignedTarget(staffId);
       _clearStaffFromAllShifts(staffId);
@@ -398,6 +537,9 @@ class _HousekeepingRosterBoardScreenState
       setState(() => _clearStaffFromAllShifts(staffId));
       return;
     }
+    if (_showApprovedLeaveBlock(staffId)) {
+      return;
+    }
     if (_targetOccupiedByOtherStaff(
       shiftLabel: shiftLabel,
       targetId: targetId,
@@ -419,9 +561,15 @@ class _HousekeepingRosterBoardScreenState
     });
   }
 
-  List<Map<String, dynamic>> _buildAssignmentsForShift(String shiftLabel) {
+  List<Map<String, dynamic>> _buildAssignmentsForShift(
+    String shiftLabel, {
+    String? dateText,
+  }) {
     final result = <Map<String, dynamic>>[];
-    final shiftMap = _assignmentsByShift[shiftLabel] ?? {};
+    final rows = dateText == null
+        ? _assignmentsByShift
+        : _assignmentsByDate[dateText];
+    final shiftMap = rows?[shiftLabel] ?? {};
     for (final entry in shiftMap.entries) {
       final targetId = entry.key;
       final staffId = entry.value;
@@ -440,14 +588,39 @@ class _HousekeepingRosterBoardScreenState
     return result;
   }
 
-  List<Map<String, dynamic>> _buildDayBoards() {
+  String? _firstApprovedLeaveConflictForDate(String dateText) {
+    final rows = _assignmentsByDate[dateText] ?? const {};
+    for (final shiftEntry in rows.entries) {
+      for (final staffId in shiftEntry.value.values) {
+        if (staffId == null) continue;
+        final message = _approvedLeaveMessageForDate(staffId, dateText);
+        if (message != null) {
+          return '$message Clear the ${shiftEntry.key} assignment on $dateText before saving.';
+        }
+      }
+    }
+    return null;
+  }
+
+  String? _firstApprovedLeaveConflictForWeek() {
+    for (final date in _weekDates) {
+      final conflict = _firstApprovedLeaveConflictForDate(_dateText(date));
+      if (conflict != null) return conflict;
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _buildDayBoards({String? dateText}) {
     return _shiftColumns
         .map(
           (shift) => {
             'shift_label': shift.label,
             'shift_id': ?shift.shiftId,
             'notes': '$_departmentLabel ${shift.label} roster',
-            'assignments': _buildAssignmentsForShift(shift.label),
+            'assignments': _buildAssignmentsForShift(
+              shift.label,
+              dateText: dateText,
+            ),
           },
         )
         .toList();
@@ -458,17 +631,28 @@ class _HousekeepingRosterBoardScreenState
       _showSnack('No roster shifts are configured.', AppTheme.errorRed);
       return null;
     }
+    final leaveConflict = _firstApprovedLeaveConflictForWeek();
+    if (leaveConflict != null) {
+      _showSnack(leaveConflict, AppTheme.errorRed);
+      return null;
+    }
     setState(() => _saving = true);
     try {
-      final saved = await HrApiService.saveRosterDay(
-        department: widget.department,
-        rosterDate: _dateText(_date),
-        boards: _buildDayBoards(),
-        reason: 'Saved from $_departmentLabel roster grid',
-      );
-      if (!quiet) _showSnack('Roster draft saved', AppTheme.successGreen);
+      Map<String, dynamic>? lastSaved;
+      for (final date in _weekDates) {
+        final dateText = _dateText(date);
+        lastSaved = await HrApiService.saveRosterDay(
+          department: widget.department,
+          rosterDate: dateText,
+          boards: _buildDayBoards(dateText: dateText),
+          reason: 'Saved from $_departmentLabel weekly roster grid',
+        );
+      }
+      if (!quiet) {
+        _showSnack('Weekly roster draft saved', AppTheme.successGreen);
+      }
       await _load();
-      return saved;
+      return lastSaved;
     } catch (e) {
       _showSnack(
         e.toString().replaceFirst('Exception: ', ''),
@@ -481,30 +665,38 @@ class _HousekeepingRosterBoardScreenState
   }
 
   Future<void> _publish() async {
+    final leaveConflict = _firstApprovedLeaveConflictForWeek();
+    if (leaveConflict != null) {
+      _showSnack(leaveConflict, AppTheme.errorRed);
+      return;
+    }
     setState(() => _saving = true);
     try {
-      final saved = await HrApiService.saveRosterDay(
-        department: widget.department,
-        rosterDate: _dateText(_date),
-        boards: _buildDayBoards(),
-        reason: 'Saved before publishing $_departmentLabel roster',
-      );
-      final boards = _asMapList(saved['boards']);
       var publishedCount = 0;
-      for (final board in boards) {
-        final boardId = _asInt(board['id']);
-        final assignments = _asMapList(board['assignments']);
-        if (boardId == null || assignments.isEmpty) continue;
-        await HrApiService.publishRosterBoard(
-          rosterId: boardId,
-          reason: 'Published from $_departmentLabel roster grid',
+      for (final date in _weekDates) {
+        final dateText = _dateText(date);
+        final saved = await HrApiService.saveRosterDay(
+          department: widget.department,
+          rosterDate: dateText,
+          boards: _buildDayBoards(dateText: dateText),
+          reason: 'Saved before publishing $_departmentLabel weekly roster',
         );
-        publishedCount += 1;
+        final boards = _asMapList(saved['boards']);
+        for (final board in boards) {
+          final boardId = _asInt(board['id']);
+          final assignments = _asMapList(board['assignments']);
+          if (boardId == null || assignments.isEmpty) continue;
+          await HrApiService.publishRosterBoard(
+            rosterId: boardId,
+            reason: 'Published from $_departmentLabel weekly roster grid',
+          );
+          publishedCount += 1;
+        }
       }
       _showSnack(
         publishedCount == 0
-            ? 'Saved draft; no assigned shifts to publish.'
-            : 'Published $publishedCount shift roster${publishedCount == 1 ? '' : 's'}',
+            ? 'Saved week draft; no assigned shifts to publish.'
+            : 'Published $publishedCount weekly shift roster${publishedCount == 1 ? '' : 's'}',
         AppTheme.successGreen,
       );
       await _load();
@@ -527,7 +719,7 @@ class _HousekeepingRosterBoardScreenState
         try {
           await HrApiService.copyPreviousRosterBoard(
             department: widget.department,
-            rosterDate: _dateText(_date),
+            rosterDate: _selectedDateText,
             shiftLabel: shift.label,
           );
           copied += 1;
@@ -551,6 +743,39 @@ class _HousekeepingRosterBoardScreenState
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _copySelectedDayToWeek() {
+    final source = _assignmentsByShift;
+    var blocked = 0;
+    setState(() {
+      for (final date in _weekDates) {
+        final dateText = _dateText(date);
+        if (dateText == _selectedDateText) continue;
+        final target = _assignmentsByDate.putIfAbsent(dateText, _emptyShiftMap);
+        target.clear();
+        for (final entry in source.entries) {
+          final shiftTargetMap = <int, int?>{};
+          for (final targetEntry in entry.value.entries) {
+            final staffId = targetEntry.value;
+            if (staffId != null &&
+                _isStaffOnApprovedLeaveForDate(staffId, dateText)) {
+              blocked += 1;
+              shiftTargetMap[targetEntry.key] = null;
+            } else {
+              shiftTargetMap[targetEntry.key] = staffId;
+            }
+          }
+          target[entry.key] = shiftTargetMap;
+        }
+      }
+    });
+    _showSnack(
+      blocked == 0
+          ? 'Selected day copied across the week'
+          : 'Selected day copied; $blocked approved-leave assignment${blocked == 1 ? '' : 's'} skipped.',
+      blocked == 0 ? AppTheme.successGreen : AppTheme.warningOnSurface,
+    );
   }
 
   Future<void> _reviewRequest(int requestId, String decision) async {
@@ -610,9 +835,9 @@ class _HousekeepingRosterBoardScreenState
 
   @override
   Widget build(BuildContext context) {
-    final assigned = _totalAssignedCount();
+    final assigned = _weekAssignedCount();
     final status = _statusText();
-    final gaps = _gapCount();
+    final gaps = _weekGapCount();
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
@@ -637,15 +862,30 @@ class _HousekeepingRosterBoardScreenState
                 children: [
                   if (_error != null) _ErrorBanner(error: _error!),
                   _HeaderPanel(
-                    dateText: _dateText(_date),
+                    weekRangeText: _weekRangeText,
+                    selectedDateText: _selectedDateText,
                     departmentLabel: _departmentLabel,
                     status: status,
                     assigned: assigned,
                     gaps: gaps,
                     saving: _saving,
-                    onPickDate: _pickDate,
+                    onPickWeek: _pickWeek,
                     onCopyPrevious: _copyPrevious,
+                    onCopySelectedDayToWeek: _copySelectedDayToWeek,
                     onAddCustomShift: _addCustomShift,
+                  ),
+                  const SizedBox(height: 12),
+                  _WeekStrip(
+                    dates: _weekDates,
+                    selectedIndex: _selectedDayIndex,
+                    saving: _saving,
+                    dateText: _dateText,
+                    dayLabel: _dayShortLabel,
+                    assignedCountForDate: _assignedCountForDate,
+                    gapCountForDate: _gapCountForDate,
+                    onChanged: (index) => setState(() {
+                      _selectedDayIndex = index;
+                    }),
                   ),
                   const SizedBox(height: 12),
                   _RosterLegend(
@@ -655,8 +895,8 @@ class _HousekeepingRosterBoardScreenState
                   ),
                   const SizedBox(height: 8),
                   _RosterSignals(
-                    requests: _requests,
-                    leaveCoverage: _leaveCoverage,
+                    requests: _selectedRequests,
+                    leaveCoverage: _selectedLeaveCoverage,
                     saving: _saving,
                     asInt: _asInt,
                     asText: _asText,
@@ -685,6 +925,10 @@ class _HousekeepingRosterBoardScreenState
                       shiftWindow: _shiftWindow,
                       selectedStaffForCell: _assignedStaffForCell,
                       isStaffAssignedInOtherShift: _isStaffAssignedInOtherShift,
+                      isStaffOnApprovedLeave:
+                          _isStaffOnApprovedLeaveForSelectedDate,
+                      approvedLeaveMessage:
+                          _approvedLeaveMessageForSelectedDate,
                       assignedCountForShift: _assignedCountForShift,
                       onChanged: _setCellAssignment,
                       onAddCustomShift: _addCustomShift,
@@ -701,6 +945,10 @@ class _HousekeepingRosterBoardScreenState
                       staffAssignedTarget: _staffAssignedTarget,
                       staffAssignedTargetLabel: _staffAssignedTargetLabel,
                       targetOccupiedByOtherStaff: _targetOccupiedByOtherStaff,
+                      isStaffOnApprovedLeave:
+                          _isStaffOnApprovedLeaveForSelectedDate,
+                      approvedLeaveMessage:
+                          _approvedLeaveMessageForSelectedDate,
                       onShiftChanged: _setStaffShift,
                       onTargetChanged: _setStaffTarget,
                     ),
@@ -756,25 +1004,29 @@ class _ShiftColumn {
 }
 
 class _HeaderPanel extends StatelessWidget {
-  final String dateText;
+  final String weekRangeText;
+  final String selectedDateText;
   final String departmentLabel;
   final String status;
   final int assigned;
   final int gaps;
   final bool saving;
-  final VoidCallback onPickDate;
+  final VoidCallback onPickWeek;
   final VoidCallback onCopyPrevious;
+  final VoidCallback onCopySelectedDayToWeek;
   final VoidCallback onAddCustomShift;
 
   const _HeaderPanel({
-    required this.dateText,
+    required this.weekRangeText,
+    required this.selectedDateText,
     required this.departmentLabel,
     required this.status,
     required this.assigned,
     required this.gaps,
     required this.saving,
-    required this.onPickDate,
+    required this.onPickWeek,
     required this.onCopyPrevious,
+    required this.onCopySelectedDayToWeek,
     required this.onAddCustomShift,
   });
 
@@ -817,8 +1069,12 @@ class _HeaderPanel extends StatelessWidget {
               children: [
                 ActionChip(
                   avatar: const Icon(Icons.event, size: 18),
-                  label: Text(dateText),
-                  onPressed: saving ? null : onPickDate,
+                  label: Text('Week $weekRangeText'),
+                  onPressed: saving ? null : onPickWeek,
+                ),
+                _StatusPill(
+                  label: 'Viewing $selectedDateText',
+                  color: AppTheme.primaryTeal,
                 ),
                 _StatusPill(
                   label: '$assigned assignments',
@@ -837,19 +1093,115 @@ class _HeaderPanel extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                OutlinedButton.icon(
-                  onPressed: saving ? null : onCopyPrevious,
-                  icon: const Icon(Icons.content_copy_outlined),
-                  label: const Text('Copy previous'),
+                SizedBox(
+                  width: 220,
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : onCopyPrevious,
+                    icon: const Icon(Icons.content_copy_outlined),
+                    label: const Text('Copy previous day'),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: saving ? null : onAddCustomShift,
-                  icon: const Icon(Icons.add_alarm_outlined),
-                  label: const Text('Add custom shift'),
+                SizedBox(
+                  width: 250,
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : onCopySelectedDayToWeek,
+                    icon: const Icon(Icons.copy_all_outlined),
+                    label: const Text('Copy day to week'),
+                  ),
+                ),
+                SizedBox(
+                  width: 220,
+                  child: OutlinedButton.icon(
+                    onPressed: saving ? null : onAddCustomShift,
+                    icon: const Icon(Icons.add_alarm_outlined),
+                    label: const Text('Add custom shift'),
+                  ),
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekStrip extends StatelessWidget {
+  final List<DateTime> dates;
+  final int selectedIndex;
+  final bool saving;
+  final String Function(DateTime date) dateText;
+  final String Function(DateTime date) dayLabel;
+  final int Function(String dateText) assignedCountForDate;
+  final int Function(String dateText) gapCountForDate;
+  final ValueChanged<int> onChanged;
+
+  const _WeekStrip({
+    required this.dates,
+    required this.selectedIndex,
+    required this.saving,
+    required this.dateText,
+    required this.dayLabel,
+    required this.assignedCountForDate,
+    required this.gapCountForDate,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: AppTheme.cardSurface,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: List.generate(dates.length, (index) {
+              final date = dates[index];
+              final text = dateText(date);
+              final selected = index == selectedIndex;
+              final assigned = assignedCountForDate(text);
+              final gaps = gapCountForDate(text);
+              return Padding(
+                padding: EdgeInsets.only(
+                  right: index == dates.length - 1 ? 0 : 8,
+                ),
+                child: ChoiceChip(
+                  selected: selected,
+                  avatar: Icon(
+                    gaps == 0 && assigned > 0
+                        ? Icons.check_circle_outline
+                        : Icons.event_note_outlined,
+                    size: 18,
+                  ),
+                  label: ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 112),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          dayLabel(date),
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$assigned assigned - $gaps open',
+                          style: TextStyle(
+                            color: selected
+                                ? AppTheme.primaryBlue
+                                : AppTheme.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  onSelected: saving ? null : (_) => onChanged(index),
+                ),
+              );
+            }),
+          ),
         ),
       ),
     );
@@ -987,6 +1339,8 @@ class _FloorShiftGrid extends StatelessWidget {
   final int? Function(String shiftLabel, int targetId) selectedStaffForCell;
   final bool Function(int staffId, String shiftLabel)
   isStaffAssignedInOtherShift;
+  final bool Function(int staffId) isStaffOnApprovedLeave;
+  final String? Function(int staffId) approvedLeaveMessage;
   final int Function(String shiftLabel) assignedCountForShift;
   final void Function(String shiftLabel, int targetId, int? staffId) onChanged;
   final VoidCallback onAddCustomShift;
@@ -1001,6 +1355,8 @@ class _FloorShiftGrid extends StatelessWidget {
     required this.shiftWindow,
     required this.selectedStaffForCell,
     required this.isStaffAssignedInOtherShift,
+    required this.isStaffOnApprovedLeave,
+    required this.approvedLeaveMessage,
     required this.assignedCountForShift,
     required this.onChanged,
     required this.onAddCustomShift,
@@ -1015,93 +1371,117 @@ class _FloorShiftGrid extends StatelessWidget {
       );
     }
 
-    const floorWidth = 190.0;
-    const shiftWidth = 240.0;
-    const addWidth = 150.0;
-
     return Card(
       color: AppTheme.cardSurface,
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: floorWidth + (shiftWidth * shifts.length) + addWidth,
-            child: Column(
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final floorWidth = constraints.maxWidth >= 980 ? 220.0 : 180.0;
+            const addWidth = 132.0;
+            const minShiftWidth = 220.0;
+            final available = constraints.maxWidth - floorWidth - addWidth;
+            final shiftWidth = shifts.isEmpty
+                ? minShiftWidth
+                : (available / shifts.length)
+                      .clamp(minShiftWidth, 280.0)
+                      .toDouble();
+            final tableWidth =
+                floorWidth + (shiftWidth * shifts.length) + addWidth;
+
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(
                   children: [
-                    _GridHeaderCell(
-                      width: floorWidth,
-                      title: 'Floor / Zone',
-                      subtitle: '${targets.length} active',
-                    ),
-                    ...shifts.map(
-                      (shift) => _GridHeaderCell(
-                        width: shiftWidth,
-                        title: shift.label,
-                        subtitle:
-                            '${shiftWindow(shift)} - ${assignedCountForShift(shift.label)} assigned',
-                        highlighted: !shift.isCustom,
+                    SizedBox(
+                      height: 72,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _GridHeaderCell(
+                            width: floorWidth,
+                            title: 'Floor / Zone',
+                            subtitle: '${targets.length} active',
+                          ),
+                          ...shifts.map(
+                            (shift) => _GridHeaderCell(
+                              width: shiftWidth,
+                              title: shift.label,
+                              subtitle:
+                                  '${shiftWindow(shift)} - ${assignedCountForShift(shift.label)} assigned',
+                              highlighted: !shift.isCustom,
+                            ),
+                          ),
+                          _AddShiftColumnHeader(
+                            width: addWidth,
+                            onPressed: saving ? null : onAddCustomShift,
+                          ),
+                        ],
                       ),
                     ),
-                    _AddShiftColumnHeader(
-                      width: addWidth,
-                      onPressed: saving ? null : onAddCustomShift,
-                    ),
+                    const Divider(height: 1),
+                    ...targets.map((target) {
+                      final targetId = asInt(target['id']);
+                      if (targetId == null) return const SizedBox.shrink();
+                      return SizedBox(
+                        height: 86,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _TargetCell(
+                              width: floorWidth,
+                              target: target,
+                              asText: asText,
+                            ),
+                            ...shifts.map(
+                              (shift) => _AssignmentDropdownCell(
+                                width: shiftWidth,
+                                shiftLabel: shift.label,
+                                targetId: targetId,
+                                staff: staff,
+                                selectedStaffId: selectedStaffForCell(
+                                  shift.label,
+                                  targetId,
+                                ),
+                                saving: saving,
+                                asInt: asInt,
+                                asText: asText,
+                                isStaffAssignedInOtherShift:
+                                    isStaffAssignedInOtherShift,
+                                isStaffOnApprovedLeave: isStaffOnApprovedLeave,
+                                approvedLeaveMessage: approvedLeaveMessage,
+                                onChanged: onChanged,
+                              ),
+                            ),
+                            Container(
+                              width: addWidth,
+                              height: 86,
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    color: AppTheme.divider.withValues(
+                                      alpha: 0.5,
+                                    ),
+                                  ),
+                                  bottom: BorderSide(
+                                    color: AppTheme.divider.withValues(
+                                      alpha: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                   ],
                 ),
-                const Divider(height: 1),
-                ...targets.map((target) {
-                  final targetId = asInt(target['id']);
-                  if (targetId == null) return const SizedBox.shrink();
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _TargetCell(
-                        width: floorWidth,
-                        target: target,
-                        asText: asText,
-                      ),
-                      ...shifts.map(
-                        (shift) => _AssignmentDropdownCell(
-                          width: shiftWidth,
-                          shiftLabel: shift.label,
-                          targetId: targetId,
-                          staff: staff,
-                          selectedStaffId: selectedStaffForCell(
-                            shift.label,
-                            targetId,
-                          ),
-                          saving: saving,
-                          asInt: asInt,
-                          asText: asText,
-                          isStaffAssignedInOtherShift:
-                              isStaffAssignedInOtherShift,
-                          onChanged: onChanged,
-                        ),
-                      ),
-                      Container(
-                        width: addWidth,
-                        constraints: const BoxConstraints(minHeight: 76),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            left: BorderSide(
-                              color: AppTheme.divider.withValues(alpha: 0.5),
-                            ),
-                            bottom: BorderSide(
-                              color: AppTheme.divider.withValues(alpha: 0.5),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -1125,7 +1505,7 @@ class _GridHeaderCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      constraints: const BoxConstraints(minHeight: 70),
+      height: 72,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: highlighted
@@ -1170,13 +1550,15 @@ class _AddShiftColumnHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      constraints: const BoxConstraints(minHeight: 70),
+      height: 72,
       padding: const EdgeInsets.all(10),
       color: AppTheme.backgroundGrey,
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: const Icon(Icons.add_alarm_outlined, size: 18),
-        label: const Text('Custom'),
+      child: Tooltip(
+        message: 'Add custom shift',
+        child: IconButton.outlined(
+          onPressed: onPressed,
+          icon: const Icon(Icons.add_alarm_outlined),
+        ),
       ),
     );
   }
@@ -1197,7 +1579,7 @@ class _TargetCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      constraints: const BoxConstraints(minHeight: 76),
+      height: 86,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         border: Border(
@@ -1265,6 +1647,8 @@ class _AssignmentDropdownCell extends StatelessWidget {
   final String Function(dynamic value, {String fallback}) asText;
   final bool Function(int staffId, String shiftLabel)
   isStaffAssignedInOtherShift;
+  final bool Function(int staffId) isStaffOnApprovedLeave;
+  final String? Function(int staffId) approvedLeaveMessage;
   final void Function(String shiftLabel, int targetId, int? staffId) onChanged;
 
   const _AssignmentDropdownCell({
@@ -1277,6 +1661,8 @@ class _AssignmentDropdownCell extends StatelessWidget {
     required this.asInt,
     required this.asText,
     required this.isStaffAssignedInOtherShift,
+    required this.isStaffOnApprovedLeave,
+    required this.approvedLeaveMessage,
     required this.onChanged,
   });
 
@@ -1284,48 +1670,85 @@ class _AssignmentDropdownCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      constraints: const BoxConstraints(minHeight: 76),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      height: 86,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       decoration: BoxDecoration(
         border: Border(
           right: BorderSide(color: AppTheme.divider.withValues(alpha: 0.5)),
           bottom: BorderSide(color: AppTheme.divider.withValues(alpha: 0.5)),
         ),
       ),
-      child: DropdownButtonFormField<int?>(
-        key: ValueKey('$shiftLabel-$targetId-$selectedStaffId'),
-        initialValue: selectedStaffId,
-        isExpanded: true,
-        decoration: const InputDecoration(
-          labelText: 'Staff',
-          prefixIcon: Icon(Icons.badge_outlined),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppTheme.backgroundGrey,
+          border: Border.all(color: AppTheme.divider),
+          borderRadius: BorderRadius.circular(8),
         ),
-        items: [
-          const DropdownMenuItem<int?>(value: null, child: Text('Unassigned')),
-          ...staff.map((row) {
-            final staffId = asInt(row['id']);
-            final disabled =
-                staffId != null &&
-                staffId != selectedStaffId &&
-                isStaffAssignedInOtherShift(staffId, shiftLabel);
-            return DropdownMenuItem<int?>(
-              value: staffId,
-              enabled: !disabled,
-              child: Text(
-                '${asText(row['name'])} - ${asText(row['employee_id'], fallback: 'no ID')}',
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: disabled
-                      ? AppTheme.textSecondary
-                      : AppTheme.textPrimary,
-                ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int?>(
+              key: ValueKey('$shiftLabel-$targetId-$selectedStaffId'),
+              value: selectedStaffId,
+              isExpanded: true,
+              hint: Text(
+                'Assign staff',
+                style: TextStyle(color: AppTheme.textSecondary),
               ),
-            );
-          }),
-        ],
-        onChanged: saving
-            ? null
-            : (staffId) => onChanged(shiftLabel, targetId, staffId),
+              dropdownColor: AppTheme.cardSurface,
+              icon: const Icon(Icons.expand_more),
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('Unassigned'),
+                ),
+                ...staff.map((row) {
+                  final staffId = asInt(row['id']);
+                  final assignedElsewhere =
+                      staffId != null &&
+                      staffId != selectedStaffId &&
+                      isStaffAssignedInOtherShift(staffId, shiftLabel);
+                  final blockedByLeave =
+                      staffId != null &&
+                      staffId != selectedStaffId &&
+                      isStaffOnApprovedLeave(staffId);
+                  final disabled = assignedElsewhere || blockedByLeave;
+                  final reason = staffId == null
+                      ? null
+                      : approvedLeaveMessage(staffId);
+                  return DropdownMenuItem<int?>(
+                    value: staffId,
+                    enabled: !disabled,
+                    child: Tooltip(
+                      message: blockedByLeave
+                          ? (reason ?? 'Approved leave on this date')
+                          : assignedElsewhere
+                          ? 'Already assigned to another shift on this date'
+                          : '',
+                      child: Text(
+                        [
+                          '${asText(row['name'])} - ${asText(row['employee_id'], fallback: 'no ID')}',
+                          if (blockedByLeave) 'approved leave',
+                        ].join(' - '),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: blockedByLeave
+                              ? AppTheme.errorOnSurface
+                              : disabled
+                              ? AppTheme.textSecondary
+                              : AppTheme.textPrimary,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+              onChanged: saving
+                  ? null
+                  : (staffId) => onChanged(shiftLabel, targetId, staffId),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1341,6 +1764,8 @@ class _StaffWiseRoster extends StatelessWidget {
   final String? Function(int staffId) staffAssignedShift;
   final int? Function(int staffId) staffAssignedTarget;
   final String? Function(int staffId) staffAssignedTargetLabel;
+  final bool Function(int staffId) isStaffOnApprovedLeave;
+  final String? Function(int staffId) approvedLeaveMessage;
   final bool Function({
     required String shiftLabel,
     required int targetId,
@@ -1360,6 +1785,8 @@ class _StaffWiseRoster extends StatelessWidget {
     required this.staffAssignedShift,
     required this.staffAssignedTarget,
     required this.staffAssignedTargetLabel,
+    required this.isStaffOnApprovedLeave,
+    required this.approvedLeaveMessage,
     required this.targetOccupiedByOtherStaff,
     required this.onShiftChanged,
     required this.onTargetChanged,
@@ -1380,6 +1807,8 @@ class _StaffWiseRoster extends StatelessWidget {
         if (staffId == null) return const SizedBox.shrink();
         final selectedShift = staffAssignedShift(staffId);
         final selectedTarget = staffAssignedTarget(staffId);
+        final blockedByLeave = isStaffOnApprovedLeave(staffId);
+        final leaveMessage = approvedLeaveMessage(staffId);
         return Card(
           color: AppTheme.cardSurface,
           child: Padding(
@@ -1405,15 +1834,42 @@ class _StaffWiseRoster extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        asText(row['name']),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              asText(row['name']),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          if (blockedByLeave)
+                            Tooltip(
+                              message:
+                                  leaveMessage ?? 'Approved leave on this date',
+                              child: _StatusPill(
+                                label: 'Approved leave',
+                                color: AppTheme.errorOnSurface,
+                              ),
+                            ),
+                        ],
                       ),
+                      if (blockedByLeave && leaveMessage != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          leaveMessage,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppTheme.errorOnSurface,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 4),
                       Text(
                         [
@@ -1443,15 +1899,23 @@ class _StaffWiseRoster extends StatelessWidget {
                         value: null,
                         child: Text('Off / Unassigned'),
                       ),
-                      ...shifts.map(
-                        (shift) => DropdownMenuItem<String?>(
+                      ...shifts.map((shift) {
+                        final disabled =
+                            blockedByLeave && shift.label != selectedShift;
+                        return DropdownMenuItem<String?>(
                           value: shift.label,
+                          enabled: !disabled,
                           child: Text(
                             shift.label,
                             overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: disabled
+                                  ? AppTheme.textSecondary
+                                  : AppTheme.textPrimary,
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
                     ],
                     onChanged: saving
                         ? null
@@ -1475,7 +1939,7 @@ class _StaffWiseRoster extends StatelessWidget {
                       ),
                       ...targets.map((target) {
                         final targetId = asInt(target['id']);
-                        final disabled =
+                        final occupied =
                             selectedShift != null &&
                             targetId != null &&
                             targetOccupiedByOtherStaff(
@@ -1483,6 +1947,9 @@ class _StaffWiseRoster extends StatelessWidget {
                               targetId: targetId,
                               staffId: staffId,
                             );
+                        final disabled =
+                            occupied ||
+                            (blockedByLeave && targetId != selectedTarget);
                         return DropdownMenuItem<int?>(
                           value: targetId,
                           enabled: !disabled,
@@ -1490,7 +1957,10 @@ class _StaffWiseRoster extends StatelessWidget {
                             asText(target['label'] ?? target['name']),
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: disabled
+                              color:
+                                  blockedByLeave && targetId != selectedTarget
+                                  ? AppTheme.errorOnSurface
+                                  : disabled
                                   ? AppTheme.textSecondary
                                   : AppTheme.textPrimary,
                             ),
