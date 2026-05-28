@@ -9,6 +9,9 @@ import request from 'supertest';
 import app from '../app.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
+const CLEANING_REQUESTER_UID = 'a8888888-8888-4888-8888-888888888b01';
+const CLEANING_STAFF_UID = 'a8888888-8888-4888-8888-888888888b02';
+const CLEANING_INCHARGE_UID = 'a8888888-8888-4888-8888-888888888b03';
 
 function adminAs() {
   const token = generateTestToken('ADMIN', {
@@ -30,13 +33,63 @@ describe('Bed + ward management — deep integration', () => {
 
   beforeAll(async () => {
     // Clean any fixtures from prior runs (in FK-safe order)
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM housekeeping_request_recipients
+        WHERE staff_uid IN ($1::uuid, $2::uuid, $3::uuid)
+           OR request_id IN (
+             SELECT id FROM housekeeping_requests
+              WHERE description LIKE 'bed-deep-cleaning-assignee-test%'
+           )`,
+      CLEANING_REQUESTER_UID,
+      CLEANING_STAFF_UID,
+      CLEANING_INCHARGE_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM housekeeping_requests
+        WHERE description LIKE 'bed-deep-cleaning-assignee-test%'
+           OR requester_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      CLEANING_REQUESTER_UID,
+      CLEANING_STAFF_UID,
+      CLEANING_INCHARGE_UID,
+    );
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      CLEANING_REQUESTER_UID,
+      CLEANING_STAFF_UID,
+      CLEANING_INCHARGE_UID,
+    );
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM housekeeping_request_recipients
+        WHERE staff_uid IN ($1::uuid, $2::uuid, $3::uuid)
+           OR request_id IN (
+             SELECT id FROM housekeeping_requests
+              WHERE description LIKE 'bed-deep-cleaning-assignee-test%'
+           )`,
+      CLEANING_REQUESTER_UID,
+      CLEANING_STAFF_UID,
+      CLEANING_INCHARGE_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM housekeeping_requests
+        WHERE description LIKE 'bed-deep-cleaning-assignee-test%'
+           OR requester_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      CLEANING_REQUESTER_UID,
+      CLEANING_STAFF_UID,
+      CLEANING_INCHARGE_UID,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      CLEANING_REQUESTER_UID,
+      CLEANING_STAFF_UID,
+      CLEANING_INCHARGE_UID,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -118,6 +171,74 @@ describe('Bed + ward management — deep integration', () => {
       }
     });
 
+    it('shows routed housekeeping staff names for cleaning beds', async () => {
+      const requesterRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9000088801', 'Bed Deep Requester', 'NURSING_STAFF', true, NOW())
+         RETURNING id, uid`,
+        CLEANING_REQUESTER_UID,
+      );
+      const staffRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES
+           ($1::uuid, '9000088802', 'Cleaner Asha', 'HOUSEKEEPING_STAFF', true, NOW()),
+           ($2::uuid, '9000088803', 'HK Lead Meera', 'HOUSEKEEPING_INCHARGE', true, NOW())
+         RETURNING id, uid, role`,
+        CLEANING_STAFF_UID,
+        CLEANING_INCHARGE_UID,
+      );
+      const cleaner = staffRows.find((row) => row.role === 'HOUSEKEEPING_STAFF');
+      const incharge = staffRows.find((row) => row.role === 'HOUSEKEEPING_INCHARGE');
+      const cleaningBedRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, bed_number, status)
+         VALUES ($1, 'BD-DEEP-CLEANING', 'cleaning')
+         RETURNING id`,
+        wardId,
+      );
+      const cleaningBedId = cleaningBedRows[0].id;
+      const requestRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO housekeeping_requests
+           (requester_id, requester_uid, location_text, request_type, urgency,
+            description, assigned_to, assigned_to_uid, assigned_at, status)
+         VALUES
+           ($1::int, $2::uuid, $3, 'bed_cleaning', 'high',
+            $4, $5::int, $6::uuid, NOW(), 'assigned')
+         RETURNING id`,
+        requesterRows[0].id,
+        requesterRows[0].uid,
+        `${WARD_NAME} / BD-DEEP-CLEANING`,
+        `bed-deep-cleaning-assignee-test bed_id=${cleaningBedId}.`,
+        cleaner.id,
+        cleaner.uid,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO housekeeping_request_recipients
+           (request_id, staff_id, staff_uid, recipient_kind, source, notified_at)
+         VALUES
+           ($1::int, $2::int, $3::uuid, 'assignee', 'roster', NOW()),
+           ($1::int, $4::int, $5::uuid, 'incharge', 'role', NOW())`,
+        requestRows[0].id,
+        cleaner.id,
+        cleaner.uid,
+        incharge.id,
+        incharge.uid,
+      );
+
+      const wardRes = await admin.get(`/api/v1/beds/ward/${wardId}?status=cleaning`);
+      expect(wardRes.statusCode).toBe(200);
+      const wardBed = wardRes.body.data.beds.find((b) => b.id === cleaningBedId);
+      expect(wardBed).toBeDefined();
+      expect(wardBed.housekeeping_request_id).toBe(requestRows[0].id);
+      expect(wardBed.housekeeping_staff_names).toContain('Cleaner Asha');
+      expect(wardBed.housekeeping_assignee_names).toContain('Cleaner Asha');
+      expect(wardBed.housekeeping_assignee_names).toContain('HK Lead Meera');
+
+      const listRes = await admin.get(`/api/v1/beds?status=cleaning&ward_id=${wardId}`);
+      expect(listRes.statusCode).toBe(200);
+      const listBed = listRes.body.data.beds.find((b) => b.id === cleaningBedId);
+      expect(listBed.housekeeping_staff_names).toContain('Cleaner Asha');
+    });
+
     it('updates a bed and flips status to maintenance', async () => {
       const res = await admin.put(`/api/v1/beds/${bedId}`).send({
         status: 'maintenance', notes: 'Under repair',
@@ -133,7 +254,7 @@ describe('Bed + ward management — deep integration', () => {
       const ours = res.body.data.summary.find((s) => s.ward_id === wardId);
       expect(ours).toBeDefined();
       expect(ours.ward_name).toBe(WARD_NAME);
-      expect(ours.actual_beds).toBe(1);
+      expect(ours.actual_beds).toBe(2);
       expect(ours.maintenance).toBe(1);
       expect(ours.available).toBe(0);
     });

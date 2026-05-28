@@ -19,6 +19,55 @@ import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
 
+String _compactString(dynamic value) {
+  if (value == null) return '';
+  if (value is String) return value.trim();
+  if (value is Iterable) {
+    return value
+        .map(_compactString)
+        .where((item) => item.isNotEmpty)
+        .join(', ');
+  }
+  if (value is Map) {
+    return _compactString(
+      value['name'] ??
+          value['staff_name'] ??
+          value['assigned_to_name'] ??
+          value['label'],
+    );
+  }
+  return value.toString().trim();
+}
+
+String _cleaningAssigneeText(Map<String, dynamic> bed) {
+  final staffNames = _compactString(bed['housekeeping_staff_names']);
+  if (staffNames.isNotEmpty) return staffNames;
+
+  final allNames = _compactString(bed['housekeeping_assignee_names']);
+  if (allNames.isNotEmpty) return allNames;
+
+  final assignees = bed['housekeeping_assignees'];
+  if (assignees is Iterable) {
+    final staff = assignees
+        .where(
+          (row) =>
+              row is Map &&
+              (row['role'] ?? '').toString().toUpperCase() ==
+                  'HOUSEKEEPING_STAFF',
+        )
+        .map(_compactString)
+        .where((item) => item.isNotEmpty)
+        .join(', ');
+    if (staff.isNotEmpty) return staff;
+    return assignees
+        .map(_compactString)
+        .where((item) => item.isNotEmpty)
+        .join(', ');
+  }
+
+  return _compactString(bed['housekeeping_assigned_to_name']);
+}
+
 class BedBoardScreen extends StatefulWidget {
   const BedBoardScreen({super.key});
 
@@ -731,6 +780,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     final dischargeInitiated = (bed['discharge_initiated_at'] ?? '')
         .toString()
         .isNotEmpty;
+    final cleaningAssigneeText = _cleaningAssigneeText(bed);
     final color = dischargeInitiated
         ? const Color(0xFFEF6C00)
         : _statusColor(status);
@@ -827,6 +877,33 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
           ],
+          if (status.toLowerCase() == 'cleaning' &&
+              cleaningAssigneeText.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.person_pin_circle_outlined,
+                  size: 14,
+                  color: AppTheme.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Cleaning: $cleaningAssigneeText',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -845,6 +922,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       if (status.toLowerCase() == 'occupied' &&
           patientName.toString().isNotEmpty)
         'patient $patientName',
+      if (status.toLowerCase() == 'cleaning' && cleaningAssigneeText.isNotEmpty)
+        'cleaning assigned to $cleaningAssigneeText',
       if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
       if (hasNotes) 'has notes',
     ];
@@ -1222,6 +1301,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
         (bed['attending_doctor_name'] ?? bed['doctorName'] ?? '').toString();
     final admittedAt =
         (bed['admission_admitted_at'] ?? bed['admitted_at'] ?? '').toString();
+    final cleaningAssigneeText = _cleaningAssigneeText(bed);
 
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
 
@@ -1347,6 +1427,18 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                 },
               ),
               const SizedBox(height: 16),
+
+              if (status.toLowerCase() == 'cleaning' &&
+                  cleaningAssigneeText.isNotEmpty) ...[
+                const _SectionHeader(label: 'Housekeeping'),
+                _DetailRow(
+                  label: 'Assigned cleaning',
+                  value: cleaningAssigneeText,
+                  icon: Icons.person_pin_circle_outlined,
+                  multiline: true,
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Patient block (only when occupied)
               if (isOccupied && patientName.isNotEmpty) ...[
