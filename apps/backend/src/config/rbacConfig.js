@@ -105,15 +105,25 @@ export default {
   // surface that NURSING_STAFF / DOCTOR / PHARMACY_STAFF / LAB_STAFF
   // / HR_STAFF were hitting on the freshly-installed staff app.
   staffRoutes: [
+    SUPER_ADMIN,
     ADMIN,
     GENERAL_STAFF,
     HOUSEKEEPING_STAFF,
     HOUSEKEEPING_INCHARGE,
     MAINTENANCE,
     NURSING_STAFF,
+    NURSING_INCHARGE,
+    OP_STAFF_NURSE,
+    OP_INCHARGE,
     DOCTOR,
+    DUTY_DOCTOR,
+    MEDICAL_SUPERINTENDENT,
+    CMO,
+    CNO,
     PHARMACY_STAFF,
     LAB_STAFF,
+    RECEPTIONIST,
+    RECEPTION_INCHARGE,
     HR_STAFF
   ],
   // /api/v1/housekeeping/* — staff self-service (raise/complete tickets,
@@ -126,7 +136,11 @@ export default {
     HOUSEKEEPING_STAFF,
     HOUSEKEEPING_INCHARGE,
     NURSING_STAFF,
+    NURSING_INCHARGE,
     DOCTOR,
+    DUTY_DOCTOR,
+    MEDICAL_SUPERINTENDENT,
+    CNO,
     PHARMACY_STAFF,
     LAB_STAFF,
     HR_STAFF

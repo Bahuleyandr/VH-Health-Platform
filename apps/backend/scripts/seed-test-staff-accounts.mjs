@@ -262,6 +262,33 @@ const ACCOUNTS = [
     dept: 'Housekeeping',
     designation: 'Housekeeping Incharge',
     position: 'Housekeeping Incharge'
+  },
+  {
+    emp: 'EMP-1023',
+    name: 'Test Nursing Incharge',
+    role: 'NURSING_INCHARGE',
+    phone: '+919999990023',
+    dept: 'Nursing',
+    designation: 'Nursing Incharge',
+    position: 'Nursing Incharge'
+  },
+  {
+    emp: 'EMP-1024',
+    name: 'Test Nursing Superintendent',
+    role: 'CNO',
+    phone: '+919999990024',
+    dept: 'Nursing Administration',
+    designation: 'Nursing Superintendent',
+    position: 'Chief Nursing Officer'
+  },
+  {
+    emp: 'EMP-1025',
+    name: 'Test Medical Superintendent',
+    role: 'MEDICAL_SUPERINTENDENT',
+    phone: '+919999990025',
+    dept: 'Medical Administration',
+    designation: 'Medical Superintendent',
+    position: 'Medical Superintendent'
   }
 ];
 

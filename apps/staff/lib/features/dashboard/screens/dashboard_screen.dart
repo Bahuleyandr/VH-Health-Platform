@@ -607,6 +607,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'blood_bank',
       },
       StaffRole.nurse ||
+      StaffRole.nursingSuperintendent ||
       StaffRole.nursingIncharge ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge => {
