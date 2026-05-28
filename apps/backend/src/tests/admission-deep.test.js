@@ -907,12 +907,12 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         `SELECT status, request_type, urgency
            FROM housekeeping_requests
           WHERE description LIKE $1`,
-        `%admission #${admissionId}%`,
+        `Discharge cleaning required%admission #${admissionId}%`,
       );
       expect(housekeeping.length).toBe(1);
+      expect(['open', 'assigned']).toContain(housekeeping[0].status);
       expect(housekeeping[0]).toMatchObject({
-        status: 'open',
-        request_type: 'cleaning',
+        request_type: 'bed_cleaning',
         urgency: 'high',
       });
 

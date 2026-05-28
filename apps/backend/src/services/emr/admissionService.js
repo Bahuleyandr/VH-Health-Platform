@@ -31,6 +31,7 @@ import {
   ensureHospitalNumber,
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
+import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -2540,35 +2541,16 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   //   2026-05-09-inpatient-admission-housekeeping-no-ticket-on-discharge.
   if (phase1.bedTurnover) {
     try {
-      const requester = await prisma.users.findUnique({
-        where: { uid: dischargedBy },
-        select: { id: true, uid: true },
+      const { bed_id, bed_number, ward_name } = phase1.bedTurnover;
+      const bedLabel = [ward_name, bed_number].filter(Boolean).join(' / ')
+        || `Bed ${bed_id}`;
+      await createBedCleaningRequest({
+        bedId: bed_id,
+        requesterUid: dischargedBy,
+        trigger: 'final_discharge',
+        urgency: 'high',
+        description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}. bed_id=${bed_id}.`,
       });
-      if (requester) {
-        const { bed_id, bed_number, ward_name } = phase1.bedTurnover;
-        const bedLabel = [ward_name, bed_number].filter(Boolean).join(' / ')
-          || `Bed ${bed_id}`;
-        // 120-min SLA for high urgency, matching the canonical SLA
-        // map in housekeepingController.js. Setting it lets the
-        // SLA-breach dashboard work for auto-created discharge
-        // tickets just like manually raised ones.
-        const slaDueAt = new Date(Date.now() + 120 * 60 * 1000);
-        await prisma.housekeeping_requests.create({
-          data: {
-            requester_id: requester.id,
-            requester_uid: requester.uid,
-            location_text: bedLabel,
-            request_type: 'cleaning',
-            urgency: 'high',
-            description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}. bed_id=${bed_id}.`,
-            status: 'open',
-            sla_due_at: slaDueAt,
-            updated_at: new Date(),
-          },
-        });
-      } else {
-        logger.warn(`dischargePatient: housekeeping request skipped; no users row for ${dischargedBy}`);
-      }
     } catch (e) {
       logger.warn(`dischargePatient: housekeeping request failed for admission ${admissionId} (continuing): ${e.message}`);
     }
@@ -2591,7 +2573,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   if (!toBedId) throw AppError.badRequest('to_bed_id is required');
   if (!transferredBy) throw AppError.badRequest('transferredBy is required');
 
-  return prisma.$transaction(async (tx) => {
+  const phase1 = await prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on the admission row.
     const admRows = await tx.$queryRaw`
       SELECT id, patient_uid, bed_id, ward, status
@@ -2722,8 +2704,27 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     });
 
     logger.info(`Admission #${admissionId} transferred: bed ${fromBedId} -> ${toBedId}`);
-    return updated;
+    return {
+      updated,
+      bedTurnover: fromBedId ? { bed_id: fromBedId } : null,
+    };
   });
+
+  if (phase1.bedTurnover) {
+    try {
+      await createBedCleaningRequest({
+        bedId: phase1.bedTurnover.bed_id,
+        requesterUid: transferredBy,
+        trigger: 'bed_transfer',
+        urgency: 'high',
+        description: `Transfer cleaning required after admission #${admissionId} moved to bed ${toBedId}. bed_id=${phase1.bedTurnover.bed_id}.`,
+      });
+    } catch (e) {
+      logger.warn(`transferPatient: housekeeping request failed for admission ${admissionId} (continuing): ${e.message}`);
+    }
+  }
+
+  return phase1.updated;
 }
 
 async function getActiveAdmissions(filters = {}) {
