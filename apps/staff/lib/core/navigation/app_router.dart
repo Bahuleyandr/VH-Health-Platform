@@ -96,6 +96,7 @@ import '../../features/emr/screens/vitals_chart_screen.dart';
 import '../../features/emr/screens/discharge_hub_list_screen.dart';
 import '../../features/emr/screens/discharge_hub_screen.dart';
 import '../../features/emr/screens/discharge_summary_screen.dart';
+import '../../features/ipd/screens/drug_chart_screen.dart';
 
 // Messaging
 import '../../features/messaging/screens/messaging_inbox_screen.dart';
@@ -381,6 +382,20 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) {
             final maId = int.tryParse(state.pathParameters['maId'] ?? '') ?? 0;
             return NoTransitionPage(child: MarScanScreen(maId: maId));
+          },
+        ),
+        GoRoute(
+          path: '/drug-chart/:admissionId',
+          name: 'drug-chart',
+          pageBuilder: (context, state) {
+            final admissionId =
+                int.tryParse(state.pathParameters['admissionId'] ?? '') ?? 0;
+            return NoTransitionPage(
+              child: DrugChartScreen(
+                admissionId: admissionId,
+                patientName: state.uri.queryParameters['name'],
+              ),
+            );
           },
         ),
 

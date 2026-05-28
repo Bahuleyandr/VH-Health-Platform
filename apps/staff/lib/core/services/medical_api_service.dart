@@ -461,6 +461,64 @@ class MedicalApiService {
     return const [];
   }
 
+  /// GET /clinical/drug-chart/admission/:id — inpatient drug chart for the
+  /// current admission, including CPOE medication orders, MAR rows, ward
+  /// indents, safety flags, and role permissions.
+  static Future<Map<String, dynamic>> getInpatientDrugChart(
+    int admissionId,
+  ) async {
+    return _get('/clinical/drug-chart/admission/$admissionId');
+  }
+
+  /// POST /emr/orders — doctor-only inpatient medication order. The backend
+  /// schedules MAR rows and creates the pharmacy ward indent as side effects.
+  static Future<Map<String, dynamic>> createInpatientMedicationOrder({
+    required String patientUid,
+    required String? encounterId,
+    required String medicationName,
+    required String dose,
+    required String route,
+    required String frequency,
+    int? durationDays,
+    String? instructions,
+    String priority = 'routine',
+    DateTime? startDate,
+  }) async {
+    return _post('/emr/orders', {
+      'patient_uid': patientUid,
+      'encounter_id': ?encounterId,
+      'order_type': 'medication',
+      'priority': priority,
+      'start_date': (startDate ?? DateTime.now()).toUtc().toIso8601String(),
+      'details': {
+        'medication_name': medicationName,
+        'dose': dose,
+        'route': route,
+        'frequency': frequency,
+        'duration_days': ?durationDays,
+        'instructions': ?instructions,
+      },
+    });
+  }
+
+  /// PUT /emr/orders/:id/discontinue — doctor-only stop order.
+  static Future<Map<String, dynamic>> discontinueClinicalOrder({
+    required int orderId,
+    required String reason,
+  }) async {
+    return _put('/emr/orders/$orderId/discontinue', {'reason': reason});
+  }
+
+  /// POST /clinical/mar/:id/administer — nurse administration without barcode.
+  /// The preferred path is the scanner, but this supports supervised downtime
+  /// confirmation while still storing scheduled/administered timestamps.
+  static Future<Map<String, dynamic>> administerMedication({
+    required int maId,
+    String? notes,
+  }) async {
+    return _post('/clinical/mar/$maId/administer', {'notes': ?notes});
+  }
+
   /// GET /prescriptions/all — list all prescriptions (admin/staff)
   static Future<List<dynamic>> getEPrescriptionsList({
     String? doctorId,

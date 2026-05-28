@@ -664,6 +664,7 @@ class RoleFeatures {
         _dutyPreference,
         _pharmacyRoster,
         _pharmacyOrders,
+        _bedBoard,
         _dischargeHub,
         _clinicalAiReviewQueue,
         _leave,
