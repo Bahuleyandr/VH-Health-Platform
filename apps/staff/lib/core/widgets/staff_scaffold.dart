@@ -188,7 +188,7 @@ class StaffScaffold extends StatelessWidget {
             'Directory',
             Icons.contacts_outlined,
             Icons.contacts,
-            '/directory',
+            '/staff-directory',
           ),
           const _NavItem(
             'Settings',
