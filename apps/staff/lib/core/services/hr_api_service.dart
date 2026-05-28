@@ -401,6 +401,19 @@ class HrApiService {
     });
   }
 
+  /// POST /staff/roster-board/departments/:department/day-boards
+  static Future<Map<String, dynamic>> saveRosterDay({
+    required String department,
+    required String rosterDate,
+    required List<Map<String, dynamic>> boards,
+    String? reason,
+  }) async {
+    return await _post(
+      '/staff/roster-board/departments/$department/day-boards',
+      {'roster_date': rosterDate, 'boards': boards, 'reason': ?reason},
+    );
+  }
+
   /// POST /staff/roster-board/boards/:id/publish
   static Future<Map<String, dynamic>> publishRosterBoard({
     required int rosterId,
@@ -408,6 +421,21 @@ class HrApiService {
   }) async {
     return await _post('/staff/roster-board/boards/$rosterId/publish', {
       'reason': ?reason,
+    });
+  }
+
+  /// POST /staff/admin/shifts/custom
+  static Future<Map<String, dynamic>> createCustomShift({
+    required String name,
+    required String startTime,
+    required String endTime,
+    String? department,
+  }) async {
+    return await _post('/staff/admin/shifts/custom', {
+      'name': name,
+      'start_time': startTime,
+      'end_time': endTime,
+      'department': ?department,
     });
   }
 

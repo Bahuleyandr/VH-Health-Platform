@@ -27,12 +27,12 @@ async function resolveCurrentUserRef(req) {
 
 function hasZoneAdminRole(req) {
   const role = String(req.user?.rawRole || req.user?.role || '').toUpperCase();
-  return role === 'ADMIN' || role === 'SUPER_ADMIN';
+  return role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'HR_STAFF';
 }
 
 function requireZoneAdmin(req, res) {
   if (hasZoneAdminRole(req)) return true;
-  error(res, 'Admin role required to manage housekeeping zones', HTTP_STATUS.FORBIDDEN);
+  error(res, 'Admin or HR role required to manage housekeeping zones', HTTP_STATUS.FORBIDDEN);
   return false;
 }
 

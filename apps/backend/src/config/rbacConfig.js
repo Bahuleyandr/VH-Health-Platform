@@ -129,7 +129,7 @@ export default {
     HR_STAFF
   ],
   housekeepingAdminRoutes: [ADMIN, HR_STAFF, HOUSEKEEPING_INCHARGE],
-  housekeepingZoneAdminRoutes: [ADMIN],
+  housekeepingZoneAdminRoutes: [ADMIN, HR_STAFF],
   staffRosterBoardRoutes: [
     ADMIN,
     HR_STAFF,

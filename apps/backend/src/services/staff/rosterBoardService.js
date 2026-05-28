@@ -9,14 +9,7 @@ export const ROSTER_DEPARTMENTS = {
     managerRoles: ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF', 'HOUSEKEEPING_INCHARGE'],
     staffRoles: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
     targetType: 'housekeeping_zone',
-    async getTargets() {
-      return prisma.$queryRawUnsafe(`
-        SELECT id, name AS label, zone_type, floor, building
-          FROM housekeeping_zones
-         WHERE is_active = true
-         ORDER BY COALESCE(floor, ''), name
-      `);
-    }
+    getTargets: getHousekeepingZoneTargets
   },
   nursing: {
     department: 'nursing',
@@ -220,6 +213,28 @@ async function getStaffPool(config) {
       ORDER BY u.role, u.name`,
     config.staffRoles
   );
+}
+
+async function getHousekeepingZoneTargets() {
+  const zones = await prisma.$queryRawUnsafe(`
+    SELECT id, name AS label, zone_type, floor, building
+      FROM housekeeping_zones
+     WHERE is_active = true
+     ORDER BY COALESCE(floor, ''), name
+  `);
+  if (zones.length) return zones;
+
+  return prisma.$queryRawUnsafe(`
+    SELECT MIN(id)::int AS id,
+           CONCAT('Floor ', COALESCE(floor::text, 'Unassigned')) AS label,
+           'floor'::text AS zone_type,
+           floor::text AS floor,
+           'Main'::text AS building,
+           true AS synthetic
+      FROM wards
+     GROUP BY floor
+     ORDER BY COALESCE(floor, 999)
+  `);
 }
 
 async function getWardTargets() {
@@ -556,7 +571,7 @@ async function resolveTarget(config, assignment) {
       targetId
     );
     if (!rows.length) {
-      throw Object.assign(new Error('Housekeeping zone not found or inactive'), {
+      throw Object.assign(new Error('Housekeeping zone not found or inactive. Ask Admin/HR to enable this floor/zone before assigning roster duty.'), {
         statusCode: 404
       });
     }
@@ -570,6 +585,117 @@ async function resolveTarget(config, assignment) {
     building: assignment.building || null,
     target_type: targetType
   };
+}
+
+async function normalizeRosterBoardInput(config, boardInput = {}) {
+  const shift = await getShiftByInput({
+    shiftId: boardInput.shift_id,
+    shiftLabel: boardInput.shift_label
+  });
+  const label = normalizeShiftLabel(boardInput.shift_label || shift.name);
+  const assignmentInput = Array.isArray(boardInput.assignments) ? boardInput.assignments : [];
+
+  const normalizedAssignments = [];
+  const seenStaff = new Set();
+  for (const assignment of assignmentInput) {
+    const staff = await resolveRosterStaff(config, assignment.staff_id);
+    if (seenStaff.has(staff.id)) {
+      throw Object.assign(new Error('Each staff member can be assigned once per shift board'), {
+        statusCode: 409
+      });
+    }
+    seenStaff.add(staff.id);
+    const target = await resolveTarget(config, assignment);
+    normalizedAssignments.push({
+      staff,
+      target,
+      is_lead: Boolean(assignment.is_lead),
+      notes: assignment.notes || null
+    });
+  }
+
+  return {
+    shift,
+    label,
+    notes: boardInput.notes || null,
+    normalizedAssignments
+  };
+}
+
+function collectRosterStaffIds(normalizedBoards) {
+  return [
+    ...new Set(
+      normalizedBoards
+        .flatMap(board => board.normalizedAssignments || [])
+        .map(item => Number(item.staff?.id))
+        .filter(id => Number.isInteger(id) && id > 0)
+    )
+  ];
+}
+
+function assertStaffAssignedOncePerRosterDay(normalizedBoards, rosterDate) {
+  const seen = new Map();
+  for (const board of normalizedBoards) {
+    for (const item of board.normalizedAssignments || []) {
+      const prior = seen.get(item.staff.id);
+      if (prior) {
+        const err = new Error(
+          `Cannot save roster: ${item.staff.name || 'staff'} is already assigned to ${prior.shift_label} on ${rosterDate}. A staff member can be assigned to only one shift per day.`
+        );
+        err.statusCode = 409;
+        err.details = {
+          staff_id: item.staff.id,
+          staff_name: item.staff.name,
+          shift_labels: [prior.shift_label, board.label]
+        };
+        throw err;
+      }
+      seen.set(item.staff.id, { shift_label: board.label });
+    }
+  }
+}
+
+async function assertNoExistingRosterDayConflicts({
+  rosterDate,
+  staffIds,
+  excludedDepartment,
+  excludedShiftLabels
+}) {
+  if (!staffIds.length) return;
+  const labels = excludedShiftLabels.length ? excludedShiftLabels : [''];
+  const conflicts = await prisma.$queryRawUnsafe(
+    `SELECT b.id AS roster_id,
+            b.department,
+            b.shift_label,
+            a.staff_id,
+            u.name AS staff_name,
+            a.assignment_target_label
+       FROM staff_shift_roster_assignments a
+       JOIN staff_shift_roster_boards b ON b.id = a.roster_id
+       LEFT JOIN users u ON u.id = a.staff_id
+      WHERE b.roster_date = $1::date
+        AND b.status <> 'archived'
+        AND a.status <> 'cancelled'
+        AND a.staff_id = ANY($2::int[])
+        AND NOT (
+          b.department = $3
+          AND b.shift_label = ANY($4::text[])
+        )
+      ORDER BY u.name, b.department, b.shift_label`,
+    rosterDate,
+    staffIds,
+    excludedDepartment,
+    labels
+  );
+  if (!conflicts.length) return;
+
+  const conflict = conflicts[0];
+  const err = new Error(
+    `Cannot save roster: ${conflict.staff_name || 'staff'} is already assigned to ${conflict.shift_label} (${conflict.department}) on ${rosterDate}. A staff member can be assigned to only one shift per day.`
+  );
+  err.statusCode = 409;
+  err.details = { conflicts };
+  throw err;
 }
 
 async function auditRoster(tx, { rosterId, actor, action, reason, before, after }) {
@@ -901,33 +1027,46 @@ export async function saveRosterBoard({
     throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
   }
   const date = assertRosterDate(rosterDate);
-  const shift = await getShiftByInput({ shiftId, shiftLabel });
-  const label = normalizeShiftLabel(shiftLabel || shift.name);
   const actor = await resolveActor(actorUser);
-  const assignmentInput = Array.isArray(assignments) ? assignments : [];
+  const boardInput = {
+    shift_id: shiftId,
+    shift_label: shiftLabel,
+    notes,
+    assignments
+  };
+  const normalizedBoard = await normalizeRosterBoardInput(config, boardInput);
 
-  const normalizedAssignments = [];
-  const seenStaff = new Set();
-  for (const assignment of assignmentInput) {
-    const staff = await resolveRosterStaff(config, assignment.staff_id);
-    if (seenStaff.has(staff.id)) {
-      throw Object.assign(new Error('Each staff member can be assigned once per shift board'), {
-        statusCode: 409
-      });
-    }
-    seenStaff.add(staff.id);
-    const target = await resolveTarget(config, assignment);
-    normalizedAssignments.push({
-      staff,
-      target,
-      is_lead: Boolean(assignment.is_lead),
-      notes: assignment.notes || null
-    });
-  }
+  await assertRosterAssignmentsNotOnApprovedLeave(
+    config,
+    date,
+    normalizedBoard.normalizedAssignments
+  );
+  await assertNoExistingRosterDayConflicts({
+    rosterDate: date,
+    staffIds: collectRosterStaffIds([normalizedBoard]),
+    excludedDepartment: config.department,
+    excludedShiftLabels: [normalizedBoard.label]
+  });
 
-  await assertRosterAssignmentsNotOnApprovedLeave(config, date, normalizedAssignments);
+  return prisma.$transaction(tx =>
+    saveRosterBoardRecord(tx, {
+      config,
+      date,
+      normalizedBoard,
+      actor,
+      reason
+    })
+  );
+}
 
-  return prisma.$transaction(async tx => {
+async function saveRosterBoardRecord(tx, {
+  config,
+  date,
+  normalizedBoard,
+  actor,
+  reason
+}) {
+  const { shift, label, notes, normalizedAssignments } = normalizedBoard;
     const beforeRows = await tx.$queryRawUnsafe(
       `SELECT b.*,
               COALESCE(
@@ -1013,6 +1152,71 @@ export async function saveRosterBoard({
     });
 
     return after;
+}
+
+export async function saveRosterDay({
+  department,
+  rosterDate,
+  boards,
+  actorUser,
+  reason
+}) {
+  const config = getDepartmentConfig(department);
+  if (!config) {
+    throw Object.assign(new Error('Roster department is not configured'), { statusCode: 404 });
+  }
+  const date = assertRosterDate(rosterDate);
+  const boardInputs = Array.isArray(boards) ? boards : [];
+  if (!boardInputs.length) {
+    throw Object.assign(new Error('boards must include at least one shift'), { statusCode: 400 });
+  }
+
+  const normalizedBoards = [];
+  const seenLabels = new Set();
+  for (const boardInput of boardInputs) {
+    const normalizedBoard = await normalizeRosterBoardInput(config, boardInput);
+    const key = normalizedBoard.label.toLowerCase();
+    if (seenLabels.has(key)) {
+      throw Object.assign(new Error(`Duplicate shift column ${normalizedBoard.label}`), {
+        statusCode: 400
+      });
+    }
+    seenLabels.add(key);
+    normalizedBoards.push(normalizedBoard);
+  }
+
+  assertStaffAssignedOncePerRosterDay(normalizedBoards, date);
+  await assertRosterAssignmentsNotOnApprovedLeave(
+    config,
+    date,
+    normalizedBoards.flatMap(board => board.normalizedAssignments)
+  );
+  await assertNoExistingRosterDayConflicts({
+    rosterDate: date,
+    staffIds: collectRosterStaffIds(normalizedBoards),
+    excludedDepartment: config.department,
+    excludedShiftLabels: normalizedBoards.map(board => board.label)
+  });
+
+  const actor = await resolveActor(actorUser);
+  return prisma.$transaction(async tx => {
+    const savedBoards = [];
+    for (const normalizedBoard of normalizedBoards) {
+      const saved = await saveRosterBoardRecord(tx, {
+        config,
+        date,
+        normalizedBoard,
+        actor,
+        reason
+      });
+      savedBoards.push(saved);
+    }
+    return {
+      department: config.department,
+      roster_date: date,
+      boards: savedBoards,
+      saved_count: savedBoards.length
+    };
   });
 }
 
