@@ -7,6 +7,7 @@ const STAMP = `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`;
 const ADMIN_UID = '11111111-2222-4333-8444-000000010099';
 const INCHARGE_UID = '11111111-2222-4333-8444-000000010022';
 const STAFF_UID = '11111111-2222-4333-8444-000000010020';
+const SECOND_STAFF_UID = '11111111-2222-4333-8444-000000010021';
 const NURSE_UID = '11111111-2222-4333-8444-000000010001';
 const DOCTOR_UID = '11111111-2222-4333-8444-000000010004';
 
@@ -28,6 +29,7 @@ describe('housekeeping floor delegation', () => {
   let adminId;
   let inchargeId;
   let staffId;
+  let secondStaffId;
   let nurseId;
   let doctorId;
   let zoneId;
@@ -47,8 +49,9 @@ describe('housekeeping floor delegation', () => {
          ($1::uuid, $2, 'Delegation Admin', 'ADMIN', true, NOW()),
          ($3::uuid, $4, 'Delegation Incharge', 'HOUSEKEEPING_INCHARGE', true, NOW()),
          ($5::uuid, $6, 'Delegation Staff', 'HOUSEKEEPING_STAFF', true, NOW()),
-         ($7::uuid, $8, 'Delegation Nurse', 'NURSING_STAFF', true, NOW()),
-         ($9::uuid, $10, 'Delegation Doctor', 'DOCTOR', true, NOW())
+         ($7::uuid, $8, 'Delegation Staff Two', 'HOUSEKEEPING_STAFF', true, NOW()),
+         ($9::uuid, $10, 'Delegation Nurse', 'NURSING_STAFF', true, NOW()),
+         ($11::uuid, $12, 'Delegation Doctor', 'DOCTOR', true, NOW())
        ON CONFLICT (uid) DO UPDATE
          SET is_active = EXCLUDED.is_active, role = EXCLUDED.role, updated_at = NOW()
        RETURNING id, uid`,
@@ -58,6 +61,8 @@ describe('housekeeping floor delegation', () => {
       `98${STAMP.slice(-8)}1`,
       STAFF_UID,
       `98${STAMP.slice(-8)}2`,
+      SECOND_STAFF_UID,
+      `98${STAMP.slice(-8)}5`,
       NURSE_UID,
       `98${STAMP.slice(-8)}3`,
       DOCTOR_UID,
@@ -66,13 +71,15 @@ describe('housekeeping floor delegation', () => {
     adminId = users.find(u => u.uid === ADMIN_UID)?.id;
     inchargeId = users.find(u => u.uid === INCHARGE_UID)?.id;
     staffId = users.find(u => u.uid === STAFF_UID)?.id;
+    secondStaffId = users.find(u => u.uid === SECOND_STAFF_UID)?.id;
     nurseId = users.find(u => u.uid === NURSE_UID)?.id;
     doctorId = users.find(u => u.uid === DOCTOR_UID)?.id;
 
     await prisma.$executeRawUnsafe(
-      `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid,$3::uuid)`,
+      `DELETE FROM staff WHERE user_id IN ($1::uuid,$2::uuid,$3::uuid,$4::uuid)`,
       INCHARGE_UID,
       STAFF_UID,
+      SECOND_STAFF_UID,
       DOCTOR_UID
     );
 
@@ -81,11 +88,14 @@ describe('housekeeping floor delegation', () => {
        VALUES
          ($1::uuid, $2, 'Delegation Incharge', 'Housekeeping Incharge', 'Housekeeping', 'Housekeeping Incharge', true, NOW()),
          ($3::uuid, $4, 'Delegation Staff', 'Housekeeping Staff', 'Housekeeping', 'Housekeeping Staff', true, NOW()),
-         ($5::uuid, $6, 'Delegation Doctor', 'Consultant', 'General Medicine', 'Consultant', true, NOW())`,
+         ($5::uuid, $6, 'Delegation Staff Two', 'Housekeeping Staff', 'Housekeeping', 'Housekeeping Staff', true, NOW()),
+         ($7::uuid, $8, 'Delegation Doctor', 'Consultant', 'General Medicine', 'Consultant', true, NOW())`,
       INCHARGE_UID,
       `EMP-HKI-${STAMP.slice(-5)}`,
       STAFF_UID,
       `EMP-HKS-${STAMP.slice(-5)}`,
+      SECOND_STAFF_UID,
+      `EMP-HK2-${STAMP.slice(-5)}`,
       DOCTOR_UID,
       `EMP-DOC-${STAMP.slice(-5)}`
     );
@@ -310,6 +320,11 @@ describe('housekeeping floor delegation', () => {
             assignment_target_type: 'housekeeping_zone',
             assignment_target_id: zoneId,
             is_lead: true
+          },
+          {
+            staff_id: secondStaffId,
+            assignment_target_type: 'housekeeping_zone',
+            assignment_target_id: zoneId
           }
         ]
       });
@@ -322,7 +337,7 @@ describe('housekeeping floor delegation', () => {
       roster_date: tomorrow,
       status: 'draft'
     });
-    expect(saved.body.data.assignments).toHaveLength(1);
+    expect(saved.body.data.assignments).toHaveLength(2);
 
     const published = await incharge
       .post(`/api/v1/staff/roster-board/boards/${rosterBoardId}/publish`)
@@ -333,18 +348,21 @@ describe('housekeeping floor delegation', () => {
       id: rosterBoardId,
       department: 'housekeeping',
       status: 'published',
-      projection_count: 1
+      projection_count: 2
     });
 
     const projection = await prisma.$queryRawUnsafe(
       `SELECT staff_id, zone_id, shift_label, assignment_kind, is_temporary, status
          FROM housekeeping_floor_assignments
         WHERE roster_board_id = $1::int
-        LIMIT 1`,
+        ORDER BY staff_id`,
       rosterBoardId
     );
+    expect(projection).toHaveLength(2);
+    expect(projection.map(row => row.staff_id).sort((a, b) => a - b)).toEqual(
+      [staffId, secondStaffId].sort((a, b) => a - b)
+    );
     expect(projection[0]).toMatchObject({
-      staff_id: staffId,
       zone_id: zoneId,
       shift_label: 'Morning',
       assignment_kind: 'roster',
