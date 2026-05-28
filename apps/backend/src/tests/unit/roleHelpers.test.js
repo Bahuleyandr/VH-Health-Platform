@@ -58,7 +58,13 @@ describe('Phase F1 role registry', () => {
     expect(CLINICAL_ROLES).toContain('CONSULTANT');
     expect(CLINICAL_ROLES).toContain('JUNIOR_DOCTOR');
     expect(CLINICAL_ROLES).toContain('RESIDENT');
-    expect(DOCTOR_TIERS).toEqual(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']);
+    expect(DOCTOR_TIERS).toEqual([
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT'
+    ]);
   });
 
   it('routes specialty support roles into SUPPORT_ROLES', () => {
@@ -80,7 +86,7 @@ describe('Phase F1 role registry', () => {
 
 describe('isDoctor across seniority tiers', () => {
   it('treats every doctor tier as a doctor', () => {
-    for (const tier of ['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']) {
+    for (const tier of ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']) {
       expect(isDoctor(tier)).toBe(true);
     }
   });

@@ -4,7 +4,12 @@ import 'package:flutter/material.dart';
 
 enum StaffRole {
   doctor('DOCTOR'),
+  dutyDoctor('DUTY_DOCTOR'),
+  medicalSuperintendent('MEDICAL_SUPERINTENDENT'),
   nurse('NURSING_STAFF'),
+  nursingIncharge('NURSING_INCHARGE'),
+  opStaffNurse('OP_STAFF_NURSE'),
+  opIncharge('OP_INCHARGE'),
   hr('HR_STAFF'),
   admin('ADMIN'),
   superAdmin('SUPER_ADMIN'),
@@ -12,6 +17,9 @@ enum StaffRole {
   lab('LAB_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
   housekeepingIncharge('HOUSEKEEPING_INCHARGE'),
+  receptionist('RECEPTIONIST'),
+  receptionIncharge('RECEPTION_INCHARGE'),
+  driver('DRIVER'),
   maintenance('MAINTENANCE'),
   general('GENERAL_STAFF');
 
@@ -27,7 +35,12 @@ enum StaffRole {
 
   String get displayName => switch (this) {
     StaffRole.doctor => 'Doctor',
+    StaffRole.dutyDoctor => 'Duty Doctor',
+    StaffRole.medicalSuperintendent => 'Medical Superintendent',
     StaffRole.nurse => 'Nurse',
+    StaffRole.nursingIncharge => 'Nursing Incharge',
+    StaffRole.opStaffNurse => 'OP Staff Nurse',
+    StaffRole.opIncharge => 'OP Incharge',
     StaffRole.hr => 'HR Staff',
     StaffRole.admin => 'Admin',
     StaffRole.superAdmin => 'Super Admin',
@@ -35,19 +48,30 @@ enum StaffRole {
     StaffRole.lab => 'Lab Technician',
     StaffRole.housekeeping => 'Housekeeping',
     StaffRole.housekeepingIncharge => 'Housekeeping Incharge',
+    StaffRole.receptionist => 'Receptionist',
+    StaffRole.receptionIncharge => 'Reception Incharge',
+    StaffRole.driver => 'Driver',
     StaffRole.maintenance => 'Maintenance',
     StaffRole.general => 'Staff',
   };
 
   Color get badgeColor => switch (this) {
     StaffRole.doctor => const Color(0xFF1565C0),
+    StaffRole.dutyDoctor => const Color(0xFF1565C0),
+    StaffRole.medicalSuperintendent => const Color(0xFF0D47A1),
     StaffRole.nurse => const Color(0xFF00796B),
+    StaffRole.nursingIncharge => const Color(0xFF00695C),
+    StaffRole.opStaffNurse => const Color(0xFF00838F),
+    StaffRole.opIncharge => const Color(0xFF006064),
     StaffRole.hr => const Color(0xFF6A1B9A),
     StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
     StaffRole.pharmacy => const Color(0xFFE65100),
     StaffRole.lab => const Color(0xFF0097A7),
     StaffRole.housekeeping => const Color(0xFF007A64),
     StaffRole.housekeepingIncharge => const Color(0xFF00695C),
+    StaffRole.receptionist => const Color(0xFF455A64),
+    StaffRole.receptionIncharge => const Color(0xFF37474F),
+    StaffRole.driver => const Color(0xFF5D4037),
     StaffRole.maintenance => const Color(0xFFF9A825),
     StaffRole.general => const Color(0xFF37474F),
   };
@@ -206,8 +230,43 @@ class RoleFeatures {
     id: 'housekeeping_roster',
     title: 'Shift Roster',
     icon: Icons.calendar_month,
-    route: '/housekeeping-roster',
+    route: '/staff-roster/housekeeping',
     color: Color(0xFF1565C0),
+  );
+  static const DashboardFeature _dutyPreference = DashboardFeature(
+    id: 'duty_preference',
+    title: 'Duty Request',
+    icon: Icons.how_to_reg,
+    route: '/duty-preference',
+    color: Color(0xFF00796B),
+  );
+  static const DashboardFeature _nursingRoster = DashboardFeature(
+    id: 'nursing_roster',
+    title: 'Nursing Roster',
+    icon: Icons.assignment_ind,
+    route: '/staff-roster/nursing',
+    color: Color(0xFF00695C),
+  );
+  static const DashboardFeature _opNursingRoster = DashboardFeature(
+    id: 'op_nursing_roster',
+    title: 'OP Roster',
+    icon: Icons.event_note,
+    route: '/staff-roster/op_nursing',
+    color: Color(0xFF00838F),
+  );
+  static const DashboardFeature _receptionRoster = DashboardFeature(
+    id: 'reception_roster',
+    title: 'Reception Roster',
+    icon: Icons.support_agent,
+    route: '/staff-roster/reception',
+    color: Color(0xFF455A64),
+  );
+  static const DashboardFeature _driverRoster = DashboardFeature(
+    id: 'driver_roster',
+    title: 'Driver Roster',
+    icon: Icons.local_shipping_outlined,
+    route: '/staff-roster/ambulance',
+    color: Color(0xFF5D4037),
   );
   static const DashboardFeature _vitals = DashboardFeature(
     id: 'vitals',
@@ -325,9 +384,11 @@ class RoleFeatures {
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
     return switch (role) {
-      StaffRole.doctor => [
+      StaffRole.doctor || StaffRole.dutyDoctor => [
         _attendance,
         _schedule,
+        _dutyPreference,
+        if (role == StaffRole.dutyDoctor) _nursingRoster,
         _queue,
         _clinicalAiReviewQueue,
         _appointments,
@@ -349,6 +410,7 @@ class RoleFeatures {
       StaffRole.nurse => [
         _attendance,
         _schedule,
+        _dutyPreference,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -371,9 +433,64 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.nursingIncharge => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _nursingRoster,
+        _opNursingRoster,
+        _appointments,
+        _appointmentQueue,
+        _clinicalAiReviewQueue,
+        _patientRecords,
+        _vitals,
+        _nursingNotes,
+        _handover,
+        _bedBoard,
+        _dischargeHub,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.opStaffNurse => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _appointments,
+        _appointmentQueue,
+        _patientRecords,
+        _vitals,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.opIncharge => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _opNursingRoster,
+        _appointments,
+        _appointmentQueue,
+        _patientRecords,
+        _vitals,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.hr => [
         _attendance,
         _schedule,
+        _nursingRoster,
+        _opNursingRoster,
+        _receptionRoster,
+        _driverRoster,
+        _housekeepingRoster,
         _hrDashboard,
         _staffManagement,
         _performance,
@@ -383,9 +500,15 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.admin || StaffRole.superAdmin => [
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent => [
         _attendance,
         _schedule,
+        _nursingRoster,
+        _opNursingRoster,
+        _receptionRoster,
+        _driverRoster,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -417,6 +540,7 @@ class RoleFeatures {
       StaffRole.pharmacy => [
         _attendance,
         _schedule,
+        _dutyPreference,
         _pharmacyOrders,
         _dischargeHub,
         _clinicalAiReviewQueue,
@@ -429,6 +553,7 @@ class RoleFeatures {
       StaffRole.lab => [
         _attendance,
         _schedule,
+        _dutyPreference,
         _investigationsUpload,
         _investigationResults,
         _labBookings,
@@ -440,6 +565,7 @@ class RoleFeatures {
       ],
       StaffRole.housekeeping => [
         _schedule,
+        _dutyPreference,
         _bedBoard,
         _housekeepingHub,
         _housekeepingTasks,
@@ -449,6 +575,7 @@ class RoleFeatures {
       ],
       StaffRole.housekeepingIncharge => [
         _schedule,
+        _dutyPreference,
         _bedBoard,
         _housekeepingRoster,
         _housekeepingCommand,
@@ -459,8 +586,39 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.receptionist => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _appointments,
+        _appointmentQueue,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.receptionIncharge => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _receptionRoster,
+        _appointments,
+        _appointmentQueue,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.driver => [
+        _schedule,
+        _dutyPreference,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.maintenance => [
         _schedule,
+        _dutyPreference,
         _staffDirectory,
         _messaging,
         _profile,
@@ -469,6 +627,7 @@ class RoleFeatures {
       StaffRole.general => [
         _attendance,
         _schedule,
+        _dutyPreference,
         _appointmentQueue,
         _housekeepingHub,
         _housekeepingTasks,
@@ -484,7 +643,7 @@ class RoleFeatures {
   /// Returns role-specific bottom nav items with their routes.
   static List<BottomNavItem> getBottomNavForRole(StaffRole role) {
     return switch (role) {
-      StaffRole.doctor => [
+      StaffRole.doctor || StaffRole.dutyDoctor => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -526,7 +685,10 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.nurse => [
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -610,7 +772,9 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.admin || StaffRole.superAdmin => [
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -796,6 +960,9 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.driver ||
       StaffRole.maintenance => [
         const BottomNavItem(
           item: BottomNavigationBarItem(

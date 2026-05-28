@@ -90,6 +90,7 @@ class StaffScaffold extends StatelessWidget {
   List<_NavItem> _getNavItems(StaffRole role) {
     switch (role) {
       case StaffRole.doctor:
+      case StaffRole.dutyDoctor:
         return [
           const _NavItem(
             'Home',
@@ -112,6 +113,9 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.nurse:
+      case StaffRole.nursingIncharge:
+      case StaffRole.opStaffNurse:
+      case StaffRole.opIncharge:
         return [
           const _NavItem(
             'Home',
@@ -166,6 +170,7 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.admin || StaffRole.superAdmin:
+      case StaffRole.medicalSuperintendent:
         return [
           const _NavItem(
             'Home',
@@ -306,6 +311,9 @@ class StaffScaffold extends StatelessWidget {
             '/profile',
           ),
         ];
+      case StaffRole.receptionist:
+      case StaffRole.receptionIncharge:
+      case StaffRole.driver:
       case StaffRole.maintenance:
         return [
           const _NavItem(

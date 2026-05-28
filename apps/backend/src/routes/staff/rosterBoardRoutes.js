@@ -5,8 +5,14 @@ import * as rosterBoardController from '../../controllers/staff/rosterBoardContr
 const router = express.Router();
 
 wrapAutoRBAC(router, 'staffRosterBoardRoutes', {
-  get: [['/departments/:department', rosterBoardController.getDepartmentRoster]],
+  get: [
+    ['/requests/my', rosterBoardController.getMyDutyPreferenceRequests],
+    ['/departments/:department/requests', rosterBoardController.getDepartmentDutyPreferenceRequests],
+    ['/departments/:department', rosterBoardController.getDepartmentRoster]
+  ],
   post: [
+    ['/requests', rosterBoardController.createDutyPreferenceRequest],
+    ['/requests/:id/review', rosterBoardController.reviewDutyPreferenceRequest],
     ['/departments/:department/boards', rosterBoardController.saveDepartmentRoster],
     ['/departments/:department/copy-previous', rosterBoardController.copyPreviousDepartmentRoster],
     ['/boards/:id/publish', rosterBoardController.publishDepartmentRoster]

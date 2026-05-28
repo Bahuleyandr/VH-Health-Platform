@@ -3,9 +3,13 @@ import logger from '../../logging/logger.js';
 import {
   canManageRosterDepartment,
   copyPreviousRosterBoard,
+  createRosterPreferenceRequest,
   getRosterBoardDepartment,
   getRosterSnapshot,
+  listDepartmentRosterPreferenceRequests,
+  listMyRosterPreferenceRequests,
   publishRosterBoard,
+  reviewRosterPreferenceRequest,
   saveRosterBoard
 } from '../../services/staff/rosterBoardService.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -90,5 +94,79 @@ export async function copyPreviousDepartmentRoster(req, res) {
   } catch (err) {
     logger.error('Copy roster board failed:', err);
     error(res, err.message || 'Failed to copy previous roster', statusFromError(err));
+  }
+}
+
+export async function createDutyPreferenceRequest(req, res) {
+  try {
+    const requestRow = await createRosterPreferenceRequest({
+      department: req.body?.department,
+      staffId: req.body?.staff_id,
+      requestedStartDate: req.body?.requested_start_date || req.body?.date,
+      requestedEndDate: req.body?.requested_end_date || req.body?.date,
+      periodType: req.body?.period_type,
+      requestType: req.body?.request_type,
+      shiftId: req.body?.shift_id,
+      shiftLabel: req.body?.shift_label,
+      assignmentTargetType: req.body?.assignment_target_type,
+      assignmentTargetId: req.body?.assignment_target_id,
+      assignmentTargetLabel: req.body?.assignment_target_label,
+      floor: req.body?.floor,
+      building: req.body?.building,
+      priority: req.body?.priority,
+      reason: req.body?.reason,
+      actorUser: req.user,
+      metadata: req.body?.metadata
+    });
+    success(res, requestRow, 'Roster preference request submitted');
+  } catch (err) {
+    logger.error('Create roster preference request failed:', err);
+    error(res, err.message || 'Failed to submit roster preference request', statusFromError(err));
+  }
+}
+
+export async function getMyDutyPreferenceRequests(req, res) {
+  try {
+    const requests = await listMyRosterPreferenceRequests({
+      actorUser: req.user,
+      limit: req.query?.limit
+    });
+    success(res, requests, 'Roster preference requests fetched');
+  } catch (err) {
+    logger.error('Get my roster preference requests failed:', err);
+    error(res, err.message || 'Failed to fetch roster preference requests', statusFromError(err));
+  }
+}
+
+export async function getDepartmentDutyPreferenceRequests(req, res) {
+  try {
+    const { department } = req.params;
+    if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
+
+    const requests = await listDepartmentRosterPreferenceRequests({
+      department,
+      rosterDate: req.query?.date || req.query?.roster_date,
+      status: req.query?.status
+    });
+    success(res, requests, 'Department roster preference requests fetched');
+  } catch (err) {
+    logger.error('Get department roster preference requests failed:', err);
+    error(res, err.message || 'Failed to fetch roster preference requests', statusFromError(err));
+  }
+}
+
+export async function reviewDutyPreferenceRequest(req, res) {
+  try {
+    const requestRow = await reviewRosterPreferenceRequest({
+      requestId: req.params.id,
+      decision: req.body?.decision || req.body?.status,
+      reviewNotes: req.body?.review_notes || req.body?.note,
+      actorUser: req.user,
+      reason: req.body?.reason
+    });
+    success(res, requestRow, 'Roster preference request reviewed');
+  } catch (err) {
+    logger.error('Review roster preference request failed:', err);
+    error(res, err.message || 'Failed to review roster preference request', statusFromError(err));
   }
 }

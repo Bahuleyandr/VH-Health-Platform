@@ -9635,6 +9635,58 @@ model staff_shift_roster_boards {
   @@index([status, roster_date], map: "idx_staff_shift_roster_boards_status")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_shift_roster_request_audit {
+  id              Int      @id @default(autoincrement())
+  request_id      Int?
+  actor_id        Int?
+  actor_uid       String?  @db.Uuid
+  action          String   @db.VarChar(40)
+  reason          String?
+  before_snapshot Json     @default("{}")
+  after_snapshot  Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([request_id, created_at(sort: Desc)], map: "idx_staff_shift_roster_request_audit_request")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_shift_roster_requests {
+  id                      Int       @id @default(autoincrement())
+  request_type            String    @default("duty_preference") @db.VarChar(40)
+  staff_id                Int
+  staff_uid               String?   @db.Uuid
+  department              String    @db.VarChar(80)
+  requested_start_date    DateTime  @db.Date
+  requested_end_date      DateTime  @db.Date
+  period_type             String    @default("day") @db.VarChar(20)
+  shift_id                Int?
+  shift_label             String?   @db.VarChar(80)
+  assignment_target_type  String?   @db.VarChar(80)
+  assignment_target_id    Int?
+  assignment_target_label String?   @db.VarChar(255)
+  floor                   String?   @db.VarChar(80)
+  building                String?   @db.VarChar(120)
+  priority                String    @default("normal") @db.VarChar(20)
+  reason                  String?
+  status                  String    @default("pending") @db.VarChar(20)
+  reviewed_by             Int?
+  reviewed_by_uid         String?   @db.Uuid
+  reviewed_at             DateTime? @db.Timestamptz(6)
+  review_notes            String?
+  roster_board_id         Int?
+  roster_assignment_id    Int?
+  source_type             String?   @db.VarChar(40)
+  source_id               Int?
+  metadata                Json      @default("{}")
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([department, status, requested_start_date, requested_end_date], map: "idx_staff_shift_roster_requests_dept_window")
+  @@index([staff_id, requested_start_date(sort: Desc)], map: "idx_staff_shift_roster_requests_staff")
+  @@index([assignment_target_type, assignment_target_id, status], map: "idx_staff_shift_roster_requests_target")
+}
+
 model housekeeping_requests {
   id                                                 Int                            @id @default(autoincrement())
   request_number                                     String                         @unique @default(dbgenerated("((('HKR-'::text || to_char(now(), 'YYYYMMDD'::text)) || '-'::text) || lpad((nextval('housekeeping_request_number_seq'::regclass))::text, 6, '0'::text))")) @db.VarChar(40)
