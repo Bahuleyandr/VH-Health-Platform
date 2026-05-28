@@ -363,7 +363,7 @@ class RoleFeatures {
   );
   static const DashboardFeature _schedule = DashboardFeature(
     id: 'schedule',
-    title: 'Shift Schedule',
+    title: 'My Roster',
     icon: Icons.schedule,
     route: '/schedule',
     color: Color(0xFF00838F),

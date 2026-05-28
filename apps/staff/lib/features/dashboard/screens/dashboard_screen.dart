@@ -707,7 +707,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<DashboardFeature> features,
     Set<String> promotedIds,
   ) {
-    const alreadyPromotedIds = {'attendance', 'schedule', 'messaging'};
+    const alreadyPromotedIds = {'attendance', 'messaging'};
     return features
         .where(
           (feature) =>
