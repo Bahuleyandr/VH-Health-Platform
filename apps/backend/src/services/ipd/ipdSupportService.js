@@ -994,9 +994,9 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
           status: { in: ['ordered', 'verified', 'in_progress'] },
         },
         data: {
-          status: 'completed',
-          completed_by: issuedBy,
-          completed_at: new Date(),
+          status: 'verified',
+          verified_by: issuedBy,
+          verified_at: new Date(),
           updated_at: new Date(),
         },
       });

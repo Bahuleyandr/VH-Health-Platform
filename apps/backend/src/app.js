@@ -615,6 +615,7 @@ app.use(
 //   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
 const BED_PARENT_ROLES = [
   'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
+  'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
   'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
 ];
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedRouter);
@@ -667,7 +668,7 @@ app.use('/api/v1/cds-services', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'N
 app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
-app.use('/api/v1/clinical', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
+app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
@@ -687,14 +688,14 @@ function rewriteToMarPrefix(req, _res, next) {
 }
 app.use(
   '/api/v1/emr/mar',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'),
+  requireRole(...CLINICAL_STAFF_ROLES),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
   clinicalRoutes,
 );
 app.use(
   '/api/v1/nursing/mar',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'),
+  requireRole(...CLINICAL_STAFF_ROLES),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
   clinicalRoutes,

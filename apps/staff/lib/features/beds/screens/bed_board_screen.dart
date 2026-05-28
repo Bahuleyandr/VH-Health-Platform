@@ -1849,6 +1849,13 @@ class _BedQuickActions extends StatelessWidget {
         color: const Color(0xFF00695C),
         resolveRoute: noteRouteForCurrentRole,
       ),
+      if (admissionId.isNotEmpty)
+        _QuickAction(
+          icon: Icons.medication_liquid_outlined,
+          label: 'Drug Chart',
+          color: const Color(0xFFE65100),
+          route: '/drug-chart/$admissionId?name=$nameQ',
+        ),
       _QuickAction(
         icon: Icons.swap_horiz,
         label: s.bedSheetActionHandover,

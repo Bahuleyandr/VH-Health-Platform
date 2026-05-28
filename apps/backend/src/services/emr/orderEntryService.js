@@ -17,7 +17,10 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
-import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import {
+  validatePrescriptionSafety,
+  checkAntithromboticInteractions,
+} from '../../utils/clinical/prescriptionSafetyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { scheduleMedications } from '../clinical/marService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
@@ -172,14 +175,66 @@ async function runCDSChecks(patientUid, orderType, details) {
         result.warnings.push('CDS safety check skipped — patient not found');
         return result;
       }
-      // Check drug interactions and allergies via existing prescription safety checker
+      const newMedication = {
+        name: details.medication_name,
+        medication_name: details.medication_name,
+        dose: details.dose ?? details.dosage ?? null,
+        dosage: details.dosage ?? details.dose ?? null,
+        route: details.route ?? null,
+        strength: details.strength ?? null,
+        concentration: details.concentration ?? null,
+      };
+
+      // Check patient-specific hazards for the new drug first. This preserves
+      // the existing hard-block behavior for allergies and paediatric dosing.
       const safetyResult = await validatePrescriptionSafety(patientRow.id, [
-        { name: details.medication_name },
+        newMedication,
       ]);
 
       result.warnings = safetyResult.warnings || [];
       result.blockers = safetyResult.blockers || [];
-      result.safe = safetyResult.safe;
+
+      // Add active inpatient medications to the interaction screen. The
+      // prescription checker's OPD duplicate query cannot see CPOE/IPD orders,
+      // so without this a new inpatient drug could silently conflict with the
+      // patient's current drug chart.
+      const activeRows = await prisma.$queryRawUnsafe(
+        `SELECT details
+           FROM clinical_orders
+          WHERE patient_uid = $1::uuid
+            AND order_type = 'medication'
+            AND COALESCE(status, 'ordered') !~* '(cancelled|canceled|discontinued|stopped|on[\\s_-]?hold|suspended|completed)'
+          ORDER BY created_at DESC
+          LIMIT 100`,
+        patientUid,
+      );
+      const activeMedicationNames = activeRows
+        .map((row) => parseOrderDetails(row.details))
+        .map((d) => d.medication_name || d.name || d.medication)
+        .filter(Boolean);
+      const newName = String(details.medication_name || '').trim().toLowerCase();
+      const duplicateActive = activeMedicationNames.some(
+        (name) => String(name || '').trim().toLowerCase() === newName,
+      );
+      if (duplicateActive) {
+        result.warnings.push({
+          type: 'DUPLICATE_INPATIENT_MEDICATION',
+          medication: details.medication_name,
+          message: `"${details.medication_name}" is already active on this inpatient drug chart`,
+        });
+      }
+
+      const interactionResult = checkAntithromboticInteractions([
+        ...activeMedicationNames.map((name) => ({ name })),
+        newMedication,
+      ]);
+      const relatedToNewDrug = (issue) => {
+        const meds = Array.isArray(issue?.medications) ? issue.medications : [issue?.medication];
+        return meds.some((name) => String(name || '').trim().toLowerCase() === newName);
+      };
+      result.warnings.push(...(interactionResult.warnings || []).filter(relatedToNewDrug));
+      result.blockers.push(...(interactionResult.blockers || []).filter(relatedToNewDrug));
+      result.safe = result.blockers.length === 0;
     }
   } catch (err) {
     // CDS check failure should not block order creation — log and continue
@@ -606,6 +661,11 @@ async function dispatchOrderIntegrations(order) {
       const marEntry = buildMarEntryFromOrderDetails(details, {
         startDate: order.start_date,
       });
+      marEntry.notes = [
+        marEntry.notes,
+        `clinical_order_id:${order.id}`,
+        `order_number:${order.order_number}`,
+      ].filter(Boolean).join('; ');
       await scheduleMedications(order.patient_uid, null, [marEntry]);
       logger.info(`MAR entries created for medication order ${order.order_number}`);
     } catch (err) {

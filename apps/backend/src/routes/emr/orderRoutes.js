@@ -2,10 +2,46 @@
 import express from 'express';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import * as orderEntryService from '../../services/emr/orderEntryService.js';
+import prisma from '../../lib/prisma.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+
+const MEDICATION_ORDER_WRITE_ROLES = new Set([
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'RESIDENT',
+  'MEDICAL_SUPERINTENDENT',
+]);
+
+function roleCanWriteMedicationOrder(req) {
+  return MEDICATION_ORDER_WRITE_ROLES.has(String(req.user?.role || '').trim().toUpperCase());
+}
+
+function isMedicationOrderType(orderType) {
+  const raw = String(orderType || '').toLowerCase().trim();
+  return raw === 'medication' || raw === 'med' || raw === 'medication_order';
+}
+
+function rejectMedicationWrite(res) {
+  return error(res, 'Only doctors can prescribe or edit inpatient medication orders', 403);
+}
+
+async function ensureExistingMedicationWriteAllowed(req, res, orderId) {
+  const order = await prisma.clinical_orders.findUnique({
+    where: { id: Number(orderId) },
+    select: { order_type: true },
+  });
+  if (!order || order.order_type !== 'medication') return true;
+  if (roleCanWriteMedicationOrder(req)) return true;
+  rejectMedicationWrite(res);
+  return false;
+}
 
 // The staff Orders sheet posts the medication / lab / radiology fields
 // flat on the body (medication, dosage, route, frequency, duration,
@@ -81,6 +117,9 @@ router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical
     if (!patient_uid || !order_type || isEmptyDetails(details)) {
       return error(res, 'patient_uid, order_type, and details are required', 400);
     }
+    if (isMedicationOrderType(order_type) && !roleCanWriteMedicationOrder(req)) {
+      return rejectMedicationWrite(res);
+    }
 
     const result = await orderEntryService.createOrder({
       encounter_id: encounter_id || null,
@@ -121,6 +160,9 @@ router.post('/orders/apply-set', async (req, res, next) => {
 
     if (!patient_uid || !order_set_id) {
       return error(res, 'patient_uid and order_set_id are required', 400);
+    }
+    if (!roleCanWriteMedicationOrder(req)) {
+      return rejectMedicationWrite(res);
     }
 
     const result = await orderEntryService.applyOrderSet(
@@ -166,6 +208,9 @@ router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'cli
     }
     if (orders.length > 50) {
       return error(res, 'orders array too large — max 50 per batch', 400);
+    }
+    if (orders.some((order) => isMedicationOrderType(order.order_type)) && !roleCanWriteMedicationOrder(req)) {
+      return rejectMedicationWrite(res);
     }
 
     // Each item accepts the same flat-or-nested shape as POST /orders. A
@@ -243,6 +288,7 @@ router.put('/orders/:id/complete', async (req, res, next) => {
     if (isNaN(orderId)) {
       return error(res, 'Invalid order ID', 400);
     }
+    if (!(await ensureExistingMedicationWriteAllowed(req, res, orderId))) return null;
 
     const result = await orderEntryService.completeOrder(orderId, req.user.uid);
     return success(res, result, 'Order completed');
@@ -267,6 +313,7 @@ router.put('/orders/:id/cancel', async (req, res, next) => {
     if (!reason) {
       return error(res, 'Cancellation reason is required', 400);
     }
+    if (!(await ensureExistingMedicationWriteAllowed(req, res, orderId))) return null;
 
     const result = await orderEntryService.cancelOrder(orderId, req.user.uid, reason);
     return success(res, result, 'Order cancelled');
@@ -291,6 +338,7 @@ router.put('/orders/:id/discontinue', async (req, res, next) => {
     if (!reason) {
       return error(res, 'Discontinuation reason is required', 400);
     }
+    if (!(await ensureExistingMedicationWriteAllowed(req, res, orderId))) return null;
 
     const result = await orderEntryService.discontinueOrder(orderId, req.user.uid, reason);
     return success(res, result, 'Order discontinued');

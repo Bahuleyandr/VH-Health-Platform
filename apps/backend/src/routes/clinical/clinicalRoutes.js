@@ -5,6 +5,7 @@ import multer from 'multer';
 import * as handoverService from '../../services/clinical/handoverService.js';
 import * as marService from '../../services/clinical/marService.js';
 import * as marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
+import * as drugChartService from '../../services/clinical/drugChartService.js';
 import * as news2Service from '../../services/clinical/news2Service.js';
 import * as voiceSoapService from '../../services/ai/voiceSoapService.js';
 import { describeSttConfig } from '../../services/ai/sttService.js';
@@ -38,11 +39,29 @@ const audioUpload = multer({
 
 const router = express.Router();
 
+const MEDICATION_ADMINISTRATION_ROLES = new Set([
+  'ADMIN',
+  'SUPER_ADMIN',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'CNO',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+]);
+
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
   next();
 };
+
+function requireMedicationAdministrationRole(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!MEDICATION_ADMINISTRATION_ROLES.has(role)) {
+    return error(res, 'Only nursing roles can record inpatient medication administration', 403);
+  }
+  return next();
+}
 
 // ===================================================================
 // NEWS2 Scoring Routes
@@ -92,6 +111,24 @@ router.get('/news2/patient/:patientUid', async (req, res, next) => {
 // ===================================================================
 // Medication Administration Record (MAR) Routes
 // ===================================================================
+
+/**
+ * GET /clinical/drug-chart/admission/:id
+ * Unified inpatient drug chart for the current admission. Doctors prescribe
+ * via /emr/orders; nurses administer via MAR; pharmacy receives ward indents.
+ */
+router.get('/drug-chart/admission/:id', paramId(), validate, async (req, res, next) => {
+  try {
+    const chart = await drugChartService.getAdmissionDrugChart({
+      admissionId: parseInt(req.params.id, 10),
+      tenantId: req.tenantId || null,
+      user: req.user,
+    });
+    return success(res, chart, 'Inpatient drug chart retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * POST /clinical/mar/schedule
@@ -207,7 +244,7 @@ router.post('/mar/schedule', requiredUUID('patient_uid'), validate, async (req, 
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), validate, async (req, res, next) => {
+router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), validate, requireMedicationAdministrationRole, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notes, witness_uid } = req.body;
@@ -263,6 +300,7 @@ router.post('/mar/:id/administer-with-scan',
   requiredString('scanned_barcode', 100),
   optionalString('override_reason', 500),
   validate,
+  requireMedicationAdministrationRole,
   async (req, res, next) => {
     try {
       const { id } = req.params;
@@ -285,7 +323,7 @@ router.post('/mar/:id/administer-with-scan',
  * POST /clinical/mar/:id/miss
  * Record a missed medication dose.
  */
-router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
+router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -305,7 +343,7 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
  * POST /clinical/mar/:id/hold
  * Hold a medication with reason.
  */
-router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
+router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
