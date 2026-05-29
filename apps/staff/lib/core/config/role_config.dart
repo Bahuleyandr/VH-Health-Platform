@@ -226,6 +226,13 @@ class RoleFeatures {
     route: '/leave',
     color: Color(0xFF00796B),
   );
+  static const DashboardFeature _leaveApprovals = DashboardFeature(
+    id: 'leave_approvals',
+    title: 'Leave Approvals',
+    icon: Icons.fact_check_outlined,
+    route: '/leave-approvals',
+    color: Color(0xFF00796B),
+  );
   static const DashboardFeature _staffDirectory = DashboardFeature(
     id: 'staff_directory',
     title: 'Staff Directory',
@@ -622,6 +629,7 @@ class RoleFeatures {
         _staffManagement,
         _organizationHierarchy,
         _performance,
+        _leaveApprovals,
         _leave,
         _staffDirectory,
         _messaging,
@@ -688,6 +696,7 @@ class RoleFeatures {
         _staffManagement,
         _organizationHierarchy,
         _performance,
+        _leaveApprovals,
         _housekeepingRoster,
         _maintenanceRoster,
         _pharmacyRoster,
@@ -921,11 +930,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.event_available_outlined),
-            activeIcon: Icon(Icons.event_available),
-            label: 'Leave',
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+            label: 'My Roster',
           ),
-          route: '/leave',
+          route: '/schedule',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(

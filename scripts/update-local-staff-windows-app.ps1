@@ -26,6 +26,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $staffDir = Join-Path $repoRoot "apps\staff"
 $releaseDir = Join-Path $staffDir "build\windows\x64\runner\Release"
+$defaultStableBaseUrl = "https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1"
 $defaultInstallDir = [System.IO.Path]::GetFullPath(
   (Join-Path $env:LOCALAPPDATA "Programs\VH Health Staff")
 )
@@ -36,7 +37,7 @@ if (-not $AllowCustomInstallDir.IsPresent -and $installFullPath -ne $defaultInst
 }
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
-  $BaseUrl = "http://127.0.0.1:5206/api/v1"
+  $BaseUrl = $defaultStableBaseUrl
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
@@ -46,6 +47,8 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
 if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
   throw "Required command not found: flutter"
 }
+
+Get-Process -Name "vhhealth_staff" -ErrorAction SilentlyContinue | Stop-Process -Force
 
 if (-not $SkipBuild.IsPresent) {
   Push-Location $staffDir

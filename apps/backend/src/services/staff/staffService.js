@@ -376,7 +376,7 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
       hire_date, supervisor_id, emergency_contact, skills, 
       certifications, notes, is_active, created_at, created_by
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), $13)
-    RETURNING id, user_id, employee_id, department, position, is_active, created_at
+    RETURNING id, user_id, employee_id, department, position, shift, is_active, created_at, updated_at
   `, 
     user_id, employee_id, position, department, shift.toUpperCase(), salary,
     hire_date, supervisor_id, emergency_contact, 
@@ -424,12 +424,19 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
     emergency_contact, skills, certifications, notes, 
     is_active, performance_rating
   } = data;
+  const identifier = String(id || '').trim();
 
   // Verify staff profile exists
-  const staffCheck = await prisma.$queryRawUnsafe(
-    'SELECT s.*, u.name FROM staff s JOIN users u ON s.user_id = u.uid WHERE s.user_id = $1',
-    id
-  );
+  const staffCheck = await prisma.$queryRawUnsafe(`
+    SELECT s.*, u.id AS user_int_id, u.name
+    FROM staff s
+    JOIN users u ON s.user_id = u.uid
+    WHERE
+      s.user_id::text = $1
+      OR s.id::text = $1
+      OR u.id::text = $1
+      OR UPPER(s.employee_id) = UPPER($1)
+  `, identifier);
 
   if (staffCheck.length === 0) {
     throw new Error('NOT_FOUND');
@@ -464,15 +471,15 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
       is_active = COALESCE($10, is_active),
       performance_rating = COALESCE($11, performance_rating),
       updated_at = NOW(),
-      updated_by = $12
-    WHERE user_id = $13
-    RETURNING id, user_id, employee_id, department, position, is_active, created_at
+      updated_by = $12::uuid
+    WHERE user_id::text = $13
+    RETURNING id, user_id, employee_id, department, position, shift, is_active, created_at, updated_at
   `, 
     position, department, shift?.toUpperCase(), salary, supervisor_id,
     emergency_contact, 
     skills ? JSON.stringify(skills) : null,
     certifications ? JSON.stringify(certifications) : null,
-    notes, is_active, performance_rating, updatedBy, id
+    notes, is_active, performance_rating, updatedBy, currentStaff.user_id
   );
 
   // Track changes for audit log
@@ -487,12 +494,12 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
     `INSERT INTO admin_activity_logs (
       admin_uid, action, description, affected_user_id,
       details, ip_address, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+    ) VALUES ($1::uuid, $2, $3, $4::uuid, $5::jsonb, $6, NOW())`,
     
       updatedBy,
       'STAFF_PROFILE_UPDATED',
       `Staff profile updated for ${currentStaff.name}`,
-      id,
+      currentStaff.user_id,
       JSON.stringify(changes),
       ipAddress
     

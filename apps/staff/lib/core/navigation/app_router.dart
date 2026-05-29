@@ -42,6 +42,7 @@ import '../../features/nursing/screens/mar_scan_screen.dart';
 
 // HR
 import '../../features/hr/screens/hr_dashboard_screen.dart';
+import '../../features/hr/screens/leave_approvals_screen.dart';
 import '../../features/hr/screens/organization_hierarchy_screen.dart';
 import '../../features/hr/screens/staff_management_screen.dart';
 import '../../features/hr/screens/performance_screen.dart';
@@ -438,6 +439,12 @@ final GoRouter appRouter = GoRouter(
           name: 'performance',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: PerformanceScreen()),
+        ),
+        GoRoute(
+          path: '/leave-approvals',
+          name: 'leave-approvals',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: LeaveApprovalsScreen()),
         ),
 
         // Housekeeping

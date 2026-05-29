@@ -82,10 +82,19 @@ To rebuild the current version without changing `pubspec.yaml`:
 
 ## Backend Target
 
-By default the script builds against the local hands-on backend:
+By default the update scripts build against the stable Dalekdefender hands-on
+backend:
 
 ```text
-http://127.0.0.1:5206/api/v1
+https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1
+```
+
+For raw local backend development, pass the local URL explicitly:
+
+```powershell
+.\scripts\update-local-staff-windows-app.ps1 `
+  -BaseUrl "http://127.0.0.1:5206/api/v1" `
+  -ApiKey "vhhealth-local-api-key"
 ```
 
 For staging or a hospital pilot, pass the release values:

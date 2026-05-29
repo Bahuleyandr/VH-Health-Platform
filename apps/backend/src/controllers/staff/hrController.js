@@ -37,10 +37,11 @@ function inclusiveDays(startDate, endDate) {
 }
 
 export function normalizeLeaveApplicationRequest(req, _res, next) {
+  const rawLeaveType = req.body?.leave_type || req.body?.type;
   req.body = {
     ...(req.body || {}),
     staff_id: req.body?.staff_id || req.user?.uid,
-    leave_type: req.body?.leave_type || req.body?.type,
+    leave_type: rawLeaveType == null ? rawLeaveType : String(rawLeaveType).trim().toUpperCase(),
   };
   next();
 }

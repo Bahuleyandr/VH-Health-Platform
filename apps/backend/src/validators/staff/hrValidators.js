@@ -5,7 +5,9 @@ const STAFF_IDENTIFIER_RE = /^(?:\d+|EMP-[A-Z0-9-]+|[0-9a-f]{8}-[0-9a-f]{4}-[1-5
 
 // Performance Review Validation
 export const performanceReviewValidation = [
-  body('staff_id').isInt().withMessage('Staff ID must be a valid integer'),
+  body('staff_id')
+    .custom((value) => STAFF_IDENTIFIER_RE.test(String(value || '').trim()))
+    .withMessage('Staff ID must be a valid integer, employee ID, or UUID'),
   body('rating').isFloat({ min: 1, max: 5 }).withMessage('Rating must be between 1 and 5'),
   body('review_period').notEmpty().withMessage('Review period is required'),
   body('reviewer_comments').notEmpty().withMessage('Reviewer comments are required'),

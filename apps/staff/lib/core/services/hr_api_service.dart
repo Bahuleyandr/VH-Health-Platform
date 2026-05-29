@@ -117,11 +117,11 @@ class HrApiService {
   /// GET /staff/hr/performance-report — performance reports
   static Future<Map<String, dynamic>> getPerformanceReport({
     String? department,
-    String? period,
+    String? timeframe,
   }) async {
     return _get(
       '/staff/hr/performance-report',
-      query: {'department': ?department, 'period': ?period},
+      query: {'department': ?department, 'timeframe': ?timeframe},
     );
   }
 
@@ -135,10 +135,39 @@ class HrApiService {
   }) async {
     return _post('/staff/hr/performance-review', {
       'staff_id': staffId,
-      'period': period,
-      'overall_rating': overallRating,
-      'comments': comments,
-      'goals': ?goals,
+      'review_period': period,
+      'rating': overallRating,
+      'reviewer_comments': comments,
+      if (goals != null && goals.trim().isNotEmpty)
+        'future_goals': [goals.trim()],
+    });
+  }
+
+  // ─── Leave Approvals ─────────────────────────────────────────────────────
+
+  /// GET /staff/admin/hr/leave-requests — HR/Admin leave approval queue.
+  static Future<Map<String, dynamic>> getLeaveRequests({
+    String status = 'pending',
+    String? department,
+  }) async {
+    return _get(
+      '/staff/admin/hr/leave-requests',
+      query: {'status': status, 'department': ?department},
+    );
+  }
+
+  /// POST /staff/admin/leave/:id/approve|reject
+  static Future<Map<String, dynamic>> reviewLeaveRequest({
+    required int leaveId,
+    required String decision,
+    String? comments,
+  }) async {
+    final normalized = decision.toLowerCase() == 'reject'
+        ? 'reject'
+        : 'approve';
+    return _post('/staff/admin/leave/$leaveId/$normalized', {
+      'comments': ?comments,
+      'action': normalized,
     });
   }
 

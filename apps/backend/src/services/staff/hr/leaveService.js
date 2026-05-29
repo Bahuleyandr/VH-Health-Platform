@@ -3,9 +3,31 @@ import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
 const APPROVED_LEAVE_STATUSES = ['approved', 'APPROVED'];
+const DEFAULT_LEAVE_ENTITLEMENTS = {
+  ANNUAL: 12,
+  SICK: 12,
+  CASUAL: 12,
+  EARNED: 12,
+  MATERNITY: 180,
+  PATERNITY: 15,
+  BEREAVEMENT: 5,
+  UNPAID: 365,
+  COMPENSATORY: 12,
+};
 
 function normalizeLeaveStatus(status, fallback = 'pending') {
   return String(status || fallback).trim().toLowerCase();
+}
+
+function normalizeLeaveType(leaveType) {
+  return String(leaveType || '').trim().toUpperCase();
+}
+
+function entitlementFor(leaveType, value) {
+  const type = normalizeLeaveType(leaveType);
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  return DEFAULT_LEAVE_ENTITLEMENTS[type] ?? 0;
 }
 
 // Fetch users row + associated staff row via the users↔staff relation
@@ -30,7 +52,7 @@ async function fetchStaffInfo(staffId) {
       select: { user_id: true },
     });
     if (!staffRow?.user_id) return null;
-    where = { id: staffRow.user_id };
+    where = { uid: staffRow.user_id };
   } else {
     where = { uid: idStr };
   }
@@ -74,12 +96,15 @@ async function fetchStaffInfo(staffId) {
 // or employee_id. (`leave_applications.staff_id` is an INT FK and
 // `Number(uuid) → NaN` triggers a Prisma validation error.)
 async function getLeaveBalanceByType(staffIntId, year, { leaveType = null } = {}) {
+  const requestedLeaveType = leaveType ? normalizeLeaveType(leaveType) : null;
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 
-  const [leaveTypes, approvedApplications] = await Promise.all([
+  const [configuredLeaveTypes, approvedApplications] = await Promise.all([
     prisma.leave_types.findMany({
-      where: leaveType ? { leave_type: leaveType } : undefined,
+      where: requestedLeaveType
+        ? { leave_type: { in: [requestedLeaveType, requestedLeaveType.toLowerCase()] } }
+        : undefined,
       select: { leave_type: true, annual_entitlement: true },
       orderBy: { leave_type: 'asc' },
     }),
@@ -88,16 +113,41 @@ async function getLeaveBalanceByType(staffIntId, year, { leaveType = null } = {}
         staff_id: Number(staffIntId),
         status: { in: APPROVED_LEAVE_STATUSES },
         start_date: { gte: yearStart, lt: yearEnd },
-        ...(leaveType ? { leave_type: leaveType } : {}),
+        ...(requestedLeaveType
+          ? { leave_type: { in: [requestedLeaveType, requestedLeaveType.toLowerCase()] } }
+          : {}),
       },
       select: { leave_type: true, days_taken: true },
     }),
   ]);
 
+  const leaveTypeByCode = new Map();
+  for (const [type, defaultEntitlement] of Object.entries(DEFAULT_LEAVE_ENTITLEMENTS)) {
+    leaveTypeByCode.set(type, {
+      leave_type: type,
+      annual_entitlement: defaultEntitlement,
+    });
+  }
+  for (const lt of configuredLeaveTypes) {
+    const type = normalizeLeaveType(lt.leave_type);
+    if (!type) continue;
+    leaveTypeByCode.set(type, {
+      leave_type: type,
+      annual_entitlement: entitlementFor(type, lt.annual_entitlement),
+    });
+  }
+  const leaveTypes = requestedLeaveType
+    ? [leaveTypeByCode.get(requestedLeaveType) ?? {
+      leave_type: requestedLeaveType,
+      annual_entitlement: entitlementFor(requestedLeaveType),
+    }]
+    : [...leaveTypeByCode.values()];
+
   const usedByType = new Map();
   for (const app of approvedApplications) {
+    const type = normalizeLeaveType(app.leave_type);
     const days = Number(app.days_taken) || 0;
-    usedByType.set(app.leave_type, (usedByType.get(app.leave_type) ?? 0) + days);
+    usedByType.set(type, (usedByType.get(type) ?? 0) + days);
   }
 
   return leaveTypes.map((lt) => {
