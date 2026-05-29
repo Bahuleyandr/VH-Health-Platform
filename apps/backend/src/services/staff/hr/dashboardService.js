@@ -5,14 +5,47 @@ import logger from '../../../logging/logger.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function getTimeframeWindow(timeframe) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  switch (timeframe) {
+    case 'last_month':
+      return {
+        start: new Date(year, month - 1, 1),
+        end: new Date(year, month, 1),
+      };
+    case 'current_quarter': {
+      const quarterStartMonth = Math.floor(month / 3) * 3;
+      return {
+        start: new Date(year, quarterStartMonth, 1),
+        end: new Date(year, quarterStartMonth + 3, 1),
+      };
+    }
+    case 'current_year':
+      return {
+        start: new Date(year, 0, 1),
+        end: new Date(year + 1, 0, 1),
+      };
+    case 'current_month':
+    default:
+      return {
+        start: new Date(year, month, 1),
+        end: new Date(year, month + 1, 1),
+      };
+  }
+}
+
 /**
  * Get comprehensive HR dashboard data including staff overview,
  * department breakdown, attendance trends, and performance metrics.
  * @param {string} timeframe - Time period for data aggregation (reserved).
  * @returns {Object} Dashboard data with multiple sections.
  */
-export const getHRDashboardData = async (_timeframe) => {
+export const getHRDashboardData = async (timeframe = 'current_month') => {
   const staffRoles = Object.values(STAFF_ROLES);
+  const { start, end } = getTimeframeWindow(timeframe);
 
   // Load all staff rows (joined with users by the batch-90 FK) plus
   // their aggregate inputs. For the few-hundred-row staff scale this
@@ -198,6 +231,44 @@ export const getHRDashboardData = async (_timeframe) => {
     logger.warn('Upcoming tasks unavailable:', tasksError.message);
   }
 
+  let leaveSummary = {
+    total: 0,
+    approved: 0,
+    rejected: 0,
+    pending: 0,
+    currently_on_leave: 0,
+  };
+  try {
+    const leaveRows = await prisma.$queryRaw`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE start_date < ${end}::date
+            AND end_date >= ${start}::date
+        )::int AS total,
+        COUNT(*) FILTER (
+          WHERE LOWER(status) = 'approved'
+            AND start_date < ${end}::date
+            AND end_date >= ${start}::date
+        )::int AS approved,
+        COUNT(*) FILTER (
+          WHERE LOWER(status) = 'rejected'
+            AND start_date < ${end}::date
+            AND end_date >= ${start}::date
+        )::int AS rejected,
+        COUNT(*) FILTER (
+          WHERE LOWER(status) = 'pending'
+        )::int AS pending,
+        COUNT(*) FILTER (
+          WHERE LOWER(status) = 'approved'
+            AND CURRENT_DATE BETWEEN start_date AND end_date
+        )::int AS currently_on_leave
+      FROM leave_applications
+    `;
+    if (leaveRows[0]) leaveSummary = leaveRows[0];
+  } catch (leaveError) {
+    logger.warn('Leave summary unavailable:', leaveError.message);
+  }
+
   return {
     overview: {
       total_staff: overview.total_staff,
@@ -218,6 +289,7 @@ export const getHRDashboardData = async (_timeframe) => {
         ? 'adequate' : 'understaffed',
     })),
     attendanceTrends,
+    leaves: leaveSummary,
     performanceMetrics,
     upcomingTasks,
     alerts: {
