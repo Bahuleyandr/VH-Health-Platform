@@ -47,7 +47,7 @@ export default {
   adminAnalyticsRoutes: [ADMIN],
 
   // 🔐 Authenticated (non-admin) module route keys
-  appointmentRoutes: [PATIENT, NURSING_STAFF, DOCTOR, ADMIN],
+  appointmentRoutes: [PATIENT, NURSING_STAFF, DOCTOR, RECEPTIONIST, RECEPTION_INCHARGE, ADMIN],
   doctorRoutes: [DOCTOR, ADMIN],
   departmentRoutes: [GENERAL_STAFF, ADMIN],
   userRoutes: [PATIENT, GENERAL_STAFF, ADMIN],

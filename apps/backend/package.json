@@ -3,6 +3,7 @@
   "name": "vh-health-backend",
   "version": "1.0.0",
   "description": "VH Health API for managing patients, appointments, records, investigations, pharmacy orders, and feedback.",
+  "private": true,
   "main": "src/bin/www.js",
   "scripts": {
     "prestart": "npm run db:generate",
@@ -73,7 +74,7 @@
     "directory": "apps/backend"
   },
   "author": "VH Health Tech Team",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1053.0",
     "@aws-sdk/s3-request-presigner": "^3.1053.0",

@@ -105,6 +105,7 @@ class ScheduleApiService {
     String? patientPhone,
     String? patientName,
     required int doctorId,
+    String? doctorUid,
     required String appointmentDate,
     required String appointmentTime,
     required String reason,
@@ -121,6 +122,8 @@ class ScheduleApiService {
       if (patientName != null && patientName.trim().isNotEmpty)
         'patient_name': patientName.trim(),
       'doctor_id': doctorId,
+      if (doctorUid != null && doctorUid.trim().isNotEmpty)
+        'doctor_uid': doctorUid.trim(),
       'appointment_date': appointmentDate,
       'appointment_time': appointmentTime,
       'reason': reason,

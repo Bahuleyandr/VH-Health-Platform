@@ -670,11 +670,11 @@ class MedicalApiService {
 
   // ─── EMR: Admissions ──────────────────────────────────────────────────────
 
-  /// POST /emr/admit — admit a patient
+  /// POST /admissions — admission-desk-safe patient admission.
   static Future<Map<String, dynamic>> admitPatient(
     Map<String, dynamic> data,
   ) async {
-    return _post('/emr/admit', data);
+    return _post('/admissions', data);
   }
 
   /// POST /emr/:id/discharge — discharge a patient
@@ -734,17 +734,17 @@ class MedicalApiService {
     return _post('/emr/$id/discharge-summary/sign', {});
   }
 
-  /// GET /emr/admissions — list active admissions
+  /// GET /admissions — list active admissions through the ADT surface
   static Future<Map<String, dynamic>> getActiveAdmissions({
     int page = 1,
     int limit = 20,
   }) async {
-    return _get('/emr/admissions', query: {'page': '$page', 'limit': '$limit'});
+    return _get('/admissions', query: {'page': '$page', 'limit': '$limit'});
   }
 
-  /// GET /emr/admission/:id — admission detail
+  /// GET /admissions/:id — admission detail
   static Future<Map<String, dynamic>> getAdmissionDetail(int id) async {
-    return _get('/emr/admission/$id');
+    return _get('/admissions/$id');
   }
 
   /// GET /admissions/:id/case-sheet — admission baseline history/exam

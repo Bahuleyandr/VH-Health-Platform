@@ -314,6 +314,38 @@ class StaffScaffold extends StatelessWidget {
         ];
       case StaffRole.receptionist:
       case StaffRole.receptionIncharge:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Counter',
+            Icons.point_of_sale_outlined,
+            Icons.point_of_sale,
+            '/reception-counter',
+          ),
+          const _NavItem(
+            'My Roster',
+            Icons.schedule_outlined,
+            Icons.schedule,
+            '/schedule',
+          ),
+          const _NavItem(
+            'Messages',
+            Icons.chat_outlined,
+            Icons.chat,
+            '/messaging',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
       case StaffRole.driver:
       case StaffRole.maintenance:
         return [

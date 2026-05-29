@@ -49,11 +49,28 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName }) {
   return { patient: created[0], created: true };
 }
 
+async function resolveDoctorIdFromUid(doctorUid) {
+  if (!doctorUid) return null;
+  const row = await prisma.users.findFirst({
+    where: {
+      uid: String(doctorUid).trim(),
+      role: 'DOCTOR',
+      is_active: true,
+    },
+    select: { id: true },
+  });
+  return row?.id ?? null;
+}
+
 export const createAppointment = async (req, res) => {
   try {
     const appointmentDate = req.body.appointment_date || req.body.date;
     const appointmentTime = req.body.appointment_time || req.body.time;
     const patientPhone = req.body.patient_phone || req.body.phone || req.body.phoneNumber;
+
+    if (req.body.doctor_uid) {
+      req.body.doctor_id = await resolveDoctorIdFromUid(req.body.doctor_uid);
+    }
 
     let resolvedPatient = null;
     let createdNewPatient = false;

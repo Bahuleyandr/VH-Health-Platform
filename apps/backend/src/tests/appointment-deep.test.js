@@ -15,6 +15,8 @@ const DOCTOR_UID = 'a7777777-7777-4777-8777-777777777a03';
 const ADMIN_UID = 'a7777777-7777-4777-8777-777777777a04';
 const COLLISION_DIRECT_DOCTOR_UID = 'a7777777-7777-4777-8777-777777777a05';
 const COLLISION_PROFILE_DOCTOR_UID = 'a7777777-7777-4777-8777-777777777a06';
+const RECEPTIONIST_UID = 'a7777777-7777-4777-8777-777777777a07';
+const RECEPTION_INCHARGE_UID = 'a7777777-7777-4777-8777-777777777a08';
 const PATIENT_PHONE = '+919000070001';
 const OTHER_PHONE = '+919000070002';
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -39,7 +41,8 @@ function futureDateISO(offsetDays = 90) {
 
 describe('Appointment booking + lifecycle — deep integration', () => {
   let patientIntId, otherPatientIntId, doctorIntId, doctorProfileId, adminIntId;
-  let patient, otherPatient, doctor, admin;
+  let receptionistIntId, receptionInchargeIntId;
+  let patient, otherPatient, doctor, admin, receptionist, receptionIncharge;
   const apptDate = futureDateISO(90);
 
   beforeAll(async () => {
@@ -63,8 +66,8 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       `DELETE FROM doctors WHERE user_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid))`,
       PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID);
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID);
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID, RECEPTIONIST_UID, RECEPTION_INCHARGE_UID);
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -105,10 +108,24 @@ describe('Appointment booking + lifecycle — deep integration', () => {
        RETURNING id`, ADMIN_UID);
     adminIntId = a[0].id;
 
+    const r = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '+919000070007', 'Appointment Receptionist', 'RECEPTIONIST', true, NOW())
+       RETURNING id`, RECEPTIONIST_UID);
+    receptionistIntId = r[0].id;
+
+    const ri = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '+919000070008', 'Appointment Reception Incharge', 'RECEPTION_INCHARGE', true, NOW())
+       RETURNING id`, RECEPTION_INCHARGE_UID);
+    receptionInchargeIntId = ri[0].id;
+
     patient = mkClient('PATIENT', PATIENT_UID, patientIntId, PATIENT_PHONE);
     otherPatient = mkClient('PATIENT', OTHER_PATIENT_UID, otherPatientIntId, OTHER_PHONE);
     doctor = mkClient('DOCTOR', DOCTOR_UID, doctorIntId, '+919000070003');
     admin = mkClient('ADMIN', ADMIN_UID, adminIntId, '+919000070004');
+    receptionist = mkClient('RECEPTIONIST', RECEPTIONIST_UID, receptionistIntId, '+919000070007');
+    receptionIncharge = mkClient('RECEPTION_INCHARGE', RECEPTION_INCHARGE_UID, receptionInchargeIntId, '+919000070008');
   });
 
   afterAll(async () => {
@@ -132,8 +149,8 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM doctors WHERE user_id = $1`, doctorIntId).catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID, RECEPTIONIST_UID, RECEPTION_INCHARGE_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   }, 60000); // Cleanup cascades through prescriptions/notes/diagnoses/appointments — needs more than the 5s default on populated DBs.
 
@@ -239,7 +256,21 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       expect(row[0].doctor_id).toBe(doctorIntId);
     });
 
-    it('rejects ambiguous doctor ids instead of letting doctors.id override users.id', async () => {
+    it('accepts doctor_uid from the staff picker to avoid numeric id collisions', async () => {
+      const res = await receptionist.post('/api/v1/appointments/book').send({
+        patient_id: patientIntId,
+        doctor_id: 999999,
+        doctor_uid: DOCTOR_UID,
+        appointment_date: apptDate,
+        appointment_time: '10:40',
+        reason: 'Doctor UUID picker booking',
+        confirm_duplicate: true,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.appointment.doctor_id).toBe(doctorIntId);
+    });
+
+    it('prefers canonical users.id when it collides with a different doctors.id', async () => {
       let collisionId;
       let profileDoctorUserId;
 
@@ -298,9 +329,13 @@ describe('Appointment booking + lifecycle — deep integration', () => {
           confirm_duplicate: true,
         });
 
-        expect(res.statusCode).toBe(400);
-        expect(String(res.body.message || '')).toMatch(/ambiguous/i);
+        expect(res.statusCode).toBe(201);
+        expect(res.body.data.appointment.doctor_id).toBe(collisionId);
+        expect(res.body.data.appointment.doctor_name).toBe('Dr. Direct Collision');
       } finally {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM appointments WHERE reason = 'Ambiguous doctor ref smoke'`,
+        ).catch(() => {});
         if (collisionId) {
           await prisma.$executeRawUnsafe(
             `DELETE FROM doctors WHERE id = $1::int`,
@@ -473,6 +508,24 @@ describe('Appointment booking + lifecycle — deep integration', () => {
   });
 
   describe('admission counter worklist', () => {
+    it('allows reception desk roles to list appointments and receives doctor uid options', async () => {
+      const list = await receptionist.get('/api/v1/appointments/list?limit=5');
+      expect(list.statusCode).toBe(200);
+      expect(Array.isArray(list.body.data?.appointments)).toBe(true);
+
+      const inchargeList = await receptionIncharge.get('/api/v1/appointments/list?limit=5');
+      expect(inchargeList.statusCode).toBe(200);
+
+      const options = await receptionist.get('/api/v1/appointments/doctors/options?search=Appointment%20Tester&limit=5');
+      expect(options.statusCode).toBe(200);
+      const doctorOption = options.body.data?.doctors?.find((row) => row.id === doctorIntId);
+      expect(doctorOption).toMatchObject({
+        id: doctorIntId,
+        uid: DOCTOR_UID,
+        name: 'Dr. Appointment Tester',
+      });
+    });
+
     it('lists OPD appointments advised for admission at GET /appointments?advised_for_admission=true', async () => {
       const advised = await prisma.$queryRawUnsafe(
         `INSERT INTO appointments

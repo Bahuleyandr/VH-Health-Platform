@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
@@ -111,207 +112,285 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     final diagnosis = TextEditingController();
     final ward = TextEditingController();
     final bed = TextEditingController();
+    final doctorsFuture = ScheduleApiService.getAppointmentDoctors();
     String priority = 'Routine';
     String codeStatus = 'Full Code';
+    String? selectedDoctorUid;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: AppTheme.divider,
-                          borderRadius: BorderRadius.circular(2),
+        builder: (ctx, setSheetState) {
+          final theme = Theme.of(ctx);
+          return Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: AppTheme.divider,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      AppStrings.of(ctx).admissionAdmitPatient,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextFormField(
-                      controller: patientSearch,
-                      decoration: InputDecoration(
-                        labelText: AppStrings.of(ctx).admissionPatientLabel,
-                        prefixIcon: const ExcludeSemantics(
-                          child: Icon(Icons.search),
+                      const SizedBox(height: 16),
+                      Text(
+                        AppStrings.of(ctx).admissionAdmitPatient,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurface,
                         ),
-                        border: const OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.isEmpty)
-                          ? AppStrings.of(ctx).admissionRequired
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: chiefComplaint,
-                      decoration: InputDecoration(
-                        labelText: AppStrings.of(ctx).admissionChiefComplaint,
-                        border: const OutlineInputBorder(),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: patientSearch,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(ctx).admissionPatientLabel,
+                          prefixIcon: const ExcludeSemantics(
+                            child: Icon(Icons.search),
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? AppStrings.of(ctx).admissionRequired
+                            : null,
                       ),
-                      maxLines: 2,
-                      validator: (v) => (v == null || v.isEmpty)
-                          ? AppStrings.of(ctx).admissionRequired
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: diagnosis,
-                      decoration: InputDecoration(
-                        labelText: AppStrings.of(ctx).admissionDiagnosis,
-                        border: const OutlineInputBorder(),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: chiefComplaint,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(ctx).admissionChiefComplaint,
+                          border: const OutlineInputBorder(),
+                        ),
+                        maxLines: 2,
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? AppStrings.of(ctx).admissionRequired
+                            : null,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: ward,
-                            decoration: InputDecoration(
-                              labelText: AppStrings.of(ctx).admissionWard,
-                              border: const OutlineInputBorder(),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: diagnosis,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(ctx).admissionDiagnosis,
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: doctorsFuture,
+                        builder: (ctx, snapshot) {
+                          final doctors = snapshot.data ?? const [];
+                          return DropdownButtonFormField<String>(
+                            initialValue: selectedDoctorUid,
+                            decoration: const InputDecoration(
+                              labelText: 'Admitting doctor',
+                              prefixIcon: Icon(Icons.medical_services_outlined),
+                              border: OutlineInputBorder(),
                             ),
+                            items: doctors
+                                .where(
+                                  (doctor) => (doctor['uid']?.toString() ?? '')
+                                      .isNotEmpty,
+                                )
+                                .map(
+                                  (doctor) => DropdownMenuItem<String>(
+                                    value: doctor['uid'].toString(),
+                                    child: Text(
+                                      [doctor['name'], doctor['department']]
+                                          .where(
+                                            (value) => (value?.toString() ?? '')
+                                                .isNotEmpty,
+                                          )
+                                          .join(' - '),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) =>
+                                setSheetState(() => selectedDoctorUid = v),
                             validator: (v) => (v == null || v.isEmpty)
-                                ? AppStrings.of(ctx).admissionRequired
+                                ? 'Admitting doctor is required'
                                 : null,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: bed,
-                            decoration: InputDecoration(
-                              labelText: AppStrings.of(ctx).admissionBedNumber,
-                              border: const OutlineInputBorder(),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: ward,
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(ctx).admissionWard,
+                                border: const OutlineInputBorder(),
+                              ),
+                              validator: (v) => (v == null || v.isEmpty)
+                                  ? AppStrings.of(ctx).admissionRequired
+                                  : null,
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: priority,
-                      decoration: InputDecoration(
-                        labelText: AppStrings.of(ctx).admissionPriorityLabel,
-                        border: const OutlineInputBorder(),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: bed,
+                              decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                  ctx,
+                                ).admissionBedNumber,
+                                border: const OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'Routine',
-                          child: Text(
-                            AppStrings.of(ctx).admissionPriorityRoutine,
-                          ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: priority,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(ctx).admissionPriorityLabel,
+                          border: const OutlineInputBorder(),
                         ),
-                        DropdownMenuItem(
-                          value: 'Urgent',
-                          child: Text(
-                            AppStrings.of(ctx).admissionPriorityUrgent,
+                        items: [
+                          DropdownMenuItem(
+                            value: 'Routine',
+                            child: Text(
+                              AppStrings.of(ctx).admissionPriorityRoutine,
+                            ),
                           ),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Emergency',
-                          child: Text(
-                            AppStrings.of(ctx).admissionPriorityEmergency,
+                          DropdownMenuItem(
+                            value: 'Urgent',
+                            child: Text(
+                              AppStrings.of(ctx).admissionPriorityUrgent,
+                            ),
                           ),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Critical',
-                          child: Text(
-                            AppStrings.of(ctx).admissionPriorityCritical,
+                          DropdownMenuItem(
+                            value: 'Emergency',
+                            child: Text(
+                              AppStrings.of(ctx).admissionPriorityEmergency,
+                            ),
                           ),
-                        ),
-                      ],
-                      onChanged: (v) =>
-                          setSheetState(() => priority = v ?? priority),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: codeStatus,
-                      decoration: InputDecoration(
-                        labelText: AppStrings.of(ctx).admissionCodeStatus,
-                        border: const OutlineInputBorder(),
+                          DropdownMenuItem(
+                            value: 'Critical',
+                            child: Text(
+                              AppStrings.of(ctx).admissionPriorityCritical,
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) =>
+                            setSheetState(() => priority = v ?? priority),
                       ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'Full Code',
-                          child: Text(AppStrings.of(ctx).admissionCodeFull),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: codeStatus,
+                        decoration: InputDecoration(
+                          labelText: AppStrings.of(ctx).admissionCodeStatus,
+                          border: const OutlineInputBorder(),
                         ),
-                        DropdownMenuItem(
-                          value: 'DNR',
-                          child: Text(AppStrings.of(ctx).admissionCodeDnr),
-                        ),
-                        DropdownMenuItem(
-                          value: 'DNR/DNI',
-                          child: Text(AppStrings.of(ctx).admissionCodeDnrDni),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Comfort Care',
-                          child: Text(AppStrings.of(ctx).admissionCodeComfort),
-                        ),
-                      ],
-                      onChanged: (v) =>
-                          setSheetState(() => codeStatus = v ?? codeStatus),
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () => _submitAdmission(
-                          formKey: formKey,
-                          patientSearch: patientSearch.text,
-                          chiefComplaint: chiefComplaint.text,
-                          diagnosis: diagnosis.text,
-                          ward: ward.text,
-                          bed: bed.text,
-                          priority: priority,
-                          codeStatus: codeStatus,
-                        ),
-                        icon: const Icon(Icons.local_hospital),
-                        label: Text(AppStrings.of(ctx).admissionAdmitPatient),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'Full Code',
+                            child: Text(AppStrings.of(ctx).admissionCodeFull),
+                          ),
+                          DropdownMenuItem(
+                            value: 'DNR',
+                            child: Text(AppStrings.of(ctx).admissionCodeDnr),
+                          ),
+                          DropdownMenuItem(
+                            value: 'DNR/DNI',
+                            child: Text(AppStrings.of(ctx).admissionCodeDnrDni),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Comfort Care',
+                            child: Text(
+                              AppStrings.of(ctx).admissionCodeComfort,
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) =>
+                            setSheetState(() => codeStatus = v ?? codeStatus),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () => _submitAdmission(
+                            formKey: formKey,
+                            patientSearch: patientSearch.text,
+                            admittingDoctorUid: selectedDoctorUid,
+                            chiefComplaint: chiefComplaint.text,
+                            diagnosis: diagnosis.text,
+                            ward: ward.text,
+                            bed: bed.text,
+                            priority: priority,
+                            codeStatus: codeStatus,
+                          ),
+                          icon: const Icon(Icons.local_hospital),
+                          label: Text(AppStrings.of(ctx).admissionAdmitPatient),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
+  }
+
+  String _apiPriority(String priority) {
+    switch (priority.toLowerCase()) {
+      case 'emergency':
+      case 'critical':
+        return 'emergent';
+      case 'urgent':
+        return 'urgent';
+      default:
+        return 'routine';
+    }
+  }
+
+  String _apiCodeStatus(String codeStatus) {
+    switch (codeStatus.toLowerCase()) {
+      case 'dnr':
+        return 'dnr';
+      case 'dnr/dni':
+        return 'dni';
+      case 'comfort care':
+        return 'comfort_care';
+      default:
+        return 'full_code';
+    }
   }
 
   Future<void> _submitAdmission({
     required GlobalKey<FormState> formKey,
     required String patientSearch,
+    required String? admittingDoctorUid,
     required String chiefComplaint,
     required String diagnosis,
     required String ward,
@@ -325,12 +404,13 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     try {
       await MedicalApiService.admitPatient({
         'patient_query': patientSearch,
+        'admitting_doctor': admittingDoctorUid,
         'chief_complaint': chiefComplaint,
         'provisional_diagnosis': diagnosis,
         'ward': ward,
         'bed': bed,
-        'priority': priority.toLowerCase(),
-        'code_status': codeStatus,
+        'priority': _apiPriority(priority),
+        'code_status': _apiCodeStatus(codeStatus),
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

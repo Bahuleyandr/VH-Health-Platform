@@ -97,7 +97,7 @@ export class AppointmentValidationService {
     const isScheduled = appointment.status === APPOINTMENT_CONFIG.STATUSES.SCHEDULED;
     if (!isScheduled) {
       const addendumOnly = isAddendumOnlyUpdate(updateData);
-      const isClinical = ['DOCTOR', 'ADMIN', 'NURSING_STAFF', 'NURSE', 'RECEPTIONIST'].includes(user.role);
+      const isClinical = ['DOCTOR', 'ADMIN', 'NURSING_STAFF', 'NURSE', 'RECEPTIONIST', 'RECEPTION_INCHARGE'].includes(user.role);
       const contextEditableStatuses = [
         APPOINTMENT_CONFIG.STATUSES.CONFIRMED,
         APPOINTMENT_CONFIG.STATUSES.IN_PROGRESS,

@@ -242,6 +242,7 @@ const CLINICAL_STAFF_ROLES = [
 const ADMISSION_SURFACE_ROLES = [
   ...CLINICAL_STAFF_ROLES,
   'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
   'BILLING_STAFF',
   'BILLING_INCHARGE',
   'FINANCE_INCHARGE',
@@ -553,7 +554,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 // for chart finding. Patient self-search isn't applicable.
 app.use(
   '/api/v1/patients',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'RECEPTIONIST', 'GENERAL_STAFF'),
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'RECEPTIONIST', 'RECEPTION_INCHARGE', 'GENERAL_STAFF'),
   patientSearchRoutes,
 );
 app.use('/api/v1/upload', patientRateLimiter, uploadRoutes);

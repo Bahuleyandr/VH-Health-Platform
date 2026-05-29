@@ -75,19 +75,24 @@ void main() {
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
+      expect(ids, contains('ward_mode'));
       expect(ids, isNot(contains('hr_dashboard')));
       expect(ids, isNot(contains('staff_management')));
     });
 
-    test('nurse gets vitals + nursing notes + handover, NOT prescriptions', () {
-      final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
-      final ids = feats.map((f) => f.id).toSet();
-      expect(ids, contains('vitals'));
-      expect(ids, contains('nursing_notes'));
-      expect(ids, contains('handover'));
-      expect(ids, contains('clinical_ai_review_queue'));
-      expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
-    });
+    test(
+      'nurse gets ward mode + vitals + nursing notes, NOT prescriptions',
+      () {
+        final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
+        final ids = feats.map((f) => f.id).toSet();
+        expect(ids, contains('ward_mode'));
+        expect(ids, contains('vitals'));
+        expect(ids, contains('nursing_notes'));
+        expect(ids, contains('handover'));
+        expect(ids, contains('clinical_ai_review_queue'));
+        expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
+      },
+    );
 
     test('HR gets HR-specific features only, no clinical', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.hr);
@@ -136,6 +141,8 @@ void main() {
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
+      expect(ids, contains('reception_counter'));
+      expect(ids, contains('ward_mode'));
     });
 
     test('general staff sees housekeeping hub + tasks, no clinical/HR', () {
@@ -147,6 +154,27 @@ void main() {
       expect(ids, isNot(contains('hr_dashboard')));
       expect(ids, isNot(contains('clinical_ai_review_queue')));
     });
+
+    test(
+      'reception roles get counter mode, OPD appointments, and IP admissions',
+      () {
+        final receptionistIds = RoleFeatures.getFeaturesForRole(
+          StaffRole.receptionist,
+        ).map((f) => f.id).toSet();
+        final inchargeIds = RoleFeatures.getFeaturesForRole(
+          StaffRole.receptionIncharge,
+        ).map((f) => f.id).toSet();
+
+        expect(
+          receptionistIds,
+          containsAll(['reception_counter', 'appointments', 'admissions']),
+        );
+        expect(
+          inchargeIds,
+          containsAll(['reception_counter', 'appointments', 'admissions']),
+        );
+      },
+    );
   });
 
   group('RoleFeatures.getBottomNavForRole', () {
@@ -170,6 +198,24 @@ void main() {
           reason: 'Role $role did not start with /dashboard',
         );
       }
+    });
+
+    test('reception roles get counter mode in bottom navigation', () {
+      final receptionistItems = RoleFeatures.getBottomNavForRole(
+        StaffRole.receptionist,
+      );
+      final inchargeItems = RoleFeatures.getBottomNavForRole(
+        StaffRole.receptionIncharge,
+      );
+
+      expect(
+        receptionistItems.map((item) => item.route),
+        contains('/reception-counter'),
+      );
+      expect(
+        inchargeItems.map((item) => item.route),
+        contains('/reception-counter'),
+      );
     });
   });
 }

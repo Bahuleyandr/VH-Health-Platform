@@ -90,6 +90,7 @@ export const getDoctorOptions = async (req, res) => {
     const doctors = await prisma.$queryRawUnsafe(
       `SELECT
           u.id AS id,
+          u.uid AS uid,
           u.id AS user_id,
           d.id AS doctor_row_id,
           COALESCE(u.name, d.name) AS name,

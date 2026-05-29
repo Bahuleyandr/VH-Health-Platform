@@ -2,6 +2,8 @@
   "name": "vh-checks",
   "version": "1.0.0",
   "description": "On-prem weekly DB drift + error scan for VH-Health-Platform on dalekdefender. Replaces the cloud-side MCP path that couldn't pass claude.ai's connector validator.",
+  "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "main": "check.mjs",
   "scripts": {

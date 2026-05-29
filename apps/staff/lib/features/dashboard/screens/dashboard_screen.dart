@@ -604,6 +604,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'theatre',
         'radiology',
         'bed_board',
+        'ward_mode',
         'blood_bank',
       },
       StaffRole.nurse ||
@@ -622,6 +623,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'lab_bookings',
         'investigation_results',
         'bed_board',
+        'ward_mode',
         'dietary',
       },
       StaffRole.hr => {
@@ -636,6 +638,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'clinical_ai_review_queue',
         'patient_records',
         'bed_board',
+        'ward_mode',
         'theatre',
         'radiology',
         'blood_bank',
@@ -654,6 +657,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'lab_bookings',
         'bed_board',
+        'ward_mode',
         'theatre',
         'radiology',
         'blood_bank',
@@ -690,8 +694,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'housekeeping_hub',
         'housekeeping_tasks',
       },
-      StaffRole.receptionist ||
-      StaffRole.receptionIncharge => {'appointment_queue', 'reception_roster'},
+      StaffRole.receptionist || StaffRole.receptionIncharge => {
+        'reception_counter',
+        'appointment_queue',
+        'reception_roster',
+      },
       StaffRole.driver => {'driver_roster'},
       StaffRole.maintenance => {'maintenance_roster', 'staff_directory'},
       StaffRole.general => {
@@ -735,6 +742,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'patient_records',
         'bed_board',
+        'ward_mode',
         'discharge_hub',
         'vitals',
         'dietary',
@@ -749,6 +757,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'prescriptions',
         'investigation_results',
         'bed_board',
+        'ward_mode',
         'discharge_hub',
         'radiology',
         'theatre',
@@ -764,6 +773,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'lab_bookings',
         'bed_board',
+        'ward_mode',
         'discharge_hub',
         'dietary',
         'theatre',
@@ -887,6 +897,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'bed_board',
+              'ward_mode',
               'discharge_hub',
               'vitals',
               'nursing_notes',
@@ -937,6 +948,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'bed_board',
+              'ward_mode',
               'discharge_hub',
               'patient_records',
               'prescriptions',
@@ -985,6 +997,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'bed_board',
+              'ward_mode',
               'discharge_hub',
               'patient_records',
               'pharmacy_orders',
@@ -1038,6 +1051,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'lab_bookings': '/lab-bookings?context=$context',
     'investigation_results': '/investigations?context=$context',
     'investigations_upload': '/investigations?context=$context',
+    'ward_mode': '/ward-mode?context=$context',
     'nursing_notes': '/nursing-notes?context=$context',
     'vitals': '/vitals?context=$context',
     'handover': '/handover?context=$context',

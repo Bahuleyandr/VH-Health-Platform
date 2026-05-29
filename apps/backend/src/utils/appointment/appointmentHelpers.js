@@ -8,7 +8,13 @@ export const hasPermission = (userRole, action) => {
 };
 
 export const canAccessAppointment = (user, appointment) => {
-  if (user.role === 'ADMIN' || user.role === 'NURSE' || user.role === 'NURSING_STAFF') {
+  if (
+    user.role === 'ADMIN'
+    || user.role === 'NURSE'
+    || user.role === 'NURSING_STAFF'
+    || user.role === 'RECEPTIONIST'
+    || user.role === 'RECEPTION_INCHARGE'
+  ) {
     return true;
   }
   if (user.role === 'DOCTOR' && String(appointment.doctor_id) === String(user.id)) {
@@ -38,7 +44,7 @@ export const normalizeStatus = (status) => {
 
 export const checkAppointmentPermission = (user, appointment, action) => {
   // Admin and Nurse have full access
-  if (['ADMIN', 'NURSE', 'NURSING_STAFF'].includes(user.role)) {
+  if (['ADMIN', 'NURSE', 'NURSING_STAFF', 'RECEPTIONIST', 'RECEPTION_INCHARGE'].includes(user.role)) {
     return true;
   }
 
@@ -74,9 +80,9 @@ export const checkAppointmentPermission = (user, appointment, action) => {
     return ['view', 'update', 'cancel'].includes(action);
   }
 
-  // Receptionist can view and create appointments
-  if (user.role === 'RECEPTIONIST') {
-    return ['view', 'create'].includes(action);
+  // Reception can operate the front-desk appointment lifecycle.
+  if (['RECEPTIONIST', 'RECEPTION_INCHARGE'].includes(user.role)) {
+    return ['view', 'create', 'update', 'cancel'].includes(action);
   }
 
   return false;
