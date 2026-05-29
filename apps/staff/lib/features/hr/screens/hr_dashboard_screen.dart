@@ -248,6 +248,22 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         ),
         const SizedBox(height: 10),
         _ActionTile(
+          icon: Icons.fact_check_outlined,
+          title: 'Leave approvals',
+          subtitle: 'Review pending leave requests and record HR decisions',
+          color: AppTheme.successGreen,
+          onTap: () => context.go('/leave-approvals'),
+        ),
+        const SizedBox(height: 10),
+        _ActionTile(
+          icon: Icons.schedule_outlined,
+          title: 'My roster',
+          subtitle: 'View duty roster, leave, attendance, and duty requests',
+          color: AppTheme.accentCyan,
+          onTap: () => context.go('/schedule'),
+        ),
+        const SizedBox(height: 10),
+        _ActionTile(
           icon: Icons.people,
           title: s.hrActionStaffDirectory,
           subtitle: s.hrActionStaffDirectorySubtitle,

@@ -5,7 +5,6 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
 /// Performance Reviews screen — HR/Admin manages staff performance records.
-/// TODO: Integrate with backend when /staff/hr/performance endpoint is available.
 class PerformanceScreen extends StatefulWidget {
   const PerformanceScreen({super.key});
 
@@ -355,6 +354,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
       _reviews =
           data['reviews'] as List? ??
           data['reports'] as List? ??
+          data['staffPerformance'] as List? ??
           data['data'] as List? ??
           [];
     } catch (e) {
@@ -412,10 +412,25 @@ class _ReviewListTabState extends State<_ReviewListTab> {
         itemBuilder: (_, i) {
           final r = _reviews[i];
           final name =
-              r['staffName'] ?? r['staff_id'] ?? r['employeeId'] ?? '—';
-          final period = r['period'] ?? '—';
-          final rating = r['overall_rating'] ?? r['overallRating'] ?? 0;
-          final comments = r['comments'] ?? '';
+              r['staffName'] ??
+              r['name'] ??
+              r['employee_id'] ??
+              r['staff_id'] ??
+              r['employeeId'] ??
+              '—';
+          final period =
+              r['period'] ??
+              r['review_period'] ??
+              r['last_review_date'] ??
+              'No review yet';
+          final rating =
+              r['overall_rating'] ??
+              r['overallRating'] ??
+              r['average_rating'] ??
+              r['current_rating'] ??
+              0;
+          final comments =
+              r['comments'] ?? r['recent_comments'] ?? r['department'] ?? '';
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: Padding(

@@ -67,7 +67,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     return StaffScaffold(
       title: s.staffMgmtTitle,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddStaffDialog(context),
+        onPressed: () => _showAddStaffUnavailable(context),
         icon: const Icon(Icons.person_add),
         label: Text(s.staffMgmtAddStaff),
         backgroundColor: AppTheme.primaryBlue,
@@ -176,11 +176,23 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     }
   }
 
-  void _showAddStaffDialog(BuildContext context) {
+  void _showAddStaffUnavailable(BuildContext context) {
+    final s = AppStrings.of(context);
     showDialog(
       context: context,
-      builder: (_) => const _StaffFormDialog(staff: null),
-    ).then((_) => _load());
+      builder: (_) => AlertDialog(
+        title: Text(s.staffMgmtAddStaff),
+        content: const Text(
+          'Create the staff user account from Admin first, then manage department, position, and roster details here.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(s.actionClose),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showEditDialog(BuildContext context, dynamic staff) {
@@ -337,8 +349,10 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     setState(() => _submitting = true);
     try {
       final id =
-          widget.staff?['user_id'] ??
           widget.staff?['uid'] ??
+          widget.staff?['employee_id'] ??
+          widget.staff?['id'] ??
+          widget.staff?['user_id'] ??
           widget.staff?['_id'];
       if (id != null) {
         await HrApiService.updateProfile(id.toString(), {

@@ -16,7 +16,8 @@ export const getLeavePatterns = async (req, res) => {
         COUNT(*) as leave_count,
         SUM(la.end_date - la.start_date + 1) as total_days
       FROM leave_applications la
-      JOIN staff s ON la.staff_id = s.id
+      JOIN users u ON la.staff_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       WHERE 
         EXTRACT(YEAR FROM la.start_date)::int = $1::int
         AND LOWER(la.status) = 'approved'
@@ -44,7 +45,8 @@ export const getAllLeaveRequests = async (req, res) => {
       SELECT 
         la.id,
         la.staff_id,
-        s.name as staff_name,
+        COALESCE(NULLIF(u.name, ''), NULLIF(s.name, ''), s.employee_id, 'Unknown staff') as staff_name,
+        s.employee_id,
         s.department,
         la.leave_type,
         la.start_date,
@@ -54,7 +56,8 @@ export const getAllLeaveRequests = async (req, res) => {
         la.created_at,
         la.end_date - la.start_date + 1 as total_days
       FROM leave_applications la
-      JOIN staff s ON la.staff_id = s.id
+      JOIN users u ON la.staff_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       WHERE 
         LOWER(la.status) = LOWER($1)
         ${department ? 'AND s.department = $2' : ''}
@@ -83,7 +86,7 @@ export const bulkLeaveApproval = async (req, res) => {
       UPDATE leave_applications
       SET
         status = $1,
-        reviewed_by = $2,
+        reviewed_by = $2::uuid,
         reviewed_at = NOW()
       WHERE id = ANY($3::int[])
       RETURNING id
@@ -106,23 +109,26 @@ export const approveLeaveRequest = async (req, res) => {
     const { leaveId } = req.params;
     const { comments } = req.body;
     const approvedBy = req.user?.uid;
+    const status = req.path.includes('/reject') || req.body?.action === 'reject'
+      ? 'rejected'
+      : 'approved';
 
     const result = await prisma.$queryRawUnsafe(`
       UPDATE leave_applications
       SET
-        status = 'approved',
-        reviewed_by = $2,
+        status = $4,
+        reviewed_by = $2::uuid,
         reviewed_at = NOW(),
         review_notes = $3
-      WHERE id = $1
+      WHERE id = $1::int
       RETURNING id, staff_id, leave_type, start_date, end_date, status, reviewed_by, reason, created_at
-    `, leaveId, approvedBy, comments);
+    `, leaveId, approvedBy, comments, status);
 
     if (result.length === 0) {
       return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    success(res, result[0], 'Leave request approved successfully');
+    success(res, result[0], `Leave request ${status} successfully`);
   } catch (err) {
     logger.error('Approve Leave Error:', err);
     error(res, 'Failed to approve leave request', HTTP_STATUS.INTERNAL_SERVER_ERROR);

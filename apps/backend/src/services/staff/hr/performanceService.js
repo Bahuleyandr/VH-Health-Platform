@@ -244,6 +244,27 @@ export const generatePerformanceReport = async (queryParams) => {
   };
 };
 
+async function resolvePerformanceReviewStaff(staffId) {
+  const identifier = String(staffId || '').trim();
+  if (!identifier) return null;
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT
+      u.id,
+      u.uid,
+      u.name,
+      u.phone,
+      s.employee_id
+    FROM users u
+    JOIN staff s ON s.user_id = u.uid
+    WHERE
+      u.id::text = $1
+      OR u.uid::text = $1
+      OR UPPER(s.employee_id) = UPPER($1)
+    LIMIT 1
+  `, identifier);
+  return rows[0] || null;
+}
+
 /**
  * Create a new performance review for a staff member
  * @param {Object} reviewData - Review data including ratings and feedback
@@ -256,27 +277,19 @@ export const createPerformanceReview = async (reviewData) => {
     training_recommendations, reviewerId, reviewerName,
   } = reviewData;
 
-  // Resolve the staff's user + profile via the batch-90 relation.
-  const user = await prisma.users.findUnique({
-    where: { id: Number(staff_id) },
-    select: {
-      uid: true,
-      name: true,
-      phone: true,
-      staff: { select: { employee_id: true }, take: 1 },
-    },
-  });
-  if (!user || user.staff.length === 0) {
+  // HR screens accept the visible employee ID, while older callers passed
+  // users.id. Resolve both shapes here so review creation matches the UI.
+  const user = await resolvePerformanceReviewStaff(staff_id);
+  if (!user) {
     throw new Error('STAFF_NOT_FOUND');
   }
-  const [staff] = user.staff;
 
   // Create performance review. goals / improvements / future_goals /
   // training_recommendations are TEXT columns that callers pass as
   // structured objects; JSON-stringify to preserve the previous shape.
   const review = await prisma.staff_performance_reviews.create({
     data: {
-      staff_id: Number(staff_id),
+      staff_id: Number(user.id),
       reviewer_id: reviewerId,
       rating,
       review_period,
@@ -317,6 +330,7 @@ export const createPerformanceReview = async (reviewData) => {
       body: `Your ${review_period} performance review has been completed. Rating: ${rating}/5.0`,
       type: 'performance_review',
       related_id: review.id,
+      updated_at: new Date(),
     },
   });
 
@@ -325,7 +339,7 @@ export const createPerformanceReview = async (reviewData) => {
     data: {
       hr_staff_uid: reviewerId,
       action: 'PERFORMANCE_REVIEW_CREATED',
-      staff_id: Number(staff_id),
+      staff_id: Number(user.id),
       description: `Performance review created for ${user.name} - Rating: ${rating}/5.0`,
     },
   });
@@ -340,7 +354,7 @@ export const createPerformanceReview = async (reviewData) => {
     },
     staffInfo: {
       name: user.name,
-      employee_id: staff.employee_id,
+      employee_id: user.employee_id,
     },
   };
 };
