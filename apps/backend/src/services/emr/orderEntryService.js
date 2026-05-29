@@ -23,6 +23,7 @@ import {
 } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { scheduleMedications } from '../clinical/marService.js';
+import { recordFirstDrugChartEntry } from '../clinical/drugChartSlaService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
 import { createInvestigationOrder } from '../investigation/orderService.js';
 
@@ -427,6 +428,12 @@ function renderBlocker(b) {
  * single-order and bulk paths.
  */
 async function dispatchPostCreateSideEffects(order) {
+  if (order.order_type === 'medication') {
+    await recordFirstDrugChartEntry(order).catch((err) => {
+      logger.warn(`Failed to audit first drug chart entry for order ${order.order_number}: ${err.message}`);
+    });
+  }
+
   if (order.order_type === 'medication' && order.encounter_id) {
     await createWardIndentForClinicalMedicationOrder(order).catch((err) => {
       logger.error(`Failed to create ward indent for medication order ${order.order_number}: ${err.message}`);
@@ -650,6 +657,60 @@ export function buildMarEntryFromOrderDetails(details, { startDate } = {}) {
   return entry;
 }
 
+function normalizeDoseTimes(raw) {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'string'
+      ? raw.split(/[,\s]+/)
+      : [];
+  return values
+    .map((v) => String(v || '').trim())
+    .filter((v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v))
+    .filter((v, index, arr) => arr.indexOf(v) === index);
+}
+
+function combineDateAndClock(base, clock, dayOffset) {
+  const [hour, minute] = clock.split(':').map(Number);
+  const d = new Date(base);
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(hour, minute, 0, 0);
+  return d.toISOString();
+}
+
+export function buildMarEntriesFromOrderDetails(details, { startDate } = {}) {
+  const doseTimes = normalizeDoseTimes(details?.dose_times);
+  if (!doseTimes.length) {
+    return [buildMarEntryFromOrderDetails(details, { startDate })];
+  }
+
+  const durationDays = (() => {
+    const d = details.duration_days ?? details.duration ?? null;
+    const n = Number(d);
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 14) : 1;
+  })();
+  const start = startDate ? new Date(startDate) : new Date();
+  const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
+  const notes = [
+    details.prn_reason || null,
+    details.food_timing ? `food_timing:${details.food_timing}` : null,
+    details.instructions || null,
+  ].filter(Boolean).join('; ') || null;
+
+  const entries = [];
+  for (let day = 0; day < durationDays; day += 1) {
+    for (const clock of doseTimes) {
+      entries.push({
+        medication_name: details.medication_name,
+        dose: details.dose,
+        route: details.route,
+        scheduled_time: combineDateAndClock(safeStart, clock, day),
+        notes,
+      });
+    }
+  }
+  return entries;
+}
+
 async function dispatchOrderIntegrations(order) {
   if (order.order_type === 'medication') {
     // Create MAR entries via existing marService
@@ -658,15 +719,17 @@ async function dispatchOrderIntegrations(order) {
       // keep the string-fallback for safety in case any caller passes a
       // pre-stringified payload.
       const details = typeof order.details === 'string' ? JSON.parse(order.details) : order.details;
-      const marEntry = buildMarEntryFromOrderDetails(details, {
+      const marEntries = buildMarEntriesFromOrderDetails(details, {
         startDate: order.start_date,
-      });
-      marEntry.notes = [
-        marEntry.notes,
-        `clinical_order_id:${order.id}`,
-        `order_number:${order.order_number}`,
-      ].filter(Boolean).join('; ');
-      await scheduleMedications(order.patient_uid, null, [marEntry]);
+      }).map((entry) => ({
+        ...entry,
+        notes: [
+          entry.notes,
+          `clinical_order_id:${order.id}`,
+          `order_number:${order.order_number}`,
+        ].filter(Boolean).join('; '),
+      }));
+      await scheduleMedications(order.patient_uid, null, marEntries);
       logger.info(`MAR entries created for medication order ${order.order_number}`);
     } catch (err) {
       logger.error(`Failed to create MAR entries for order ${order.order_number}: ${err.message}`);

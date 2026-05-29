@@ -24,7 +24,10 @@
 //     PRN / one-off path unchanged).
 //   * dosage_frequency + duration alias keys are picked up.
 
-import { buildMarEntryFromOrderDetails } from '../../services/emr/orderEntryService.js';
+import {
+  buildMarEntriesFromOrderDetails,
+  buildMarEntryFromOrderDetails,
+} from '../../services/emr/orderEntryService.js';
 
 describe('buildMarEntryFromOrderDetails (H D12)', () => {
   it('forwards frequency + duration_days so BD x 5 days expands to 10 doses', () => {
@@ -95,5 +98,24 @@ describe('buildMarEntryFromOrderDetails (H D12)', () => {
       frequency: 'BD', duration_days: '-5',
     });
     expect(entry.duration_days).toBeUndefined();
+  });
+
+  it('uses explicit drug chart dose times for exact MAR rows', () => {
+    const entries = buildMarEntriesFromOrderDetails({
+      medication_name: 'Pantoprazole',
+      dose: '40mg',
+      route: 'oral',
+      dose_times: ['08:00', '20:00'],
+      duration_days: 2,
+      food_timing: 'before_food',
+    }, { startDate: '2026-05-23T09:30:00Z' });
+
+    expect(entries).toHaveLength(4);
+    expect(entries.map((e) => {
+      const d = new Date(e.scheduled_time);
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    })).toEqual(['08:00', '20:00', '08:00', '20:00']);
+    expect(entries[0].notes).toContain('food_timing:before_food');
+    expect(entries[0].frequency).toBeUndefined();
   });
 });
