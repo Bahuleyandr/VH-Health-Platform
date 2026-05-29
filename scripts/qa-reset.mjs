@@ -174,6 +174,7 @@ function computeSeedVersion() {
   // Hash the seeder source files so a finding can be tied to an exact seed.
   const sources = [
     path.join(backendDir, 'scripts', 'seed-comprehensive-test-data.mjs'),
+    path.join(backendDir, 'scripts', 'seed-current-bed-structure.mjs'),
     path.join(backendDir, 'scripts', 'seed-test-staff-accounts.mjs'),
     path.join(__dirname, 'seed-qa-tenant.mjs'),
   ].filter((p) => fs.existsSync(p));

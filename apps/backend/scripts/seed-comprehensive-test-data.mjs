@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import pg from 'pg';
+import { seedCurrentBedStructure } from './seed-current-bed-structure.mjs';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
@@ -426,29 +427,29 @@ async function seedCoreData() {
 
   const refs = await getCoreRefs();
 
-  await insertIfEmpty('wards', [
-    { name: 'General Ward', floor: 2, department_id: refs.departmentId, total_beds: 8, updated_at: new Date() },
-    { name: 'ICU', floor: 3, department_id: refs.departmentId, total_beds: 4, updated_at: new Date() },
-  ]);
+  await seedCurrentBedStructure(client);
 
-  const wardId = await firstValue('wards', 'id');
-  await insertIfEmpty('beds', [
-    {
-      ward_id: wardId,
-      bed_number: 'GW-201',
-      status: 'occupied',
-      patient_id: refs.patient.id,
-      patient_uid: refs.patient.uid,
-      patient_name: refs.patient.name,
-      admitted_at: new Date(),
-      ward_name: 'General Ward',
-      floor: 2,
-      bed_type: 'general',
-      notes: 'Seed occupied bed',
-      updated_at: new Date(),
-    },
-    { ward_id: wardId, bed_number: 'GW-202', status: 'available', ward_name: 'General Ward', floor: 2, updated_at: new Date() },
-  ]);
+  const firstWard = await first('wards', 'id, name, floor', 'LOWER(name) = LOWER($1)', ['A Block - Floor III']);
+  const firstBed = await first('beds', 'id', 'LOWER(bed_number) = LOWER($1)', ['A-303']);
+  if (firstWard && firstBed) {
+    await client.query(
+      `UPDATE beds
+          SET status = 'occupied',
+              patient_id = $1,
+              patient_uid = $2::uuid,
+              patient_name = $3,
+              admitted_at = COALESCE(admitted_at, NOW()),
+              assigned_at = COALESCE(assigned_at, NOW()),
+              ward_id = $4,
+              ward_name = $5,
+              floor = $6,
+              notes = COALESCE(notes, 'Seed occupied bed'),
+              updated_at = NOW()
+        WHERE id = $7
+          AND (patient_uid IS NULL OR patient_uid = $2::uuid)`,
+      [refs.patient.id, refs.patient.uid, refs.patient.name, firstWard.id, firstWard.name, firstWard.floor, firstBed.id]
+    );
+  }
 
   const refreshed = await getCoreRefs();
   await insertIfEmpty('appointments', [

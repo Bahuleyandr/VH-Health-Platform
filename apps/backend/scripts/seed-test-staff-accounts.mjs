@@ -13,7 +13,7 @@
 //     { "employeeId": "EMP-100X", "password": "<seed-password>" }
 //
 // EMP-1001..EMP-1003 are pre-existing e2e_test seeds (Nurse/Pharmacy/Lab).
-// EMP-1004..EMP-1022 are added by this script (clinical + support + desk
+// EMP-1004..EMP-1047 are added by this script (clinical + support + desk
 // roles — see the inline comments on each entry for why it was added).
 //
 // Note: the staff app's login form regex requires the hyphenated `EMP-NNN`
@@ -289,6 +289,205 @@ const ACCOUNTS = [
     dept: 'Medical Administration',
     designation: 'Medical Superintendent',
     position: 'Medical Superintendent'
+  },
+  {
+    emp: 'EMP-1026',
+    name: 'Test Duty Doctor',
+    role: 'DUTY_DOCTOR',
+    phone: '+919999990026',
+    dept: 'Emergency & IPD',
+    specialty: 'General Medicine',
+    designation: 'Duty Medical Officer',
+    position: 'Duty Doctor'
+  },
+  {
+    emp: 'EMP-1027',
+    name: 'Test OP Staff Nurse',
+    role: 'OP_STAFF_NURSE',
+    phone: '+919999990027',
+    dept: 'OP Nursing',
+    designation: 'OP Staff Nurse',
+    position: 'OP Nurse'
+  },
+  {
+    emp: 'EMP-1028',
+    name: 'Test OP Incharge',
+    role: 'OP_INCHARGE',
+    phone: '+919999990028',
+    dept: 'OP Nursing',
+    designation: 'OP Incharge',
+    position: 'OP Nursing Incharge'
+  },
+  {
+    emp: 'EMP-1029',
+    name: 'Test Reception Incharge',
+    role: 'RECEPTION_INCHARGE',
+    phone: '+919999990029',
+    dept: 'Reception',
+    designation: 'Reception Incharge',
+    position: 'Front Desk Incharge'
+  },
+  {
+    emp: 'EMP-1030',
+    name: 'Test Ambulance Driver',
+    role: 'DRIVER',
+    phone: '+919999990030',
+    dept: 'Ambulance',
+    designation: 'Ambulance Driver',
+    position: 'Driver'
+  },
+  {
+    emp: 'EMP-1031',
+    name: 'Test A Block Nurse',
+    role: 'NURSING_STAFF',
+    phone: '+919999990031',
+    dept: 'Nursing',
+    designation: 'Staff Nurse',
+    position: 'A Block Ward Nurse'
+  },
+  {
+    emp: 'EMP-1032',
+    name: 'Test B Block Nurse',
+    role: 'NURSING_STAFF',
+    phone: '+919999990032',
+    dept: 'Nursing',
+    designation: 'Staff Nurse',
+    position: 'B Block Ward Nurse'
+  },
+  {
+    emp: 'EMP-1033',
+    name: 'Test ICU Nurse B Block',
+    role: 'NURSING_STAFF',
+    phone: '+919999990033',
+    dept: 'ICU',
+    designation: 'ICU Staff Nurse',
+    position: 'B Block ICU Nurse'
+  },
+  {
+    emp: 'EMP-1034',
+    name: 'Test Night Nurse',
+    role: 'NURSING_STAFF',
+    phone: '+919999990034',
+    dept: 'Nursing',
+    designation: 'Staff Nurse',
+    position: 'Night Duty Nurse'
+  },
+  {
+    emp: 'EMP-1035',
+    name: 'Test OT Nurse',
+    role: 'NURSING_STAFF',
+    phone: '+919999990035',
+    dept: 'Operation Theatre',
+    designation: 'OT Nurse',
+    position: 'OT Nurse'
+  },
+  {
+    emp: 'EMP-1036',
+    name: 'Test Housekeeping A Block',
+    role: 'HOUSEKEEPING_STAFF',
+    phone: '+919999990036',
+    dept: 'Housekeeping',
+    designation: 'Housekeeping Staff',
+    position: 'A Block Housekeeping'
+  },
+  {
+    emp: 'EMP-1037',
+    name: 'Test Housekeeping B Block',
+    role: 'HOUSEKEEPING_STAFF',
+    phone: '+919999990037',
+    dept: 'Housekeeping',
+    designation: 'Housekeeping Staff',
+    position: 'B Block Housekeeping'
+  },
+  {
+    emp: 'EMP-1038',
+    name: 'Test Housekeeping Night',
+    role: 'HOUSEKEEPING_STAFF',
+    phone: '+919999990038',
+    dept: 'Housekeeping',
+    designation: 'Housekeeping Staff',
+    position: 'Night Housekeeping'
+  },
+  {
+    emp: 'EMP-1039',
+    name: 'Test Housekeeping Float',
+    role: 'HOUSEKEEPING_STAFF',
+    phone: '+919999990039',
+    dept: 'Housekeeping',
+    designation: 'Housekeeping Staff',
+    position: 'Float Housekeeping'
+  },
+  {
+    emp: 'EMP-1040',
+    name: 'Test Maintenance Electrician',
+    role: 'MAINTENANCE',
+    phone: '+919999990040',
+    dept: 'Maintenance',
+    designation: 'Electrician',
+    position: 'Electrical Maintenance'
+  },
+  {
+    emp: 'EMP-1041',
+    name: 'Test Maintenance Plumber',
+    role: 'MAINTENANCE',
+    phone: '+919999990041',
+    dept: 'Maintenance',
+    designation: 'Plumber',
+    position: 'Plumbing Maintenance'
+  },
+  {
+    emp: 'EMP-1042',
+    name: 'Test Maintenance Biomedical',
+    role: 'MAINTENANCE',
+    phone: '+919999990042',
+    dept: 'Maintenance',
+    designation: 'Biomedical Technician',
+    position: 'Biomedical Maintenance'
+  },
+  {
+    emp: 'EMP-1043',
+    name: 'Test Ward Pharmacist',
+    role: 'PHARMACY_STAFF',
+    phone: '+919999990043',
+    dept: 'Pharmacy',
+    designation: 'Ward Pharmacist',
+    position: 'IP Pharmacy'
+  },
+  {
+    emp: 'EMP-1044',
+    name: 'Test Pharmacy Store',
+    role: 'PHARMACY_STAFF',
+    phone: '+919999990044',
+    dept: 'Pharmacy',
+    designation: 'Store Pharmacist',
+    position: 'Pharmacy Store'
+  },
+  {
+    emp: 'EMP-1045',
+    name: 'Test OP Receptionist',
+    role: 'RECEPTIONIST',
+    phone: '+919999990045',
+    dept: 'Reception',
+    designation: 'Receptionist',
+    position: 'OP Reception'
+  },
+  {
+    emp: 'EMP-1046',
+    name: 'Test Admission Receptionist',
+    role: 'RECEPTIONIST',
+    phone: '+919999990046',
+    dept: 'Admissions',
+    designation: 'Admission Receptionist',
+    position: 'Admission Desk'
+  },
+  {
+    emp: 'EMP-1047',
+    name: 'Test Backup Driver',
+    role: 'DRIVER',
+    phone: '+919999990047',
+    dept: 'Ambulance',
+    designation: 'Driver',
+    position: 'Backup Driver'
   }
 ];
 

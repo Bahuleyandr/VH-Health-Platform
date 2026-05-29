@@ -9,13 +9,19 @@
 
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const requireFromBackend = createRequire(
   path.join(__dirname, '..', 'apps', 'backend', 'package.json')
 );
 const pg = requireFromBackend('pg');
+const {
+  LEGACY_DEMO_BED_NUMBERS,
+  seedCurrentBedStructure,
+} = await import(pathToFileURL(
+  path.join(__dirname, '..', 'apps', 'backend', 'scripts', 'seed-current-bed-structure.mjs')
+).href);
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const SEED_TAG = 'vh_hands_on_seed';
@@ -139,8 +145,8 @@ const admissions = [
   {
     key: 'fatima',
     encounterId: '20000000-0000-4000-8000-000000000101',
-    bedNumber: 'ICU-001',
-    ward: 'ICU',
+    bedNumber: 'B-103',
+    ward: 'B Block - ICU',
     roomCategory: 'icu',
     department: 'General Medicine',
     chiefComplaint: 'Fever with breathlessness for 3 days',
@@ -154,8 +160,8 @@ const admissions = [
   {
     key: 'aarav',
     encounterId: '20000000-0000-4000-8000-000000000102',
-    bedNumber: 'DLX-001',
-    ward: 'Deluxe',
+    bedNumber: 'B-202',
+    ward: 'B Block - Floor II',
     roomCategory: 'deluxe',
     department: 'General Medicine',
     chiefComplaint: 'Wheeze and chest tightness',
@@ -169,8 +175,8 @@ const admissions = [
   {
     key: 'shanthi',
     encounterId: '20000000-0000-4000-8000-000000000103',
-    bedNumber: 'PR-002',
-    ward: 'Private',
+    bedNumber: 'B-205',
+    ward: 'B Block - Floor II',
     roomCategory: 'private',
     department: 'General Surgery',
     chiefComplaint: 'Post-operative monitoring after laparoscopic cholecystectomy',
@@ -185,8 +191,8 @@ const admissions = [
   {
     key: 'ravi',
     encounterId: '20000000-0000-4000-8000-000000000104',
-    bedNumber: 'CCU-001',
-    ward: 'CCU',
+    bedNumber: 'B-101',
+    ward: 'B Block - ICU',
     roomCategory: 'icu',
     department: 'Cardiology',
     chiefComplaint: 'Chest discomfort with elevated blood pressure',
@@ -200,8 +206,8 @@ const admissions = [
   {
     key: 'leela',
     encounterId: '20000000-0000-4000-8000-000000000105',
-    bedNumber: 'SP-001',
-    ward: 'Semi-Private',
+    bedNumber: 'A-406A',
+    ward: 'A Block - Floor IV',
     roomCategory: 'semi_private',
     department: 'General Medicine',
     chiefComplaint: 'Persistent vomiting and dehydration',
@@ -215,9 +221,9 @@ const admissions = [
   {
     key: 'nikhil',
     encounterId: '20000000-0000-4000-8000-000000000106',
-    bedNumber: 'DC-001',
-    ward: 'Day Care',
-    roomCategory: 'day_care',
+    bedNumber: 'A-307',
+    ward: 'A Block - Floor III',
+    roomCategory: 'general',
     department: 'Paediatrics',
     chiefComplaint: 'Dengue warning signs observation',
     diagnosis: 'Dengue fever with thrombocytopenia, improving',
@@ -384,7 +390,11 @@ async function clearOrphanBaselineAdmission(client) {
 }
 
 async function resetDemoBeds(client, demoUids) {
-  const targetBeds = admissions.map((admission) => admission.bedNumber).concat(['DLX-004']);
+  const targetBeds = [
+    ...admissions.map((admission) => admission.bedNumber),
+    'A-410',
+    ...LEGACY_DEMO_BED_NUMBERS,
+  ];
   await client.query(
     `UPDATE beds
         SET status = 'available',
@@ -400,6 +410,23 @@ async function resetDemoBeds(client, demoUids) {
       WHERE bed_number = ANY($1::text[])
         AND (patient_uid IS NULL OR patient_uid = ANY($2::uuid[]))`,
     [targetBeds, demoUids]
+  );
+
+  await client.query(
+    `UPDATE beds
+        SET status = 'available',
+            patient_id = NULL,
+            patient_name = NULL,
+            patient_uid = NULL,
+            admission_id = NULL,
+            admitted_at = NULL,
+            assigned_at = NULL,
+            expected_discharge = NULL,
+            notes = NULL,
+            updated_at = NOW()
+      WHERE patient_uid = ANY($1::uuid[])
+        AND NOT (bed_number = ANY($2::text[]))`,
+    [demoUids, targetBeds]
   );
 }
 
@@ -573,7 +600,7 @@ async function setCleaningBed(client) {
             expected_discharge = NULL,
             notes = 'Housekeeping turnover demo bed',
             updated_at = NOW()
-      WHERE bed_number = 'DLX-004'
+      WHERE bed_number = 'A-410'
         AND patient_uid IS NULL`
   );
 }
@@ -608,16 +635,23 @@ async function upsertClinicalNote(client, note) {
   if (existing) {
     await client.query(
       `UPDATE clinical_notes
-          SET author_uid = $3::uuid,
-              author_role = $4,
-              content = $7::jsonb,
+          SET author_uid = $1::uuid,
+              author_role = $2,
+              content = $3::jsonb,
               version = GREATEST(version, 1),
-              is_signed = $8::boolean,
-              signed_by = $9::uuid,
-              signed_at = CASE WHEN $8::boolean THEN COALESCE(signed_at, NOW() - INTERVAL '90 minutes') ELSE NULL END,
+              is_signed = $4::boolean,
+              signed_by = $5::uuid,
+              signed_at = CASE WHEN $4::boolean THEN COALESCE(signed_at, NOW() - INTERVAL '90 minutes') ELSE NULL END,
               updated_at = NOW()
-        WHERE id = $10::int`,
-      [...values, existing.id]
+        WHERE id = $6::int`,
+      [
+        note.authorUid,
+        note.authorRole,
+        JSON.stringify(note.content),
+        note.isSigned === true,
+        note.signedBy || null,
+        existing.id,
+      ]
     );
     return existing.id;
   }
@@ -949,6 +983,7 @@ async function main() {
   await client.connect();
   try {
     await client.query('BEGIN');
+    await seedCurrentBedStructure(client);
 
     const doctor = await staffUser(client, 'EMP-1004');
     const nurse = await staffUser(client, 'EMP-1001');
@@ -967,6 +1002,7 @@ async function main() {
 
     await clearOrphanBaselineAdmission(client);
     await resetDemoBeds(client, [...patientRows.values()].map((row) => row.uid));
+    await seedCurrentBedStructure(client);
 
     const admissionRows = [];
     for (const admission of admissions) {
