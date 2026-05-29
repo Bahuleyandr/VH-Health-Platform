@@ -35,6 +35,8 @@ function adminAs(uid = ADMIN_UID) {
 describe('EMR admission/discharge/transfer — deep integration', () => {
   const admin = adminAs();
   const general = authClient('GENERAL');
+  const receptionist = authClient('RECEPTIONIST');
+  const receptionIncharge = authClient('RECEPTION_INCHARGE');
   let wardId;
   let bed1Id;
   let bed2Id;
@@ -173,6 +175,21 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     it('forbids GENERAL role from admitting patients', async () => {
       const res = await general.post('/api/v1/emr/admit').send({ patient_uid: PATIENT_UID });
       expect(res.statusCode).toBe(403);
+    });
+
+    it('allows reception desk roles through the admission-desk alias only', async () => {
+      const receptionistList = await receptionist.get('/api/v1/admissions?limit=1');
+      expect(receptionistList.statusCode).toBe(200);
+
+      const inchargeList = await receptionIncharge.get('/api/v1/admissions?limit=1');
+      expect(inchargeList.statusCode).toBe(200);
+
+      const createAlias = await receptionist.post('/api/v1/admissions').send({});
+      expect(createAlias.statusCode).toBe(400);
+      expect(String(createAlias.body.message || '')).toMatch(/required|patient/i);
+
+      const emrCreate = await receptionist.post('/api/v1/emr/admit').send({});
+      expect(emrCreate.statusCode).toBe(403);
     });
   });
 

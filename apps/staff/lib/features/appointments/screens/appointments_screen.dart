@@ -21,6 +21,12 @@ int? _doctorId(Map<String, dynamic> doctor) => int.tryParse(
   (doctor['user_id'] ?? doctor['userId'] ?? doctor['id'])?.toString() ?? '',
 );
 
+String? _doctorUid(Map<String, dynamic> doctor) {
+  final value = doctor['uid'] ?? doctor['doctor_uid'] ?? doctor['doctorUid'];
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? null : text;
+}
+
 String _doctorLabel(Map<String, dynamic> doctor) {
   final id = _doctorId(doctor);
   final name =
@@ -145,6 +151,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     var patientNameReadOnly = false;
     int? resolvedPatientId;
     int? selectedDoctorId;
+    String? selectedDoctorUid;
     Timer? lookupDebounce;
 
     Future<void> lookupPatient(StateSetter setSheetState) async {
@@ -238,6 +245,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   patientPhone: patientPhoneCtrl.text.trim(),
                   patientName: patientNameCtrl.text.trim(),
                   doctorId: selectedDoctorId!,
+                  doctorUid: selectedDoctorUid,
                   appointmentDate: dateLabel,
                   appointmentTime: timeLabel,
                   reason: reasonCtrl.text.trim(),
@@ -395,9 +403,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                               return options.take(25);
                             },
                             onSelected: (doctor) {
-                              setSheetState(
-                                () => selectedDoctorId = _doctorId(doctor),
-                              );
+                              setSheetState(() {
+                                selectedDoctorId = _doctorId(doctor);
+                                selectedDoctorUid = _doctorUid(doctor);
+                              });
                             },
                             fieldViewBuilder:
                                 (
@@ -426,18 +435,21 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                     onChanged: (text) {
                                       final typed = text.trim().toLowerCase();
                                       int? matchedId;
+                                      String? matchedUid;
                                       for (final doctor in doctors) {
                                         if (_doctorLabel(
                                               doctor,
                                             ).toLowerCase() ==
                                             typed) {
                                           matchedId = _doctorId(doctor);
+                                          matchedUid = _doctorUid(doctor);
                                           break;
                                         }
                                       }
-                                      setSheetState(
-                                        () => selectedDoctorId = matchedId,
-                                      );
+                                      setSheetState(() {
+                                        selectedDoctorId = matchedId;
+                                        selectedDoctorUid = matchedUid;
+                                      });
                                     },
                                     validator: (_) => selectedDoctorId == null
                                         ? 'Select a doctor'

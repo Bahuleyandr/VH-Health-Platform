@@ -37,6 +37,10 @@ export const createAppointmentValidators = [
     .trim()
     .isLength({ min: 2, max: 255 })
     .withMessage('Patient name must be 2-255 characters'),
+  body('doctor_uid')
+    .optional({ values: 'falsy' })
+    .isUUID()
+    .withMessage('Doctor UID must be a valid UUID'),
   // doctor_id is required for OPD/clinical visits but optional for lab-only,
   // radiology-only, pathology-only walk-ins where the patient never sees a
   // consultant. See finding 2026-05-08-lab-walk-in-receptionist-book-requires-doctor.
@@ -46,8 +50,9 @@ export const createAppointmentValidators = [
       const visitType = String(req.body?.visit_type || '').toUpperCase();
       const labOnlyDept = ['LAB', 'LABORATORY', 'PATHOLOGY', 'RADIOLOGY', 'IMAGING'].includes(dept);
       const labOnlyVisit = ['LAB_ONLY', 'RADIOLOGY_ONLY', 'INVESTIGATION'].includes(visitType);
+      const hasDoctorUid = Boolean(req.body?.doctor_uid);
       // If neither suggests lab/radiology-only, require doctor_id.
-      return !(labOnlyDept || labOnlyVisit);
+      return !(labOnlyDept || labOnlyVisit || hasDoctorUid);
     })
     .isInt({ min: 1 })
     .withMessage('Doctor ID must be a valid integer'),

@@ -163,6 +163,20 @@ class RoleFeatures {
     route: '/appointments',
     color: Color(0xFF6A1B9A),
   );
+  static const DashboardFeature _admissions = DashboardFeature(
+    id: 'admissions',
+    title: 'IP Admissions',
+    icon: Icons.local_hospital,
+    route: '/emr/admissions',
+    color: Color(0xFF1565C0),
+  );
+  static const DashboardFeature _receptionCounter = DashboardFeature(
+    id: 'reception_counter',
+    title: 'Counter Mode',
+    icon: Icons.point_of_sale,
+    route: '/reception-counter',
+    color: Color(0xFF455A64),
+  );
   static const DashboardFeature _patientRecords = DashboardFeature(
     id: 'patient_records',
     title: 'Patient Records',
@@ -408,6 +422,13 @@ class RoleFeatures {
     route: '/beds',
     color: Color(0xFF0277BD),
   );
+  static const DashboardFeature _wardMode = DashboardFeature(
+    id: 'ward_mode',
+    title: 'Ward Mode',
+    icon: Icons.local_hospital_outlined,
+    route: '/ward-mode',
+    color: Color(0xFF00796B),
+  );
   static const DashboardFeature _dischargeHub = DashboardFeature(
     id: 'discharge_hub',
     title: 'Discharge Hub',
@@ -462,6 +483,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _wardMode,
         _dischargeHub,
         _bloodBank,
         _leave,
@@ -487,6 +509,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _wardMode,
         _dischargeHub,
         _bloodBank,
         _dietary,
@@ -510,6 +533,7 @@ class RoleFeatures {
         _nursingNotes,
         _handover,
         _bedBoard,
+        _wardMode,
         _dischargeHub,
         _leave,
         _organizationHierarchy,
@@ -532,6 +556,7 @@ class RoleFeatures {
         _nursingNotes,
         _handover,
         _bedBoard,
+        _wardMode,
         _dischargeHub,
         _leave,
         _organizationHierarchy,
@@ -608,6 +633,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _wardMode,
         _dischargeHub,
         _bloodBank,
         _dietary,
@@ -627,6 +653,7 @@ class RoleFeatures {
         _opNursingRoster,
         _receptionRoster,
         _driverRoster,
+        _receptionCounter,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -639,6 +666,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _wardMode,
         _dischargeHub,
         _bloodBank,
         _dietary,
@@ -713,7 +741,9 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _receptionCounter,
         _appointments,
+        _admissions,
         _appointmentQueue,
         _staffDirectory,
         _messaging,
@@ -725,7 +755,9 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _receptionRoster,
+        _receptionCounter,
         _appointments,
+        _admissions,
         _appointmentQueue,
         _organizationHierarchy,
         _staffDirectory,
@@ -1086,10 +1118,49 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.receptionist ||
-      StaffRole.receptionIncharge ||
-      StaffRole.driver ||
-      StaffRole.maintenance => [
+      StaffRole.receptionist || StaffRole.receptionIncharge => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.point_of_sale_outlined),
+            activeIcon: Icon(Icons.point_of_sale),
+            label: 'Counter',
+          ),
+          route: '/reception-counter',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+            label: 'My Roster',
+          ),
+          route: '/schedule',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.driver || StaffRole.maintenance => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),

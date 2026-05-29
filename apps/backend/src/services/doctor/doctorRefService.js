@@ -75,19 +75,8 @@ export async function resolveDoctorRef(db, value) {
   const direct = result.direct_doctor || null;
   const profile = result.profile_doctor || null;
 
-  if (direct && profile && Number(direct.id) !== Number(profile.id)) {
-    throw doctorRefError(
-      `doctor_id ${ref} is ambiguous: it matches users.id for ${direct.name} and doctors.id for ${profile.name}`,
-      'AMBIGUOUS_DOCTOR_REF',
-      {
-        ref,
-        users_id: direct.id,
-        doctors_id: profile.doctor_row_id,
-        doctors_user_id: profile.id,
-      },
-    );
-  }
-
+  // Appointment flows store the canonical users.id. If a doctors.id happens to
+  // collide with an active doctor user id, keep the explicit user match.
   if (!direct && profile && inputUser && Number(inputUser.id) !== Number(profile.id)) {
     throw doctorRefError(
       `doctor_id ${ref} is ambiguous: it matches a ${inputUser.role || 'non-doctor'} user and a doctor profile`,

@@ -19,6 +19,8 @@ import '../../features/investigations/screens/lab_bookings_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
+import '../../features/reception/screens/reception_counter_screen.dart';
+import '../../features/ward/screens/ward_mode_screen.dart';
 
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
@@ -241,6 +243,18 @@ final GoRouter appRouter = GoRouter(
           name: 'settings',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: SettingsScreen()),
+        ),
+        GoRoute(
+          path: '/reception-counter',
+          name: 'reception-counter',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ReceptionCounterScreen()),
+        ),
+        GoRoute(
+          path: '/ward-mode',
+          name: 'ward-mode',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: WardModeScreen()),
         ),
 
         // Doctor
