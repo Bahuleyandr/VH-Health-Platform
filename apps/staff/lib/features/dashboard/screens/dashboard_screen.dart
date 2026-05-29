@@ -904,6 +904,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'patient_command_board',
               'bed_board',
               'ward_mode',
               'discharge_hub',
@@ -955,6 +956,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'patient_command_board',
               'bed_board',
               'ward_mode',
               'discharge_hub',
@@ -1004,6 +1006,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'patient_command_board',
               'bed_board',
               'ward_mode',
               'discharge_hub',
