@@ -39,8 +39,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       _error = null;
     });
     try {
-      final data = await HrApiService.getHRDashboard();
-      final list = data['staff'] as List? ?? data['staffList'] as List? ?? [];
+      final list = await HrApiService.getStaffList(suppressErrors: false);
       if (mounted) setState(() => _staff = list);
     } catch (e) {
       if (mounted) {
@@ -203,8 +202,9 @@ class _StaffCard extends StatelessWidget {
     final name = staff['name'] ?? staff['fullName'] ?? 'Unknown';
     final role = staff['role'] ?? '—';
     final dept = staff['department'] ?? '—';
-    final empId = staff['employeeId'] ?? staff['empId'] ?? '—';
-    final isActive = staff['isActive'] != false;
+    final empId =
+        staff['employee_id'] ?? staff['employeeId'] ?? staff['empId'] ?? '—';
+    final isActive = (staff['is_active'] ?? staff['isActive']) != false;
 
     Color roleColor = switch (role) {
       String r when r.contains('DOCTOR') => AppTheme.primaryBlue,
@@ -309,6 +309,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameCtrl;
   late TextEditingController _deptCtrl;
+  late TextEditingController _positionCtrl;
   bool _submitting = false;
 
   @override
@@ -318,12 +319,16 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
       text: widget.staff?['name'] ?? widget.staff?['fullName'] ?? '',
     );
     _deptCtrl = TextEditingController(text: widget.staff?['department'] ?? '');
+    _positionCtrl = TextEditingController(
+      text: widget.staff?['position'] ?? widget.staff?['designation'] ?? '',
+    );
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _deptCtrl.dispose();
+    _positionCtrl.dispose();
     super.dispose();
   }
 
@@ -331,11 +336,14 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
     try {
-      final id = widget.staff?['_id'] ?? widget.staff?['id'];
+      final id =
+          widget.staff?['user_id'] ??
+          widget.staff?['uid'] ??
+          widget.staff?['_id'];
       if (id != null) {
         await HrApiService.updateProfile(id.toString(), {
-          'name': _nameCtrl.text.trim(),
           'department': _deptCtrl.text.trim(),
+          'position': _positionCtrl.text.trim(),
         });
       }
       // TODO: Add POST endpoint for creating new staff when available
@@ -379,6 +387,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
           children: [
             TextFormField(
               controller: _nameCtrl,
+              enabled: !isEdit,
               decoration: InputDecoration(labelText: s.staffMgmtFullName),
               validator: (v) => (v == null || v.trim().isEmpty)
                   ? s.staffMgmtNameRequired
@@ -388,6 +397,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
             TextFormField(
               controller: _deptCtrl,
               decoration: InputDecoration(labelText: s.staffMgmtDepartment),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _positionCtrl,
+              decoration: const InputDecoration(labelText: 'Position'),
             ),
           ],
         ),
