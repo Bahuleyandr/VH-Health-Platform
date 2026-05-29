@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/services/hr_api_service.dart';
@@ -246,6 +248,14 @@ class _LaneChart extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
+        if (wide) {
+          return _HierarchyFlowChart(
+            nodes: nodes,
+            edges: edges,
+            viewportWidth: constraints.maxWidth,
+          );
+        }
+
         final itemWidth = wide
             ? (constraints.maxWidth - 12) / 2
             : constraints.maxWidth;
@@ -265,6 +275,334 @@ class _LaneChart extends StatelessWidget {
           }).toList(),
         );
       },
+    );
+  }
+}
+
+const _treeNodeWidth = 270.0;
+const _treeGap = 16.0;
+
+class _HierarchyFlowChart extends StatelessWidget {
+  final List<Map<String, dynamic>> nodes;
+  final List<Map<String, dynamic>> edges;
+  final double viewportWidth;
+
+  const _HierarchyFlowChart({
+    required this.nodes,
+    required this.edges,
+    required this.viewportWidth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final trees = _buildHierarchyTrees(nodes, edges);
+    final contentWidth = math.max(
+      viewportWidth,
+      trees.fold<double>(0, (total, tree) => total + tree.width) +
+          math.max(0, trees.length - 1) * _treeGap +
+          28,
+    );
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: contentWidth,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < trees.length; i++) ...[
+                  _HierarchyTreeBranch(tree: trees[i]),
+                  if (i < trees.length - 1) const SizedBox(width: _treeGap),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HierarchyTreeBranch extends StatelessWidget {
+  final _HierarchyTreeNode tree;
+
+  const _HierarchyTreeBranch({required this.tree});
+
+  @override
+  Widget build(BuildContext context) {
+    final children = tree.children;
+    return SizedBox(
+      width: tree.width,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: _treeNodeWidth,
+            child: _FlowNodeCard(
+              node: tree.node,
+              incomingEdges: [
+                if (tree.incomingEdge != null) tree.incomingEdge!,
+              ],
+            ),
+          ),
+          if (children.isNotEmpty) ...[
+            SizedBox(
+              height: 32,
+              width: tree.width,
+              child: CustomPaint(
+                painter: _TreeConnectorPainter(
+                  childWidths: children.map((child) => child.width).toList(),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < children.length; i++) ...[
+                  _HierarchyTreeBranch(tree: children[i]),
+                  if (i < children.length - 1) const SizedBox(width: _treeGap),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TreeConnectorPainter extends CustomPainter {
+  final List<double> childWidths;
+
+  const _TreeConnectorPainter({required this.childWidths});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (childWidths.isEmpty) return;
+    final paint = Paint()
+      ..color = AppTheme.primaryBlue.withValues(alpha: 0.45)
+      ..strokeWidth = 1.4
+      ..style = PaintingStyle.stroke;
+
+    final parentX = size.width / 2;
+    const jointY = 16.0;
+    final childY = size.height;
+    final totalChildrenWidth =
+        childWidths.fold<double>(0, (total, width) => total + width) +
+        math.max(0, childWidths.length - 1) * _treeGap;
+    var cursor = (size.width - totalChildrenWidth) / 2;
+    final childCenters = <double>[];
+    for (final childWidth in childWidths) {
+      childCenters.add(cursor + childWidth / 2);
+      cursor += childWidth + _treeGap;
+    }
+
+    canvas.drawLine(Offset(parentX, 0), Offset(parentX, jointY), paint);
+    canvas.drawLine(
+      Offset(childCenters.first, jointY),
+      Offset(childCenters.last, jointY),
+      paint,
+    );
+    for (final center in childCenters) {
+      canvas.drawLine(Offset(center, jointY), Offset(center, childY), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TreeConnectorPainter oldDelegate) {
+    if (oldDelegate.childWidths.length != childWidths.length) return true;
+    for (var i = 0; i < childWidths.length; i++) {
+      if (oldDelegate.childWidths[i] != childWidths[i]) return true;
+    }
+    return false;
+  }
+}
+
+class _HierarchyTreeNode {
+  final Map<String, dynamic> node;
+  final Map<String, dynamic>? incomingEdge;
+  final List<_HierarchyTreeNode> children;
+  final double width;
+
+  const _HierarchyTreeNode({
+    required this.node,
+    required this.incomingEdge,
+    required this.children,
+    required this.width,
+  });
+}
+
+List<_HierarchyTreeNode> _buildHierarchyTrees(
+  List<Map<String, dynamic>> nodes,
+  List<Map<String, dynamic>> edges,
+) {
+  final byId = {
+    for (final node in nodes)
+      if (node['id'] != null) node['id'].toString(): node,
+  };
+  final treeEdges = edges.where(_isTreeEdge).toList();
+  final childIds = treeEdges.map((edge) => edge['to']?.toString()).toSet();
+  final childrenByParent = <String, List<Map<String, dynamic>>>{};
+  for (final edge in treeEdges) {
+    final from = edge['from']?.toString();
+    final to = edge['to']?.toString();
+    if (from == null || to == null || !byId.containsKey(to)) continue;
+    childrenByParent.putIfAbsent(from, () => []).add(edge);
+  }
+
+  final rootIds = <String>[
+    if (byId.containsKey('ceo_coo')) 'ceo_coo',
+    ...nodes
+        .map((node) => node['id']?.toString())
+        .whereType<String>()
+        .where((id) => id != 'ceo_coo' && !childIds.contains(id)),
+  ];
+
+  return rootIds
+      .map(
+        (id) => _buildHierarchyTreeNode(id, byId, childrenByParent, null, {}),
+      )
+      .whereType<_HierarchyTreeNode>()
+      .toList();
+}
+
+_HierarchyTreeNode? _buildHierarchyTreeNode(
+  String id,
+  Map<String, Map<String, dynamic>> byId,
+  Map<String, List<Map<String, dynamic>>> childrenByParent,
+  Map<String, dynamic>? incomingEdge,
+  Set<String> path,
+) {
+  final node = byId[id];
+  if (node == null || path.contains(id)) return null;
+  final nextPath = {...path, id};
+  final children = (childrenByParent[id] ?? const [])
+      .map(
+        (edge) => _buildHierarchyTreeNode(
+          edge['to'].toString(),
+          byId,
+          childrenByParent,
+          edge,
+          nextPath,
+        ),
+      )
+      .whereType<_HierarchyTreeNode>()
+      .toList();
+  final childrenWidth = children.isEmpty
+      ? 0.0
+      : children.fold<double>(0, (total, child) => total + child.width) +
+            (children.length - 1) * _treeGap;
+  return _HierarchyTreeNode(
+    node: node,
+    incomingEdge: incomingEdge,
+    children: children,
+    width: math.max(_treeNodeWidth, childrenWidth),
+  );
+}
+
+bool _isTreeEdge(Map<String, dynamic> edge) {
+  final type = edge['type']?.toString();
+  return type == 'governance' || type == 'work';
+}
+
+class _FlowNodeCard extends StatelessWidget {
+  final Map<String, dynamic> node;
+  final List<Map<String, dynamic>> incomingEdges;
+
+  const _FlowNodeCard({required this.node, required this.incomingEdges});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final roles = _stringsFrom(node, 'role_codes');
+    final staff = _staffMembers(node);
+    final count = node['active_staff_count']?.toString() ?? '${staff.length}';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => _showStaffSheet(
+        context,
+        title: node['title']?.toString() ?? 'Role',
+        subtitle: 'Current enrolled staff for this hierarchy role',
+        staff: staff,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: scheme.outline.withValues(alpha: 0.22)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    node['title']?.toString() ?? 'Role',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                _InfoPill(
+                  icon: Icons.person_outline,
+                  label: count,
+                  color: AppTheme.primaryTeal,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              node['subtitle']?.toString() ?? '',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: roles
+                  .map(
+                    (role) => _RoleActionChip(
+                      label: role,
+                      staff: _staffForRole(node, role),
+                    ),
+                  )
+                  .toList(),
+            ),
+            if (incomingEdges.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _EdgeChip(
+                type: incomingEdges.first['type']?.toString() ?? 'work',
+                label:
+                    incomingEdges.first['label']?.toString() ?? 'Reports here',
+              ),
+            ],
+            const SizedBox(height: 10),
+            _StaffPreview(staff: staff),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -344,9 +682,7 @@ class _HierarchyNodeCard extends StatelessWidget {
   const _HierarchyNodeCard({required this.node, required this.incomingEdges});
 
   List<String> _strings(String key) {
-    final value = node[key];
-    if (value is! List) return const [];
-    return value.map((item) => item.toString()).toList();
+    return _stringsFrom(node, key);
   }
 
   @override
@@ -405,7 +741,12 @@ class _HierarchyNodeCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              ...roles.map((role) => _RoleChip(label: role)),
+              ...roles.map(
+                (role) => _RoleActionChip(
+                  label: role,
+                  staff: _staffForRole(node, role),
+                ),
+              ),
               ...futureRoles.map(
                 (role) => _RoleChip(label: '$role later', muted: true),
               ),
@@ -442,6 +783,8 @@ class _HierarchyNodeCard extends StatelessWidget {
               items: boundaries,
             ),
           ],
+          const SizedBox(height: 8),
+          _StaffPreview(staff: _staffMembers(node)),
         ],
       ),
     );
@@ -662,6 +1005,86 @@ class _MiniList extends StatelessWidget {
   }
 }
 
+class _StaffPreview extends StatelessWidget {
+  final List<Map<String, dynamic>> staff;
+
+  const _StaffPreview({required this.staff});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    if (staff.isEmpty) {
+      return Text(
+        'No registered staff under this role yet',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: scheme.onSurfaceVariant,
+          fontStyle: FontStyle.italic,
+        ),
+      );
+    }
+
+    final visible = staff.take(2).toList();
+    final remaining = staff.length - visible.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...visible.map(
+          (member) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Row(
+              children: [
+                Icon(Icons.person, size: 15, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    _staffName(member),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Text(
+          remaining > 0
+              ? 'Tap to view all ${staff.length} staff'
+              : 'Tap to view staff details',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: AppTheme.primaryBlue,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoleActionChip extends StatelessWidget {
+  final String label;
+  final List<Map<String, dynamic>> staff;
+
+  const _RoleActionChip({required this.label, required this.staff});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () => _showStaffSheet(
+        context,
+        title: label.replaceAll('_', ' '),
+        subtitle: '${staff.length} registered staff',
+        staff: staff,
+      ),
+      child: _RoleChip(label: '$label (${staff.length})'),
+    );
+  }
+}
+
 class _RoleChip extends StatelessWidget {
   final String label;
   final bool muted;
@@ -673,6 +1096,177 @@ class _RoleChip extends StatelessWidget {
     final color = muted ? AppTheme.textSecondary : AppTheme.primaryBlue;
     return _TextChip(label: label.replaceAll('_', ' '), color: color);
   }
+}
+
+void _showStaffSheet(
+  BuildContext context, {
+  required String title,
+  required String subtitle,
+  required List<Map<String, dynamic>> staff,
+}) {
+  showModalBottomSheet(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.92,
+      minChildSize: 0.35,
+      builder: (context, controller) => _StaffListSheet(
+        title: title,
+        subtitle: subtitle,
+        staff: staff,
+        controller: controller,
+      ),
+    ),
+  );
+}
+
+class _StaffListSheet extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<Map<String, dynamic>> staff;
+  final ScrollController controller;
+
+  const _StaffListSheet({
+    required this.title,
+    required this.subtitle,
+    required this.staff,
+    required this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: staff.isEmpty
+                ? Center(
+                    child: Text(
+                      'No registered staff found under this role.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    controller: controller,
+                    itemCount: staff.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) =>
+                        _StaffMemberTile(member: staff[index]),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffMemberTile extends StatelessWidget {
+  final Map<String, dynamic> member;
+
+  const _StaffMemberTile({required this.member});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final active = member['is_active'] != false;
+    final role = member['role']?.toString().replaceAll('_', ' ') ?? 'Staff';
+    final details = [
+      _staffText(member, 'employee_id'),
+      _staffText(member, 'department'),
+      _staffText(member, 'position'),
+      _staffText(member, 'current_status').replaceAll('_', ' '),
+    ].where((item) => item.isNotEmpty).join(' • ');
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(vertical: 6),
+      leading: CircleAvatar(
+        backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
+        child: Text(
+          _staffName(member).isNotEmpty
+              ? _staffName(member)[0].toUpperCase()
+              : '?',
+          style: const TextStyle(
+            color: AppTheme.primaryBlue,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+      title: Text(
+        _staffName(member),
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      subtitle: Text(details.isEmpty ? role : '$role\n$details'),
+      isThreeLine: details.isNotEmpty,
+      trailing: _InfoPill(
+        icon: active ? Icons.check_circle_outline : Icons.pause_circle_outline,
+        label: active ? 'Active' : 'Inactive',
+        color: active ? AppTheme.successGreen : scheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+List<String> _stringsFrom(Map<String, dynamic> source, String key) {
+  final value = source[key];
+  if (value is! List) return const [];
+  return value.map((item) => item.toString()).toList();
+}
+
+List<Map<String, dynamic>> _staffMembers(Map<String, dynamic> node) {
+  final value = node['staff_members'];
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
+}
+
+List<Map<String, dynamic>> _staffForRole(
+  Map<String, dynamic> node,
+  String role,
+) {
+  final normalized = role.trim().toUpperCase();
+  return _staffMembers(node)
+      .where((member) => member['role']?.toString().toUpperCase() == normalized)
+      .toList();
+}
+
+String _staffText(Map<String, dynamic> member, String key) {
+  final value = member[key];
+  if (value == null) return '';
+  return value.toString().trim();
+}
+
+String _staffName(Map<String, dynamic> member) {
+  return _staffText(member, 'name').isNotEmpty
+      ? _staffText(member, 'name')
+      : 'Unnamed staff';
 }
 
 class _LegendChip extends StatelessWidget {

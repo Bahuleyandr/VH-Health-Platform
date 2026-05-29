@@ -30,14 +30,39 @@ function normalizeRoleCounts(rows = []) {
   return counts;
 }
 
+function normalizeStaffMembers(rows = []) {
+  const byRole = {};
+  for (const row of rows) {
+    const role = String(row.role || '').trim().toUpperCase();
+    if (!role) continue;
+    byRole[role] ??= [];
+    byRole[role].push({
+      uid: row.uid,
+      name: row.name,
+      role,
+      employee_id: row.employee_id,
+      department: row.department,
+      position: row.position || row.designation,
+      is_active: row.staff_is_active ?? row.user_is_active ?? true,
+      current_status: row.current_status || 'registered',
+    });
+  }
+  return byRole;
+}
+
 function countForNode(node, roleCounts) {
   return (node.role_codes || []).reduce((total, role) => total + (roleCounts[role] || 0), 0);
 }
 
-export function buildOrganizationHierarchy({ roleCounts = {}, tenantScoped = false } = {}) {
+function membersForNode(node, staffByRole) {
+  return (node.role_codes || []).flatMap((role) => staffByRole[role] || []);
+}
+
+export function buildOrganizationHierarchy({ roleCounts = {}, staffByRole = {}, tenantScoped = false } = {}) {
   const nodes = ORGANIZATION_HIERARCHY_NODES.map((node) => ({
     ...node,
     active_staff_count: countForNode(node, roleCounts),
+    staff_members: membersForNode(node, staffByRole),
   }));
 
   return {
@@ -75,27 +100,57 @@ export function buildOrganizationHierarchy({ roleCounts = {}, tenantScoped = fal
       },
     ],
     role_counts: roleCounts,
+    staff_by_role: staffByRole,
   };
 }
 
 export async function getOrganizationHierarchy({ tenantId = null } = {}) {
   let roleCounts = {};
+  let staffByRole = {};
 
   if (tenantId) {
+    const roles = uniqueRoleCodes();
     const rows = await prisma.users.groupBy({
       by: ['role'],
       where: {
         tenant_id: tenantId,
         is_active: true,
-        role: { in: uniqueRoleCodes() },
+        role: { in: roles },
       },
       _count: { _all: true },
     });
     roleCounts = normalizeRoleCounts(rows);
+
+    const staffRows = await prisma.$queryRawUnsafe(
+      `SELECT
+         u.uid,
+         u.name,
+         u.role,
+         u.is_active AS user_is_active,
+         s.employee_id,
+         s.department,
+         s.position,
+         s.designation,
+         s.is_active AS staff_is_active,
+         CASE
+           WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 'checked_in'
+           WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NOT NULL THEN 'checked_out'
+           ELSE 'registered'
+         END AS current_status
+       FROM users u
+       LEFT JOIN staff s ON s.user_id = u.uid
+       WHERE u.tenant_id = $1::uuid
+         AND u.role = ANY($2::text[])
+       ORDER BY u.role ASC, s.department ASC NULLS LAST, u.name ASC`,
+      tenantId,
+      roles,
+    );
+    staffByRole = normalizeStaffMembers(staffRows);
   }
 
   return buildOrganizationHierarchy({
     roleCounts,
+    staffByRole,
     tenantScoped: Boolean(tenantId),
   });
 }

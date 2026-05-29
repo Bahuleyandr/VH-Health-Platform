@@ -54,8 +54,8 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     lane: 'hr',
     title: 'HR Manager',
     subtitle: 'People operations lead',
-    role_codes: ['HR_STAFF'],
-    recommended_role_codes: ['HR_MANAGER'],
+    role_codes: ['HR_MANAGER'],
+    recommended_role_codes: ['HR_STAFF'],
     access_level: 'HR lead access',
     responsibilities: [
       'Owns leave policy, payroll process, recruitment, onboarding, and compliance',
@@ -113,11 +113,27 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     ],
   },
   {
+    id: 'diagnostics_services',
+    lane: 'clinical',
+    title: 'Diagnostics / Lab / Radiology',
+    subtitle: 'Clinical diagnostic services',
+    role_codes: ['PATHOLOGIST', 'RADIOLOGIST', 'LAB_STAFF'],
+    access_level: 'Diagnostic service access',
+    responsibilities: [
+      'Laboratory and radiology reporting, diagnostic quality, and clinical investigation support',
+      'Escalates clinical reporting or safety concerns to Medical Superintendent',
+    ],
+    boundaries: [
+      'Cannot issue ward, reception, housekeeping, or maintenance roster instructions',
+    ],
+  },
+  {
     id: 'nursing_superintendent',
     lane: 'clinical',
     title: 'Nursing Superintendent',
     subtitle: 'Nursing governance lead',
-    role_codes: ['CNO', 'NURSING_INCHARGE'],
+    role_codes: ['CNO'],
+    recommended_role_codes: ['NURSING_SUPERINTENDENT'],
     access_level: 'Nursing leadership access',
     responsibilities: [
       'Owns nursing deployment, nursing documentation governance, ward coverage, and nursing escalation',
@@ -147,7 +163,7 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     lane: 'clinical',
     title: 'Nursing Staff / OP Staff Nurse',
     subtitle: 'Nursing team',
-    role_codes: ['NURSING_STAFF', 'OP_STAFF_NURSE'],
+    role_codes: ['NURSING_STAFF', 'OP_STAFF_NURSE', 'ICU_NURSE'],
     access_level: 'Nursing workflow access',
     responsibilities: [
       'Ward and OP nursing tasks, vitals, medication administration, nursing notes, and patient handover',
@@ -161,7 +177,7 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     lane: 'operations',
     title: 'Operations Incharge',
     subtitle: 'Daily hospital operations lead',
-    role_codes: ['RECEPTION_INCHARGE', 'GENERAL_STAFF'],
+    role_codes: ['OPERATIONS_INCHARGE', 'GENERAL_STAFF'],
     recommended_role_codes: ['OPERATIONS_INCHARGE'],
     access_level: 'Operations lead access',
     responsibilities: [
@@ -178,7 +194,7 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     lane: 'operations',
     title: 'Reception / Admission Incharge',
     subtitle: 'Front office lead',
-    role_codes: ['RECEPTION_INCHARGE', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR'],
+    role_codes: ['RECEPTION_INCHARGE'],
     access_level: 'Front office lead access',
     responsibilities: [
       'Supervises reception, admission counselling, patient intake, and appointment desk coverage',
@@ -200,6 +216,48 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     ],
     boundaries: [
       'Patient-care decisions remain with clinical staff',
+    ],
+  },
+  {
+    id: 'billing_insurance',
+    lane: 'operations',
+    title: 'Billing / Insurance Desk',
+    subtitle: 'Financial clearance and TPA support',
+    role_codes: ['BILLING_STAFF', 'INSURANCE_COORDINATOR'],
+    access_level: 'Billing and insurance workflow access',
+    responsibilities: [
+      'Billing queue work, insurance documentation, TPA coordination, and discharge financial clearance',
+    ],
+    boundaries: [
+      'Does not approve clinical discharge or edit clinical documentation',
+    ],
+  },
+  {
+    id: 'pharmacy_incharge',
+    lane: 'operations',
+    title: 'Pharmacy Incharge',
+    subtitle: 'Medication supply lead',
+    role_codes: ['PHARMACY_INCHARGE'],
+    access_level: 'Pharmacy lead access',
+    responsibilities: [
+      'Supervises pharmacy stock, inpatient dispensing, medication handover, and pharmacy queue completion',
+    ],
+    boundaries: [
+      'Medication order entry remains doctor-controlled unless pharmacy-specific policy grants review-only actions',
+    ],
+  },
+  {
+    id: 'pharmacy_staff',
+    lane: 'operations',
+    title: 'Pharmacy Staff',
+    subtitle: 'Dispensing and medication supply team',
+    role_codes: ['PHARMACY_STAFF'],
+    access_level: 'Pharmacy workflow access',
+    responsibilities: [
+      'Dispenses inpatient medication requests, updates pharmacy handover status, and flags stock or safety issues',
+    ],
+    boundaries: [
+      'Cannot create or alter doctor medication orders',
     ],
   },
   {
@@ -236,8 +294,8 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     lane: 'operations',
     title: 'Maintenance Incharge',
     subtitle: 'Facilities and maintenance lead',
-    role_codes: ['MAINTENANCE'],
-    recommended_role_codes: ['MAINTENANCE_INCHARGE'],
+    role_codes: ['MAINTENANCE_INCHARGE'],
+    recommended_role_codes: ['MAINTENANCE'],
     access_level: 'Maintenance lead access',
     responsibilities: [
       'Assigns maintenance requests, safety-critical repairs, equipment downtime follow-up, and vendor escalation',
@@ -281,12 +339,16 @@ export const ORGANIZATION_HIERARCHY_EDGES = [
   { from: 'hr_manager', to: 'hr_personnel', type: 'work', label: 'HR work supervision' },
   { from: 'ceo_coo', to: 'medical_superintendent', type: 'governance', label: 'Clinical leadership accountability' },
   { from: 'medical_superintendent', to: 'doctors', type: 'work', label: 'Medical work supervision' },
+  { from: 'medical_superintendent', to: 'diagnostics_services', type: 'work', label: 'Diagnostic service governance' },
   { from: 'ceo_coo', to: 'nursing_superintendent', type: 'governance', label: 'Nursing leadership accountability' },
   { from: 'nursing_superintendent', to: 'nursing_incharge', type: 'work', label: 'Nursing work supervision' },
   { from: 'nursing_incharge', to: 'nursing_staff', type: 'work', label: 'Ward and OP nursing deployment' },
   { from: 'ceo_coo', to: 'operations_incharge', type: 'governance', label: 'Operational accountability' },
   { from: 'operations_incharge', to: 'reception_incharge', type: 'work', label: 'Front office supervision' },
   { from: 'reception_incharge', to: 'reception_team', type: 'work', label: 'Front office work allocation' },
+  { from: 'operations_incharge', to: 'billing_insurance', type: 'work', label: 'Financial clearance and insurance desk supervision' },
+  { from: 'operations_incharge', to: 'pharmacy_incharge', type: 'work', label: 'Pharmacy operations supervision' },
+  { from: 'pharmacy_incharge', to: 'pharmacy_staff', type: 'work', label: 'Pharmacy dispensing work allocation' },
   { from: 'operations_incharge', to: 'housekeeping_incharge', type: 'work', label: 'Facility operations supervision' },
   { from: 'housekeeping_incharge', to: 'housekeeping_staff', type: 'work', label: 'Housekeeping floor and task assignment' },
   { from: 'operations_incharge', to: 'maintenance_incharge', type: 'work', label: 'Maintenance escalation and facility work supervision' },
