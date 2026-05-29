@@ -127,7 +127,7 @@ export const logout = async (req, res) => {
 export const getProfile = async (req, res) => {
   try {
     const staffUid = req.user.uid;
-    const profile = await fetchStaffProfile(staffUid, req.user.role, req.user.id, true);
+    const profile = await fetchStaffProfile(staffUid, req.user.role, req.user.uid, true);
     if (!profile) {
       return error(res, 'Staff profile not found', HTTP_STATUS.NOT_FOUND);
     }

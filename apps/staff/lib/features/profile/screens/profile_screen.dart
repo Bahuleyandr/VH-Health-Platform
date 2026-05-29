@@ -44,37 +44,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _error = null;
     });
     try {
-      final identifier =
-          await ApiConfig.getEmployeeId() ?? await ApiConfig.getStaffId();
-      if (identifier == null) throw Exception('No identifier found');
-
-      final data = await HrApiService.getProfile(identifier);
-      final staff = Map<String, dynamic>.from(data['staff'] ?? data);
-
-      // Merge auth profile data as supplementary source
-      try {
-        final authData = await HrApiService.getAuthProfile();
-        final authProfile = authData['staff'] ?? authData;
-        if (authProfile is Map) {
-          authProfile.forEach((k, v) {
-            if (v != null &&
-                (staff[k] == null || staff[k].toString().isEmpty)) {
-              staff[k] = v;
-            }
-          });
-        }
-      } catch (e) {
-        // Auth profile is supplementary — don't fail if unavailable
-      }
+      final data = await _loadAuthenticatedProfile();
+      final staff = _normalizeProfilePayload(data);
+      if (staff.isEmpty) throw Exception('Profile details not found');
 
       if (mounted) {
         setState(() => _profile = staff);
-        _phoneCtrl.text =
-            staff['phone']?.toString() ??
-            staff['phoneNumber']?.toString() ??
-            '';
-        _emailCtrl.text = staff['email']?.toString() ?? '';
-        _addressCtrl.text = staff['address']?.toString() ?? '';
+        _phoneCtrl.text = _profileValue(staff, ['phone', 'phoneNumber']);
+        _emailCtrl.text = _profileValue(staff, ['email']);
+        _addressCtrl.text = _profileValue(staff, ['address']);
       }
     } catch (e) {
       if (mounted) {
@@ -82,6 +60,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<Map<String, dynamic>> _loadAuthenticatedProfile() async {
+    try {
+      return await HrApiService.getAuthProfile();
+    } catch (_) {
+      final identifier =
+          await ApiConfig.getEmployeeId() ?? await ApiConfig.getStaffId();
+      if (identifier == null) throw Exception('No identifier found');
+      return HrApiService.getProfile(identifier);
     }
   }
 
@@ -176,10 +165,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildAvatarSection() {
     final s = AppStrings.of(context);
-    final name = _profile?['name']?.toString() ?? s.profileFallbackName;
-    final role = _profile?['role']?.toString() ?? '';
-    final dept = _profile?['department']?.toString() ?? '';
-    final empId = _profile?['employeeId']?.toString() ?? '';
+    final name = _profileValue(_profile, [
+      'name',
+      'staffName',
+    ], fallback: s.profileFallbackName);
+    final role = _profileValue(_profile, ['role']);
+    final dept = _profileValue(_profile, ['department']);
+    final empId = _profileValue(_profile, ['employeeId', 'employee_id']);
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -241,22 +233,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildInfoCard() {
     final s = AppStrings.of(context);
     final fields = <String, String>{
-      s.profileFieldEmployeeId: _profile?['employeeId']?.toString() ?? '—',
-      s.profileFieldRole: (_profile?['role']?.toString() ?? '—').replaceAll(
-        '_',
-        ' ',
-      ),
-      s.profileFieldDepartment: _profile?['department']?.toString() ?? '—',
-      s.profileFieldPhone:
-          _profile?['phone']?.toString() ??
-          _profile?['phoneNumber']?.toString() ??
-          '—',
-      s.profileFieldEmail: _profile?['email']?.toString() ?? '—',
-      s.profileFieldShift: _profile?['shift']?.toString() ?? '—',
-      s.profileFieldJoiningDate:
-          _profile?['joiningDate']?.toString() ??
-          _profile?['createdAt']?.toString() ??
-          '—',
+      s.profileFieldEmployeeId: _profileValue(_profile, [
+        'employeeId',
+        'employee_id',
+      ], fallback: '—'),
+      s.profileFieldRole: _profileValue(_profile, [
+        'role',
+      ], fallback: '—').replaceAll('_', ' '),
+      s.profileFieldDepartment: _profileValue(_profile, [
+        'department',
+      ], fallback: '—'),
+      s.profileFieldPhone: _profileValue(_profile, [
+        'phone',
+        'phoneNumber',
+      ], fallback: '—'),
+      s.profileFieldEmail: _profileValue(_profile, ['email'], fallback: '—'),
+      s.profileFieldShift: _profileValue(_profile, ['shift'], fallback: '—'),
+      s.profileFieldJoiningDate: _profileValue(_profile, [
+        'joiningDate',
+        'joining_date',
+        'hireDate',
+        'hire_date',
+        'createdAt',
+        'created_at',
+        'registeredAt',
+        'registered_at',
+      ], fallback: '—'),
     };
 
     return Card(
@@ -355,6 +357,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+}
+
+Map<String, dynamic> _normalizeProfilePayload(Map<String, dynamic> payload) {
+  final profile = <String, dynamic>{};
+
+  void merge(Object? value, {bool overwrite = false}) {
+    if (value is! Map) return;
+    value.forEach((key, rawValue) {
+      final normalizedKey = key.toString();
+      if (rawValue == null) return;
+      if (overwrite ||
+          !profile.containsKey(normalizedKey) ||
+          profile[normalizedKey].toString().trim().isEmpty) {
+        profile[normalizedKey] = rawValue;
+      }
+    });
+  }
+
+  merge(payload['profile']);
+  merge(payload['staff']);
+  if (profile.isEmpty) merge(payload);
+  merge(payload['userInfo']);
+
+  void alias(String camel, String snake) {
+    profile[camel] ??= profile[snake];
+    profile[snake] ??= profile[camel];
+  }
+
+  alias('employeeId', 'employee_id');
+  alias('phoneNumber', 'phone_number');
+  alias('joiningDate', 'joining_date');
+  alias('hireDate', 'hire_date');
+  alias('createdAt', 'created_at');
+  alias('registeredAt', 'registered_at');
+  alias('staffId', 'staff_id');
+  profile['staffName'] ??= profile['name'];
+
+  return profile;
+}
+
+String _profileValue(
+  Map<String, dynamic>? profile,
+  List<String> keys, {
+  String fallback = '',
+}) {
+  if (profile == null) return fallback;
+  for (final key in keys) {
+    final value = profile[key];
+    if (value == null) continue;
+    final text = value.toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return fallback;
 }
 
 class _ProfileChip extends StatelessWidget {
