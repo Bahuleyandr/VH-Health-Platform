@@ -238,6 +238,13 @@ function computeLos(admittedAt, dischargedAt) {
   return Math.max(1, Math.ceil((end - new Date(admittedAt)) / (1000 * 60 * 60 * 24)));
 }
 
+function formatIpNumber(admissionId, admittedAt = null) {
+  const id = Number.parseInt(admissionId, 10);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const year = admittedAt ? new Date(admittedAt).getFullYear() : new Date().getFullYear();
+  return `IP-${year}-${String(id).padStart(5, '0')}`;
+}
+
 async function admitPatient(data) {
   const {
     patient_uid,
@@ -710,7 +717,7 @@ async function admitPatient(data) {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findUnique({
       where: { uid: patient_uid },
-      select: { id: true, name: true },
+      select: { id: true, name: true, phone: true },
     });
     if (!patientUser) throw AppError.notFound('Patient not found');
     const patientIntId = patientUser.id;
@@ -765,6 +772,7 @@ async function admitPatient(data) {
       },
       select: ADMISSION_RETURNING_SELECT,
     });
+    admission.ip_number = formatIpNumber(admission.id, admission.admitted_at);
 
     // B-4 — audit row when consent was bypassed. The admissions row
     // itself records WHEN/WHO/WHY, but a separate audit_log entry
@@ -883,6 +891,9 @@ async function admitPatient(data) {
       admission.bed_number = bedRows[0].bed_number;
     }
 
+    admission.patient_name = patientName;
+    admission.patient_phone = patientUser.phone ?? null;
+
     await tx.audit_logs.create({
       data: {
         uid: created_by,
@@ -939,11 +950,13 @@ async function admitPatient(data) {
   });
 
   try {
-    await ensureHospitalNumber({
+    const hospitalNumber = await ensureHospitalNumber({
       tenantId: admission.tenant_id || tenant_id || null,
       patientUid: patient_uid,
       createdBy: created_by,
     });
+    admission.patient_hospital_number = hospitalNumber;
+    admission.hospital_number = hospitalNumber;
   } catch (e) {
     logger.warn(`admitPatient: hospital-number ensure failed for patient ${patient_uid}: ${e.message}`);
   }
@@ -3277,7 +3290,11 @@ async function getPatientAdmissionHistory(patientUid) {
     orderBy: { admitted_at: 'desc' },
   });
 
-  return rows.map((r) => ({ ...r, los_days: computeLos(r.admitted_at, r.discharged_at) }));
+  return rows.map((r) => ({
+    ...r,
+    ip_number: formatIpNumber(r.id, r.admitted_at),
+    los_days: computeLos(r.admitted_at, r.discharged_at),
+  }));
 }
 
 async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
@@ -3610,6 +3627,264 @@ async function findBedByLabel(bedLabel, wardLabel = null) {
   return null;
 }
 
+function formatWardLabel(row) {
+  const rawName = String(row?.name || '').trim();
+  if (!rawName) return '';
+  const normalized = rawName.replace(/\s+/g, ' ');
+  const floorMap = {
+    I: '1',
+    II: '2',
+    III: '3',
+    IV: '4',
+    V: '5',
+    VI: '6',
+  };
+  const blockMatch = normalized.match(/^([AB])\s+Block\s+-\s+Floor\s+([IVX]+|\d+)$/i);
+  if (blockMatch) {
+    const block = blockMatch[1].toUpperCase();
+    const floor = floorMap[blockMatch[2].toUpperCase()] || blockMatch[2];
+    return `Block ${block} Floor ${floor}`;
+  }
+  const icuMatch = normalized.match(/^([AB])\s+Block\s+-\s+ICU$/i);
+  if (icuMatch) return `Block ${icuMatch[1].toUpperCase()} ICU`;
+  return rawName;
+}
+
+async function listAdmissionWardOptions() {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT w.id, w.name, w.floor, w.total_beds,
+           COUNT(b.id)::int AS bed_count,
+           COUNT(b.id) FILTER (WHERE b.status = 'available')::int AS available_count,
+           COUNT(b.id) FILTER (WHERE b.status = 'occupied')::int AS occupied_count
+      FROM wards w
+      LEFT JOIN beds b ON b.ward_id = w.id
+     GROUP BY w.id, w.name, w.floor, w.total_beds
+     ORDER BY
+       CASE
+         WHEN w.name ILIKE 'A Block%' THEN 1
+         WHEN w.name ILIKE 'B Block%' THEN 2
+         WHEN w.name ILIKE '%ICU%' THEN 3
+         WHEN w.name ILIKE '%ER%' THEN 4
+         WHEN w.name ILIKE '%Day%' THEN 5
+         ELSE 9
+       END,
+       w.floor NULLS LAST,
+       w.name ASC
+  `);
+
+  const options = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    label: formatWardLabel(row),
+    floor: row.floor,
+    total_beds: row.total_beds ?? row.bed_count ?? 0,
+    bed_count: row.bed_count ?? 0,
+    available_count: row.available_count ?? 0,
+    occupied_count: row.occupied_count ?? 0,
+    source: 'wards',
+  }));
+
+  const hasLabel = (needle) => options.some((option) =>
+    String(option.label || option.name || '').toLowerCase().includes(needle)
+  );
+  if (!hasLabel('icu')) {
+    options.push({ id: null, name: 'ICU', label: 'ICU', source: 'fallback' });
+  }
+  if (!hasLabel('er')) {
+    options.push({ id: null, name: 'ER', label: 'ER', source: 'fallback' });
+  }
+  if (!hasLabel('day')) {
+    options.push({ id: null, name: 'Day Care', label: 'Day Care', source: 'fallback' });
+  }
+
+  return options;
+}
+
+async function listAdmissionBedOptions({ wardId = null, wardLabel = null } = {}) {
+  const conditions = [
+    "b.status = 'available'",
+    'b.patient_uid IS NULL',
+    'b.patient_id IS NULL',
+    'b.patient_name IS NULL',
+    'b.admission_id IS NULL',
+    `NOT EXISTS (
+      SELECT 1 FROM admissions a
+       WHERE a.bed_id = b.id
+         AND a.discharged_at IS NULL
+    )`,
+  ];
+  const params = [];
+  let idx = 1;
+
+  const parsedWardId = Number.parseInt(wardId, 10);
+  if (Number.isFinite(parsedWardId) && parsedWardId > 0) {
+    conditions.push(`b.ward_id = $${idx}`);
+    params.push(parsedWardId);
+    idx++;
+  } else {
+    const label = String(wardLabel || '').trim();
+    const lower = label.toLowerCase();
+    if (lower.includes('icu')) {
+      conditions.push(`(
+        COALESCE(b.ward_name, w.name, '') ILIKE '%icu%'
+        OR b.bed_type ILIKE '%icu%'
+      )`);
+    } else if (lower === 'er' || lower.includes('emergency')) {
+      conditions.push(`(
+        COALESCE(b.ward_name, w.name, '') ILIKE '% emergency%'
+        OR COALESCE(b.ward_name, w.name, '') ILIKE 'emergency%'
+        OR b.bed_type IN ('er', 'emergency', 'emergency_room')
+      )`);
+    } else if (lower.includes('day')) {
+      conditions.push(`(
+        COALESCE(b.ward_name, w.name, '') ILIKE '%day%'
+        OR b.bed_type ILIKE '%day%'
+      )`);
+    } else if (label) {
+      conditions.push(`(
+        LOWER(COALESCE(b.ward_name, w.name, '')) = LOWER($${idx})
+        OR LOWER(w.name) = LOWER($${idx})
+      )`);
+      params.push(label);
+      idx++;
+    }
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT b.id, b.bed_number, b.ward_id, COALESCE(b.ward_name, w.name) AS ward_name,
+            b.floor, b.bed_type, b.status, b.notes
+       FROM beds b
+       LEFT JOIN wards w ON w.id = b.ward_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY COALESCE(b.ward_name, w.name) NULLS LAST, b.bed_number`,
+    ...params,
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    bed_number: row.bed_number,
+    ward_id: row.ward_id,
+    ward_name: row.ward_name,
+    floor: row.floor,
+    bed_type: row.bed_type,
+    status: row.status,
+    notes: row.notes,
+  }));
+}
+
+async function lookupAdmissionPatientByPhone({ phone, tenantId = null }) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 8) {
+    throw AppError.badRequest('phone must contain at least 8 digits');
+  }
+
+  const matches = await findPatientByPhoneOrName({ phone: digits, tenantId });
+  if (matches.length > 1) {
+    return {
+      lookup_state: 'multiple_matches',
+      patient: null,
+      matches,
+      prior_admissions: [],
+      count: matches.length,
+      message: 'More than one patient matched this number. Select the patient from lookup.',
+    };
+  }
+
+  if (!matches.length) {
+    return {
+      lookup_state: 'new_patient',
+      patient: null,
+      prior_admissions: [],
+      count: 0,
+      last_ip_number: null,
+      next_ip_number_hint: 'Generated when admission is created',
+    };
+  }
+
+  const patient = matches[0];
+  const hospitalNumber = await ensureHospitalNumber({
+    tenantId,
+    patientUid: patient.uid,
+  });
+  const history = await getPatientAdmissionHistory(patient.uid);
+  const lastAdmission = history[0] || null;
+
+  return {
+    lookup_state: history.length ? 'returning_ip_patient' : 'known_patient_no_prior_ip',
+    patient: {
+      id: patient.id,
+      uid: patient.uid,
+      name: patient.name,
+      phone: patient.phone,
+      hospital_number: hospitalNumber,
+    },
+    prior_admissions: history,
+    count: history.length,
+    last_ip_number: lastAdmission?.ip_number || null,
+    last_admission: lastAdmission,
+    next_ip_number_hint: 'Generated when admission is created',
+  };
+}
+
+async function createCounterAdmissionPatient({
+  phone,
+  name,
+  tenantId = null,
+  createdBy = null,
+}) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 8) {
+    throw AppError.badRequest('patient_phone must contain at least 8 digits for a new admission patient');
+  }
+  const patientName = String(name || '').trim();
+  if (!patientName) {
+    throw AppError.badRequest('patient_name is required for a new admission patient');
+  }
+  const tid = tenantId || null;
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, registered_at, updated_at)
+     VALUES (gen_random_uuid(), $1, $2, 'PATIENT', true,
+             COALESCE($3::uuid, '00000000-0000-4000-8000-000000000001'::uuid),
+             NOW(), NOW())
+     RETURNING id, uid, name, phone, tenant_id`,
+    digits,
+    patientName,
+    tid,
+  );
+  const patient = rows[0];
+  const hospitalNumber = await ensureHospitalNumber({
+    tenantId: patient.tenant_id || tenantId,
+    patientUid: patient.uid,
+    createdBy,
+  });
+  return { ...patient, hospital_number: hospitalNumber };
+}
+
+async function ensureCounterTreatmentConsent({ patientUid, grantedBy = null }) {
+  if (!patientUid) return null;
+  const existing = await prisma.patient_consents.findFirst({
+    where: {
+      patient_uid: patientUid,
+      consent_type: 'treatment',
+      status: 'active',
+    },
+    select: { id: true },
+  });
+  if (existing) return existing;
+  return prisma.patient_consents.create({
+    data: {
+      patient_uid: patientUid,
+      consent_type: 'treatment',
+      granted: true,
+      status: 'active',
+      granted_at: new Date(),
+      granted_by: grantedBy,
+      notes: 'Captured at reception admission counter',
+    },
+    select: { id: true },
+  });
+}
+
 export default {
   admitPatient,
   assignBedToAdmission,
@@ -3632,6 +3907,11 @@ export default {
   updateAttendingDoctor,
   updateNextReviewAt,
   getAdmissionStats,
+  listAdmissionWardOptions,
+  listAdmissionBedOptions,
+  lookupAdmissionPatientByPhone,
+  createCounterAdmissionPatient,
+  ensureCounterTreatmentConsent,
   // Wave 4B-2 — staff-app admit-sheet shim helpers.
   findPatientByPhoneOrName,
   findBedByLabel,

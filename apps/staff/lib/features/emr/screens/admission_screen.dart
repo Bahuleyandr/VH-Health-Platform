@@ -612,15 +612,28 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
     );
   }
 
+  String? _firstText(List<dynamic> values) {
+    for (final value in values) {
+      if (value == null) continue;
+      if (value is List) {
+        if (value.isEmpty) continue;
+        return value.map((item) => item.toString()).join(', ');
+      }
+      final text = value.toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: _loading
           ? const Center(
@@ -651,7 +664,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    _detail?['patient_name'] as String? ??
+                    _firstText([_detail?['patient_name']]) ??
                         AppStrings.of(context).admissionPatientFallback,
                     style: TextStyle(
                       fontSize: 20,
@@ -679,20 +692,33 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   ),
                   const SizedBox(height: 8),
                   _infoRow(
+                    'Hospital ID',
+                    _firstText([
+                      _detail?['patient_hospital_number'],
+                      _detail?['hospital_number'],
+                    ]),
+                  ),
+                  _infoRow(
                     AppStrings.of(context).admissionUid,
-                    _detail?['patient_uid'] as String?,
+                    _firstText([_detail?['patient_uid']]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionAgeGender,
-                    _detail?['age_gender'] as String?,
+                    _firstText([
+                      _detail?['age_gender'],
+                      [
+                        _detail?['patient_age'],
+                        _detail?['patient_gender'],
+                      ].where((v) => _firstText([v]) != null).join(' / '),
+                    ]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionBloodGroup,
-                    _detail?['blood_group'] as String?,
+                    _firstText([_detail?['blood_group']]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionAllergies,
-                    _detail?['allergies'] as String?,
+                    _firstText([_detail?['allergies']]),
                   ),
 
                   const SizedBox(height: 16),
@@ -706,35 +732,51 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   const SizedBox(height: 8),
                   _infoRow(
                     AppStrings.of(context).admissionWardField,
-                    _detail?['ward'] as String?,
+                    _firstText([
+                      _detail?['ward'],
+                      _detail?['bed_ward_name'],
+                      _detail?['ward_name'],
+                    ]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionBedField,
-                    _detail?['bed']?.toString(),
+                    _firstText([
+                      _detail?['bed_number'],
+                      _detail?['bed'],
+                      _detail?['bed_id'],
+                    ]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionAdmittedOn,
-                    _detail?['admitted_at'] as String?,
+                    _firstText([_detail?['admitted_at']]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionChiefComplaint,
-                    _detail?['chief_complaint'] as String?,
+                    _firstText([_detail?['chief_complaint']]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionDiagnosisField,
-                    _detail?['provisional_diagnosis'] as String?,
+                    _firstText([
+                      _detail?['provisional_diagnosis'],
+                      _detail?['admitting_diagnosis'],
+                    ]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionPriorityField,
-                    _detail?['priority'] as String?,
+                    _firstText([_detail?['priority']]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionCodeStatus,
-                    _detail?['code_status'] as String?,
+                    _firstText([_detail?['code_status']]),
                   ),
                   _infoRow(
                     AppStrings.of(context).admissionAttending,
-                    _detail?['attending_doctor'] as String?,
+                    _firstText([
+                      _detail?['attending_doctor_name'],
+                      _detail?['admitting_doctor_name'],
+                      _detail?['attending_doctor'],
+                      _detail?['admitting_doctor'],
+                    ]),
                   ),
 
                   const SizedBox(height: 16),

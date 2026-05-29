@@ -677,6 +677,45 @@ class MedicalApiService {
     return _post('/admissions', data);
   }
 
+  /// GET /admissions/lookup — reception-counter IP lookup by patient phone.
+  static Future<Map<String, dynamic>> lookupAdmissionPatient({
+    required String phone,
+  }) async {
+    return _get('/admissions/lookup', query: {'phone': phone});
+  }
+
+  /// GET /admissions/ward-options — admission desk ward/floor dropdown.
+  static Future<List<Map<String, dynamic>>> getAdmissionWardOptions() async {
+    final data = await _get('/admissions/ward-options');
+    final rows = data['wards'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  /// GET /admissions/bed-options — available bed dropdown for admission desk.
+  static Future<List<Map<String, dynamic>>> getAdmissionBedOptions({
+    int? wardId,
+    String? wardLabel,
+  }) async {
+    final data = await _get(
+      '/admissions/bed-options',
+      query: {
+        if (wardId != null) 'ward_id': wardId.toString(),
+        if (wardLabel != null && wardLabel.trim().isNotEmpty)
+          'ward_label': wardLabel.trim(),
+      },
+    );
+    final rows = data['beds'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
   /// POST /emr/:id/discharge — discharge a patient
   static Future<Map<String, dynamic>> dischargePatient(
     int id,
@@ -744,7 +783,11 @@ class MedicalApiService {
 
   /// GET /admissions/:id — admission detail
   static Future<Map<String, dynamic>> getAdmissionDetail(int id) async {
-    return _get('/admissions/$id');
+    final data = await _get('/admissions/$id');
+    final admission = data['admission'];
+    if (admission is Map<String, dynamic>) return admission;
+    if (admission is Map) return admission.cast<String, dynamic>();
+    return data;
   }
 
   /// GET /admissions/:id/case-sheet — admission baseline history/exam
@@ -758,6 +801,24 @@ class MedicalApiService {
     Map<String, dynamic> caseSheet,
   ) async {
     return _put('/admissions/$id/case-sheet', {'case_sheet': caseSheet});
+  }
+
+  /// GET /admissions/command-board — role-aware live inpatient command board.
+  static Future<Map<String, dynamic>> getPatientCommandBoard({
+    String? ward,
+    String status = 'active',
+    bool? mine,
+    int limit = 100,
+  }) async {
+    return _get(
+      '/admissions/command-board',
+      query: {
+        if (ward != null && ward.trim().isNotEmpty) 'ward': ward.trim(),
+        'status': status,
+        if (mine != null) 'mine': mine ? 'true' : 'false',
+        'limit': limit.toString(),
+      },
+    );
   }
 
   // ─── EMR: Clinical Notes ──────────────────────────────────────────────────

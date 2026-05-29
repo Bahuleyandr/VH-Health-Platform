@@ -91,6 +91,7 @@ import '../../features/radiology/screens/radiology_screen.dart';
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
 import '../../features/emr/screens/admission_case_sheet_screen.dart';
+import '../../features/emr/screens/patient_command_board_screen.dart';
 import '../../features/emr/screens/clinical_notes_screen.dart';
 import '../../features/emr/screens/patient_timeline_screen.dart';
 import '../../features/emr/screens/orders_screen.dart';
@@ -651,6 +652,12 @@ final GoRouter appRouter = GoRouter(
         ),
 
         // EMR
+        GoRoute(
+          path: '/patient-command-board',
+          name: 'patient-command-board',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: PatientCommandBoardScreen()),
+        ),
         GoRoute(
           path: '/emr/admissions',
           name: 'emr-admissions',
