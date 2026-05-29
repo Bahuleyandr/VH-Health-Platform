@@ -4,6 +4,7 @@
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import admissionService from '../../services/emr/admissionService.js';
+import patientCommandBoardService from '../../services/emr/patientCommandBoardService.js';
 import * as dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
 import {
   generateAdmissionAiDraft,
@@ -42,12 +43,89 @@ function wrapAsync(fn) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /command-board — live inpatient command board foundation.
+//
+// Composes active admissions, bed location, patient identifiers,
+// allergies, active CDS alerts, diagnoses, open tasks/orders, and
+// discharge checklist state into one role-aware board response. Exposed
+// through both:
+//   GET /api/v1/emr/command-board
+//   GET /api/v1/admissions/command-board
+// ---------------------------------------------------------------------------
+router.get(
+  '/command-board',
+  wrapAsync(async (req, res) => {
+    const board = await patientCommandBoardService.getPatientCommandBoard(
+      {
+        ward: req.query?.ward,
+        status: req.query?.status,
+        mine: req.query?.mine,
+        limit: req.query?.limit,
+      },
+      {
+        uid: req.user?.uid,
+        role: req.user?.role,
+        tenantId: req.tenantId,
+      },
+    );
+    success(res, board, 'Patient command board retrieved');
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // GET /clinical-ai/config - Clinical AI provider status
 // ---------------------------------------------------------------------------
 router.get(
   '/clinical-ai/config',
   wrapAsync(async (_req, res) => {
     success(res, dischargeSummaryGenerator.getDischargeSummaryAiConfig(), 'Clinical AI config retrieved');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /lookup — Admission-counter patient lookup by phone.
+//
+// Exposed through /api/v1/admissions/lookup for reception counters. It
+// returns the matched patient, hospital number, derived prior IP numbers, and
+// a visible new-patient state when no row exists yet.
+// ---------------------------------------------------------------------------
+router.get(
+  '/lookup',
+  wrapAsync(async (req, res) => {
+    const phone = req.query?.phone || req.query?.patient_phone || req.query?.q;
+    const lookup = await admissionService.lookupAdmissionPatientByPhone({
+      phone,
+      tenantId: req.tenantId,
+    });
+    success(res, lookup, 'Admission patient lookup retrieved');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /ward-options — Admission-counter ward/floor dropdown.
+//
+// Kept under the admissions surface so reception/admission desk roles can load
+// it without broadening the bed-management RBAC gate.
+// ---------------------------------------------------------------------------
+router.get(
+  '/ward-options',
+  wrapAsync(async (_req, res) => {
+    const wards = await admissionService.listAdmissionWardOptions();
+    success(res, { wards, count: wards.length }, 'Admission ward options retrieved');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /bed-options — Admission-counter available beds for a chosen ward.
+// ---------------------------------------------------------------------------
+router.get(
+  '/bed-options',
+  wrapAsync(async (req, res) => {
+    const beds = await admissionService.listAdmissionBedOptions({
+      wardId: req.query?.ward_id,
+      wardLabel: req.query?.ward_label || req.query?.ward || req.query?.label,
+    });
+    success(res, { beds, count: beds.length }, 'Admission bed options retrieved');
   })
 );
 
@@ -89,6 +167,15 @@ router.post(
             'patient_query matched multiple patients — pass patient_uid directly',
             HTTP_STATUS.BAD_REQUEST,
           );
+        } else if (digits.length >= 8 && body.patient_name) {
+          const patient = await admissionService.createCounterAdmissionPatient({
+            phone: body.patient_phone || q,
+            name: body.patient_name,
+            tenantId: req.tenantId,
+            createdBy: req.user?.uid,
+          });
+          resolved.patient_uid = patient.uid;
+          resolved.patient_query = patient.hospital_number || patient.phone;
         }
       }
     }
@@ -114,6 +201,13 @@ router.post(
     // pass it explicitly.
     if (!resolved.admitting_doctor && String(req.user?.role || '').toUpperCase() === 'DOCTOR') {
       resolved.admitting_doctor = req.user?.uid;
+    }
+
+    if (resolved.patient_uid && body.counter_consent_captured === true) {
+      await admissionService.ensureCounterTreatmentConsent({
+        patientUid: resolved.patient_uid,
+        grantedBy: req.user?.uid,
+      });
     }
 
     const data = {

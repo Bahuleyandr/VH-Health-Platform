@@ -28,28 +28,40 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   final _diagnosisCtrl = TextEditingController();
   final _wardCtrl = TextEditingController();
   final _bedCtrl = TextEditingController();
+  final _doctorSearchCtrl = TextEditingController();
+  final _doctorSearchFocus = FocusNode();
 
   late final Future<List<Map<String, dynamic>>> _doctorsFuture;
+  late final Future<List<Map<String, dynamic>>> _wardOptionsFuture;
+  Future<List<Map<String, dynamic>>>? _bedOptionsFuture;
   Timer? _searchDebounce;
+  Timer? _admissionLookupDebounce;
 
   List<Map<String, dynamic>> _patientMatches = const [];
   List<StaffAppointment> _todayAppointments = const [];
   List<Map<String, dynamic>> _activeAdmissions = const [];
   Map<String, dynamic>? _selectedPatient;
+  Map<String, dynamic>? _admissionLookup;
 
   bool _lookupBusy = false;
+  bool _admissionLookupBusy = false;
   bool _workloadBusy = true;
   bool _opSubmitting = false;
   bool _ipSubmitting = false;
+  bool _ipConsentCaptured = false;
   String? _lookupError;
+  String? _admissionLookupError;
   int _tabIndex = 0;
 
   DateTime _appointmentDate = DateTime.now();
   late TimeOfDay _appointmentTime;
-  String? _selectedDoctorKey;
   int? _selectedDoctorId;
   String? _selectedDoctorUid;
   String _selectedDoctorLabel = '';
+  String _doctorSearchText = '';
+  String? _selectedWardValue;
+  String? _selectedBedValue;
+  int? _selectedBedId;
   String _priority = 'Routine';
   String _codeStatus = 'Full Code';
 
@@ -57,6 +69,10 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   void initState() {
     super.initState();
     _doctorsFuture = ScheduleApiService.getAppointmentDoctors();
+    _wardOptionsFuture = MedicalApiService.getAdmissionWardOptions();
+    _doctorSearchFocus.addListener(() {
+      if (mounted) setState(() {});
+    });
     _appointmentTime = TimeOfDay.fromDateTime(
       DateTime.now().add(const Duration(hours: 1)),
     );
@@ -66,6 +82,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _admissionLookupDebounce?.cancel();
     _searchCtrl.dispose();
     _patientPhoneCtrl.dispose();
     _patientNameCtrl.dispose();
@@ -75,6 +92,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     _diagnosisCtrl.dispose();
     _wardCtrl.dispose();
     _bedCtrl.dispose();
+    _doctorSearchCtrl.dispose();
+    _doctorSearchFocus.dispose();
     super.dispose();
   }
 
@@ -163,6 +182,62 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
       _patientMatches = const [];
       _lookupError = null;
     });
+    if (_tabIndex == 1 && phone.isNotEmpty) {
+      _queueAdmissionLookup(phone);
+    }
+  }
+
+  void _onPatientPhoneChanged(String value) {
+    if (_tabIndex == 1) _queueAdmissionLookup(value);
+  }
+
+  void _queueAdmissionLookup(String value) {
+    _admissionLookupDebounce?.cancel();
+    final digits = _digitsOnly(value);
+    if (digits.length < 8) {
+      setState(() {
+        _admissionLookup = null;
+        _admissionLookupError = null;
+        _admissionLookupBusy = false;
+      });
+      return;
+    }
+    _admissionLookupDebounce = Timer(const Duration(milliseconds: 400), () {
+      _lookupAdmissionByPhone(digits);
+    });
+  }
+
+  Future<void> _lookupAdmissionByPhone(String phone) async {
+    setState(() {
+      _admissionLookupBusy = true;
+      _admissionLookupError = null;
+    });
+    try {
+      final lookup = await MedicalApiService.lookupAdmissionPatient(
+        phone: phone,
+      );
+      if (!mounted) return;
+      final patient = lookup['patient'];
+      setState(() {
+        _admissionLookup = lookup;
+        if (patient is Map) {
+          final normalized = Map<String, dynamic>.from(patient);
+          _selectedPatient = normalized;
+          _patientNameCtrl.text = _text(normalized['name']);
+          _patientPhoneCtrl.text = _text(normalized['phone']);
+          final hospitalNumber = _text(normalized['hospital_number']);
+          if (hospitalNumber.isNotEmpty) _searchCtrl.text = hospitalNumber;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _admissionLookup = null;
+        _admissionLookupError = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) setState(() => _admissionLookupBusy = false);
+    }
   }
 
   int? _patientId() => _intFrom(_selectedPatient?['id']);
@@ -180,6 +255,35 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     if (phone.isNotEmpty) return phone;
     if (name.isNotEmpty) return name;
     return _searchCtrl.text.trim();
+  }
+
+  void _selectDoctor(Map<String, dynamic> doctor) {
+    final label = _doctorLabel(doctor);
+    setState(() {
+      _selectedDoctorId = _doctorId(doctor);
+      _selectedDoctorUid = _doctorUid(doctor);
+      _selectedDoctorLabel = label;
+      _doctorSearchText = label;
+      _doctorSearchCtrl.text = label;
+    });
+    _doctorSearchFocus.unfocus();
+  }
+
+  void _selectWard(Map<String, dynamic> ward) {
+    final label = _wardLabel(ward);
+    final id = _wardId(ward);
+    setState(() {
+      _selectedWardValue = _wardValue(ward);
+      _wardCtrl.text = label;
+      _selectedBedValue = null;
+      _selectedBedId = null;
+      _bedCtrl.clear();
+      _bedOptionsFuture = MedicalApiService.getAdmissionBedOptions(
+        wardId: id,
+        wardLabel: label,
+      );
+      if (_isEmergencyWard(label)) _priority = 'Emergency';
+    });
   }
 
   Future<void> _submitOpdBooking() async {
@@ -240,26 +344,53 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
       _showError('Enter the chief complaint.');
       return;
     }
+    if (_patientUid() == null && _patientNameCtrl.text.trim().isEmpty) {
+      _showError('Enter patient name for a new IP admission.');
+      return;
+    }
 
     setState(() => _ipSubmitting = true);
     try {
-      await MedicalApiService.admitPatient({
+      final result = await MedicalApiService.admitPatient({
         'patient_query': patientQuery,
         'patient_uid': ?_patientUid(),
+        'patient_phone': _patientPhoneCtrl.text.trim(),
+        'patient_name': _patientNameCtrl.text.trim(),
         'admitting_doctor': _selectedDoctorUid,
         'chief_complaint': _chiefComplaintCtrl.text.trim(),
         'provisional_diagnosis': _diagnosisCtrl.text.trim(),
         'ward': _wardCtrl.text.trim(),
+        'bed_id': ?_selectedBedId,
         'bed': _bedCtrl.text.trim(),
         'priority': _apiPriority(_priority),
         'admission_type': _apiAdmissionType(_priority),
         'code_status': _apiCodeStatus(_codeStatus),
+        'counter_consent_captured': _ipConsentCaptured,
       });
       if (!mounted) return;
-      _showSuccess('IP admission created.');
+      final admission = _admissionFromResponse(result);
+      final ipNumber = _text(admission['ip_number']);
+      final hospitalNumber = _text(
+        admission['patient_hospital_number'] ?? admission['hospital_number'],
+      );
+      _showSuccess(
+        [
+          if (ipNumber.isEmpty)
+            'IP admission created'
+          else
+            'IP admission $ipNumber created',
+          if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
+        ].join(' - '),
+      );
       _chiefComplaintCtrl.clear();
       _diagnosisCtrl.clear();
       _bedCtrl.clear();
+      setState(() {
+        _admissionLookup = null;
+        _ipConsentCaptured = false;
+        _selectedBedValue = null;
+        _selectedBedId = null;
+      });
       await _loadWorkload();
     } catch (e) {
       if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
@@ -300,6 +431,13 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     }
   }
 
+  Map<String, dynamic> _admissionFromResponse(Map<String, dynamic> result) {
+    final admission = result['admission'];
+    if (admission is Map<String, dynamic>) return admission;
+    if (admission is Map) return Map<String, dynamic>.from(admission);
+    return result;
+  }
+
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: AppTheme.errorRed),
@@ -323,10 +461,6 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           children: [
             _buildHeader(),
             const SizedBox(height: 12),
-            _buildPatientLookup(),
-            const SizedBox(height: 12),
-            _buildDoctorPicker(),
-            const SizedBox(height: 12),
             _buildModeSwitcher(),
             const SizedBox(height: 12),
             AnimatedSwitcher(
@@ -337,6 +471,10 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                 _ => _buildTodayPanel(key: const ValueKey('today')),
               },
             ),
+            if (_tabIndex != 2) ...[
+              const SizedBox(height: 12),
+              _buildPatientLookup(),
+            ],
           ],
         ),
       ),
@@ -508,73 +646,82 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     );
   }
 
-  Widget _buildDoctorPicker() {
-    return _Surface(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionTitle(
-            icon: Icons.medical_services_outlined,
-            title: 'Doctor',
-          ),
-          const SizedBox(height: 10),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: _doctorsFuture,
-            builder: (context, snapshot) {
-              final doctors = snapshot.data ?? const [];
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const LinearProgressIndicator(minHeight: 2);
-              }
-              if (snapshot.hasError) {
-                return Text(
-                  'Could not load doctors.',
-                  style: TextStyle(color: AppTheme.errorOnSurface),
-                );
-              }
-              return DropdownButtonFormField<String>(
-                initialValue: _selectedDoctorKey,
-                decoration: const InputDecoration(
-                  labelText: 'Select doctor',
-                  prefixIcon: Icon(Icons.person_search_outlined),
-                ),
-                isExpanded: true,
-                items: doctors
-                    .where((doctor) => _doctorId(doctor) != null)
-                    .map(
-                      (doctor) => DropdownMenuItem<String>(
-                        value: _doctorKey(doctor),
-                        child: Text(
-                          _doctorLabel(doctor),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (key) {
-                  final doctor = doctors.firstWhere(
-                    (item) => _doctorKey(item) == key,
-                    orElse: () => const <String, dynamic>{},
-                  );
-                  setState(() {
-                    _selectedDoctorKey = key;
-                    _selectedDoctorId = _doctorId(doctor);
-                    _selectedDoctorUid = _doctorUid(doctor);
-                    _selectedDoctorLabel = _doctorLabel(doctor);
-                  });
-                },
+  Widget _buildDoctorPicker({bool framed = true}) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.medical_services_outlined,
+          title: 'Doctor',
+        ),
+        const SizedBox(height: 10),
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: _doctorsFuture,
+          builder: (context, snapshot) {
+            final doctors = snapshot.data ?? const [];
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const LinearProgressIndicator(minHeight: 2);
+            }
+            if (snapshot.hasError) {
+              return Text(
+                'Could not load doctors.',
+                style: TextStyle(color: AppTheme.errorOnSurface),
               );
-            },
+            }
+            final search = _doctorSearchText.trim().toLowerCase();
+            final filteredDoctors = doctors
+                .where((doctor) => _doctorId(doctor) != null)
+                .where((doctor) {
+                  if (search.isEmpty) return true;
+                  return _doctorLabel(doctor).toLowerCase().contains(search);
+                })
+                .toList();
+            final showOptions =
+                _doctorSearchFocus.hasFocus &&
+                (_doctorSearchCtrl.text.trim() != _selectedDoctorLabel ||
+                    search.isEmpty);
+            return Column(
+              children: [
+                TextField(
+                  controller: _doctorSearchCtrl,
+                  focusNode: _doctorSearchFocus,
+                  onTap: () => setState(() {}),
+                  onChanged: (value) {
+                    setState(() {
+                      _doctorSearchText = value;
+                      if (value.trim() != _selectedDoctorLabel) {
+                        _selectedDoctorId = null;
+                        _selectedDoctorUid = null;
+                        _selectedDoctorLabel = '';
+                      }
+                    });
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Search doctor by name, department, specialty',
+                    prefixIcon: Icon(Icons.person_search_outlined),
+                  ),
+                ),
+                if (showOptions) ...[
+                  const SizedBox(height: 8),
+                  _DoctorTypeaheadList(
+                    doctors: filteredDoctors.take(10).toList(),
+                    onSelect: _selectDoctor,
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+        if (_selectedDoctorLabel.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            _selectedDoctorLabel,
+            style: TextStyle(color: AppTheme.textSecondary),
           ),
-          if (_selectedDoctorLabel.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              _selectedDoctorLabel,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
-          ],
         ],
-      ),
+      ],
     );
+    return framed ? _Surface(child: content) : content;
   }
 
   Widget _buildModeSwitcher() {
@@ -596,7 +743,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             Expanded(
               child: InkWell(
                 borderRadius: BorderRadius.circular(10),
-                onTap: () => setState(() => _tabIndex = i),
+                onTap: () {
+                  setState(() => _tabIndex = i);
+                  if (i == 1 && _patientPhoneCtrl.text.trim().isNotEmpty) {
+                    _queueAdmissionLookup(_patientPhoneCtrl.text);
+                  }
+                },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -651,6 +803,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           ),
           const SizedBox(height: 12),
           _buildPatientIdentityFields(),
+          const SizedBox(height: 12),
+          _buildDoctorPicker(framed: false),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -736,6 +890,10 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           const SizedBox(height: 12),
           _buildPatientIdentityFields(),
           const SizedBox(height: 12),
+          _buildAdmissionLookupStatus(),
+          const SizedBox(height: 12),
+          _buildDoctorPicker(framed: false),
+          const SizedBox(height: 12),
           TextField(
             controller: _chiefComplaintCtrl,
             minLines: 2,
@@ -757,20 +915,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           LayoutBuilder(
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 620;
-              final wardField = TextField(
-                controller: _wardCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Ward / floor',
-                  prefixIcon: Icon(Icons.meeting_room_outlined),
-                ),
-              );
-              final bedField = TextField(
-                controller: _bedCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Bed',
-                  prefixIcon: Icon(Icons.bed_outlined),
-                ),
-              );
+              final wardField = _buildWardPicker();
+              final bedField = _buildBedPicker();
               if (compact) {
                 return Column(
                   children: [wardField, const SizedBox(height: 12), bedField],
@@ -819,6 +965,19 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          CheckboxListTile(
+            value: _ipConsentCaptured,
+            onChanged: (value) =>
+                setState(() => _ipConsentCaptured = value ?? false),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text('Treatment consent captured at counter'),
+            subtitle: Text(
+              'Required for routine IP admissions before the chart is opened.',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _ipSubmitting ? null : _submitIpAdmission,
@@ -836,6 +995,183 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     );
   }
 
+  Widget _buildAdmissionLookupStatus() {
+    if (_admissionLookupBusy) {
+      return const LinearProgressIndicator(minHeight: 2);
+    }
+    if (_admissionLookupError != null) {
+      return _InfoStrip(
+        icon: Icons.warning_amber_outlined,
+        color: AppTheme.errorRed,
+        text: _admissionLookupError!,
+      );
+    }
+    final lookup = _admissionLookup;
+    if (lookup == null) {
+      return const _InfoStrip(
+        icon: Icons.info_outline,
+        color: AppTheme.primaryBlue,
+        text: 'Type patient phone to check prior admissions and IP number.',
+      );
+    }
+
+    final state = _text(lookup['lookup_state']);
+    final patient = lookup['patient'];
+    final prior = lookup['prior_admissions'];
+    final patientName = patient is Map ? _text(patient['name']) : '';
+    final hospitalNumber = patient is Map
+        ? _text(patient['hospital_number'])
+        : '';
+    final lastIp = _text(lookup['last_ip_number']);
+    final priorCount = prior is List ? prior.length : 0;
+    if (state == 'new_patient') {
+      return const _InfoStrip(
+        icon: Icons.person_add_alt_1,
+        color: AppTheme.primaryTeal,
+        text:
+            'New patient number. Add patient name; Hospital ID and IP number will be generated on admission.',
+      );
+    }
+    if (state == 'multiple_matches') {
+      return const _InfoStrip(
+        icon: Icons.groups_outlined,
+        color: AppTheme.warningAmber,
+        text:
+            'Multiple patients share this number. Use Patient lookup below to select the correct patient.',
+      );
+    }
+    return _InfoStrip(
+      icon: Icons.history,
+      color: AppTheme.successGreen,
+      text: [
+        if (patientName.isNotEmpty) patientName,
+        if (hospitalNumber.isNotEmpty) hospitalNumber,
+        if (lastIp.isNotEmpty) 'Last IP $lastIp',
+        '$priorCount prior admission${priorCount == 1 ? '' : 's'}',
+      ].join(' - '),
+    );
+  }
+
+  Widget _buildWardPicker() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _wardOptionsFuture,
+      builder: (context, snapshot) {
+        final wards = snapshot.data ?? const [];
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator(minHeight: 2);
+        }
+        if (snapshot.hasError || wards.isEmpty) {
+          return TextField(
+            controller: _wardCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Ward / floor',
+              prefixIcon: Icon(Icons.meeting_room_outlined),
+            ),
+          );
+        }
+        final selectedValue =
+            wards.any((ward) => _wardValue(ward) == _selectedWardValue)
+            ? _selectedWardValue
+            : null;
+        return DropdownButtonFormField<String>(
+          initialValue: selectedValue,
+          decoration: const InputDecoration(
+            labelText: 'Ward / floor',
+            prefixIcon: Icon(Icons.meeting_room_outlined),
+          ),
+          isExpanded: true,
+          items: wards.map((ward) {
+            final label = _wardLabel(ward);
+            final available = _intFrom(ward['available_count']);
+            final count = _intFrom(ward['bed_count']);
+            final suffix = count == null
+                ? ''
+                : ' - ${available ?? 0}/$count free';
+            return DropdownMenuItem(
+              value: _wardValue(ward),
+              child: Text('$label$suffix', overflow: TextOverflow.ellipsis),
+            );
+          }).toList(),
+          onChanged: (value) {
+            final ward = wards.firstWhere(
+              (item) => _wardValue(item) == value,
+              orElse: () => const <String, dynamic>{},
+            );
+            _selectWard(ward);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildBedPicker() {
+    final future = _bedOptionsFuture;
+    if (future == null) {
+      return DropdownButtonFormField<String>(
+        initialValue: null,
+        decoration: const InputDecoration(
+          labelText: 'Bed',
+          prefixIcon: Icon(Icons.bed_outlined),
+        ),
+        items: const [],
+        onChanged: null,
+        hint: const Text('Select ward first'),
+      );
+    }
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: future,
+      builder: (context, snapshot) {
+        final beds = snapshot.data ?? const [];
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const LinearProgressIndicator(minHeight: 2);
+        }
+        final selectedValue =
+            beds.any((bed) => _bedValue(bed) == _selectedBedValue)
+            ? _selectedBedValue
+            : null;
+        if (snapshot.hasError || beds.isEmpty) {
+          return DropdownButtonFormField<String>(
+            initialValue: null,
+            decoration: const InputDecoration(
+              labelText: 'Bed',
+              prefixIcon: Icon(Icons.bed_outlined),
+            ),
+            items: const [],
+            onChanged: null,
+            hint: Text(snapshot.hasError ? 'Beds unavailable' : 'No free beds'),
+          );
+        }
+        return DropdownButtonFormField<String>(
+          initialValue: selectedValue,
+          decoration: const InputDecoration(
+            labelText: 'Bed',
+            prefixIcon: Icon(Icons.bed_outlined),
+          ),
+          isExpanded: true,
+          items: beds
+              .map(
+                (bed) => DropdownMenuItem(
+                  value: _bedValue(bed),
+                  child: Text(_bedLabel(bed), overflow: TextOverflow.ellipsis),
+                ),
+              )
+              .toList(),
+          onChanged: (value) {
+            final bed = beds.firstWhere(
+              (item) => _bedValue(item) == value,
+              orElse: () => const <String, dynamic>{},
+            );
+            setState(() {
+              _selectedBedValue = value;
+              _selectedBedId = _bedId(bed);
+              _bedCtrl.text = _text(bed['bed_number']);
+            });
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildPatientIdentityFields() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -843,6 +1179,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         final phone = TextField(
           controller: _patientPhoneCtrl,
           keyboardType: TextInputType.phone,
+          onChanged: _onPatientPhoneChanged,
           decoration: const InputDecoration(
             labelText: 'Patient phone',
             prefixIcon: Icon(Icons.phone_outlined),
@@ -1160,6 +1497,96 @@ class _DateTimeButton extends StatelessWidget {
   }
 }
 
+class _InfoStrip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  const _InfoStrip({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.26)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(text, style: TextStyle(color: AppTheme.textPrimary)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DoctorTypeaheadList extends StatelessWidget {
+  final List<Map<String, dynamic>> doctors;
+  final ValueChanged<Map<String, dynamic>> onSelect;
+
+  const _DoctorTypeaheadList({required this.doctors, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    if (doctors.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.backgroundGrey,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Text(
+          'No doctor matches that search.',
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
+      );
+    }
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 260),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundGrey,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        itemCount: doctors.length,
+        separatorBuilder: (_, _) => Divider(height: 1, color: AppTheme.divider),
+        itemBuilder: (context, index) {
+          final doctor = doctors[index];
+          return ListTile(
+            dense: true,
+            leading: const Icon(
+              Icons.medical_services_outlined,
+              color: AppTheme.primaryBlue,
+            ),
+            title: Text(
+              _doctorLabel(doctor),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => onSelect(doctor),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _MiniList extends StatelessWidget {
   final String title;
   final String emptyText;
@@ -1228,12 +1655,6 @@ String? _doctorUid(Map<String, dynamic> doctor) {
   return text.isEmpty ? null : text;
 }
 
-String _doctorKey(Map<String, dynamic> doctor) {
-  final uid = _doctorUid(doctor);
-  final id = _doctorId(doctor);
-  return uid ?? 'id:$id';
-}
-
 String _doctorLabel(Map<String, dynamic> doctor) {
   final id = _doctorId(doctor);
   final name =
@@ -1245,4 +1666,44 @@ String _doctorLabel(Map<String, dynamic> doctor) {
     if (department.isNotEmpty) department,
     if (specialization.isNotEmpty) specialization,
   ].join(' - ');
+}
+
+String _wardValue(Map<String, dynamic> ward) {
+  final id = _text(ward['id']);
+  if (id.isNotEmpty) return 'id:$id';
+  return _wardLabel(ward);
+}
+
+int? _wardId(Map<String, dynamic> ward) => _intFrom(ward['id']);
+
+String _wardLabel(Map<String, dynamic> ward) {
+  final label = _text(ward['label']);
+  if (label.isNotEmpty) return label;
+  final name = _text(ward['name']);
+  if (name.isNotEmpty) return name;
+  return 'Ward';
+}
+
+bool _isEmergencyWard(String label) {
+  final lower = label.toLowerCase();
+  return lower.contains('icu') ||
+      lower == 'er' ||
+      lower.contains(' emergency') ||
+      lower.startsWith('emergency');
+}
+
+int? _bedId(Map<String, dynamic> bed) => _intFrom(bed['id']);
+
+String _bedValue(Map<String, dynamic> bed) {
+  final id = _text(bed['id']);
+  if (id.isNotEmpty) return 'id:$id';
+  return _bedLabel(bed);
+}
+
+String _bedLabel(Map<String, dynamic> bed) {
+  final number = _text(bed['bed_number']);
+  final type = _text(bed['bed_type']).replaceAll('_', ' ');
+  if (number.isEmpty) return type.isEmpty ? 'Bed' : type;
+  if (type.isEmpty || type == 'unclassified') return number;
+  return '$number - $type';
 }

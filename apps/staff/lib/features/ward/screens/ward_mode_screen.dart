@@ -161,6 +161,13 @@ class _WardModeScreenState extends State<WardModeScreen> {
     if (isNursing) {
       return const [
         _WardAction(
+          title: 'Command Board',
+          subtitle: 'Patients, alerts, tasks',
+          icon: Icons.view_timeline_outlined,
+          color: AppTheme.primaryBlue,
+          route: '/patient-command-board',
+        ),
+        _WardAction(
           title: 'Bed Board',
           subtitle: 'Ward and ICU census',
           icon: Icons.local_hotel,
@@ -206,6 +213,13 @@ class _WardModeScreenState extends State<WardModeScreen> {
     }
 
     return const [
+      _WardAction(
+        title: 'Command Board',
+        subtitle: 'Priority, diagnosis, tasks',
+        icon: Icons.view_timeline_outlined,
+        color: AppTheme.primaryBlue,
+        route: '/patient-command-board',
+      ),
       _WardAction(
         title: 'Bed Board',
         subtitle: 'Select admitted patient',
