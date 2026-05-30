@@ -67,7 +67,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     return StaffScaffold(
       title: s.staffMgmtTitle,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddStaffUnavailable(context),
+        onPressed: () => _showEditDialog(context, null),
         icon: const Icon(Icons.person_add),
         label: Text(s.staffMgmtAddStaff),
         backgroundColor: AppTheme.primaryBlue,
@@ -174,25 +174,6 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         );
       }
     }
-  }
-
-  void _showAddStaffUnavailable(BuildContext context) {
-    final s = AppStrings.of(context);
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(s.staffMgmtAddStaff),
-        content: const Text(
-          'Create the staff user account from Admin first, then manage department, position, and roster details here.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(s.actionClose),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showEditDialog(BuildContext context, dynamic staff) {
@@ -320,9 +301,44 @@ class _StaffFormDialog extends StatefulWidget {
 class _StaffFormDialogState extends State<_StaffFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameCtrl;
+  late TextEditingController _phoneCtrl;
+  late TextEditingController _emailCtrl;
+  late TextEditingController _employeeIdCtrl;
   late TextEditingController _deptCtrl;
   late TextEditingController _positionCtrl;
+  late TextEditingController _passwordCtrl;
+  String _role = 'NURSING_STAFF';
+  String _shift = 'FULL_DAY';
   bool _submitting = false;
+
+  static const _roleOptions = <_StaffRoleOption>[
+    _StaffRoleOption('DOCTOR', 'Doctor'),
+    _StaffRoleOption('DUTY_DOCTOR', 'Duty Doctor'),
+    _StaffRoleOption('MEDICAL_SUPERINTENDENT', 'Medical Superintendent'),
+    _StaffRoleOption('CNO', 'Nursing Superintendent'),
+    _StaffRoleOption('NURSING_STAFF', 'Nursing Staff'),
+    _StaffRoleOption('NURSING_INCHARGE', 'Nursing Incharge'),
+    _StaffRoleOption('OP_STAFF_NURSE', 'OP Staff Nurse'),
+    _StaffRoleOption('OP_INCHARGE', 'OP Incharge'),
+    _StaffRoleOption('RECEPTIONIST', 'Receptionist'),
+    _StaffRoleOption('RECEPTION_INCHARGE', 'Reception Incharge'),
+    _StaffRoleOption('HR_STAFF', 'HR Staff'),
+    _StaffRoleOption('HOUSEKEEPING_STAFF', 'Housekeeping Staff'),
+    _StaffRoleOption('HOUSEKEEPING_INCHARGE', 'Housekeeping Incharge'),
+    _StaffRoleOption('PHARMACY_STAFF', 'Pharmacy Staff'),
+    _StaffRoleOption('LAB_STAFF', 'Lab Staff'),
+    _StaffRoleOption('DRIVER', 'Driver'),
+    _StaffRoleOption('MAINTENANCE', 'Maintenance'),
+    _StaffRoleOption('GENERAL_STAFF', 'General Staff'),
+  ];
+
+  static const _shiftOptions = [
+    'FULL_DAY',
+    'MORNING',
+    'AFTERNOON',
+    'NIGHT',
+    'ON_CALL',
+  ];
 
   @override
   void initState() {
@@ -330,17 +346,35 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     _nameCtrl = TextEditingController(
       text: widget.staff?['name'] ?? widget.staff?['fullName'] ?? '',
     );
+    _phoneCtrl = TextEditingController(text: widget.staff?['phone'] ?? '');
+    _emailCtrl = TextEditingController(text: widget.staff?['email'] ?? '');
+    _employeeIdCtrl = TextEditingController(
+      text: widget.staff?['employee_id'] ?? widget.staff?['employeeId'] ?? '',
+    );
     _deptCtrl = TextEditingController(text: widget.staff?['department'] ?? '');
     _positionCtrl = TextEditingController(
       text: widget.staff?['position'] ?? widget.staff?['designation'] ?? '',
     );
+    _passwordCtrl = TextEditingController();
+    final role = widget.staff?['role']?.toString().toUpperCase();
+    if (role != null && _roleOptions.any((option) => option.value == role)) {
+      _role = role;
+    }
+    final shift = widget.staff?['shift']?.toString().toUpperCase();
+    if (shift != null && _shiftOptions.contains(shift)) {
+      _shift = shift;
+    }
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
+    _employeeIdCtrl.dispose();
     _deptCtrl.dispose();
     _positionCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -358,17 +392,31 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
         await HrApiService.updateProfile(id.toString(), {
           'department': _deptCtrl.text.trim(),
           'position': _positionCtrl.text.trim(),
+          'shift': _shift,
+        });
+      } else {
+        await HrApiService.createStaffProfile({
+          'name': _nameCtrl.text.trim(),
+          'phone': _phoneCtrl.text.trim(),
+          if (_emailCtrl.text.trim().isNotEmpty)
+            'email': _emailCtrl.text.trim(),
+          if (_employeeIdCtrl.text.trim().isNotEmpty)
+            'employee_id': _employeeIdCtrl.text.trim(),
+          'role': _role,
+          'department': _deptCtrl.text.trim(),
+          'position': _positionCtrl.text.trim(),
+          'shift': _shift,
+          'temporary_password': _passwordCtrl.text.trim(),
         });
       }
-      // TODO: Add POST endpoint for creating new staff when available
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               id != null
-                  ? '✅ Staff updated successfully'
-                  : '✅ Staff added (backend API pending)',
+                  ? 'Staff updated successfully'
+                  : 'Staff account created with onboarding checklist',
             ),
             backgroundColor: AppTheme.successGreen,
           ),
@@ -394,30 +442,109 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     final isEdit = widget.staff != null;
     return AlertDialog(
       title: Text(isEdit ? s.staffMgmtEditStaff : s.staffMgmtAddStaff),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _nameCtrl,
-              enabled: !isEdit,
-              decoration: InputDecoration(labelText: s.staffMgmtFullName),
-              validator: (v) => (v == null || v.trim().isEmpty)
-                  ? s.staffMgmtNameRequired
-                  : null,
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _nameCtrl,
+                  enabled: !isEdit,
+                  decoration: InputDecoration(labelText: s.staffMgmtFullName),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? s.staffMgmtNameRequired
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                if (!isEdit) ...[
+                  TextFormField(
+                    controller: _phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Phone'),
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? 'Phone is required'
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Email'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _employeeIdCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Employee ID',
+                      helperText: 'Leave blank to auto-generate',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _role,
+                    decoration: const InputDecoration(labelText: 'Role'),
+                    items: [
+                      for (final option in _roleOptions)
+                        DropdownMenuItem(
+                          value: option.value,
+                          child: Text(option.label),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => _role = value);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextFormField(
+                  controller: _deptCtrl,
+                  decoration: InputDecoration(labelText: s.staffMgmtDepartment),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Department is required'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _positionCtrl,
+                  decoration: const InputDecoration(labelText: 'Position'),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Position is required'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _shift,
+                  decoration: const InputDecoration(labelText: 'Default shift'),
+                  items: [
+                    for (final shift in _shiftOptions)
+                      DropdownMenuItem(
+                        value: shift,
+                        child: Text(shift.replaceAll('_', ' ')),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => _shift = value);
+                  },
+                ),
+                if (!isEdit) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _passwordCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Temporary password',
+                    ),
+                    validator: (v) => (v == null || v.trim().length < 6)
+                        ? 'Use at least 6 characters'
+                        : null,
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _deptCtrl,
-              decoration: InputDecoration(labelText: s.staffMgmtDepartment),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _positionCtrl,
-              decoration: const InputDecoration(labelText: 'Position'),
-            ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -432,6 +559,12 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
       ],
     );
   }
+}
+
+class _StaffRoleOption {
+  final String value;
+  final String label;
+  const _StaffRoleOption(this.value, this.label);
 }
 
 class _ErrorState extends StatelessWidget {

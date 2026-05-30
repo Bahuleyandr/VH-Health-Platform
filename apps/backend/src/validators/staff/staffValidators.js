@@ -2,8 +2,23 @@ import { body, query, param } from 'express-validator';
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
 
 export const staffProfileValidation = [
-  body('user_id').optional().isInt({ min: 1 }).withMessage('Valid user ID required'),
-  body('employee_id').notEmpty().withMessage('Employee ID required'),
+  body('user_id')
+    .optional()
+    .custom((value) => Number.isInteger(Number(value)) || /^[0-9a-f-]{36}$/i.test(String(value)))
+    .withMessage('Valid user ID or UID required'),
+  body('employee_id').optional().isLength({ min: 3, max: 50 }).withMessage('Valid employee ID required'),
+  body('name').optional().isLength({ min: 2, max: 255 }).withMessage('Valid staff name required'),
+  body('phone').optional().isMobilePhone('en-IN').withMessage('Valid staff phone required'),
+  body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email required'),
+  body('role').optional().isIn(Object.values(STAFF_ROLES)).withMessage('Valid staff role required'),
+  body('temporary_password')
+    .optional({ checkFalsy: true })
+    .isLength({ min: 6 })
+    .withMessage('Temporary password must be at least 6 characters'),
+  body('password')
+    .optional({ checkFalsy: true })
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters'),
   body('position').notEmpty().withMessage('Position required'),
   body('department').notEmpty().withMessage('Department required'),
   body('shift').optional().isIn(Object.keys(SHIFT_TYPES)).withMessage('Valid shift required'),

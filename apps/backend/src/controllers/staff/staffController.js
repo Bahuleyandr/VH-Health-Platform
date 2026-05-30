@@ -75,8 +75,14 @@ export const createStaffProfile = async (req, res) => {
     
     if (err.message === 'USER_NOT_FOUND') {
       error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
+    } else if (err.message === 'STAFF_ACCOUNT_FIELDS_REQUIRED') {
+      error(res, 'Name, phone, role, and temporary password are required for new staff accounts', HTTP_STATUS.BAD_REQUEST);
     } else if (err.message === 'INVALID_ROLE') {
       error(res, 'User must have a valid staff role', HTTP_STATUS.BAD_REQUEST);
+    } else if (err.message === 'WEAK_PASSWORD') {
+      error(res, 'Temporary password must be at least 6 characters', HTTP_STATUS.BAD_REQUEST);
+    } else if (err.message === 'USER_PHONE_EXISTS') {
+      error(res, 'A user already exists with this phone number', HTTP_STATUS.CONFLICT);
     } else if (err.message === 'PROFILE_EXISTS') {
       error(res, 'Staff profile already exists for this user', HTTP_STATUS.CONFLICT);
     } else if (err.message === 'EMPLOYEE_ID_EXISTS') {

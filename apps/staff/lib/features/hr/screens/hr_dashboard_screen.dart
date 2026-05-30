@@ -303,9 +303,18 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         _ActionTile(
           icon: Icons.manage_accounts,
           title: s.hrActionStaffManagement,
-          subtitle: s.hrActionStaffManagementSubtitle,
+          subtitle: 'Onboard staff, assign roles, and manage department files',
           color: AppTheme.primaryBlue,
           onTap: () => context.go('/staff-management'),
+        ),
+        const SizedBox(height: 10),
+        _ActionTile(
+          icon: Icons.calendar_month_outlined,
+          title: 'Staff roster',
+          subtitle:
+              'Open doctor, nursing, OP, reception, driver, maintenance, pharmacy, or housekeeping boards',
+          color: const Color(0xFF1565C0),
+          onTap: () => context.go('/staff-rosters'),
         ),
         const SizedBox(height: 10),
         _ActionTile(

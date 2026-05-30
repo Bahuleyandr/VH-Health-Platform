@@ -1,8 +1,10 @@
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
+import bcrypt from 'bcrypt';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
+import { DEFAULT_ONBOARDING_TASKS } from './hr/constants.js';
 
 export const getStaffList = async (filters, userRole) => {
   const allowedRoles = getStaffHierarchy(userRole);
@@ -313,39 +315,120 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
   };
 };
 
-export const createStaffProfile = async (data, createdBy, creatorName, ipAddress) => {
-  const { 
-    user_id, employee_id, position, department, shift = 'FULL_DAY',
-    salary, hire_date, supervisor_id, emergency_contact, 
-    skills, certifications, notes 
-  } = data;
+function normalizeStaffPhone(phone) {
+  return String(phone || '').replace(/[\s-]/g, '').trim();
+}
 
-  // Verify user exists and has appropriate role
-  const userCheck = await prisma.$queryRawUnsafe(
-    'SELECT id, role, name, phone FROM users WHERE id = $1',
-    user_id
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || '').trim(),
   );
+}
 
-  if (userCheck.length === 0) {
-    throw new Error('USER_NOT_FOUND');
-  }
+async function nextEmployeeId() {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT employee_id
+    FROM staff
+    WHERE employee_id ~ '^EMP-[0-9]+$'
+    ORDER BY (substring(employee_id FROM '[0-9]+'))::int DESC
+    LIMIT 1
+  `);
+  const current = rows[0]?.employee_id;
+  const currentNumber = Number(String(current || '').replace(/\D/g, '')) || 1000;
+  return `EMP-${String(currentNumber + 1).padStart(4, '0')}`;
+}
 
-  const user = userCheck[0];
+async function seedOnboardingTasks(userIntId, createdBy) {
+  const due = new Date();
+  due.setDate(due.getDate() + 30);
+
+  await Promise.all(
+    DEFAULT_ONBOARDING_TASKS.map((task) =>
+      prisma.staff_onboarding_tasks.create({
+        data: {
+          staff_id: userIntId,
+          task_name: task.task_name,
+          description: task.description,
+          completed: false,
+          priority: task.priority,
+          assigned_to: createdBy || null,
+          due_date: due,
+          updated_at: new Date(),
+        },
+      }),
+    ),
+  );
+}
+
+async function resolveOrCreateStaffUser(data) {
   const validStaffRoles = Object.values(STAFF_ROLES);
-  
-  if (!validStaffRoles.includes(user.role)) {
-    throw new Error('INVALID_ROLE');
+  const rawUserId = data.user_id || data.user_uid;
+  if (rawUserId) {
+    const userRows = isUuid(rawUserId)
+      ? await prisma.$queryRawUnsafe(
+        'SELECT id, uid, role, name, phone, email FROM users WHERE uid = $1::uuid',
+        String(rawUserId),
+      )
+      : await prisma.$queryRawUnsafe(
+        'SELECT id, uid, role, name, phone, email FROM users WHERE id = $1::int',
+        Number(rawUserId),
+      );
+
+    if (userRows.length === 0) throw new Error('USER_NOT_FOUND');
+    const user = userRows[0];
+    if (!validStaffRoles.includes(user.role)) throw new Error('INVALID_ROLE');
+    return { user, createdUser: false };
   }
 
-  // Check if staff profile already exists
-  const existingProfile = await prisma.$queryRawUnsafe(
-    'SELECT user_id FROM staff WHERE user_id = $1',
-    user_id
+  const name = String(data.name || data.full_name || '').trim();
+  const phone = normalizeStaffPhone(data.phone);
+  const role = String(data.role || '').trim().toUpperCase();
+  const password = String(data.temporary_password || data.password || '').trim();
+
+  if (!name || !phone || !role || !password) {
+    throw new Error('STAFF_ACCOUNT_FIELDS_REQUIRED');
+  }
+  if (!validStaffRoles.includes(role)) throw new Error('INVALID_ROLE');
+  if (password.length < 6) throw new Error('WEAK_PASSWORD');
+
+  const existing = await prisma.$queryRawUnsafe(
+    'SELECT id, uid FROM users WHERE phone = $1 LIMIT 1',
+    phone,
   );
+  if (existing.length > 0) throw new Error('USER_PHONE_EXISTS');
 
-  if (existingProfile.length > 0) {
-    throw new Error('PROFILE_EXISTS');
-  }
+  const passwordHash = await bcrypt.hash(password, 10);
+  const created = await prisma.users.create({
+    data: {
+      phone,
+      name,
+      email: data.email || null,
+      role,
+      encrypted_password: passwordHash,
+      is_active: true,
+      registered_at: new Date(),
+      updated_at: new Date(),
+    },
+    select: { id: true, uid: true, role: true, name: true, phone: true, email: true },
+  });
+
+  return { user: created, createdUser: true };
+}
+
+export const createStaffProfile = async (data, createdBy, creatorName, ipAddress) => {
+  const {
+    position, department, shift = 'FULL_DAY',
+    salary, hire_date, supervisor_id, emergency_contact,
+    skills, certifications, notes
+  } = data;
+  const employee_id = String(data.employee_id || '').trim() || await nextEmployeeId();
+  const emergencyContactPayload = emergency_contact == null
+    ? null
+    : JSON.stringify(
+      typeof emergency_contact === 'object'
+        ? emergency_contact
+        : { phone: String(emergency_contact) },
+    );
 
   // Check employee_id uniqueness
   const employeeIdCheck = await prisma.$queryRawUnsafe(
@@ -355,6 +438,18 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
 
   if (employeeIdCheck.length > 0) {
     throw new Error('EMPLOYEE_ID_EXISTS');
+  }
+
+  const { user, createdUser } = await resolveOrCreateStaffUser(data);
+
+  // Check if staff profile already exists
+  const existingProfile = await prisma.$queryRawUnsafe(
+    'SELECT user_id FROM staff WHERE user_id = $1::uuid',
+    user.uid
+  );
+
+  if (existingProfile.length > 0) {
+    throw new Error('PROFILE_EXISTS');
   }
 
   // Validate supervisor if provided
@@ -372,31 +467,34 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
   // Create staff profile
   const result = await prisma.$queryRawUnsafe(`
     INSERT INTO staff (
-      user_id, employee_id, position, department, shift, salary,
+      user_id, employee_id, name, position, department, shift, salary,
       hire_date, supervisor_id, emergency_contact, skills, 
-      certifications, notes, is_active, created_at, created_by
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), $13)
-    RETURNING id, user_id, employee_id, department, position, shift, is_active, created_at, updated_at
+      certifications, notes, is_active, created_at, updated_at, created_by
+    ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::date, $9, $10::jsonb, $11::text[], $12::text[], $13, true, NOW(), NOW(), $14::uuid)
+    RETURNING id, user_id, employee_id, name, department, position, shift, is_active, created_at, updated_at
   `, 
-    user_id, employee_id, position, department, shift.toUpperCase(), salary,
-    hire_date, supervisor_id, emergency_contact, 
-    skills ? JSON.stringify(skills) : null,
-    certifications ? JSON.stringify(certifications) : null, 
+    user.uid, employee_id, user.name, position, department, shift.toUpperCase(), salary ?? null,
+    hire_date || null, supervisor_id ? Number(supervisor_id) : null,
+    emergencyContactPayload,
+    Array.isArray(skills) ? skills : [],
+    Array.isArray(certifications) ? certifications : [],
     notes, createdBy
   );
+
+  await seedOnboardingTasks(user.id, createdBy);
 
   // Log staff creation activity
   await prisma.$queryRawUnsafe(
     `INSERT INTO admin_activity_logs (
       admin_uid, action, description, affected_user_id,
       details, ip_address, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+    ) VALUES ($1::uuid, $2, $3, $4::uuid, $5::jsonb, $6, NOW())`,
     
       createdBy,
       'STAFF_PROFILE_CREATED',
       `Staff profile created for ${user.name} (${employee_id})`,
-      user_id,
-      JSON.stringify({ employee_id, position, department }),
+      user.uid,
+      JSON.stringify({ employee_id, position, department, role: user.role, created_user: createdUser }),
       ipAddress
     
   );
@@ -410,9 +508,16 @@ export const createStaffProfile = async (data, createdBy, creatorName, ipAddress
       shift_details: SHIFT_TYPES[result[0].shift] || null
     },
     userInfo: {
+      id: user.id,
+      uid: user.uid,
       name: user.name,
       phone: user.phone,
+      email: user.email,
       role: user.role
+    },
+    onboarding: {
+      tasks_created: DEFAULT_ONBOARDING_TASKS.length,
+      status: 'pending'
     },
     createdBy: creatorName
   };

@@ -324,13 +324,6 @@ class RoleFeatures {
     route: '/staff-roster/reception',
     color: Color(0xFF455A64),
   );
-  static const DashboardFeature _driverRoster = DashboardFeature(
-    id: 'driver_roster',
-    title: 'Driver Roster',
-    icon: Icons.local_shipping_outlined,
-    route: '/staff-roster/ambulance',
-    color: Color(0xFF5D4037),
-  );
   static const DashboardFeature _maintenanceRoster = DashboardFeature(
     id: 'maintenance_roster',
     title: 'Maintenance Roster',
@@ -351,6 +344,13 @@ class RoleFeatures {
     icon: Icons.medical_services_outlined,
     route: '/staff-roster/medical',
     color: Color(0xFF0D47A1),
+  );
+  static const DashboardFeature _staffRosterHub = DashboardFeature(
+    id: 'staff_roster',
+    title: 'Staff Roster',
+    icon: Icons.calendar_month_outlined,
+    route: '/staff-rosters',
+    color: Color(0xFF1565C0),
   );
   static const DashboardFeature _vitals = DashboardFeature(
     id: 'vitals',
@@ -617,14 +617,7 @@ class RoleFeatures {
       StaffRole.hr => [
         _attendance,
         _schedule,
-        _medicalRoster,
-        _nursingRoster,
-        _opNursingRoster,
-        _receptionRoster,
-        _driverRoster,
-        _maintenanceRoster,
-        _pharmacyRoster,
-        _housekeepingRoster,
+        _staffRosterHub,
         _hrDashboard,
         _staffManagement,
         _organizationHierarchy,
@@ -668,11 +661,7 @@ class RoleFeatures {
       StaffRole.admin || StaffRole.superAdmin => [
         _attendance,
         _schedule,
-        _medicalRoster,
-        _nursingRoster,
-        _opNursingRoster,
-        _receptionRoster,
-        _driverRoster,
+        _staffRosterHub,
         _receptionCounter,
         _appointments,
         _appointmentQueue,
@@ -697,9 +686,6 @@ class RoleFeatures {
         _organizationHierarchy,
         _performance,
         _leaveApprovals,
-        _housekeepingRoster,
-        _maintenanceRoster,
-        _pharmacyRoster,
         _housekeepingCommand,
         _housekeepingHub,
         _housekeepingTasks,

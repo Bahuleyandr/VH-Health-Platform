@@ -112,6 +112,14 @@ class HrApiService {
     return _handle(resp);
   }
 
+  /// POST /staff/create — create a staff user account, staff profile, and
+  /// onboarding checklist in one HR/Admin action.
+  static Future<Map<String, dynamic>> createStaffProfile(
+    Map<String, dynamic> payload,
+  ) async {
+    return _post('/staff/create', payload);
+  }
+
   // ─── Performance ──────────────────────────────────────────────────────────
 
   /// GET /staff/hr/performance-report — performance reports

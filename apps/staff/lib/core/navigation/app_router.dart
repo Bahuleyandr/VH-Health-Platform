@@ -45,6 +45,7 @@ import '../../features/hr/screens/hr_dashboard_screen.dart';
 import '../../features/hr/screens/leave_approvals_screen.dart';
 import '../../features/hr/screens/organization_hierarchy_screen.dart';
 import '../../features/hr/screens/staff_management_screen.dart';
+import '../../features/hr/screens/staff_roster_hub_screen.dart';
 import '../../features/hr/screens/performance_screen.dart';
 
 // Housekeeping
@@ -445,6 +446,12 @@ final GoRouter appRouter = GoRouter(
           name: 'leave-approvals',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: LeaveApprovalsScreen()),
+        ),
+        GoRoute(
+          path: '/staff-rosters',
+          name: 'staff-rosters',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: StaffRosterHubScreen()),
         ),
 
         // Housekeeping
