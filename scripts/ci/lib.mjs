@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -37,6 +37,23 @@ export function relativeCwd(cwd = repoRoot) {
   return cwd.replace(`${repoRoot}\\`, '').replace(`${repoRoot}/`, '');
 }
 
+export function cacheDir(...parts) {
+  const root = process.env.VH_CI_CACHE_DIR;
+  if (!root) return null;
+  const dir = join(root, ...parts);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function cacheEnv() {
+  const npmCache = cacheDir('npm');
+  const pubCache = cacheDir('pub');
+  return {
+    ...(npmCache ? { npm_config_cache: npmCache, NPM_CONFIG_CACHE: npmCache } : {}),
+    ...(pubCache ? { PUB_CACHE: pubCache } : {}),
+  };
+}
+
 export function run(command, args, options = {}) {
   const started = Date.now();
   const displayCwd = options.cwd ? relativeCwd(options.cwd) : '.';
@@ -45,7 +62,7 @@ export function run(command, args, options = {}) {
   const spec = commandSpec(command, args);
   const result = spawnSync(spec.command, spec.args, {
     cwd: options.cwd || repoRoot,
-    env: { ...process.env, ...(options.env || {}) },
+    env: { ...process.env, ...cacheEnv(), ...(options.env || {}) },
     stdio: 'inherit',
     shell: false,
   });

@@ -7,6 +7,11 @@ import { runFlutterStage } from './flutter.mjs';
 import { runInfraStage } from './infra.mjs';
 import { runSecurityStage } from './security.mjs';
 import { runSmokeStage } from './smoke.mjs';
+import {
+  changedFilesForBranchPush,
+  shouldSelectChangedStages,
+  stagesForChangedFiles,
+} from './stage-selection.mjs';
 
 const stageOrder = ['security', 'backend', 'fhir', 'admin', 'flutter', 'infra'];
 const optionalStages = ['smoke'];
@@ -38,6 +43,7 @@ Examples:
   node scripts/ci/run.mjs --only=security,backend
   node scripts/ci/run.mjs --skip=flutter
   node scripts/ci/run.mjs --install --include-smoke
+  node scripts/ci/run.mjs --install --changed-on-branch-push
 `);
 }
 
@@ -45,6 +51,8 @@ function parseArgs() {
   let selected = [...stageOrder];
   const skipped = new Set();
   let install = false;
+  let changedOnBranchPush = false;
+  let forceChanged = false;
 
   for (const arg of process.argv.slice(2)) {
     if (arg === '--help' || arg === '-h') {
@@ -53,6 +61,14 @@ function parseArgs() {
     }
     if (arg === '--install') {
       install = true;
+      continue;
+    }
+    if (arg === '--changed') {
+      forceChanged = true;
+      continue;
+    }
+    if (arg === '--changed-on-branch-push') {
+      changedOnBranchPush = true;
       continue;
     }
     if (arg === '--include-smoke') {
@@ -83,6 +99,17 @@ function parseArgs() {
     console.error(`Unknown local CI stage(s): ${unknown.join(', ')}`);
     usage();
     process.exit(2);
+  }
+
+  const changedMode = forceChanged || (changedOnBranchPush && shouldSelectChangedStages());
+  if (changedMode) {
+    const files = changedFilesForBranchPush();
+    console.log(`Changed-file CI mode: ${files.length} changed file(s).`);
+    if (files.length > 0) {
+      for (const file of files.slice(0, 40)) console.log(` - ${file}`);
+      if (files.length > 40) console.log(` - ... ${files.length - 40} more`);
+    }
+    selected = stagesForChangedFiles(files, stageOrder);
   }
 
   return {

@@ -1,48 +1,61 @@
 import process from 'node:process';
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkCommand, run } from './lib.mjs';
+import { cacheDir, checkCommand, run } from './lib.mjs';
 
 const kustomizeVersion = process.env.KUSTOMIZE_VERSION || '5.8.1';
 const kubeconformVersion = process.env.KUBECONFORM_VERSION || '0.7.0';
 
 function installLinuxManifestValidators() {
-  const installDir = mkdtempSync(join(tmpdir(), 'vhhealth-k8s-tools-'));
+  const cachedRoot =
+    process.env.VH_K8S_TOOLS_CACHE_DIR ||
+    cacheDir('k8s-tools');
+  const installDir = cachedRoot
+    ? join(cachedRoot, `kustomize-${kustomizeVersion}_kubeconform-${kubeconformVersion}`)
+    : mkdtempSync(join(tmpdir(), 'vhhealth-k8s-tools-'));
   const kustomizeArchive = join(installDir, `kustomize_v${kustomizeVersion}_linux_amd64.tar.gz`);
   const kubeconformArchive = join(installDir, 'kubeconform-linux-amd64.tar.gz');
   const kustomizeBin = join(installDir, 'kustomize');
   const kubeconformBin = join(installDir, 'kubeconform');
 
-  run('curl', [
-    '--fail',
-    '--location',
-    '--retry',
-    '5',
-    '--retry-all-errors',
-    '--connect-timeout',
-    '30',
-    '--output',
-    kustomizeArchive,
-    `https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${kustomizeVersion}/kustomize_v${kustomizeVersion}_linux_amd64.tar.gz`,
-  ]);
-  run('tar', ['-xzf', kustomizeArchive, '-C', installDir, 'kustomize']);
-  chmodSync(kustomizeBin, 0o755);
+  if (cachedRoot) {
+    mkdirSync(installDir, { recursive: true });
+  }
 
-  run('curl', [
-    '--fail',
-    '--location',
-    '--retry',
-    '5',
-    '--retry-all-errors',
-    '--connect-timeout',
-    '30',
-    '--output',
-    kubeconformArchive,
-    `https://github.com/yannh/kubeconform/releases/download/v${kubeconformVersion}/kubeconform-linux-amd64.tar.gz`,
-  ]);
-  run('tar', ['-xzf', kubeconformArchive, '-C', installDir, 'kubeconform']);
-  chmodSync(kubeconformBin, 0o755);
+  if (!checkCommand(kustomizeBin, ['version'])) {
+    run('curl', [
+      '--fail',
+      '--location',
+      '--retry',
+      '5',
+      '--retry-all-errors',
+      '--connect-timeout',
+      '30',
+      '--output',
+      kustomizeArchive,
+      `https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${kustomizeVersion}/kustomize_v${kustomizeVersion}_linux_amd64.tar.gz`,
+    ]);
+    run('tar', ['-xzf', kustomizeArchive, '-C', installDir, 'kustomize']);
+    chmodSync(kustomizeBin, 0o755);
+  }
+
+  if (!checkCommand(kubeconformBin, ['-v'])) {
+    run('curl', [
+      '--fail',
+      '--location',
+      '--retry',
+      '5',
+      '--retry-all-errors',
+      '--connect-timeout',
+      '30',
+      '--output',
+      kubeconformArchive,
+      `https://github.com/yannh/kubeconform/releases/download/v${kubeconformVersion}/kubeconform-linux-amd64.tar.gz`,
+    ]);
+    run('tar', ['-xzf', kubeconformArchive, '-C', installDir, 'kubeconform']);
+    chmodSync(kubeconformBin, 0o755);
+  }
 
   run(kustomizeBin, ['version']);
   run(kubeconformBin, ['-v']);
@@ -53,6 +66,7 @@ function installLinuxManifestValidators() {
       KUSTOMIZE_BIN: kustomizeBin,
       KUBECONFORM_BIN: kubeconformBin,
     },
+    temporary: !cachedRoot,
   };
 }
 
@@ -71,7 +85,7 @@ export function runInfraStage({ install } = {}) {
       env: installedTools?.env,
     });
   } finally {
-    if (installedTools?.dir) {
+    if (installedTools?.temporary && installedTools?.dir) {
       rmSync(installedTools.dir, { recursive: true, force: true });
     }
   }

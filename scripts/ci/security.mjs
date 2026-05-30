@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import process from 'node:process';
 import { createHash } from 'node:crypto';
-import { checkCommand, run } from './lib.mjs';
+import { cacheDir, checkCommand, run } from './lib.mjs';
 
 const gitleaksVersion = '8.30.1';
 
@@ -37,18 +37,22 @@ async function ensureGitleaks() {
   }
 
   const archive = gitleaksArchiveName();
-  const cacheDir = join(homedir(), '.cache', 'vh-ci', 'gitleaks', gitleaksVersion);
-  const binPath = join(cacheDir, process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks');
+  const toolCacheDir =
+    process.env.GITLEAKS_CACHE_DIR ||
+    cacheDir('gitleaks') ||
+    join(homedir(), '.cache', 'vh-ci', 'gitleaks');
+  const versionCacheDir = join(toolCacheDir, gitleaksVersion);
+  const binPath = join(versionCacheDir, process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks');
   if (existsSync(binPath)) {
     return { GITLEAKS_BIN: binPath };
   }
 
-  mkdirSync(cacheDir, { recursive: true });
+  mkdirSync(versionCacheDir, { recursive: true });
   const releaseBase = `https://github.com/gitleaks/gitleaks/releases/download/v${gitleaksVersion}`;
-  const archivePath = join(cacheDir, archive);
-  const checksumsPath = join(cacheDir, `gitleaks_${gitleaksVersion}_checksums.txt`);
+  const archivePath = join(versionCacheDir, archive);
+  const checksumsPath = join(versionCacheDir, `gitleaks_${gitleaksVersion}_checksums.txt`);
 
-  console.log(`Installing gitleaks ${gitleaksVersion} to ${cacheDir}`);
+  console.log(`Installing gitleaks ${gitleaksVersion} to ${versionCacheDir}`);
   await downloadFile(`${releaseBase}/${archive}`, archivePath);
   await downloadFile(`${releaseBase}/gitleaks_${gitleaksVersion}_checksums.txt`, checksumsPath);
 
@@ -65,7 +69,7 @@ async function ensureGitleaks() {
     throw new Error(`Checksum mismatch for ${basename(archivePath)}`);
   }
 
-  run('tar', ['-xzf', archivePath, '-C', cacheDir, process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks']);
+  run('tar', ['-xzf', archivePath, '-C', versionCacheDir, process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks']);
   if (process.platform !== 'win32') {
     run('chmod', ['0755', binPath]);
   }

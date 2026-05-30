@@ -1,12 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { checkCommand, repoRoot, run } from './lib.mjs';
+import { cacheDir, checkCommand, repoRoot, run } from './lib.mjs';
 
 const validatorVersion = '6.3.11';
 const validatorUrl =
   `https://github.com/hapifhir/org.hl7.fhir.core/releases/download/${validatorVersion}/validator_cli.jar`;
-const validatorPath = join(homedir(), '.cache', 'fhir-validator', validatorVersion, 'validator_cli.jar');
+const validatorRoot =
+  process.env.FHIR_VALIDATOR_CACHE_DIR || cacheDir('fhir-validator') || join(homedir(), '.cache', 'fhir-validator');
+const validatorPath = join(validatorRoot, validatorVersion, 'validator_cli.jar');
+const validatorArgs = ['-version', '4.0.1', '-tx', 'n/a'];
 
 async function ensureValidator() {
   if (existsSync(validatorPath)) return validatorPath;
@@ -35,6 +38,16 @@ async function ensureValidator() {
   return validatorPath;
 }
 
+function installJavaIfPossible() {
+  if (process.platform !== 'linux') return false;
+  if (process.getuid && process.getuid() !== 0) return false;
+
+  console.log('Java not found; installing OpenJDK 17 for FHIR validation.');
+  run('apt-get', ['update']);
+  run('apt-get', ['install', '-y', '--no-install-recommends', 'openjdk-17-jre-headless']);
+  return true;
+}
+
 function jsonFiles(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
@@ -42,14 +55,14 @@ function jsonFiles(dir) {
     .map((name) => join(dir, name));
 }
 
-export async function runFhirStage() {
+export async function runFhirStage({ install = false } = {}) {
   const samplesDir = resolve(repoRoot, 'apps/backend/src/services/fhir/__samples__');
   if (!existsSync(samplesDir)) {
     console.log('No FHIR samples directory; skipping FHIR conformance.');
     return;
   }
 
-  if (!checkCommand('java', ['-version'])) {
+  if (!checkCommand('java', ['-version']) && !(install && installJavaIfPossible())) {
     throw new Error('Java is required for FHIR conformance validation.');
   }
 
@@ -58,7 +71,7 @@ export async function runFhirStage() {
   for (const file of jsonFiles(samplesDir)) {
     console.log(`Informational FHIR validation: ${file}`);
     try {
-      run('java', ['-jar', validator, file, '-version', '4.0.1']);
+      run('java', ['-jar', validator, file, ...validatorArgs]);
     } catch (error) {
       console.warn(`FHIR informational validation failed but is non-blocking: ${error.message}`);
     }
@@ -69,7 +82,7 @@ export async function runFhirStage() {
   for (const file of jsonFiles(goldenDir)) {
     console.log(`Strict FHIR golden validation: ${file}`);
     try {
-      run('java', ['-jar', validator, file, '-version', '4.0.1']);
+      run('java', ['-jar', validator, file, ...validatorArgs]);
     } catch {
       failures += 1;
     }

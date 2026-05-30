@@ -8,6 +8,21 @@ on:
       - '**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: canonical-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VH_CI_CACHE_DIR: /cache/vh-health-platform
+  GITLEAKS_CACHE_DIR: /cache/vh-health-platform/gitleaks
+  FHIR_VALIDATOR_CACHE_DIR: /cache/vh-health-platform/fhir-validator
+  VH_K8S_TOOLS_CACHE_DIR: /cache/vh-health-platform/k8s-tools
+  PUB_CACHE: /cache/vh-health-platform/pub
+  npm_config_cache: /cache/vh-health-platform/npm
+
 jobs:
   ci:
     name: Repo-owned CI runner
@@ -17,6 +32,16 @@ jobs:
       - uses: https://data.forgejo.org/actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Prepare persistent CI cache
+        run: |
+          mkdir -p \
+            "$VH_CI_CACHE_DIR" \
+            "$GITLEAKS_CACHE_DIR" \
+            "$FHIR_VALIDATOR_CACHE_DIR" \
+            "$VH_K8S_TOOLS_CACHE_DIR" \
+            "$PUB_CACHE" \
+            "$npm_config_cache"
 
       - uses: https://data.forgejo.org/actions/setup-node@v4
         with:
@@ -31,10 +56,5 @@ jobs:
           channel: stable
           cache: true
 
-      - uses: https://data.forgejo.org/actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
       - name: Run canonical CI
-        run: node scripts/ci/run.mjs --install
+        run: node scripts/ci/run.mjs --install --changed-on-branch-push

@@ -44,4 +44,4 @@ jobs:
           java-version: 17
 
       - name: Run canonical CI
-        run: node scripts/ci/run.mjs --install
+        run: node scripts/ci/run.mjs --install --changed-on-branch-push
