@@ -1,8 +1,6 @@
-import { createWriteStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import process from 'node:process';
 import { createHash } from 'node:crypto';
 import { cacheDir, checkCommand, run } from './lib.mjs';
@@ -19,12 +17,26 @@ function gitleaksArchiveName() {
   return `gitleaks_${gitleaksVersion}_${platform}_${arch}.tar.gz`;
 }
 
-async function downloadFile(url, targetPath) {
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download ${url}: HTTP ${response.status}`);
+function downloadFile(url, targetPath) {
+  const tmpPath = `${targetPath}.tmp-${process.pid}`;
+  try {
+    run('curl', [
+      '--fail',
+      '--location',
+      '--retry',
+      '5',
+      '--retry-all-errors',
+      '--connect-timeout',
+      '30',
+      '--output',
+      tmpPath,
+      url,
+    ]);
+    renameSync(tmpPath, targetPath);
+  } catch (error) {
+    rmSync(tmpPath, { force: true });
+    throw error;
   }
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(targetPath));
 }
 
 async function ensureGitleaks() {
@@ -53,8 +65,8 @@ async function ensureGitleaks() {
   const checksumsPath = join(versionCacheDir, `gitleaks_${gitleaksVersion}_checksums.txt`);
 
   console.log(`Installing gitleaks ${gitleaksVersion} to ${versionCacheDir}`);
-  await downloadFile(`${releaseBase}/${archive}`, archivePath);
-  await downloadFile(`${releaseBase}/gitleaks_${gitleaksVersion}_checksums.txt`, checksumsPath);
+  downloadFile(`${releaseBase}/${archive}`, archivePath);
+  downloadFile(`${releaseBase}/gitleaks_${gitleaksVersion}_checksums.txt`, checksumsPath);
 
   const expectedLine = readFileSync(checksumsPath, 'utf8')
     .split(/\r?\n/)
