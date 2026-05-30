@@ -14,6 +14,23 @@ const isWindows = process.platform === 'win32';
 const runTests = process.argv.includes('--with-tests') ||
   process.env.VH_DB_GUARDRAILS_RUN_TESTS === 'true';
 
+function resolvePublishedDockerHost() {
+  if (process.env.VH_DB_GUARDRAILS_HOST) {
+    return process.env.VH_DB_GUARDRAILS_HOST;
+  }
+
+  const dockerHost = process.env.DOCKER_HOST;
+  if (dockerHost?.startsWith('tcp://')) {
+    try {
+      return new URL(dockerHost).hostname;
+    } catch {
+      // Fall back to localhost if DOCKER_HOST is malformed.
+    }
+  }
+
+  return '127.0.0.1';
+}
+
 function commandName(command) {
   return isWindows && command === 'npm' ? 'npm.cmd' : command;
 }
@@ -91,11 +108,11 @@ function waitForPostgres(containerName) {
   throw new Error(`Postgres in ${containerName} did not become ready within 60 seconds`);
 }
 
-function waitForHostPort(port) {
+function waitForHostPort(host, port) {
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     function attempt() {
-      const socket = net.createConnection({ host: '127.0.0.1', port });
+      const socket = net.createConnection({ host, port });
       socket.once('connect', () => {
         socket.end();
         resolve();
@@ -103,7 +120,7 @@ function waitForHostPort(port) {
       socket.once('error', () => {
         socket.destroy();
         if (Date.now() - startedAt >= 60_000) {
-          reject(new Error(`127.0.0.1:${port} did not become reachable within 60 seconds`));
+          reject(new Error(`${host}:${port} did not become reachable within 60 seconds`));
         } else {
           setTimeout(attempt, 1000);
         }
@@ -141,7 +158,8 @@ if (!dockerAvailable()) {
 
 const port = await findPort();
 const containerName = `vhhealth-db-guardrails-${port}`;
-const databaseUrl = new URL(`postgresql://127.0.0.1:${port}/vhhealth_test`);
+const publishedHost = resolvePublishedDockerHost();
+const databaseUrl = new URL(`postgresql://${publishedHost}:${port}/vhhealth_test`);
 databaseUrl.username = 'postgres';
 databaseUrl.password = 'postgres';
 const connectionString = databaseUrl.toString();
@@ -160,7 +178,7 @@ try {
 }
 
 try {
-  console.log(`Starting disposable ${image} on 127.0.0.1:${port}`);
+  console.log(`Starting disposable ${image} on ${publishedHost}:${port}`);
   run('docker', [
     'run',
     '-d',
@@ -177,10 +195,10 @@ try {
     image,
   ]);
   waitForPostgres(containerName);
-  await waitForHostPort(port);
+  await waitForHostPort(publishedHost, port);
   await waitForDatabase(connectionString);
 
-  console.log(`Running DB guardrails against disposable Postgres on 127.0.0.1:${port}`);
+  console.log(`Running DB guardrails against disposable Postgres on ${publishedHost}:${port}`);
   run(process.execPath, [
     path.join('node_modules', 'prisma', 'build', 'index.js'),
     'generate',
