@@ -53,6 +53,33 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
     }
   }
 
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return {};
+  }
+
+  Map<String, dynamic> get _dashboard {
+    final raw = _asMap(_data);
+    final nested = _asMap(raw['data']);
+    return nested.isNotEmpty ? nested : raw;
+  }
+
+  String _metric(dynamic value) {
+    if (value == null) return '—';
+    if (value is num) {
+      if (value.isNaN) return '—';
+      return value % 1 == 0 ? value.toInt().toString() : value.toString();
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? '—' : text;
+  }
+
+  num? _asNum(dynamic value) {
+    if (value is num && !value.isNaN) return value;
+    return num.tryParse(value?.toString() ?? '');
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -123,80 +150,122 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
   }
 
   Widget _buildStatsGrid(AppStrings s) {
+    final dashboard = _dashboard;
+    final overview = _asMap(dashboard['overview']);
+    final leaves = _asMap(dashboard['leaves']);
     final totalStaff =
-        _data?['totalStaff'] ??
-        _data?['summary']?['totalStaff'] ??
-        _data?['staffCount'] ??
-        '—';
+        overview['total_staff'] ??
+        overview['totalStaff'] ??
+        dashboard['totalStaff'] ??
+        _asMap(dashboard['summary'])['totalStaff'] ??
+        dashboard['staffCount'];
     final presentToday =
-        _data?['presentToday'] ??
-        _data?['summary']?['presentToday'] ??
-        _data?['attendance']?['presentToday'] ??
-        '—';
+        overview['currently_checked_in'] ??
+        overview['currentlyCheckedIn'] ??
+        dashboard['presentToday'] ??
+        _asMap(dashboard['summary'])['presentToday'] ??
+        _asMap(dashboard['attendance'])['presentToday'];
     final onLeave =
-        _data?['onLeave'] ??
-        _data?['summary']?['onLeave'] ??
-        _data?['leaves']?['currentlyOnLeave'] ??
-        '—';
+        leaves['currently_on_leave'] ??
+        leaves['currentlyOnLeave'] ??
+        dashboard['onLeave'] ??
+        _asMap(dashboard['summary'])['onLeave'];
     final pendingLeave =
-        _data?['pendingLeave'] ??
-        _data?['summary']?['pendingLeaveRequests'] ??
-        _data?['leaves']?['pending'] ??
-        '—';
+        leaves['pending'] ??
+        leaves['pendingApproval'] ??
+        dashboard['pendingLeave'] ??
+        _asMap(dashboard['summary'])['pendingLeaveRequests'];
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 1.6,
-      children: [
-        _StatTile(
-          label: s.hrStatTotalStaff,
-          value: totalStaff.toString(),
-          icon: Icons.people,
-          color: AppTheme.primaryBlue,
-        ),
-        _StatTile(
-          label: s.hrStatPresentToday,
-          value: presentToday.toString(),
-          icon: Icons.check_circle,
-          color: AppTheme.successGreen,
-        ),
-        _StatTile(
-          label: s.hrStatOnLeave,
-          value: onLeave.toString(),
-          icon: Icons.beach_access,
-          color: AppTheme.warningAmber,
-        ),
-        _StatTile(
-          label: s.hrStatPendingLeaves,
-          value: pendingLeave.toString(),
-          icon: Icons.pending_actions,
-          color: AppTheme.errorRed,
-        ),
-      ],
+    final tiles = [
+      _StatTile(
+        label: s.hrStatTotalStaff,
+        value: _metric(totalStaff),
+        icon: Icons.people,
+        color: AppTheme.primaryBlue,
+      ),
+      _StatTile(
+        label: s.hrStatPresentToday,
+        value: _metric(presentToday),
+        icon: Icons.check_circle,
+        color: AppTheme.successOnSurface,
+      ),
+      _StatTile(
+        label: s.hrStatOnLeave,
+        value: _metric(onLeave),
+        icon: Icons.beach_access,
+        color: AppTheme.warningOnSurface,
+      ),
+      _StatTile(
+        label: s.hrStatPendingLeaves,
+        value: _metric(pendingLeave),
+        icon: Icons.pending_actions,
+        color: AppTheme.errorOnSurface,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 720) {
+          return Row(
+            children: [
+              for (var i = 0; i < tiles.length; i++) ...[
+                Expanded(child: tiles[i]),
+                if (i != tiles.length - 1) const SizedBox(width: 12),
+              ],
+            ],
+          );
+        }
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var i = 0; i < tiles.length; i++) ...[
+                SizedBox(width: 180, child: tiles[i]),
+                if (i != tiles.length - 1) const SizedBox(width: 10),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildAttendanceCard(AppStrings s) {
-    final attendance = _data?['attendance'] as Map<String, dynamic>? ?? {};
+    final dashboard = _dashboard;
+    final attendance = _asMap(dashboard['attendance']);
+    final overview = _asMap(dashboard['overview']);
+    final leaves = _asMap(dashboard['leaves']);
+    final analytics = _asMap(dashboard['attendanceAnalytics']);
+    final analyticsSummary = _asMap(analytics['summary']);
     final avgRate =
-        attendance['averageAttendanceRate'] ?? attendance['rate'] ?? '—';
-    final lateArrivals = attendance['lateArrivals'] ?? '—';
-    final absentees = attendance['absentees'] ?? '—';
+        attendance['averageAttendanceRate'] ??
+        attendance['rate'] ??
+        overview['attendance_rate'];
+    final lateArrivals =
+        attendance['lateArrivals'] ?? analyticsSummary['late_arrivals'];
+    final activeStaff = _asNum(overview['active_staff']) ?? 0;
+    final checkedIn = _asNum(overview['currently_checked_in']) ?? 0;
+    final onLeave = _asNum(leaves['currently_on_leave']) ?? 0;
+    final inferredAbsentees = (activeStaff - checkedIn - onLeave).clamp(
+      0,
+      activeStaff,
+    );
+    final absentees = attendance['absentees'] ?? inferredAbsentees;
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _DataRow(s.hrAvgAttendanceRate, '$avgRate%'),
+            _DataRow(
+              s.hrAvgAttendanceRate,
+              avgRate == null ? '—' : '${_metric(avgRate)}%',
+            ),
             const Divider(),
-            _DataRow(s.hrLateArrivals, '$lateArrivals'),
+            _DataRow(s.hrLateArrivals, _metric(lateArrivals)),
             const Divider(),
-            _DataRow(s.hrAbsentees, '$absentees'),
+            _DataRow(s.hrAbsentees, _metric(absentees)),
           ],
         ),
       ),
@@ -204,7 +273,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
   }
 
   Widget _buildLeaveCard(AppStrings s) {
-    final leaves = _data?['leaves'] as Map<String, dynamic>? ?? {};
+    final leaves = _asMap(_dashboard['leaves']);
     final total = leaves['total'] ?? leaves['totalApplied'] ?? '—';
     final approved = leaves['approved'] ?? '—';
     final rejected = leaves['rejected'] ?? '—';
@@ -215,13 +284,13 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _DataRow(s.hrTotalApplications, '$total'),
+            _DataRow(s.hrTotalApplications, _metric(total)),
             const Divider(),
-            _DataRow(s.hrApproved, '$approved'),
+            _DataRow(s.hrApproved, _metric(approved)),
             const Divider(),
-            _DataRow(s.hrRejected, '$rejected'),
+            _DataRow(s.hrRejected, _metric(rejected)),
             const Divider(),
-            _DataRow(s.hrPendingApproval, '$pending'),
+            _DataRow(s.hrPendingApproval, _metric(pending)),
           ],
         ),
       ),
@@ -329,11 +398,15 @@ class _StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.brightness == Brightness.dark;
+    final iconBg = color.withValues(alpha: isDark ? 0.18 : 0.10);
     return Container(
-      padding: const EdgeInsets.all(12),
+      height: 96,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.divider),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -342,23 +415,42 @@ class _StatTile extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: color,
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(10),
             ),
+            child: Icon(icon, color: color, size: 22),
           ),
-          Text(
-            label,
-            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -417,8 +509,9 @@ class _ActionTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: AppTheme.cardSurface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.divider),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -432,7 +525,9 @@ class _ActionTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: color.withValues(
+                  alpha: AppTheme.brightness == Brightness.dark ? 0.18 : 0.1,
+                ),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 22),
