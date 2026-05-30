@@ -204,15 +204,8 @@ try {
     'generate',
   ], { env });
   runNodeScript('ensure-pgvector-extension.mjs', [], { env });
-  run(process.execPath, [
-    path.join('node_modules', 'prisma', 'build', 'index.js'),
-    'db',
-    'push',
-    '--skip-generate',
-    '--accept-data-loss',
-  ], { env });
-  runNodeScript('check-schema-drift.mjs', [], { env });
   runNodeScript('ci-setup-db.mjs', [], { env });
+  runNodeScript('check-schema-drift.mjs', [], { env });
   runNodeScript('check-db-contracts.mjs', [], { env });
   runNodeScript('seed-comprehensive-test-data.mjs', [], { env });
   runNodeScript('check-db-contracts.mjs', ['--require-seeded'], { env });
