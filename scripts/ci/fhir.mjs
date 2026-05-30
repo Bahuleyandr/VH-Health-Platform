@@ -1,8 +1,6 @@
-import { createWriteStream, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { checkCommand, repoRoot, run } from './lib.mjs';
 
 const validatorVersion = '6.3.11';
@@ -15,11 +13,25 @@ async function ensureValidator() {
 
   mkdirSync(dirname(validatorPath), { recursive: true });
   console.log(`Downloading FHIR validator ${validatorVersion}...`);
-  const response = await fetch(validatorUrl);
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download FHIR validator: HTTP ${response.status}`);
+  const tmpPath = `${validatorPath}.tmp-${process.pid}`;
+  try {
+    run('curl', [
+      '--fail',
+      '--location',
+      '--retry',
+      '5',
+      '--retry-all-errors',
+      '--connect-timeout',
+      '30',
+      '--output',
+      tmpPath,
+      validatorUrl,
+    ]);
+    renameSync(tmpPath, validatorPath);
+  } catch (error) {
+    rmSync(tmpPath, { force: true });
+    throw error;
   }
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(validatorPath));
   return validatorPath;
 }
 
