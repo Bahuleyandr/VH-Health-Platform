@@ -27,6 +27,7 @@ class _FrontOfficeWorkbenchScreenState
   final _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
   late final Future<List<Map<String, dynamic>>> _doctorsFuture;
+  late final Future<List<Map<String, dynamic>>> _wardsFuture;
 
   StaffRole _role = StaffRole.general;
   bool _roleLoaded = false;
@@ -34,6 +35,7 @@ class _FrontOfficeWorkbenchScreenState
   bool _lookupBusy = false;
   bool _invoiceBusy = false;
   bool _billingActionBusy = false;
+  bool _admissionActionBusy = false;
   String? _error;
   String? _lookupError;
 
@@ -45,11 +47,24 @@ class _FrontOfficeWorkbenchScreenState
 
   bool get _canBilling => RoleFeatures.hasBillingDesk(_role);
   bool get _canClinical => RoleFeatures.hasClinicalEntry(_role);
+  bool get _canAdmitIp =>
+      _role == StaffRole.admin ||
+      _role == StaffRole.superAdmin ||
+      _role == StaffRole.medicalSuperintendent ||
+      _role == StaffRole.receptionist ||
+      _role == StaffRole.receptionIncharge ||
+      _role == StaffRole.billingStaff ||
+      _role == StaffRole.billingIncharge ||
+      _role == StaffRole.financeIncharge ||
+      _role == StaffRole.admissionOfficer ||
+      _role == StaffRole.insuranceCoordinator ||
+      _role == StaffRole.ipdCounsellor;
 
   @override
   void initState() {
     super.initState();
     _doctorsFuture = ScheduleApiService.getAppointmentDoctors();
+    _wardsFuture = MedicalApiService.getAdmissionWardOptions();
     _loadInitialState();
   }
 
@@ -719,6 +734,473 @@ class _FrontOfficeWorkbenchScreenState
     await _loadWorklists();
   }
 
+  Future<void> _showIpAdmissionDialog() async {
+    final patient = _selectedPatient;
+    if (!_canAdmitIp) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('IP admission is not enabled for this role.'),
+        ),
+      );
+      return;
+    }
+    if (patient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a patient before admitting IP.')),
+      );
+      return;
+    }
+
+    final chiefComplaintCtrl = TextEditingController();
+    final diagnosisCtrl = TextEditingController();
+    Map<String, dynamic>? selectedDoctor;
+    Map<String, dynamic>? selectedWard;
+    Map<String, dynamic>? selectedBed;
+    Future<List<Map<String, dynamic>>> bedOptionsFuture = Future.value(
+      const <Map<String, dynamic>>[],
+    );
+    var priority = 'Routine';
+    var codeStatus = 'Full Code';
+    var consentCaptured = false;
+    var saving = false;
+    String? dialogError;
+
+    final admitted = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> admit() async {
+              final doctor = selectedDoctor;
+              final doctorUid = doctor == null ? null : _doctorUid(doctor);
+              final patientQuery = _patientAdmissionQuery(patient);
+              final chiefComplaint = chiefComplaintCtrl.text.trim();
+              final isEmergency = _apiAdmissionPriority(priority) == 'emergent';
+
+              if (doctorUid == null || doctorUid.isEmpty) {
+                setDialogState(
+                  () => dialogError = 'Select an admitting doctor.',
+                );
+                return;
+              }
+              if (chiefComplaint.isEmpty) {
+                setDialogState(
+                  () => dialogError = 'Enter the chief complaint.',
+                );
+                return;
+              }
+              if (patientQuery.isEmpty) {
+                setDialogState(
+                  () =>
+                      dialogError = 'The selected patient needs an identifier.',
+                );
+                return;
+              }
+              if (!isEmergency && _bedId(selectedBed) == null) {
+                setDialogState(
+                  () => dialogError = 'Select a bed for routine IP admission.',
+                );
+                return;
+              }
+
+              setDialogState(() {
+                saving = true;
+                dialogError = null;
+              });
+              setState(() => _admissionActionBusy = true);
+              try {
+                final result = await MedicalApiService.admitPatient({
+                  'patient_query': patientQuery,
+                  if (_text(patient['uid']).isNotEmpty)
+                    'patient_uid': _text(patient['uid']),
+                  if (_text(patient['phone']).isNotEmpty)
+                    'patient_phone': _text(patient['phone']),
+                  if (_text(patient['name']).isNotEmpty)
+                    'patient_name': _text(patient['name']),
+                  'admitting_doctor': doctorUid,
+                  'chief_complaint': chiefComplaint,
+                  if (diagnosisCtrl.text.trim().isNotEmpty)
+                    'provisional_diagnosis': diagnosisCtrl.text.trim(),
+                  if (_wardLabel(selectedWard).isNotEmpty)
+                    'ward': _wardLabel(selectedWard),
+                  if (_bedId(selectedBed) != null)
+                    'bed_id': _bedId(selectedBed),
+                  if (_bedLabel(selectedBed).isNotEmpty)
+                    'bed': _bedLabel(selectedBed),
+                  'priority': _apiAdmissionPriority(priority),
+                  'admission_type': _apiAdmissionType(priority),
+                  'code_status': _apiCodeStatus(codeStatus),
+                  'counter_consent_captured': consentCaptured,
+                });
+                if (dialogContext.mounted) {
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(_admissionFromResponse(result));
+                }
+              } catch (e) {
+                setDialogState(() {
+                  dialogError = e.toString().replaceFirst('Exception: ', '');
+                  saving = false;
+                });
+              } finally {
+                if (mounted) setState(() => _admissionActionBusy = false);
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Create IP Admission'),
+              content: SizedBox(
+                width: 620,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PatientCard(
+                        patient: patient,
+                        selected: true,
+                        onTap: () {},
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _doctorsFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const LinearProgressIndicator(minHeight: 2);
+                          }
+                          if (snapshot.hasError) {
+                            return Text(
+                              'Could not load doctors.',
+                              style: TextStyle(color: AppTheme.errorOnSurface),
+                            );
+                          }
+                          final doctors = (snapshot.data ?? const [])
+                              .where((doctor) => _doctorUid(doctor) != null)
+                              .toList();
+                          return DropdownButtonFormField<String>(
+                            initialValue: selectedDoctor == null
+                                ? null
+                                : _doctorUid(selectedDoctor!),
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Admitting doctor',
+                              prefixIcon: Icon(Icons.medical_services_outlined),
+                            ),
+                            items: doctors
+                                .map(
+                                  (doctor) => DropdownMenuItem<String>(
+                                    value: _doctorUid(doctor),
+                                    child: Text(
+                                      _doctorLabel(doctor),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: saving
+                                ? null
+                                : (doctorUid) {
+                                    setDialogState(() {
+                                      selectedDoctor = doctors.firstWhere(
+                                        (doctor) =>
+                                            _doctorUid(doctor) == doctorUid,
+                                        orElse: () => <String, dynamic>{},
+                                      );
+                                      if (selectedDoctor!.isEmpty) {
+                                        selectedDoctor = null;
+                                      }
+                                    });
+                                  },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: chiefComplaintCtrl,
+                        minLines: 2,
+                        maxLines: 3,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Chief complaint',
+                          prefixIcon: Icon(Icons.report_problem_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: diagnosisCtrl,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Provisional diagnosis',
+                          prefixIcon: Icon(Icons.assignment_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compact = constraints.maxWidth < 560;
+                          final wardPicker =
+                              FutureBuilder<List<Map<String, dynamic>>>(
+                                future: _wardsFuture,
+                                builder: (context, snapshot) {
+                                  if (snapshot.connectionState ==
+                                      ConnectionState.waiting) {
+                                    return const LinearProgressIndicator(
+                                      minHeight: 2,
+                                    );
+                                  }
+                                  final wards = snapshot.data ?? const [];
+                                  return DropdownButtonFormField<int>(
+                                    initialValue: _wardId(selectedWard),
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Ward / floor',
+                                      prefixIcon: Icon(
+                                        Icons.apartment_outlined,
+                                      ),
+                                    ),
+                                    items: wards
+                                        .map(
+                                          (ward) => DropdownMenuItem<int>(
+                                            value: _wardId(ward),
+                                            child: Text(
+                                              _wardLabel(ward),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        )
+                                        .where((item) => item.value != null)
+                                        .toList(),
+                                    onChanged: saving
+                                        ? null
+                                        : (wardId) {
+                                            final ward = wards.firstWhere(
+                                              (item) => _wardId(item) == wardId,
+                                              orElse: () => <String, dynamic>{},
+                                            );
+                                            setDialogState(() {
+                                              selectedWard = ward.isEmpty
+                                                  ? null
+                                                  : ward;
+                                              selectedBed = null;
+                                              bedOptionsFuture =
+                                                  MedicalApiService.getAdmissionBedOptions(
+                                                    wardId: _wardId(
+                                                      selectedWard,
+                                                    ),
+                                                    wardLabel: _wardLabel(
+                                                      selectedWard,
+                                                    ),
+                                                  );
+                                            });
+                                          },
+                                  );
+                                },
+                              );
+                          final bedPicker =
+                              FutureBuilder<List<Map<String, dynamic>>>(
+                                future: bedOptionsFuture,
+                                builder: (context, snapshot) {
+                                  final waiting =
+                                      snapshot.connectionState ==
+                                      ConnectionState.waiting;
+                                  final beds = snapshot.data ?? const [];
+                                  if (waiting) {
+                                    return const LinearProgressIndicator(
+                                      minHeight: 2,
+                                    );
+                                  }
+                                  return DropdownButtonFormField<int>(
+                                    initialValue: _bedId(selectedBed),
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Bed',
+                                      prefixIcon: Icon(Icons.bed_outlined),
+                                    ),
+                                    items: beds
+                                        .map(
+                                          (bed) => DropdownMenuItem<int>(
+                                            value: _bedId(bed),
+                                            child: Text(
+                                              _bedLabel(bed),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        )
+                                        .where((item) => item.value != null)
+                                        .toList(),
+                                    onChanged: saving
+                                        ? null
+                                        : (bedId) {
+                                            setDialogState(() {
+                                              selectedBed = beds.firstWhere(
+                                                (bed) => _bedId(bed) == bedId,
+                                                orElse: () =>
+                                                    <String, dynamic>{},
+                                              );
+                                              if (selectedBed!.isEmpty) {
+                                                selectedBed = null;
+                                              }
+                                            });
+                                          },
+                                  );
+                                },
+                              );
+                          if (compact) {
+                            return Column(
+                              children: [
+                                wardPicker,
+                                const SizedBox(height: 12),
+                                bedPicker,
+                              ],
+                            );
+                          }
+                          return Row(
+                            children: [
+                              Expanded(child: wardPicker),
+                              const SizedBox(width: 10),
+                              Expanded(child: bedPicker),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: priority,
+                              decoration: const InputDecoration(
+                                labelText: 'Priority',
+                              ),
+                              items:
+                                  const [
+                                        'Routine',
+                                        'Urgent',
+                                        'Emergency',
+                                        'Critical',
+                                      ]
+                                      .map(
+                                        (value) => DropdownMenuItem(
+                                          value: value,
+                                          child: Text(value),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: saving
+                                  ? null
+                                  : (value) => setDialogState(
+                                      () => priority = value ?? priority,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: codeStatus,
+                              decoration: const InputDecoration(
+                                labelText: 'Code status',
+                              ),
+                              items:
+                                  const [
+                                        'Full Code',
+                                        'DNR',
+                                        'DNR/DNI',
+                                        'Comfort Care',
+                                      ]
+                                      .map(
+                                        (value) => DropdownMenuItem(
+                                          value: value,
+                                          child: Text(value),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: saving
+                                  ? null
+                                  : (value) => setDialogState(
+                                      () => codeStatus = value ?? codeStatus,
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      CheckboxListTile(
+                        value: consentCaptured,
+                        onChanged: saving
+                            ? null
+                            : (value) => setDialogState(
+                                () => consentCaptured = value ?? false,
+                              ),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Treatment consent captured at counter',
+                        ),
+                        subtitle: Text(
+                          'Emergency admissions can proceed without a bed; routine admissions require a selected bed.',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ),
+                      if (dialogError != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          dialogError!,
+                          style: TextStyle(color: AppTheme.errorOnSurface),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(context, null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: saving ? null : admit,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.local_hospital),
+                  label: const Text('Create IP'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    chiefComplaintCtrl.dispose();
+    diagnosisCtrl.dispose();
+
+    if (admitted == null || !mounted) return;
+    final ipNumber = _text(admitted['ip_number']);
+    final hospitalNumber = _text(
+      admitted['patient_hospital_number'] ?? admitted['hospital_number'],
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          [
+            if (ipNumber.isEmpty)
+              'IP admission created'
+            else
+              'IP admission $ipNumber created',
+            if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
+          ].join(' - '),
+        ),
+        backgroundColor: AppTheme.successGreen,
+      ),
+    );
+    await _loadWorklists();
+  }
+
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
@@ -1053,6 +1535,14 @@ class _FrontOfficeWorkbenchScreenState
                 enabled: hasPatient,
                 onTap: _showOpBookingDialog,
               ),
+              if (_canAdmitIp)
+                _ActionTile(
+                  icon: Icons.local_hospital_outlined,
+                  label: 'Admit IP',
+                  color: AppTheme.warningAmber,
+                  enabled: hasPatient && !_admissionActionBusy,
+                  onTap: _showIpAdmissionDialog,
+                ),
               _ActionTile(
                 icon: Icons.local_hospital,
                 label: 'Admissions',
@@ -1180,7 +1670,8 @@ class _FrontOfficeWorkbenchScreenState
                     spacing: 8,
                     children: [
                       TextButton.icon(
-                        onPressed: () => context.go(_patientRoute('/billing-desk')),
+                        onPressed: () =>
+                            context.go(_patientRoute('/billing-desk')),
                         icon: const Icon(Icons.open_in_new),
                         label: const Text('Open'),
                       ),
@@ -1192,7 +1683,9 @@ class _FrontOfficeWorkbenchScreenState
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.add),
                         label: const Text('Draft OP'),
@@ -1267,10 +1760,29 @@ class _FrontOfficeWorkbenchScreenState
           _SectionTitle(
             icon: Icons.local_hospital,
             title: 'Active Admissions',
-            trailing: TextButton.icon(
-              onPressed: () => context.go('/emr/admissions'),
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Open'),
+            trailing: Wrap(
+              spacing: 8,
+              children: [
+                if (_canAdmitIp && _selectedPatient != null)
+                  FilledButton.icon(
+                    onPressed: _admissionActionBusy
+                        ? null
+                        : _showIpAdmissionDialog,
+                    icon: _admissionActionBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.add),
+                    label: const Text('Admit IP'),
+                  ),
+                TextButton.icon(
+                  onPressed: () => context.go('/emr/admissions'),
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Open'),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
@@ -1586,12 +2098,88 @@ String _formatTime(TimeOfDay time) {
   return '$hour:$minute';
 }
 
+String _patientAdmissionQuery(Map<String, dynamic> patient) {
+  for (final key in [
+    'uid',
+    'hospital_number',
+    'patient_hospital_number',
+    'phone',
+    'name',
+  ]) {
+    final value = _text(patient[key]);
+    if (value.isNotEmpty) return value;
+  }
+  return '';
+}
+
+Map<String, dynamic> _admissionFromResponse(Map<String, dynamic> result) {
+  final admission = result['admission'];
+  if (admission is Map<String, dynamic>) return admission;
+  if (admission is Map) return Map<String, dynamic>.from(admission);
+  return result;
+}
+
+String _apiAdmissionPriority(String priority) {
+  switch (priority.toLowerCase()) {
+    case 'emergency':
+    case 'critical':
+      return 'emergent';
+    case 'urgent':
+      return 'urgent';
+    default:
+      return 'routine';
+  }
+}
+
+String _apiAdmissionType(String priority) {
+  final lower = priority.toLowerCase();
+  return lower == 'emergency' || lower == 'critical' ? 'emergency' : 'elective';
+}
+
+String _apiCodeStatus(String codeStatus) {
+  switch (codeStatus.toLowerCase()) {
+    case 'dnr':
+      return 'dnr';
+    case 'dnr/dni':
+      return 'dni';
+    case 'comfort care':
+      return 'comfort_care';
+    default:
+      return 'full_code';
+  }
+}
+
 int? _intFrom(dynamic value) {
   if (value is int) return value;
   return int.tryParse(value?.toString() ?? '');
 }
 
 String _text(dynamic value) => value?.toString().trim() ?? '';
+
+int? _wardId(Map<String, dynamic>? ward) => _intFrom(ward?['id']);
+
+String _wardLabel(Map<String, dynamic>? ward) {
+  if (ward == null) return '';
+  return _text(
+    ward['name'] ?? ward['ward_name'] ?? ward['label'] ?? ward['floor_label'],
+  );
+}
+
+int? _bedId(Map<String, dynamic>? bed) => _intFrom(bed?['id']);
+
+String _bedLabel(Map<String, dynamic>? bed) {
+  if (bed == null) return '';
+  final label = _text(
+    bed['bed_number'] ?? bed['bed'] ?? bed['label'] ?? bed['name'],
+  );
+  final ward = _text(bed['ward_name']);
+  final type = _text(bed['bed_type']);
+  return [
+    if (label.isNotEmpty) label,
+    if (ward.isNotEmpty) ward,
+    if (type.isNotEmpty) type,
+  ].join(' - ');
+}
 
 String _money(dynamic value) {
   final number = value is num ? value : num.tryParse(value?.toString() ?? '');
