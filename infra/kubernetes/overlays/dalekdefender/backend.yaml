@@ -57,6 +57,12 @@ spec:
               value: production
             - name: PORT
               value: "5000"
+            # DalekDefender's bootstrap DB role is a superuser so it can run
+            # local migrations, which would otherwise bypass Postgres RLS.
+            # Request-scoped tenant transactions SET LOCAL ROLE to this
+            # non-bypass role before applying app.current_tenant_id.
+            - name: AUTH_TENANT_RLS_TEST_ROLE
+              value: vhhealth_app
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

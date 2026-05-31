@@ -68,13 +68,18 @@ ssh dalekdefender "sudo kubectl -n vhhealth create secret generic vhhealth-backe
 echo "API_KEY=${API_KEY}"
 echo "ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_PASSWORD}"
 
-# 5) Apply the manifests.
+# 5) Apply Postgres first, then create the runtime RLS role.
+ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -f infra/kubernetes/overlays/dalekdefender/postgres.yaml"
+ssh dalekdefender "sudo kubectl -n vhhealth rollout status statefulset/vhhealth-postgres --timeout=180s"
+ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl -n vhhealth exec -i vhhealth-postgres-0 -- sh -lc 'PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -v ON_ERROR_STOP=1' < infra/kubernetes/overlays/dalekdefender/rls-runtime-role.sql"
+
+# 6) Apply the remaining manifests.
 ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -k infra/kubernetes/overlays/dalekdefender"
 
-# 6) Surface the NodePort over Tailscale at port 8444. Khata owns 8443.
+# 7) Surface the NodePort over Tailscale at port 8444. Khata owns 8443.
 ssh dalekdefender "sudo tailscale serve --bg --https=8444 http://localhost:30090"
 
-# 7) Seed test staff accounts (after backend is up).
+# 8) Seed test staff accounts (after backend is up).
 ssh dalekdefender "sudo kubectl -n vhhealth exec deploy/vhhealth-backend -- node --import dotenv/config scripts/seed-test-staff-accounts.mjs"
 ```
 
