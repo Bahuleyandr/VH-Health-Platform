@@ -69,4 +69,53 @@ void main() {
       );
     });
   });
+
+  group('front-office OP queue gates', () {
+    test('doctors use their assigned OP queue instead of the broad queue', () {
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.doctor),
+        FrontOfficeQueueScope.mine,
+      );
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.dutyDoctor),
+        FrontOfficeQueueScope.mine,
+      );
+    });
+
+    test('front-office counter roles can view and manage the broad queue', () {
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.receptionist),
+        FrontOfficeQueueScope.full,
+      );
+      expect(frontOfficeCanBookOp(StaffRole.receptionist), isTrue);
+      expect(
+        frontOfficeCanManageAppointmentQueue(StaffRole.receptionist),
+        isTrue,
+      );
+    });
+
+    test('billing can see queue context but cannot manage OP status', () {
+      expect(
+        frontOfficeQueueScopeForRole(StaffRole.billingStaff),
+        FrontOfficeQueueScope.full,
+      );
+      expect(frontOfficeCanBookOp(StaffRole.billingStaff), isFalse);
+      expect(
+        frontOfficeCanManageAppointmentQueue(StaffRole.billingStaff),
+        isFalse,
+      );
+    });
+
+    test(
+      'ward nurses do not receive the broad OP queue from the workbench',
+      () {
+        expect(
+          frontOfficeQueueScopeForRole(StaffRole.nurse),
+          FrontOfficeQueueScope.none,
+        );
+        expect(frontOfficeCanCompleteAppointment(StaffRole.nurse), isTrue);
+        expect(frontOfficeCanBookOp(StaffRole.nurse), isFalse);
+      },
+    );
+  });
 }

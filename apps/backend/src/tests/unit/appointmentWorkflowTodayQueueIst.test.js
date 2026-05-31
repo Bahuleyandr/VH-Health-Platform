@@ -38,7 +38,7 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
     await getTodayQueue({
       query: { doctor_id: '9' },
       params: {},
-      user: {},
+      user: { id: 20, role: 'RECEPTIONIST' },
     }, res);
 
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
@@ -49,5 +49,49 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
     expect(sql).toContain("DATE(arrival_at AT TIME ZONE 'Asia/Kolkata') = $1::date");
     expect(sql).not.toContain('CURRENT_DATE');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('constrains doctor callers to their own appointment queue', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    const res = {
+      req: {},
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await getTodayQueue({
+      query: { doctor_id: '99' },
+      params: {},
+      user: { id: 11, role: 'DOCTOR' },
+    }, res);
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    const [sql, _today, doctorId] = queryUnsafeMock.mock.calls[0];
+    expect(doctorId).toBe(11);
+    expect(sql).toContain('a.doctor_id=$2');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('rejects broad queue access for unsupported roles', async () => {
+    const res = {
+      req: {},
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await getTodayQueue({
+      query: {},
+      params: {},
+      user: { id: 12, role: 'HOUSEKEEPING_STAFF' },
+    }, res);
+
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        message: 'OP appointment queue is not available for this role',
+      }),
+    );
   });
 });

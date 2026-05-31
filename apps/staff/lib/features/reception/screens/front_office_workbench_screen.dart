@@ -37,6 +37,64 @@ bool frontOfficeWorkbenchCanLoad({
   return RoleFeatures.hasFrontOfficeWorkbench(role) && mode.isWorkbench;
 }
 
+enum FrontOfficeQueueScope { none, mine, full }
+
+@visibleForTesting
+FrontOfficeQueueScope frontOfficeQueueScopeForRole(StaffRole role) {
+  return switch (role) {
+    StaffRole.doctor || StaffRole.dutyDoctor => FrontOfficeQueueScope.mine,
+    StaffRole.admin ||
+    StaffRole.superAdmin ||
+    StaffRole.medicalSuperintendent ||
+    StaffRole.nursingSuperintendent ||
+    StaffRole.nursingIncharge ||
+    StaffRole.opStaffNurse ||
+    StaffRole.opIncharge ||
+    StaffRole.receptionist ||
+    StaffRole.receptionIncharge ||
+    StaffRole.billingStaff ||
+    StaffRole.billingIncharge ||
+    StaffRole.financeIncharge ||
+    StaffRole.admissionOfficer ||
+    StaffRole.insuranceCoordinator ||
+    StaffRole.ipdCounsellor => FrontOfficeQueueScope.full,
+    _ => FrontOfficeQueueScope.none,
+  };
+}
+
+@visibleForTesting
+bool frontOfficeCanBookOp(StaffRole role) {
+  return switch (role) {
+    StaffRole.admin ||
+    StaffRole.superAdmin ||
+    StaffRole.medicalSuperintendent ||
+    StaffRole.receptionist ||
+    StaffRole.receptionIncharge ||
+    StaffRole.opIncharge ||
+    StaffRole.admissionOfficer => true,
+    _ => false,
+  };
+}
+
+@visibleForTesting
+bool frontOfficeCanManageAppointmentQueue(StaffRole role) {
+  return switch (role) {
+    StaffRole.admin ||
+    StaffRole.superAdmin ||
+    StaffRole.medicalSuperintendent ||
+    StaffRole.receptionist ||
+    StaffRole.receptionIncharge ||
+    StaffRole.opIncharge => true,
+    _ => false,
+  };
+}
+
+@visibleForTesting
+bool frontOfficeCanCompleteAppointment(StaffRole role) {
+  return frontOfficeCanManageAppointmentQueue(role) ||
+      RoleFeatures.hasClinicalEntry(role);
+}
+
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
   const FrontOfficeWorkbenchScreen({super.key});
 
@@ -70,9 +128,12 @@ class _FrontOfficeWorkbenchScreenState
   int _activeAdmissionsTotal = 0;
   List<Map<String, dynamic>> _patientInvoices = const [];
 
+  FrontOfficeQueueScope get _queueScope => frontOfficeQueueScopeForRole(_role);
+  bool get _canBookOp => frontOfficeCanBookOp(_role);
   bool get _canBilling => RoleFeatures.hasBillingDesk(_role);
   bool get _canClinical => RoleFeatures.hasClinicalEntry(_role);
-  bool get _canManageOpQueue => RoleFeatures.hasFrontOfficeWorkbench(_role);
+  bool get _canManageOpQueue => frontOfficeCanManageAppointmentQueue(_role);
+  bool get _canCompleteOpQueue => frontOfficeCanCompleteAppointment(_role);
   bool get _canPatientLookup => RoleFeatures.hasPatientLookup(_role);
   bool get _canPatientRegistryWrite =>
       RoleFeatures.hasPatientRegistryWrite(_role);
@@ -124,8 +185,15 @@ class _FrontOfficeWorkbenchScreenState
       _error = null;
     });
     try {
+      final queueFuture = switch (_queueScope) {
+        FrontOfficeQueueScope.full =>
+          ScheduleApiService.getTodayAppointmentQueue(),
+        FrontOfficeQueueScope.mine =>
+          ScheduleApiService.getMyTodayAppointmentQueue(),
+        FrontOfficeQueueScope.none => Future<List<dynamic>>.value(const []),
+      };
       final results = await Future.wait<dynamic>([
-        ScheduleApiService.getTodayAppointmentQueue(),
+        queueFuture,
         MedicalApiService.getActiveAdmissions(limit: 12),
       ]);
       if (!mounted) return;
@@ -622,6 +690,14 @@ class _FrontOfficeWorkbenchScreenState
 
   Future<void> _showOpBookingDialog() async {
     final patient = _selectedPatient;
+    if (!_canBookOp) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('OP booking is not enabled for this role.'),
+        ),
+      );
+      return;
+    }
     if (patient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select a patient before booking OP.')),
@@ -1848,13 +1924,14 @@ class _FrontOfficeWorkbenchScreenState
             spacing: 10,
             runSpacing: 10,
             children: [
-              _ActionTile(
-                icon: Icons.calendar_month,
-                label: 'Book OP',
-                color: AppTheme.accentCyan,
-                enabled: hasPatient,
-                onTap: _showOpBookingDialog,
-              ),
+              if (_canBookOp)
+                _ActionTile(
+                  icon: Icons.calendar_month,
+                  label: 'Book OP',
+                  color: AppTheme.accentCyan,
+                  enabled: hasPatient,
+                  onTap: _showOpBookingDialog,
+                ),
               if (_canAdmitIp)
                 _ActionTile(
                   icon: Icons.local_hospital_outlined,
@@ -1928,13 +2005,17 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _buildQueuePanel() {
+    final queueScope = _queueScope;
+    final title = queueScope == FrontOfficeQueueScope.mine
+        ? 'My OP Queue'
+        : 'Today Queue';
     return _Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle(
             icon: Icons.event_note,
-            title: 'Today Queue',
+            title: title,
             trailing: TextButton.icon(
               onPressed: _loadWorklists,
               icon: const Icon(Icons.refresh),
@@ -1942,7 +2023,12 @@ class _FrontOfficeWorkbenchScreenState
             ),
           ),
           const SizedBox(height: 8),
-          if (_todayQueue.isEmpty)
+          if (queueScope == FrontOfficeQueueScope.none)
+            const _EmptyLine(
+              icon: Icons.lock_outline,
+              text: 'OP queue is restricted for this role',
+            )
+          else if (_todayQueue.isEmpty)
             const _EmptyLine(
               icon: Icons.event_busy,
               text: 'No queue rows loaded',
@@ -1966,6 +2052,13 @@ class _FrontOfficeWorkbenchScreenState
       'CANCELLED',
       'NO_SHOW',
     }.contains(status);
+    final canConfirm = _canManageOpQueue && status == 'SCHEDULED';
+    final canComplete =
+        _canCompleteOpQueue &&
+        (status == 'CONFIRMED' || status == 'IN_PROGRESS');
+    final canNoShow = _canManageOpQueue;
+    final hasQueueAction =
+        !terminal && (canConfirm || canComplete || canNoShow);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: ListTile(
@@ -1992,11 +2085,11 @@ class _FrontOfficeWorkbenchScreenState
         subtitle: Text([?time, status].join(' - ')),
         selected: selected,
         selectedTileColor: AppTheme.primaryBlue.withValues(alpha: 0.06),
-        trailing: _canManageOpQueue && !terminal
+        trailing: hasQueueAction
             ? Wrap(
                 spacing: 6,
                 children: [
-                  if (status == 'SCHEDULED')
+                  if (canConfirm)
                     _QueueActionButton(
                       icon: Icons.check,
                       label: 'Confirm',
@@ -2005,7 +2098,7 @@ class _FrontOfficeWorkbenchScreenState
                           ? null
                           : () => _confirmQueueAppointment(row),
                     ),
-                  if (status == 'CONFIRMED' || status == 'IN_PROGRESS')
+                  if (canComplete)
                     _QueueActionButton(
                       icon: Icons.done_all,
                       label: 'Complete',
@@ -2014,12 +2107,13 @@ class _FrontOfficeWorkbenchScreenState
                           ? null
                           : () => _completeQueueAppointment(row),
                     ),
-                  _QueueActionButton(
-                    icon: Icons.person_off_outlined,
-                    label: 'No-show',
-                    color: AppTheme.textSecondary,
-                    onPressed: busy ? null : () => _markQueueNoShow(row),
-                  ),
+                  if (canNoShow)
+                    _QueueActionButton(
+                      icon: Icons.person_off_outlined,
+                      label: 'No-show',
+                      color: AppTheme.textSecondary,
+                      onPressed: busy ? null : () => _markQueueNoShow(row),
+                    ),
                 ],
               )
             : const Icon(Icons.chevron_right),

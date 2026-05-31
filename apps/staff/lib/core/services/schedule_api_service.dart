@@ -186,6 +186,12 @@ class ScheduleApiService {
     return _listFrom(r, const ['queue', 'appointments']);
   }
 
+  /// GET /appointments/queue/today/mine - current doctor's own OP queue.
+  static Future<List<dynamic>> getMyTodayAppointmentQueue() async {
+    final r = await _get('/appointments/queue/today/mine');
+    return _listFrom(r, const ['queue', 'appointments']);
+  }
+
   /// GET /appointments/pending — pending appointments needing confirmation
   static Future<List<dynamic>> getPendingAppointments({
     String? fromDate,

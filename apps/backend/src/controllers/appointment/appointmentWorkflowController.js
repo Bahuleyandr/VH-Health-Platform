@@ -15,6 +15,30 @@ import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 
+const FULL_OP_QUEUE_ROLES = new Set([
+  'ADMIN',
+  'SUPER_ADMIN',
+  'MEDICAL_SUPERINTENDENT',
+  'CMO',
+  'CNO',
+  'NURSING_SUPERINTENDENT',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
+  'BILLING_STAFF',
+  'BILLING_INCHARGE',
+  'FINANCE_INCHARGE',
+  'ADMISSION_OFFICER',
+  'INSURANCE_COORDINATOR',
+  'IPD_COUNSELLOR',
+]);
+
+function canViewFullOpQueue(role) {
+  return FULL_OP_QUEUE_ROLES.has(String(role || '').toUpperCase());
+}
+
 // All four handlers below were originally written against a raw pg.Pool
 // client (await pool.connect → client.query → client.release) and ported
 // poorly when the codebase moved to Prisma — every call crashed with
@@ -477,12 +501,40 @@ export const cancelAppointment = async (req, res) => {
 export const getTodayQueue = async (req, res) => {
   try {
     const { department } = req.query;
-    // doctor_id source order: explicit query param -> JWT (mine alias).
+    const role = String(req.user?.role || '').toUpperCase();
+    const requesterIsDoctor = isDoctor(role);
+    const requesterCanViewFullQueue = canViewFullOpQueue(role);
+
+    if (
+      role &&
+      !requesterIsDoctor &&
+      !requesterCanViewFullQueue &&
+      req.params?.scope !== 'mine'
+    ) {
+      return error(
+        res,
+        'OP appointment queue is not available for this role',
+        HTTP_STATUS.FORBIDDEN,
+      );
+    }
+
+    // doctor_id source order: doctor JWT -> explicit query param -> JWT
+    // (mine alias). Doctor-tier callers are always constrained to their
+    // assigned queue, even if they pass someone else's doctor_id.
     // parseInt the param so raw SQL doesn't bind a string against an
     // integer column. Finding:
     // 2026-05-08-follow-up-opd-receptionist-queue-today-doctor-filter-500.
     let doctorId = null;
-    if (req.params?.scope === 'mine') {
+    if (requesterIsDoctor) {
+      doctorId = req.user?.id ?? null;
+      if (!doctorId) {
+        return error(
+          res,
+          'Assigned doctor identity unavailable',
+          HTTP_STATUS.FORBIDDEN,
+        );
+      }
+    } else if (req.params?.scope === 'mine') {
       doctorId = req.user?.id ?? null;
     } else if (req.query.doctor_id !== undefined && req.query.doctor_id !== '') {
       const parsed = Number.parseInt(req.query.doctor_id, 10);
