@@ -24,6 +24,7 @@ import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
 import tenantRoutes from './routes/admin/tenantRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
+import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
@@ -911,6 +912,7 @@ app.use(
     'INSURANCE_COORDINATOR',
     'IPD_COUNSELLOR',
   ),
+  billingPhiAccessLogger(),
   billingV2Routes,
 );
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
