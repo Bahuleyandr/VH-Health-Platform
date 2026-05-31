@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -42,6 +44,8 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   bool _loadingModules = true;
   String? _moduleError;
   String? _busyKey;
+  StaffRole _role = StaffRole.general;
+  bool _roleLoaded = false;
 
   @override
   void initState() {
@@ -50,7 +54,7 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     if (initialId != null) {
       _appointmentIdController.text = initialId.toString();
     }
-    _loadModules();
+    _loadRoleAndModules();
   }
 
   @override
@@ -78,7 +82,25 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
     super.dispose();
   }
 
+  Future<void> _loadRoleAndModules() async {
+    final role = StaffRole.fromString(await ApiConfig.getRole());
+    if (!mounted) return;
+    setState(() {
+      _role = role;
+      _roleLoaded = true;
+    });
+    if (!RoleFeatures.hasOpAiAssist(role)) {
+      setState(() => _loadingModules = false);
+      return;
+    }
+    await _loadModules();
+  }
+
   Future<void> _loadModules() async {
+    if (!RoleFeatures.hasOpAiAssist(_role)) {
+      setState(() => _loadingModules = false);
+      return;
+    }
     setState(() {
       _loadingModules = true;
       _moduleError = null;
@@ -423,8 +445,14 @@ class _OpAiAssistScreenState extends State<OpAiAssistScreen> {
   }
 
   Widget _buildBody() {
-    if (_loadingModules) {
+    if (!_roleLoaded || _loadingModules) {
       return const Center(child: CircularProgressIndicator());
+    }
+    if (!RoleFeatures.hasOpAiAssist(_role)) {
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [_AccessRestrictedPanel(role: _role)],
+      );
     }
     if (_moduleError != null) {
       return _ErrorState(message: _moduleError!, onRetry: _loadModules);
@@ -1044,6 +1072,68 @@ class _ResultMeta extends StatelessWidget {
             color: AppTheme.warningAmber,
           ),
       ],
+    );
+  }
+}
+
+class _AccessRestrictedPanel extends StatelessWidget {
+  const _AccessRestrictedPanel({required this.role});
+
+  final StaffRole role;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.lock_outline, color: AppTheme.primaryBlue),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'OP Doctor Assist unavailable',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This OP clinical decision-support workspace is available to doctors, duty doctors, and the medical superintendent. ${role.displayName} can continue using the Clinical AI review queue where permitted.',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => context.go('/clinical-ai/queue'),
+                  icon: const Icon(Icons.fact_check_outlined, size: 16),
+                  label: const Text('Review queue'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => context.go('/dashboard'),
+                  icon: const Icon(Icons.dashboard_outlined, size: 16),
+                  label: const Text('Dashboard'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -158,24 +158,29 @@ void main() {
       },
     );
 
-    test('admin + superAdmin get governance tools but not doctor-only OP AI Assist', () {
-      final adminFeats = RoleFeatures.getFeaturesForRole(StaffRole.admin);
-      final superFeats = RoleFeatures.getFeaturesForRole(StaffRole.superAdmin);
-      expect(
-        adminFeats.map((f) => f.id).toSet(),
-        equals(superFeats.map((f) => f.id).toSet()),
-      );
-      final ids = adminFeats.map((f) => f.id).toSet();
-      expect(ids, contains('hr_dashboard'));
-      expect(ids, contains('pharmacy_orders'));
-      expect(ids, contains('clinical_ai_review_queue'));
-      expect(ids, isNot(contains('op_ai_assist')));
-      expect(ids, contains('theatre'));
-      expect(ids, contains('blood_bank'));
-      expect(ids, contains('front_office_workbench'));
-      expect(ids, isNot(contains('reception_counter')));
-      expect(ids, contains('ward_mode'));
-    });
+    test(
+      'admin + superAdmin get governance tools but not doctor-only OP AI Assist',
+      () {
+        final adminFeats = RoleFeatures.getFeaturesForRole(StaffRole.admin);
+        final superFeats = RoleFeatures.getFeaturesForRole(
+          StaffRole.superAdmin,
+        );
+        expect(
+          adminFeats.map((f) => f.id).toSet(),
+          equals(superFeats.map((f) => f.id).toSet()),
+        );
+        final ids = adminFeats.map((f) => f.id).toSet();
+        expect(ids, contains('hr_dashboard'));
+        expect(ids, contains('pharmacy_orders'));
+        expect(ids, contains('clinical_ai_review_queue'));
+        expect(ids, isNot(contains('op_ai_assist')));
+        expect(ids, contains('theatre'));
+        expect(ids, contains('blood_bank'));
+        expect(ids, contains('front_office_workbench'));
+        expect(ids, isNot(contains('reception_counter')));
+        expect(ids, contains('ward_mode'));
+      },
+    );
 
     test('medical superintendent keeps doctor-facing OP AI Assist access', () {
       final ids = RoleFeatures.getFeaturesForRole(
@@ -183,6 +188,19 @@ void main() {
       ).map((f) => f.id).toSet();
 
       expect(ids, contains('op_ai_assist'));
+    });
+
+    test('OP AI Assist role gate matches the doctor-only backend gate', () {
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.doctor), isTrue);
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.dutyDoctor), isTrue);
+      expect(
+        RoleFeatures.hasOpAiAssist(StaffRole.medicalSuperintendent),
+        isTrue,
+      );
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.admin), isFalse);
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.superAdmin), isFalse);
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.receptionist), isFalse);
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.nurse), isFalse);
     });
 
     test('general staff sees housekeeping hub + tasks, no clinical/HR', () {

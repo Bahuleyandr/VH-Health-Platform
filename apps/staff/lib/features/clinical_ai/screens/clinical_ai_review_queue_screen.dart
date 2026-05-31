@@ -14,6 +14,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
@@ -34,11 +36,19 @@ class _ClinicalAiReviewQueueScreenState
   List<Map<String, dynamic>> _reviews = const [];
   bool _loading = true;
   String? _error;
+  StaffRole _role = StaffRole.general;
 
   @override
   void initState() {
     super.initState();
+    _loadRole();
     _load();
+  }
+
+  Future<void> _loadRole() async {
+    final role = StaffRole.fromString(await ApiConfig.getRole());
+    if (!mounted) return;
+    setState(() => _role = role);
   }
 
   Future<void> _load() async {
@@ -86,7 +96,7 @@ class _ClinicalAiReviewQueueScreenState
       title: s.clinicalAiQueueTitle,
       body: Column(
         children: [
-          _QuickAccessRow(),
+          _QuickAccessRow(showOpAiAssist: RoleFeatures.hasOpAiAssist(_role)),
           _FilterBar(
             filters: statusFilters,
             value: _statusFilter,
@@ -140,6 +150,10 @@ class _StatusFilter {
 }
 
 class _QuickAccessRow extends StatelessWidget {
+  const _QuickAccessRow({required this.showOpAiAssist});
+
+  final bool showOpAiAssist;
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -165,13 +179,15 @@ class _QuickAccessRow extends StatelessWidget {
               label: Text(s.clinicalAiQueueVoiceNotesButton),
               style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
             ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: () => context.push('/op-ai-assist'),
-              icon: const Icon(Icons.auto_awesome, size: 16),
-              label: const Text('OP AI Assist'),
-              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
-            ),
+            if (showOpAiAssist) ...[
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => context.push('/op-ai-assist'),
+                icon: const Icon(Icons.auto_awesome, size: 16),
+                label: const Text('OP AI Assist'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+              ),
+            ],
           ],
         ),
       ),

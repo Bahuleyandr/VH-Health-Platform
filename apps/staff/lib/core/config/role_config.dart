@@ -1556,6 +1556,15 @@ class RoleFeatures {
     };
   }
 
+  static bool hasOpAiAssist(StaffRole role) {
+    return switch (role) {
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.medicalSuperintendent => true,
+      _ => false,
+    };
+  }
+
   static bool hasPatientLookup(StaffRole role) {
     return switch (role) {
       StaffRole.admin ||
