@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertTriangle, Cpu, Download, Gauge, History, RefreshCw, Save, Settings2, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
+import { Activity, AlertTriangle, Cpu, Download, Gauge, History, RefreshCw, Save, Settings2, ShieldCheck, Stethoscope, ToggleLeft, ToggleRight } from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   getClinicalAiAuditLogs,
@@ -146,6 +146,28 @@ function adapterStatusClass(adapter: ClinicalAiAdapterStatus) {
 
 function readableKey(value?: string | null) {
   return value ? value.replace(/_/g, " ") : "-";
+}
+
+const OP_DOCTOR_ASSIST_MODULE_KEYS = [
+  "op_visit_prep",
+  "polypharmacy_ai_review",
+  "soap_from_dictation",
+  "op_investigation_review",
+  "op_differential_red_flags",
+  "op_follow_up_plan",
+  "op_referral_draft",
+];
+
+function moduleSettingText(module: ClinicalAiModule, key: string, fallback = "-") {
+  const value = module.settings?.[key];
+  return typeof value === "string" && value.trim() ? readableKey(value) : fallback;
+}
+
+function orderedOpDoctorAssistModules(modules: ClinicalAiModule[]) {
+  const byKey = new Map(modules.map((module) => [module.module_key, module]));
+  return OP_DOCTOR_ASSIST_MODULE_KEYS
+    .map((key) => byKey.get(key))
+    .filter((module): module is ClinicalAiModule => Boolean(module));
 }
 
 function adapterBoundary(adapter: ClinicalAiAdapterStatus) {
@@ -354,6 +376,83 @@ function ModuleOverrideControls({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function OpDoctorAssistControls({
+  modules,
+  disabled,
+  onToggle,
+  onSave,
+  onReset,
+}: {
+  modules: ClinicalAiModule[];
+  disabled: boolean;
+  onToggle: (module: ClinicalAiModule) => void;
+  onSave: (module: ClinicalAiModule, payload: ClinicalAiModulePatch) => void;
+  onReset: (module: ClinicalAiModule) => void;
+}) {
+  if (!modules.length) return null;
+
+  const enabledCount = modules.filter((module) => module.enabled).length;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Stethoscope className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">OP Doctor Assist</h2>
+        </div>
+        <span className="w-fit rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          {enabledCount} / {modules.length} enabled
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Service</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Risk</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Boundary</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Review</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">State</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {modules.map((module) => (
+              <tr key={module.module_key}>
+                <td className="px-4 py-3">
+                  <div className="font-medium">{module.display_name}</div>
+                  <div className="max-w-xl text-xs text-muted-foreground">{module.description}</div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">{module.module_key}</div>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityClass(moduleSettingText(module, "risk", "low"))}`}>
+                    {moduleSettingText(module, "risk", "low")}
+                  </span>
+                </td>
+                <td className="px-4 py-3">{boundaryLabel(module)}</td>
+                <td className="px-4 py-3">
+                  <div>{moduleSettingText(module, "approvalPolicy")}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {moduleSettingText(module, "surface", "clinical")}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <ModuleOverrideControls
+                    module={module}
+                    disabled={disabled}
+                    onToggle={onToggle}
+                    onSave={onSave}
+                    onReset={onReset}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -673,6 +772,7 @@ export default function ClinicalAiGovernancePage() {
   const guardrails = status.data?.guardrails;
   const budget = status.data?.budget;
   const adapters = status.data?.adapters ?? [];
+  const opDoctorAssistModules = orderedOpDoctorAssistModules(modules);
 
   return (
     <div className="space-y-6">
@@ -852,6 +952,14 @@ export default function ClinicalAiGovernancePage() {
           if (!guardrails) return;
           saveGuardrails.mutate({ external_ai_enabled: !guardrails.external_ai_enabled });
         }}
+      />
+
+      <OpDoctorAssistControls
+        modules={opDoctorAssistModules}
+        disabled={toggleModule.isPending || resetModule.isPending || saveModuleOverride.isPending}
+        onToggle={(target) => toggleModule.mutate(target)}
+        onSave={(target, payload) => saveModuleOverride.mutate({ module: target, payload })}
+        onReset={(target) => resetModule.mutate(target)}
       />
 
       <section className="space-y-3">
