@@ -13,6 +13,7 @@ import logger from '../../logging/logger.js';
 import * as billing from '../../services/billing/billingV2Service.js';
 import * as cashDrawer from '../../services/billing/cashDrawerService.js';
 import * as payLinks from '../../services/billing/paymentLinkService.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
@@ -70,6 +71,30 @@ function tenantOf(req) {
     '00000000-0000-4000-8000-000000000001';
 }
 
+function pickBillingContext(row = {}) {
+  return {
+    ...(row.id != null ? { invoice_id: Number(row.id) } : {}),
+    ...(row.invoice_id != null ? { invoice_id: Number(row.invoice_id) } : {}),
+    ...(row.payment_id != null ? { payment_id: Number(row.payment_id) } : {}),
+    ...(row.patient_uid ? { patient_uid: String(row.patient_uid) } : {}),
+    ...(row.admission_id != null ? { admission_id: Number(row.admission_id) } : {}),
+    ...(row.invoice_number ? { invoice_number: String(row.invoice_number) } : {}),
+    ...(row.invoice_type ? { invoice_type: String(row.invoice_type) } : {}),
+    ...(row.status ? { status: String(row.status) } : {}),
+  };
+}
+
+async function logBillingAudit(req, action, row = {}, metadata = {}, options = {}) {
+  await logAudit(req, action, {
+    ...pickBillingContext(row),
+    ...metadata,
+    source: 'billing_v2',
+  }, {
+    resource: options.resource || 'billing_invoice',
+    resourceId: options.resourceId ?? row.invoice_id ?? row.id ?? null,
+  });
+}
+
 // ── Service master ────────────────────────────────────────────────────
 router.get('/services', wrap(async (req) => billing.listServiceMaster({
   category: req.query.category,
@@ -83,9 +108,14 @@ router.patch('/services/:id', requireAdmin, wrap(async (req) =>
 ));
 
 // ── Invoices ──────────────────────────────────────────────────────────
-router.post('/invoices', requireStaffOrAdmin, wrap(async (req) =>
-  billing.createDraftInvoice({ ...req.body, created_by: req.user?.uid }),
-));
+router.post('/invoices', requireStaffOrAdmin, wrap(async (req) => {
+  const invoice = await billing.createDraftInvoice({ ...req.body, created_by: req.user?.uid });
+  await logBillingAudit(req, 'FRONT_OFFICE_BILLING_INVOICE_CREATED', invoice, {
+    requested_invoice_type: req.body?.invoice_type ?? null,
+    department: req.body?.department ?? invoice.department ?? null,
+  });
+  return invoice;
+}));
 
 router.get('/invoices', requireStaffOrAdmin, wrap(async (req) => billing.listInvoices({
   patient_uid: req.query.patient_uid,
@@ -156,9 +186,13 @@ router.post('/invoices/:id/discount', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/invoices/:id/issue', requireStaffOrAdmin, wrap(async (req) =>
-  billing.issueInvoice(req.params.id),
-));
+router.post('/invoices/:id/issue', requireStaffOrAdmin, wrap(async (req) => {
+  const invoice = await billing.issueInvoice(req.params.id);
+  await logBillingAudit(req, 'FRONT_OFFICE_BILLING_INVOICE_ISSUED', invoice, {
+    invoice_id: Number(req.params.id),
+  });
+  return invoice;
+}));
 
 router.post('/invoices/:id/void', requireAdmin, wrap(async (req) =>
   billing.voidInvoice(req.params.id, { ...req.body, voided_by: req.user?.uid }),
@@ -210,9 +244,30 @@ router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res, ne
 });
 
 // ── Payments ──────────────────────────────────────────────────────────
-router.post('/payments', requireStaffOrAdmin, wrap(async (req) =>
-  billing.collectPayment({ ...req.body, collected_by: req.user?.uid }),
-));
+router.post('/payments', requireStaffOrAdmin, wrap(async (req) => {
+  const payment = await billing.collectPayment({ ...req.body, collected_by: req.user?.uid });
+  await logBillingAudit(
+    req,
+    'FRONT_OFFICE_BILLING_PAYMENT_COLLECTED',
+    {
+      ...payment,
+      payment_id: payment?.id,
+      invoice_id: payment?.invoice_id ?? req.body?.invoice_id,
+      patient_uid: payment?.patient_uid ?? req.body?.patient_uid,
+    },
+    {
+      amount: payment?.amount ?? req.body?.amount ?? null,
+      mode: payment?.mode ?? req.body?.mode ?? null,
+      shift: payment?.shift ?? req.body?.shift ?? null,
+      reference_present: Boolean(payment?.reference ?? req.body?.reference),
+    },
+    {
+      resource: 'billing_payment',
+      resourceId: payment?.id ?? null,
+    },
+  );
+  return payment;
+}));
 
 router.post('/payments/:id/reverse', requireAdmin, wrap(async (req) =>
   billing.reversePayment(req.params.id, { ...req.body, reversed_by: req.user?.uid }),
