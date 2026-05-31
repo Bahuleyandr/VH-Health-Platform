@@ -8,6 +8,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../op_ai_assist_availability.dart';
 
 class OpAiAssistScreen extends StatefulWidget {
   const OpAiAssistScreen({super.key, this.initialAppointmentId});
@@ -784,7 +785,7 @@ class _OpAiModule {
           'Clinical AI service',
       purpose:
           json['description']?.toString() ?? json['purpose']?.toString() ?? '',
-      enabled: json['enabled'] == true,
+      enabled: opAiModuleEnabled(json),
     );
   }
 }

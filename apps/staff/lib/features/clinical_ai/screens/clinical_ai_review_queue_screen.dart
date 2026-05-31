@@ -19,6 +19,7 @@ import '../../../core/config/role_config.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../op_ai_assist_availability.dart';
 import '../clinical_ai_review_governance.dart';
 import '../widgets/clinical_ai_governance_badges.dart';
 
@@ -36,7 +37,7 @@ class _ClinicalAiReviewQueueScreenState
   List<Map<String, dynamic>> _reviews = const [];
   bool _loading = true;
   String? _error;
-  StaffRole _role = StaffRole.general;
+  bool _showOpAiAssist = false;
 
   @override
   void initState() {
@@ -48,7 +49,21 @@ class _ClinicalAiReviewQueueScreenState
   Future<void> _loadRole() async {
     final role = StaffRole.fromString(await ApiConfig.getRole());
     if (!mounted) return;
-    setState(() => _role = role);
+    setState(() => _showOpAiAssist = false);
+    if (!RoleFeatures.hasOpAiAssist(role)) return;
+
+    try {
+      final modules = await ClinicalAiApiService.listOpAssistModules();
+      if (!mounted) return;
+      setState(() {
+        _showOpAiAssist = shouldShowOpAiAssistEntryPoint(
+          role: role,
+          modules: modules,
+        );
+      });
+    } catch (_) {
+      if (mounted) setState(() => _showOpAiAssist = false);
+    }
   }
 
   Future<void> _load() async {
@@ -96,7 +111,7 @@ class _ClinicalAiReviewQueueScreenState
       title: s.clinicalAiQueueTitle,
       body: Column(
         children: [
-          _QuickAccessRow(showOpAiAssist: RoleFeatures.hasOpAiAssist(_role)),
+          _QuickAccessRow(showOpAiAssist: _showOpAiAssist),
           _FilterBar(
             filters: statusFilters,
             value: _statusFilter,
