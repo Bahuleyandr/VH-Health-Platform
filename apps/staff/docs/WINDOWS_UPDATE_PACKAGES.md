@@ -82,12 +82,17 @@ To rebuild the current version without changing `pubspec.yaml`:
 
 ## Backend Target
 
-By default the update scripts build against the stable Dalekdefender hands-on
+By default the update scripts build against the stable DalekDefender hands-on
 backend:
 
 ```text
 https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1
 ```
+
+Because that backend validates a real staff API key, set `VH_API_KEY` or pass
+`-ApiKey` before building against the default target. The scripts refuse to
+pair the DalekDefender URL with the local dev key, because that produces an app
+that can log in but then fails protected routes such as HR Dashboard.
 
 For raw local backend development, pass the local URL explicitly:
 

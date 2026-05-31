@@ -29,6 +29,14 @@ void main() {
       expect(resp.message, 'Token expired');
     });
 
+    test('uses error field as fallback message', () {
+      final body = jsonEncode({'error': 'Invalid API Key'});
+      final resp = ApiResponse.parse(401, body);
+
+      expect(resp.isSuccess, isFalse);
+      expect(resp.message, 'Invalid API Key');
+    });
+
     test('parses 500 as server error', () {
       final body = jsonEncode({
         'success': false,

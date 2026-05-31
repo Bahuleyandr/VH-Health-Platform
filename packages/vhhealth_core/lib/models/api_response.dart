@@ -34,7 +34,7 @@ class ApiResponse {
       decoded = jsonDecode(body);
       if (decoded is Map<String, dynamic>) {
         data = decoded['data'];
-        message = decoded['message']?.toString();
+        message = (decoded['message'] ?? decoded['error'])?.toString();
       } else {
         data = decoded;
       }
