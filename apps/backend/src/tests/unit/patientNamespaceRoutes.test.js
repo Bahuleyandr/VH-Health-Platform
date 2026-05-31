@@ -81,4 +81,13 @@ describe('staff workbench PHI namespaces', () => {
       ),
     ).toBe(true);
   });
+
+  it('logs clinical AI clinical-use PHI access for Staff workbench routes', () => {
+    expect(
+      hasMountedMiddleware(
+        '/api/v1/clinical-ai/clinical',
+        (handle) => handle?.phiRecordType === 'CLINICAL_AI',
+      ),
+    ).toBe(true);
+  });
 });

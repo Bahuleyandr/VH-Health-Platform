@@ -764,6 +764,7 @@ app.use(
 app.use(
   '/api/v1/clinical-ai/clinical',
   requireRole(...CLINICAL_AI_USER_ROLES_LIST),
+  phiAccessLogger('CLINICAL_AI'),
   // Intentionally NOT applying adminIpAllowlist — clinical traffic
   // comes from arbitrary hospital workstations / tablets, not a fixed
   // admin IP set. Phase 1 of the rollout adds an internal-only ingress
