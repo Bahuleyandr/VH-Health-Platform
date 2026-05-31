@@ -342,6 +342,7 @@ function flattenListRow(row, allergyMap = null) {
   delete flat[REL_PATIENT];
   delete flat[REL_DOCTOR];
   flat.patient_name = patient?.name ?? row.patient_name ?? null;
+  flat.patient_uid = patient?.uid ?? null;
   flat.patient_phone = patient?.phone ?? row.phone ?? null;
   flat.patient_guardian_phone = patient?.guardian_phone ?? null;
   flat.patient_email = patient?.email ?? null;

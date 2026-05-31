@@ -70,6 +70,58 @@ void main() {
     });
   });
 
+  group('front-office OPD to IPD admission advice mapping', () {
+    test('uses the advised appointment id as the admission advice id', () {
+      expect(
+        frontOfficeAdmissionAdviceIdFrom({
+          'id': 410,
+          'patient_id': 22,
+          'advised_for_admission_at': '2026-06-01T09:30:00.000Z',
+        }),
+        410,
+      );
+      expect(frontOfficeAdmissionAdviceIdFrom({'appointment_id': '411'}), 411);
+      expect(
+        frontOfficeAdmissionAdviceIdFrom({'admission_advice_id': '412'}),
+        412,
+      );
+    });
+
+    test('maps flat appointment rows into patient selection data', () {
+      final patient = frontOfficeAdmissionAdvicePatientFrom({
+        'id': 410,
+        'patient_id': 22,
+        'patient_uid': '8d4605e0-4bdb-4df5-9ac8-9a2c2db6065c',
+        'patient_name': 'Asha Menon',
+        'patient_phone': '9876543210',
+      });
+
+      expect(patient, isNotNull);
+      expect(patient!['id'], 22);
+      expect(patient['uid'], '8d4605e0-4bdb-4df5-9ac8-9a2c2db6065c');
+      expect(patient['name'], 'Asha Menon');
+      expect(patient['phone'], '9876543210');
+    });
+
+    test('maps nested patient details from advice rows', () {
+      final patient = frontOfficeAdmissionAdvicePatientFrom({
+        'appointment_id': 411,
+        'patient': {
+          'id': 25,
+          'uid': 'd0ad03ab-30eb-4423-a3f4-25895bf1f0a1',
+          'name': 'Ravi Kumar',
+          'phone': '9123456780',
+          'hospital_number': 'VH-25',
+        },
+      });
+
+      expect(patient, isNotNull);
+      expect(patient!['id'], 25);
+      expect(patient['hospital_number'], 'VH-25');
+      expect(patient['name'], 'Ravi Kumar');
+    });
+  });
+
   group('front-office OP queue gates', () {
     test('doctors use their assigned OP queue instead of the broad queue', () {
       expect(

@@ -82,6 +82,7 @@ class ScheduleApiService {
     String? doctorId,
     String? date,
     String? status,
+    bool advisedForAdmission = false,
     int page = 1,
     int limit = 20,
   }) async {
@@ -93,10 +94,24 @@ class ScheduleApiService {
         'doctor_id': ?doctorId,
         'date': ?date,
         'status': ?status,
+        if (advisedForAdmission) 'advised_for_admission': 'true',
         'page': page.toString(),
         'limit': limit.toString(),
       },
     );
+  }
+
+  /// GET /appointments/list?advised_for_admission=true - OPD to IPD handoff.
+  static Future<List<Map<String, dynamic>>> getAdmissionAdviceQueue({
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final data = await getAppointments(
+      advisedForAdmission: true,
+      page: page,
+      limit: limit,
+    );
+    return _listFrom(data, const ['appointments', 'items']);
   }
 
   /// POST /appointments/book — create a scheduled appointment.

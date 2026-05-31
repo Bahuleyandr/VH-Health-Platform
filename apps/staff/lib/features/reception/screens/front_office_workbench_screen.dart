@@ -30,6 +30,23 @@ int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
 }
 
 @visibleForTesting
+int? frontOfficeAdmissionAdviceIdFrom(Map<String, dynamic> row) {
+  return _intFrom(
+    row['admission_advice_id'] ??
+        row['appointment_id'] ??
+        row['appointmentId'] ??
+        row['id'],
+  );
+}
+
+@visibleForTesting
+Map<String, dynamic>? frontOfficeAdmissionAdvicePatientFrom(
+  Map<String, dynamic> row,
+) {
+  return _patientFromQueueRow(row);
+}
+
+@visibleForTesting
 bool frontOfficeWorkbenchCanLoad({
   required StaffRole role,
   required AppDeviceMode mode,
@@ -124,6 +141,7 @@ class _FrontOfficeWorkbenchScreenState
   List<Map<String, dynamic>> _patientMatches = const [];
   Map<String, dynamic>? _selectedPatient;
   List<Map<String, dynamic>> _todayQueue = const [];
+  List<Map<String, dynamic>> _admissionHandoffs = const [];
   List<Map<String, dynamic>> _activeAdmissions = const [];
   int _activeAdmissionsTotal = 0;
   List<Map<String, dynamic>> _patientInvoices = const [];
@@ -137,6 +155,7 @@ class _FrontOfficeWorkbenchScreenState
   bool get _canPatientLookup => RoleFeatures.hasPatientLookup(_role);
   bool get _canPatientRegistryWrite =>
       RoleFeatures.hasPatientRegistryWrite(_role);
+  bool get _canViewAdmissionHandoffs => _canAdmitIp;
   bool get _canAdmitIp =>
       _role == StaffRole.admin ||
       _role == StaffRole.superAdmin ||
@@ -192,15 +211,20 @@ class _FrontOfficeWorkbenchScreenState
           ScheduleApiService.getMyTodayAppointmentQueue(),
         FrontOfficeQueueScope.none => Future<List<dynamic>>.value(const []),
       };
+      final admissionHandoffFuture = _canViewAdmissionHandoffs
+          ? ScheduleApiService.getAdmissionAdviceQueue(limit: 12)
+          : Future<List<Map<String, dynamic>>>.value(const []);
       final results = await Future.wait<dynamic>([
         queueFuture,
         MedicalApiService.getActiveAdmissions(limit: 12),
+        admissionHandoffFuture,
       ]);
       if (!mounted) return;
       setState(() {
         _todayQueue = _mapList(results[0]);
         _activeAdmissions = _admissionList(results[1]);
         _activeAdmissionsTotal = _admissionTotal(results[1]);
+        _admissionHandoffs = _mapList(results[2]);
         _loading = false;
       });
     } catch (e) {
@@ -362,6 +386,22 @@ class _FrontOfficeWorkbenchScreenState
         backgroundColor: hasUid ? AppTheme.successGreen : null,
       ),
     );
+  }
+
+  Future<void> _startAdmissionFromAdvice(Map<String, dynamic> row) async {
+    final advicePatient = frontOfficeAdmissionAdvicePatientFrom(row);
+    if (advicePatient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Advice row has no patient details.')),
+      );
+      return;
+    }
+
+    final selected = await _resolveQueuePatient(advicePatient);
+    if (!mounted) return;
+    await _selectPatient(selected);
+    if (!mounted) return;
+    await _showIpAdmissionDialog(admissionAdvice: row);
   }
 
   Future<void> _loadInvoicesFor(Map<String, dynamic>? patient) async {
@@ -995,8 +1035,14 @@ class _FrontOfficeWorkbenchScreenState
     await _loadWorklists();
   }
 
-  Future<void> _showIpAdmissionDialog() async {
-    final patient = _selectedPatient;
+  Future<void> _showIpAdmissionDialog({
+    Map<String, dynamic>? admissionAdvice,
+  }) async {
+    final patient =
+        _selectedPatient ??
+        (admissionAdvice == null
+            ? null
+            : frontOfficeAdmissionAdvicePatientFrom(admissionAdvice));
     if (!_canAdmitIp) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1012,7 +1058,11 @@ class _FrontOfficeWorkbenchScreenState
       return;
     }
 
-    final chiefComplaintCtrl = TextEditingController();
+    final adviceId = admissionAdvice == null
+        ? null
+        : frontOfficeAdmissionAdviceIdFrom(admissionAdvice);
+    final adviceNote = _admissionAdviceNote(admissionAdvice);
+    final chiefComplaintCtrl = TextEditingController(text: adviceNote);
     final diagnosisCtrl = TextEditingController();
     Map<String, dynamic>? selectedDoctor;
     Map<String, dynamic>? selectedWard;
@@ -1078,6 +1128,7 @@ class _FrontOfficeWorkbenchScreenState
                     'patient_phone': _text(patient['phone']),
                   if (_text(patient['name']).isNotEmpty)
                     'patient_name': _text(patient['name']),
+                  'admission_advice_id': ?adviceId,
                   'admitting_doctor': doctorUid,
                   'chief_complaint': chiefComplaint,
                   if (diagnosisCtrl.text.trim().isNotEmpty)
@@ -1122,6 +1173,13 @@ class _FrontOfficeWorkbenchScreenState
                         selected: true,
                         onTap: () {},
                       ),
+                      if (admissionAdvice != null) ...[
+                        const SizedBox(height: 12),
+                        _InlineAlert(
+                          message: _admissionAdviceSummary(admissionAdvice),
+                          color: AppTheme.primaryTeal,
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       FutureBuilder<List<Map<String, dynamic>>>(
                         future: _doctorOptionsFuture(),
@@ -1775,6 +1833,13 @@ class _FrontOfficeWorkbenchScreenState
             value: '$_activeAdmissionsTotal',
             color: AppTheme.primaryBlue,
           ),
+          if (_canViewAdmissionHandoffs)
+            _Metric(
+              icon: Icons.move_down_outlined,
+              label: 'IP Handoff',
+              value: '${_admissionHandoffs.length}',
+              color: AppTheme.warningAmber,
+            ),
           Chip(
             avatar: const Icon(Icons.devices_outlined, size: 18),
             label: Text(mode.apiValue.toUpperCase()),
@@ -1938,7 +2003,7 @@ class _FrontOfficeWorkbenchScreenState
                   label: 'Admit IP',
                   color: AppTheme.warningAmber,
                   enabled: hasPatient && !_admissionActionBusy,
-                  onTap: _showIpAdmissionDialog,
+                  onTap: () => _showIpAdmissionDialog(),
                 ),
               _ActionTile(
                 icon: Icons.local_hospital,
@@ -2271,7 +2336,7 @@ class _FrontOfficeWorkbenchScreenState
                   FilledButton.icon(
                     onPressed: _admissionActionBusy
                         ? null
-                        : _showIpAdmissionDialog,
+                        : () => _showIpAdmissionDialog(),
                     icon: _admissionActionBusy
                         ? const SizedBox(
                             width: 16,
@@ -2290,6 +2355,31 @@ class _FrontOfficeWorkbenchScreenState
             ),
           ),
           const SizedBox(height: 8),
+          if (_canViewAdmissionHandoffs) ...[
+            Row(
+              children: [
+                const Icon(Icons.move_down_outlined, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'OPD Admission Handoff',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            if (_admissionHandoffs.isEmpty)
+              const _EmptyLine(
+                icon: Icons.assignment_turned_in_outlined,
+                text: 'No OPD admission advice pending',
+              )
+            else
+              ..._admissionHandoffs.take(4).map(_admissionHandoffTile),
+            const Divider(height: 22),
+          ],
           if (_activeAdmissions.isEmpty)
             const _EmptyLine(
               icon: Icons.local_hospital_outlined,
@@ -2308,6 +2398,57 @@ class _FrontOfficeWorkbenchScreenState
             ],
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _admissionHandoffTile(Map<String, dynamic> row) {
+    final patient = frontOfficeAdmissionAdvicePatientFrom(row);
+    final name = _text(patient?['name']);
+    final phone = _text(patient?['phone']);
+    final doctor = _firstText([
+      row['doctor_name'],
+      row['doctorName'],
+      row['consultant_name'],
+      row['consultantName'],
+    ]);
+    final advisedAt = _admissionAdviceDate(row);
+    final note = _admissionAdviceNote(row);
+    final busy = _admissionActionBusy;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.assignment_returned_outlined),
+        title: Text(
+          name.isEmpty ? 'Patient advised for IP' : name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          [
+            if (phone.isNotEmpty) phone,
+            if (doctor.isNotEmpty) doctor,
+            if (advisedAt.isNotEmpty) advisedAt,
+            if (note.isNotEmpty) note,
+          ].join(' - '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: IconButton.filledTonal(
+          tooltip: 'Admit IP',
+          onPressed: busy ? null : () => _startAdmissionFromAdvice(row),
+          icon: busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.local_hospital_outlined),
+        ),
+        onTap: busy ? null : () => _startAdmissionFromAdvice(row),
       ),
     );
   }
@@ -2641,6 +2782,41 @@ String _formatTime(TimeOfDay time) {
   final hour = time.hour.toString().padLeft(2, '0');
   final minute = time.minute.toString().padLeft(2, '0');
   return '$hour:$minute';
+}
+
+String _admissionAdviceNote(Map<String, dynamic>? row) {
+  if (row == null) return '';
+  return _firstText([
+    row['advised_for_admission_note'],
+    row['admission_advice_note'],
+    row['advice_note'],
+    row['reason'],
+    row['notes'],
+  ]);
+}
+
+String _admissionAdviceDate(Map<String, dynamic> row) {
+  final raw = _firstText([
+    row['advised_for_admission_at'],
+    row['advisedAt'],
+    row['updated_at'],
+    row['created_at'],
+  ]);
+  final date = DateTime.tryParse(raw)?.toLocal();
+  if (date == null) return '';
+  return DateFormat('dd MMM, HH:mm').format(date);
+}
+
+String _admissionAdviceSummary(Map<String, dynamic> row) {
+  final id = frontOfficeAdmissionAdviceIdFrom(row);
+  final advisedAt = _admissionAdviceDate(row);
+  final note = _admissionAdviceNote(row);
+  return [
+    'OPD admission advice',
+    if (id != null) '#$id',
+    if (advisedAt.isNotEmpty) advisedAt,
+    if (note.isNotEmpty) note,
+  ].join(' - ');
 }
 
 int? _appointmentId(Map<String, dynamic> row) =>
