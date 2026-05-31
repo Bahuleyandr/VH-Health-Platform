@@ -126,6 +126,67 @@ bool frontOfficeCanCompleteAppointment(StaffRole role) {
       RoleFeatures.hasClinicalEntry(role);
 }
 
+@visibleForTesting
+Map<String, dynamic> frontOfficeWalkInRegistrationPayload({
+  required Map<String, dynamic> patient,
+  Map<String, dynamic>? doctor,
+  required String reason,
+  String? notes,
+  String? visitType,
+  String? department,
+  String? patientCategory,
+  String? payerType,
+  String? insurerName,
+  String? policyNumber,
+  String? schemeName,
+  String? allergies,
+  String? chronicMedications,
+  bool mlc = false,
+  String? mlcNumber,
+  String? mlcNotes,
+}) {
+  final patientId = _intFrom(patient['id']);
+  final doctorId = doctor == null ? null : _doctorId(doctor);
+  final resolvedDepartment = _firstText([department, doctor?['department']]);
+  final normalizedVisitType = _text(visitType).isEmpty
+      ? 'NEW'
+      : _text(visitType).toUpperCase();
+  final body = <String, dynamic>{
+    'patient_id': ?patientId,
+    if (_text(patient['phone']).isNotEmpty)
+      'patient_phone': _text(patient['phone']),
+    if (_text(patient['name']).isNotEmpty)
+      'patient_name': _text(patient['name']),
+    if (_text(patient['birthday']).isNotEmpty)
+      'patient_birthday': _text(patient['birthday']).split('T').first,
+    if (_text(patient['gender']).isNotEmpty)
+      'patient_gender': _text(patient['gender']),
+    if (_text(patient['address']).isNotEmpty)
+      'patient_address': _text(patient['address']),
+    'doctor_id': ?doctorId,
+    if (resolvedDepartment.isNotEmpty) 'department': resolvedDepartment,
+    'reason': _text(reason),
+    'chief_complaint': _text(reason),
+    if (_text(notes).isNotEmpty) 'notes': _text(notes),
+    'appointment_time': 'Walk-in',
+    'visit_type': normalizedVisitType,
+    if (_text(patientCategory).isNotEmpty)
+      'patient_category': _text(patientCategory).toLowerCase(),
+    if (_text(payerType).isNotEmpty) 'payer_type': _text(payerType),
+    if (_text(insurerName).isNotEmpty) 'insurer_name': _text(insurerName),
+    if (_text(policyNumber).isNotEmpty) 'policy_number': _text(policyNumber),
+    if (_text(schemeName).isNotEmpty) 'scheme_name': _text(schemeName),
+    if (_text(allergies).isNotEmpty) 'allergies': _text(allergies),
+    if (_text(chronicMedications).isNotEmpty)
+      'chronic_medications': _text(chronicMedications),
+    if (mlc) 'mlc': true,
+    if (mlc && _text(mlcNumber).isNotEmpty) 'mlc_number': _text(mlcNumber),
+    if (mlc && _text(mlcNotes).isNotEmpty) 'mlc_notes': _text(mlcNotes),
+  };
+  body.removeWhere((_, value) => value is String && value.trim().isEmpty);
+  return body;
+}
+
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
   const FrontOfficeWorkbenchScreen({super.key});
 
@@ -786,6 +847,458 @@ class _FrontOfficeWorkbenchScreenState
     await _loadInvoicesFor(saved);
   }
 
+  Future<void> _showWalkInRegistrationDialog() async {
+    final patient = _selectedPatient;
+    if (!_canBookOp) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Walk-in registration is not enabled for this role.'),
+        ),
+      );
+      return;
+    }
+    if (patient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select a patient before registering a walk-in.'),
+        ),
+      );
+      return;
+    }
+
+    final reasonCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    final departmentCtrl = TextEditingController();
+    final insurerCtrl = TextEditingController();
+    final policyCtrl = TextEditingController();
+    final schemeCtrl = TextEditingController();
+    final allergiesCtrl = TextEditingController(
+      text: _text(patient['allergies']),
+    );
+    final medicationsCtrl = TextEditingController();
+    final mlcNumberCtrl = TextEditingController();
+    final mlcNotesCtrl = TextEditingController();
+    var selectedVisitType = 'NEW';
+    var patientCategory = 'cash';
+    var mlc = false;
+    Map<String, dynamic>? selectedDoctor;
+    var saving = false;
+    String? dialogError;
+
+    final registered = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> register() async {
+              final patientId = _intFrom(patient['id']);
+              final patientPhone = _text(patient['phone']);
+              final reason = reasonCtrl.text.trim();
+              if (patientId == null && _digitsOnly(patientPhone).length < 8) {
+                setDialogState(() {
+                  dialogError =
+                      'Patient needs a saved record or a valid phone number.';
+                });
+                return;
+              }
+              if (reason.isEmpty) {
+                setDialogState(
+                  () => dialogError = 'Enter the visit reason or complaint.',
+                );
+                return;
+              }
+              if (selectedVisitType != 'LAB_ONLY' &&
+                  selectedDoctor == null &&
+                  departmentCtrl.text.trim().isEmpty) {
+                setDialogState(
+                  () => dialogError = 'Select a doctor or department.',
+                );
+                return;
+              }
+
+              setDialogState(() {
+                saving = true;
+                dialogError = null;
+              });
+              try {
+                final payload = frontOfficeWalkInRegistrationPayload(
+                  patient: patient,
+                  doctor: selectedDoctor,
+                  reason: reason,
+                  notes: notesCtrl.text,
+                  visitType: selectedVisitType,
+                  department:
+                      departmentCtrl.text.trim().isEmpty &&
+                          selectedVisitType == 'LAB_ONLY'
+                      ? 'Laboratory'
+                      : departmentCtrl.text,
+                  patientCategory: patientCategory,
+                  payerType: patientCategory == 'cash' ? null : patientCategory,
+                  insurerName: insurerCtrl.text,
+                  policyNumber: policyCtrl.text,
+                  schemeName: schemeCtrl.text,
+                  allergies: allergiesCtrl.text,
+                  chronicMedications: medicationsCtrl.text,
+                  mlc: mlc,
+                  mlcNumber: mlcNumberCtrl.text,
+                  mlcNotes: mlcNotesCtrl.text,
+                );
+                final result = await ScheduleApiService.registerWalkInPayload(
+                  payload,
+                );
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop(result);
+                }
+              } catch (e) {
+                setDialogState(() {
+                  dialogError = e.toString().replaceFirst('Exception: ', '');
+                  saving = false;
+                });
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Register Walk-in'),
+              content: SizedBox(
+                width: 620,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PatientCard(
+                        patient: patient,
+                        selected: true,
+                        onTap: () {},
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _doctorOptionsFuture(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const LinearProgressIndicator(minHeight: 2);
+                          }
+                          final doctors = (snapshot.data ?? const [])
+                              .where((doctor) => _doctorId(doctor) != null)
+                              .toList();
+                          return DropdownButtonFormField<int>(
+                            initialValue: selectedDoctor == null
+                                ? null
+                                : _doctorId(selectedDoctor!),
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Consulting doctor',
+                              prefixIcon: Icon(Icons.medical_services_outlined),
+                            ),
+                            items: doctors
+                                .map(
+                                  (doctor) => DropdownMenuItem<int>(
+                                    value: _doctorId(doctor),
+                                    child: Text(
+                                      _doctorLabel(doctor),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: saving
+                                ? null
+                                : (doctorId) {
+                                    final doctor = doctors.firstWhere(
+                                      (item) => _doctorId(item) == doctorId,
+                                      orElse: () => <String, dynamic>{},
+                                    );
+                                    setDialogState(() {
+                                      selectedDoctor = doctor.isEmpty
+                                          ? null
+                                          : doctor;
+                                      final department = _text(
+                                        selectedDoctor?['department'],
+                                      );
+                                      if (department.isNotEmpty) {
+                                        departmentCtrl.text = department;
+                                      }
+                                    });
+                                  },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: departmentCtrl,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Department / counter',
+                          prefixIcon: Icon(Icons.apartment_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: selectedVisitType,
+                              decoration: const InputDecoration(
+                                labelText: 'Visit type',
+                                prefixIcon: Icon(Icons.assignment_outlined),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'NEW',
+                                  child: Text('New consultation'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'FOLLOW_UP',
+                                  child: Text('Follow-up'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'EMERGENCY',
+                                  child: Text('Emergency'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'LAB_ONLY',
+                                  child: Text('Lab only'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'PAEDIATRIC_OPD',
+                                  child: Text('Paediatric OPD'),
+                                ),
+                              ].toList(),
+                              onChanged: saving
+                                  ? null
+                                  : (value) {
+                                      if (value == null) return;
+                                      setDialogState(() {
+                                        selectedVisitType = value;
+                                        if (value == 'LAB_ONLY' &&
+                                            departmentCtrl.text
+                                                .trim()
+                                                .isEmpty) {
+                                          departmentCtrl.text = 'Laboratory';
+                                        }
+                                      });
+                                    },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: patientCategory,
+                              decoration: const InputDecoration(
+                                labelText: 'Payment category',
+                                prefixIcon: Icon(Icons.payments_outlined),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'cash',
+                                  child: Text('Cash'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'corporate',
+                                  child: Text('Corporate'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'insurance',
+                                  child: Text('Insurance'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'tpa',
+                                  child: Text('TPA'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'scheme',
+                                  child: Text('Govt scheme'),
+                                ),
+                              ].toList(),
+                              onChanged: saving
+                                  ? null
+                                  : (value) => setDialogState(
+                                      () => patientCategory = value ?? 'cash',
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reasonCtrl,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Visit reason / chief complaint',
+                          prefixIcon: Icon(Icons.short_text),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: notesCtrl,
+                        minLines: 2,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Counter intake notes',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: allergiesCtrl,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Known allergies',
+                                prefixIcon: Icon(Icons.warning_amber_outlined),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: medicationsCtrl,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Current medicines',
+                                prefixIcon: Icon(Icons.medication_outlined),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: insurerCtrl,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Insurer / TPA',
+                                prefixIcon: Icon(Icons.account_balance),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: policyCtrl,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: 'Policy number',
+                                prefixIcon: Icon(Icons.confirmation_number),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: schemeCtrl,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Scheme name',
+                          prefixIcon: Icon(Icons.health_and_safety_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      CheckboxListTile(
+                        value: mlc,
+                        onChanged: saving
+                            ? null
+                            : (value) =>
+                                  setDialogState(() => mlc = value ?? false),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text('Medico-legal case'),
+                      ),
+                      if (mlc) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: mlcNumberCtrl,
+                                textInputAction: TextInputAction.next,
+                                decoration: const InputDecoration(
+                                  labelText: 'MLC number',
+                                  prefixIcon: Icon(Icons.gavel_outlined),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: mlcNotesCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'MLC notes',
+                                  prefixIcon: Icon(Icons.description_outlined),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (dialogError != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          dialogError!,
+                          style: TextStyle(color: AppTheme.errorOnSurface),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(context, null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: saving ? null : register,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.how_to_reg_outlined),
+                  label: const Text('Register'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    reasonCtrl.dispose();
+    notesCtrl.dispose();
+    departmentCtrl.dispose();
+    insurerCtrl.dispose();
+    policyCtrl.dispose();
+    schemeCtrl.dispose();
+    allergiesCtrl.dispose();
+    medicationsCtrl.dispose();
+    mlcNumberCtrl.dispose();
+    mlcNotesCtrl.dispose();
+
+    if (registered == null || !mounted) return;
+    final visitNo = _text(registered['visit_no']);
+    final token = _text(registered['token_number']);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          [
+            if (visitNo.isEmpty) 'Walk-in registered' else 'Visit $visitNo',
+            if (token.isNotEmpty) 'Token $token',
+          ].join(' - '),
+        ),
+        backgroundColor: AppTheme.successGreen,
+      ),
+    );
+    await _refreshWorklists();
+  }
+
   Future<void> _showOpBookingDialog() async {
     final patient = _selectedPatient;
     if (!_canBookOp) {
@@ -1090,7 +1603,7 @@ class _FrontOfficeWorkbenchScreenState
         backgroundColor: AppTheme.successGreen,
       ),
     );
-    await _loadWorklists();
+    await _refreshWorklists();
   }
 
   Future<void> _showIpAdmissionDialog({
@@ -1575,7 +2088,7 @@ class _FrontOfficeWorkbenchScreenState
         backgroundColor: AppTheme.successGreen,
       ),
     );
-    await _loadWorklists();
+    await _refreshWorklists();
   }
 
   Future<bool> _confirmQueueAction({
@@ -1626,7 +2139,7 @@ class _FrontOfficeWorkbenchScreenState
     });
     try {
       await action(id);
-      await _loadWorklists();
+      await _refreshWorklists();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -2054,6 +2567,14 @@ class _FrontOfficeWorkbenchScreenState
                   color: AppTheme.accentCyan,
                   enabled: hasPatient,
                   onTap: _showOpBookingDialog,
+                ),
+              if (_canBookOp)
+                _ActionTile(
+                  icon: Icons.how_to_reg_outlined,
+                  label: 'Register Walk-in',
+                  color: AppTheme.primaryTeal,
+                  enabled: hasPatient,
+                  onTap: _showWalkInRegistrationDialog,
                 ),
               if (_canAdmitIp)
                 _ActionTile(

@@ -242,4 +242,80 @@ void main() {
       },
     );
   });
+
+  group('frontOfficeWalkInRegistrationPayload', () {
+    test(
+      'carries selected patient, doctor, intake, payer, and MLC context',
+      () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: {
+            'id': 22,
+            'name': 'Asha Menon',
+            'phone': '9876543210',
+            'birthday': '1990-02-03T00:00:00.000Z',
+            'gender': 'female',
+          },
+          doctor: {
+            'id': 77,
+            'name': 'Dr Kumar',
+            'department': 'General Medicine',
+          },
+          reason: ' Fever and cough ',
+          notes: 'Vitals pending',
+          visitType: 'emergency',
+          patientCategory: 'tpa',
+          payerType: 'tpa',
+          insurerName: 'Demo TPA',
+          policyNumber: 'POL-123',
+          allergies: 'Penicillin',
+          chronicMedications: 'Metformin, Atorvastatin',
+          mlc: true,
+          mlcNumber: 'MLC-9',
+          mlcNotes: 'Police intimation pending',
+        );
+
+        expect(payload, {
+          'patient_id': 22,
+          'patient_phone': '9876543210',
+          'patient_name': 'Asha Menon',
+          'patient_birthday': '1990-02-03',
+          'patient_gender': 'female',
+          'doctor_id': 77,
+          'department': 'General Medicine',
+          'reason': 'Fever and cough',
+          'chief_complaint': 'Fever and cough',
+          'notes': 'Vitals pending',
+          'appointment_time': 'Walk-in',
+          'visit_type': 'EMERGENCY',
+          'patient_category': 'tpa',
+          'payer_type': 'tpa',
+          'insurer_name': 'Demo TPA',
+          'policy_number': 'POL-123',
+          'allergies': 'Penicillin',
+          'chronic_medications': 'Metformin, Atorvastatin',
+          'mlc': true,
+          'mlc_number': 'MLC-9',
+          'mlc_notes': 'Police intimation pending',
+        });
+      },
+    );
+
+    test('supports lab-only walk-ins without a doctor and strips blanks', () {
+      final payload = frontOfficeWalkInRegistrationPayload(
+        patient: {'phone': '9123456780', 'name': 'Lab Patient'},
+        reason: ' CBC ',
+        visitType: 'lab_only',
+        department: 'Laboratory',
+        notes: '   ',
+        insurerName: '   ',
+      );
+
+      expect(payload['doctor_id'], isNull);
+      expect(payload['department'], 'Laboratory');
+      expect(payload['visit_type'], 'LAB_ONLY');
+      expect(payload['reason'], 'CBC');
+      expect(payload.containsKey('notes'), isFalse);
+      expect(payload.containsKey('insurer_name'), isFalse);
+    });
+  });
 }

@@ -283,16 +283,29 @@ class ScheduleApiService {
 
   // ─── Walk-in Registration ──────────────────────────────────────────────
 
+  static Future<Map<String, dynamic>> registerWalkInPayload(
+    Map<String, dynamic> body,
+  ) async {
+    return _post('/appointments/walk-in', body);
+  }
+
   static Future<Map<String, dynamic>> registerWalkIn({
-    required String patientPhone,
+    int? patientId,
+    String? patientPhone,
     String? patientName,
     int? doctorId,
     String? department,
     String? reason,
     String? appointmentTime,
   }) async {
+    if (patientId == null &&
+        (patientPhone == null || patientPhone.trim().isEmpty)) {
+      throw Exception('Patient phone or patient ID is required');
+    }
     final body = <String, dynamic>{
-      'patient_phone': patientPhone,
+      'patient_id': ?patientId,
+      if (patientPhone != null && patientPhone.trim().isNotEmpty)
+        'patient_phone': patientPhone.trim(),
       if (patientName != null && patientName.isNotEmpty)
         'patient_name': patientName,
       'doctor_id': ?doctorId,
@@ -300,7 +313,7 @@ class ScheduleApiService {
       'reason': reason ?? 'Walk-in consultation',
       'appointment_time': appointmentTime ?? 'Walk-in',
     };
-    return _post('/appointments/walk-in', body);
+    return registerWalkInPayload(body);
   }
 
   // ─── Campus Config ──────────────────────────────────────────────────────
