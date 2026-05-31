@@ -5,6 +5,7 @@ export const ACTIVE_ADMISSION_STATUSES = ['admitted', 'transferred'];
 export const FULL_INPATIENT_SCOPE_ROLES = new Set([
   'ADMIN',
   'SUPER_ADMIN',
+  'CMO',
   'MEDICAL_SUPERINTENDENT',
   'CNO',
   'NURSING_INCHARGE',
@@ -67,6 +68,7 @@ function normalizeRole(role) {
   const normalized = String(role || '').trim().toUpperCase();
   return {
     CHIEF_NURSING_OFFICER: 'CNO',
+    CHIEF_MEDICAL_OFFICER: 'CMO',
     CONSULTANT_PHYSICIAN: 'CONSULTANT',
     HOUSEKEEPING: 'HOUSEKEEPING_STAFF',
     HOUSEKEEPING_ATTENDANT: 'HOUSEKEEPING_STAFF',

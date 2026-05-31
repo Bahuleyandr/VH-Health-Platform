@@ -37,14 +37,34 @@ enum StaffRole {
     final normalized = role.trim().toUpperCase();
     if (const {
       'CONSULTANT',
+      'CONSULTANT_PHYSICIAN',
       'JUNIOR_DOCTOR',
       'SENIOR_DOCTOR',
       'RESIDENT',
     }.contains(normalized)) {
       return StaffRole.doctor;
     }
-    if (const {'ICU_NURSE', 'OT_NURSE'}.contains(normalized)) {
+    if (const {
+      'ICU_NURSE',
+      'NURSE',
+      'OT_NURSE',
+      'REGISTERED_NURSE',
+      'STAFF_NURSE',
+      'WARD_NURSE',
+    }.contains(normalized)) {
       return StaffRole.nurse;
+    }
+    if (const {
+      'CHIEF_NURSING_OFFICER',
+      'NURSING_SUPERINTENDENT',
+    }.contains(normalized)) {
+      return StaffRole.nursingSuperintendent;
+    }
+    if (const {'CHIEF_MEDICAL_OFFICER', 'CMO'}.contains(normalized)) {
+      return StaffRole.medicalSuperintendent;
+    }
+    if (const {'HOUSEKEEPING', 'HOUSEKEEPING_ATTENDANT'}.contains(normalized)) {
+      return StaffRole.housekeeping;
     }
     return StaffRole.values.firstWhere(
       (r) => r.value == normalized,

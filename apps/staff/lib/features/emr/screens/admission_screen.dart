@@ -21,7 +21,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
   String? _error;
   int _page = 1;
   int _totalAdmissions = 0;
-  static const int _pageSize = 50;
+  Map<String, dynamic> _scope = const {};
+  static const int _pageSize = 100;
 
   @override
   void initState() {
@@ -52,6 +53,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         _page = pageToLoad;
         _admissions = append ? [..._admissions, ...list] : list;
         _totalAdmissions = total;
+        _scope = _mapFrom(data['scope']);
         _loading = false;
         _loadingMore = false;
       });
@@ -86,6 +88,50 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
 
   bool get _hasMoreAdmissions =>
       _totalAdmissions > 0 && _admissions.length < _totalAdmissions;
+
+  Map<String, dynamic> _mapFrom(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return <String, dynamic>{};
+  }
+
+  String _text(dynamic value, [String fallback = '']) {
+    final text = (value ?? '').toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  String get _scopeLabel {
+    final type = _text(_scope['type']);
+    switch (type) {
+      case 'full':
+        return 'All active inpatients';
+      case 'own_patients':
+        return 'Patients assigned to you';
+      case 'duty_doctor':
+        return 'Current duty floor coverage';
+      case 'ward_nursing':
+        return 'Current nursing floor';
+      case 'housekeeping':
+        return 'Current housekeeping area';
+      default:
+        return 'Role-based inpatient scope';
+    }
+  }
+
+  String get _scopeDetail {
+    final wards = _scope['wards'];
+    if (wards is List && wards.isNotEmpty) {
+      return wards
+          .map((ward) => _text(ward))
+          .where((ward) => ward.isNotEmpty)
+          .join(', ');
+    }
+    final floors = _scope['floors'];
+    if (floors is List && floors.isNotEmpty) {
+      return 'Floor ${floors.join(', ')}';
+    }
+    return _text(_scope['source']).replaceAll('_', ' ');
+  }
 
   Color _priorityColor(String? priority) {
     switch (priority?.toLowerCase()) {
@@ -130,6 +176,56 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       child: Text(
         status?.toUpperCase() ?? 'UNKNOWN',
         style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
+  Widget _buildScopeSummary(ThemeData theme) {
+    final showing = _admissions.length;
+    final total = _totalAdmissions > 0 ? _totalAdmissions : showing;
+    final detail = _scopeDetail;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.security_outlined,
+                color: AppTheme.primaryBlue,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Showing $showing of $total inpatients',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    detail.isEmpty ? _scopeLabel : '$_scopeLabel - $detail',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -524,9 +620,12 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
               onRefresh: _loadAdmissions,
               child: ListView.builder(
                 padding: const EdgeInsets.all(12),
-                itemCount: _admissions.length + (_hasMoreAdmissions ? 1 : 0),
+                itemCount:
+                    _admissions.length + 1 + (_hasMoreAdmissions ? 1 : 0),
                 itemBuilder: (ctx, i) {
-                  if (i >= _admissions.length) {
+                  if (i == 0) return _buildScopeSummary(Theme.of(context));
+                  final admissionIndex = i - 1;
+                  if (admissionIndex >= _admissions.length) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Center(
@@ -552,7 +651,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                       ),
                     );
                   }
-                  final a = _admissions[i];
+                  final a = _admissions[admissionIndex];
+                  final bedNumber = a['bed_number'] ?? a['bed'];
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
@@ -578,7 +678,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${a['ward'] ?? ''} ${a['bed'] != null ? '- Bed ${a['bed']}' : ''}',
+                            '${a['ward'] ?? ''} ${bedNumber != null ? '- Bed $bedNumber' : ''}',
                             style: const TextStyle(fontSize: 13),
                           ),
                           if (a['chief_complaint'] != null)

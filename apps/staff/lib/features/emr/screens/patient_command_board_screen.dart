@@ -279,6 +279,9 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final actor = _asMap(_board['actor']);
     final governance = _asMap(_board['governance']);
     final counts = _asMap(_board['counts']);
+    final total = _int(counts['total']);
+    final loaded = _int(counts['loaded'] ?? counts['returned']);
+    final hasMore = counts['has_more'] == true && total > loaded;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -330,7 +333,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _metricChip('Patients', _int(counts['total']), Icons.bed),
+              _metricChip('Patients', total, Icons.bed),
               _metricChip(
                 'Tasks',
                 _int(counts['with_open_tasks']),
@@ -348,6 +351,15 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
               ),
             ],
           ),
+          if (hasMore) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Showing first $loaded of $total patients in your current scope.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );

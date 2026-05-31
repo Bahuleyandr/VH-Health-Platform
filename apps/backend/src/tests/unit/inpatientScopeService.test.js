@@ -45,6 +45,8 @@ describe('resolveInpatientAdmissionScope', () => {
   });
 
   it.each([
+    'CMO',
+    'CHIEF_MEDICAL_OFFICER',
     'MEDICAL_SUPERINTENDENT',
     'NURSING_INCHARGE',
     'CNO',

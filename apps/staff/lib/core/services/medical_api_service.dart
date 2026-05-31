@@ -788,6 +788,7 @@ class MedicalApiService {
         final data = raw['data'];
         final meta = raw['meta'];
         final pagination = meta is Map ? meta['pagination'] : null;
+        final scope = meta is Map ? meta['scope'] : null;
         final list = data is List
             ? data
             : data is Map
@@ -797,6 +798,7 @@ class MedicalApiService {
           'admissions': list is List ? list : const [],
           if (pagination is Map)
             'pagination': Map<String, dynamic>.from(pagination),
+          if (scope is Map) 'scope': Map<String, dynamic>.from(scope),
         };
       }
     }
@@ -830,7 +832,7 @@ class MedicalApiService {
     String? ward,
     String status = 'active',
     bool? mine,
-    int limit = 100,
+    int limit = 200,
   }) async {
     return _get(
       '/admissions/command-board',

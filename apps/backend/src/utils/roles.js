@@ -112,6 +112,19 @@ export const ALL_ROLES = [
   PATIENT
 ];
 
+const ROLE_ALIASES = new Map([
+  ['CHIEF_MEDICAL_OFFICER', CMO],
+  ['CHIEF_NURSING_OFFICER', CNO],
+  ['CONSULTANT_PHYSICIAN', 'CONSULTANT'],
+  ['HOUSEKEEPING', HOUSEKEEPING_STAFF],
+  ['HOUSEKEEPING_ATTENDANT', HOUSEKEEPING_STAFF],
+  ['NURSE', NURSING_STAFF],
+  ['NURSING_SUPERINTENDENT', CNO],
+  ['REGISTERED_NURSE', NURSING_STAFF],
+  ['STAFF_NURSE', NURSING_STAFF],
+  ['WARD_NURSE', NURSING_STAFF],
+]);
+
 /**
  * Normalize a role string safely.
  * @param {string} role
@@ -119,7 +132,8 @@ export const ALL_ROLES = [
  */
 export function normalizeRole(role) {
   if (!role || typeof role !== 'string') return null;
-  return role.trim().toUpperCase();
+  const normalized = role.trim().toUpperCase();
+  return ROLE_ALIASES.get(normalized) || normalized;
 }
 
 /**

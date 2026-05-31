@@ -69,6 +69,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _role == StaffRole.housekeepingIncharge ||
       _role.isAdminTier;
 
+  String get _inpatientStatsRoute {
+    if (_role == StaffRole.housekeeping ||
+        _role == StaffRole.housekeepingIncharge) {
+      return '/beds';
+    }
+    if (_role == StaffRole.doctor ||
+        _role == StaffRole.dutyDoctor ||
+        _role == StaffRole.medicalSuperintendent ||
+        _role == StaffRole.nurse ||
+        _role == StaffRole.nursingIncharge ||
+        _role == StaffRole.nursingSuperintendent ||
+        _role.isAdminTier) {
+      return '/patient-command-board';
+    }
+    return '/emr/admissions';
+  }
+
   bool get _hasClinicalDashboardAccess =>
       _role == StaffRole.doctor ||
       _role == StaffRole.dutyDoctor ||
@@ -1401,21 +1418,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    // Active admissions: clinical roles drill into admissions; housekeeping
-    // drills into the scoped bed board with minimized PHI.
+    // Active admissions: clinical/governance roles drill into the scoped
+    // command board; housekeeping drills into the scoped bed board with
+    // minimized PHI.
     if (_canSeeInpatientStats) {
-      final inpatientRoute =
-          _role == StaffRole.housekeeping ||
-              _role == StaffRole.housekeepingIncharge
-          ? '/beds'
-          : '/emr/admissions';
       stats.add(
         _StatItem(
           icon: Icons.local_hotel_outlined,
           label: s.dashboardStatInpatients,
           value: '$_activeAdmissionsCount',
           color: const Color(0xFF1565C0),
-          route: inpatientRoute,
+          route: _inpatientStatsRoute,
         ),
       );
     }

@@ -310,11 +310,14 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   });
   const where = applyInpatientAdmissionScope(baseWhere, inpatientScope.where);
 
-  const admissions = await prisma.admissions.findMany({
-    where,
-    orderBy: [{ admitted_at: 'asc' }, { id: 'asc' }],
-    take: limit,
-  });
+  const [totalAdmissions, admissions] = await Promise.all([
+    prisma.admissions.count({ where }),
+    prisma.admissions.findMany({
+      where,
+      orderBy: [{ admitted_at: 'asc' }, { id: 'asc' }],
+      take: limit,
+    }),
+  ]);
 
   const patientUids = [...new Set(admissions.map((row) => row.patient_uid).filter(Boolean))];
   const doctorUids = [
@@ -592,20 +595,31 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
     return row;
   }).sort(rowSort);
 
-  const counts = rows.reduce((acc, row) => {
-    acc.total += 1;
+  const loadedCounts = rows.reduce((acc, row) => {
+    acc.loaded += 1;
     acc.discharge_initiated += row.discharge.initiated ? 1 : 0;
     acc.alerted += row.alerts.count > 0 ? 1 : 0;
     acc.with_open_tasks += row.tasks.open_count > 0 ? 1 : 0;
     acc.emergency += row.priority.band === 'critical' ? 1 : 0;
     return acc;
   }, {
-    total: 0,
+    loaded: 0,
     discharge_initiated: 0,
     alerted: 0,
     with_open_tasks: 0,
     emergency: 0,
   });
+  const counts = {
+    total: totalAdmissions,
+    returned: loadedCounts.loaded,
+    loaded: loadedCounts.loaded,
+    limit,
+    has_more: loadedCounts.loaded < totalAdmissions,
+    discharge_initiated: loadedCounts.discharge_initiated,
+    alerted: loadedCounts.alerted,
+    with_open_tasks: loadedCounts.with_open_tasks,
+    emergency: loadedCounts.emergency,
+  };
 
   const view = ROLE_VIEW[role] || {
     label: FULL_BOARD_ROLES.has(role) ? 'Hospital command board' : 'Patient command board',
