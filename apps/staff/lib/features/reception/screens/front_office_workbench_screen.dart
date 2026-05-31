@@ -33,6 +33,7 @@ class _FrontOfficeWorkbenchScreenState
   bool _loading = true;
   bool _lookupBusy = false;
   bool _invoiceBusy = false;
+  bool _billingActionBusy = false;
   String? _error;
   String? _lookupError;
 
@@ -190,6 +191,71 @@ class _FrontOfficeWorkbenchScreenState
         _patientInvoices = const [];
         _invoiceBusy = false;
       });
+    }
+  }
+
+  Future<void> _createDraftInvoice() async {
+    final patient = _selectedPatient;
+    final uid = patient?['uid']?.toString();
+    if (!_canBilling || patient == null || uid == null || uid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a patient before billing.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _billingActionBusy = true;
+      _error = null;
+    });
+    try {
+      await BillingApiService.createDraftInvoice(
+        patientUid: uid,
+        patientName: _text(patient['name']),
+        patientPhone: _text(patient['phone']),
+        invoiceType: 'OP',
+        department: 'Front Office',
+        notes: 'Front office OP draft invoice',
+      );
+      await _loadInvoicesFor(patient);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Draft OP invoice created'),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _billingActionBusy = false);
+    }
+  }
+
+  Future<void> _issueInvoice(Map<String, dynamic> invoice) async {
+    final id = _intFrom(invoice['id']);
+    if (!_canBilling || id == null) return;
+
+    setState(() {
+      _billingActionBusy = true;
+      _error = null;
+    });
+    try {
+      await BillingApiService.issueInvoice(id);
+      await _loadInvoicesFor(_selectedPatient);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invoice issued'),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _billingActionBusy = false);
     }
   }
 
@@ -1110,10 +1176,28 @@ class _FrontOfficeWorkbenchScreenState
             title: 'Billing',
             trailing: selected == null
                 ? null
-                : TextButton.icon(
-                    onPressed: () => context.go(_patientRoute('/billing-desk')),
-                    icon: const Icon(Icons.open_in_new),
-                    label: const Text('Open'),
+                : Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => context.go(_patientRoute('/billing-desk')),
+                        icon: const Icon(Icons.open_in_new),
+                        label: const Text('Open'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _billingActionBusy
+                            ? null
+                            : _createDraftInvoice,
+                        icon: _billingActionBusy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.add),
+                        label: const Text('Draft OP'),
+                      ),
+                    ],
                   ),
           ),
           const SizedBox(height: 8),
@@ -1138,15 +1222,40 @@ class _FrontOfficeWorkbenchScreenState
 
   Widget _invoiceTile(Map<String, dynamic> invoice) {
     final id = invoice['invoice_number'] ?? '#${invoice['id']}';
-    final status = invoice['status']?.toString() ?? 'draft';
+    final status = invoice['status']?.toString().toUpperCase() ?? 'DRAFT';
+    final isDraft = status == 'DRAFT';
     final due = invoice['amount_due'] ?? invoice['total_amount'] ?? 0;
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.receipt_long_outlined),
-      title: Text(id.toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(status.toUpperCase()),
-      trailing: Text('Rs $due'),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.receipt_long_outlined),
+        title: Text(
+          id.toString(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text('${invoice['invoice_type'] ?? 'OP'} - $status'),
+        trailing: Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(_money(due)),
+            if (isDraft)
+              SizedBox(
+                height: 34,
+                child: OutlinedButton.icon(
+                  onPressed: _billingActionBusy
+                      ? null
+                      : () => _issueInvoice(invoice),
+                  icon: const Icon(Icons.publish_outlined, size: 16),
+                  label: const Text('Issue'),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1483,6 +1592,12 @@ int? _intFrom(dynamic value) {
 }
 
 String _text(dynamic value) => value?.toString().trim() ?? '';
+
+String _money(dynamic value) {
+  final number = value is num ? value : num.tryParse(value?.toString() ?? '');
+  if (number == null) return 'Rs 0';
+  return 'Rs ${number.toStringAsFixed(number.truncateToDouble() == number ? 0 : 2)}';
+}
 
 int? _doctorId(Map<String, dynamic> doctor) => int.tryParse(
   (doctor['user_id'] ?? doctor['userId'] ?? doctor['id'])?.toString() ?? '',
