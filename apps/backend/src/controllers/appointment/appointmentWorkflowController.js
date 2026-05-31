@@ -24,6 +24,35 @@ import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 // no cancellation_reason. Status transitions live on the appointments
 // row plus an immutable appointment_status_history audit row.
 
+function appointmentWorkflowAuditMetadata(appointment, extra = {}) {
+  return {
+    appointment_id: appointment?.id ?? null,
+    appointment_uid: appointment?.uid ?? null,
+    patient_id: appointment?.patient_id ?? null,
+    patient_uid: appointment?.patient_uid ?? null,
+    doctor_id: appointment?.doctor_id ?? null,
+    appointment_date: appointment?.appointment_date ?? null,
+    appointment_time: appointment?.appointment_time ?? null,
+    department: appointment?.department ?? null,
+    visit_no: appointment?.visit_no ?? null,
+    token_number: appointment?.token_number ?? null,
+    status: appointment?.status ?? null,
+    ...extra,
+  };
+}
+
+async function logAppointmentWorkflowAudit(req, action, appointment, extra = {}) {
+  await logAudit(
+    req,
+    action,
+    appointmentWorkflowAuditMetadata(appointment, extra),
+    {
+      resource: 'appointment',
+      resourceId: appointment?.id ?? req.params?.id ?? null,
+    },
+  );
+}
+
 export const getDoctorOptions = async (req, res) => {
   try {
     const listQuery = parseListQuery(req.query, {
@@ -189,7 +218,7 @@ export const confirmAppointment = async (req, res) => {
           sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
           updated_at = NOW()
         WHERE id = $4
-        RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
+        RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
                   token_number, visit_no, confirmed_at, department, created_at, updated_at
       `,
         tokenNumber, newDate, newTime, Number(id), visitNo,
@@ -202,6 +231,12 @@ export const confirmAppointment = async (req, res) => {
       );
 
       return { result, a, tokenNumber, newDate, newTime };
+    });
+
+    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CONFIRMED', result[0], {
+      from_status: a.status,
+      to_status: 'CONFIRMED',
+      confirmation_notes: confirmation_notes || null,
     });
 
     // Notify patient via FCM + SMS (fire-and-forget, outside transaction).
@@ -254,7 +289,7 @@ export const markNoShow = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
 
-    const result = await prisma.$transaction(async (tx) => {
+    const { result, prevStatus } = await prisma.$transaction(async (tx) => {
       const appt = await tx.$queryRawUnsafe(
         'SELECT id, status FROM appointments WHERE id=$1 FOR UPDATE',
         Number(id),
@@ -264,7 +299,8 @@ export const markNoShow = async (req, res) => {
       }
       const updated = await tx.$queryRawUnsafe(
         `UPDATE appointments SET status='NO_SHOW', updated_at=NOW() WHERE id=$1
-         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
+         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
+                   status, token_number, visit_no, department, updated_at`,
         Number(id),
       );
       await tx.$executeRawUnsafe(
@@ -272,8 +308,14 @@ export const markNoShow = async (req, res) => {
          VALUES ($1,$2,'NO_SHOW',$3,'staff')`,
         Number(id), appt[0].status, staffId,
       );
-      return updated[0];
+      return { result: updated[0], prevStatus: appt[0].status };
     });
+
+    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_NO_SHOW', result, {
+      from_status: prevStatus,
+      to_status: 'NO_SHOW',
+    });
+
     success(res, result, 'Marked as no-show');
   } catch (err) {
     if (err?.statusCode) return error(res, err.message, err.statusCode);
@@ -323,7 +365,8 @@ export const completeAppointment = async (req, res) => {
 
       const updated = await tx.$queryRawUnsafe(
         `UPDATE appointments SET status='COMPLETED', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1
-         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, notes, token_number, updated_at`,
+         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
+                   status, notes, token_number, visit_no, department, updated_at`,
         Number(id), notes || null,
       );
       await tx.$executeRawUnsafe(
@@ -334,8 +377,13 @@ export const completeAppointment = async (req, res) => {
       return { result: updated[0], prevStatus: appt[0].status, patientId: appt[0].patient_id };
     });
 
+    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_COMPLETED', result, {
+      from_status: prevStatus,
+      to_status: 'COMPLETED',
+      clinical_notes_present: Boolean(notes),
+    });
+
     // Schedule feedback request 2 hours after visit (fire-and-forget, outside transaction)
-    void prevStatus;
     setImmediate(async () => {
       try {
         await prisma.$executeRawUnsafe(
@@ -367,7 +415,7 @@ export const cancelAppointment = async (req, res) => {
     const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
 
-    const { result, patientId } = await prisma.$transaction(async (tx) => {
+    const { result, patientId, prevStatus } = await prisma.$transaction(async (tx) => {
       const appt = await tx.$queryRawUnsafe(
         'SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE',
         Number(id),
@@ -377,7 +425,8 @@ export const cancelAppointment = async (req, res) => {
       }
       const updated = await tx.$queryRawUnsafe(
         `UPDATE appointments SET status='CANCELLED', updated_at=NOW() WHERE id=$1
-         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
+         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
+                   status, token_number, visit_no, department, updated_at`,
         Number(id),
       );
       await tx.$executeRawUnsafe(
@@ -385,7 +434,13 @@ export const cancelAppointment = async (req, res) => {
          VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
         Number(id), appt[0].status, staffId, cancellation_reason || null,
       );
-      return { result: updated[0], patientId: appt[0].patient_id };
+      return { result: updated[0], patientId: appt[0].patient_id, prevStatus: appt[0].status };
+    });
+
+    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CANCELLED', result, {
+      from_status: prevStatus,
+      to_status: 'CANCELLED',
+      cancellation_reason: cancellation_reason || null,
     });
 
     // Notify patient (fire-and-forget, outside transaction)
