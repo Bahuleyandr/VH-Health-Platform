@@ -3,6 +3,7 @@ import { jest } from '@jest/globals';
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const DOCTOR_UID = '10000000-0000-4000-8000-000000000001';
 const DUTY_DOCTOR_UID = '10000000-0000-4000-8000-000000000002';
+const NURSE_UID = '20000000-0000-4000-8000-000000000001';
 const HOUSEKEEPING_UID = '40000000-0000-4000-8000-000000000001';
 
 const prismaMock = {
@@ -253,6 +254,63 @@ describe('patientCommandBoardService', () => {
     expect(actions).not.toContain('orders');
   });
 
+  it('scopes staff nurses to their rostered floor with nursing actions only', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          assignment_id: 31,
+          department: 'nursing',
+          assignment_target_type: 'floor',
+          assignment_target_label: 'Fourth Floor',
+          floor: '4',
+        },
+      ])
+      .mockResolvedValueOnce([{ id: 4, name: 'Fourth Floor Ward', floor: 4 }])
+      .mockResolvedValueOnce([{ id: 401, ward_name: 'Fourth Floor Ward', floor: 4, ward_id: 4 }]);
+    prismaMock.admissions.count.mockResolvedValueOnce(6);
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      {
+        id: 44,
+        tenant_id: TENANT,
+        encounter_id: '20000000-0000-4000-8000-000000000044',
+        patient_uid: '30000000-0000-4000-8000-000000000044',
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        ward: 'Fourth Floor Ward',
+        bed_id: 401,
+        bed_number: '401-A',
+        status: 'admitted',
+        admission_type: 'IPD',
+        priority: 'routine',
+        allergies: [],
+        admitted_at: new Date('2026-05-31T08:00:00.000Z'),
+      },
+    ]);
+
+    const result = await patientCommandBoardService.default.getPatientCommandBoard(
+      { limit: 20 },
+      { uid: NURSE_UID, id: 22, role: 'STAFF_NURSE', tenantId: TENANT },
+    );
+
+    expect(result.board.actor).toEqual(expect.objectContaining({
+      role: 'NURSING_STAFF',
+      view_label: 'Nursing board',
+    }));
+    expect(result.board.scope.role_scope).toEqual(expect.objectContaining({
+      type: 'ward_nursing',
+      source: 'current_published_nursing_roster',
+      floors: [4],
+      wards: ['Fourth Floor Ward'],
+    }));
+    expect(result.board.counts.total).toBe(6);
+    const countWhere = JSON.stringify(prismaMock.admissions.count.mock.calls[0][0].where);
+    expect(countWhere).toContain('Fourth Floor Ward');
+    expect(countWhere).toContain('bed_id');
+    const actions = result.rows[0].actions.map((action) => action.key);
+    expect(actions).toEqual(expect.arrayContaining(['vitals', 'notes', 'drug_chart', 'handover', 'discharge']));
+    expect(actions).not.toContain('orders');
+  });
+
   it('scopes housekeeping staff to their floor and minimizes patient PHI', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([])
@@ -303,6 +361,57 @@ describe('patientCommandBoardService', () => {
       wards: ['Third Floor Ward'],
     }));
     expect(result.board.counts.total).toBe(1);
+    expect(result.rows[0]).toEqual(expect.objectContaining({
+      patient_uid: null,
+      actions: [],
+    }));
+    expect(result.rows[0].patient).toEqual(expect.objectContaining({
+      uid: null,
+      name: 'Occupied',
+      phone: null,
+    }));
+    expect(result.rows[0].diagnosis).toEqual(expect.objectContaining({
+      status: 'hidden',
+      source: 'minimized',
+    }));
+  });
+
+  it('gives housekeeping incharge full inpatient location counts with minimized PHI', async () => {
+    prismaMock.admissions.count.mockResolvedValueOnce(46);
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      {
+        id: 55,
+        tenant_id: TENANT,
+        encounter_id: '20000000-0000-4000-8000-000000000055',
+        patient_uid: '30000000-0000-4000-8000-000000000055',
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        ward: 'Second Floor Ward',
+        bed_id: 205,
+        bed_number: '205-B',
+        status: 'admitted',
+        admission_type: 'IPD',
+        priority: 'routine',
+        allergies: [],
+        admitted_at: new Date('2026-05-31T08:00:00.000Z'),
+      },
+    ]);
+
+    const result = await patientCommandBoardService.default.getPatientCommandBoard(
+      { limit: 20 },
+      { uid: HOUSEKEEPING_UID, id: 40, role: 'HOUSEKEEPING_INCHARGE', tenantId: TENANT },
+    );
+
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(result.board.actor).toEqual(expect.objectContaining({
+      role: 'HOUSEKEEPING_INCHARGE',
+      view_label: 'Housekeeping command',
+    }));
+    expect(result.board.scope.role_scope).toEqual(expect.objectContaining({
+      type: 'full',
+      source: 'governance_role',
+    }));
+    expect(result.board.counts.total).toBe(46);
     expect(result.rows[0]).toEqual(expect.objectContaining({
       patient_uid: null,
       actions: [],
