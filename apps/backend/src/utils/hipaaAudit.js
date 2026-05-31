@@ -2,6 +2,7 @@ import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const toUuidOrNull = (value) => {
   if (value === null || value === undefined) return null;
@@ -31,12 +32,14 @@ export function logPhiAccess({
   subjectUid,
   actingAsDependent,
   deviceType,
+  tenantId,
 }) {
   setImmediate(async () => {
     try {
       const accessedBy = toUuidOrNull(userId);
       const actorUidNorm = toUuidOrNull(actorUid) ?? accessedBy;
       const subjectUidNorm = toUuidOrNull(subjectUid);
+      const tenantIdNorm = toUuidOrNull(tenantId) ?? DEFAULT_TENANT_ID;
       const actingFlag = actingAsDependent === true;
       // patient_id stored as text — accept either uuid or int form
       // (callers across the app use both depending on which surface
@@ -48,11 +51,11 @@ export function logPhiAccess({
         `INSERT INTO hipaa_access_log
            (accessed_by, accessed_by_role, patient_id, record_type, action,
             ip_address, request_id, accessed_at,
-            actor_uid, subject_uid, acting_as_dependent, device_type)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), $8::uuid, $9::uuid, $10, $11)`,
+            actor_uid, subject_uid, acting_as_dependent, device_type, tenant_id)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), $8::uuid, $9::uuid, $10, $11, $12::uuid)`,
         accessedBy, userRole, patientIdText, recordType, action,
         ip || null, requestId || null,
-        actorUidNorm, subjectUidNorm, actingFlag, deviceType || null,
+        actorUidNorm, subjectUidNorm, actingFlag, deviceType || null, tenantIdNorm,
       );
     } catch (err) {
       // Fallback to file log — HIPAA audit must never be lost
@@ -66,6 +69,7 @@ export function logPhiAccess({
         subject_uid: subjectUid,
         acting_as_dependent: actingAsDependent === true,
         device_type: deviceType || null,
+        tenant_id: tenantId || null,
         timestamp: new Date().toISOString(),
         error: err.message
       });

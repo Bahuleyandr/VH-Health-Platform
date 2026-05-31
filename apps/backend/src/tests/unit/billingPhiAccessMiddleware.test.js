@@ -116,6 +116,7 @@ describe('billing PHI access middleware', () => {
       recordType: 'BILLING_INVOICE',
       action: 'VIEW',
       deviceType: 'desktop',
+      tenantId: TENANT,
     }));
   });
 
@@ -152,6 +153,7 @@ describe('billing PHI access middleware', () => {
       actorUid: ACTOR,
       subjectUid: ACTOR,
       deviceType: 'desktop',
+      tenantId: TENANT,
     }));
   });
 

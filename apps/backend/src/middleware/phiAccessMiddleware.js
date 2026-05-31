@@ -43,6 +43,14 @@ function deriveAction(method) {
   }
 }
 
+function deriveTenantId(req) {
+  return req.tenantId
+    || req.user?.tenant_id
+    || req.user?.tenantId
+    || req.tenant?.id
+    || null;
+}
+
 /**
  * Create middleware that logs PHI access after the response is sent.
  * Fire-and-forget — never blocks the request.
@@ -93,6 +101,7 @@ export function phiAccessLogger(recordType) {
         subjectUid,
         actingAsDependent,
         deviceType: req.user?.deviceType ?? null,
+        tenantId: deriveTenantId(req),
       });
     });
 

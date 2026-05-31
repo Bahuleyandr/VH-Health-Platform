@@ -123,6 +123,7 @@ export function billingPhiAccessLogger(recordType = 'BILLING_INVOICE') {
             subjectUid: req.user?.uid ?? null,
             actingAsDependent: req.acting != null,
             deviceType: req.user?.deviceType ?? null,
+            tenantId: tenantOf(req),
           });
         } catch (err) {
           logger.warn('Billing PHI audit write failed', {
