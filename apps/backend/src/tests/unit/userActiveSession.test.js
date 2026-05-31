@@ -94,4 +94,25 @@ describe('claimUserSession', () => {
       priorDeviceType: 'web',
     }));
   });
+
+  it('records tablet as a first-class active-session device type', async () => {
+    await claimUserSession({
+      userUid: USER_UID,
+      jti: 'tablet-jti',
+      deviceType: 'tablet',
+      expiresAt: EXPIRES_AT,
+      pushRevoked: true,
+    });
+
+    expect(executeRawUnsafeMock).toHaveBeenCalledWith(
+      expect.stringContaining('user_active_sessions'),
+      USER_UID,
+      'tablet-jti',
+      'tablet',
+      null,
+      null,
+      null,
+      EXPIRES_AT,
+    );
+  });
 });

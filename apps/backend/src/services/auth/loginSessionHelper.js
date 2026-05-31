@@ -66,7 +66,7 @@ async function resolveTenantIdForUid(uid) {
  * @param {string} args.userUid - The user's UUID. Required.
  * @param {Object} args.tokenPayload - Claims for `generateToken` (uid, role, id?, phone?, ...).
  * @param {string} [args.expiresIn] - jsonwebtoken-style override ('8h', '7d'). Falls back to JWT_EXPIRES_IN.
- * @param {string} [args.deviceType] - 'mobile' | 'desktop' | 'web'. Embedded as a JWT claim *only* when
+ * @param {string} [args.deviceType] - 'mobile' | 'tablet' | 'desktop' | 'web'. Embedded as a JWT claim *only* when
  *                                     present, so old (unupdated) clients that don't send it get tokens
  *                                     without the claim — the requireDeviceType gate then forces re-login.
  * @param {Object} [args.req] - Express request, used for ip + user-agent.

@@ -8,6 +8,7 @@ import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as staffAuthController from '../../controllers/auth/staffAuthController.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { requireDeviceType } from '../../middleware/requireDeviceTypeMiddleware.js';
 import { staffPinLoginValidator } from '../../validators/auth/adminAuthValidator.js';
 import {
   staffPasswordLoginValidator,
@@ -18,6 +19,7 @@ import {
 } from '../../validators/auth/authValidator.js';
 
 const router = express.Router();
+const mobileOnly = requireDeviceType('mobile');
 
 // Validation middleware helper
 const handleValidation = (req, res, next) => {
@@ -122,6 +124,7 @@ wrapRoutesWithValidation(
       // Mark attendance (check-in)
       [
         '/check-in',
+        mobileOnly,
         ...attendanceValidator,
         handleValidation,
         staffAuthController.checkIn
@@ -130,6 +133,7 @@ wrapRoutesWithValidation(
       // Mark attendance (check-out)
       [
         '/check-out',
+        mobileOnly,
         ...attendanceValidator,
         handleValidation,
         staffAuthController.checkOut

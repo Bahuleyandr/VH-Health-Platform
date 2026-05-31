@@ -36,7 +36,7 @@ function strictSingleSessionEnabled() {
  * @param {Object} args
  * @param {string} args.userUid - The user's UUID (users.uid). Required.
  * @param {string} args.jti - The new access token's jti claim. Required.
- * @param {string} args.deviceType - 'mobile' | 'desktop' | 'web'. Required.
+ * @param {string} args.deviceType - 'mobile' | 'tablet' | 'desktop' | 'web'. Required.
  * @param {Date}   args.expiresAt - Expiry of the new access token. Required.
  * @param {string} [args.deviceLabel] - Optional human label (e.g. "Pixel 8").
  * @param {string} [args.ipAddress] - req.ip of the new login.
