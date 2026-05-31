@@ -64,6 +64,7 @@ router.get(
       },
       {
         uid: req.user?.uid,
+        id: req.user?.id,
         role: req.user?.role,
         tenantId: req.tenantId,
       },
@@ -476,8 +477,17 @@ router.get(
       ward, doctor, department, status, review_due,
       page: page || 1,
       limit: limit || 20,
+      tenantId: req.tenantId,
+    }, {
+      uid: req.user?.uid,
+      id: req.user?.id,
+      role: req.user?.role,
+      tenantId: req.tenantId,
     });
-    success(res, result.admissions, 'Active admissions retrieved', HTTP_STATUS.OK, { pagination: result.pagination });
+    success(res, result.admissions, 'Active admissions retrieved', HTTP_STATUS.OK, {
+      pagination: result.pagination,
+      scope: result.scope,
+    });
   })
 );
 
@@ -518,7 +528,9 @@ router.get(
 
     const admission = await admissionService.getAdmissionDetail(admissionId, {
       userId: req.user?.uid,
+      actorId: req.user?.id,
       userRole: req.user?.role,
+      tenantId: req.tenantId,
       ip: req.ip,
       requestId: req.id,
     });

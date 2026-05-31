@@ -178,6 +178,7 @@ import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
 
 // EMR — ADT (Admission/Discharge/Transfer)
+import admissionOccupancyRoutes from './routes/emr/admissionOccupancyRoutes.js';
 import admissionRoutes from './routes/emr/admissionRoutes.js';
 
 // EMR — CPOE (Order Entry) and Vitals Charting
@@ -253,6 +254,11 @@ const ADMISSION_SURFACE_ROLES = [
   'COUNSELLOR',
   'SOCIAL_WORKER',
   'CARE_COORDINATOR',
+];
+const ADMISSION_OCCUPANCY_ROLES = [
+  ...ADMISSION_SURFACE_ROLES,
+  'HOUSEKEEPING_STAFF',
+  'HOUSEKEEPING_INCHARGE',
 ];
 const CLINICAL_AI_CONTROL_ROLES = [
   'ADMIN',
@@ -941,6 +947,12 @@ app.use(
 // REST-shaped reads/creates at:
 //   POST/GET /api/v1/admissions, GET /api/v1/admissions/:id,
 //   GET /api/v1/admissions/stats, GET /api/v1/admissions/patient/:uid
+app.use(
+  '/api/v1/admissions/occupancy',
+  requireRole(...ADMISSION_OCCUPANCY_ROLES),
+  phiAccessLogger('ADMISSION_OCCUPANCY'),
+  admissionOccupancyRoutes,
+);
 app.use(
   '/api/v1/admissions',
   requireRole(...ADMISSION_SURFACE_ROLES),

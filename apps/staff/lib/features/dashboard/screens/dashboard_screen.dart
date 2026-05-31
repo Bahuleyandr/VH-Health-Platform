@@ -58,6 +58,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadData();
   }
 
+  bool get _canSeeInpatientStats =>
+      _role == StaffRole.doctor ||
+      _role == StaffRole.dutyDoctor ||
+      _role == StaffRole.medicalSuperintendent ||
+      _role == StaffRole.nurse ||
+      _role == StaffRole.nursingIncharge ||
+      _role == StaffRole.nursingSuperintendent ||
+      _role == StaffRole.housekeeping ||
+      _role == StaffRole.housekeepingIncharge ||
+      _role.isAdminTier;
+
+  bool get _hasClinicalDashboardAccess =>
+      _role == StaffRole.doctor ||
+      _role == StaffRole.dutyDoctor ||
+      _role == StaffRole.medicalSuperintendent ||
+      _role == StaffRole.nurse ||
+      _role == StaffRole.nursingIncharge ||
+      _role == StaffRole.nursingSuperintendent ||
+      _role.isAdminTier;
+
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
@@ -80,9 +100,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
 
       // Appointments for clinical roles
-      if (_role == StaffRole.doctor ||
-          _role == StaffRole.nurse ||
-          _role.isAdminTier) {
+      if (_hasClinicalDashboardAccess) {
         final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
         futures.add(
           ScheduleApiService.getAppointments(
@@ -162,18 +180,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }, onError: (_) {}),
         );
       }
-      if (_role == StaffRole.doctor ||
-          _role == StaffRole.nurse ||
-          _role.isAdminTier) {
+      if (_canSeeInpatientStats) {
         futures.add(
-          ApiClient.get(
-            '/emr/admissions',
-            queryParameters: {'page': '1', 'limit': '1'},
-          ).then((r) {
+          ApiClient.get('/admissions/occupancy').then((r) {
             if (!r.isSuccess) return;
             final raw = r.raw;
             int count = 0;
             if (raw is Map<String, dynamic>) {
+              final data = raw['data'];
+              if (data is Map<String, dynamic>) {
+                final total = data['total'];
+                if (total is int) {
+                  count = total;
+                } else if (total != null) {
+                  count = int.tryParse('$total') ?? 0;
+                }
+              }
               final meta = raw['meta'];
               final pagination = meta is Map ? meta['pagination'] : null;
               final total = pagination is Map
@@ -184,11 +206,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               } else if (total != null) {
                 count = int.tryParse('$total') ?? 0;
               }
-              final data = raw['data'];
-              // GET /emr/admissions returns `data` as a List directly on the
-              // current backend; older shapes wrap it as { admissions: [...] }
-              // or { items: [...] }. Accept both so the stat doesn't silently
-              // read zero whenever the shape flips.
+              // Older admission-list shapes return `data` as a List directly
+              // or wrap it as { admissions: [...] } / { items: [...] }.
+              // Accept both so the stat doesn't silently read zero if the
+              // backend shape flips.
               if (count == 0 && data is List) {
                 count = data.length;
               } else if (count == 0 && data is Map<String, dynamic>) {
@@ -1334,9 +1355,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    if (_role == StaffRole.doctor ||
-        _role == StaffRole.nurse ||
-        _role.isAdminTier) {
+    if (_hasClinicalDashboardAccess) {
       stats.add(
         _StatItem(
           icon: Icons.calendar_today,
@@ -1363,9 +1382,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     // Active admissions (everyone clinical sees this — the patient list
     // is the natural drill-down for any of the other counts).
-    if (_role == StaffRole.doctor ||
-        _role == StaffRole.nurse ||
-        _role.isAdminTier) {
+    if (_canSeeInpatientStats) {
       stats.add(
         _StatItem(
           icon: Icons.local_hotel_outlined,

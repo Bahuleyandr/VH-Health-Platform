@@ -34,8 +34,20 @@ enum StaffRole {
   const StaffRole(this.value);
 
   static StaffRole fromString(String role) {
+    final normalized = role.trim().toUpperCase();
+    if (const {
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'SENIOR_DOCTOR',
+      'RESIDENT',
+    }.contains(normalized)) {
+      return StaffRole.doctor;
+    }
+    if (const {'ICU_NURSE', 'OT_NURSE'}.contains(normalized)) {
+      return StaffRole.nurse;
+    }
     return StaffRole.values.firstWhere(
-      (r) => r.value == role.trim().toUpperCase(),
+      (r) => r.value == normalized,
       orElse: () => StaffRole.general,
     );
   }

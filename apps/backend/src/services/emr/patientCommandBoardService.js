@@ -1,7 +1,13 @@
 import prisma from '../../lib/prisma.js';
 import { getHospitalNumberMap } from '../patient/patientIdentifierService.js';
+import {
+  ACTIVE_ADMISSION_STATUSES,
+  applyInpatientAdmissionScope,
+  FULL_INPATIENT_SCOPE_ROLES,
+  MINIMIZED_INPATIENT_PAYLOAD_ROLES,
+  resolveInpatientAdmissionScope,
+} from './inpatientScopeService.js';
 
-const ACTIVE_ADMISSION_STATUSES = ['admitted', 'transferred'];
 const CLOSED_ORDER_STATUSES = ['completed', 'cancelled', 'canceled', 'discontinued', 'stopped'];
 
 const DOCTOR_BOARD_ROLES = new Set([
@@ -12,16 +18,7 @@ const DOCTOR_BOARD_ROLES = new Set([
   'RESIDENT',
 ]);
 
-const FULL_BOARD_ROLES = new Set([
-  'ADMIN',
-  'SUPER_ADMIN',
-  'MEDICAL_SUPERINTENDENT',
-  'CNO',
-  'NURSING_INCHARGE',
-  'IPD_COUNSELLOR',
-  'ADMISSION_OFFICER',
-  'RECEPTION_INCHARGE',
-]);
+const FULL_BOARD_ROLES = FULL_INPATIENT_SCOPE_ROLES;
 
 const ROLE_VIEW = {
   DOCTOR: {
@@ -52,6 +49,10 @@ const ROLE_VIEW = {
 
 function normalizeRole(role) {
   return String(role || '').trim().toUpperCase();
+}
+
+function shouldMinimizePayload(role) {
+  return MINIMIZED_INPATIENT_PAYLOAD_ROLES.has(normalizeRole(role));
 }
 
 function asDate(value) {
@@ -296,19 +297,18 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const mine = filters.mine === true || filters.mine === 'true' || filters.mine === '1';
 
   const normalizedStatus = String(status || '').toLowerCase();
-  const where = {
+  const baseWhere = {
     status: normalizedStatus && normalizedStatus !== 'all' && normalizedStatus !== 'active'
       ? status
       : { in: ACTIVE_ADMISSION_STATUSES },
   };
-  if (tenantId) where.tenant_id = tenantId;
-  if (ward) where.ward = ward;
-  if ((mine || DOCTOR_BOARD_ROLES.has(role)) && actor.uid && !FULL_BOARD_ROLES.has(role)) {
-    where.OR = [
-      { admitting_doctor: actor.uid },
-      { attending_doctor: actor.uid },
-    ];
-  }
+  if (tenantId) baseWhere.tenant_id = tenantId;
+  if (ward) baseWhere.ward = ward;
+  const inpatientScope = await resolveInpatientAdmissionScope({
+    actor: { ...actor, role, tenantId },
+    filters: { ...filters, tenantId, mine },
+  });
+  const where = applyInpatientAdmissionScope(baseWhere, inpatientScope.where);
 
   const admissions = await prisma.admissions.findMany({
     where,
@@ -475,6 +475,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   }
 
   const now = new Date();
+  const minimizePayload = shouldMinimizePayload(role);
   const rows = admissions.map((admission) => {
     const patient = patientByUid.get(admission.patient_uid) || null;
     const bed = admission.bed_id != null ? bedById.get(admission.bed_id) : null;
@@ -504,19 +505,19 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
     const alertRows = alertsByPatient.get(admission.patient_uid) || [];
     const noteRows = admission.encounter_id ? notesByEncounter.get(admission.encounter_id) || [] : [];
 
-    return {
+    const row = {
       admission_id: admission.id,
       encounter_id: admission.encounter_id,
       tenant_id: admission.tenant_id,
-      patient_uid: admission.patient_uid,
+      patient_uid: minimizePayload ? null : admission.patient_uid,
       patient: {
-        uid: admission.patient_uid,
-        name: patient?.name || 'Patient',
-        phone: patient?.phone || null,
-        gender: patient?.gender || null,
-        birthday: patient?.birthday || null,
-        blood_group: patient?.blood_group || null,
-        hospital_number: hospitalNumbers.get(admission.patient_uid) || null,
+        uid: minimizePayload ? null : admission.patient_uid,
+        name: minimizePayload ? 'Occupied' : patient?.name || 'Patient',
+        phone: minimizePayload ? null : patient?.phone || null,
+        gender: minimizePayload ? null : patient?.gender || null,
+        birthday: minimizePayload ? null : patient?.birthday || null,
+        blood_group: minimizePayload ? null : patient?.blood_group || null,
+        hospital_number: minimizePayload ? null : hospitalNumbers.get(admission.patient_uid) || null,
       },
       location: {
         ward: admission.ward || bed?.wards?.name || bed?.ward_name || null,
@@ -535,10 +536,10 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         next_review_at: admission.next_review_at,
       },
       assigned_staff: {
-        admitting_doctor_uid: admission.admitting_doctor,
-        admitting_doctor_name: doctorByUid.get(admission.admitting_doctor)?.name || null,
-        attending_doctor_uid: admission.attending_doctor,
-        attending_doctor_name: doctorByUid.get(admission.attending_doctor)?.name || null,
+        admitting_doctor_uid: minimizePayload ? null : admission.admitting_doctor,
+        admitting_doctor_name: minimizePayload ? null : doctorByUid.get(admission.admitting_doctor)?.name || null,
+        attending_doctor_uid: minimizePayload ? null : admission.attending_doctor,
+        attending_doctor_name: minimizePayload ? null : doctorByUid.get(admission.attending_doctor)?.name || null,
       },
       priority,
       timers: {
@@ -547,15 +548,17 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         los_days: losDays(admission.admitted_at),
         age: ageBand(admissionMinutes),
       },
-      diagnosis: displayDiagnosis(admission, uniqueByKey(diagnosisRows, (item) => String(item.id))),
+      diagnosis: minimizePayload
+        ? { text: null, status: 'hidden', type: null, code: null, source: 'minimized', chief_complaint: null }
+        : displayDiagnosis(admission, uniqueByKey(diagnosisRows, (item) => String(item.id))),
       allergies: {
-        count: allergies.length,
-        items: allergies,
+        count: minimizePayload ? 0 : allergies.length,
+        items: minimizePayload ? [] : allergies,
       },
       alerts: {
-        count: alertRows.length,
-        critical_count: alertRows.filter((item) => String(item.severity || '').toLowerCase() === 'critical').length,
-        items: alertRows.slice(0, 6).map((item) => ({
+        count: minimizePayload ? 0 : alertRows.length,
+        critical_count: minimizePayload ? 0 : alertRows.filter((item) => String(item.severity || '').toLowerCase() === 'critical').length,
+        items: minimizePayload ? [] : alertRows.slice(0, 6).map((item) => ({
           id: item.id,
           type: item.alert_type,
           severity: item.severity,
@@ -564,14 +567,29 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           created_at: item.created_at,
         })),
       },
-      tasks: buildTaskOverlay(uniqueOrders, consultRows),
+      tasks: minimizePayload
+        ? { open_count: 0, open_order_count: 0, discharge_work_item_count: 0, items: [] }
+        : buildTaskOverlay(uniqueOrders, consultRows),
       notes: {
-        recent_count: noteRows.length,
-        latest: noteRows[0] || null,
+        recent_count: minimizePayload ? 0 : noteRows.length,
+        latest: minimizePayload ? null : noteRows[0] || null,
       },
-      discharge,
-      actions: actionsForRole(role, admission),
+      discharge: minimizePayload
+        ? {
+            initiated: discharge.initiated,
+            initiated_at: discharge.initiated_at,
+            summary_signed: null,
+            summary_signed_at: null,
+            pending_work_items: 0,
+            total_work_items: 0,
+            checklist_state: discharge.initiated ? 'in_progress' : 'not_started',
+            signed_summary_route: null,
+            discharge_hub_route: null,
+          }
+        : discharge,
+      actions: minimizePayload ? [] : actionsForRole(role, admission),
     };
+    return row;
   }).sort(rowSort);
 
   const counts = rows.reduce((acc, row) => {
@@ -602,7 +620,8 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
       scope: {
         ward: ward || null,
         status: status || 'active',
-        mine: Boolean((mine || DOCTOR_BOARD_ROLES.has(role)) && actor.uid && !FULL_BOARD_ROLES.has(role)),
+        mine: inpatientScope.scope?.type === 'own_patients',
+        role_scope: inpatientScope.scope,
       },
       actor: {
         uid: actor.uid || null,

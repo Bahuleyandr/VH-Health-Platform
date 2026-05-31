@@ -32,6 +32,12 @@ import {
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
+import {
+  ACTIVE_ADMISSION_STATUSES,
+  applyInpatientAdmissionScope,
+  MINIMIZED_INPATIENT_PAYLOAD_ROLES,
+  resolveInpatientAdmissionScope,
+} from './inpatientScopeService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -52,6 +58,31 @@ const READINESS_GATED_DISCHARGE_TYPES = new Set(['home', 'transfer', 'aor']);
 // Mirrors the CHECK on admissions.room_category (migration 177).
 const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
 const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
+
+function shouldMinimizeInpatientPayload(role) {
+  return MINIMIZED_INPATIENT_PAYLOAD_ROLES.has(normalizeRole(role));
+}
+
+function minimizeAdmissionPayload(row) {
+  return {
+    ...row,
+    patient_uid: null,
+    patient_name: 'Occupied',
+    patient_phone: null,
+    patient_hospital_number: null,
+    hospital_number: null,
+    patient_gender: null,
+    patient_email: null,
+    patient_birthday: null,
+    chief_complaint: null,
+    admitting_diagnosis: null,
+    allergies: [],
+    admitting_doctor: null,
+    attending_doctor: null,
+    admitting_doctor_name: null,
+    attending_doctor_name: null,
+  };
+}
 
 // Columns returned by the pre-batch-55 `RETURNING` clause. Mirrored as
 // a Prisma `select` so the public response shape is unchanged.
@@ -2740,7 +2771,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   return phase1.updated;
 }
 
-async function getActiveAdmissions(filters = {}) {
+async function getActiveAdmissions(filters = {}, actor = {}) {
   const { ward, doctor, department, status, review_due } = filters;
   const listQuery = parseListQuery(filters, {
     defaultLimit: 20,
@@ -2752,7 +2783,7 @@ async function getActiveAdmissions(filters = {}) {
   if (status) {
     where.status = status;
   } else {
-    where.status = { in: ['admitted', 'transferred'] };
+    where.status = { in: ACTIVE_ADMISSION_STATUSES };
   }
   if (ward) where.ward = ward;
   if (department) where.department = department;
@@ -2770,10 +2801,13 @@ async function getActiveAdmissions(filters = {}) {
     where.next_review_at = { lte: new Date() };
   }
 
+  const inpatientScope = await resolveInpatientAdmissionScope({ actor, filters });
+  const scopedWhere = applyInpatientAdmissionScope(where, inpatientScope.where);
+
   const [total, rows] = await Promise.all([
-    prisma.admissions.count({ where }),
+    prisma.admissions.count({ where: scopedWhere }),
     prisma.admissions.findMany({
-      where,
+      where: scopedWhere,
       select: {
         id: true,
         tenant_id: true,
@@ -2827,10 +2861,11 @@ async function getActiveAdmissions(filters = {}) {
   const patientByUid = new Map(patients.map((p) => [p.uid, p]));
   const bedById = new Map(beds.map((b) => [b.id, b]));
 
+  const minimizePayload = shouldMinimizeInpatientPayload(actor.role);
   const admissions = rows.map((row) => {
     const patient = patientByUid.get(row.patient_uid);
     const bed = row.bed_id != null ? bedById.get(row.bed_id) : null;
-    return {
+    const payload = {
       ...row,
       patient_name: patient?.name ?? null,
       patient_phone: patient?.phone ?? null,
@@ -2838,11 +2873,13 @@ async function getActiveAdmissions(filters = {}) {
       hospital_number: hospitalNumbers.get(row.patient_uid) ?? null,
       bed_ward_name: bed?.wards?.name ?? null,
     };
+    return minimizePayload ? minimizeAdmissionPayload(payload) : payload;
   });
 
   return {
     admissions,
     pagination: buildPagination(total, listQuery.page, listQuery.limit),
+    scope: inpatientScope.scope,
   };
 }
 
@@ -2851,6 +2888,24 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
     where: { id: Number(admissionId) },
   });
   if (!admission) throw AppError.notFound('Admission not found');
+
+  if (requestContext.userRole) {
+    const inpatientScope = await resolveInpatientAdmissionScope({
+      actor: {
+        uid: requestContext.userId,
+        id: requestContext.actorId,
+        role: requestContext.userRole,
+        tenantId: requestContext.tenantId || admission.tenant_id,
+      },
+      filters: { tenantId: requestContext.tenantId || admission.tenant_id },
+    });
+    const visibleCount = await prisma.admissions.count({
+      where: applyInpatientAdmissionScope({ id: Number(admissionId) }, inpatientScope.where),
+    });
+    if (visibleCount < 1) {
+      throw AppError.notFound('Admission not found');
+    }
+  }
 
   // Patient + bed/ward + admitting/attending doctor names in parallel.
   // The pre-batch-48 raw SQL joined `staff` on `uid`, but staff has no
@@ -2945,7 +3000,9 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
     });
   }
 
-  return row;
+  return shouldMinimizeInpatientPayload(requestContext.userRole)
+    ? minimizeAdmissionPayload(row)
+    : row;
 }
 
 const CASE_SHEET_TEXT_FIELDS = [
