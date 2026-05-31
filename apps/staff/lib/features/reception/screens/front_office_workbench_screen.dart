@@ -51,6 +51,9 @@ class _FrontOfficeWorkbenchScreenState
   bool get _canBilling => RoleFeatures.hasBillingDesk(_role);
   bool get _canClinical => RoleFeatures.hasClinicalEntry(_role);
   bool get _canManageOpQueue => RoleFeatures.hasFrontOfficeWorkbench(_role);
+  bool get _canPatientLookup => RoleFeatures.hasPatientLookup(_role);
+  bool get _canPatientRegistryWrite =>
+      RoleFeatures.hasPatientRegistryWrite(_role);
   bool get _canAdmitIp =>
       _role == StaffRole.admin ||
       _role == StaffRole.superAdmin ||
@@ -1707,59 +1710,68 @@ class _FrontOfficeWorkbenchScreenState
             trailing: Wrap(
               spacing: 8,
               children: [
-                if (selected != null)
+                if (selected != null && _canPatientRegistryWrite)
                   IconButton.filledTonal(
                     tooltip: 'Edit patient',
                     onPressed: () => _showPatientDialog(patient: selected),
                     icon: const Icon(Icons.edit_outlined),
                   ),
-                IconButton.filled(
-                  tooltip: 'New patient',
-                  onPressed: () => _showPatientDialog(),
-                  icon: const Icon(Icons.person_add_alt_1),
-                ),
+                if (_canPatientRegistryWrite)
+                  IconButton.filled(
+                    tooltip: 'New patient',
+                    onPressed: () => _showPatientDialog(),
+                    icon: const Icon(Icons.person_add_alt_1),
+                  ),
               ],
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: _queuePatientLookup,
-                  onSubmitted: _searchPatients,
-                  decoration: InputDecoration(
-                    labelText: 'Hospital ID / phone / name',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _lookupBusy
-                        ? const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : null,
+          if (_canPatientLookup) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: _queuePatientLookup,
+                    onSubmitted: _searchPatients,
+                    decoration: InputDecoration(
+                      labelText: 'Hospital ID / phone / name',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _lookupBusy
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          : null,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              IconButton.filledTonal(
-                tooltip: 'Search',
-                onPressed: () => _searchPatients(_searchCtrl.text),
-                icon: const Icon(Icons.search),
+                const SizedBox(width: 10),
+                IconButton.filledTonal(
+                  tooltip: 'Search',
+                  onPressed: () => _searchPatients(_searchCtrl.text),
+                  icon: const Icon(Icons.search),
+                ),
+              ],
+            ),
+            if (_lookupError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _lookupError!,
+                style: TextStyle(color: AppTheme.errorOnSurface),
               ),
             ],
-          ),
-          if (_lookupError != null) ...[
-            const SizedBox(height: 8),
+          ] else
             Text(
-              _lookupError!,
-              style: TextStyle(color: AppTheme.errorOnSurface),
+              'Patient lookup is not enabled for ${_role.displayName}.',
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
-          ],
           if (selected != null) ...[
             const SizedBox(height: 10),
             _PatientCard(

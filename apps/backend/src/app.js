@@ -35,6 +35,7 @@ import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache } from './middleware/cacheControlMiddleware.js';
 import { success, error } from './utils/responseHelper.js';
+import { PATIENT_LOOKUP_ROLES } from './config/patientAccessRoles.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -557,33 +558,12 @@ app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMI
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
-// Clinical-staff patient lookup (Cmd+K picker on the staff app). Kept
-// open to clinical roles + admins; medical-records staff also need it
-// for chart finding. Patient self-search isn't applicable.
+// Staff-side patient lookup (Cmd+K picker and workbench search). Kept
+// explicit in config so clinical, front-office, billing, and records access
+// stay aligned with PHI governance. Patient self-search isn't applicable.
 app.use(
   '/api/v1/patients',
-  requireRole(
-    'ADMIN',
-    'SUPER_ADMIN',
-    'DOCTOR',
-    'DUTY_DOCTOR',
-    'MEDICAL_SUPERINTENDENT',
-    'CNO',
-    'NURSING_STAFF',
-    'NURSING_INCHARGE',
-    'OP_STAFF_NURSE',
-    'OP_INCHARGE',
-    'MEDICAL_RECORDS',
-    'RECEPTIONIST',
-    'RECEPTION_INCHARGE',
-    'ADMISSION_OFFICER',
-    'IPD_COUNSELLOR',
-    'BILLING_STAFF',
-    'BILLING_INCHARGE',
-    'FINANCE_INCHARGE',
-    'INSURANCE_COORDINATOR',
-    'GENERAL_STAFF',
-  ),
+  requireRole(...PATIENT_LOOKUP_ROLES),
   phiAccessLogger('PATIENT_DEMOGRAPHICS'),
   patientSearchRoutes,
 );

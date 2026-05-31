@@ -1575,6 +1575,46 @@ class RoleFeatures {
     };
   }
 
+  static bool hasPatientLookup(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge ||
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge ||
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => true,
+      _ => false,
+    };
+  }
+
+  static bool hasPatientRegistryWrite(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge ||
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => true,
+      _ => false,
+    };
+  }
+
   static List<WorkbenchNavItem> getWorkbenchNavForRole(StaffRole role) {
     final items = <WorkbenchNavItem>[
       const WorkbenchNavItem(

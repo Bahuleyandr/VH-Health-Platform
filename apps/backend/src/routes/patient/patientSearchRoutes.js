@@ -12,6 +12,8 @@ import {
   updatePatient,
 } from '../../controllers/patient/patientSearchController.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { PATIENT_REGISTRY_WRITE_ROLES } from '../../config/patientAccessRoles.js';
 
 const router = express.Router();
 
@@ -26,18 +28,21 @@ router.get(
 
 router.post(
   '/',
+  requireRole(...PATIENT_REGISTRY_WRITE_ROLES),
   phiAccessLogger('PATIENT_CREATE'),
   createPatient,
 );
 
 router.put(
   '/:uid',
+  requireRole(...PATIENT_REGISTRY_WRITE_ROLES),
   phiAccessLogger('PATIENT_UPDATE'),
   updatePatient,
 );
 
 router.patch(
   '/:uid',
+  requireRole(...PATIENT_REGISTRY_WRITE_ROLES),
   phiAccessLogger('PATIENT_UPDATE'),
   updatePatient,
 );

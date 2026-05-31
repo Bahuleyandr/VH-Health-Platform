@@ -1,7 +1,7 @@
 // Lightweight patient lookup helper used by the global Cmd+K picker.
 //
-// Backed by `GET /api/v1/patients/search?q=…&limit=20` which RBAC's
-// open to clinical roles + admins. Returns a small payload (uid, name,
+// Backed by `GET /api/v1/patients/search?q=...&limit=20` which RBAC's
+// open to clinical, front-office, billing, records, and admin roles. Returns a small payload (uid, name,
 // phone, hospital_number, gender, age, abha_address) per match — enough for the picker
 // row to render and route to /emr/timeline/:uid?name=… on tap. `id` is also
 // returned for staff workflows that need to create orders or appointments.

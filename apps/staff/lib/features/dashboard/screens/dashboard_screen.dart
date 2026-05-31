@@ -349,9 +349,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                 ),
                 const ThemeToggleAction(),
-                if (_role != StaffRole.housekeeping &&
-                    _role != StaffRole.housekeepingIncharge &&
-                    _role != StaffRole.maintenance)
+                if (RoleFeatures.hasPatientLookup(_role))
                   const PatientSearchAction(),
                 const LogoutAction(),
               ],

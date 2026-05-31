@@ -341,5 +341,34 @@ void main() {
       expect(doctorRoutes, containsAll(['/front-office', '/patient-records']));
       expect(doctorRoutes, isNot(contains('/billing-desk')));
     });
+
+    test('patient lookup follows backend demographic access gates', () {
+      expect(RoleFeatures.hasPatientLookup(StaffRole.doctor), isTrue);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.nurse), isTrue);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.receptionist), isTrue);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.billingStaff), isTrue);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.general), isFalse);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.housekeeping), isFalse);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.maintenance), isFalse);
+      expect(RoleFeatures.hasPatientLookup(StaffRole.hr), isFalse);
+    });
+
+    test('patient registry writes stay limited to front-office governance roles', () {
+      expect(
+        RoleFeatures.hasPatientRegistryWrite(StaffRole.receptionist),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPatientRegistryWrite(StaffRole.admissionOfficer),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPatientRegistryWrite(StaffRole.billingStaff),
+        isTrue,
+      );
+      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.doctor), isFalse);
+      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.nurse), isFalse);
+      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.general), isFalse);
+    });
   });
 }
