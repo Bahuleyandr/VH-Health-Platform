@@ -95,4 +95,27 @@ class BillingApiService {
     );
     return _dataFrom(response);
   }
+
+  static Future<Map<String, dynamic>> collectPayment({
+    required int invoiceId,
+    required num amount,
+    required String mode,
+    String? reference,
+    String? shift,
+    String? notes,
+  }) async {
+    final response = await ApiClient.post(
+      '/billing/v2/payments',
+      body: {
+        'invoice_id': invoiceId,
+        'amount': amount,
+        'mode': mode.trim().toUpperCase(),
+        if (reference != null && reference.trim().isNotEmpty)
+          'reference': reference.trim(),
+        if (shift != null && shift.trim().isNotEmpty) 'shift': shift.trim(),
+        if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+      },
+    );
+    return _dataFrom(response);
+  }
 }
