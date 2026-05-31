@@ -776,9 +776,31 @@ class MedicalApiService {
   /// GET /admissions — list active admissions through the ADT surface
   static Future<Map<String, dynamic>> getActiveAdmissions({
     int page = 1,
-    int limit = 20,
+    int limit = 50,
   }) async {
-    return _get('/admissions', query: {'page': '$page', 'limit': '$limit'});
+    final resp = await ApiClient.get(
+      '/admissions',
+      queryParameters: {'page': '$page', 'limit': '$limit'},
+    );
+    if (resp.isSuccess && resp.raw is Map<String, dynamic>) {
+      final raw = resp.raw as Map<String, dynamic>;
+      if (raw['success'] == true) {
+        final data = raw['data'];
+        final meta = raw['meta'];
+        final pagination = meta is Map ? meta['pagination'] : null;
+        final list = data is List
+            ? data
+            : data is Map
+            ? (data['admissions'] ?? data['items'] ?? data['data'])
+            : const [];
+        return {
+          'admissions': list is List ? list : const [],
+          if (pagination is Map)
+            'pagination': Map<String, dynamic>.from(pagination),
+        };
+      }
+    }
+    throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
   }
 
   /// GET /admissions/:id — admission detail

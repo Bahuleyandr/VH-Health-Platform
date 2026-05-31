@@ -17,8 +17,11 @@ class AdmissionScreen extends StatefulWidget {
 class _AdmissionScreenState extends State<AdmissionScreen> {
   List<Map<String, dynamic>> _admissions = [];
   bool _loading = true;
+  bool _loadingMore = false;
   String? _error;
-  final int _page = 1;
+  int _page = 1;
+  int _totalAdmissions = 0;
+  static const int _pageSize = 50;
 
   @override
   void initState() {
@@ -26,22 +29,37 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     _loadAdmissions();
   }
 
-  Future<void> _loadAdmissions() async {
+  Future<void> _loadAdmissions({bool append = false}) async {
     setState(() {
-      _loading = true;
+      if (append) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+        _page = 1;
+      }
       _error = null;
     });
     try {
-      final data = await MedicalApiService.getActiveAdmissions(page: _page);
+      final pageToLoad = append ? _page + 1 : 1;
+      final data = await MedicalApiService.getActiveAdmissions(
+        page: pageToLoad,
+        limit: _pageSize,
+      );
       final list = _listFromAdmissions(data);
+      final total =
+          _paginationTotal(data) ?? (append ? _totalAdmissions : list.length);
       setState(() {
-        _admissions = list;
+        _page = pageToLoad;
+        _admissions = append ? [..._admissions, ...list] : list;
+        _totalAdmissions = total;
         _loading = false;
+        _loadingMore = false;
       });
     } catch (e) {
       setState(() {
         _error = e.toString();
         _loading = false;
+        _loadingMore = false;
       });
     }
   }
@@ -57,6 +75,17 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
   }
+
+  int? _paginationTotal(Map<String, dynamic> data) {
+    final pagination = data['pagination'];
+    if (pagination is! Map) return null;
+    final total = pagination['total'] ?? pagination['totalItems'];
+    if (total is int) return total;
+    return int.tryParse('$total');
+  }
+
+  bool get _hasMoreAdmissions =>
+      _totalAdmissions > 0 && _admissions.length < _totalAdmissions;
 
   Color _priorityColor(String? priority) {
     switch (priority?.toLowerCase()) {
@@ -495,8 +524,34 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
               onRefresh: _loadAdmissions,
               child: ListView.builder(
                 padding: const EdgeInsets.all(12),
-                itemCount: _admissions.length,
+                itemCount: _admissions.length + (_hasMoreAdmissions ? 1 : 0),
                 itemBuilder: (ctx, i) {
+                  if (i >= _admissions.length) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                        child: OutlinedButton.icon(
+                          onPressed: _loadingMore
+                              ? null
+                              : () => _loadAdmissions(append: true),
+                          icon: _loadingMore
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.expand_more),
+                          label: Text(
+                            _loadingMore
+                                ? 'Loading patients'
+                                : 'Load more patients',
+                          ),
+                        ),
+                      ),
+                    );
+                  }
                   final a = _admissions[i];
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),

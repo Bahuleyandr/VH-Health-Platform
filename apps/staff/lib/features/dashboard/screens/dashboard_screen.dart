@@ -168,20 +168,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
         futures.add(
           ApiClient.get(
             '/emr/admissions',
-            queryParameters: {'page': '1', 'limit': '50'},
+            queryParameters: {'page': '1', 'limit': '1'},
           ).then((r) {
             if (!r.isSuccess) return;
             final raw = r.raw;
             int count = 0;
             if (raw is Map<String, dynamic>) {
+              final meta = raw['meta'];
+              final pagination = meta is Map ? meta['pagination'] : null;
+              final total = pagination is Map
+                  ? (pagination['total'] ?? pagination['totalItems'])
+                  : null;
+              if (total is int) {
+                count = total;
+              } else if (total != null) {
+                count = int.tryParse('$total') ?? 0;
+              }
               final data = raw['data'];
               // GET /emr/admissions returns `data` as a List directly on the
               // current backend; older shapes wrap it as { admissions: [...] }
               // or { items: [...] }. Accept both so the stat doesn't silently
               // read zero whenever the shape flips.
-              if (data is List) {
+              if (count == 0 && data is List) {
                 count = data.length;
-              } else if (data is Map<String, dynamic>) {
+              } else if (count == 0 && data is Map<String, dynamic>) {
                 final list = data['admissions'] ?? data['items'];
                 if (list is List) count = list.length;
               }

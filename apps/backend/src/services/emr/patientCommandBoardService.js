@@ -295,8 +295,11 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const status = compactText(filters.status);
   const mine = filters.mine === true || filters.mine === 'true' || filters.mine === '1';
 
+  const normalizedStatus = String(status || '').toLowerCase();
   const where = {
-    status: status && status !== 'all' ? status : { in: ACTIVE_ADMISSION_STATUSES },
+    status: normalizedStatus && normalizedStatus !== 'all' && normalizedStatus !== 'active'
+      ? status
+      : { in: ACTIVE_ADMISSION_STATUSES },
   };
   if (tenantId) where.tenant_id = tenantId;
   if (ward) where.ward = ward;
