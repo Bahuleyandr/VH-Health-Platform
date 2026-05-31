@@ -187,6 +187,75 @@ class _FrontOfficeWorkbenchScreenState
     await _loadInvoicesFor(patient);
   }
 
+  bool _queueRowMatchesSelectedPatient(Map<String, dynamic> row) {
+    final selected = _selectedPatient;
+    if (selected == null) return false;
+    final patient = _patientFromQueueRow(row);
+    if (patient == null) return false;
+
+    final selectedUid = _text(selected['uid']);
+    final patientUid = _text(patient['uid']);
+    if (selectedUid.isNotEmpty && patientUid.isNotEmpty) {
+      return selectedUid == patientUid;
+    }
+
+    final selectedId = _text(selected['id']);
+    final patientId = _text(patient['id']);
+    if (selectedId.isNotEmpty && patientId.isNotEmpty) {
+      return selectedId == patientId;
+    }
+
+    final selectedPhone = _digitsOnly(_text(selected['phone']));
+    final patientPhone = _digitsOnly(_text(patient['phone']));
+    return selectedPhone.isNotEmpty && selectedPhone == patientPhone;
+  }
+
+  Future<Map<String, dynamic>> _resolveQueuePatient(
+    Map<String, dynamic> queuePatient,
+  ) async {
+    if (_text(queuePatient['uid']).isNotEmpty) return queuePatient;
+
+    final query = _patientAdmissionQuery(queuePatient);
+    if (query.length < 2) return queuePatient;
+
+    setState(() => _lookupBusy = true);
+    try {
+      final matches = await PatientApiService.search(query, limit: 6);
+      return _bestQueuePatientMatch(matches, queuePatient) ?? queuePatient;
+    } catch (_) {
+      return queuePatient;
+    } finally {
+      if (mounted) setState(() => _lookupBusy = false);
+    }
+  }
+
+  Future<void> _selectQueuePatient(Map<String, dynamic> row) async {
+    final queuePatient = _patientFromQueueRow(row);
+    if (queuePatient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Queue row has no patient details.')),
+      );
+      return;
+    }
+
+    final selected = await _resolveQueuePatient(queuePatient);
+    if (!mounted) return;
+    await _selectPatient(selected);
+    if (!mounted) return;
+
+    final hasUid = _text(selected['uid']).isNotEmpty;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          hasUid
+              ? 'Patient selected from queue.'
+              : 'Queue patient selected. Search the patient record before billing.',
+        ),
+        backgroundColor: hasUid ? AppTheme.successGreen : null,
+      ),
+    );
+  }
+
   Future<void> _loadInvoicesFor(Map<String, dynamic>? patient) async {
     final uid = patient?['uid']?.toString();
     if (!_canBilling || uid == null || uid.isEmpty) {
@@ -1816,6 +1885,7 @@ class _FrontOfficeWorkbenchScreenState
     final status = _appointmentStatus(row);
     final time = row['appointment_time'] ?? row['time'] ?? row['slot'];
     final busy = id != null && _queueActionId == id;
+    final selected = _queueRowMatchesSelectedPatient(row);
     final terminal = const {
       'COMPLETED',
       'CANCELLED',
@@ -1837,12 +1907,16 @@ class _FrontOfficeWorkbenchScreenState
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : Icon(
-                  Icons.person_outline,
+                  selected
+                      ? Icons.person_pin_circle_outlined
+                      : Icons.person_outline,
                   color: _appointmentStatusColor(status),
                 ),
         ),
         title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text([?time, status].join(' - ')),
+        selected: selected,
+        selectedTileColor: AppTheme.primaryBlue.withValues(alpha: 0.06),
         trailing: _canManageOpQueue && !terminal
             ? Wrap(
                 spacing: 6,
@@ -1874,7 +1948,7 @@ class _FrontOfficeWorkbenchScreenState
                 ],
               )
             : const Icon(Icons.chevron_right),
-        onTap: () => context.go('/appointment-queue'),
+        onTap: () => _selectQueuePatient(row),
       ),
     );
   }
@@ -2399,9 +2473,12 @@ String _appointmentStatus(Map<String, dynamic> row) {
 }
 
 String _queuePatientName(Map<String, dynamic> row) {
-  final name = _text(row['patient_name'] ?? row['name']);
+  final patient = _patientFromQueueRow(row);
+  final name = _text(patient?['name'] ?? row['patient_name'] ?? row['name']);
   if (name.isNotEmpty) return name;
-  final phone = _text(row['patient_phone'] ?? row['phone']);
+  final phone = _text(
+    patient?['phone'] ?? row['patient_phone'] ?? row['phone'],
+  );
   return phone.isEmpty ? 'Patient' : phone;
 }
 
@@ -2432,6 +2509,114 @@ String _patientAdmissionQuery(Map<String, dynamic> patient) {
   ]) {
     final value = _text(patient[key]);
     if (value.isNotEmpty) return value;
+  }
+  return '';
+}
+
+Map<String, dynamic>? _patientFromQueueRow(Map<String, dynamic> row) {
+  final nested =
+      _mapFromAny(row['patient']) ??
+      _mapFromAny(row['patient_details']) ??
+      _mapFromAny(row['patientDetail']) ??
+      const <String, dynamic>{};
+  final uid = _firstText([
+    nested['uid'],
+    nested['patient_uid'],
+    nested['patientUid'],
+    row['patient_uid'],
+    row['patientUid'],
+  ]);
+  final id = _intFrom(
+    nested['id'] ??
+        nested['patient_id'] ??
+        row['patient_id'] ??
+        row['patientId'],
+  );
+  final name = _firstText([
+    nested['name'],
+    nested['patient_name'],
+    nested['full_name'],
+    row['patient_name'],
+    row['patientName'],
+    row['name'],
+  ]);
+  final phone = _firstText([
+    nested['phone'],
+    nested['patient_phone'],
+    row['patient_phone'],
+    row['patientPhone'],
+    row['phone'],
+  ]);
+  final hospitalNumber = _firstText([
+    nested['hospital_number'],
+    nested['patient_hospital_number'],
+    nested['hospitalNumber'],
+    row['hospital_number'],
+    row['patient_hospital_number'],
+    row['hospitalNumber'],
+  ]);
+  final bloodGroup = _firstText([nested['blood_group'], row['blood_group']]);
+
+  final patient = <String, dynamic>{
+    if (uid.isNotEmpty) 'uid': uid,
+    'id': ?id,
+    if (name.isNotEmpty) 'name': name,
+    if (phone.isNotEmpty) 'phone': phone,
+    if (hospitalNumber.isNotEmpty) 'hospital_number': hospitalNumber,
+    if (bloodGroup.isNotEmpty) 'blood_group': bloodGroup,
+  };
+  return patient.isEmpty ? null : patient;
+}
+
+Map<String, dynamic>? _bestQueuePatientMatch(
+  List<Map<String, dynamic>> matches,
+  Map<String, dynamic> queuePatient,
+) {
+  if (matches.isEmpty) return null;
+
+  final uid = _text(queuePatient['uid']);
+  if (uid.isNotEmpty) {
+    for (final match in matches) {
+      if (_text(match['uid']) == uid) return match;
+    }
+  }
+
+  final id = _text(queuePatient['id']);
+  if (id.isNotEmpty) {
+    for (final match in matches) {
+      if (_text(match['id']) == id) return match;
+    }
+  }
+
+  final hospitalNumber = _text(queuePatient['hospital_number']).toLowerCase();
+  if (hospitalNumber.isNotEmpty) {
+    for (final match in matches) {
+      if (_text(match['hospital_number']).toLowerCase() == hospitalNumber) {
+        return match;
+      }
+    }
+  }
+
+  final phone = _digitsOnly(_text(queuePatient['phone']));
+  if (phone.isNotEmpty) {
+    for (final match in matches) {
+      if (_digitsOnly(_text(match['phone'])) == phone) return match;
+    }
+  }
+
+  return matches.length == 1 ? matches.first : null;
+}
+
+Map<String, dynamic>? _mapFromAny(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+String _firstText(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = _text(value);
+    if (text.isNotEmpty) return text;
   }
   return '';
 }
