@@ -40,6 +40,78 @@ void main() {
     );
   });
 
+  group('frontOfficeWorkbenchShouldRequestWorklists', () {
+    test('loads tablet workbench data from the resolved screen mode', () {
+      expect(
+        frontOfficeWorkbenchShouldRequestWorklists(
+          roleLoaded: true,
+          role: StaffRole.receptionist,
+          mode: AppDeviceMode.tablet,
+          loadedForMode: null,
+          loadInFlight: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not load for phone mode or unsupported roles', () {
+      expect(
+        frontOfficeWorkbenchShouldRequestWorklists(
+          roleLoaded: true,
+          role: StaffRole.receptionist,
+          mode: AppDeviceMode.mobile,
+          loadedForMode: null,
+          loadInFlight: false,
+        ),
+        isFalse,
+      );
+      expect(
+        frontOfficeWorkbenchShouldRequestWorklists(
+          roleLoaded: true,
+          role: StaffRole.housekeeping,
+          mode: AppDeviceMode.desktop,
+          loadedForMode: null,
+          loadInFlight: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('avoids duplicate loads unless the user refreshes', () {
+      expect(
+        frontOfficeWorkbenchShouldRequestWorklists(
+          roleLoaded: true,
+          role: StaffRole.receptionist,
+          mode: AppDeviceMode.desktop,
+          loadedForMode: AppDeviceMode.desktop,
+          loadInFlight: false,
+        ),
+        isFalse,
+      );
+      expect(
+        frontOfficeWorkbenchShouldRequestWorklists(
+          roleLoaded: true,
+          role: StaffRole.receptionist,
+          mode: AppDeviceMode.desktop,
+          loadedForMode: AppDeviceMode.desktop,
+          loadInFlight: false,
+          force: true,
+        ),
+        isTrue,
+      );
+      expect(
+        frontOfficeWorkbenchShouldRequestWorklists(
+          roleLoaded: true,
+          role: StaffRole.receptionist,
+          mode: AppDeviceMode.desktop,
+          loadedForMode: null,
+          loadInFlight: true,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('frontOfficeAdmissionTotalFrom', () {
     test('uses backend pagination total instead of loaded preview length', () {
       final total = frontOfficeAdmissionTotalFrom({

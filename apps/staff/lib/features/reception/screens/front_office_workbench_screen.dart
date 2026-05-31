@@ -54,6 +54,20 @@ bool frontOfficeWorkbenchCanLoad({
   return RoleFeatures.hasFrontOfficeWorkbench(role) && mode.isWorkbench;
 }
 
+@visibleForTesting
+bool frontOfficeWorkbenchShouldRequestWorklists({
+  required bool roleLoaded,
+  required StaffRole role,
+  required AppDeviceMode mode,
+  required AppDeviceMode? loadedForMode,
+  required bool loadInFlight,
+  bool force = false,
+}) {
+  if (!roleLoaded || loadInFlight) return false;
+  if (!frontOfficeWorkbenchCanLoad(role: role, mode: mode)) return false;
+  return force || loadedForMode != mode;
+}
+
 enum FrontOfficeQueueScope { none, mine, full }
 
 @visibleForTesting
@@ -134,6 +148,8 @@ class _FrontOfficeWorkbenchScreenState
   bool _invoiceBusy = false;
   bool _billingActionBusy = false;
   bool _admissionActionBusy = false;
+  bool _worklistsLoadInFlight = false;
+  AppDeviceMode? _worklistsLoadedForMode;
   int? _queueActionId;
   String? _error;
   String? _lookupError;
@@ -176,6 +192,14 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_roleLoaded) {
+      unawaited(_requestWorklistsForMode(appDeviceModeForContext(context)));
+    }
+  }
+
+  @override
   void dispose() {
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
@@ -188,14 +212,48 @@ class _FrontOfficeWorkbenchScreenState
     setState(() {
       _role = role;
       _roleLoaded = true;
+      _loading = false;
     });
 
-    if (!frontOfficeWorkbenchCanLoad(role: role, mode: currentAppDeviceMode)) {
-      setState(() => _loading = false);
+    await _requestWorklistsForMode(appDeviceModeForContext(context));
+  }
+
+  Future<void> _requestWorklistsForMode(
+    AppDeviceMode mode, {
+    bool force = false,
+  }) async {
+    if (!frontOfficeWorkbenchShouldRequestWorklists(
+      roleLoaded: _roleLoaded,
+      role: _role,
+      mode: mode,
+      loadedForMode: _worklistsLoadedForMode,
+      loadInFlight: _worklistsLoadInFlight,
+      force: force,
+    )) {
+      if (mounted &&
+          _loading &&
+          !frontOfficeWorkbenchCanLoad(role: _role, mode: mode)) {
+        setState(() => _loading = false);
+      }
       return;
     }
 
-    await _loadWorklists();
+    _worklistsLoadInFlight = true;
+    try {
+      await _loadWorklists();
+      if (mounted && _error == null) {
+        _worklistsLoadedForMode = mode;
+      }
+    } finally {
+      _worklistsLoadInFlight = false;
+    }
+  }
+
+  Future<void> _refreshWorklists() async {
+    await _requestWorklistsForMode(
+      appDeviceModeForContext(context),
+      force: true,
+    );
   }
 
   Future<void> _loadWorklists() async {
@@ -1724,7 +1782,7 @@ class _FrontOfficeWorkbenchScreenState
     return StaffScaffold(
       title: 'Front Office Workbench',
       body: RefreshIndicator(
-        onRefresh: _loadWorklists,
+        onRefresh: _refreshWorklists,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 980;
@@ -1846,7 +1904,7 @@ class _FrontOfficeWorkbenchScreenState
           ),
           IconButton.filledTonal(
             tooltip: 'Refresh',
-            onPressed: _loadWorklists,
+            onPressed: _refreshWorklists,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -2082,7 +2140,7 @@ class _FrontOfficeWorkbenchScreenState
             icon: Icons.event_note,
             title: title,
             trailing: TextButton.icon(
-              onPressed: _loadWorklists,
+              onPressed: _refreshWorklists,
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh'),
             ),
