@@ -1275,9 +1275,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             runSpacing: 10,
             children: [
               OutlinedButton.icon(
-                onPressed: () => context.go('/appointment-queue'),
-                icon: const Icon(Icons.queue),
-                label: const Text('Queue'),
+                onPressed: () => context.go('/front-office'),
+                icon: const Icon(Icons.space_dashboard_outlined),
+                label: const Text('Front Office'),
               ),
               OutlinedButton.icon(
                 onPressed: () => context.go('/emr/admissions'),

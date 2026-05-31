@@ -324,8 +324,7 @@ final GoRouter appRouter = GoRouter(
           // Legacy deep links now land on the consolidated OP/reception
           // workbench, which owns queue management alongside patient search,
           // booking, billing, and admission handoff.
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: FrontOfficeWorkbenchScreen()),
+          redirect: (context, state) => '/front-office',
         ),
 
         // Clinical AI — Phase 2 of the rollout. Review queue lists the
