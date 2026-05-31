@@ -19,6 +19,7 @@ import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
 import '../../../core/widgets/theme_toggle_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../dashboard_inpatient_count.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -198,43 +199,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
       if (_canSeeInpatientStats) {
+        final inpatientCountEndpoint = dashboardInpatientCountEndpointForRole(
+          _role,
+        );
+        final inpatientCountQuery = dashboardInpatientCountQueryForRole(_role);
         futures.add(
-          ApiClient.get('/admissions/occupancy').then((r) {
+          ApiClient.get(
+            inpatientCountEndpoint,
+            queryParameters: inpatientCountQuery,
+          ).then((r) {
             if (!r.isSuccess) return;
-            final raw = r.raw;
-            int count = 0;
-            if (raw is Map<String, dynamic>) {
-              final data = raw['data'];
-              if (data is Map<String, dynamic>) {
-                final total = data['total'];
-                if (total is int) {
-                  count = total;
-                } else if (total != null) {
-                  count = int.tryParse('$total') ?? 0;
-                }
-              }
-              final meta = raw['meta'];
-              final pagination = meta is Map ? meta['pagination'] : null;
-              final total = pagination is Map
-                  ? (pagination['total'] ?? pagination['totalItems'])
-                  : null;
-              if (total is int) {
-                count = total;
-              } else if (total != null) {
-                count = int.tryParse('$total') ?? 0;
-              }
-              // Older admission-list shapes return `data` as a List directly
-              // or wrap it as { admissions: [...] } / { items: [...] }.
-              // Accept both so the stat doesn't silently read zero if the
-              // backend shape flips.
-              if (count == 0 && data is List) {
-                count = data.length;
-              } else if (count == 0 && data is Map<String, dynamic>) {
-                final list = data['admissions'] ?? data['items'];
-                if (list is List) count = list.length;
-              }
-            }
-            _activeAdmissionsCount = count;
+            _activeAdmissionsCount = dashboardInpatientCountFromRaw(r.raw);
           }, onError: (_) {}),
         );
       }
