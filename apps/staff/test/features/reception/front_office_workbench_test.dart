@@ -1,7 +1,45 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/config/role_config.dart';
+import 'package:vhhealth_staff/core/platform_info.dart';
 import 'package:vhhealth_staff/features/reception/screens/front_office_workbench_screen.dart';
 
 void main() {
+  group('frontOfficeWorkbenchCanLoad', () {
+    test(
+      'allows front-office roles only on tablet or desktop workbench modes',
+      () {
+        expect(
+          frontOfficeWorkbenchCanLoad(
+            role: StaffRole.receptionist,
+            mode: AppDeviceMode.desktop,
+          ),
+          isTrue,
+        );
+        expect(
+          frontOfficeWorkbenchCanLoad(
+            role: StaffRole.billingStaff,
+            mode: AppDeviceMode.tablet,
+          ),
+          isTrue,
+        );
+        expect(
+          frontOfficeWorkbenchCanLoad(
+            role: StaffRole.receptionist,
+            mode: AppDeviceMode.mobile,
+          ),
+          isFalse,
+        );
+        expect(
+          frontOfficeWorkbenchCanLoad(
+            role: StaffRole.housekeeping,
+            mode: AppDeviceMode.desktop,
+          ),
+          isFalse,
+        );
+      },
+    );
+  });
+
   group('frontOfficeAdmissionTotalFrom', () {
     test('uses backend pagination total instead of loaded preview length', () {
       final total = frontOfficeAdmissionTotalFrom({

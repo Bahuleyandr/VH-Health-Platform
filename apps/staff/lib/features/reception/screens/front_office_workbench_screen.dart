@@ -29,6 +29,14 @@ int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
   return parsed ?? fallbackCount;
 }
 
+@visibleForTesting
+bool frontOfficeWorkbenchCanLoad({
+  required StaffRole role,
+  required AppDeviceMode mode,
+}) {
+  return RoleFeatures.hasFrontOfficeWorkbench(role) && mode.isWorkbench;
+}
+
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
   const FrontOfficeWorkbenchScreen({super.key});
 
@@ -41,8 +49,8 @@ class _FrontOfficeWorkbenchScreenState
     extends State<FrontOfficeWorkbenchScreen> {
   final _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
-  late final Future<List<Map<String, dynamic>>> _doctorsFuture;
-  late final Future<List<Map<String, dynamic>>> _wardsFuture;
+  Future<List<Map<String, dynamic>>>? _doctorsFuture;
+  Future<List<Map<String, dynamic>>>? _wardsFuture;
 
   StaffRole _role = StaffRole.general;
   bool _roleLoaded = false;
@@ -84,8 +92,6 @@ class _FrontOfficeWorkbenchScreenState
   @override
   void initState() {
     super.initState();
-    _doctorsFuture = ScheduleApiService.getAppointmentDoctors();
-    _wardsFuture = MedicalApiService.getAdmissionWardOptions();
     _loadInitialState();
   }
 
@@ -104,8 +110,7 @@ class _FrontOfficeWorkbenchScreenState
       _roleLoaded = true;
     });
 
-    if (!RoleFeatures.hasFrontOfficeWorkbench(role) ||
-        !currentAppDeviceMode.isWorkbench) {
+    if (!frontOfficeWorkbenchCanLoad(role: role, mode: currentAppDeviceMode)) {
       setState(() => _loading = false);
       return;
     }
@@ -137,6 +142,16 @@ class _FrontOfficeWorkbenchScreenState
         _loading = false;
       });
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _doctorOptionsFuture() {
+    _doctorsFuture ??= ScheduleApiService.getAppointmentDoctors();
+    return _doctorsFuture!;
+  }
+
+  Future<List<Map<String, dynamic>>> _wardOptionsFuture() {
+    _wardsFuture ??= MedicalApiService.getAdmissionWardOptions();
+    return _wardsFuture!;
   }
 
   List<Map<String, dynamic>> _mapList(dynamic value) {
@@ -726,7 +741,7 @@ class _FrontOfficeWorkbenchScreenState
                       ),
                       const SizedBox(height: 12),
                       FutureBuilder<List<Map<String, dynamic>>>(
-                        future: _doctorsFuture,
+                        future: _doctorOptionsFuture(),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
                               ConnectionState.waiting) {
@@ -1033,7 +1048,7 @@ class _FrontOfficeWorkbenchScreenState
                       ),
                       const SizedBox(height: 12),
                       FutureBuilder<List<Map<String, dynamic>>>(
-                        future: _doctorsFuture,
+                        future: _doctorOptionsFuture(),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
                               ConnectionState.waiting) {
@@ -1111,7 +1126,7 @@ class _FrontOfficeWorkbenchScreenState
                           final compact = constraints.maxWidth < 560;
                           final wardPicker =
                               FutureBuilder<List<Map<String, dynamic>>>(
-                                future: _wardsFuture,
+                                future: _wardOptionsFuture(),
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState ==
                                       ConnectionState.waiting) {
