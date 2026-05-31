@@ -322,10 +322,10 @@ class StaffScaffold extends StatelessWidget {
             '/dashboard',
           ),
           const _NavItem(
-            'Counter',
-            Icons.point_of_sale_outlined,
-            Icons.point_of_sale,
-            '/reception-counter',
+            'Front Desk',
+            Icons.space_dashboard_outlined,
+            Icons.space_dashboard,
+            '/front-office',
           ),
           const _NavItem(
             'My Roster',

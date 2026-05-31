@@ -83,7 +83,9 @@ class _MainScaffoldState extends State<MainScaffold> {
       );
     }
 
-    final navItems = RoleFeatures.getBottomNavForRole(_role);
+    final navItems = mode == AppDeviceMode.mobile
+        ? RoleFeatures.getPhoneSelfServiceNavForRole(_role)
+        : RoleFeatures.getBottomNavForRole(_role);
 
     return Scaffold(
       body: widget.child,

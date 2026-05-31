@@ -150,7 +150,8 @@ void main() {
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
-      expect(ids, contains('reception_counter'));
+      expect(ids, contains('front_office_workbench'));
+      expect(ids, isNot(contains('reception_counter')));
       expect(ids, contains('ward_mode'));
     });
 
@@ -165,7 +166,7 @@ void main() {
     });
 
     test(
-      'reception roles get counter mode, OPD appointments, and IP admissions',
+      'reception roles get the front office workbench, OPD appointments, and IP admissions',
       () {
         final receptionistIds = RoleFeatures.getFeaturesForRole(
           StaffRole.receptionist,
@@ -179,7 +180,6 @@ void main() {
           containsAll([
             'front_office_workbench',
             'billing_desk',
-            'reception_counter',
             'appointments',
             'admissions',
           ]),
@@ -189,7 +189,6 @@ void main() {
           containsAll([
             'front_office_workbench',
             'billing_desk',
-            'reception_counter',
             'appointments',
             'admissions',
           ]),
@@ -239,23 +238,46 @@ void main() {
       }
     });
 
-    test('reception roles get counter mode in bottom navigation', () {
-      final receptionistItems = RoleFeatures.getBottomNavForRole(
-        StaffRole.receptionist,
-      );
-      final inchargeItems = RoleFeatures.getBottomNavForRole(
-        StaffRole.receptionIncharge,
-      );
+    test(
+      'reception roles open the consolidated front office in bottom navigation',
+      () {
+        final receptionistItems = RoleFeatures.getBottomNavForRole(
+          StaffRole.receptionist,
+        );
+        final inchargeItems = RoleFeatures.getBottomNavForRole(
+          StaffRole.receptionIncharge,
+        );
 
-      expect(
-        receptionistItems.map((item) => item.route),
-        contains('/reception-counter'),
-      );
-      expect(
-        inchargeItems.map((item) => item.route),
-        contains('/reception-counter'),
-      );
-    });
+        expect(
+          receptionistItems.map((item) => item.route),
+          contains('/front-office'),
+        );
+        expect(
+          inchargeItems.map((item) => item.route),
+          contains('/front-office'),
+        );
+      },
+    );
+
+    test(
+      'phone self-service navigation stays personal for operational roles',
+      () {
+        final routes = RoleFeatures.getPhoneSelfServiceNavForRole(
+          StaffRole.receptionist,
+        ).map((item) => item.route).toList();
+
+        expect(routes, [
+          '/dashboard',
+          '/attendance',
+          '/schedule',
+          '/leave',
+          '/profile',
+        ]);
+        expect(routes, isNot(contains('/front-office')));
+        expect(routes, isNot(contains('/reception-counter')));
+        expect(routes, isNot(contains('/billing-desk')));
+      },
+    );
 
     test('new operational roles get focused bottom navigation', () {
       expect(

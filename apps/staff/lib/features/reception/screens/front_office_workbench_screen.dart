@@ -28,6 +28,7 @@ class _FrontOfficeWorkbenchScreenState
   Timer? _searchDebounce;
 
   StaffRole _role = StaffRole.general;
+  bool _roleLoaded = false;
   bool _loading = true;
   bool _lookupBusy = false;
   bool _invoiceBusy = false;
@@ -46,8 +47,7 @@ class _FrontOfficeWorkbenchScreenState
   @override
   void initState() {
     super.initState();
-    _loadRole();
-    _loadWorklists();
+    _loadInitialState();
   }
 
   @override
@@ -57,10 +57,21 @@ class _FrontOfficeWorkbenchScreenState
     super.dispose();
   }
 
-  Future<void> _loadRole() async {
+  Future<void> _loadInitialState() async {
     final role = StaffRole.fromString(await ApiConfig.getRole());
     if (!mounted) return;
-    setState(() => _role = role);
+    setState(() {
+      _role = role;
+      _roleLoaded = true;
+    });
+
+    if (!RoleFeatures.hasFrontOfficeWorkbench(role) ||
+        !currentAppDeviceMode.isWorkbench) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    await _loadWorklists();
   }
 
   Future<void> _loadWorklists() async {
@@ -382,6 +393,66 @@ class _FrontOfficeWorkbenchScreenState
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
+    if (!_roleLoaded) {
+      return const StaffScaffold(
+        title: 'Front Office',
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!RoleFeatures.hasFrontOfficeWorkbench(_role)) {
+      return StaffScaffold(
+        title: 'Front Office',
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildUnavailablePanel(
+              icon: Icons.lock_outline,
+              title: 'Front Office unavailable',
+              message: 'Front Office is not enabled for ${_role.displayName}.',
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (!mode.isWorkbench) {
+      return StaffScaffold(
+        title: 'Front Office',
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildUnavailablePanel(
+              icon: Icons.devices_outlined,
+              title: 'Workstation mode required',
+              message:
+                  'Patient search, OP booking, admissions, billing, and clinical entry open on tablet or desktop workstations.',
+              actions: [
+                _ActionTile(
+                  icon: Icons.schedule_outlined,
+                  label: 'Roster',
+                  color: AppTheme.primaryTeal,
+                  onTap: () => context.go('/schedule'),
+                ),
+                _ActionTile(
+                  icon: Icons.event_available_outlined,
+                  label: 'Leave',
+                  color: AppTheme.primaryBlue,
+                  onTap: () => context.go('/leave'),
+                ),
+                _ActionTile(
+                  icon: Icons.person_outline,
+                  label: 'Profile',
+                  color: AppTheme.warningAmber,
+                  onTap: () => context.go('/profile'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return StaffScaffold(
       title: 'Front Office Workbench',
       body: RefreshIndicator(
@@ -503,6 +574,28 @@ class _FrontOfficeWorkbenchScreenState
             onPressed: _loadWorklists,
             icon: const Icon(Icons.refresh),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnavailablePanel({
+    required IconData icon,
+    required String title,
+    required String message,
+    List<Widget> actions = const [],
+  }) {
+    return _Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionTitle(icon: icon, title: title),
+          const SizedBox(height: 8),
+          Text(message, style: TextStyle(color: AppTheme.textSecondary)),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(spacing: 10, runSpacing: 10, children: actions),
+          ],
         ],
       ),
     );

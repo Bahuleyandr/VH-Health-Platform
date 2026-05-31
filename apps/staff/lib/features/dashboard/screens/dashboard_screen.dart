@@ -270,12 +270,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final checkedIn =
         _attendanceStatus?['isCheckedIn'] == true ||
         _attendanceStatus?['status'] == 'checked-in';
-    final canMarkAttendance = appDeviceModeForContext(
-      context,
-    ).canMarkAttendance;
-    final features = RoleFeatures.getFeaturesForRole(_role);
+    final mode = appDeviceModeForContext(context);
+    final canMarkAttendance = mode.canMarkAttendance;
+    final features = _featuresForDeviceMode(
+      RoleFeatures.getFeaturesForRole(_role),
+      mode,
+    );
     final dailyFeatures = _dailyFeaturesForRole(features);
-    final clinicalServiceTabs = _buildClinicalServiceTabs(features);
+    final clinicalServiceTabs = mode.isWorkbench
+        ? _buildClinicalServiceTabs(features)
+        : null;
     final promotedIds = clinicalServiceTabs == null
         ? dailyFeatures.map((feature) => feature.id).toSet()
         : _clinicalServiceFeatureIdsForRole();
@@ -735,7 +739,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.receptionist || StaffRole.receptionIncharge => {
         'front_office_workbench',
         'billing_desk',
-        'reception_counter',
         'appointment_queue',
         'reception_roster',
       },
@@ -751,7 +754,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.ipdCounsellor => {
         'front_office_workbench',
         'billing_desk',
-        'reception_counter',
         'appointment_queue',
       },
       StaffRole.driver => {'driver_roster'},
@@ -764,6 +766,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     };
 
     return features.where((feature) => dailyIds.contains(feature.id)).toList();
+  }
+
+  List<DashboardFeature> _featuresForDeviceMode(
+    List<DashboardFeature> features,
+    AppDeviceMode mode,
+  ) {
+    if (mode != AppDeviceMode.mobile) return features;
+    const mobileSelfServiceIds = {
+      'attendance',
+      'schedule',
+      'duty_preference',
+      'leave',
+      'messaging',
+      'profile',
+      'settings',
+    };
+    return features
+        .where((feature) => mobileSelfServiceIds.contains(feature.id))
+        .toList();
   }
 
   List<DashboardFeature> _moreFeaturesForRole(

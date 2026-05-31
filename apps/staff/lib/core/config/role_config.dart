@@ -222,13 +222,6 @@ class RoleFeatures {
     route: '/emr/admissions',
     color: Color(0xFF1565C0),
   );
-  static const DashboardFeature _receptionCounter = DashboardFeature(
-    id: 'reception_counter',
-    title: 'Counter Mode',
-    icon: Icons.point_of_sale,
-    route: '/reception-counter',
-    color: Color(0xFF455A64),
-  );
   static const DashboardFeature _frontOfficeWorkbench = DashboardFeature(
     id: 'front_office_workbench',
     title: 'Front Office',
@@ -745,7 +738,6 @@ class RoleFeatures {
         _schedule,
         _staffRosterHub,
         _frontOfficeWorkbench,
-        _receptionCounter,
         _billingDesk,
         _appointments,
         _appointmentQueue,
@@ -835,7 +827,6 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
-        _receptionCounter,
         _frontOfficeWorkbench,
         _billingDesk,
         _appointments,
@@ -851,7 +842,6 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _receptionRoster,
-        _receptionCounter,
         _frontOfficeWorkbench,
         _billingDesk,
         _appointments,
@@ -881,7 +871,6 @@ class RoleFeatures {
       StaffRole.ipdCounsellor => [
         _schedule,
         _frontOfficeWorkbench,
-        _receptionCounter,
         _billingDesk,
         _appointments,
         _admissions,
@@ -1255,11 +1244,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.point_of_sale_outlined),
-            activeIcon: Icon(Icons.point_of_sale),
-            label: 'Counter',
+            icon: Icon(Icons.space_dashboard_outlined),
+            activeIcon: Icon(Icons.space_dashboard),
+            label: 'Front Desk',
           ),
-          route: '/reception-counter',
+          route: '/front-office',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -1443,6 +1432,51 @@ class RoleFeatures {
         ),
       ],
     };
+  }
+
+  static List<BottomNavItem> getPhoneSelfServiceNavForRole(StaffRole _) {
+    return const [
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.dashboard_outlined),
+          activeIcon: Icon(Icons.dashboard),
+          label: 'Home',
+        ),
+        route: '/dashboard',
+      ),
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.fingerprint_outlined),
+          activeIcon: Icon(Icons.fingerprint),
+          label: 'Attendance',
+        ),
+        route: '/attendance',
+      ),
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.schedule_outlined),
+          activeIcon: Icon(Icons.schedule),
+          label: 'Roster',
+        ),
+        route: '/schedule',
+      ),
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.event_available_outlined),
+          activeIcon: Icon(Icons.event_available),
+          label: 'Leave',
+        ),
+        route: '/leave',
+      ),
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.person_outlined),
+          activeIcon: Icon(Icons.person),
+          label: 'Profile',
+        ),
+        route: '/profile',
+      ),
+    ];
   }
 
   static bool hasFrontOfficeWorkbench(StaffRole role) {
