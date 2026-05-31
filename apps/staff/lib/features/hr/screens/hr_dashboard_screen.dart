@@ -17,6 +17,7 @@ class HrDashboardScreen extends StatefulWidget {
 
 class _HrDashboardScreenState extends State<HrDashboardScreen> {
   Map<String, dynamic>? _data;
+  List<Map<String, dynamic>> _staff = const [];
   bool _loading = true;
   String? _error;
   String _timeframe = 'current_month';
@@ -43,7 +44,20 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         debugPrint('hr_dashboard_screen.dart: $e');
       }
 
-      if (mounted) setState(() => _data = data);
+      final staffList = await HrApiService.getStaffList(
+        limit: 200,
+        suppressErrors: true,
+      );
+
+      if (mounted) {
+        setState(() {
+          _data = data;
+          _staff = staffList
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList(growable: false);
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -127,6 +141,12 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
                   _buildStatsGrid(s),
                   const SizedBox(height: 20),
 
+                  // Staff roster snapshot
+                  const _SectionTitle('Staff roster snapshot'),
+                  const SizedBox(height: 10),
+                  _buildStaffRosterSnapshot(context),
+                  const SizedBox(height: 20),
+
                   // Attendance overview
                   _SectionTitle(s.hrSectionAttendanceOverview),
                   const SizedBox(height: 10),
@@ -146,6 +166,64 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
                 ],
               ),
       ),
+    );
+  }
+
+  Widget _buildStaffRosterSnapshot(BuildContext context) {
+    if (_staff.isEmpty) {
+      return _StaffSnapshotCard(
+        totalStaff: 0,
+        activeStaff: 0,
+        departmentCounts: const {},
+        visibleStaff: const [],
+        onOpenRoster: () => context.go('/staff-rosters'),
+        onOpenOnboarding: () => context.go('/staff-management'),
+      );
+    }
+
+    final sortedStaff = [..._staff]
+      ..sort((a, b) {
+        final deptCompare = _staffText(a, const [
+          'department',
+        ]).compareTo(_staffText(b, const ['department']));
+        if (deptCompare != 0) return deptCompare;
+        return _staffText(a, const [
+          'name',
+          'fullName',
+        ]).compareTo(_staffText(b, const ['name', 'fullName']));
+      });
+
+    final activeStaff = sortedStaff
+        .where(
+          (row) => _staffBool(row, const [
+            'is_active',
+            'isActive',
+          ], defaultValue: true),
+        )
+        .length;
+    final departmentCounts = <String, int>{};
+    for (final row in sortedStaff) {
+      final department = _staffText(row, const [
+        'department',
+      ], fallback: 'Unassigned');
+      departmentCounts[department] = (departmentCounts[department] ?? 0) + 1;
+    }
+
+    final sortedDepartments = Map<String, int>.fromEntries(
+      departmentCounts.entries.toList()..sort((a, b) {
+        final countCompare = b.value.compareTo(a.value);
+        if (countCompare != 0) return countCompare;
+        return a.key.toLowerCase().compareTo(b.key.toLowerCase());
+      }),
+    );
+
+    return _StaffSnapshotCard(
+      totalStaff: sortedStaff.length,
+      activeStaff: activeStaff,
+      departmentCounts: sortedDepartments,
+      visibleStaff: sortedStaff.take(6).toList(growable: false),
+      onOpenRoster: () => context.go('/staff-rosters'),
+      onOpenOnboarding: () => context.go('/staff-management'),
     );
   }
 
@@ -367,6 +445,234 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
   }
 }
 
+class _StaffSnapshotCard extends StatelessWidget {
+  final int totalStaff;
+  final int activeStaff;
+  final Map<String, int> departmentCounts;
+  final List<Map<String, dynamic>> visibleStaff;
+  final VoidCallback onOpenRoster;
+  final VoidCallback onOpenOnboarding;
+
+  const _StaffSnapshotCard({
+    required this.totalStaff,
+    required this.activeStaff,
+    required this.departmentCounts,
+    required this.visibleStaff,
+    required this.onOpenRoster,
+    required this.onOpenOnboarding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final departmentEntries = departmentCounts.entries.take(8).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryBlue.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.badge_outlined,
+                    color: AppTheme.primaryBlue,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$activeStaff active of $totalStaff staff',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Seeded and onboarded staff currently visible to HR',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: onOpenRoster,
+                  icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                  label: const Text('Roster'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (departmentEntries.isEmpty)
+              Text(
+                'No staff records loaded yet.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final entry in departmentEntries)
+                    _DepartmentChip(department: entry.key, count: entry.value),
+                ],
+              ),
+            const SizedBox(height: 14),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            if (visibleStaff.isEmpty)
+              Text(
+                'Use onboarding to add the first staff account.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              )
+            else
+              Column(
+                children: [
+                  for (final row in visibleStaff) _StaffSnapshotRow(staff: row),
+                ],
+              ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onOpenOnboarding,
+                icon: const Icon(Icons.manage_accounts_outlined, size: 18),
+                label: const Text('Open onboarding'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DepartmentChip extends StatelessWidget {
+  final String department;
+  final int count;
+
+  const _DepartmentChip({required this.department, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryTeal.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Text(
+        '$department $count',
+        style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffSnapshotRow extends StatelessWidget {
+  final Map<String, dynamic> staff;
+
+  const _StaffSnapshotRow({required this.staff});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _staffText(staff, const [
+      'name',
+      'fullName',
+    ], fallback: 'Staff');
+    final role = _staffText(staff, const [
+      'role',
+    ], fallback: 'GENERAL_STAFF').replaceAll('_', ' ');
+    final department = _staffText(staff, const [
+      'department',
+    ], fallback: 'Unassigned');
+    final empId = _staffText(staff, const [
+      'employee_id',
+      'employeeId',
+      'empId',
+    ], fallback: '-');
+    final active = _staffBool(staff, const [
+      'is_active',
+      'isActive',
+    ], defaultValue: true);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 17,
+            backgroundColor:
+                (active ? AppTheme.primaryBlue : AppTheme.textSecondary)
+                    .withValues(alpha: 0.14),
+            child: Text(
+              name.isNotEmpty ? name[0].toUpperCase() : '?',
+              style: TextStyle(
+                color: active ? AppTheme.primaryBlue : AppTheme.textSecondary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '$department - $role',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            empId,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
   final String title;
   const _SectionTitle(this.title);
@@ -561,6 +867,37 @@ class _ActionTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _staffText(
+  Map<String, dynamic> staff,
+  List<String> keys, {
+  String fallback = '',
+}) {
+  for (final key in keys) {
+    final value = staff[key];
+    if (value == null) continue;
+    final text = value.toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return fallback;
+}
+
+bool _staffBool(
+  Map<String, dynamic> staff,
+  List<String> keys, {
+  required bool defaultValue,
+}) {
+  for (final key in keys) {
+    final value = staff[key];
+    if (value is bool) return value;
+    if (value is String) {
+      final lower = value.toLowerCase();
+      if (lower == 'true') return true;
+      if (lower == 'false') return false;
+    }
+  }
+  return defaultValue;
 }
 
 class _ErrorState extends StatelessWidget {
