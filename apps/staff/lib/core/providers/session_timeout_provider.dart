@@ -1,9 +1,14 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
+import '../platform_info.dart';
 import '../services/recent_patients_service.dart';
 
 typedef SessionTimeoutCleanup = Future<void> Function();
+
+Duration sessionTimeoutForDeviceMode(AppDeviceMode mode) => mode.isWorkbench
+    ? const Duration(minutes: 10)
+    : const Duration(minutes: 15);
 
 /// Tracks user activity and enforces an idle session timeout.
 ///
@@ -13,12 +18,15 @@ typedef SessionTimeoutCleanup = Future<void> Function();
 /// to the login screen when it fires.
 class SessionTimeoutProvider extends ChangeNotifier {
   SessionTimeoutProvider({
-    this.timeoutDuration = const Duration(minutes: 15),
+    Duration timeoutDuration = const Duration(minutes: 15),
     SessionTimeoutCleanup? onTimeoutCleanup,
-  }) : _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup;
+  }) : _timeoutDuration = timeoutDuration,
+       _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup;
 
   /// How long the user can be idle before automatic logout.
-  final Duration timeoutDuration;
+  Duration get timeoutDuration => _timeoutDuration;
+
+  Duration _timeoutDuration;
   final SessionTimeoutCleanup _onTimeoutCleanup;
 
   Timer? _timer;
@@ -36,7 +44,19 @@ class SessionTimeoutProvider extends ChangeNotifier {
     if (!_tracking) return;
     if (_expired) return; // already expired — don't restart
     _timer?.cancel();
-    _timer = Timer(timeoutDuration, _onTimeout);
+    _timer = Timer(_timeoutDuration, _onTimeout);
+  }
+
+  void configureForDeviceMode(AppDeviceMode mode) {
+    setTimeoutDuration(sessionTimeoutForDeviceMode(mode));
+  }
+
+  void setTimeoutDuration(Duration duration) {
+    if (duration == _timeoutDuration) return;
+    _timeoutDuration = duration;
+    if (_tracking && !_expired) {
+      recordActivity();
+    }
   }
 
   /// Start tracking. Call once after login succeeds.

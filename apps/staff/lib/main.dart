@@ -271,9 +271,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         ),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
-            timeoutDuration: currentAppDeviceMode.isWorkbench
-                ? const Duration(minutes: 10)
-                : const Duration(minutes: 15),
+            timeoutDuration: sessionTimeoutForDeviceMode(currentAppDeviceMode),
           ),
           // Don't call startTracking() here — timer should only start
           // after successful login, not on the login screen.

@@ -1,8 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/platform_info.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
 void main() {
   group('SessionTimeoutProvider', () {
+    test(
+      'uses stricter idle timeout for tablet and desktop workbench modes',
+      () {
+        expect(
+          sessionTimeoutForDeviceMode(AppDeviceMode.mobile),
+          const Duration(minutes: 15),
+        );
+        expect(
+          sessionTimeoutForDeviceMode(AppDeviceMode.tablet),
+          const Duration(minutes: 10),
+        );
+        expect(
+          sessionTimeoutForDeviceMode(AppDeviceMode.desktop),
+          const Duration(minutes: 10),
+        );
+      },
+    );
+
     test(
       'marks the session expired and runs privacy cleanup on idle timeout',
       () async {
@@ -64,6 +83,26 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 35));
 
       expect(provider.isSessionExpired, isTrue);
+      expect(cleanupCount, 1);
+    });
+
+    test('changing timeout while tracking restarts the timer', () async {
+      var cleanupCount = 0;
+      final provider = SessionTimeoutProvider(
+        timeoutDuration: const Duration(milliseconds: 80),
+        onTimeoutCleanup: () async {
+          cleanupCount += 1;
+        },
+      );
+      addTearDown(provider.dispose);
+
+      provider.startTracking();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      provider.setTimeoutDuration(const Duration(milliseconds: 10));
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+
+      expect(provider.isSessionExpired, isTrue);
+      expect(provider.timeoutDuration, const Duration(milliseconds: 10));
       expect(cleanupCount, 1);
     });
 

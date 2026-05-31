@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../config/api_config.dart';
 import '../config/role_config.dart';
 import '../platform_info.dart';
+import '../providers/session_timeout_provider.dart';
 
 /// Shell scaffold that provides persistent bottom navigation.
 /// Used as the ShellRoute builder in app_router.dart.
@@ -52,6 +54,7 @@ class _MainScaffoldState extends State<MainScaffold> {
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
+    context.read<SessionTimeoutProvider>().configureForDeviceMode(mode);
     if (mode.isWorkbench) {
       final navItems = RoleFeatures.getWorkbenchNavForRole(_role);
       final selectedIndex = _currentRailIndex(navItems);
