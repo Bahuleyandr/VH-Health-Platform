@@ -595,6 +595,7 @@ class _FrontOfficeWorkbenchScreenState
     var appointmentTime = TimeOfDay.fromDateTime(
       DateTime.now().add(const Duration(hours: 1)),
     );
+    var selectedVisitType = 'NEW';
     Map<String, dynamic>? selectedDoctor;
     var saving = false;
     String? dialogError;
@@ -671,6 +672,7 @@ class _FrontOfficeWorkbenchScreenState
                   notes: notesCtrl.text.trim().isEmpty
                       ? null
                       : notesCtrl.text.trim(),
+                  visitType: selectedVisitType,
                 );
                 if (dialogContext.mounted) {
                   Navigator.of(dialogContext).pop(true);
@@ -772,6 +774,42 @@ class _FrontOfficeWorkbenchScreenState
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedVisitType,
+                        decoration: const InputDecoration(
+                          labelText: 'Visit type',
+                          prefixIcon: Icon(Icons.assignment_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'NEW',
+                            child: Text('New consultation'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'FOLLOW_UP',
+                            child: Text('Follow-up'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'TELE',
+                            child: Text('Teleconsult'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'LAB_ONLY',
+                            child: Text('Lab-only visit'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'PAEDIATRIC_OPD',
+                            child: Text('Paediatric OPD'),
+                          ),
+                        ],
+                        onChanged: saving
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setDialogState(() => selectedVisitType = value);
+                              },
                       ),
                       const SizedBox(height: 12),
                       TextField(

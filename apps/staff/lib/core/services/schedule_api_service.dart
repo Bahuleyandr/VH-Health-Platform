@@ -110,6 +110,7 @@ class ScheduleApiService {
     required String appointmentTime,
     required String reason,
     String? notes,
+    String? visitType,
   }) async {
     if (patientId == null &&
         (patientPhone == null || patientPhone.trim().isEmpty)) {
@@ -128,6 +129,8 @@ class ScheduleApiService {
       'appointment_time': appointmentTime,
       'reason': reason,
       'notes': ?notes,
+      if (visitType != null && visitType.trim().isNotEmpty)
+        'visit_type': visitType.trim().toUpperCase(),
     });
   }
 
