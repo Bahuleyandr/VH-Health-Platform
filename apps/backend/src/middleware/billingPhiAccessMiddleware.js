@@ -99,7 +99,7 @@ export async function resolveBillingPhiContext(req) {
 }
 
 export function billingPhiAccessLogger(recordType = 'BILLING_INVOICE') {
-  return (req, res, next) => {
+  const middleware = (req, res, next) => {
     res.on('finish', () => {
       if (res.statusCode >= 400) return;
       if (!isBillingPhiPath(req.url || req.originalUrl || '')) return;
@@ -137,6 +137,8 @@ export function billingPhiAccessLogger(recordType = 'BILLING_INVOICE') {
 
     next();
   };
+  middleware.phiRecordType = recordType;
+  return middleware;
 }
 
 export default billingPhiAccessLogger;

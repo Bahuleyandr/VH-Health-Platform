@@ -44,3 +44,41 @@ describe('staff patient lookup namespace', () => {
     ).toBe(true);
   });
 });
+
+describe('staff workbench PHI namespaces', () => {
+  it('logs appointment queue and OP booking PHI access', () => {
+    expect(
+      hasMountedMiddleware(
+        '/api/v1/appointments',
+        (handle) => handle?.phiRecordType === 'APPOINTMENT',
+      ),
+    ).toBe(true);
+  });
+
+  it('logs admission workbench and command-board PHI access', () => {
+    expect(
+      hasMountedMiddleware(
+        '/api/v1/admissions',
+        (handle) => handle?.phiRecordType === 'ADMISSION',
+      ),
+    ).toBe(true);
+  });
+
+  it('logs admission occupancy dashboard PHI access', () => {
+    expect(
+      hasMountedMiddleware(
+        '/api/v1/admissions/occupancy',
+        (handle) => handle?.phiRecordType === 'ADMISSION_OCCUPANCY',
+      ),
+    ).toBe(true);
+  });
+
+  it('logs billing v2 invoice and payment PHI access', () => {
+    expect(
+      hasMountedMiddleware(
+        '/api/v1/billing/v2',
+        (handle) => handle?.phiRecordType === 'BILLING_INVOICE',
+      ),
+    ).toBe(true);
+  });
+});
