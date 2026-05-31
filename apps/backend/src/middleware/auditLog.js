@@ -172,6 +172,132 @@ const SKIP_GET_PATHS = [
   '/stats', '/dashboard', '/reports', '/balance',
 ];
 
+function cleanContextValue(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+function firstContextValue(sources, keys) {
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const key of keys) {
+      const value = cleanContextValue(source[key]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+function pathId(path, pattern) {
+  const match = String(path || '').match(pattern);
+  return match?.[1] ?? null;
+}
+
+function derivePathContext(path) {
+  const lowerPath = String(path || '').toLowerCase();
+  const context = {};
+  if (lowerPath.includes('/appointment')) {
+    const appointmentId = pathId(path, /\/appointments?\/(\d+)(?:\/|$)/i);
+    if (appointmentId) context.appointment_id = appointmentId;
+  }
+  if (lowerPath.includes('/admission')) {
+    const admissionId = pathId(path, /\/(?:emr\/)?admissions?\/(\d+)(?:\/|$)/i);
+    if (admissionId) context.admission_id = admissionId;
+  }
+  if (lowerPath.includes('/patient')) {
+    const patientUid = pathId(path, /\/patients?\/([0-9a-f]{8}-[0-9a-f-]{27,})(?:\/|$)/i);
+    if (patientUid) context.patient_uid = patientUid;
+  }
+  if (lowerPath.includes('/billing')) {
+    const invoiceId = pathId(path, /\/invoices\/(\d+)(?:\/|$)/i);
+    if (invoiceId) context.invoice_id = invoiceId;
+  }
+  return context;
+}
+
+function auditTenantId(req) {
+  return req.tenantId
+    || req.user?.tenant_id
+    || req.user?.tenantId
+    || req.tenant?.id
+    || null;
+}
+
+function primaryAuditResource(lowerPath, context) {
+  if (lowerPath.includes('/billing') && context.invoice_id) {
+    return { name: 'billing_invoice', id: context.invoice_id };
+  }
+  if (lowerPath.includes('/appointment') && context.appointment_id) {
+    return { name: 'appointment', id: context.appointment_id };
+  }
+  if (lowerPath.includes('/admission') && context.admission_id) {
+    return { name: 'admission', id: context.admission_id };
+  }
+  if (lowerPath.includes('/patient') && (context.patient_uid || context.patient_id)) {
+    return { name: 'patient', id: context.patient_uid || context.patient_id };
+  }
+  if (context.appointment_id) return { name: 'appointment', id: context.appointment_id };
+  if (context.admission_id) return { name: 'admission', id: context.admission_id };
+  if (context.invoice_id) return { name: 'billing_invoice', id: context.invoice_id };
+  if (context.patient_uid || context.patient_id) {
+    return { name: 'patient', id: context.patient_uid || context.patient_id };
+  }
+  return { name: null, id: null };
+}
+
+export function deriveAuditResourceContext(
+  req,
+  cleanPath,
+  { deviceType = null, userRole = null } = {},
+) {
+  const pathContext = derivePathContext(cleanPath);
+  const sources = [
+    req.params,
+    req.body,
+    req.query,
+    req.body?.patient,
+    req.body?.appointment,
+    req.body?.admission,
+    req.body?.invoice,
+  ];
+
+  const context = {
+    request_id: req.id || null,
+    device_type: deviceType,
+    tenant_id: auditTenantId(req),
+    actor_role: userRole,
+    ...pathContext,
+  };
+
+  const assign = (key, aliases) => {
+    if (context[key]) return;
+    const value = firstContextValue(sources, aliases);
+    if (value) context[key] = value;
+  };
+
+  assign('patient_uid', ['patient_uid', 'patientUid', 'patientUID']);
+  assign('patient_id', ['patient_id', 'patientId', 'patientID']);
+  assign('appointment_id', ['appointment_id', 'appointmentId', 'appointmentID']);
+  assign('admission_id', ['admission_id', 'admissionId', 'admissionID']);
+  assign('invoice_id', ['invoice_id', 'invoiceId', 'invoiceID']);
+  assign('encounter_id', ['encounter_id', 'encounterId', 'encounterID']);
+  assign('doctor_id', ['doctor_id', 'doctorId', 'doctorID']);
+
+  const lowerPath = String(cleanPath || '').toLowerCase();
+  if (!context.patient_uid && lowerPath.includes('/patient')) assign('patient_uid', ['uid']);
+  if (!context.appointment_id && lowerPath.includes('/appointment')) assign('appointment_id', ['id']);
+  if (!context.admission_id && lowerPath.includes('/admission')) assign('admission_id', ['id']);
+  if (!context.invoice_id && lowerPath.includes('/billing')) assign('invoice_id', ['id']);
+
+  const resource = primaryAuditResource(lowerPath, context);
+  return {
+    resource: resource.name,
+    resourceId: resource.id,
+    metadata: context,
+  };
+}
+
 function shouldSkip(method, path) {
   if (SKIP_PATHS.some(p => path.startsWith(p) || path.includes(p))) return true;
   if (method === 'GET' && SKIP_GET_PATHS.some(p => path.includes(p))) return true;
@@ -208,15 +334,22 @@ export function auditLogMiddleware(req, res, next) {
         const subjectUid = user?.uid ?? null;
         const actingAsDependent = req.acting != null;
         const deviceType = user?.deviceType ?? user?.claims?.deviceType ?? null;
+        const auditContext = deriveAuditResourceContext(req, cleanPath, {
+          deviceType,
+          userRole,
+        });
 
         await prisma.$queryRawUnsafe(`
           INSERT INTO audit_log
-            (user_id, user_name, user_role, ip_address, method, path, module, action,
-             query_params, request_summary, status_code, response_time_ms, success, user_agent,
+            (uid, user_id, user_name, user_role, ip_address, method, path, module, action,
+             resource, resource_id, metadata, query_params, request_summary,
+             status_code, response_time_ms, success, user_agent,
              actor_uid, subject_uid, acting_as_dependent, device_type)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CAST($9 AS jsonb),$10,$11,$12,$13,$14,
-                  $15::uuid,$16::uuid,$17,$18)
+          VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,
+                  CAST($13 AS jsonb),$14,$15,$16,$17,$18,
+                  $19::uuid,$20::uuid,$21,$22)
         `,
+          actorUid,
           userId,
           userName,
           userRole,
@@ -225,6 +358,9 @@ export function auditLogMiddleware(req, res, next) {
           cleanPath,
           deriveModule(cleanPath),
           deriveAction(method, cleanPath),
+          auditContext.resource,
+          auditContext.resourceId == null ? null : String(auditContext.resourceId),
+          JSON.stringify(auditContext.metadata),
           Object.keys(query || {}).length ? JSON.stringify(query) : null,
           method !== 'GET' ? sanitizeBody(body) : null,
           statusCode,
