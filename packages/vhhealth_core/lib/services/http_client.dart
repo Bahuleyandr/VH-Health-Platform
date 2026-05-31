@@ -38,6 +38,13 @@ class VHHttpClient {
   /// action does.
   static String? Function()? actingAsUidProvider;
 
+  /// Optional app-level device type provider.
+  ///
+  /// Staff sets this to its detected app/device mode so every request carries
+  /// an `X-Device-Type` hint for audit correlation. The backend still treats
+  /// the JWT/session `deviceType` claim as authoritative for security gates.
+  static String? Function()? deviceTypeProvider;
+
   // ── Injectable HTTP client (for tests) ─────────────────────────────────
   static http.Client _client = http.Client();
 
@@ -370,7 +377,25 @@ class VHHttpClient {
       }
     }
 
+    final deviceType = _normalizedDeviceType(deviceTypeProvider?.call());
+    if (deviceType != null) {
+      base['X-Device-Type'] = deviceType;
+    }
+
     return base;
+  }
+
+  static const Set<String> _allowedDeviceTypes = {
+    'mobile',
+    'tablet',
+    'desktop',
+    'web',
+  };
+
+  static String? _normalizedDeviceType(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return null;
+    return _allowedDeviceTypes.contains(normalized) ? normalized : null;
   }
 
   static Uri _buildUri(String path, [Map<String, String>? queryParameters]) {
@@ -447,7 +472,7 @@ class VHHttpClient {
     // If we have a refresh token (staff path), send it in the body.
     // Otherwise fall back to bearer-based rotation (patient/admin path).
     final headers = storedRefresh != null && storedRefresh.isNotEmpty
-        ? ApiConfig.jsonHeaders
+        ? await _headers(auth: false, json: true)
         : await _headers(auth: true, json: true);
     final body = storedRefresh != null && storedRefresh.isNotEmpty
         ? jsonEncode({'refreshToken': storedRefresh})

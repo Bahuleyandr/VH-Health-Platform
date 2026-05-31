@@ -24,7 +24,8 @@ import 'core/widgets/patient_search_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
-import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show RealtimeProvider, VHHttpClient;
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 /// Background FCM handler for Code Blue data messages. Must be a top-level
@@ -51,6 +52,7 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  VHHttpClient.deviceTypeProvider = () => currentDeviceType;
 
   // Desktop platforms (Windows/Linux/macOS) need the sqflite FFI bridge
   // wired before any DB-touching code runs (OfflineQueue, ConnectivitySync-

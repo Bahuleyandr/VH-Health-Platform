@@ -46,6 +46,7 @@ describe('auditLogMiddleware context enrichment', () => {
         tenantId: TENANT_ID,
         params: {},
         query: {},
+        headers: { 'x-device-type': 'desktop' },
         body: {
           patient_uid: PATIENT_UID,
           admission_id: 55,
@@ -65,6 +66,7 @@ describe('auditLogMiddleware context enrichment', () => {
       tenant_id: TENANT_ID,
       actor_role: 'RECEPTIONIST',
       device_type: 'desktop',
+      request_device_type: 'desktop',
       appointment_id: '123',
       admission_id: '55',
       patient_uid: PATIENT_UID,
@@ -95,6 +97,7 @@ describe('auditLogMiddleware context enrichment', () => {
       .put('/api/v1/appointments/123/status?source=workbench')
       .set('User-Agent', 'VH Staff Windows')
       .set('X-Forwarded-For', '10.0.0.10')
+      .set('X-Device-Type', 'tablet')
       .send({
         status: 'IN_PROGRESS',
         patient_uid: PATIENT_UID,
@@ -119,6 +122,8 @@ describe('auditLogMiddleware context enrichment', () => {
       tenant_id: TENANT_ID,
       actor_role: 'RECEPTIONIST',
       device_type: 'desktop',
+      request_device_type: 'tablet',
+      device_type_mismatch: true,
       appointment_id: '123',
       admission_id: '55',
       patient_uid: PATIENT_UID,

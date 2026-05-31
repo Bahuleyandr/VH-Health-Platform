@@ -47,12 +47,14 @@ void main() {
   setUp(() {
     _installSecureStorageFake();
     VHHttpClient.onSessionExpired = null;
+    VHHttpClient.deviceTypeProvider = null;
   });
 
   tearDown(() async {
     await AuthService.clearAll();
     VHHttpClient.resetClientForTesting();
     VHHttpClient.onSessionExpired = null;
+    VHHttpClient.deviceTypeProvider = null;
   });
 
   group('VHHttpClient — _performRefresh (bearer path, no refresh token)', () {
@@ -393,6 +395,75 @@ void main() {
       expect(resp.bodyBytes, [0x25, 0x50, 0x44, 0x46]);
       expect(pdfCount, 2);
       expect(await AuthService.getJwt(), 'new-access');
+    });
+  });
+
+  group('VHHttpClient - device type header', () {
+    test(
+      'adds a normalized X-Device-Type hint to authenticated requests',
+      () async {
+        await AuthService.setJwt('staff-access');
+        VHHttpClient.deviceTypeProvider = () => ' Desktop ';
+
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            expect(req.method, 'GET');
+            expect(req.headers['Authorization'], 'Bearer staff-access');
+            expect(req.headers['X-Device-Type'], 'desktop');
+            return http.Response(
+              jsonEncode({'success': true, 'data': 'ok'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+
+        final resp = await VHHttpClient.get('/device-check');
+        expect(resp.isSuccess, isTrue);
+      },
+    );
+
+    test('adds X-Device-Type to unauthenticated JSON requests', () async {
+      VHHttpClient.deviceTypeProvider = () => 'tablet';
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.method, 'POST');
+          expect(req.headers['X-Device-Type'], 'tablet');
+          expect(req.headers['Content-Type'], 'application/json');
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.post(
+        '/auth/staff/login',
+        auth: false,
+        body: {'employeeId': 'EMP-1004'},
+      );
+      expect(resp.isSuccess, isTrue);
+    });
+
+    test('drops unknown device type values', () async {
+      await AuthService.setJwt('staff-access');
+      VHHttpClient.deviceTypeProvider = () => 'kiosk';
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.headers.containsKey('X-Device-Type'), isFalse);
+          return http.Response(
+            jsonEncode({'success': true}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.get('/device-check');
+      expect(resp.isSuccess, isTrue);
     });
   });
 }

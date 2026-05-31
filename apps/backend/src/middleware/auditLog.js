@@ -138,6 +138,22 @@ const REDACT_FIELDS = new Set([
   'ssn', 'aadhar', 'pan', 'bank_account',
 ]);
 
+const ALLOWED_DEVICE_TYPES = new Set(['mobile', 'tablet', 'desktop', 'web']);
+
+function normalizeDeviceType(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(Array.isArray(value) ? value[0] : value)
+    .trim()
+    .toLowerCase();
+  return ALLOWED_DEVICE_TYPES.has(text) ? text : null;
+}
+
+function requestDeviceType(req) {
+  return normalizeDeviceType(
+    req.headers?.['x-device-type'] ?? req.headers?.['x-vh-device-type'],
+  );
+}
+
 function sanitizeBody(body) {
   if (!body || typeof body !== 'object') return null;
   try {
@@ -252,6 +268,8 @@ export function deriveAuditResourceContext(
   { deviceType = null, userRole = null } = {},
 ) {
   const pathContext = derivePathContext(cleanPath);
+  const trustedDeviceType = normalizeDeviceType(deviceType) || deviceType || null;
+  const headerDeviceType = requestDeviceType(req);
   const sources = [
     req.params,
     req.body,
@@ -264,7 +282,13 @@ export function deriveAuditResourceContext(
 
   const context = {
     request_id: req.id || null,
-    device_type: deviceType,
+    device_type: trustedDeviceType,
+    ...(headerDeviceType ? { request_device_type: headerDeviceType } : {}),
+    ...(trustedDeviceType
+      && headerDeviceType
+      && trustedDeviceType !== headerDeviceType
+      ? { device_type_mismatch: true }
+      : {}),
     tenant_id: auditTenantId(req),
     actor_role: userRole,
     ...pathContext,
