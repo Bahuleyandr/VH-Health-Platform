@@ -62,7 +62,7 @@ function deriveAction(method) {
  * @returns {import('express').RequestHandler}
  */
 export function phiAccessLogger(recordType) {
-  return (req, res, next) => {
+  const middleware = function phiAccessLoggerMiddleware(req, res, next) {
     // Log after response is sent (fire-and-forget)
     res.on('finish', () => {
       // Only log successful access (2xx/3xx), not auth failures or errors
@@ -98,4 +98,6 @@ export function phiAccessLogger(recordType) {
 
     next();
   };
+  middleware.phiRecordType = recordType;
+  return middleware;
 }

@@ -584,6 +584,7 @@ app.use(
     'INSURANCE_COORDINATOR',
     'GENERAL_STAFF',
   ),
+  phiAccessLogger('PATIENT_DEMOGRAPHICS'),
   patientSearchRoutes,
 );
 app.use('/api/v1/upload', patientRateLimiter, uploadRoutes);
