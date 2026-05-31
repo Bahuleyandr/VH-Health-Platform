@@ -92,13 +92,14 @@ const router = (await import('../../routes/admin/clinicalAi/clinicalUseRoutes.js
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 
-function makeApp() {
+function makeApp({ role = 'DOCTOR', rawRole = null } = {}) {
   const app = express();
   app.use(express.json());
   // Inject req.tenantId + req.user as middleware would in production.
   app.use((req, _res, next) => {
     req.tenantId = TENANT;
-    req.user = { uid: 'doctor-uid', role: 'DOCTOR' };
+    req.user = { uid: 'doctor-uid', role };
+    if (rawRole) req.user.rawRole = rawRole;
     next();
   });
   app.use('/clinical-ai/clinical', router);
@@ -245,6 +246,37 @@ describe('clinical-plane OP AI assist routes', () => {
     expect(res.statusCode).toBe(200);
     expect(listOpdAiModulesMock).toHaveBeenCalledWith({ tenantId: TENANT });
     expect(res.body.data.modules[0].module_key).toBe('op_visit_prep');
+  });
+
+  it.each(['ADMIN', 'SUPER_ADMIN', 'NURSING_STAFF', 'PHARMACY_STAFF', 'RECEPTIONIST'])(
+    'GET /op/services rejects non-doctor staff role %s',
+    async (role) => {
+      const app = makeApp({ role });
+      const res = await request(app).get('/clinical-ai/clinical/op/services');
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.details?.code).toBe('OP_AI_DOCTOR_ROLE_REQUIRED');
+      expect(listOpdAiModulesMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('GET /op/services accepts doctor aliases through the OP doctor gate', async () => {
+    const app = makeApp({ role: 'CONSULTANT_PHYSICIAN' });
+    const res = await request(app).get('/clinical-ai/clinical/op/services');
+
+    expect(res.statusCode).toBe(200);
+    expect(listOpdAiModulesMock).toHaveBeenCalledWith({ tenantId: TENANT });
+  });
+
+  it('POST /op/visit-prep rejects admin before generation or audit', async () => {
+    const app = makeApp({ role: 'ADMIN' });
+    const res = await request(app)
+      .post('/clinical-ai/clinical/op/visit-prep')
+      .send({ appointment_id: 314 });
+
+    expect(res.statusCode).toBe(403);
+    expect(generateOpVisitPrepMock).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
   });
 
   it('POST /op/visit-prep forwards appointment_id and audit metadata', async () => {

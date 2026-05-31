@@ -34,6 +34,12 @@ const CLINICAL_AI_CONTROL_ROLES = new Set([
 export const CLINICAL_AI_USER_ROLES_LIST = [
   // Direct-care clinical roles
   'DOCTOR',
+  'DUTY_DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'SENIOR_DOCTOR',
+  'RESIDENT',
+  'MEDICAL_SUPERINTENDENT',
   'NURSING_STAFF',
   'NURSE',
   'NURSE_MANAGER',

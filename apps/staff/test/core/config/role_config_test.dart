@@ -102,6 +102,7 @@ void main() {
       expect(ids, contains('prescriptions'));
       expect(ids, contains('patient_records'));
       expect(ids, contains('clinical_ai_review_queue'));
+      expect(ids, contains('op_ai_assist'));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
       expect(ids, contains('ward_mode'));
@@ -157,7 +158,7 @@ void main() {
       },
     );
 
-    test('admin + superAdmin get the superset (access to everything)', () {
+    test('admin + superAdmin get governance tools but not doctor-only OP AI Assist', () {
       final adminFeats = RoleFeatures.getFeaturesForRole(StaffRole.admin);
       final superFeats = RoleFeatures.getFeaturesForRole(StaffRole.superAdmin);
       expect(
@@ -168,11 +169,20 @@ void main() {
       expect(ids, contains('hr_dashboard'));
       expect(ids, contains('pharmacy_orders'));
       expect(ids, contains('clinical_ai_review_queue'));
+      expect(ids, isNot(contains('op_ai_assist')));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
       expect(ids, contains('front_office_workbench'));
       expect(ids, isNot(contains('reception_counter')));
       expect(ids, contains('ward_mode'));
+    });
+
+    test('medical superintendent keeps doctor-facing OP AI Assist access', () {
+      final ids = RoleFeatures.getFeaturesForRole(
+        StaffRole.medicalSuperintendent,
+      ).map((f) => f.id).toSet();
+
+      expect(ids, contains('op_ai_assist'));
     });
 
     test('general staff sees housekeeping hub + tasks, no clinical/HR', () {

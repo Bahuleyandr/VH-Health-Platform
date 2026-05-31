@@ -767,7 +767,6 @@ class RoleFeatures {
         _billingDesk,
         _appointments,
         _clinicalAiReviewQueue,
-        _opAiAssist,
         _patientRecords,
         _prescriptions,
         _pharmacyOrders,

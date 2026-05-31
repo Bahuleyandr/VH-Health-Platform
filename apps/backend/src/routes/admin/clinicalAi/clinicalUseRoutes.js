@@ -71,6 +71,7 @@ import {
 } from '../../../services/ai/opdClinicalAssistService.js';
 import { getDefaultCheckpointStore } from '../../../services/ai/workflowCheckpointStore.js';
 import { resumeWorkflow } from '../../../services/ai/workflowGraphRunner.js';
+import { normalizeRole as normalizePlatformRole } from '../../../utils/roles.js';
 
 const router = express.Router();
 
@@ -100,6 +101,37 @@ function auditAndReturnOpAi(req, res, eventType, result, message, statusCode = 2
       decision_support_only: true,
     }),
   ).then(() => success(res, result, message, statusCode));
+}
+
+const OP_AI_ASSIST_ROLES = new Set([
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'SENIOR_DOCTOR',
+  'RESIDENT',
+  'CMO',
+  'MEDICAL_SUPERINTENDENT',
+]);
+
+function normalizedRequestRoles(req) {
+  return [
+    normalizePlatformRole(req.user?.role) || normalizeRole(req.user?.role),
+    normalizePlatformRole(req.user?.rawRole) || normalizeRole(req.user?.rawRole),
+  ].filter(Boolean);
+}
+
+function requireOpAiDoctorUse(req, res, next) {
+  if (!req.user) {
+    return error(res, 'Authentication required', 401, { safe: true });
+  }
+  if (!normalizedRequestRoles(req).some((role) => OP_AI_ASSIST_ROLES.has(role))) {
+    return error(res, 'OP AI Assist is doctor-facing and requires a doctor role', 403, {
+      code: 'OP_AI_DOCTOR_ROLE_REQUIRED',
+      safe: true,
+    });
+  }
+  return next();
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +355,7 @@ router.patch('/reviews/:id', async (req, res, next) => {
 // return 403 from the service layer.
 // ---------------------------------------------------------------------------
 
-router.get('/op/services', async (req, res, next) => {
+router.get('/op/services', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await listOpdAiModules({ tenantId: req.tenantId });
     return success(res, result, 'OP AI services retrieved');
@@ -332,7 +364,7 @@ router.get('/op/services', async (req, res, next) => {
   }
 });
 
-router.post('/op/visit-prep', async (req, res, next) => {
+router.post('/op/visit-prep', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await generateOpVisitPrep({
       tenantId: req.tenantId,
@@ -346,7 +378,7 @@ router.post('/op/visit-prep', async (req, res, next) => {
   }
 });
 
-router.post('/op/prescription-safety', async (req, res, next) => {
+router.post('/op/prescription-safety', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await generateOpPrescriptionSafetyReview({
       patientId: req.body?.patient_id || null,
@@ -361,7 +393,7 @@ router.post('/op/prescription-safety', async (req, res, next) => {
   }
 });
 
-router.post('/op/investigation-review', async (req, res, next) => {
+router.post('/op/investigation-review', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await generateOpInvestigationReview({
       tenantId: req.tenantId,
@@ -378,7 +410,7 @@ router.post('/op/investigation-review', async (req, res, next) => {
   }
 });
 
-router.post('/op/differential-red-flags', async (req, res, next) => {
+router.post('/op/differential-red-flags', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await generateOpDifferentialRedFlags({
       tenantId: req.tenantId,
@@ -398,7 +430,7 @@ router.post('/op/differential-red-flags', async (req, res, next) => {
   }
 });
 
-router.post('/op/follow-up-plan', async (req, res, next) => {
+router.post('/op/follow-up-plan', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await generateOpFollowUpPlan({
       tenantId: req.tenantId,
@@ -415,7 +447,7 @@ router.post('/op/follow-up-plan', async (req, res, next) => {
   }
 });
 
-router.post('/op/referral-draft', async (req, res, next) => {
+router.post('/op/referral-draft', requireOpAiDoctorUse, async (req, res, next) => {
   try {
     const result = await generateOpReferralDraft({
       tenantId: req.tenantId,
