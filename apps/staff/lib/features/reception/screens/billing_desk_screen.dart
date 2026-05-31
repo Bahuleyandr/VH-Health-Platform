@@ -6,6 +6,7 @@ import '../../../core/services/billing_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../widgets/billing_payment_dialog.dart';
 
 class BillingDeskScreen extends StatefulWidget {
   final String? prefillPatientUid;
@@ -177,6 +178,19 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     }
   }
 
+  Future<void> _collectInvoicePayment(Map<String, dynamic> invoice) async {
+    final collected = await showBillingPaymentDialog(
+      context: context,
+      invoice: invoice,
+    );
+    if (!collected || !mounted) return;
+    await _loadInvoices();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Payment collected')));
+  }
+
   String _patientLabel(Map<String, dynamic> patient) {
     final hn = patient['hospital_number']?.toString();
     final name = patient['name']?.toString();
@@ -188,19 +202,12 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     ].join(' - ');
   }
 
-  num _sum(String key) {
-    return _invoices.fold<num>(0, (sum, invoice) {
-      final value = invoice[key];
-      if (value is num) return sum + value;
-      return sum + (num.tryParse(value?.toString() ?? '') ?? 0);
-    });
-  }
+  num _sumDue() => _invoices.fold<num>(
+    0,
+    (sum, invoice) => sum + billingInvoiceAmountDue(invoice),
+  );
 
-  String _money(dynamic value) {
-    final number = value is num ? value : num.tryParse(value?.toString() ?? '');
-    if (number == null) return 'Rs 0';
-    return 'Rs ${number.toStringAsFixed(number.truncateToDouble() == number ? 0 : 2)}';
-  }
+  String _money(dynamic value) => billingMoney(value);
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +284,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
           _Metric(
             icon: Icons.payments_outlined,
             label: 'Due',
-            value: _money(_sum('amount_due')),
+            value: _money(_sumDue()),
             color: AppTheme.warningAmber,
           ),
           IconButton.filledTonal(
@@ -396,6 +403,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final id = invoice['invoice_number'] ?? '#${invoice['id']}';
     final status = invoice['status']?.toString().toUpperCase() ?? 'DRAFT';
     final isDraft = status == 'DRAFT';
+    final due = billingInvoiceAmountDue(invoice);
+    final canCollect = billingInvoiceCanCollect(invoice);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -432,7 +441,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                _money(invoice['amount_due'] ?? invoice['total_amount']),
+                _money(due),
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
@@ -445,6 +454,17 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                         : () => _issueInvoice(invoice),
                     icon: const Icon(Icons.publish_outlined, size: 16),
                     label: const Text('Issue'),
+                  ),
+                ),
+              if (canCollect)
+                SizedBox(
+                  height: 34,
+                  child: FilledButton.icon(
+                    onPressed: _actionBusy
+                        ? null
+                        : () => _collectInvoicePayment(invoice),
+                    icon: const Icon(Icons.payments_outlined, size: 16),
+                    label: const Text('Collect'),
                   ),
                 ),
             ],
