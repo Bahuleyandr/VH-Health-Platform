@@ -25,6 +25,7 @@ import tenantRoutes from './routes/admin/tenantRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
+import { phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
@@ -271,25 +272,6 @@ const CLINICAL_AI_CONTROL_ROLES = [
   'IT_STAFF',
   'SYSTEM_ADMIN',
 ];
-
-function pathMatchesPrefix(path, prefix) {
-  return path === prefix || path.startsWith(`${prefix}/`);
-}
-
-function phiAccessLoggerForPaths(recordType, matchers) {
-  const loggerMiddleware = phiAccessLogger(recordType);
-  return (req, res, next) => {
-    const requestPath = (req.originalUrl || req.url || '').split('?')[0].toLowerCase();
-    const shouldLog = matchers.some((matcher) => (
-      matcher instanceof RegExp
-        ? matcher.test(requestPath)
-        : pathMatchesPrefix(requestPath, matcher)
-    ));
-
-    if (!shouldLog) return next();
-    return loggerMiddleware(req, res, next);
-  };
-}
 
 function rewriteAdmissionSurface(req, _res, next) {
   const [pathPart, queryPart] = req.url.split('?');
@@ -723,6 +705,7 @@ app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
   '/api/v1/emr/downtime-snapshot',
 ]), clinicalNotesRoutes);
 app.use('/api/v1/emr', phiAccessLoggerForPaths('ADMISSION', [
+  '/api/v1/emr/command-board',
   '/api/v1/emr/admit',
   '/api/v1/emr/admission',
   '/api/v1/emr/admissions',
