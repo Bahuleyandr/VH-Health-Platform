@@ -21,6 +21,8 @@ void main() {
         ),
         'Showing first 20 of 46 patients in your current scope.',
       );
+      expect(patientCommandBoardHasMore(board: board, loadedRows: 20), isTrue);
+      expect(patientCommandBoardNextOffset(board: board, loadedRows: 20), 20);
     });
 
     test('describes duty-doctor multi-floor coverage', () {
@@ -111,6 +113,30 @@ void main() {
         ),
         'Showing 46 of 46 patients in your current scope.',
       );
+      expect(patientCommandBoardHasMore(board: board, loadedRows: 46), isFalse);
+    });
+
+    test('uses backend cumulative loaded count as the next page offset', () {
+      final board = {
+        'counts': {
+          'total': 120,
+          'loaded': 100,
+          'returned': 50,
+          'offset': 50,
+          'has_more': true,
+        },
+      };
+
+      expect(
+        patientCommandBoardLoadedSummary(
+          board: board,
+          loadedRows: 100,
+          visibleRows: 100,
+        ),
+        'Showing first 100 of 120 patients in your current scope.',
+      );
+      expect(patientCommandBoardHasMore(board: board, loadedRows: 100), isTrue);
+      expect(patientCommandBoardNextOffset(board: board, loadedRows: 50), 100);
     });
   });
 }

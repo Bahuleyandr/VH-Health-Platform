@@ -68,6 +68,30 @@ String patientCommandBoardLoadedSummary({
   return 'Showing $loaded of $total patients in your current scope.';
 }
 
+@visibleForTesting
+bool patientCommandBoardHasMore({
+  required Map<String, dynamic> board,
+  required int loadedRows,
+}) {
+  final counts = _patientCommandBoardMap(board['counts']);
+  final total = _patientCommandBoardInt(counts['total']);
+  final countedLoaded = _patientCommandBoardInt(counts['loaded']);
+  final loaded = countedLoaded > loadedRows ? countedLoaded : loadedRows;
+  if (total <= 0) return counts['has_more'] == true;
+  if (loaded >= total) return false;
+  return counts['has_more'] == true || loaded < total;
+}
+
+@visibleForTesting
+int patientCommandBoardNextOffset({
+  required Map<String, dynamic> board,
+  required int loadedRows,
+}) {
+  final counts = _patientCommandBoardMap(board['counts']);
+  final countedLoaded = _patientCommandBoardInt(counts['loaded']);
+  return countedLoaded > loadedRows ? countedLoaded : loadedRows;
+}
+
 Map<String, dynamic> _patientCommandBoardRoleScope(Map<String, dynamic> board) {
   return _patientCommandBoardMap(
     _patientCommandBoardMap(board['scope'])['role_scope'],
@@ -105,7 +129,10 @@ class PatientCommandBoardScreen extends StatefulWidget {
 }
 
 class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
+  static const int _pageSize = 50;
+
   bool _loading = true;
+  bool _loadingMore = false;
   String? _error;
   String _filter = 'all';
   String? _ward;
@@ -124,7 +151,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       _error = null;
     });
     try {
-      final data = await MedicalApiService.getPatientCommandBoard(ward: _ward);
+      final data = await MedicalApiService.getPatientCommandBoard(
+        ward: _ward,
+        limit: _pageSize,
+      );
       final rows = _asListOfMaps(data['rows']);
       final board = _asMap(data['board']);
       if (!mounted) return;
@@ -137,6 +167,38 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMoreRows) return;
+    setState(() {
+      _loadingMore = true;
+      _error = null;
+    });
+    try {
+      final data = await MedicalApiService.getPatientCommandBoard(
+        ward: _ward,
+        limit: _pageSize,
+        offset: patientCommandBoardNextOffset(
+          board: _board,
+          loadedRows: _rows.length,
+        ),
+      );
+      final nextRows = _asListOfMaps(data['rows']);
+      final board = _asMap(data['board']);
+      if (!mounted) return;
+      setState(() {
+        _rows = _mergeRows(_rows, nextRows);
+        _board = board;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -154,12 +216,39 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
         .toList();
   }
 
+  List<Map<String, dynamic>> _mergeRows(
+    List<Map<String, dynamic>> current,
+    List<Map<String, dynamic>> next,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final row in [...current, ...next]) {
+      final id = _text(row['admission_id'], row.hashCode.toString());
+      if (!seen.add(id)) continue;
+      merged.add(row);
+    }
+    return merged;
+  }
+
   String _text(dynamic value, [String fallback = '']) {
     final text = (value ?? '').toString().trim();
     return text.isEmpty ? fallback : text;
   }
 
   int _int(dynamic value) => int.tryParse('${value ?? 0}') ?? 0;
+
+  bool get _hasMoreRows =>
+      patientCommandBoardHasMore(board: _board, loadedRows: _rows.length);
+
+  int get _loadedAlertCount =>
+      _rows.where((row) => _int(_asMap(row['alerts'])['count']) > 0).length;
+
+  int get _loadedTaskCount =>
+      _rows.where((row) => _int(_asMap(row['tasks'])['open_count']) > 0).length;
+
+  int get _loadedDischargeCount => _rows
+      .where((row) => _asMap(row['discharge'])['initiated'] == true)
+      .length;
 
   List<Map<String, dynamic>> get _visibleRows {
     Iterable<Map<String, dynamic>> rows = _rows;
@@ -360,6 +449,10 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                     _EmptyBoard(filter: _filter)
                   else
                     ..._visibleRows.map((row) => _buildRowCard(theme, row)),
+                  if (_hasMoreRows) ...[
+                    const SizedBox(height: 8),
+                    _buildLoadMoreButton(theme),
+                  ],
                 ],
               ),
             ),
@@ -439,19 +532,11 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
             runSpacing: 8,
             children: [
               _metricChip('Patients', total, Icons.bed),
-              _metricChip(
-                'Tasks',
-                _int(counts['with_open_tasks']),
-                Icons.task_alt,
-              ),
-              _metricChip(
-                'Alerts',
-                _int(counts['alerted']),
-                Icons.health_and_safety,
-              ),
+              _metricChip('Tasks', _loadedTaskCount, Icons.task_alt),
+              _metricChip('Alerts', _loadedAlertCount, Icons.health_and_safety),
               _metricChip(
                 'Discharge',
-                _int(counts['discharge_initiated']),
+                _loadedDischargeCount,
                 Icons.rule_folder,
               ),
             ],
@@ -520,6 +605,32 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       label: Text('$value $label'),
       side: BorderSide(color: AppTheme.primaryBlue.withValues(alpha: 0.25)),
       backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.08),
+    );
+  }
+
+  Widget _buildLoadMoreButton(ThemeData theme) {
+    final counts = _asMap(_board['counts']);
+    final total = _int(counts['total']);
+    final remaining = total > _rows.length ? total - _rows.length : _pageSize;
+    final nextCount = remaining < _pageSize ? remaining : _pageSize;
+    final label = nextCount > 0
+        ? 'Load next $nextCount patients'
+        : 'Load more patients';
+    return Center(
+      child: FilledButton.tonalIcon(
+        onPressed: _loadingMore ? null : _loadMore,
+        icon: _loadingMore
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+              )
+            : const Icon(Icons.expand_more),
+        label: Text(_loadingMore ? 'Loading patients...' : label),
+      ),
     );
   }
 

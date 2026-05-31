@@ -91,7 +91,7 @@ describe('patientCommandBoardService', () => {
     expect(countWhere).toEqual(findWhere);
     expect(JSON.stringify(countWhere)).toContain(TENANT);
     expect(prismaMock.admissions.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ take: 2 }),
+      expect.objectContaining({ skip: 0, take: 2 }),
     );
     expect(result.rows).toHaveLength(2);
     expect(result.board.counts).toEqual(expect.objectContaining({
@@ -99,6 +99,46 @@ describe('patientCommandBoardService', () => {
       returned: 2,
       loaded: 2,
       limit: 2,
+      offset: 0,
+      has_more: true,
+    }));
+  });
+
+  it('supports paged command-board loading with an offset', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      {
+        id: 21,
+        tenant_id: TENANT,
+        encounter_id: null,
+        patient_uid: null,
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        ward: 'Third Floor Ward',
+        bed_id: null,
+        bed_number: '301',
+        status: 'admitted',
+        admission_type: 'IPD',
+        priority: 'routine',
+        allergies: [],
+        admitted_at: new Date('2026-05-31T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await patientCommandBoardService.default.getPatientCommandBoard(
+      { limit: 20, offset: 20 },
+      { uid: DOCTOR_UID, role: 'CONSULTANT', tenantId: TENANT },
+    );
+
+    expect(prismaMock.admissions.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 20, take: 20 }),
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.board.counts).toEqual(expect.objectContaining({
+      total: 46,
+      returned: 1,
+      loaded: 21,
+      limit: 20,
+      offset: 20,
       has_more: true,
     }));
   });

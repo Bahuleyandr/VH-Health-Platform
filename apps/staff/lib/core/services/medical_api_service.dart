@@ -833,6 +833,7 @@ class MedicalApiService {
     String status = 'active',
     bool? mine,
     int limit = 200,
+    int offset = 0,
   }) async {
     return _get(
       '/admissions/command-board',
@@ -841,6 +842,7 @@ class MedicalApiService {
         'status': status,
         if (mine != null) 'mine': mine ? 'true' : 'false',
         'limit': limit.toString(),
+        if (offset > 0) 'offset': offset.toString(),
       },
     );
   }

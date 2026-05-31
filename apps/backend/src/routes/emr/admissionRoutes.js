@@ -61,6 +61,7 @@ router.get(
         status: req.query?.status,
         mine: req.query?.mine,
         limit: req.query?.limit,
+        offset: req.query?.offset,
       },
       {
         uid: req.user?.uid,

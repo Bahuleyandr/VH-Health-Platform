@@ -342,6 +342,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const role = normalizeRole(actor.role);
   const tenantId = actor.tenantId || filters.tenantId || null;
   const limit = Math.min(Math.max(Number.parseInt(filters.limit, 10) || 100, 1), 200);
+  const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
   const ward = compactText(filters.ward);
   const status = compactText(filters.status);
   const mine = filters.mine === true || filters.mine === 'true' || filters.mine === '1';
@@ -365,6 +366,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
     prisma.admissions.findMany({
       where,
       orderBy: [{ admitted_at: 'asc' }, { id: 'asc' }],
+      skip: offset,
       take: limit,
     }),
   ]);
@@ -662,9 +664,10 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const counts = {
     total: totalAdmissions,
     returned: loadedCounts.loaded,
-    loaded: loadedCounts.loaded,
+    loaded: offset + loadedCounts.loaded,
     limit,
-    has_more: loadedCounts.loaded < totalAdmissions,
+    offset,
+    has_more: offset + loadedCounts.loaded < totalAdmissions,
     discharge_initiated: loadedCounts.discharge_initiated,
     alerted: loadedCounts.alerted,
     with_open_tasks: loadedCounts.with_open_tasks,
