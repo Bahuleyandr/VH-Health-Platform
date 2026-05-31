@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
 
 export const ACTIVE_ADMISSION_STATUSES = ['admitted', 'transferred'];
 
@@ -65,19 +66,7 @@ export const MINIMIZED_INPATIENT_PAYLOAD_ROLES = new Set([
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
 
 function normalizeRole(role) {
-  const normalized = String(role || '').trim().toUpperCase();
-  return {
-    CHIEF_NURSING_OFFICER: 'CNO',
-    CHIEF_MEDICAL_OFFICER: 'CMO',
-    CONSULTANT_PHYSICIAN: 'CONSULTANT',
-    HOUSEKEEPING: 'HOUSEKEEPING_STAFF',
-    HOUSEKEEPING_ATTENDANT: 'HOUSEKEEPING_STAFF',
-    NURSE: 'NURSING_STAFF',
-    NURSING_SUPERINTENDENT: 'CNO',
-    REGISTERED_NURSE: 'NURSING_STAFF',
-    STAFF_NURSE: 'NURSING_STAFF',
-    WARD_NURSE: 'NURSING_STAFF',
-  }[normalized] || normalized;
+  return normalizePlatformRole(role) || '';
 }
 
 function compact(value) {
@@ -150,6 +139,7 @@ function collectCoverageInputs(assignments) {
     const targetId = parsePositiveInt(assignment.assignment_target_id);
     const targetLabel = compact(assignment.assignment_target_label);
     const floor = parseFloor(assignment.floor);
+    const targetLabelFloor = parseFloor(targetLabel);
 
     if (targetType === 'ward' || targetType === 'inpatient_ward') {
       if (targetId) wardIds.push(targetId);
@@ -158,15 +148,19 @@ function collectCoverageInputs(assignments) {
       'clinical_unit',
       'medical_unit',
       'ipd_unit',
+      'floor',
+      'ward_floor',
       'housekeeping_zone',
     ].includes(targetType)) {
       if (targetLabel) labels.push(targetLabel);
     }
 
-    if (floor === 'all') {
+    if (floor === 'all' || targetLabelFloor === 'all') {
       allFloors = true;
     } else if (Number.isInteger(floor)) {
       floors.push(floor);
+    } else if (Number.isInteger(targetLabelFloor)) {
+      floors.push(targetLabelFloor);
     }
   }
 

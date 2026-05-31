@@ -48,7 +48,9 @@ describe('resolveInpatientAdmissionScope', () => {
     'CMO',
     'CHIEF_MEDICAL_OFFICER',
     'MEDICAL_SUPERINTENDENT',
+    'MEDICAL_SUPERINTENDANT',
     'NURSING_INCHARGE',
+    'NURSING_IN_CHARGE',
     'CNO',
     'NURSING_SUPERINTENDENT',
     'HOUSEKEEPING_INCHARGE',
@@ -90,6 +92,39 @@ describe('resolveInpatientAdmissionScope', () => {
       OR: [
         { ward: { in: ['First Floor Ward'] } },
         { bed_id: { in: [91] } },
+      ],
+    });
+  });
+
+  it('infers rostered floor coverage from floor-style target labels', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        assignment_id: 10,
+        department: 'nursing',
+        assignment_target_type: 'floor',
+        assignment_target_id: 12,
+        assignment_target_label: 'Floor 2',
+        floor: null,
+      }])
+      .mockResolvedValueOnce([{ id: 22, name: 'Second Floor Ward', floor: 2 }])
+      .mockResolvedValueOnce([{ id: 202, ward_name: 'Second Floor Ward', floor: 2, ward_id: 22 }]);
+
+    const result = await resolveInpatientAdmissionScope({
+      actor: { uid: NURSE_UID, id: 22, role: 'NURSING_STAFF', tenantId: TENANT },
+      now: new Date('2026-05-31T08:30:00.000Z'),
+    });
+
+    expect(result.scope).toEqual(expect.objectContaining({
+      type: 'ward_nursing',
+      source: 'current_published_nursing_roster',
+      floors: [2],
+      wards: ['Second Floor Ward'],
+    }));
+    expect(result.where).toEqual({
+      tenant_id: TENANT,
+      OR: [
+        { ward: { in: ['Second Floor Ward'] } },
+        { bed_id: { in: [202] } },
       ],
     });
   });

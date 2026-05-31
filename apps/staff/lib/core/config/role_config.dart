@@ -60,8 +60,19 @@ enum StaffRole {
     }.contains(normalized)) {
       return StaffRole.nursingSuperintendent;
     }
-    if (const {'CHIEF_MEDICAL_OFFICER', 'CMO'}.contains(normalized)) {
+    if (const {
+      'CHIEF_MEDICAL_OFFICER',
+      'CMO',
+      'MEDICAL_SUPERINTENDANT',
+      'MEDICAL_SUPERINTENDENT_ROLE',
+    }.contains(normalized)) {
       return StaffRole.medicalSuperintendent;
+    }
+    if (const {
+      'NURSING_IN_CHARGE',
+      'NURSING_INCHARGE_ROLE',
+    }.contains(normalized)) {
+      return StaffRole.nursingIncharge;
     }
     if (const {'HOUSEKEEPING', 'HOUSEKEEPING_ATTENDANT'}.contains(normalized)) {
       return StaffRole.housekeeping;
