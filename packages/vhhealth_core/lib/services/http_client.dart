@@ -88,6 +88,43 @@ class VHHttpClient {
     return parsed;
   }
 
+  /// Authenticated GET for binary payloads such as PDFs. Uses the same
+  /// headers, retry, and 401 refresh path as [get], but returns the raw
+  /// [http.Response] so callers can consume [http.Response.bodyBytes].
+  static Future<http.Response> getBytes(
+    String path, {
+    Map<String, String>? queryParameters,
+    bool auth = true,
+    Duration? timeout,
+  }) async {
+    final uri = _buildUri(path, queryParameters);
+    final headers = await _headers(auth: auth);
+    final response = await _sendWithRetry(
+      () => _client
+          .get(uri, headers: headers)
+          .timeout(timeout ?? _defaultTimeout),
+    );
+    if (auth && response.statusCode == 401) {
+      final parsed = ApiResponse.fromHttp(response);
+      if (!await _handleUnauthorized(parsed)) {
+        _checkUnauthorized(parsed);
+        return response;
+      }
+      final retryHeaders = await _headers(auth: true);
+      final retry = await _sendWithRetry(
+        () => _client
+            .get(uri, headers: retryHeaders)
+            .timeout(timeout ?? _defaultTimeout),
+      );
+      if (retry.statusCode == 401) {
+        _checkUnauthorized(ApiResponse.fromHttp(retry));
+      }
+      return retry;
+    }
+
+    return response;
+  }
+
   /// Authenticated POST request with JSON body. Automatically retries once
   /// on 401 after refreshing the JWT token.
   static Future<ApiResponse> post(

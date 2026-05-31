@@ -38,6 +38,18 @@ class ApiClient {
     timeout: timeout,
   );
 
+  static Future<http.Response> getBytes(
+    String path, {
+    Map<String, String>? queryParameters,
+    bool auth = true,
+    Duration? timeout,
+  }) => VHHttpClient.getBytes(
+    path,
+    queryParameters: queryParameters,
+    auth: auth,
+    timeout: timeout,
+  );
+
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,

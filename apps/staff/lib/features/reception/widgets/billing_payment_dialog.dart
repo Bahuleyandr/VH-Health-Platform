@@ -235,6 +235,14 @@ num billingInvoiceAmountDue(Map<String, dynamic> invoice) {
   return due < 0 ? 0 : due;
 }
 
+num billingInvoiceAmountPaid(Map<String, dynamic> invoice) {
+  final explicitPaid = _numFrom(invoice['amount_paid']);
+  if (explicitPaid != null) return explicitPaid < 0 ? 0 : explicitPaid;
+  final total = _numFrom(invoice['total_amount']) ?? 0;
+  final paid = total - billingInvoiceAmountDue(invoice);
+  return paid < 0 ? 0 : paid;
+}
+
 String billingMoney(dynamic value) {
   final number = value is num ? value : num.tryParse(value?.toString() ?? '');
   if (number == null) return 'Rs 0';

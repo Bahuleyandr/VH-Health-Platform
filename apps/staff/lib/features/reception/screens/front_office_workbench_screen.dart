@@ -13,6 +13,7 @@ import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
@@ -292,6 +293,23 @@ class _FrontOfficeWorkbenchScreenState
         backgroundColor: AppTheme.successGreen,
       ),
     );
+  }
+
+  Future<void> _printInvoiceDocument(
+    Map<String, dynamic> invoice,
+    BillingDocumentType type,
+  ) async {
+    if (!_canBilling) return;
+    setState(() => _billingActionBusy = true);
+    try {
+      await printBillingDocument(
+        context: context,
+        invoice: invoice,
+        type: type,
+      );
+    } finally {
+      if (mounted) setState(() => _billingActionBusy = false);
+    }
   }
 
   String _patientLabel(Map<String, dynamic> patient) {
@@ -1926,6 +1944,8 @@ class _FrontOfficeWorkbenchScreenState
     final isDraft = status == 'DRAFT';
     final due = billingInvoiceAmountDue(invoice);
     final canCollect = billingInvoiceCanCollect(invoice);
+    final canPrintTax = billingInvoiceCanPrintTaxInvoice(invoice);
+    final canPrintReceipt = billingInvoiceCanPrintReceipt(invoice);
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: ListTile(
@@ -1943,6 +1963,28 @@ class _FrontOfficeWorkbenchScreenState
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(_money(due)),
+            if (canPrintTax)
+              IconButton.filledTonal(
+                tooltip: 'Print tax invoice',
+                onPressed: _billingActionBusy
+                    ? null
+                    : () => _printInvoiceDocument(
+                        invoice,
+                        BillingDocumentType.taxInvoice,
+                      ),
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+              ),
+            if (canPrintReceipt)
+              IconButton.filledTonal(
+                tooltip: 'Print receipt',
+                onPressed: _billingActionBusy
+                    ? null
+                    : () => _printInvoiceDocument(
+                        invoice,
+                        BillingDocumentType.receipt,
+                      ),
+                icon: const Icon(Icons.receipt_outlined, size: 18),
+              ),
             if (isDraft)
               SizedBox(
                 height: 34,

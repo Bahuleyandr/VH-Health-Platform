@@ -6,6 +6,7 @@ import '../../../core/services/billing_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
 class BillingDeskScreen extends StatefulWidget {
@@ -189,6 +190,22 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Payment collected')));
+  }
+
+  Future<void> _printInvoiceDocument(
+    Map<String, dynamic> invoice,
+    BillingDocumentType type,
+  ) async {
+    setState(() => _actionBusy = true);
+    try {
+      await printBillingDocument(
+        context: context,
+        invoice: invoice,
+        type: type,
+      );
+    } finally {
+      if (mounted) setState(() => _actionBusy = false);
+    }
   }
 
   String _patientLabel(Map<String, dynamic> patient) {
@@ -405,6 +422,8 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
     final isDraft = status == 'DRAFT';
     final due = billingInvoiceAmountDue(invoice);
     final canCollect = billingInvoiceCanCollect(invoice);
+    final canPrintTax = billingInvoiceCanPrintTaxInvoice(invoice);
+    final canPrintReceipt = billingInvoiceCanPrintReceipt(invoice);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -445,28 +464,57 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),
-              if (isDraft)
-                SizedBox(
-                  height: 34,
-                  child: OutlinedButton.icon(
-                    onPressed: _actionBusy
-                        ? null
-                        : () => _issueInvoice(invoice),
-                    icon: const Icon(Icons.publish_outlined, size: 16),
-                    label: const Text('Issue'),
-                  ),
-                ),
-              if (canCollect)
-                SizedBox(
-                  height: 34,
-                  child: FilledButton.icon(
-                    onPressed: _actionBusy
-                        ? null
-                        : () => _collectInvoicePayment(invoice),
-                    icon: const Icon(Icons.payments_outlined, size: 16),
-                    label: const Text('Collect'),
-                  ),
-                ),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                alignment: WrapAlignment.end,
+                children: [
+                  if (canPrintTax)
+                    IconButton.filledTonal(
+                      tooltip: 'Print tax invoice',
+                      onPressed: _actionBusy
+                          ? null
+                          : () => _printInvoiceDocument(
+                              invoice,
+                              BillingDocumentType.taxInvoice,
+                            ),
+                      icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                    ),
+                  if (canPrintReceipt)
+                    IconButton.filledTonal(
+                      tooltip: 'Print receipt',
+                      onPressed: _actionBusy
+                          ? null
+                          : () => _printInvoiceDocument(
+                              invoice,
+                              BillingDocumentType.receipt,
+                            ),
+                      icon: const Icon(Icons.receipt_outlined, size: 18),
+                    ),
+                  if (isDraft)
+                    SizedBox(
+                      height: 34,
+                      child: OutlinedButton.icon(
+                        onPressed: _actionBusy
+                            ? null
+                            : () => _issueInvoice(invoice),
+                        icon: const Icon(Icons.publish_outlined, size: 16),
+                        label: const Text('Issue'),
+                      ),
+                    ),
+                  if (canCollect)
+                    SizedBox(
+                      height: 34,
+                      child: FilledButton.icon(
+                        onPressed: _actionBusy
+                            ? null
+                            : () => _collectInvoicePayment(invoice),
+                        icon: const Icon(Icons.payments_outlined, size: 16),
+                        label: const Text('Collect'),
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
         ],

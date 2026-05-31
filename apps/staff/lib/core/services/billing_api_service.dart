@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
 import 'api_client.dart';
 
 class BillingApiService {
@@ -117,5 +121,29 @@ class BillingApiService {
       },
     );
     return _dataFrom(response);
+  }
+
+  static Future<Uint8List> downloadTaxInvoicePdf(int invoiceId) async {
+    final response = await ApiClient.getBytes(
+      '/billing/v2/invoices/$invoiceId/tax-invoice-pdf',
+      timeout: const Duration(seconds: 30),
+    );
+    return _pdfBytesFrom(response, 'Tax invoice download failed');
+  }
+
+  static Future<Uint8List> downloadReceiptPdf(int invoiceId) async {
+    final response = await ApiClient.getBytes(
+      '/billing/v2/invoices/$invoiceId/receipt-pdf',
+      timeout: const Duration(seconds: 30),
+    );
+    return _pdfBytesFrom(response, 'Receipt download failed');
+  }
+
+  static Uint8List _pdfBytesFrom(http.Response response, String fallback) {
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+    final parsed = ApiResponse.parse(response.statusCode, response.body);
+    throw Exception(parsed.message ?? '$fallback (${response.statusCode})');
   }
 }

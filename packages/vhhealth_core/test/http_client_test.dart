@@ -327,4 +327,72 @@ void main() {
       },
     );
   });
+
+  group('VHHttpClient - getBytes', () {
+    test('returns binary body bytes with authenticated headers', () async {
+      await AuthService.setJwt('pdf-access');
+
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.method, 'GET');
+          expect(req.url.toString(), '${ApiConfig.baseUrl}/billing.pdf');
+          expect(req.headers['Authorization'], 'Bearer pdf-access');
+          return http.Response.bytes(
+            [0x25, 0x50, 0x44, 0x46],
+            200,
+            headers: {'content-type': 'application/pdf'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.getBytes('/billing.pdf');
+
+      expect(resp.statusCode, 200);
+      expect(resp.bodyBytes, [0x25, 0x50, 0x44, 0x46]);
+    });
+
+    test('401 refresh retry preserves binary response', () async {
+      await AuthService.setJwt('old-access');
+
+      var pdfCount = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          if (req.url.toString() == _refreshUrl) {
+            return http.Response(
+              jsonEncode({
+                'success': true,
+                'data': {'token': 'new-access'},
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+
+          pdfCount++;
+          if (pdfCount == 1) {
+            expect(req.headers['Authorization'], 'Bearer old-access');
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'Expired'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+
+          expect(req.headers['Authorization'], 'Bearer new-access');
+          return http.Response.bytes(
+            [0x25, 0x50, 0x44, 0x46],
+            200,
+            headers: {'content-type': 'application/pdf'},
+          );
+        }),
+      );
+
+      final resp = await VHHttpClient.getBytes('/billing.pdf');
+
+      expect(resp.statusCode, 200);
+      expect(resp.bodyBytes, [0x25, 0x50, 0x44, 0x46]);
+      expect(pdfCount, 2);
+      expect(await AuthService.getJwt(), 'new-access');
+    });
+  });
 }
