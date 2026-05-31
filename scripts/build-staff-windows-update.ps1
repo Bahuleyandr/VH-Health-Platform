@@ -23,6 +23,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "lib\resolve-dev-tool.ps1")
 $staffDir = Join-Path $repoRoot "apps\staff"
 $pubspecPath = Join-Path $staffDir "pubspec.yaml"
 $msixTestCertificatePath = Join-Path $env:LOCALAPPDATA "Pub\Cache\hosted\pub.dev\msix-3.16.13\lib\assets\test_certificate.pfx"
@@ -39,13 +40,13 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
   $ApiKey = "vhhealth-local-api-key"
 }
 
-if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
-  throw "Required command not found: flutter"
-}
-
-if (-not (Get-Command dart -ErrorAction SilentlyContinue)) {
-  throw "Required command not found: dart"
-}
+$flutterCommand = Resolve-DevTool `
+  -Name "flutter" `
+  -FallbackPaths (Get-UpwardToolPaths -StartDir $repoRoot -RelativePath "Tools\flutter\bin\flutter.bat")
+$flutterBinDir = Split-Path -Parent $flutterCommand
+$dartCommand = Resolve-DevTool `
+  -Name "dart" `
+  -FallbackPaths @((Join-Path $flutterBinDir "dart.bat"))
 
 Get-Process -Name "vhhealth_staff" -ErrorAction SilentlyContinue | Stop-Process -Force
 
@@ -111,13 +112,13 @@ if ($NoVersionBump.IsPresent -and (Test-Path -LiteralPath $appInstallerPath)) {
 
 Push-Location $staffDir
 try {
-  dart pub get
+  & $dartCommand pub get
   if ($LASTEXITCODE -ne 0) {
     throw "dart pub get failed with exit code $LASTEXITCODE"
   }
 
   if (-not $SkipAnalyze.IsPresent) {
-    flutter analyze --no-fatal-infos
+    & $flutterCommand analyze --no-fatal-infos
     if ($LASTEXITCODE -ne 0) {
       throw "flutter analyze failed with exit code $LASTEXITCODE"
     }
@@ -128,7 +129,7 @@ try {
     ("--dart-define=VH_API_" + "KEY=$ApiKey")
     "--dart-define=VH_DISABLE_CRASHLYTICS=true"
   ) -join " "
-  dart run msix:publish `
+  & $dartCommand run msix:publish `
     --publish-folder-path $PublishFolder `
     --install-certificate false `
     --windows-build-args $windowsBuildArgs

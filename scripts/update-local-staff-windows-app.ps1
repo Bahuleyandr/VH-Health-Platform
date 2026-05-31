@@ -25,6 +25,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "lib\resolve-dev-tool.ps1")
 $staffDir = Join-Path $repoRoot "apps\staff"
 $releaseDir = Join-Path $staffDir "build\windows\x64\runner\Release"
 $defaultStableBaseUrl = "https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1"
@@ -48,9 +49,9 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
   $ApiKey = "vhhealth-local-api-key"
 }
 
-if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
-  throw "Required command not found: flutter"
-}
+$flutterCommand = Resolve-DevTool `
+  -Name "flutter" `
+  -FallbackPaths (Get-UpwardToolPaths -StartDir $repoRoot -RelativePath "Tools\flutter\bin\flutter.bat")
 
 Get-Process -Name "vhhealth_staff" -ErrorAction SilentlyContinue | Stop-Process -Force
 
@@ -58,13 +59,13 @@ if (-not $SkipBuild.IsPresent) {
   Push-Location $staffDir
   try {
     if (-not $SkipAnalyze.IsPresent) {
-      flutter analyze --no-fatal-infos
+      & $flutterCommand analyze --no-fatal-infos
       if ($LASTEXITCODE -ne 0) {
         throw "flutter analyze failed with exit code $LASTEXITCODE"
       }
     }
 
-    flutter build windows --release `
+    & $flutterCommand build windows --release `
       --dart-define=VH_BASE_URL=$BaseUrl `
       --dart-define=VH_API_KEY=$ApiKey `
       --dart-define=VH_DISABLE_CRASHLYTICS=true

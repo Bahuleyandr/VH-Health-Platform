@@ -24,6 +24,10 @@ the installed app files under:
 Then it refreshes the Start Menu shortcut and relaunches Staff. This updates the
 app binaries in place; it does not delete the app's local settings/storage.
 
+The script first uses `flutter` from PATH. On a fresh developer PC where PATH is
+not set yet, it also looks upward from the repo for
+`Tools\flutter\bin\flutter.bat` (for example `C:\Dev\Tools\flutter\bin`).
+
 For a quick copy/relaunch after a build has already completed:
 
 ```powershell
@@ -61,6 +65,9 @@ version updates the same installed app and should keep the app's local
 settings/storage. On local developer machines the MSIX test certificate requires
 elevated trust; for no-admin local testing, use
 `update-local-staff-windows-app.ps1`.
+
+Like the local update script, the MSIX builder can use a repo-ancestor
+`Tools\flutter\bin` SDK when Flutter/Dart are not on PATH.
 
 ## Version Rule
 

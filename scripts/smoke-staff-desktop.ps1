@@ -19,6 +19,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "lib\resolve-dev-tool.ps1")
+
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   throw "BaseUrl is required. Pass -BaseUrl or set VH_BASE_URL."
 }
@@ -27,14 +30,14 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
   throw "ApiKey is required. Pass -ApiKey or set VH_API_KEY."
 }
 
-if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
-  throw "Required command not found: flutter"
-}
+$flutterCommand = Resolve-DevTool `
+  -Name "flutter" `
+  -FallbackPaths (Get-UpwardToolPaths -StartDir $repoRoot -RelativePath "Tools\flutter\bin\flutter.bat")
 
 Push-Location $StaffDir
 try {
   $disableCrashlyticsValue = if ($DisableCrashlytics) { "true" } else { "false" }
-  flutter test integration_test/staff_desktop_smoke_test.dart `
+  & $flutterCommand test integration_test/staff_desktop_smoke_test.dart `
     -d $Device `
     --dart-define=VH_BASE_URL=$BaseUrl `
     --dart-define=VH_API_KEY=$ApiKey `
