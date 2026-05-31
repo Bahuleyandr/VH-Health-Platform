@@ -216,6 +216,19 @@ void main() {
       },
     );
 
+    test('legacy appointment queue is consolidated into front office', () {
+      for (final role in StaffRole.values) {
+        final ids = RoleFeatures.getFeaturesForRole(
+          role,
+        ).map((feature) => feature.id).toSet();
+        expect(
+          ids,
+          isNot(contains('appointment_queue')),
+          reason: 'Role $role should use front_office_workbench instead',
+        );
+      }
+    });
+
     test('front-office and billing roles get workbench features', () {
       final billingIds = RoleFeatures.getFeaturesForRole(
         StaffRole.billingStaff,
@@ -336,9 +349,11 @@ void main() {
 
       expect(
         receptionistRoutes,
-        containsAll(['/front-office', '/appointment-queue', '/billing-desk']),
+        containsAll(['/front-office', '/billing-desk']),
       );
+      expect(receptionistRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, containsAll(['/front-office', '/patient-records']));
+      expect(doctorRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, isNot(contains('/billing-desk')));
     });
 
@@ -353,22 +368,28 @@ void main() {
       expect(RoleFeatures.hasPatientLookup(StaffRole.hr), isFalse);
     });
 
-    test('patient registry writes stay limited to front-office governance roles', () {
-      expect(
-        RoleFeatures.hasPatientRegistryWrite(StaffRole.receptionist),
-        isTrue,
-      );
-      expect(
-        RoleFeatures.hasPatientRegistryWrite(StaffRole.admissionOfficer),
-        isTrue,
-      );
-      expect(
-        RoleFeatures.hasPatientRegistryWrite(StaffRole.billingStaff),
-        isTrue,
-      );
-      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.doctor), isFalse);
-      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.nurse), isFalse);
-      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.general), isFalse);
-    });
+    test(
+      'patient registry writes stay limited to front-office governance roles',
+      () {
+        expect(
+          RoleFeatures.hasPatientRegistryWrite(StaffRole.receptionist),
+          isTrue,
+        );
+        expect(
+          RoleFeatures.hasPatientRegistryWrite(StaffRole.admissionOfficer),
+          isTrue,
+        );
+        expect(
+          RoleFeatures.hasPatientRegistryWrite(StaffRole.billingStaff),
+          isTrue,
+        );
+        expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.doctor), isFalse);
+        expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.nurse), isFalse);
+        expect(
+          RoleFeatures.hasPatientRegistryWrite(StaffRole.general),
+          isFalse,
+        );
+      },
+    );
   });
 }

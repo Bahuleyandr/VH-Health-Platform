@@ -652,7 +652,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'clinical_ai_review_queue',
         'op_ai_assist',
         'appointments',
-        'appointment_queue',
         'patient_records',
         'prescriptions',
         'investigation_results',
@@ -670,7 +669,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.opIncharge => {
         'front_office_workbench',
         'appointments',
-        'appointment_queue',
         'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
@@ -694,7 +692,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.medicalSuperintendent => {
         'front_office_workbench',
         'appointments',
-        'appointment_queue',
         'clinical_ai_review_queue',
         'op_ai_assist',
         'patient_records',
@@ -710,7 +707,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.admin || StaffRole.superAdmin => {
         'front_office_workbench',
         'appointments',
-        'appointment_queue',
         'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
@@ -754,30 +750,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.receptionist || StaffRole.receptionIncharge => {
         'front_office_workbench',
         'billing_desk',
-        'appointment_queue',
         'reception_roster',
       },
       StaffRole.billingStaff ||
       StaffRole.billingIncharge ||
-      StaffRole.financeIncharge => {
-        'front_office_workbench',
-        'billing_desk',
-        'appointment_queue',
-      },
+      StaffRole.financeIncharge => {'front_office_workbench', 'billing_desk'},
       StaffRole.admissionOfficer ||
       StaffRole.insuranceCoordinator ||
-      StaffRole.ipdCounsellor => {
-        'front_office_workbench',
-        'billing_desk',
-        'appointment_queue',
-      },
+      StaffRole.ipdCounsellor => {'front_office_workbench', 'billing_desk'},
       StaffRole.driver => {'driver_roster'},
       StaffRole.maintenance => {'maintenance_roster', 'staff_directory'},
-      StaffRole.general => {
-        'appointment_queue',
-        'housekeeping_hub',
-        'housekeeping_tasks',
-      },
+      StaffRole.general => {'housekeeping_hub', 'housekeeping_tasks'},
     };
 
     return features.where((feature) => dailyIds.contains(feature.id)).toList();
@@ -824,8 +807,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Set<String> _clinicalServiceFeatureIdsForRole() {
     return switch (_role) {
       StaffRole.nurse => {
+        'front_office_workbench',
         'appointments',
-        'appointment_queue',
         'clinical_ai_review_queue',
         'lab_bookings',
         'nursing_notes',
@@ -841,7 +824,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'handover',
       },
       StaffRole.doctor => {
-        'appointment_queue',
+        'front_office_workbench',
         'queue',
         'clinical_ai_review_queue',
         'appointments',
@@ -857,8 +840,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'blood_bank',
       },
       StaffRole.admin || StaffRole.superAdmin => {
+        'front_office_workbench',
         'appointments',
-        'appointment_queue',
         'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
@@ -965,8 +948,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'front_office_workbench',
               'appointments',
-              'appointment_queue',
               'clinical_ai_review_queue',
               'lab_bookings',
               'nursing_notes',
@@ -1021,7 +1004,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
-              'appointment_queue',
+              'front_office_workbench',
               'queue',
               'clinical_ai_review_queue',
               'op_ai_assist',
@@ -1069,8 +1052,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'front_office_workbench',
               'appointments',
-              'appointment_queue',
               'clinical_ai_review_queue',
               'op_ai_assist',
               'patient_records',
@@ -1141,8 +1124,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Map<String, String> _serviceContextRoutes(String context) => {
+    'front_office_workbench': '/front-office?context=$context',
     'appointments': '/appointments?context=$context',
-    'appointment_queue': '/appointment-queue?context=$context',
     'queue': '/queue?context=$context',
     'patient_records': '/patient-records?context=$context',
     'prescriptions': '/prescriptions?context=$context',

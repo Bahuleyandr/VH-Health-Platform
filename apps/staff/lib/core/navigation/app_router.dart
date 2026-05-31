@@ -13,13 +13,11 @@ import '../../features/dashboard/screens/dashboard_screen.dart';
 import '../../features/attendance/screens/attendance_screen.dart';
 import '../../features/leave/screens/leave_screen.dart';
 import '../../features/appointments/screens/appointments_screen.dart';
-import '../../features/appointments/screens/appointment_queue_screen.dart';
 import '../../features/investigations/screens/investigations_screen.dart';
 import '../../features/investigations/screens/lab_bookings_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
-import '../../features/reception/screens/reception_counter_screen.dart';
 import '../../features/reception/screens/front_office_workbench_screen.dart';
 import '../../features/reception/screens/billing_desk_screen.dart';
 import '../../features/ward/screens/ward_mode_screen.dart';
@@ -254,7 +252,7 @@ final GoRouter appRouter = GoRouter(
           path: '/reception-counter',
           name: 'reception-counter',
           pageBuilder: (context, state) =>
-              const NoTransitionPage(child: ReceptionCounterScreen()),
+              const NoTransitionPage(child: FrontOfficeWorkbenchScreen()),
         ),
         GoRoute(
           path: '/front-office',
@@ -317,8 +315,11 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/appointment-queue',
           name: 'appointment-queue',
+          // Legacy deep links now land on the consolidated OP/reception
+          // workbench, which owns queue management alongside patient search,
+          // booking, billing, and admission handoff.
           pageBuilder: (context, state) =>
-              const NoTransitionPage(child: AppointmentQueueScreen()),
+              const NoTransitionPage(child: FrontOfficeWorkbenchScreen()),
         ),
 
         // Clinical AI — Phase 2 of the rollout. Review queue lists the

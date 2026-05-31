@@ -1812,18 +1812,6 @@ class _FrontOfficeWorkbenchScreenState
             runSpacing: 10,
             children: [
               _ActionTile(
-                icon: Icons.point_of_sale,
-                label: 'Counter',
-                color: AppTheme.primaryBlue,
-                onTap: () => context.go('/reception-counter'),
-              ),
-              _ActionTile(
-                icon: Icons.event_available,
-                label: 'Queue',
-                color: AppTheme.primaryTeal,
-                onTap: () => context.go('/appointment-queue'),
-              ),
-              _ActionTile(
                 icon: Icons.calendar_month,
                 label: 'Book OP',
                 color: AppTheme.accentCyan,
@@ -1911,9 +1899,9 @@ class _FrontOfficeWorkbenchScreenState
             icon: Icons.event_note,
             title: 'Today Queue',
             trailing: TextButton.icon(
-              onPressed: () => context.go('/appointment-queue'),
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Open'),
+              onPressed: _loadWorklists,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
             ),
           ),
           const SizedBox(height: 8),
