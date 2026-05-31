@@ -12,6 +12,7 @@ import '../../../core/services/offline_queue.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/attendance_api_service.dart';
+import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/first_run_welcome.dart';
@@ -19,6 +20,7 @@ import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
 import '../../../core/widgets/theme_toggle_action.dart';
 import '../../../l10n/app_strings.dart';
+import '../../clinical_ai/op_ai_assist_availability.dart';
 import '../dashboard_inpatient_count.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -50,6 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _recentPatients = const [];
   List<Map<String, dynamic>> _upcomingAppointments = [];
   List<dynamic> _recentNotifications = [];
+  List<Map<String, dynamic>> _opAiAssistModules = const [];
   int _pendingSyncCount = 0;
   int _clinicalServiceTabIndex = 0;
 
@@ -103,6 +106,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _phone = await ApiConfig.getPhone();
       final roleStr = await AuthService.getRole();
       _role = StaffRole.fromString(roleStr);
+      _opAiAssistModules = const [];
 
       // Load all in parallel
       final futures = <Future>[];
@@ -198,6 +202,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }, onError: (_) {}),
         );
       }
+      if (RoleFeatures.hasOpAiAssist(_role)) {
+        futures.add(
+          ClinicalAiApiService.listOpAssistModules().then(
+            (modules) => _opAiAssistModules = modules,
+            onError: (_) => _opAiAssistModules = const [],
+          ),
+        );
+      }
       if (_canSeeInpatientStats) {
         final inpatientCountEndpoint = dashboardInpatientCountEndpointForRole(
           _role,
@@ -265,7 +277,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final mode = appDeviceModeForContext(context);
     final canMarkAttendance = mode.canMarkAttendance;
     final features = _featuresForDeviceMode(
-      RoleFeatures.getFeaturesForRole(_role),
+      featuresWithOpAiAssistAvailability(
+        role: _role,
+        features: RoleFeatures.getFeaturesForRole(_role),
+        modules: _opAiAssistModules,
+      ),
       mode,
     );
     final dailyFeatures = _dailyFeaturesForRole(features);

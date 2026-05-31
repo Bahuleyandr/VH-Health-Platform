@@ -18,3 +18,16 @@ bool shouldShowOpAiAssistEntryPoint({
   return RoleFeatures.hasOpAiAssist(role) &&
       hasEnabledOpAiAssistModule(modules);
 }
+
+List<DashboardFeature> featuresWithOpAiAssistAvailability({
+  required StaffRole role,
+  required List<DashboardFeature> features,
+  required Iterable<Map<String, dynamic>> modules,
+}) {
+  if (shouldShowOpAiAssistEntryPoint(role: role, modules: modules)) {
+    return features;
+  }
+  return features
+      .where((feature) => feature.id != 'op_ai_assist')
+      .toList(growable: false);
+}

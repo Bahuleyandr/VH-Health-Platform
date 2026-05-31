@@ -55,4 +55,42 @@ void main() {
       );
     });
   });
+
+  group('featuresWithOpAiAssistAvailability', () {
+    test(
+      'removes the dashboard OP AI tile when all OP modules are disabled',
+      () {
+        final features = RoleFeatures.getFeaturesForRole(StaffRole.doctor);
+        expect(features.map((f) => f.id), contains('op_ai_assist'));
+
+        final filtered = featuresWithOpAiAssistAvailability(
+          role: StaffRole.doctor,
+          features: features,
+          modules: [
+            {'module_key': 'op_visit_prep', 'enabled': false},
+            {'module_key': 'op_follow_up_plan', 'enabled': false},
+          ],
+        );
+
+        expect(filtered.map((f) => f.id), isNot(contains('op_ai_assist')));
+      },
+    );
+
+    test(
+      'keeps the dashboard OP AI tile for doctor roles with an enabled module',
+      () {
+        final filtered = featuresWithOpAiAssistAvailability(
+          role: StaffRole.medicalSuperintendent,
+          features: RoleFeatures.getFeaturesForRole(
+            StaffRole.medicalSuperintendent,
+          ),
+          modules: [
+            {'module_key': 'op_visit_prep', 'enabled': true},
+          ],
+        );
+
+        expect(filtered.map((f) => f.id), contains('op_ai_assist'));
+      },
+    );
+  });
 }
