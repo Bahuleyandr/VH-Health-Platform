@@ -21,27 +21,27 @@ import logger from '../logging/logger.js';
  * @param {object} options - Optional resource context for the audit row
  */
 export async function logAudit(req, action, metadata = {}, options = {}) {
-  const actorUid = req.acting?.actorUid ?? req.user?.uid ?? null;
-  const subjectUid = req.user?.uid ?? null;
-  const actingAsDependent = req.acting != null;
-  const role = req.acting?.actorRole ?? req.user?.role ?? null;
-  const ip = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || null;
-  const deviceType = req.user?.deviceType ?? req.user?.claims?.deviceType ?? null;
-  const tenantId = req.tenantId
-    || req.user?.tenant_id
-    || req.user?.tenantId
-    || req.tenant?.id
-    || null;
-  const userAgent = req.headers?.['user-agent'] || null;
-  const enrichedMetadata = {
-    request_id: req.id || null,
-    device_type: deviceType,
-    tenant_id: tenantId,
-    actor_role: role,
-    ...(metadata ?? {}),
-  };
-
   try {
+    const actorUid = req?.acting?.actorUid ?? req?.user?.uid ?? null;
+    const subjectUid = req?.user?.uid ?? null;
+    const actingAsDependent = req?.acting != null;
+    const role = req?.acting?.actorRole ?? req?.user?.role ?? null;
+    const ip = req?.headers?.['x-forwarded-for'] || req?.connection?.remoteAddress || null;
+    const deviceType = req?.user?.deviceType ?? req?.user?.claims?.deviceType ?? null;
+    const tenantId = req?.tenantId
+      || req?.user?.tenant_id
+      || req?.user?.tenantId
+      || req?.tenant?.id
+      || null;
+    const userAgent = req?.headers?.['user-agent'] || null;
+    const enrichedMetadata = {
+      request_id: req?.id || null,
+      device_type: deviceType,
+      tenant_id: tenantId,
+      actor_role: role,
+      ...(metadata ?? {}),
+    };
+
     await prisma.$queryRawUnsafe(
       `INSERT INTO audit_logs
          (uid, role, action, resource, resource_id, ip_address, user_agent, metadata,

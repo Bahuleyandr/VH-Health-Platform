@@ -1,11 +1,16 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const logAuditMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryUnsafeMock,
   },
+}));
+
+jest.unstable_mockModule('../../utils/logAudit.js', () => ({
+  logAudit: logAuditMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -44,12 +49,19 @@ function makeRes() {
 
 function makeReq({ body = {}, params = {}, tenantId = TENANT_ID } = {}) {
   return {
+    id: 'req-front-office-patient',
     body,
     params,
     tenantId,
+    headers: {
+      'x-forwarded-for': '10.0.0.20',
+      'user-agent': 'VH Staff Workbench',
+    },
+    connection: { remoteAddress: '10.0.0.20' },
     user: {
       uid: '22222222-2222-4222-8222-222222222222',
       role: 'RECEPTIONIST',
+      deviceType: 'desktop',
       tenantId,
     },
   };
@@ -57,6 +69,7 @@ function makeReq({ body = {}, params = {}, tenantId = TENANT_ID } = {}) {
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  logAuditMock.mockReset().mockResolvedValue(undefined);
 });
 
 describe('patientSearchController front-office mutations', () => {
@@ -77,8 +90,7 @@ describe('patientSearchController front-office mutations', () => {
         abha_address: null,
       }]);
 
-    const res = makeRes();
-    await createPatient(makeReq({
+    const req = makeReq({
       body: {
         name: 'Codex Test Patient',
         phone: '9876543210',
@@ -86,7 +98,9 @@ describe('patientSearchController front-office mutations', () => {
         birthday: '1990-01-02',
         address: 'Ward Road',
       },
-    }), res);
+    });
+    const res = makeRes();
+    await createPatient(req, res);
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.body).toMatchObject({
@@ -112,6 +126,17 @@ describe('patientSearchController front-office mutations', () => {
     expect(insertedPhone).toBe('+919876543210');
     expect(insertedName).toBe('Codex Test Patient');
     expect(insertedGender).toBe('female');
+    expect(logAuditMock).toHaveBeenCalledWith(
+      req,
+      'FRONT_OFFICE_PATIENT_CREATED',
+      expect.objectContaining({
+        patient_id: 51,
+        patient_uid: PATIENT_UID,
+        hospital_number: 'VH-000051',
+        source: 'staff_patient_search',
+      }),
+      { resource: 'patient', resourceId: PATIENT_UID },
+    );
   });
 
   it('rejects creating a patient on a phone owned by staff', async () => {
@@ -155,11 +180,12 @@ describe('patientSearchController front-office mutations', () => {
         hospital_number: 'VH-000051',
       }]);
 
-    const res = makeRes();
-    await updatePatient(makeReq({
+    const req = makeReq({
       params: { uid: PATIENT_UID },
       body: { name: 'New Name', phone: '9812345678' },
-    }), res);
+    });
+    const res = makeRes();
+    await updatePatient(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.body.data.patient).toMatchObject({
@@ -183,6 +209,18 @@ describe('patientSearchController front-office mutations', () => {
     expect(phoneParam).toBe('+919812345678');
     expect(uidParam).toBe(PATIENT_UID);
     expect(tenantParam).toBe(TENANT_ID);
+    expect(logAuditMock).toHaveBeenCalledWith(
+      req,
+      'FRONT_OFFICE_PATIENT_UPDATED',
+      expect.objectContaining({
+        patient_id: 51,
+        patient_uid: PATIENT_UID,
+        hospital_number: 'VH-000051',
+        changed_fields: ['name', 'phone'],
+        source: 'staff_patient_search',
+      }),
+      { resource: 'patient', resourceId: PATIENT_UID },
+    );
   });
 
   it('returns conflict when update phone belongs to another account', async () => {

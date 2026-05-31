@@ -74,4 +74,31 @@ describe('logAudit', () => {
     expect(call[10]).toBe(ACTOR);
     expect(call[11]).toBe(false);
   });
+
+  it('does not let missing optional request fields break audit logging', async () => {
+    await expect(logAudit({
+      id: 'req-minimal',
+      user: {
+        uid: ACTOR,
+        role: 'RECEPTIONIST',
+      },
+    }, 'FRONT_OFFICE_PATIENT_CREATED', {
+      patient_uid: '22222222-2222-4222-8222-222222222222',
+    }, {
+      resource: 'patient',
+      resourceId: '22222222-2222-4222-8222-222222222222',
+    })).resolves.toBeUndefined();
+
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call[6]).toBeNull();
+    expect(call[7]).toBeNull();
+    const metadata = JSON.parse(call[8]);
+    expect(metadata).toEqual(expect.objectContaining({
+      request_id: 'req-minimal',
+      device_type: null,
+      tenant_id: null,
+      actor_role: 'RECEPTIONIST',
+    }));
+  });
 });
