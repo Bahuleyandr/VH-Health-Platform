@@ -16,6 +16,19 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
+int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
+  if (data is! Map) return fallbackCount;
+  final pagination = data['pagination'];
+  if (pagination is Map) {
+    final total = pagination['total'] ?? pagination['totalItems'];
+    final parsed = int.tryParse('${total ?? ''}');
+    if (parsed != null) return parsed;
+  }
+  final total = data['total'] ?? data['count'];
+  final parsed = int.tryParse('${total ?? ''}');
+  return parsed ?? fallbackCount;
+}
+
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
   const FrontOfficeWorkbenchScreen({super.key});
 
@@ -46,6 +59,7 @@ class _FrontOfficeWorkbenchScreenState
   Map<String, dynamic>? _selectedPatient;
   List<Map<String, dynamic>> _todayQueue = const [];
   List<Map<String, dynamic>> _activeAdmissions = const [];
+  int _activeAdmissionsTotal = 0;
   List<Map<String, dynamic>> _patientInvoices = const [];
 
   bool get _canBilling => RoleFeatures.hasBillingDesk(_role);
@@ -113,6 +127,7 @@ class _FrontOfficeWorkbenchScreenState
       setState(() {
         _todayQueue = _mapList(results[0]);
         _activeAdmissions = _admissionList(results[1]);
+        _activeAdmissionsTotal = _admissionTotal(results[1]);
         _loading = false;
       });
     } catch (e) {
@@ -142,6 +157,13 @@ class _FrontOfficeWorkbenchScreenState
       }
     }
     return _mapList(value);
+  }
+
+  int _admissionTotal(dynamic data) {
+    return frontOfficeAdmissionTotalFrom(
+      data,
+      fallbackCount: _admissionList(data).length,
+    );
   }
 
   void _queuePatientLookup(String value) {
@@ -1659,7 +1681,7 @@ class _FrontOfficeWorkbenchScreenState
           _Metric(
             icon: Icons.local_hospital,
             label: 'Active IP',
-            value: '${_activeAdmissions.length}',
+            value: '$_activeAdmissionsTotal',
             color: AppTheme.primaryBlue,
           ),
           Chip(
@@ -2164,8 +2186,18 @@ class _FrontOfficeWorkbenchScreenState
               icon: Icons.local_hospital_outlined,
               text: 'No active admissions',
             )
-          else
+          else ...[
             ..._activeAdmissions.take(5).map(_admissionTile),
+            if (_activeAdmissionsTotal > _activeAdmissions.take(5).length) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Showing first ${_activeAdmissions.take(5).length} of $_activeAdmissionsTotal active admissions.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
+              ),
+            ],
+          ],
         ],
       ),
     );
