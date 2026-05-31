@@ -26,6 +26,7 @@ class _FrontOfficeWorkbenchScreenState
     extends State<FrontOfficeWorkbenchScreen> {
   final _searchCtrl = TextEditingController();
   Timer? _searchDebounce;
+  late final Future<List<Map<String, dynamic>>> _doctorsFuture;
 
   StaffRole _role = StaffRole.general;
   bool _roleLoaded = false;
@@ -47,6 +48,7 @@ class _FrontOfficeWorkbenchScreenState
   @override
   void initState() {
     super.initState();
+    _doctorsFuture = ScheduleApiService.getAppointmentDoctors();
     _loadInitialState();
   }
 
@@ -390,6 +392,267 @@ class _FrontOfficeWorkbenchScreenState
     await _loadInvoicesFor(saved);
   }
 
+  Future<void> _showOpBookingDialog() async {
+    final patient = _selectedPatient;
+    if (patient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a patient before booking OP.')),
+      );
+      return;
+    }
+
+    final reasonCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    var appointmentDate = DateTime.now();
+    var appointmentTime = TimeOfDay.fromDateTime(
+      DateTime.now().add(const Duration(hours: 1)),
+    );
+    Map<String, dynamic>? selectedDoctor;
+    var saving = false;
+    String? dialogError;
+
+    final booked = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickDate() async {
+              final picked = await showDatePicker(
+                context: dialogContext,
+                initialDate: appointmentDate,
+                firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (picked != null) {
+                setDialogState(() => appointmentDate = picked);
+              }
+            }
+
+            Future<void> pickTime() async {
+              final picked = await showTimePicker(
+                context: dialogContext,
+                initialTime: appointmentTime,
+              );
+              if (picked != null) {
+                setDialogState(() => appointmentTime = picked);
+              }
+            }
+
+            Future<void> book() async {
+              final doctor = selectedDoctor;
+              final doctorId = doctor == null ? null : _doctorId(doctor);
+              final reason = reasonCtrl.text.trim();
+              final patientId = _intFrom(patient['id']);
+              final patientPhone = _text(patient['phone']);
+              if (doctorId == null) {
+                setDialogState(
+                  () => dialogError = 'Select the consulting doctor.',
+                );
+                return;
+              }
+              if (patientId == null && _digitsOnly(patientPhone).length < 10) {
+                setDialogState(() {
+                  dialogError =
+                      'Patient needs a saved record or a valid phone number.';
+                });
+                return;
+              }
+              if (reason.isEmpty) {
+                setDialogState(
+                  () => dialogError = 'Enter the reason for visit.',
+                );
+                return;
+              }
+
+              setDialogState(() {
+                saving = true;
+                dialogError = null;
+              });
+              try {
+                await ScheduleApiService.createAppointment(
+                  patientId: patientId,
+                  patientPhone: patientId == null ? patientPhone : null,
+                  patientName: _text(patient['name']),
+                  doctorId: doctorId,
+                  doctorUid: _doctorUid(doctor!),
+                  appointmentDate: DateFormat(
+                    'yyyy-MM-dd',
+                  ).format(appointmentDate),
+                  appointmentTime: _formatTime(appointmentTime),
+                  reason: reason,
+                  notes: notesCtrl.text.trim().isEmpty
+                      ? null
+                      : notesCtrl.text.trim(),
+                );
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              } catch (e) {
+                setDialogState(() {
+                  dialogError = e.toString().replaceFirst('Exception: ', '');
+                  saving = false;
+                });
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Book OP Appointment'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PatientCard(
+                        patient: patient,
+                        selected: true,
+                        onTap: () {},
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _doctorsFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const LinearProgressIndicator(minHeight: 2);
+                          }
+                          if (snapshot.hasError) {
+                            return Text(
+                              'Could not load doctors.',
+                              style: TextStyle(color: AppTheme.errorOnSurface),
+                            );
+                          }
+                          final doctors = (snapshot.data ?? const [])
+                              .where((doctor) => _doctorId(doctor) != null)
+                              .toList();
+                          return DropdownButtonFormField<int>(
+                            initialValue: selectedDoctor == null
+                                ? null
+                                : _doctorId(selectedDoctor!),
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Consulting doctor',
+                              prefixIcon: Icon(Icons.medical_services_outlined),
+                            ),
+                            items: doctors
+                                .map(
+                                  (doctor) => DropdownMenuItem<int>(
+                                    value: _doctorId(doctor),
+                                    child: Text(
+                                      _doctorLabel(doctor),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: saving
+                                ? null
+                                : (doctorId) {
+                                    setDialogState(() {
+                                      selectedDoctor = doctors.firstWhere(
+                                        (doctor) =>
+                                            _doctorId(doctor) == doctorId,
+                                        orElse: () => <String, dynamic>{},
+                                      );
+                                      if (selectedDoctor!.isEmpty) {
+                                        selectedDoctor = null;
+                                      }
+                                    });
+                                  },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _DateTimeButton(
+                              icon: Icons.calendar_today,
+                              label: DateFormat(
+                                'dd MMM yyyy',
+                              ).format(appointmentDate),
+                              onTap: saving ? null : pickDate,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _DateTimeButton(
+                              icon: Icons.schedule,
+                              label: appointmentTime.format(dialogContext),
+                              onTap: saving ? null : pickTime,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reasonCtrl,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Reason / chief complaint',
+                          prefixIcon: Icon(Icons.short_text),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: notesCtrl,
+                        minLines: 2,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Counter notes',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                      if (dialogError != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          dialogError!,
+                          style: TextStyle(color: AppTheme.errorOnSurface),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: saving ? null : book,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.event_available),
+                  label: const Text('Book OP'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    reasonCtrl.dispose();
+    notesCtrl.dispose();
+
+    if (booked != true || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('OP appointment booked'),
+        backgroundColor: AppTheme.successGreen,
+      ),
+    );
+    await _loadWorklists();
+  }
+
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
@@ -719,9 +982,10 @@ class _FrontOfficeWorkbenchScreenState
               ),
               _ActionTile(
                 icon: Icons.calendar_month,
-                label: 'OP Booking',
+                label: 'Book OP',
                 color: AppTheme.accentCyan,
-                onTap: () => context.go('/appointments'),
+                enabled: hasPatient,
+                onTap: _showOpBookingDialog,
               ),
               _ActionTile(
                 icon: Icons.local_hospital,
@@ -1154,6 +1418,34 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
+class _DateTimeButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _DateTimeButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon),
+      label: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(label, overflow: TextOverflow.ellipsis),
+      ),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(50),
+        alignment: Alignment.centerLeft,
+      ),
+    );
+  }
+}
+
 class _EmptyLine extends StatelessWidget {
   final IconData icon;
   final String text;
@@ -1175,6 +1467,44 @@ class _EmptyLine extends StatelessWidget {
       ),
     );
   }
+}
+
+String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
+
+String _formatTime(TimeOfDay time) {
+  final hour = time.hour.toString().padLeft(2, '0');
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+int? _intFrom(dynamic value) {
+  if (value is int) return value;
+  return int.tryParse(value?.toString() ?? '');
+}
+
+String _text(dynamic value) => value?.toString().trim() ?? '';
+
+int? _doctorId(Map<String, dynamic> doctor) => int.tryParse(
+  (doctor['user_id'] ?? doctor['userId'] ?? doctor['id'])?.toString() ?? '',
+);
+
+String? _doctorUid(Map<String, dynamic> doctor) {
+  final value = doctor['uid'] ?? doctor['doctor_uid'] ?? doctor['doctorUid'];
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? null : text;
+}
+
+String _doctorLabel(Map<String, dynamic> doctor) {
+  final id = _doctorId(doctor);
+  final name =
+      doctor['name']?.toString() ?? (id == null ? 'Doctor' : 'Doctor #$id');
+  final department = doctor['department']?.toString() ?? '';
+  final specialization = doctor['specialization']?.toString() ?? '';
+  return [
+    name,
+    if (department.isNotEmpty) department,
+    if (specialization.isNotEmpty) specialization,
+  ].join(' - ');
 }
 
 class _InlineAlert extends StatelessWidget {
