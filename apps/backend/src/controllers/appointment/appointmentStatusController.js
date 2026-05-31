@@ -8,9 +8,15 @@ import { getWaitingQueueForDoctor } from '../../services/appointment/waitTimeSer
 import { success, error } from '../../utils/responseHelper.js';
 import { broadcast, sendToUser } from '../../utils/websocket/wsServer.js';
 import { emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
+import { logAudit } from '../../utils/logAudit.js';
 
 // Status transitions that shift every downstream patient's queue position
 const QUEUE_SHIFTING_STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+}
 
 async function fanOutQueuePositions(appointment) {
   if (!appointment?.doctor_id || !appointment?.appointment_date) return;
@@ -32,6 +38,7 @@ async function fanOutQueuePositions(appointment) {
 
 export const updateAppointmentStatus = async (req, res) => {
   try {
+    const tenantId = tenantOf(req);
     const { id } = req.params;
     const { status, notes } = req.body;
 
@@ -42,7 +49,7 @@ export const updateAppointmentStatus = async (req, res) => {
     }
 
     // Get appointment to check permissions
-    const appointment = await appointmentService.getAppointmentById(id);
+    const appointment = await appointmentService.getAppointmentById(id, tenantId);
     
     if (!appointment) {
       return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
@@ -63,6 +70,19 @@ export const updateAppointmentStatus = async (req, res) => {
       notes,
       req.user?.name
     );
+    await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_STATUS_UPDATED', {
+      appointment_id: Number(id),
+      appointment_uid: appointment.uid || updatedAppointment?.uid || null,
+      patient_id: appointment.patient_id ?? updatedAppointment?.patient_id ?? null,
+      patient_uid: appointment.patient_uid ?? null,
+      doctor_id: appointment.doctor_id ?? updatedAppointment?.doctor_id ?? null,
+      prior_status: appointment.status,
+      updated_status: statusValidation.status,
+      note_present: Boolean(notes),
+    }, {
+      resource: 'appointment',
+      resourceId: id,
+    });
 
     // Emit WebSocket event for appointment status change
     broadcast('appointment-updates', {

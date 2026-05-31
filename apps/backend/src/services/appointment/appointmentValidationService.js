@@ -20,15 +20,16 @@ export class AppointmentValidationService {
   // Validate appointment booking request
   async validateBookingRequest(bookingData, user) {
     const errors = [];
+    const tenantId = bookingData?.tenant_id || user?.tenant_id || user?.tenantId || null;
 
     // Check patient exists
-    const patient = await appointmentService.validateUser(bookingData.patient_id);
+    const patient = await appointmentService.validateUser(bookingData.patient_id, null, tenantId);
     if (!patient) {
       errors.push('Patient not found');
     }
 
     // Check doctor exists and has correct role
-    const doctor = await appointmentService.validateDoctor(bookingData.doctor_id);
+    const doctor = await appointmentService.validateDoctor(bookingData.doctor_id, tenantId);
     if (!doctor) {
       errors.push('Doctor not found');
     } else {
@@ -56,7 +57,9 @@ export class AppointmentValidationService {
       const conflict = await appointmentService.checkConflict(
         bookingData.doctor_id,
         bookingData.appointment_date,
-        bookingData.appointment_time
+        bookingData.appointment_time,
+        null,
+        tenantId,
       );
       
       if (conflict) {
@@ -74,12 +77,12 @@ export class AppointmentValidationService {
   }
 
   // Validate appointment update request
-  async validateUpdateRequest(appointmentId, updateData, user) {
+  async validateUpdateRequest(appointmentId, updateData, user, tenantId = null) {
     const errors = [];
     let isAddendum = false;
 
     // Get existing appointment
-    const appointment = await appointmentService.getAppointmentById(appointmentId);
+    const appointment = await appointmentService.getAppointmentById(appointmentId, tenantId);
     if (!appointment) {
       errors.push('Appointment not found');
       return { valid: false, errors };
@@ -138,7 +141,8 @@ export class AppointmentValidationService {
         appointment.doctor_id,
         newDate,
         newTime,
-        appointmentId
+        appointmentId,
+        tenantId,
       );
       
       if (conflict) {

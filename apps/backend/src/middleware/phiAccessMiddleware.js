@@ -21,9 +21,11 @@ function derivePatientId(req) {
     || req.params?.uid
     || req.query?.patient_uid
     || req.query?.patientId
+    || req.query?.patient_id
     || req.query?.phone   // phone can identify a patient
     || req.body?.patient_uid
     || req.body?.patientId
+    || req.body?.patient_id
     || req.body?.phone
     || null;
 }

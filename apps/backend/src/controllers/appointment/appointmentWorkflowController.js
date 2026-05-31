@@ -1159,7 +1159,7 @@ export const registerWalkIn = async (req, res) => {
       // legacy doctors.id, but write only the canonical users.id into
       // appointments.doctor_id. Ambiguous collisions are rejected instead of
       // picking a clinician by accident.
-      const resolvedDoctor = await resolveDoctorRef(prisma, doctorIdInt);
+      const resolvedDoctor = await resolveDoctorRef(prisma, doctorIdInt, { tenantId: actingTenantId });
       explicitDoctorUserId = resolvedDoctor?.id ?? null;
       if (!explicitDoctorUserId) {
         return error(
@@ -1849,6 +1849,22 @@ export const registerWalkIn = async (req, res) => {
     if (lmp_date && deptPrefix(result.department) === 'ANC') {
       result.gestational_age = computeGestationalAge(lmp_date);
     }
+
+    await logAudit(req, 'FRONT_OFFICE_WALK_IN_REGISTERED', {
+      appointment_id: result.id,
+      patient_id: result.patient_id,
+      doctor_id: result.doctor_id,
+      visit_no: result.visit_no,
+      department: result.department,
+      visit_type: result.visit_type,
+      returning_patient: result.returning_patient,
+      same_day_duplicate_count: result.same_day_duplicate_count,
+      er_visit_id: result.er_visit_id,
+      lab_order_ids: result.lab_order_ids,
+    }, {
+      resource: 'appointment',
+      resourceId: result.id,
+    });
 
     success(res, result, `Walk-in registered. Visit ${result.visit_no}`);
   } catch (err) {

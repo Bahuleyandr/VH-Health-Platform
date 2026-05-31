@@ -12,17 +12,19 @@ function doctorRefError(message, code, details = null) {
   return AppError.badRequest(message, code, details);
 }
 
-export async function resolveDoctorRef(db, value) {
+export async function resolveDoctorRef(db, value, options = {}) {
   const ref = parseDoctorRef(value);
   if (!ref) {
     throw doctorRefError('doctor_id must be a positive integer', 'INVALID_DOCTOR_REF');
   }
+  const tenantId = options?.tenantId || null;
 
   const rows = await db.$queryRawUnsafe(
     `WITH input_user AS (
-       SELECT id, uid, name, role, is_active
+       SELECT id, uid, name, role, is_active, tenant_id
          FROM users
         WHERE id = $1::int
+          AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
         LIMIT 1
      ),
      direct_doctor AS (
@@ -45,6 +47,7 @@ export async function resolveDoctorRef(db, value) {
       WHERE u.id = $1::int
         AND u.role = 'DOCTOR'
         AND u.is_active = true
+        AND ($2::uuid IS NULL OR u.tenant_id = $2::uuid)
         AND COALESCE(d.is_active, true) = true
      ),
      profile_doctor AS (
@@ -57,17 +60,19 @@ export async function resolveDoctorRef(db, value) {
          COALESCE(dept.name, d.department) AS department
        FROM doctors d
        JOIN users u ON u.id = d.user_id
-       LEFT JOIN departments dept ON dept.id = d.department_id
-      WHERE d.id = $1::int
+      LEFT JOIN departments dept ON dept.id = d.department_id
+     WHERE d.id = $1::int
         AND d.is_active = true
         AND u.role = 'DOCTOR'
         AND u.is_active = true
+        AND ($2::uuid IS NULL OR u.tenant_id = $2::uuid)
      )
      SELECT
        (SELECT row_to_json(input_user) FROM input_user) AS input_user,
        (SELECT row_to_json(direct_doctor) FROM direct_doctor) AS direct_doctor,
        (SELECT row_to_json(profile_doctor) FROM profile_doctor) AS profile_doctor`,
     ref,
+    tenantId,
   );
 
   const result = rows[0] || {};

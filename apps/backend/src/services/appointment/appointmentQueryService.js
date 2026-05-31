@@ -636,10 +636,13 @@ export class AppointmentQueryService {
     }
   }
 
-  async getAppointmentById(id) {
+  async getAppointmentById(id, tenantId = null) {
     try {
-      const row = await prisma.appointments.findUnique({
-        where: { id: parseInt(id) },
+      const row = await prisma.appointments.findFirst({
+        where: {
+          id: parseInt(id),
+          ...(tenantId ? { tenant_id: tenantId } : {}),
+        },
         select: {
           id: true,
           uid: true,
@@ -680,6 +683,7 @@ export class AppointmentQueryService {
       const flat = { ...row };
       delete flat[REL_PATIENT];
       delete flat[REL_DOCTOR];
+      flat.patient_uid = patient?.uid ?? null;
       flat.patient_name = patient?.name ?? row.patient_name ?? null;
       flat.patient_phone = patient?.phone ?? row.phone ?? null;
       flat.patient_email = patient?.email ?? null;

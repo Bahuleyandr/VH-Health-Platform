@@ -26,6 +26,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { error, success } from '../../utils/responseHelper.js';
 
@@ -216,6 +217,15 @@ export const createPatient = async (req, res) => {
     );
 
     const patient = await fetchPatientByUid(rows[0].uid, tenantId);
+    await logAudit(req, 'FRONT_OFFICE_PATIENT_CREATED', {
+      patient_id: patient?.id ?? rows[0].id,
+      patient_uid: patient?.uid ?? rows[0].uid,
+      hospital_number: patient?.hospital_number ?? null,
+      source: 'staff_patient_search',
+    }, {
+      resource: 'patient',
+      resourceId: patient?.uid ?? rows[0].uid,
+    });
     return success(res, { patient: publicPatient(patient) }, 'Patient created', HTTP_STATUS.CREATED);
   } catch (err) {
     logger.error('Patient create error:', err);
@@ -300,6 +310,16 @@ export const updatePatient = async (req, res) => {
     );
 
     const patient = await fetchPatientByUid(uid, tenantId);
+    await logAudit(req, 'FRONT_OFFICE_PATIENT_UPDATED', {
+      patient_id: patient?.id ?? existing.id,
+      patient_uid: uid,
+      hospital_number: patient?.hospital_number ?? existing.hospital_number ?? null,
+      changed_fields: updates.map((entry) => String(entry).split(' = ')[0]),
+      source: 'staff_patient_search',
+    }, {
+      resource: 'patient',
+      resourceId: uid,
+    });
     return success(res, { patient: publicPatient(patient) }, 'Patient updated');
   } catch (err) {
     logger.error('Patient update error:', err);

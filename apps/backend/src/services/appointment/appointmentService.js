@@ -8,10 +8,11 @@ import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appoin
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
 
 export class AppointmentService {
-  async validateUser(userId, requiredRole = null) {
+  async validateUser(userId, requiredRole = null, tenantId = null) {
     try {
       const where = { id: parseInt(userId) };
       if (requiredRole) where.role = requiredRole;
+      if (tenantId) where.tenant_id = tenantId;
       return prisma.users.findFirst({
         where,
         select: { id: true, uid: true, name: true, phone: true, email: true, role: true },
@@ -22,16 +23,16 @@ export class AppointmentService {
     }
   }
 
-  async validateDoctor(doctorId) {
+  async validateDoctor(doctorId, tenantId = null) {
     try {
-      return await resolveDoctorRef(prisma, doctorId);
+      return await resolveDoctorRef(prisma, doctorId, { tenantId });
     } catch (error) {
       logger.error('Error validating doctor:', error);
       throw error;
     }
   }
 
-  async checkConflict(doctorId, appointmentDate, appointmentTime, excludeId = null) {
+  async checkConflict(doctorId, appointmentDate, appointmentTime, excludeId = null, tenantId = null) {
     try {
       let rows;
       if (excludeId) {
@@ -40,6 +41,7 @@ export class AppointmentService {
           WHERE doctor_id = ${parseInt(doctorId)}
             AND DATE(appointment_date) = DATE(${appointmentDate}::date)
             AND appointment_time = ${appointmentTime}
+            AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
             AND status NOT IN ('CANCELLED', 'NO_SHOW')
             AND id != ${parseInt(excludeId)}
           LIMIT 1
@@ -50,6 +52,7 @@ export class AppointmentService {
           WHERE doctor_id = ${parseInt(doctorId)}
             AND DATE(appointment_date) = DATE(${appointmentDate}::date)
             AND appointment_time = ${appointmentTime}
+            AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
             AND status NOT IN ('CANCELLED', 'NO_SHOW')
           LIMIT 1
         `;
@@ -71,6 +74,8 @@ export class AppointmentService {
       notes = null,
       department = null,
       visit_type = null,
+      tenant_id = null,
+      created_by = null,
     } = appointmentData;
     const visitType = visit_type
       ? String(visit_type).trim().toUpperCase()
@@ -89,9 +94,20 @@ export class AppointmentService {
       return await prisma.$transaction(async (tx) => {
         // Resolve patient phone + doctor name for the NOT NULL columns on appointments.
         const [pRows, resolvedDoctor] = await Promise.all([
-          tx.$queryRaw`SELECT id, phone, name FROM users WHERE id = ${parseInt(patient_id)}`,
-          resolveDoctorRef(tx, doctor_id),
+          tx.$queryRaw`
+            SELECT id, phone, name
+              FROM users
+             WHERE id = ${parseInt(patient_id)}
+               AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
+             LIMIT 1
+          `,
+          resolveDoctorRef(tx, doctor_id, { tenantId: tenant_id }),
         ]);
+        if (!pRows[0]) {
+          const err = new Error('Patient not found');
+          err.statusCode = 400;
+          throw err;
+        }
         const patientPhone = pRows[0]?.phone ?? '';
         const patientName = pRows[0]?.name ?? null;
         if (!resolvedDoctor?.id) {
@@ -111,6 +127,7 @@ export class AppointmentService {
           WHERE doctor_id = ${parseInt(resolvedDoctorId)}
             AND DATE(appointment_date) = DATE(${appointment_date}::date)
             AND appointment_time = ${appointment_time}
+            AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
             AND status NOT IN ('CANCELLED', 'NO_SHOW')
           FOR UPDATE
         `;
@@ -126,16 +143,21 @@ export class AppointmentService {
           INSERT INTO appointments (
             phone, patient_id, patient_name, doctor_id, doctor_name,
             appointment_date, appointment_time,
-            reason, notes, status, department, visit_type, created_at, updated_at
+            reason, notes, status, department, visit_type, created_by,
+            tenant_id, created_at, updated_at
           ) VALUES (
             ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
             ${parseInt(resolvedDoctorId)}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},
-            ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, ${resolvedDepartment}, ${resolvedVisitType}, NOW(), NOW()
+            ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, ${resolvedDepartment}, ${resolvedVisitType},
+            ${created_by || null}::uuid,
+            COALESCE(${tenant_id}::uuid, '00000000-0000-4000-8000-000000000001'::uuid),
+            NOW(), NOW()
           )
           RETURNING id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
-            appointment_date, appointment_time, status, reason, notes, department, visit_type, created_at, updated_at
+            appointment_date, appointment_time, status, reason, notes, department, visit_type,
+            tenant_id, created_at, updated_at
         `;
 
         return rows[0];
@@ -146,7 +168,7 @@ export class AppointmentService {
     }
   }
 
-  async updateAppointment(id, updateData) {
+  async updateAppointment(id, updateData, tenantId = null, updatedBy = null) {
     const { appointment_date, appointment_time, reason, notes, visit_type } = updateData;
     try {
       const rows = await prisma.$queryRaw`
@@ -156,10 +178,12 @@ export class AppointmentService {
           reason           = COALESCE(${reason ?? null}, reason),
           notes            = COALESCE(${notes ?? null}, notes),
           visit_type       = COALESCE(${visit_type ?? null}, visit_type),
+          updated_by       = COALESCE(${updatedBy ?? null}::uuid, updated_by),
           updated_at       = NOW()
         WHERE id = ${parseInt(id)}
+          AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
         RETURNING id, uid, phone, patient_name, doctor_name, appointment_date,
-          appointment_time, status, reason, notes, visit_type, created_at, updated_at
+          appointment_time, status, reason, notes, visit_type, tenant_id, created_at, updated_at
       `;
       return rows[0];
     } catch (error) {
@@ -315,13 +339,13 @@ export class AppointmentService {
     }
   }
 
-  async getAppointmentById(id) {
+  async getAppointmentById(id, tenantId = null) {
     try {
       // Duplicate of AppointmentQueryService.getAppointmentById — both
       // services export this method under slightly different consumer
       // paths. Delegating here keeps the flattening logic in one place.
       const { default: queryService } = await import('./appointmentQueryService.js');
-      return queryService.getAppointmentById(id);
+      return queryService.getAppointmentById(id, tenantId);
     } catch (error) {
       logger.error('Error getting appointment by ID:', error);
       throw error;

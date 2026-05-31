@@ -330,6 +330,10 @@ async function admitPatient(data) {
     policy_number,
     estimated_cost,
     tenant_id,
+    request_id,
+    device_type,
+    ip_address,
+    actor_role,
     // OPD→IPD advice handoff. The advise-admission bridge stamps
     // appointments.advised_for_admission_at and that flag is the SOLE
     // source for the admission counter's worklist
@@ -928,16 +932,22 @@ async function admitPatient(data) {
     await tx.audit_logs.create({
       data: {
         uid: created_by,
+        role: actor_role || null,
         action: 'ADMIT_PATIENT',
         resource: 'admission',
         resource_id: String(admission.id),
         metadata: {
           patient_uid, admission_type, priority, department, ward, bed_id,
+          tenant_id: tenant_id || null,
+          request_id: request_id || null,
+          device_type: device_type || null,
+          actor_role: actor_role || null,
           from_er_visit_id: erVisit?.id ?? null,
+          appointment_id: adviceAppointmentId ?? null,
           er_chief_complaint_inherited: erVisit && !chiefComplaintArg ? true : false,
           er_attending_doctor_inherited: erVisit && !attending_doctor ? true : false,
         },
-        ip_address: null,
+        ip_address: ip_address || null,
       },
     });
 

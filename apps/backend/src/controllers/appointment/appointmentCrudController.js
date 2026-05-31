@@ -6,10 +6,17 @@ import appointmentService from '../../services/appointment/appointmentService.js
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-async function resolveOrCreatePatientFromPhone({ patientPhone, patientName }) {
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+}
+
+async function resolveOrCreatePatientFromPhone({ patientPhone, patientName, tenantId }) {
   const normalizedPhone = normalizePhone(patientPhone);
   if (!normalizedPhone) {
     const err = new Error('Valid patient phone is required');
@@ -21,9 +28,11 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName }) {
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, uid, phone, name, role
        FROM users
-      WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
-      ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
+      WHERE tenant_id = $1::uuid
+        AND (phone = $2 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $3)
+      ORDER BY CASE WHEN phone = $2 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
       LIMIT 1`,
+    tenantId,
     normalizedPhone,
     `%${last10}`,
   );
@@ -39,23 +48,25 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName }) {
 
   const name = (patientName || '').trim() || 'New Patient';
   const created = await prisma.$queryRawUnsafe(
-    `INSERT INTO users (phone, name, role, registered_at, updated_at)
-     VALUES ($1, $2, 'PATIENT', NOW(), NOW())
+    `INSERT INTO users (phone, name, role, is_active, tenant_id, registered_at, updated_at)
+     VALUES ($1, $2, 'PATIENT', true, $3::uuid, NOW(), NOW())
      RETURNING id, uid, phone, name`,
     normalizedPhone,
     name,
+    tenantId,
   );
 
   return { patient: created[0], created: true };
 }
 
-async function resolveDoctorIdFromUid(doctorUid) {
+async function resolveDoctorIdFromUid(doctorUid, tenantId) {
   if (!doctorUid) return null;
   const row = await prisma.users.findFirst({
     where: {
       uid: String(doctorUid).trim(),
       role: 'DOCTOR',
       is_active: true,
+      tenant_id: tenantId,
     },
     select: { id: true },
   });
@@ -64,12 +75,13 @@ async function resolveDoctorIdFromUid(doctorUid) {
 
 export const createAppointment = async (req, res) => {
   try {
+    const tenantId = tenantOf(req);
     const appointmentDate = req.body.appointment_date || req.body.date;
     const appointmentTime = req.body.appointment_time || req.body.time;
     const patientPhone = req.body.patient_phone || req.body.phone || req.body.phoneNumber;
 
     if (req.body.doctor_uid) {
-      req.body.doctor_id = await resolveDoctorIdFromUid(req.body.doctor_uid);
+      req.body.doctor_id = await resolveDoctorIdFromUid(req.body.doctor_uid, tenantId);
     }
 
     let resolvedPatient = null;
@@ -78,6 +90,7 @@ export const createAppointment = async (req, res) => {
       const resolved = await resolveOrCreatePatientFromPhone({
         patientPhone,
         patientName: req.body.patient_name,
+        tenantId,
       });
       resolvedPatient = resolved.patient;
       createdNewPatient = resolved.created;
@@ -93,6 +106,8 @@ export const createAppointment = async (req, res) => {
       notes: req.body.notes || null,
       department: req.body.department || null,
       visit_type: req.body.visit_type || null,
+      tenant_id: tenantId,
+      created_by: req.user?.uid || null,
     };
 
     // Validate the booking request
@@ -124,14 +139,16 @@ export const createAppointment = async (req, res) => {
       const existing = await prisma.$queryRawUnsafe(
         `SELECT id, status, appointment_time
            FROM appointments
-          WHERE patient_id = $1
-            AND doctor_id = $2
-            AND DATE(appointment_date) = $3::date
-            AND status IN ('SCHEDULED', 'CONFIRMED')
-          LIMIT 1`,
+         WHERE patient_id = $1
+           AND doctor_id = $2
+           AND DATE(appointment_date) = $3::date
+           AND tenant_id = $4::uuid
+           AND status IN ('SCHEDULED', 'CONFIRMED')
+         LIMIT 1`,
         appointmentData.patient_id,
         appointmentData.doctor_id,
         appointmentData.appointment_date,
+        tenantId,
       );
       if (existing.length > 0) {
         return error(
@@ -151,14 +168,31 @@ export const createAppointment = async (req, res) => {
     // Create the appointment (uses transaction with row-level locking to prevent double-booking)
     const appointment = await appointmentService.createAppointment(appointmentData);
     const hydratedAppointment =
-      (await appointmentQueryService.getAppointmentById(appointment.id)) || appointment;
+      (await appointmentQueryService.getAppointmentById(appointment.id, tenantId)) || appointment;
+    const patientUid = validation.patient.uid ?? resolvedPatient?.uid ?? null;
+
+    await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_BOOKED', {
+      appointment_id: hydratedAppointment.id,
+      appointment_uid: hydratedAppointment.uid || null,
+      patient_id: hydratedAppointment.patient_id ?? validation.patient.id ?? resolvedPatient?.id ?? null,
+      patient_uid: patientUid,
+      doctor_id: hydratedAppointment.doctor_id ?? validation.doctor.id ?? null,
+      appointment_date: hydratedAppointment.appointment_date ?? appointmentDate,
+      appointment_time: hydratedAppointment.appointment_time ?? appointmentTime,
+      department: hydratedAppointment.department ?? appointmentData.department ?? null,
+      visit_type: hydratedAppointment.visit_type ?? appointmentData.visit_type ?? null,
+      created_patient: createdNewPatient,
+    }, {
+      resource: 'appointment',
+      resourceId: hydratedAppointment.id,
+    });
 
     success(res, {
       appointment: hydratedAppointment,
       patient_name: hydratedAppointment.patient_name ?? validation.patient.name ?? resolvedPatient?.name,
       patient: {
         id: validation.patient.id ?? resolvedPatient?.id,
-        uid: validation.patient.uid ?? resolvedPatient?.uid,
+        uid: patientUid,
         name: validation.patient.name ?? resolvedPatient?.name,
         phone: validation.patient.phone ?? resolvedPatient?.phone,
         created: createdNewPatient,
@@ -180,6 +214,7 @@ export const createAppointment = async (req, res) => {
 
 export const updateAppointment = async (req, res) => {
   try {
+    const tenantId = tenantOf(req);
     const { id } = req.params;
 
     // Reject status updates explicitly — the previous handler silently
@@ -208,7 +243,7 @@ export const updateAppointment = async (req, res) => {
     };
 
     // P1 IDOR: Verify the authenticated user owns/can access this appointment
-    const appointment = await appointmentService.getAppointmentById(id);
+    const appointment = await appointmentService.getAppointmentById(id, tenantId);
     if (!appointment) {
       return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
     }
@@ -220,7 +255,8 @@ export const updateAppointment = async (req, res) => {
     const validation = await appointmentValidationService.validateUpdateRequest(
       id,
       updateData,
-      req.user
+      req.user,
+      tenantId,
     );
 
     if (!validation.valid) {
@@ -231,13 +267,36 @@ export const updateAppointment = async (req, res) => {
     }
 
     // Update the appointment
-    const updatedAppointment = await appointmentService.updateAppointment(id, updateData);
+    const updatedAppointment = await appointmentService.updateAppointment(
+      id,
+      updateData,
+      tenantId,
+      req.user?.uid || null,
+    );
 
     // Late clinical addendum on a COMPLETED appointment — record the
     // who/what/when separately so audit can distinguish a "real" update
     // from a post-completion note. Best-effort: failure here must not
     // break the user-facing update. Finding:
     //   2026-05-09-follow-up-opd-doctor-no-edit-after-complete
+    const changedFields = Object.keys(updateData).filter(
+      (field) => updateData[field] !== undefined && updateData[field] !== null,
+    );
+
+    await logAudit(req, validation.isAddendum ? 'FRONT_OFFICE_APPOINTMENT_ADDENDUM' : 'FRONT_OFFICE_APPOINTMENT_UPDATED', {
+      appointment_id: Number(id),
+      appointment_uid: appointment.uid || updatedAppointment?.uid || null,
+      patient_id: appointment.patient_id ?? null,
+      patient_uid: appointment.patient_uid ?? null,
+      doctor_id: appointment.doctor_id ?? null,
+      prior_status: appointment.status,
+      updated_status: updatedAppointment?.status ?? appointment.status,
+      changed_fields: changedFields,
+    }, {
+      resource: 'appointment',
+      resourceId: id,
+    });
+
     if (validation.isAddendum) {
       try {
         await prisma.audit_logs.create({
@@ -275,10 +334,11 @@ export const updateAppointment = async (req, res) => {
 
 export const deleteAppointment = async (req, res) => {
   try {
+    const tenantId = tenantOf(req);
     const { id } = req.params;
 
     // Get appointment to check permissions
-    const appointment = await appointmentService.getAppointmentById(id);
+    const appointment = await appointmentService.getAppointmentById(id, tenantId);
     
     if (!appointment) {
       return error(res, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
@@ -294,6 +354,18 @@ export const deleteAppointment = async (req, res) => {
       id,
       req.user?.name || 'User'
     );
+    await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_CANCELLED', {
+      appointment_id: Number(id),
+      appointment_uid: appointment.uid || cancelledAppointment?.uid || null,
+      patient_id: appointment.patient_id ?? null,
+      patient_uid: appointment.patient_uid ?? null,
+      doctor_id: appointment.doctor_id ?? null,
+      prior_status: appointment.status,
+      updated_status: cancelledAppointment?.status ?? 'CANCELLED',
+    }, {
+      resource: 'appointment',
+      resourceId: id,
+    });
 
     success(res, {
       appointment: cancelledAppointment,
