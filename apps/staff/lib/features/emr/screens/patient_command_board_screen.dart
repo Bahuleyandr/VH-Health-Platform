@@ -5,6 +5,97 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 
+@visibleForTesting
+String patientCommandBoardScopeLabel(Map<String, dynamic> board) {
+  final scope = _patientCommandBoardRoleScope(board);
+  final type = _patientCommandBoardText(scope['type']);
+  return switch (type) {
+    'full' => 'All active inpatients',
+    'own_patients' => 'Patients assigned to you',
+    'duty_doctor' => 'Current duty floor coverage',
+    'ward_nursing' => 'Current nursing floor',
+    'op_nursing' => 'OP nursing coverage',
+    'housekeeping' => 'Current housekeeping area',
+    'none' => 'No inpatient scope for this role',
+    _ => 'Role-based inpatient scope',
+  };
+}
+
+@visibleForTesting
+String patientCommandBoardScopeDetail(Map<String, dynamic> board) {
+  final scope = _patientCommandBoardRoleScope(board);
+  if (scope['all_floors'] == true) return 'All floors';
+
+  final wards = _patientCommandBoardTextList(scope['wards']);
+  if (wards.isNotEmpty) return wards.join(', ');
+
+  final floors = _patientCommandBoardTextList(scope['floors']);
+  if (floors.isNotEmpty) {
+    return floors.length == 1
+        ? 'Floor ${floors.first}'
+        : 'Floors ${floors.join(', ')}';
+  }
+
+  final source = _patientCommandBoardText(scope['source']).replaceAll('_', ' ');
+  final assignmentCount = _patientCommandBoardInt(scope['assignment_count']);
+  if (source.isNotEmpty && assignmentCount > 0) {
+    return '$source - $assignmentCount posting${assignmentCount == 1 ? '' : 's'}';
+  }
+  return source;
+}
+
+@visibleForTesting
+String patientCommandBoardLoadedSummary({
+  required Map<String, dynamic> board,
+  required int loadedRows,
+  required int visibleRows,
+  String filter = 'all',
+}) {
+  final counts = _patientCommandBoardMap(board['counts']);
+  final countedTotal = _patientCommandBoardInt(counts['total']);
+  final countedLoaded = _patientCommandBoardInt(
+    counts['loaded'] ?? counts['returned'],
+  );
+  final loaded = countedLoaded > 0 ? countedLoaded : loadedRows;
+  final total = countedTotal > 0 ? countedTotal : loaded;
+
+  if (filter != 'all') {
+    return 'Showing $visibleRows filtered rows from $loaded loaded; scoped total $total.';
+  }
+  if (total > loaded) {
+    return 'Showing first $loaded of $total patients in your current scope.';
+  }
+  return 'Showing $loaded of $total patients in your current scope.';
+}
+
+Map<String, dynamic> _patientCommandBoardRoleScope(Map<String, dynamic> board) {
+  return _patientCommandBoardMap(
+    _patientCommandBoardMap(board['scope'])['role_scope'],
+  );
+}
+
+Map<String, dynamic> _patientCommandBoardMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return <String, dynamic>{};
+}
+
+String _patientCommandBoardText(dynamic value, [String fallback = '']) {
+  final text = (value ?? '').toString().trim();
+  return text.isEmpty ? fallback : text;
+}
+
+int _patientCommandBoardInt(dynamic value) =>
+    int.tryParse('${value ?? 0}') ?? 0;
+
+List<String> _patientCommandBoardTextList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .map((item) => _patientCommandBoardText(item))
+      .where((item) => item.isNotEmpty)
+      .toList();
+}
+
 class PatientCommandBoardScreen extends StatefulWidget {
   const PatientCommandBoardScreen({super.key});
 
@@ -280,8 +371,15 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final governance = _asMap(_board['governance']);
     final counts = _asMap(_board['counts']);
     final total = _int(counts['total']);
-    final loaded = _int(counts['loaded'] ?? counts['returned']);
-    final hasMore = counts['has_more'] == true && total > loaded;
+    final visibleRows = _visibleRows.length;
+    final scopeLabel = patientCommandBoardScopeLabel(_board);
+    final scopeDetail = patientCommandBoardScopeDetail(_board);
+    final loadedSummary = patientCommandBoardLoadedSummary(
+      board: _board,
+      loadedRows: _rows.length,
+      visibleRows: visibleRows,
+      filter: _filter,
+    );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -328,6 +426,13 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          _buildScopeBanner(
+            theme,
+            label: scopeLabel,
+            detail: scopeDetail,
+            summary: loadedSummary,
+          ),
           const SizedBox(height: 14),
           Wrap(
             spacing: 8,
@@ -351,15 +456,59 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
               ),
             ],
           ),
-          if (hasMore) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Showing first $loaded of $total patients in your current scope.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScopeBanner(
+    ThemeData theme, {
+    required String label,
+    required String detail,
+    required String summary,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryTeal.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.primaryTeal.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.security_outlined, color: AppTheme.primaryTeal),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (detail.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  summary,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -448,8 +597,15 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final hospitalNumber = _text(patient['hospital_number']);
     final ward = _text(location['ward']);
     final bed = _text(location['bed_number']);
-    final diagnosisText = _text(diagnosis['text'], 'Diagnosis pending');
-    final diagnosisType = _text(diagnosis['type'], 'working');
+    final diagnosisHidden =
+        _text(diagnosis['source']).toLowerCase() == 'minimized' ||
+        _text(diagnosis['status']).toLowerCase() == 'hidden';
+    final diagnosisText = diagnosisHidden
+        ? 'Clinical details hidden for this role'
+        : _text(diagnosis['text'], 'Diagnosis pending');
+    final diagnosisType = diagnosisHidden
+        ? 'Location only'
+        : _text(diagnosis['type'], 'working');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
