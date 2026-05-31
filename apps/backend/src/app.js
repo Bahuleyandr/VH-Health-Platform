@@ -646,9 +646,9 @@ const BED_PARENT_ROLES = [
   'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
   'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
 ];
-app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedRouter);
-app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedManagementRoutes);
-app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), wardRouter);
+app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_BOARD'), bedRouter);
+app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_MANAGEMENT'), bedManagementRoutes);
+app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), phiAccessLogger('WARD_BOARD'), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
 app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);

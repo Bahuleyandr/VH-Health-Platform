@@ -234,6 +234,7 @@ async function resolveRosterCoverage(assignments, tenantId) {
   if (coverage.allFloors) {
     return {
       allFloors: true,
+      wardIds: [],
       wardNames: [],
       bedIds: [],
       floors: [],
@@ -243,6 +244,7 @@ async function resolveRosterCoverage(assignments, tenantId) {
   if (!coverage.wardIds.length && !coverage.labelKeys.length && !coverage.floors.length) {
     return {
       allFloors: false,
+      wardIds: [],
       wardNames: [],
       bedIds: [],
       floors: [],
@@ -302,12 +304,75 @@ async function resolveRosterCoverage(assignments, tenantId) {
 
   return {
     allFloors: false,
+    wardIds: unique([
+      ...coverage.wardIds,
+      ...wardRows.map((row) => row.id),
+      ...bedRows.map((row) => row.ward_id),
+    ]),
     wardNames: unique([
       ...wardRows.map((row) => row.name),
       ...bedRows.map((row) => row.ward_name),
     ]),
     bedIds: unique(bedRows.map((row) => row.id)),
     floors: coverage.floors,
+  };
+}
+
+async function resolveOwnPatientCoverage({ actor, tenantId }) {
+  if (!actor?.uid) {
+    return {
+      allFloors: false,
+      wardIds: [],
+      wardNames: [],
+      bedIds: [],
+      floors: [],
+    };
+  }
+
+  const rows = await prisma.admissions.findMany({
+    where: {
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+      status: { in: ACTIVE_ADMISSION_STATUSES },
+      OR: [
+        { admitting_doctor: actor.uid },
+        { attending_doctor: actor.uid },
+      ],
+    },
+    select: {
+      bed_id: true,
+    },
+  });
+
+  const bedIds = unique(rows.map((row) => row.bed_id));
+  if (!bedIds.length) {
+    return {
+      allFloors: false,
+      wardIds: [],
+      wardNames: [],
+      bedIds: [],
+      floors: [],
+    };
+  }
+
+  const bedRows = bedIds.length
+    ? await prisma.beds.findMany({
+        where: { id: { in: bedIds } },
+        select: {
+          id: true,
+          ward_id: true,
+          ward_name: true,
+          floor: true,
+          wards: { select: { id: true, name: true, floor: true } },
+        },
+      })
+    : [];
+
+  return {
+    allFloors: false,
+    wardIds: unique(bedRows.map((row) => row.ward_id ?? row.wards?.id)),
+    wardNames: [],
+    bedIds,
+    floors: [],
   };
 }
 
@@ -410,6 +475,95 @@ export async function resolveInpatientAdmissionScope({
 
   return {
     where: tenantId ? { tenant_id: tenantId } : {},
+    scope: {
+      type: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'full' : 'role_default',
+      source: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'governance_role' : 'default_role_scope',
+      tenant_id: tenantId,
+    },
+  };
+}
+
+export async function resolveInpatientLocationScope({
+  actor = {},
+  filters = {},
+  now = new Date(),
+  timezone = DEFAULT_TIMEZONE,
+} = {}) {
+  const role = normalizeRole(actor.role);
+  const tenantId = actor.tenantId || filters.tenantId || null;
+  const rosterScope = ROSTER_INPATIENT_SCOPE_BY_ROLE[role];
+
+  if (rosterScope) {
+    const assignments = await findCurrentRosterAssignments({
+      actor,
+      department: rosterScope.department,
+      now,
+      timezone,
+    });
+
+    if (!assignments.length) {
+      if (rosterScope.fallback === 'own_patients') {
+        const coverage = await resolveOwnPatientCoverage({ actor, tenantId });
+        return {
+          allLocations: false,
+          ...coverage,
+          scope: {
+            type: rosterScope.type,
+            source: 'own_patient_fallback_no_current_roster',
+            tenant_id: tenantId,
+            assignment_count: 0,
+          },
+        };
+      }
+
+      return {
+        allLocations: false,
+        allFloors: false,
+        wardIds: [],
+        wardNames: [],
+        bedIds: [],
+        floors: [],
+        scope: {
+          type: rosterScope.type,
+          source: 'no_current_roster_assignment',
+          tenant_id: tenantId,
+          assignment_count: 0,
+        },
+      };
+    }
+
+    const coverage = await resolveRosterCoverage(assignments, tenantId);
+    return {
+      allLocations: coverage.allFloors,
+      ...coverage,
+      scope: {
+        type: rosterScope.type,
+        source: `current_published_${rosterScope.department}_roster`,
+        tenant_id: tenantId,
+        assignment_count: assignments.length,
+        all_floors: coverage.allFloors,
+        floors: coverage.floors,
+        wards: coverage.wardNames,
+      },
+    };
+  }
+
+  if (OWN_PATIENT_DOCTOR_ROLES.has(role) && actor.uid && !FULL_INPATIENT_SCOPE_ROLES.has(role)) {
+    const coverage = await resolveOwnPatientCoverage({ actor, tenantId });
+    return {
+      allLocations: false,
+      ...coverage,
+      scope: { type: 'own_patients', source: 'doctor_assignment', tenant_id: tenantId },
+    };
+  }
+
+  return {
+    allLocations: true,
+    allFloors: true,
+    wardIds: [],
+    wardNames: [],
+    bedIds: [],
+    floors: [],
     scope: {
       type: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'full' : 'role_default',
       source: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'governance_role' : 'default_role_scope',

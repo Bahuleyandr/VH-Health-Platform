@@ -1,5 +1,9 @@
 // src/services/bed/bedService.js
 import prisma from '../../lib/prisma.js';
+import {
+  MINIMIZED_INPATIENT_PAYLOAD_ROLES,
+  resolveInpatientLocationScope,
+} from '../emr/inpatientScopeService.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 
@@ -62,6 +66,34 @@ function truthyParam(value) {
   return value === true || value === 'true' || value === '1' || value === 1;
 }
 
+function normalizeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function shouldMinimizeBedPayload(actor = {}) {
+  return MINIMIZED_INPATIENT_PAYLOAD_ROLES.has(normalizeRole(actor.role));
+}
+
+function minimizeBedPayload(row) {
+  return {
+    ...row,
+    patient_id: null,
+    patient_uid: null,
+    patient_name: null,
+    patient_full_name: null,
+    patient_gender: null,
+    patient_dob: null,
+    patient_phone: null,
+    patient_hospital_number: null,
+    hospital_number: null,
+    patient_age: null,
+    chief_complaint: null,
+    admitting_diagnosis: null,
+    attending_doctor_uid: null,
+    attending_doctor_name: null,
+  };
+}
+
 function addAvailableBedConditions(conditions) {
   conditions.push(
     "b.status = 'available'",
@@ -73,7 +105,27 @@ function addAvailableBedConditions(conditions) {
   );
 }
 
-function buildBedListFilters(filters = {}, fixedWardId = null, paramOffset = 0) {
+function addLocationScopeConditions({ conditions, addParam, locationScope, bedAlias = 'b', wardAlias = 'w' }) {
+  if (!locationScope || locationScope.allLocations) return;
+
+  const ors = [];
+  if (Array.isArray(locationScope.wardIds) && locationScope.wardIds.length) {
+    ors.push(`${bedAlias}.ward_id = ANY(${addParam(locationScope.wardIds)}::int[])`);
+  }
+  if (Array.isArray(locationScope.wardNames) && locationScope.wardNames.length) {
+    ors.push(`LOWER(COALESCE(${bedAlias}.ward_name, ${wardAlias}.name, '')) = ANY(${addParam(locationScope.wardNames.map((name) => String(name).toLowerCase()))}::text[])`);
+  }
+  if (Array.isArray(locationScope.bedIds) && locationScope.bedIds.length) {
+    ors.push(`${bedAlias}.id = ANY(${addParam(locationScope.bedIds)}::int[])`);
+  }
+  if (Array.isArray(locationScope.floors) && locationScope.floors.length) {
+    ors.push(`COALESCE(${bedAlias}.floor, ${wardAlias}.floor) = ANY(${addParam(locationScope.floors)}::int[])`);
+  }
+
+  conditions.push(ors.length ? `(${ors.join(' OR ')})` : '1 = 0');
+}
+
+function buildBedListFilters(filters = {}, fixedWardId = null, paramOffset = 0, locationScope = null) {
   const conditions = [];
   const params = [];
   const addParam = (value) => {
@@ -85,6 +137,10 @@ function buildBedListFilters(filters = {}, fixedWardId = null, paramOffset = 0) 
   const availableOnly = truthyParam(filters.available)
     || truthyParam(filters.only_available)
     || rawStatus === 'available';
+
+  if (filters.tenantId) {
+    conditions.push(`b.tenant_id = ${addParam(String(filters.tenantId))}::uuid`);
+  }
 
   if (availableOnly) {
     addAvailableBedConditions(conditions);
@@ -109,8 +165,30 @@ function buildBedListFilters(filters = {}, fixedWardId = null, paramOffset = 0) 
     conditions.push(`b.bed_type = ${addParam(String(bedType))}`);
   }
 
+  addLocationScopeConditions({ conditions, addParam, locationScope });
+
   return {
     where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+    params,
+  };
+}
+
+function buildScopedBedWhere(locationScope = null, paramOffset = 0, tenantId = null) {
+  const conditions = [];
+  const params = [];
+  const addParam = (value) => {
+    params.push(value);
+    return `$${params.length + paramOffset}`;
+  };
+
+  if (tenantId) {
+    conditions.push(`b.tenant_id = ${addParam(String(tenantId))}::uuid`);
+  }
+
+  addLocationScopeConditions({ conditions, addParam, locationScope });
+
+  return {
+    where: conditions.length ? conditions.join(' AND ') : 'TRUE',
     params,
   };
 }
@@ -118,15 +196,43 @@ function buildBedListFilters(filters = {}, fixedWardId = null, paramOffset = 0) 
 class BedService {
   // ===== WARD OPERATIONS =====
 
-  async listWards() {
-    return prisma.$queryRawUnsafe(`
+  async listWards({ actor = {}, tenantId = null } = {}) {
+    const locationScope = await resolveInpatientLocationScope({
+      actor: { ...actor, tenantId: actor.tenantId || tenantId },
+      filters: { tenantId: actor.tenantId || tenantId },
+    });
+
+    const resolvedTenantId = actor.tenantId || tenantId;
+    if (locationScope.allLocations) {
+      const wards = await prisma.$queryRawUnsafe(`
       SELECT w.*, d.name as department_name,
-        (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id) as bed_count,
-        (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id AND b.status = 'occupied') as occupied_count
+        (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id AND ($1::uuid IS NULL OR b.tenant_id = $1::uuid)) as bed_count,
+        (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id AND b.status = 'occupied' AND ($1::uuid IS NULL OR b.tenant_id = $1::uuid)) as occupied_count
       FROM wards w
       LEFT JOIN departments d ON w.department_id = d.id
       ORDER BY w.name
-    `);
+    `, resolvedTenantId || null);
+      return { wards, scope: locationScope.scope };
+    }
+
+    const { where, params } = buildScopedBedWhere(locationScope, 0, resolvedTenantId);
+    const wards = await prisma.$queryRawUnsafe(`
+      WITH visible_beds AS (
+        SELECT b.id, b.ward_id, b.status
+          FROM beds b
+          LEFT JOIN wards w ON b.ward_id = w.id
+         WHERE ${where}
+      )
+      SELECT w.*, d.name as department_name,
+        COUNT(vb.id)::int as bed_count,
+        COUNT(vb.id) FILTER (WHERE vb.status = 'occupied')::int as occupied_count
+      FROM wards w
+      JOIN visible_beds vb ON vb.ward_id = w.id
+      LEFT JOIN departments d ON w.department_id = d.id
+      GROUP BY w.id, d.name
+      ORDER BY w.name
+    `, ...params);
+    return { wards, scope: locationScope.scope };
   }
 
   async createWard(data) {
@@ -164,9 +270,19 @@ class BedService {
 
   // ===== BED OPERATIONS =====
 
-  async listBeds(filters = {}) {
-    const { where, params } = buildBedListFilters(filters, null, 1);
-    return prisma.$queryRawUnsafe(`
+  async listBeds(filters = {}, { actor = {}, tenantId = null } = {}) {
+    const locationScope = await resolveInpatientLocationScope({
+      actor: { ...actor, tenantId: actor.tenantId || tenantId },
+      filters: { tenantId: actor.tenantId || tenantId },
+    });
+    const resolvedTenantId = actor.tenantId || tenantId;
+    const { where, params } = buildBedListFilters(
+      { ...filters, tenantId: resolvedTenantId },
+      null,
+      1,
+      locationScope,
+    );
+    const rows = await prisma.$queryRawUnsafe(`
       SELECT b.*, w.name as ward_name, w.floor as ward_floor,
         ${BED_CLEANING_REQUEST_SELECT}
       FROM beds b
@@ -175,9 +291,11 @@ class BedService {
       ${where}
       ORDER BY w.name, b.bed_number
     `, ACTIVE_HOUSEKEEPING_REQUEST_STATUSES, ...params);
+    const beds = shouldMinimizeBedPayload(actor) ? rows.map(minimizeBedPayload) : rows;
+    return { beds, scope: locationScope.scope };
   }
 
-  async getBedsByWard(wardId, filters = {}) {
+  async getBedsByWard(wardId, filters = {}, { actor = {}, tenantId = null } = {}) {
     // Pull patient + admission context alongside the bed so the bed-board
     // detail sheet can render name + age + gender + admission reason +
     // attending doctor without an N+1 round trip per bed. All joins are
@@ -189,8 +307,18 @@ class BedService {
     // details come from users via `b.patient_uid = u.uid`. The age
     // column is computed in SQL from `users.birthday` (NOT `dob` —
     // that's a schema-dump-vs-live mismatch).
-    const { where, params } = buildBedListFilters(filters, wardId, 1);
-    return prisma.$queryRawUnsafe(
+    const locationScope = await resolveInpatientLocationScope({
+      actor: { ...actor, tenantId: actor.tenantId || tenantId },
+      filters: { tenantId: actor.tenantId || tenantId },
+    });
+    const resolvedTenantId = actor.tenantId || tenantId;
+    const { where, params } = buildBedListFilters(
+      { ...filters, tenantId: resolvedTenantId },
+      wardId,
+      1,
+      locationScope,
+    );
+    const rows = await prisma.$queryRawUnsafe(
       `SELECT b.*,
               w.name AS ward_name,
               u.name     AS patient_full_name,
@@ -246,10 +374,19 @@ class BedService {
       ACTIVE_HOUSEKEEPING_REQUEST_STATUSES,
       ...params
     );
+    const beds = shouldMinimizeBedPayload(actor) ? rows.map(minimizeBedPayload) : rows;
+    return { beds, scope: locationScope.scope };
   }
 
-  async getBedSummary() {
-    return prisma.$queryRawUnsafe(`
+  async getBedSummary({ actor = {}, tenantId = null } = {}) {
+    const locationScope = await resolveInpatientLocationScope({
+      actor: { ...actor, tenantId: actor.tenantId || tenantId },
+      filters: { tenantId: actor.tenantId || tenantId },
+    });
+
+    const resolvedTenantId = actor.tenantId || tenantId;
+    if (locationScope.allLocations) {
+      const summary = await prisma.$queryRawUnsafe(`
       SELECT w.id as ward_id, w.name as ward_name, w.floor, w.total_beds,
         COUNT(b.id)::int as actual_beds,
         COUNT(b.id) FILTER (WHERE b.status = 'occupied')::int as occupied,
@@ -257,10 +394,33 @@ class BedService {
         COUNT(b.id) FILTER (WHERE b.status = 'reserved')::int as reserved,
         COUNT(b.id) FILTER (WHERE b.status = 'maintenance')::int as maintenance
       FROM wards w
-      LEFT JOIN beds b ON b.ward_id = w.id
+      LEFT JOIN beds b ON b.ward_id = w.id AND ($1::uuid IS NULL OR b.tenant_id = $1::uuid)
       GROUP BY w.id, w.name, w.floor, w.total_beds
       ORDER BY w.name
-    `);
+    `, resolvedTenantId || null);
+      return { summary, scope: locationScope.scope };
+    }
+
+    const { where, params } = buildScopedBedWhere(locationScope, 0, resolvedTenantId);
+    const summary = await prisma.$queryRawUnsafe(`
+      WITH visible_beds AS (
+        SELECT b.id, b.ward_id, b.status
+          FROM beds b
+          LEFT JOIN wards w ON b.ward_id = w.id
+         WHERE ${where}
+      )
+      SELECT w.id as ward_id, w.name as ward_name, w.floor, w.total_beds,
+        COUNT(vb.id)::int as actual_beds,
+        COUNT(vb.id) FILTER (WHERE vb.status = 'occupied')::int as occupied,
+        COUNT(vb.id) FILTER (WHERE vb.status = 'available')::int as available,
+        COUNT(vb.id) FILTER (WHERE vb.status = 'reserved')::int as reserved,
+        COUNT(vb.id) FILTER (WHERE vb.status = 'maintenance')::int as maintenance
+      FROM wards w
+      JOIN visible_beds vb ON vb.ward_id = w.id
+      GROUP BY w.id, w.name, w.floor, w.total_beds
+      ORDER BY w.name
+    `, ...params);
+    return { summary, scope: locationScope.scope };
   }
 
   async createBed(data) {

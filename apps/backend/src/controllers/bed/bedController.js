@@ -9,8 +9,13 @@ import { emitBedEvent } from '../../utils/websocket/realtimeEmitter.js';
 
 export const listWards = async (req, res) => {
   try {
-    const wards = await bedService.listWards();
-    success(res, { wards, count: wards.length }, 'Wards retrieved');
+    const result = await bedService.listWards({
+      actor: req.user,
+      tenantId: req.tenantId,
+    });
+    success(res, { wards: result.wards, count: result.wards.length }, 'Wards retrieved', HTTP_STATUS.OK, {
+      scope: result.scope,
+    });
   } catch (err) {
     logger.error('Error listing wards:', err);
     error(res, 'Failed to list wards', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -53,8 +58,13 @@ export const deleteWard = async (req, res) => {
 
 export const listBeds = async (req, res) => {
   try {
-    const beds = await bedService.listBeds(req.query || {});
-    success(res, { beds, count: beds.length }, 'Beds retrieved');
+    const result = await bedService.listBeds(req.query || {}, {
+      actor: req.user,
+      tenantId: req.tenantId,
+    });
+    success(res, { beds: result.beds, count: result.beds.length }, 'Beds retrieved', HTTP_STATUS.OK, {
+      scope: result.scope,
+    });
   } catch (err) {
     if (err && typeof err.statusCode === 'number') {
       return error(res, err.message, err.statusCode, err.details);
@@ -66,8 +76,13 @@ export const listBeds = async (req, res) => {
 
 export const getBedsByWard = async (req, res) => {
   try {
-    const beds = await bedService.getBedsByWard(req.params.wardId, req.query || {});
-    success(res, { beds, count: beds.length }, 'Beds retrieved');
+    const result = await bedService.getBedsByWard(req.params.wardId, req.query || {}, {
+      actor: req.user,
+      tenantId: req.tenantId,
+    });
+    success(res, { beds: result.beds, count: result.beds.length }, 'Beds retrieved', HTTP_STATUS.OK, {
+      scope: result.scope,
+    });
   } catch (err) {
     if (err && typeof err.statusCode === 'number') {
       return error(res, err.message, err.statusCode, err.details);
@@ -79,8 +94,13 @@ export const getBedsByWard = async (req, res) => {
 
 export const getBedSummary = async (req, res) => {
   try {
-    const summary = await bedService.getBedSummary();
-    success(res, { summary }, 'Bed summary retrieved');
+    const result = await bedService.getBedSummary({
+      actor: req.user,
+      tenantId: req.tenantId,
+    });
+    success(res, { summary: result.summary }, 'Bed summary retrieved', HTTP_STATUS.OK, {
+      scope: result.scope,
+    });
   } catch (err) {
     logger.error('Error getting bed summary:', err);
     error(res, 'Failed to get bed summary', HTTP_STATUS.INTERNAL_SERVER_ERROR);
