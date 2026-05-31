@@ -128,7 +128,9 @@ void main() {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.hr);
       final ids = feats.map((f) => f.id).toSet();
       expect(ids, contains('hr_dashboard'));
+      expect(ids, contains('staff_roster'));
       expect(ids, contains('staff_management'));
+      expect(ids, isNot(contains('staff_directory')));
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('prescriptions')));
       expect(ids, isNot(contains('vitals')));
@@ -171,9 +173,12 @@ void main() {
         );
         final ids = adminFeats.map((f) => f.id).toSet();
         expect(ids, contains('hr_dashboard'));
+        expect(ids, contains('staff_roster'));
+        expect(ids, contains('staff_management'));
         expect(ids, contains('pharmacy_orders'));
         expect(ids, contains('clinical_ai_review_queue'));
         expect(ids, isNot(contains('op_ai_assist')));
+        expect(ids, isNot(contains('staff_directory')));
         expect(ids, contains('theatre'));
         expect(ids, contains('blood_bank'));
         expect(ids, contains('front_office_workbench'));
@@ -188,6 +193,10 @@ void main() {
       ).map((f) => f.id).toSet();
 
       expect(ids, contains('op_ai_assist'));
+      expect(ids, contains('staff_roster'));
+      expect(ids, isNot(contains('medical_roster')));
+      expect(ids, isNot(contains('nursing_roster')));
+      expect(ids, isNot(contains('op_nursing_roster')));
     });
 
     test('OP AI Assist role gate matches the doctor-only backend gate', () {
@@ -383,6 +392,23 @@ void main() {
       expect(doctorRoutes, containsAll(['/front-office', '/patient-records']));
       expect(doctorRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, isNot(contains('/billing-desk')));
+    });
+
+    test('staff governance navigation consolidates rosters into the hub', () {
+      final hrRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.hr,
+      ).map((item) => item.route).toSet();
+      final adminRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.admin,
+      ).map((item) => item.route).toSet();
+      final medicalSuperRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.medicalSuperintendent,
+      ).map((item) => item.route).toSet();
+
+      expect(hrRoutes, containsAll(['/staff-rosters', '/staff-management']));
+      expect(adminRoutes, containsAll(['/staff-rosters', '/staff-management']));
+      expect(medicalSuperRoutes, contains('/staff-rosters'));
+      expect(medicalSuperRoutes, isNot(contains('/staff-management')));
     });
 
     test('patient lookup follows backend demographic access gates', () {

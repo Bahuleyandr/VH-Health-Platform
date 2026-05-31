@@ -303,7 +303,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         _ActionTile(
           icon: Icons.manage_accounts,
           title: s.hrActionStaffManagement,
-          subtitle: 'Onboard staff, assign roles, and manage department files',
+          subtitle: s.hrActionStaffManagementSubtitle,
           color: AppTheme.primaryBlue,
           onTap: () => context.go('/staff-management'),
         ),
@@ -339,14 +339,6 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           subtitle: 'View duty roster, leave, attendance, and duty requests',
           color: AppTheme.accentCyan,
           onTap: () => context.go('/schedule'),
-        ),
-        const SizedBox(height: 10),
-        _ActionTile(
-          icon: Icons.people,
-          title: s.hrActionStaffDirectory,
-          subtitle: s.hrActionStaffDirectorySubtitle,
-          color: const Color(0xFF455A64),
-          onTap: () => context.go('/staff-directory'),
         ),
         const SizedBox(height: 10),
         _ActionTile(

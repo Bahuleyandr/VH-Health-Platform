@@ -348,7 +348,7 @@ class RoleFeatures {
   );
   static const DashboardFeature _staffManagement = DashboardFeature(
     id: 'staff_management',
-    title: 'Staff Mgmt',
+    title: 'Onboarding',
     icon: Icons.manage_accounts,
     route: '/staff-management',
     color: Color(0xFF4527A0),
@@ -436,13 +436,6 @@ class RoleFeatures {
     icon: Icons.local_pharmacy_outlined,
     route: '/staff-roster/pharmacy',
     color: Color(0xFFE65100),
-  );
-  static const DashboardFeature _medicalRoster = DashboardFeature(
-    id: 'medical_roster',
-    title: 'Doctor Roster',
-    icon: Icons.medical_services_outlined,
-    route: '/staff-roster/medical',
-    color: Color(0xFF0D47A1),
   );
   static const DashboardFeature _staffRosterHub = DashboardFeature(
     id: 'staff_roster',
@@ -724,7 +717,6 @@ class RoleFeatures {
         _performance,
         _leaveApprovals,
         _leave,
-        _staffDirectory,
         _messaging,
         _profile,
         _settings,
@@ -732,9 +724,7 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent => [
         _attendance,
         _schedule,
-        _medicalRoster,
-        _nursingRoster,
-        _opNursingRoster,
+        _staffRosterHub,
         _frontOfficeWorkbench,
         _appointments,
         _clinicalAiReviewQueue,
@@ -790,7 +780,6 @@ class RoleFeatures {
         _housekeepingCommand,
         _housekeepingHub,
         _housekeepingTasks,
-        _staffDirectory,
         _messaging,
         _profile,
         _settings,
@@ -1605,6 +1594,23 @@ class RoleFeatures {
     };
   }
 
+  static bool hasStaffRosterHub(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.hr ||
+      StaffRole.medicalSuperintendent => true,
+      _ => false,
+    };
+  }
+
+  static bool hasStaffOnboarding(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin || StaffRole.superAdmin || StaffRole.hr => true,
+      _ => false,
+    };
+  }
+
   static List<WorkbenchNavItem> getWorkbenchNavForRole(StaffRole role) {
     final items = <WorkbenchNavItem>[
       const WorkbenchNavItem(
@@ -1614,6 +1620,28 @@ class RoleFeatures {
         route: '/dashboard',
       ),
     ];
+
+    if (hasStaffRosterHub(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Staff Roster',
+          icon: Icons.calendar_month_outlined,
+          selectedIcon: Icons.calendar_month,
+          route: '/staff-rosters',
+        ),
+      );
+    }
+
+    if (hasStaffOnboarding(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Onboarding',
+          icon: Icons.manage_accounts_outlined,
+          selectedIcon: Icons.manage_accounts,
+          route: '/staff-management',
+        ),
+      );
+    }
 
     if (hasFrontOfficeWorkbench(role)) {
       items.add(
@@ -1676,7 +1704,7 @@ class RoleFeatures {
 
     items.addAll(const [
       WorkbenchNavItem(
-        label: 'Roster',
+        label: 'My Roster',
         icon: Icons.schedule_outlined,
         selectedIcon: Icons.schedule,
         route: '/schedule',

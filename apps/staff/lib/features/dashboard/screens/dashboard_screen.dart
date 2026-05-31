@@ -687,7 +687,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'staff_roster',
         'staff_management',
         'performance',
-        'staff_directory',
       },
       StaffRole.medicalSuperintendent => {
         'front_office_workbench',

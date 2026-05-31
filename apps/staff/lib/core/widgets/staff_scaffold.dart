@@ -152,16 +152,16 @@ class StaffScaffold extends StatelessWidget {
             '/dashboard',
           ),
           const _NavItem(
+            'Staff Roster',
+            Icons.calendar_month_outlined,
+            Icons.calendar_month,
+            '/staff-rosters',
+          ),
+          const _NavItem(
             'HR Hub',
             Icons.groups_outlined,
             Icons.groups,
             '/hr-dashboard',
-          ),
-          const _NavItem(
-            'Leave',
-            Icons.event_available_outlined,
-            Icons.event_available,
-            '/leave',
           ),
           const _NavItem(
             'Profile',
@@ -171,6 +171,32 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.admin || StaffRole.superAdmin:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Staff Roster',
+            Icons.calendar_month_outlined,
+            Icons.calendar_month,
+            '/staff-rosters',
+          ),
+          const _NavItem(
+            'Onboarding',
+            Icons.manage_accounts_outlined,
+            Icons.manage_accounts,
+            '/staff-management',
+          ),
+          const _NavItem(
+            'Settings',
+            Icons.settings_outlined,
+            Icons.settings,
+            '/settings',
+          ),
+        ];
       case StaffRole.medicalSuperintendent:
         return [
           const _NavItem(
@@ -180,10 +206,10 @@ class StaffScaffold extends StatelessWidget {
             '/dashboard',
           ),
           const _NavItem(
-            'Staff',
-            Icons.groups_outlined,
-            Icons.groups,
-            '/staff-management',
+            'Staff Roster',
+            Icons.calendar_month_outlined,
+            Icons.calendar_month,
+            '/staff-rosters',
           ),
           const _NavItem(
             'Directory',
