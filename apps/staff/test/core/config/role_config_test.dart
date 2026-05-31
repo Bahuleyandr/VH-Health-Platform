@@ -27,6 +27,26 @@ void main() {
       expect(StaffRole.fromString('Nursing_Staff'), StaffRole.nurse);
     });
 
+    test('normalizes hospital role aliases used by inpatient scoping', () {
+      expect(StaffRole.fromString('CONSULTANT_PHYSICIAN'), StaffRole.doctor);
+      expect(
+        StaffRole.fromString('DUTY_MEDICAL_OFFICER'),
+        StaffRole.dutyDoctor,
+      );
+      expect(
+        StaffRole.fromString('MEDICAL_SUPERINTENDANT'),
+        StaffRole.medicalSuperintendent,
+      );
+      expect(
+        StaffRole.fromString('NURSING_SUPERVISOR'),
+        StaffRole.nursingIncharge,
+      );
+      expect(
+        StaffRole.fromString('HOUSEKEEPING_ATTENDANT'),
+        StaffRole.housekeeping,
+      );
+    });
+
     test('unknown role falls back to general (never null / throw)', () {
       expect(StaffRole.fromString('BOGUS_ROLE'), StaffRole.general);
       expect(StaffRole.fromString(''), StaffRole.general);

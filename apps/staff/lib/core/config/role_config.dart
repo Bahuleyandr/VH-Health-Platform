@@ -45,6 +45,13 @@ enum StaffRole {
       return StaffRole.doctor;
     }
     if (const {
+      'DMO',
+      'DUTY_MEDICAL_OFFICER',
+      'FLOOR_DOCTOR',
+    }.contains(normalized)) {
+      return StaffRole.dutyDoctor;
+    }
+    if (const {
       'ICU_NURSE',
       'NURSE',
       'OT_NURSE',
@@ -71,6 +78,8 @@ enum StaffRole {
     if (const {
       'NURSING_IN_CHARGE',
       'NURSING_INCHARGE_ROLE',
+      'NURSING_SUPERVISOR',
+      'WARD_NURSING_INCHARGE',
     }.contains(normalized)) {
       return StaffRole.nursingIncharge;
     }

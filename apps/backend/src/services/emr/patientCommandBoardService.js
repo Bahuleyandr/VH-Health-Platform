@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { getHospitalNumberMap } from '../patient/patientIdentifierService.js';
+import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
   applyInpatientAdmissionScope,
@@ -15,6 +16,7 @@ const DOCTOR_BOARD_ROLES = new Set([
   'DUTY_DOCTOR',
   'CONSULTANT',
   'JUNIOR_DOCTOR',
+  'SENIOR_DOCTOR',
   'RESIDENT',
 ]);
 
@@ -23,6 +25,10 @@ const FULL_BOARD_ROLES = FULL_INPATIENT_SCOPE_ROLES;
 const ROLE_VIEW = {
   DOCTOR: {
     label: 'Doctor ward round',
+    visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
+  },
+  CONSULTANT: {
+    label: 'Consultant ward round',
     visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
   },
   DUTY_DOCTOR: {
@@ -48,7 +54,7 @@ const ROLE_VIEW = {
 };
 
 function normalizeRole(role) {
-  return String(role || '').trim().toUpperCase();
+  return normalizePlatformRole(role) || '';
 }
 
 function shouldMinimizePayload(role) {

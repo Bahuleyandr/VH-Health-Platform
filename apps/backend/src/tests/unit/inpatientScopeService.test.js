@@ -204,6 +204,39 @@ describe('resolveInpatientAdmissionScope', () => {
     });
   });
 
+  it('accepts duty medical officer aliases for current duty floor coverage', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        assignment_id: 13,
+        department: 'medical',
+        assignment_target_type: 'floor',
+        assignment_target_id: null,
+        assignment_target_label: 'Floor 4',
+        floor: '4',
+      }])
+      .mockResolvedValueOnce([{ id: 24, name: 'Fourth Floor Ward', floor: 4 }])
+      .mockResolvedValueOnce([{ id: 401, ward_name: 'Fourth Floor Ward', floor: 4, ward_id: 24 }]);
+
+    const result = await resolveInpatientAdmissionScope({
+      actor: { uid: DOCTOR_UID, id: 15, role: 'DUTY_MEDICAL_OFFICER', tenantId: TENANT },
+      now: new Date('2026-05-31T08:30:00.000Z'),
+    });
+
+    expect(result.scope).toEqual(expect.objectContaining({
+      type: 'duty_doctor',
+      source: 'current_published_medical_roster',
+      floors: [4],
+      wards: ['Fourth Floor Ward'],
+    }));
+    expect(result.where).toEqual({
+      tenant_id: TENANT,
+      OR: [
+        { ward: { in: ['Fourth Floor Ward'] } },
+        { bed_id: { in: [401] } },
+      ],
+    });
+  });
+
   it('falls duty doctors back to own patients when no current roster is published', async () => {
     prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
 
@@ -251,6 +284,40 @@ describe('resolveInpatientAdmissionScope', () => {
       OR: [
         { ward: { in: ['Third Floor Ward'] } },
         { bed_id: { in: [301] } },
+      ],
+    });
+  });
+
+  it('falls housekeeping staff back to active floor delegation when no roster board is current', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        assignment_id: 42,
+        department: 'housekeeping',
+        assignment_target_type: 'floor',
+        assignment_target_id: 7,
+        assignment_target_label: 'B Block - Floor II',
+        floor: '2',
+      }])
+      .mockResolvedValueOnce([{ id: 72, name: 'B Block - Floor II', floor: 2 }])
+      .mockResolvedValueOnce([{ id: 702, ward_name: 'B Block - Floor II', floor: 2, ward_id: 72 }]);
+
+    const result = await resolveInpatientAdmissionScope({
+      actor: { uid: NURSE_UID, id: 35, role: 'HOUSEKEEPING_ATTENDANT', tenantId: TENANT },
+      now: new Date('2026-05-31T08:30:00.000Z'),
+    });
+
+    expect(result.scope).toEqual(expect.objectContaining({
+      type: 'housekeeping',
+      source: 'active_housekeeping_floor_assignment',
+      floors: [2],
+      wards: ['B Block - Floor II'],
+    }));
+    expect(result.where).toEqual({
+      tenant_id: TENANT,
+      OR: [
+        { ward: { in: ['B Block - Floor II'] } },
+        { bed_id: { in: [702] } },
       ],
     });
   });

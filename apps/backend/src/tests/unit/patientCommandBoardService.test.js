@@ -95,4 +95,43 @@ describe('patientCommandBoardService', () => {
       has_more: true,
     }));
   });
+
+  it('normalizes consultant aliases before selecting board actions and scope labels', async () => {
+    prismaMock.admissions.count.mockResolvedValueOnce(1);
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      {
+        id: 9,
+        tenant_id: TENANT,
+        encounter_id: '20000000-0000-4000-8000-000000009999',
+        patient_uid: '30000000-0000-4000-8000-000000009999',
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        ward: 'Consultant Ward',
+        bed_id: 19,
+        bed_number: 'C19',
+        status: 'admitted',
+        admission_type: 'IPD',
+        priority: 'routine',
+        allergies: [],
+        admitted_at: new Date('2026-05-31T08:00:00.000Z'),
+      },
+    ]);
+
+    const result = await patientCommandBoardService.default.getPatientCommandBoard(
+      { limit: 10 },
+      { uid: DOCTOR_UID, role: 'CONSULTANT_PHYSICIAN', tenantId: TENANT },
+    );
+
+    expect(result.board.actor).toEqual(expect.objectContaining({
+      role: 'CONSULTANT',
+      view_label: 'Consultant ward round',
+    }));
+    expect(result.board.scope.role_scope).toEqual(expect.objectContaining({
+      type: 'own_patients',
+      source: 'doctor_assignment',
+    }));
+    expect(result.rows[0].actions.map((action) => action.key)).toEqual(
+      expect.arrayContaining(['notes', 'orders', 'drug_chart', 'case_sheet', 'discharge']),
+    );
+  });
 });

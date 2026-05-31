@@ -236,6 +236,74 @@ async function findCurrentRosterAssignments({ actor, department, now, timezone }
   );
 }
 
+async function findActiveHousekeepingFloorAssignments({ actor, now }) {
+  const uid = actor?.uid ? String(actor.uid) : null;
+  const staffId = parsePositiveInt(actor?.id);
+  if (!uid && !staffId) return [];
+
+  return prisma.$queryRawUnsafe(
+    `SELECT hfa.id AS assignment_id,
+            NULL::int AS roster_id,
+            'housekeeping' AS department,
+            NULL::text AS roster_date,
+            hfa.shift_label,
+            hfa.staff_id,
+            hfa.staff_uid,
+            u.role AS staff_role,
+            CASE
+              WHEN LOWER(COALESCE(hz.zone_type, '')) = 'floor' THEN 'floor'
+              ELSE 'housekeeping_zone'
+            END AS assignment_target_type,
+            hfa.zone_id AS assignment_target_id,
+            COALESCE(
+              NULLIF(hz.name, ''),
+              NULLIF(hfa.zone_name, ''),
+              NULLIF(CONCAT('Floor ', NULLIF(COALESCE(hfa.floor, hz.floor), '')), 'Floor ')
+            ) AS assignment_target_label,
+            COALESCE(NULLIF(hfa.floor, ''), NULLIF(hz.floor, '')) AS floor,
+            COALESCE(NULLIF(hfa.building, ''), NULLIF(hz.building, '')) AS building,
+            FALSE AS is_lead
+       FROM housekeeping_floor_assignments hfa
+       LEFT JOIN users u ON u.id = hfa.staff_id
+       LEFT JOIN housekeeping_zones hz ON hz.id = hfa.zone_id
+      WHERE hfa.status = 'active'
+        AND hfa.effective_from <= $3::timestamptz
+        AND (hfa.effective_to IS NULL OR hfa.effective_to > $3::timestamptz)
+        AND (
+          ($1::uuid IS NOT NULL AND hfa.staff_uid = $1::uuid)
+          OR ($2::int IS NOT NULL AND hfa.staff_id = $2::int)
+        )
+      ORDER BY hfa.is_temporary DESC, hfa.created_at DESC, hfa.id DESC`,
+    uid,
+    staffId,
+    normalizeDate(now).toISOString(),
+  );
+}
+
+async function findCurrentCoverageAssignments({ actor, rosterScope, now, timezone }) {
+  const rosterAssignments = await findCurrentRosterAssignments({
+    actor,
+    department: rosterScope.department,
+    now,
+    timezone,
+  });
+  if (rosterAssignments.length || rosterScope.department !== 'housekeeping') {
+    return {
+      assignments: rosterAssignments,
+      source: `current_published_${rosterScope.department}_roster`,
+    };
+  }
+
+  const delegatedAssignments = await findActiveHousekeepingFloorAssignments({ actor, now });
+  const delegated = Array.isArray(delegatedAssignments) ? delegatedAssignments : [];
+  return {
+    assignments: delegated,
+    source: delegated.length
+      ? 'active_housekeeping_floor_assignment'
+      : `current_published_${rosterScope.department}_roster`,
+  };
+}
+
 async function resolveRosterCoverage(assignments, tenantId) {
   const coverage = collectCoverageInputs(assignments);
   if (coverage.allFloors) {
@@ -416,9 +484,9 @@ export async function resolveInpatientAdmissionScope({
 
   const rosterScope = ROSTER_INPATIENT_SCOPE_BY_ROLE[role];
   if (rosterScope) {
-    const assignments = await findCurrentRosterAssignments({
+    const { assignments, source } = await findCurrentCoverageAssignments({
       actor,
-      department: rosterScope.department,
+      rosterScope,
       now,
       timezone,
     });
@@ -450,7 +518,7 @@ export async function resolveInpatientAdmissionScope({
       where: withTenant(coverageWhere(coverage), tenantId),
       scope: {
         type: rosterScope.type,
-        source: `current_published_${rosterScope.department}_roster`,
+        source,
         tenant_id: tenantId,
         assignment_count: assignments.length,
         all_floors: coverage.allFloors,
@@ -488,9 +556,9 @@ export async function resolveInpatientLocationScope({
   const rosterScope = ROSTER_INPATIENT_SCOPE_BY_ROLE[role];
 
   if (rosterScope) {
-    const assignments = await findCurrentRosterAssignments({
+    const { assignments, source } = await findCurrentCoverageAssignments({
       actor,
-      department: rosterScope.department,
+      rosterScope,
       now,
       timezone,
     });
@@ -532,7 +600,7 @@ export async function resolveInpatientLocationScope({
       ...coverage,
       scope: {
         type: rosterScope.type,
-        source: `current_published_${rosterScope.department}_roster`,
+        source,
         tenant_id: tenantId,
         assignment_count: assignments.length,
         all_floors: coverage.allFloors,

@@ -6,6 +6,7 @@ import {
 } from '../emr/inpatientScopeService.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
+import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
 
 const BED_RETURNING = `id, ward_id, bed_number, status, patient_id, patient_name,
     admitted_at, notes, assigned_at, created_at, updated_at`;
@@ -67,7 +68,7 @@ function truthyParam(value) {
 }
 
 function normalizeRole(role) {
-  return String(role || '').trim().toUpperCase();
+  return normalizePlatformRole(role) || '';
 }
 
 function shouldMinimizeBedPayload(actor = {}) {
