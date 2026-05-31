@@ -4,6 +4,35 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
+const _defaultDepartmentOptions = <String>[
+  'Admissions',
+  'Billing',
+  'Emergency',
+  'General',
+  'Housekeeping',
+  'ICU',
+  'Insurance',
+  'Laboratory',
+  'Maintenance',
+  'Nursing',
+  'OPD',
+  'Pharmacy',
+  'Radiology',
+  'Reception',
+  'Security',
+];
+
+List<String> _uniqueSortedDepartments(Iterable<Object?> values) {
+  final seen = <String, String>{};
+  for (final value in values) {
+    final department = value?.toString().trim() ?? '';
+    if (department.isEmpty) continue;
+    seen.putIfAbsent(department.toLowerCase(), () => department);
+  }
+  return seen.values.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+}
+
 /// Staff Management screen — HR/Admin can view and edit staff members.
 class StaffManagementScreen extends StatefulWidget {
   const StaffManagementScreen({super.key});
@@ -20,6 +49,11 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   String _searchQuery = '';
   String? _selectedDept;
   final _searchCtrl = TextEditingController();
+
+  List<String> get _departmentOptions => _uniqueSortedDepartments([
+    ..._defaultDepartmentOptions,
+    ..._staff.map((row) => row['department']),
+  ]);
 
   @override
   void initState() {
@@ -179,7 +213,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   void _showEditDialog(BuildContext context, dynamic staff) {
     showDialog(
       context: context,
-      builder: (_) => _StaffFormDialog(staff: staff),
+      builder: (_) => _StaffFormDialog(
+        staff: staff,
+        departmentOptions: _departmentOptions,
+      ),
     ).then((_) => _load());
   }
 }
@@ -292,7 +329,11 @@ class _StaffCard extends StatelessWidget {
 
 class _StaffFormDialog extends StatefulWidget {
   final dynamic staff;
-  const _StaffFormDialog({required this.staff});
+  final List<String> departmentOptions;
+  const _StaffFormDialog({
+    required this.staff,
+    required this.departmentOptions,
+  });
 
   @override
   State<_StaffFormDialog> createState() => _StaffFormDialogState();
@@ -307,9 +348,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   late TextEditingController _deptCtrl;
   late TextEditingController _positionCtrl;
   late TextEditingController _passwordCtrl;
+  late FocusNode _deptFocusNode;
   String _role = 'NURSING_STAFF';
   String _shift = 'FULL_DAY';
   bool _submitting = false;
+  bool _showAllDepartments = false;
 
   static const _roleOptions = <_StaffRoleOption>[
     _StaffRoleOption('DOCTOR', 'Doctor'),
@@ -352,6 +395,12 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
       text: widget.staff?['employee_id'] ?? widget.staff?['employeeId'] ?? '',
     );
     _deptCtrl = TextEditingController(text: widget.staff?['department'] ?? '');
+    _deptFocusNode = FocusNode()
+      ..addListener(() {
+        if (!_deptFocusNode.hasFocus && _showAllDepartments && mounted) {
+          setState(() => _showAllDepartments = false);
+        }
+      });
     _positionCtrl = TextEditingController(
       text: widget.staff?['position'] ?? widget.staff?['designation'] ?? '',
     );
@@ -373,6 +422,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     _emailCtrl.dispose();
     _employeeIdCtrl.dispose();
     _deptCtrl.dispose();
+    _deptFocusNode.dispose();
     _positionCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
@@ -499,9 +549,24 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                TextFormField(
+                _DepartmentAutocompleteField(
                   controller: _deptCtrl,
-                  decoration: InputDecoration(labelText: s.staffMgmtDepartment),
+                  focusNode: _deptFocusNode,
+                  label: s.staffMgmtDepartment,
+                  showAllOptions: _showAllDepartments,
+                  options: _uniqueSortedDepartments([
+                    ...widget.departmentOptions,
+                    _deptCtrl.text,
+                  ]),
+                  onChanged: (_) {
+                    if (_showAllDepartments) {
+                      setState(() => _showAllDepartments = false);
+                    }
+                  },
+                  onShowAll: () {
+                    setState(() => _showAllDepartments = true);
+                    _deptFocusNode.requestFocus();
+                  },
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Department is required'
                       : null,
@@ -557,6 +622,122 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
           child: Text(_submitting ? s.profileSavingButton : s.actionSave),
         ),
       ],
+    );
+  }
+}
+
+class _DepartmentAutocompleteField extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String label;
+  final List<String> options;
+  final bool showAllOptions;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onShowAll;
+  final FormFieldValidator<String>? validator;
+
+  const _DepartmentAutocompleteField({
+    required this.controller,
+    required this.focusNode,
+    required this.label,
+    required this.options,
+    required this.showAllOptions,
+    required this.onChanged,
+    required this.onShowAll,
+    this.validator,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return RawAutocomplete<String>(
+          textEditingController: controller,
+          focusNode: focusNode,
+          displayStringForOption: (option) => option,
+          optionsBuilder: (textEditingValue) {
+            final query = textEditingValue.text.trim().toLowerCase();
+            if (showAllOptions || query.isEmpty) return options;
+            return options.where(
+              (department) => department.toLowerCase().contains(query),
+            );
+          },
+          onSelected: (selection) {
+            controller.text = selection;
+            onChanged(selection);
+          },
+          fieldViewBuilder:
+              (context, textController, fieldFocusNode, onFieldSubmitted) {
+                return TextFormField(
+                  controller: textController,
+                  focusNode: fieldFocusNode,
+                  decoration: InputDecoration(
+                    labelText: label,
+                    suffixIcon: IconButton(
+                      tooltip: 'Show department options',
+                      icon: const Icon(Icons.arrow_drop_down),
+                      onPressed: onShowAll,
+                    ),
+                  ),
+                  onChanged: onChanged,
+                  validator: validator,
+                );
+              },
+          optionsViewBuilder: (context, onSelected, availableOptions) {
+            final optionList = availableOptions.toList(growable: false);
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(8),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: 260,
+                    maxWidth: constraints.maxWidth,
+                    minWidth: constraints.maxWidth,
+                  ),
+                  child: ListView.separated(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: optionList.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final option = optionList[index];
+                      final highlighted =
+                          AutocompleteHighlightedOption.of(context) == index;
+                      final selected = controller.text == option;
+                      return InkWell(
+                        onTap: () => onSelected(option),
+                        child: Container(
+                          color: highlighted
+                              ? AppTheme.primaryBlue.withValues(alpha: 0.08)
+                              : null,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(option)),
+                              if (selected)
+                                const Icon(
+                                  Icons.check,
+                                  size: 18,
+                                  color: AppTheme.primaryBlue,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
