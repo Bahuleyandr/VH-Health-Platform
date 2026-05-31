@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
+import '../services/recent_patients_service.dart';
+
+typedef SessionTimeoutCleanup = Future<void> Function();
 
 /// Tracks user activity and enforces an idle session timeout.
 ///
@@ -9,10 +12,14 @@ import '../config/api_config.dart';
 /// The app's router redirect guard should check this flag and navigate
 /// to the login screen when it fires.
 class SessionTimeoutProvider extends ChangeNotifier {
-  SessionTimeoutProvider({this.timeoutDuration = const Duration(minutes: 15)});
+  SessionTimeoutProvider({
+    this.timeoutDuration = const Duration(minutes: 15),
+    SessionTimeoutCleanup? onTimeoutCleanup,
+  }) : _onTimeoutCleanup = onTimeoutCleanup ?? _defaultTimeoutCleanup;
 
   /// How long the user can be idle before automatic logout.
   final Duration timeoutDuration;
+  final SessionTimeoutCleanup _onTimeoutCleanup;
 
   Timer? _timer;
   bool _expired = false;
@@ -51,11 +58,16 @@ class SessionTimeoutProvider extends ChangeNotifier {
     _expired = true;
     _timer = null;
     try {
-      await ApiConfig.clearAll();
+      await _onTimeoutCleanup();
     } catch (e) {
-      debugPrint('SessionTimeout: failed to clear credentials: $e');
+      debugPrint('SessionTimeout: failed to clear local session state: $e');
     }
     notifyListeners();
+  }
+
+  static Future<void> _defaultTimeoutCleanup() async {
+    await ApiConfig.clearAll();
+    await RecentPatientsService.clear();
   }
 
   @override

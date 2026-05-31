@@ -281,73 +281,87 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
           // Wrap in a Listener to detect user interaction for idle timeout
-          return Listener(
-            onPointerDown: (_) {
-              context.read<SessionTimeoutProvider>().recordActivity();
+          final sessionTimeout = context.read<SessionTimeoutProvider>();
+          void recordActivity() => sessionTimeout.recordActivity();
+
+          return Focus(
+            onKeyEvent: (_, event) {
+              if (event is KeyDownEvent || event is KeyRepeatEvent) {
+                recordActivity();
+              }
+              return KeyEventResult.ignored;
             },
-            // Global keyboard shortcuts. Ctrl+K (Cmd+K on macOS) opens
-            // the patient picker from anywhere in the app. Esc closes
-            // the topmost route (sheet / dialog) when there's something
-            // to pop. F5 reloads the current route via the router. The
-            // Shortcuts widget MUST sit above MaterialApp so the
-            // bindings get a chance to handle the key event before
-            // descendant widgets consume it.
-            child: Shortcuts(
-              shortcuts: <ShortcutActivator, Intent>{
-                const SingleActivator(LogicalKeyboardKey.keyK, control: true):
-                    const _OpenPatientPickerIntent(),
-                const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
-                    const _OpenPatientPickerIntent(),
-                const SingleActivator(LogicalKeyboardKey.escape):
-                    const _DismissTopRouteIntent(),
+            child: Listener(
+              onPointerDown: (_) {
+                recordActivity();
               },
-              child: Actions(
-                actions: <Type, Action<Intent>>{
-                  _OpenPatientPickerIntent:
-                      CallbackAction<_OpenPatientPickerIntent>(
-                        onInvoke: (_) {
-                          final ctx = rootNavigatorKey.currentContext;
-                          if (ctx != null) {
-                            PatientSearchSheet.show(ctx);
-                          }
-                          return null;
-                        },
-                      ),
-                  _DismissTopRouteIntent:
-                      CallbackAction<_DismissTopRouteIntent>(
-                        onInvoke: (_) {
-                          final nav = rootNavigatorKey.currentState;
-                          if (nav != null && nav.canPop()) nav.pop();
-                          return null;
-                        },
-                      ),
+              onPointerSignal: (_) {
+                recordActivity();
+              },
+              // Global keyboard shortcuts. Ctrl+K (Cmd+K on macOS) opens
+              // the patient picker from anywhere in the app. Esc closes
+              // the topmost route (sheet / dialog) when there's something
+              // to pop. F5 reloads the current route via the router. The
+              // Shortcuts widget MUST sit above MaterialApp so the
+              // bindings get a chance to handle the key event before
+              // descendant widgets consume it.
+              child: Shortcuts(
+                shortcuts: <ShortcutActivator, Intent>{
+                  const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+                      const _OpenPatientPickerIntent(),
+                  const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+                      const _OpenPatientPickerIntent(),
+                  const SingleActivator(LogicalKeyboardKey.escape):
+                      const _DismissTopRouteIntent(),
                 },
-                child: MaterialApp.router(
-                  title: 'VHHealth Staff',
-                  debugShowCheckedModeBanner: false,
-                  theme: themeProvider.lightTheme,
-                  darkTheme: themeProvider.darkTheme,
-                  themeMode: themeProvider.themeMode,
-                  // Localization delegates wire built-in Material/
-                  // Cupertino translations (date pickers, drawer back
-                  // button, etc.) for the supported locales. App-
-                  // specific strings live in `lib/l10n/app_strings.dart`
-                  // and are accessed via `AppStrings.of(context)`.
-                  localizationsDelegates: const [
-                    GlobalMaterialLocalizations.delegate,
-                    GlobalWidgetsLocalizations.delegate,
-                    GlobalCupertinoLocalizations.delegate,
-                  ],
-                  supportedLocales: AppStrings.supportedLocales,
-                  routerConfig: appRouter,
-                  // Listens for `session:revoked` realtime events (pushed
-                  // when this account just logged in elsewhere) and kicks
-                  // to /login immediately, rather than waiting for the
-                  // next API call to 401. Lives in the MaterialApp
-                  // builder so a ScaffoldMessenger is reachable for the
-                  // snackbar.
-                  builder: (context, child) => SessionRevocationListener(
-                    child: child ?? const SizedBox.shrink(),
+                child: Actions(
+                  actions: <Type, Action<Intent>>{
+                    _OpenPatientPickerIntent:
+                        CallbackAction<_OpenPatientPickerIntent>(
+                          onInvoke: (_) {
+                            final ctx = rootNavigatorKey.currentContext;
+                            if (ctx != null) {
+                              PatientSearchSheet.show(ctx);
+                            }
+                            return null;
+                          },
+                        ),
+                    _DismissTopRouteIntent:
+                        CallbackAction<_DismissTopRouteIntent>(
+                          onInvoke: (_) {
+                            final nav = rootNavigatorKey.currentState;
+                            if (nav != null && nav.canPop()) nav.pop();
+                            return null;
+                          },
+                        ),
+                  },
+                  child: MaterialApp.router(
+                    title: 'VHHealth Staff',
+                    debugShowCheckedModeBanner: false,
+                    theme: themeProvider.lightTheme,
+                    darkTheme: themeProvider.darkTheme,
+                    themeMode: themeProvider.themeMode,
+                    // Localization delegates wire built-in Material/
+                    // Cupertino translations (date pickers, drawer back
+                    // button, etc.) for the supported locales. App-
+                    // specific strings live in `lib/l10n/app_strings.dart`
+                    // and are accessed via `AppStrings.of(context)`.
+                    localizationsDelegates: const [
+                      GlobalMaterialLocalizations.delegate,
+                      GlobalWidgetsLocalizations.delegate,
+                      GlobalCupertinoLocalizations.delegate,
+                    ],
+                    supportedLocales: AppStrings.supportedLocales,
+                    routerConfig: appRouter,
+                    // Listens for `session:revoked` realtime events (pushed
+                    // when this account just logged in elsewhere) and kicks
+                    // to /login immediately, rather than waiting for the
+                    // next API call to 401. Lives in the MaterialApp
+                    // builder so a ScaffoldMessenger is reachable for the
+                    // snackbar.
+                    builder: (context, child) => SessionRevocationListener(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               ),
