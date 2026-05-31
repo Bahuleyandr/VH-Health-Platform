@@ -21,8 +21,18 @@ type NavItem = {
   href: string;
   /** Optional role requirement (SUPER_ADMIN always allowed) */
   requiredRole?: 'ADMIN' | 'SUPER_ADMIN';
+  /** Optional minimum portal tier (SUPER_ADMIN always allowed) */
+  minRole?: 'STAFF' | 'DOCTOR' | 'HR' | 'ADMIN' | 'SUPER_ADMIN';
   /** Optional permission requirements (ALL must be present; SUPER_ADMIN always allowed) */
   requiredPermissions?: string[];
+};
+
+const ROLE_RANK: Record<string, number> = {
+  STAFF: 0,
+  DOCTOR: 1,
+  HR: 2,
+  ADMIN: 3,
+  SUPER_ADMIN: 4,
 };
 
 const navigation: NavItem[] = [
@@ -32,19 +42,19 @@ const navigation: NavItem[] = [
   { name: 'Departments', href: '/dashboard/departments', requiredPermissions: ['departmentManagement'] },
   { name: 'Appointments', href: '/dashboard/appointments', requiredPermissions: ['appointmentManagement'] },
   { name: 'Pharmacy', href: '/dashboard/pharmacy', requiredPermissions: ['pharmacyAdminRoutes'] },
-  { name: 'Reporting', href: '/dashboard/reporting', requiredPermissions: ['viewAuditLogs'] },
+  { name: 'Reporting', href: '/dashboard/reporting', minRole: 'HR' },
   { name: 'Analytics', href: '/dashboard/analytics', requiredPermissions: ['viewAuditLogs'] },
   { name: 'Report Builder', href: '/dashboard/report-builder', requiredPermissions: ['viewAuditLogs'] },
-  { name: 'Staff Roster', href: '/dashboard/staff-roster', requiredPermissions: ['userManagement'] },
+  { name: 'Staff Roster', href: '/dashboard/staff-roster', minRole: 'HR' },
   { name: 'Attendance', href: '/dashboard/attendance', requiredPermissions: ['userManagement'] },
-  { name: 'Leave Approvals', href: '/dashboard/leave-approvals', requiredPermissions: ['userManagement'] },
-  { name: 'Shift Management', href: '/dashboard/shifts', requiredPermissions: ['userManagement'] },
+  { name: 'Leave Approvals', href: '/dashboard/leave-approvals', minRole: 'HR' },
+  { name: 'Shift Management', href: '/dashboard/shifts', minRole: 'HR' },
   { name: 'Reports Audit', href: '/dashboard/audit', requiredRole: 'ADMIN' },
   { name: 'System Audit Log', href: '/dashboard/system-audit', requiredRole: 'ADMIN' },
   { name: 'Attendance Audit', href: '/dashboard/attendance-audit', requiredRole: 'ADMIN' },
-  { name: 'Incident Reports', href: '/dashboard/incidents', requiredPermissions: ['userManagement'] },
-  { name: 'Housekeeping', href: '/dashboard/housekeeping', requiredPermissions: ['userManagement'] },
-  { name: 'Grievances (HR)', href: '/dashboard/grievances', requiredPermissions: ['userManagement'] },
+  { name: 'Incident Reports', href: '/dashboard/incidents', minRole: 'HR' },
+  { name: 'Housekeeping', href: '/dashboard/housekeeping', minRole: 'HR' },
+  { name: 'Grievances (HR)', href: '/dashboard/grievances', minRole: 'HR' },
   { name: 'Bed Management', href: '/dashboard/beds', requiredPermissions: ['departmentManagement'] },
   { name: 'Notifications', href: '/dashboard/notifications', requiredPermissions: ['notificationManagement'] },
   { name: 'Payroll & HR Comp', href: '/dashboard/payroll', requiredRole: 'ADMIN' },
@@ -79,9 +89,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const visibleNav = useMemo(() => {
     return navigation.filter((item) => {
       const roleOk = !item.requiredRole || isSuperAdmin || role === item.requiredRole;
+      const minRoleOk = !item.minRole || isSuperAdmin || (ROLE_RANK[role ?? ''] ?? -1) >= ROLE_RANK[item.minRole];
       const perms = item.requiredPermissions ?? [];
       const permsOk = perms.length === 0 || isSuperAdmin || hasAllPermissions(perms);
-      return roleOk && permsOk;
+      return roleOk && minRoleOk && permsOk;
     });
   }, [role, isSuperAdmin, hasAllPermissions]);
 

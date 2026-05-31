@@ -22,6 +22,25 @@ const DOCTOR_BOARD_ROLES = new Set([
 
 const FULL_BOARD_ROLES = FULL_INPATIENT_SCOPE_ROLES;
 
+const MEDICAL_BOARD_ACTION_ROLES = new Set([
+  ...DOCTOR_BOARD_ROLES,
+  'CMO',
+  'MEDICAL_SUPERINTENDENT',
+]);
+
+const NURSING_BOARD_ACTION_ROLES = new Set([
+  'CNO',
+  'ICU_INCHARGE',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+]);
+
+const PHARMACY_BOARD_ACTION_ROLES = new Set([
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+]);
+
 const ROLE_VIEW = {
   DOCTOR: {
     label: 'Doctor ward round',
@@ -43,9 +62,29 @@ const ROLE_VIEW = {
     label: 'Nursing command',
     visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
   },
+  CNO: {
+    label: 'Nursing superintendent command',
+    visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
+  },
+  MEDICAL_SUPERINTENDENT: {
+    label: 'Medical superintendent command',
+    visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
+  },
   PHARMACY_STAFF: {
     label: 'Pharmacy IP board',
     visible_sections: ['summary', 'allergies', 'tasks', 'discharge', 'actions'],
+  },
+  PHARMACY_INCHARGE: {
+    label: 'Pharmacy command',
+    visible_sections: ['summary', 'allergies', 'tasks', 'discharge', 'actions'],
+  },
+  HOUSEKEEPING_STAFF: {
+    label: 'Housekeeping floor board',
+    visible_sections: ['summary', 'location', 'discharge'],
+  },
+  HOUSEKEEPING_INCHARGE: {
+    label: 'Housekeeping command',
+    visible_sections: ['summary', 'location', 'discharge'],
   },
   RECEPTIONIST: {
     label: 'Admission desk board',
@@ -255,7 +294,7 @@ function actionsForRole(role, admission) {
   const base = [];
   if (!patient) return base;
 
-  if (DOCTOR_BOARD_ROLES.has(role) || FULL_BOARD_ROLES.has(role)) {
+  if (MEDICAL_BOARD_ACTION_ROLES.has(role)) {
     base.push(
       { key: 'notes', label: 'Progress notes', route: `/emr/notes/${patient}` },
       { key: 'orders', label: 'Orders', route: `/emr/orders/${patient}` },
@@ -263,7 +302,7 @@ function actionsForRole(role, admission) {
       { key: 'case_sheet', label: 'Case sheet', route: `/emr/case-sheet/${id}` },
       { key: 'discharge', label: 'Discharge', route: `/emr/discharge-hub/${id}` },
     );
-  } else if (role === 'NURSING_STAFF' || role === 'NURSING_INCHARGE' || role === 'CNO') {
+  } else if (NURSING_BOARD_ACTION_ROLES.has(role)) {
     base.push(
       { key: 'vitals', label: 'Vitals', route: `/emr/vitals/${patient}` },
       { key: 'notes', label: 'Nursing notes', route: `/nursing-notes?patient_uid=${patient}` },
@@ -271,10 +310,15 @@ function actionsForRole(role, admission) {
       { key: 'handover', label: 'Handover', route: '/handover' },
       { key: 'discharge', label: 'Discharge', route: `/emr/discharge-hub/${id}` },
     );
-  } else if (role === 'PHARMACY_STAFF' || role === 'PHARMACY_INCHARGE') {
+  } else if (PHARMACY_BOARD_ACTION_ROLES.has(role)) {
     base.push(
       { key: 'drug_chart', label: 'Drug chart', route: `/drug-chart/${id}` },
       { key: 'discharge', label: 'Discharge meds', route: `/emr/discharge-hub/${id}` },
+    );
+  } else if (FULL_BOARD_ROLES.has(role)) {
+    base.push(
+      { key: 'case_sheet', label: 'Case sheet', route: `/emr/case-sheet/${id}` },
+      { key: 'discharge', label: 'Discharge', route: `/emr/discharge-hub/${id}` },
     );
   } else {
     base.push(

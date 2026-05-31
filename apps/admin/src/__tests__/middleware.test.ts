@@ -295,7 +295,6 @@ describe("ADMIN_ONLY_PATHS", () => {
     "/dashboard/analytics",
     "/dashboard/settings",
     "/dashboard/audit",
-    "/dashboard/attendance-audit",
     "/dashboard/admin-management",
   ];
 
@@ -382,6 +381,7 @@ describe("HR_PLUS_PATHS", () => {
     "/dashboard/incidents",
     "/dashboard/grievances",
     "/dashboard/staff-roster",
+    "/dashboard/attendance-audit",
     "/dashboard/reporting",
   ];
 
@@ -422,6 +422,21 @@ describe("HR_PLUS_PATHS", () => {
     async (path) => {
       const token = fakeJwt({
         role: "HR",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      });
+      const req = makeRequest(path, token);
+      await middleware(req);
+
+      expect(mockNext).toHaveBeenCalledTimes(1);
+      expect(mockRedirect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(hrPlusPaths)(
+    "allows HR_STAFF to access %s",
+    async (path) => {
+      const token = fakeJwt({
+        role: "HR_STAFF",
         exp: Math.floor(Date.now() / 1000) + 3600,
       });
       const req = makeRequest(path, token);

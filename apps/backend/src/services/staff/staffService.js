@@ -6,6 +6,10 @@ import { buildPagination } from '../../utils/listQuery.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 import { DEFAULT_ONBOARDING_TASKS } from './hr/constants.js';
 
+const ONBOARDABLE_STAFF_ROLES = Object.values(STAFF_ROLES).filter(
+  (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
+);
+
 export const getStaffList = async (filters, userRole) => {
   const allowedRoles = getStaffHierarchy(userRole);
   const { page, limit, role, department, shift, active, search, supervisor_id, skill } = filters;
@@ -361,7 +365,7 @@ async function seedOnboardingTasks(userIntId, createdBy) {
 }
 
 async function resolveOrCreateStaffUser(data) {
-  const validStaffRoles = Object.values(STAFF_ROLES);
+  const validStaffRoles = ONBOARDABLE_STAFF_ROLES;
   const rawUserId = data.user_id || data.user_uid;
   if (rawUserId) {
     const userRows = isUuid(rawUserId)

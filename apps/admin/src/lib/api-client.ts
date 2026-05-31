@@ -4,7 +4,7 @@
 // localStorage is used ONLY for caching non-sensitive user profile data.
 // All API calls go through /api/proxy which uses the cookie automatically.
 
-import { API_BASE_URL, API_ENDPOINTS } from "./api-config";
+import { API_ENDPOINTS } from "./api-config";
 import {
   getJSON,
   postJSON,
@@ -108,10 +108,9 @@ export async function staffLogin(
   user?: AdminUser;
   success: boolean;
 }> {
-  const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.auth.staff.login}`, {
+  const res = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ employeeId, password }),
   });
 
@@ -127,13 +126,6 @@ export async function staffLogin(
   if (!token) throw new Error("No token received from server");
 
   const staffUser = payload.staff ?? (payload.admin as AdminUser | undefined);
-
-  // Set httpOnly cookie via our login API route
-  await fetch("/api/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
 
   // Cache user profile (non-sensitive) with timestamp for UI
   if (staffUser) cacheAdminUser(staffUser);

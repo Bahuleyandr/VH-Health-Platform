@@ -6,7 +6,7 @@
  * later; this file scaffolds the admin test infra for Phase 2.
  */
 
-import { adminLogin, refreshToken } from "@/lib/api-client";
+import { adminLogin, refreshToken, staffLogin } from "@/lib/api-client";
 
 type FetchArgs = [RequestInfo | URL, RequestInit | undefined];
 let fetchCalls: FetchArgs[] = [];
@@ -112,6 +112,41 @@ describe("adminLogin", () => {
     await expect(adminLogin(TEST_ADMIN_USERNAME, "pw")).rejects.toThrow(
       /No token received/,
     );
+  });
+});
+
+describe("staffLogin", () => {
+  it("POSTs staff credentials to /api/login and caches the staff profile", async () => {
+    mockFetch(async () =>
+      jsonResponse(200, {
+        data: {
+          accessToken: "staff-jwt",
+          staff: {
+            id: 1005,
+            uid: "staff-uid",
+            name: "Test HR",
+            employeeId: "EMP-1005",
+            role: "HR_STAFF",
+            permissions: [],
+          },
+        },
+      }),
+    );
+
+    const result = await staffLogin("EMP-1005", TEST_LOGIN_SECRET);
+    expect(result.success).toBe(true);
+    expect(result.token).toBe("staff-jwt");
+    expect(result.user?.role).toBe("HR_STAFF");
+
+    expect(fetchCalls).toHaveLength(1);
+    const [url, init] = fetchCalls[0];
+    expect(String(url)).toBe("/api/login");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      employeeId: "EMP-1005",
+      [PASSWORD_FIELD]: TEST_LOGIN_SECRET,
+    });
+    expect(JSON.parse(localStorage.getItem("adminUser") || "{}").role).toBe("HR_STAFF");
   });
 });
 

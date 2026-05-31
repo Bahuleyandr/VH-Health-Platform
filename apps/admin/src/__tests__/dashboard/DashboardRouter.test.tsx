@@ -10,6 +10,15 @@ jest.mock("@/hooks/usePermissions", () => ({
   usePermissions: jest.fn(),
 }));
 
+jest.mock("@/lib/api/staff", () => ({
+  getHRDashboard: jest.fn().mockResolvedValue({
+    overview: { active_staff: 2, currently_checked_in: 1 },
+    departmentBreakdown: [],
+    leaves: { pending: 0 },
+  }),
+  getStaffList: jest.fn().mockResolvedValue({ staff: [] }),
+}));
+
 const mockedUsePermissions = usePermissions as jest.MockedFunction<typeof usePermissions>;
 
 function mockPermissions(overrides: Partial<ReturnType<typeof usePermissions>>) {
@@ -45,7 +54,7 @@ describe("DashboardRouter", () => {
 
     render(<DashboardRouter />);
 
-    expect(screen.getByText("Loading dashboard…")).toBeInTheDocument();
+    expect(screen.getByText("Loading dashboard...")).toBeInTheDocument();
   });
 
   it("renders the admin command center only for admin users", () => {
@@ -76,6 +85,7 @@ describe("DashboardRouter", () => {
     expect(screen.getByRole("heading", { name: "HR Dashboard" })).toBeInTheDocument();
     expect(screen.getByText("Leave Approvals")).toBeInTheDocument();
     expect(screen.getByText("Attendance Audit")).toBeInTheDocument();
+    expect(screen.getAllByText("Staff Roster").length).toBeGreaterThan(0);
     expect(screen.queryByText("Admin command center")).not.toBeInTheDocument();
   });
 

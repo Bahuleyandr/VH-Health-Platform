@@ -8,6 +8,25 @@ import type { AdminUser, AdminRole } from '@/lib/types';
 // Role hierarchy (higher index = more privileged)
 const ROLE_ORDER: AdminRole[] = ['STAFF', 'DOCTOR', 'HR', 'ADMIN', 'SUPER_ADMIN'];
 
+const HR_DOMAIN_ROLES = new Set(['HR_STAFF']);
+const DOCTOR_DOMAIN_ROLES = new Set([
+  'DOCTOR',
+  'ANAESTHETIST',
+  'DUTY_DOCTOR',
+  'MEDICAL_SUPERINTENDENT',
+]);
+const ADMIN_DOMAIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+const IT_DOMAIN_ROLES = new Set(['IT', 'IT_ADMIN', 'IT_STAFF', 'SYSTEM_ADMIN']);
+
+function normalizePortalRole(role: AdminRole | null): AdminRole | null {
+  if (!role) return null;
+  if (ADMIN_DOMAIN_ROLES.has(role) || IT_DOMAIN_ROLES.has(role)) return role;
+  if (HR_DOMAIN_ROLES.has(role)) return 'HR';
+  if (DOCTOR_DOMAIN_ROLES.has(role)) return 'DOCTOR';
+  if (role === 'HR' || role === 'DOCTOR' || role === 'STAFF') return role;
+  return 'STAFF';
+}
+
 function roleRank(role: AdminRole | null): number {
   if (!role) return -1;
   return ROLE_ORDER.indexOf(role);
@@ -48,7 +67,8 @@ export interface UsePermissionsResult {
 export function usePermissions(options?: UsePermissionsOptions): UsePermissionsResult {
   const { user, loading } = useAuth();
 
-  const role = (user?.role as AdminRole | undefined) ?? null;
+  const rawRole = (user?.role as AdminRole | undefined) ?? null;
+  const role = normalizePortalRole(rawRole);
 
   const permissions = useMemo<string[]>(
     () => user?.permissions ?? [],

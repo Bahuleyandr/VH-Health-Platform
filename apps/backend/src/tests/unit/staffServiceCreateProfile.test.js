@@ -108,4 +108,27 @@ describe('createStaffProfile onboarding account creation', () => {
     expect(result.staff.employee_id).toBe('EMP-1048');
     expect(result.onboarding.tasks_created).toBe(6);
   });
+
+  it('rejects platform admin roles in staff onboarding', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{ employee_id: 'EMP-1048' }])
+      .mockResolvedValueOnce([]);
+
+    await expect(createStaffProfile(
+      {
+        name: 'Privileged User',
+        phone: '9876543210',
+        role: 'ADMIN',
+        department: 'Administration',
+        position: 'Administrator',
+        temporary_password: 'test1234',
+      },
+      '11111111-1111-4111-8111-111111111111',
+      'Test HR',
+      '127.0.0.1',
+    )).rejects.toThrow('INVALID_ROLE');
+
+    expect(usersCreate).not.toHaveBeenCalled();
+    expect(onboardingCreate).not.toHaveBeenCalled();
+  });
 });

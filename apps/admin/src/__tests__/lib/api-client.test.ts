@@ -70,6 +70,13 @@ describe("getAdminUser", () => {
     const result = getAdminUser();
     expect(result?.name).toBe("Admin");
   });
+
+  it("keeps real HR staff sessions cached", () => {
+    const user = { id: 1005, name: "Test HR", role: "HR_STAFF" as const, permissions: [], employee_id: "EMP-1005" };
+    localStorage.setItem("adminUser", JSON.stringify(user));
+    const result = getAdminUser();
+    expect(result?.role).toBe("HR_STAFF");
+  });
 });
 
 // ---------------------------------------------------------------------------

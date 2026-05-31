@@ -81,7 +81,6 @@ const ADMIN_ONLY_PATHS = [
   "/dashboard/analytics",
   "/dashboard/settings",
   "/dashboard/audit",
-  "/dashboard/attendance-audit",
   "/dashboard/admin-management",
 ];
 
@@ -105,13 +104,35 @@ const HR_PLUS_PATHS = [
   "/dashboard/incidents",
   "/dashboard/grievances",
   "/dashboard/staff-roster",
+  "/dashboard/attendance-audit",
   "/dashboard/reporting",
 ];
 
 const ROLE_RANK: Record<string, number> = {
   STAFF: 0,
+  GENERAL_STAFF: 0,
+  NURSING_STAFF: 0,
+  NURSING_INCHARGE: 0,
+  OP_STAFF_NURSE: 0,
+  OP_INCHARGE: 0,
+  PHARMACY_STAFF: 0,
+  LAB_STAFF: 0,
+  RADIOLOGY_STAFF: 0,
+  HOUSEKEEPING_STAFF: 0,
+  HOUSEKEEPING_INCHARGE: 0,
+  RECEPTIONIST: 0,
+  RECEPTION_INCHARGE: 0,
+  DRIVER: 0,
+  SECURITY: 0,
+  MAINTENANCE: 0,
+  EMERGENCY_RESPONDER: 0,
   DOCTOR: 1,
+  ANAESTHETIST: 1,
+  DUTY_DOCTOR: 1,
+  MEDICAL_SUPERINTENDENT: 1,
+  CNO: 1,
   HR: 2,
+  HR_STAFF: 2,
   ADMIN: 3,
   SUPER_ADMIN: 4,
 };

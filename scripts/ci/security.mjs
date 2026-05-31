@@ -8,6 +8,10 @@ import { cacheDir, checkCommand, run } from './lib.mjs';
 const gitleaksVersion = '8.30.1';
 
 function gitleaksArchiveName() {
+  if (process.platform === 'win32') {
+    const arch = process.arch === 'x64' ? 'x64' : process.arch;
+    return `gitleaks_${gitleaksVersion}_windows_${arch}.zip`;
+  }
   const platform = process.platform === 'win32'
     ? 'windows'
     : process.platform === 'darwin'
@@ -81,7 +85,16 @@ async function ensureGitleaks() {
     throw new Error(`Checksum mismatch for ${basename(archivePath)}`);
   }
 
-  run('tar', ['-xzf', archivePath, '-C', versionCacheDir, process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks']);
+  run(
+    'tar',
+    [
+      process.platform === 'win32' ? '-xf' : '-xzf',
+      archivePath,
+      '-C',
+      versionCacheDir,
+      process.platform === 'win32' ? 'gitleaks.exe' : 'gitleaks',
+    ],
+  );
   if (process.platform !== 'win32') {
     run('chmod', ['0755', binPath]);
   }
