@@ -17,6 +17,7 @@ param(
   [switch]$SkipBuild,
   [switch]$SkipAnalyze,
   [switch]$NoLaunch,
+  [switch]$NoDesktopShortcut,
   [switch]$AllowCustomInstallDir
 )
 
@@ -98,6 +99,19 @@ $shortcut.WorkingDirectory = $installFullPath
 $shortcut.IconLocation = $exePath
 $shortcut.Save()
 
+$desktopShortcutPath = $null
+if (-not $NoDesktopShortcut.IsPresent) {
+  $desktopDir = [Environment]::GetFolderPath("Desktop")
+  if (-not [string]::IsNullOrWhiteSpace($desktopDir)) {
+    $desktopShortcutPath = Join-Path $desktopDir "VH Health Staff.lnk"
+    $desktopShortcut = $shell.CreateShortcut($desktopShortcutPath)
+    $desktopShortcut.TargetPath = $exePath
+    $desktopShortcut.WorkingDirectory = $installFullPath
+    $desktopShortcut.IconLocation = $exePath
+    $desktopShortcut.Save()
+  }
+}
+
 if (-not $NoLaunch.IsPresent) {
   Start-Process -FilePath $exePath
 }
@@ -105,3 +119,6 @@ if (-not $NoLaunch.IsPresent) {
 Write-Host "VH Health Staff local app updated."
 Write-Host "Install directory: $installFullPath"
 Write-Host "Shortcut: $(Join-Path $shortcutDir "VH Health Staff.lnk")"
+if ($desktopShortcutPath) {
+  Write-Host "Desktop shortcut: $desktopShortcutPath"
+}
