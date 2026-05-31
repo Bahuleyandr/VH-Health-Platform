@@ -20,6 +20,12 @@ enum StaffRole {
   housekeepingIncharge('HOUSEKEEPING_INCHARGE'),
   receptionist('RECEPTIONIST'),
   receptionIncharge('RECEPTION_INCHARGE'),
+  billingStaff('BILLING_STAFF'),
+  billingIncharge('BILLING_INCHARGE'),
+  financeIncharge('FINANCE_INCHARGE'),
+  admissionOfficer('ADMISSION_OFFICER'),
+  insuranceCoordinator('INSURANCE_COORDINATOR'),
+  ipdCounsellor('IPD_COUNSELLOR'),
   driver('DRIVER'),
   maintenance('MAINTENANCE'),
   general('GENERAL_STAFF');
@@ -52,6 +58,12 @@ enum StaffRole {
     StaffRole.housekeepingIncharge => 'Housekeeping Incharge',
     StaffRole.receptionist => 'Receptionist',
     StaffRole.receptionIncharge => 'Reception Incharge',
+    StaffRole.billingStaff => 'Billing Staff',
+    StaffRole.billingIncharge => 'Billing Incharge',
+    StaffRole.financeIncharge => 'Finance Incharge',
+    StaffRole.admissionOfficer => 'Admission Officer',
+    StaffRole.insuranceCoordinator => 'Insurance Coordinator',
+    StaffRole.ipdCounsellor => 'IPD Counsellor',
     StaffRole.driver => 'Driver',
     StaffRole.maintenance => 'Maintenance',
     StaffRole.general => 'Staff',
@@ -74,6 +86,12 @@ enum StaffRole {
     StaffRole.housekeepingIncharge => const Color(0xFF00695C),
     StaffRole.receptionist => const Color(0xFF455A64),
     StaffRole.receptionIncharge => const Color(0xFF37474F),
+    StaffRole.billingStaff ||
+    StaffRole.billingIncharge ||
+    StaffRole.financeIncharge => const Color(0xFF1565C0),
+    StaffRole.admissionOfficer ||
+    StaffRole.insuranceCoordinator ||
+    StaffRole.ipdCounsellor => const Color(0xFF6A1B9A),
     StaffRole.driver => const Color(0xFF5D4037),
     StaffRole.maintenance => const Color(0xFFF9A825),
     StaffRole.general => const Color(0xFF37474F),
@@ -93,7 +111,14 @@ enum StaffRole {
     StaffRole.opStaffNurse || StaffRole.opIncharge => 'op_nursing',
     StaffRole.pharmacy => 'pharmacy',
     StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
-    StaffRole.receptionist || StaffRole.receptionIncharge => 'reception',
+    StaffRole.receptionist ||
+    StaffRole.receptionIncharge ||
+    StaffRole.admissionOfficer ||
+    StaffRole.insuranceCoordinator ||
+    StaffRole.ipdCounsellor => 'reception',
+    StaffRole.billingStaff ||
+    StaffRole.billingIncharge ||
+    StaffRole.financeIncharge => 'billing',
     StaffRole.driver => 'ambulance',
     StaffRole.maintenance => 'maintenance',
     StaffRole.hr ||
@@ -110,6 +135,7 @@ enum StaffRole {
     'pharmacy' => 'Pharmacy',
     'housekeeping' => 'Housekeeping',
     'reception' => 'Reception',
+    'billing' => 'Billing',
     'ambulance' => 'Ambulance / Drivers',
     'maintenance' => 'Maintenance',
     _ => 'Not configured',
@@ -141,6 +167,20 @@ class BottomNavItem {
   final String route;
 
   const BottomNavItem({required this.item, required this.route});
+}
+
+class WorkbenchNavItem {
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  final String route;
+
+  const WorkbenchNavItem({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.route,
+  });
 }
 
 // ─── Role Features ──────────────────────────────────────────────────────────
@@ -176,6 +216,20 @@ class RoleFeatures {
     icon: Icons.point_of_sale,
     route: '/reception-counter',
     color: Color(0xFF455A64),
+  );
+  static const DashboardFeature _frontOfficeWorkbench = DashboardFeature(
+    id: 'front_office_workbench',
+    title: 'Front Office',
+    icon: Icons.space_dashboard_outlined,
+    route: '/front-office',
+    color: Color(0xFF1565C0),
+  );
+  static const DashboardFeature _billingDesk = DashboardFeature(
+    id: 'billing_desk',
+    title: 'Billing Desk',
+    icon: Icons.receipt_long,
+    route: '/billing-desk',
+    color: Color(0xFF1565C0),
   );
   static const DashboardFeature _patientRecords = DashboardFeature(
     id: 'patient_records',
@@ -487,6 +541,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
+        _frontOfficeWorkbench,
         _queue,
         _clinicalAiReviewQueue,
         _appointments,
@@ -511,6 +566,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _frontOfficeWorkbench,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -541,6 +597,7 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _opNursingRoster,
+        _frontOfficeWorkbench,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -565,6 +622,7 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _opNursingRoster,
+        _frontOfficeWorkbench,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -588,6 +646,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _frontOfficeWorkbench,
         _appointments,
         _appointmentQueue,
         _patientRecords,
@@ -604,6 +663,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _opNursingRoster,
+        _frontOfficeWorkbench,
         _appointments,
         _appointmentQueue,
         _patientRecords,
@@ -635,6 +695,7 @@ class RoleFeatures {
         _medicalRoster,
         _nursingRoster,
         _opNursingRoster,
+        _frontOfficeWorkbench,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -662,7 +723,9 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _staffRosterHub,
+        _frontOfficeWorkbench,
         _receptionCounter,
+        _billingDesk,
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
@@ -751,6 +814,8 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _receptionCounter,
+        _frontOfficeWorkbench,
+        _billingDesk,
         _appointments,
         _admissions,
         _appointmentQueue,
@@ -765,10 +830,40 @@ class RoleFeatures {
         _dutyPreference,
         _receptionRoster,
         _receptionCounter,
+        _frontOfficeWorkbench,
+        _billingDesk,
         _appointments,
         _admissions,
         _appointmentQueue,
         _organizationHierarchy,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge => [
+        _schedule,
+        _frontOfficeWorkbench,
+        _billingDesk,
+        _appointments,
+        _admissions,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => [
+        _schedule,
+        _frontOfficeWorkbench,
+        _receptionCounter,
+        _billingDesk,
+        _appointments,
+        _admissions,
+        _patientRecords,
         _staffDirectory,
         _messaging,
         _profile,
@@ -1169,6 +1264,94 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.receipt_long_outlined),
+            activeIcon: Icon(Icons.receipt_long),
+            label: 'Billing',
+          ),
+          route: '/billing-desk',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.space_dashboard_outlined),
+            activeIcon: Icon(Icons.space_dashboard),
+            label: 'Front Desk',
+          ),
+          route: '/front-office',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.space_dashboard_outlined),
+            activeIcon: Icon(Icons.space_dashboard),
+            label: 'Front Desk',
+          ),
+          route: '/front-office',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.local_hospital_outlined),
+            activeIcon: Icon(Icons.local_hospital),
+            label: 'Admissions',
+          ),
+          route: '/emr/admissions',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
       StaffRole.driver || StaffRole.maintenance => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -1238,5 +1421,162 @@ class RoleFeatures {
         ),
       ],
     };
+  }
+
+  static bool hasFrontOfficeWorkbench(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge ||
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge ||
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => true,
+      _ => false,
+    };
+  }
+
+  static bool hasBillingDesk(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge ||
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => true,
+      _ => false,
+    };
+  }
+
+  static bool hasClinicalEntry(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.nurse ||
+      StaffRole.nursingIncharge ||
+      StaffRole.nursingSuperintendent ||
+      StaffRole.opStaffNurse ||
+      StaffRole.opIncharge => true,
+      _ => false,
+    };
+  }
+
+  static List<WorkbenchNavItem> getWorkbenchNavForRole(StaffRole role) {
+    final items = <WorkbenchNavItem>[
+      const WorkbenchNavItem(
+        label: 'Home',
+        icon: Icons.dashboard_outlined,
+        selectedIcon: Icons.dashboard,
+        route: '/dashboard',
+      ),
+    ];
+
+    if (hasFrontOfficeWorkbench(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Front Office',
+          icon: Icons.space_dashboard_outlined,
+          selectedIcon: Icons.space_dashboard,
+          route: '/front-office',
+        ),
+      );
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Queue',
+          icon: Icons.event_available_outlined,
+          selectedIcon: Icons.event_available,
+          route: '/appointment-queue',
+        ),
+      );
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Admissions',
+          icon: Icons.local_hospital_outlined,
+          selectedIcon: Icons.local_hospital,
+          route: '/emr/admissions',
+        ),
+      );
+    }
+
+    if (hasBillingDesk(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Billing',
+          icon: Icons.receipt_long_outlined,
+          selectedIcon: Icons.receipt_long,
+          route: '/billing-desk',
+        ),
+      );
+    }
+
+    if (hasClinicalEntry(role)) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Patients',
+          icon: Icons.folder_shared_outlined,
+          selectedIcon: Icons.folder_shared,
+          route: '/patient-records',
+        ),
+      );
+    }
+
+    if (role == StaffRole.housekeeping ||
+        role == StaffRole.housekeepingIncharge) {
+      items.addAll(const [
+        WorkbenchNavItem(
+          label: 'Beds',
+          icon: Icons.local_hotel_outlined,
+          selectedIcon: Icons.local_hotel,
+          route: '/beds',
+        ),
+        WorkbenchNavItem(
+          label: 'Housekeeping',
+          icon: Icons.cleaning_services_outlined,
+          selectedIcon: Icons.cleaning_services,
+          route: '/housekeeping',
+        ),
+      ]);
+    }
+
+    items.addAll(const [
+      WorkbenchNavItem(
+        label: 'Roster',
+        icon: Icons.schedule_outlined,
+        selectedIcon: Icons.schedule,
+        route: '/schedule',
+      ),
+      WorkbenchNavItem(
+        label: 'Messages',
+        icon: Icons.chat_outlined,
+        selectedIcon: Icons.chat,
+        route: '/messaging',
+      ),
+      WorkbenchNavItem(
+        label: 'Profile',
+        icon: Icons.person_outlined,
+        selectedIcon: Icons.person,
+        route: '/profile',
+      ),
+    ]);
+
+    return items;
   }
 }

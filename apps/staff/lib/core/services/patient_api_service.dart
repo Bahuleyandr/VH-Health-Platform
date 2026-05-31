@@ -11,6 +11,25 @@ import 'api_client.dart';
 class PatientApiService {
   PatientApiService._();
 
+  static Map<String, dynamic> _patientFromResponse(ApiResponse response) {
+    if (!response.isSuccess) {
+      throw Exception(response.message ?? 'Patient request failed');
+    }
+    final raw = response.raw;
+    if (raw is Map<String, dynamic>) {
+      final data = raw['data'];
+      if (data is Map<String, dynamic>) {
+        final patient = data['patient'];
+        if (patient is Map<String, dynamic>) {
+          return Map<String, dynamic>.from(patient);
+        }
+        if (patient is Map) return Map<String, dynamic>.from(patient);
+        return Map<String, dynamic>.from(data);
+      }
+    }
+    return const {};
+  }
+
   /// Search patients by hospital number / name / phone / ABHA address. The backend
   /// silently returns an empty list for queries shorter than 2 chars
   /// (the picker debounces but may fire on the first keystroke), so
@@ -43,5 +62,48 @@ class PatientApiService {
       }
     }
     return const [];
+  }
+
+  static Future<Map<String, dynamic>> createPatient({
+    required String name,
+    required String phone,
+    String? gender,
+    String? birthday,
+    String? address,
+  }) async {
+    final response = await ApiClient.post(
+      '/patients',
+      body: {
+        'name': name.trim(),
+        'phone': phone.trim(),
+        if (gender != null && gender.trim().isNotEmpty) 'gender': gender.trim(),
+        if (birthday != null && birthday.trim().isNotEmpty)
+          'birthday': birthday.trim(),
+        if (address != null && address.trim().isNotEmpty)
+          'address': address.trim(),
+      },
+    );
+    return _patientFromResponse(response);
+  }
+
+  static Future<Map<String, dynamic>> updatePatient({
+    required String uid,
+    String? name,
+    String? phone,
+    String? gender,
+    String? birthday,
+    String? address,
+  }) async {
+    final response = await ApiClient.put(
+      '/patients/$uid',
+      body: {
+        if (name != null) 'name': name.trim(),
+        if (phone != null) 'phone': phone.trim(),
+        if (gender != null) 'gender': gender.trim(),
+        if (birthday != null) 'birthday': birthday.trim(),
+        if (address != null) 'address': address.trim(),
+      },
+    );
+    return _patientFromResponse(response);
   }
 }

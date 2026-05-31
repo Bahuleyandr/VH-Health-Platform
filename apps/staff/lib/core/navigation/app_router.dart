@@ -20,6 +20,8 @@ import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
 import '../../features/reception/screens/reception_counter_screen.dart';
+import '../../features/reception/screens/front_office_workbench_screen.dart';
+import '../../features/reception/screens/billing_desk_screen.dart';
 import '../../features/ward/screens/ward_mode_screen.dart';
 
 // Doctor
@@ -252,6 +254,26 @@ final GoRouter appRouter = GoRouter(
           name: 'reception-counter',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: ReceptionCounterScreen()),
+        ),
+        GoRoute(
+          path: '/front-office',
+          name: 'front-office',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: FrontOfficeWorkbenchScreen()),
+        ),
+        GoRoute(
+          path: '/billing-desk',
+          name: 'billing-desk',
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: BillingDeskScreen(
+                prefillPatientUid: q['patient_uid'],
+                prefillPatientName: q['name'],
+                prefillPatientPhone: q['phone'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/ward-mode',

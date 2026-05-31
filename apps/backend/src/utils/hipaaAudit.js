@@ -30,6 +30,7 @@ export function logPhiAccess({
   actorUid,
   subjectUid,
   actingAsDependent,
+  deviceType,
 }) {
   setImmediate(async () => {
     try {
@@ -47,11 +48,11 @@ export function logPhiAccess({
         `INSERT INTO hipaa_access_log
            (accessed_by, accessed_by_role, patient_id, record_type, action,
             ip_address, request_id, accessed_at,
-            actor_uid, subject_uid, acting_as_dependent)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), $8::uuid, $9::uuid, $10)`,
+            actor_uid, subject_uid, acting_as_dependent, device_type)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, NOW(), $8::uuid, $9::uuid, $10, $11)`,
         accessedBy, userRole, patientIdText, recordType, action,
         ip || null, requestId || null,
-        actorUidNorm, subjectUidNorm, actingFlag,
+        actorUidNorm, subjectUidNorm, actingFlag, deviceType || null,
       );
     } catch (err) {
       // Fallback to file log — HIPAA audit must never be lost
@@ -64,6 +65,7 @@ export function logPhiAccess({
         actor_uid: actorUid,
         subject_uid: subjectUid,
         acting_as_dependent: actingAsDependent === true,
+        device_type: deviceType || null,
         timestamp: new Date().toISOString(),
         error: err.message
       });

@@ -346,6 +346,76 @@ class StaffScaffold extends StatelessWidget {
             '/profile',
           ),
         ];
+      case StaffRole.billingStaff:
+      case StaffRole.billingIncharge:
+      case StaffRole.financeIncharge:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Billing',
+            Icons.receipt_long_outlined,
+            Icons.receipt_long,
+            '/billing-desk',
+          ),
+          const _NavItem(
+            'Front Desk',
+            Icons.space_dashboard_outlined,
+            Icons.space_dashboard,
+            '/front-office',
+          ),
+          const _NavItem(
+            'Messages',
+            Icons.chat_outlined,
+            Icons.chat,
+            '/messaging',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.admissionOfficer:
+      case StaffRole.insuranceCoordinator:
+      case StaffRole.ipdCounsellor:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Front Desk',
+            Icons.space_dashboard_outlined,
+            Icons.space_dashboard,
+            '/front-office',
+          ),
+          const _NavItem(
+            'Admissions',
+            Icons.local_hospital_outlined,
+            Icons.local_hospital,
+            '/emr/admissions',
+          ),
+          const _NavItem(
+            'Messages',
+            Icons.chat_outlined,
+            Icons.chat,
+            '/messaging',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
       case StaffRole.driver:
       case StaffRole.maintenance:
         return [

@@ -90,6 +90,7 @@ export function phiAccessLogger(recordType) {
         actorUid,
         subjectUid,
         actingAsDependent,
+        deviceType: req.user?.deviceType ?? null,
       });
     });
 

@@ -17,7 +17,15 @@ import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
-const BILLING_V2_EXTRA_STAFF_ROLES = ['SUPER_ADMIN', 'FINANCE_INCHARGE', 'BILLING_INCHARGE'];
+const BILLING_V2_EXTRA_STAFF_ROLES = [
+  'SUPER_ADMIN',
+  'FINANCE_INCHARGE',
+  'BILLING_INCHARGE',
+  'ADMISSION_OFFICER',
+  'INSURANCE_COORDINATOR',
+  'IPD_COUNSELLOR',
+  'RECEPTION_INCHARGE',
+];
 const CASH_DRAWER_REVIEWER_ROLES = ['ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE'];
 
 // Wrap each handler with try/catch + AppError → response so route

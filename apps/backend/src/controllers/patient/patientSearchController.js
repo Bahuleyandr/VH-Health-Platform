@@ -26,10 +26,76 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { error, success } from '../../utils/responseHelper.js';
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 20;
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+}
+
+function normalizeGender(value) {
+  const first = String(value ?? '').trim().toLowerCase().slice(0, 1);
+  if (first === 'm') return 'male';
+  if (first === 'f') return 'female';
+  if (first === 'o') return 'other';
+  return null;
+}
+
+function normalizeBirthday(value) {
+  const raw = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+function publicPatient(row) {
+  if (!row) return row;
+  return {
+    id: row.id,
+    uid: row.uid,
+    name: row.name,
+    phone: row.phone,
+    gender: row.gender,
+    birthday: row.birthday,
+    age: row.age,
+    address: row.address,
+    hospital_number: row.hospital_number,
+    abha_address: row.abha_address,
+  };
+}
+
+async function fetchPatientByUid(uid, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.birthday, u.address,
+            u.abha_address,
+            COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
+            CASE WHEN u.birthday IS NOT NULL
+                 THEN DATE_PART('year', AGE(u.birthday))::int
+            END AS age
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT pi.identifier_value
+           FROM patient_identifiers pi
+          WHERE pi.tenant_id = u.tenant_id
+            AND pi.patient_uid = u.uid
+            AND pi.identifier_type IN ('mrn', 'uhid')
+            AND pi.status = 'active'
+          ORDER BY pi.is_primary DESC,
+                   CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                   pi.created_at ASC
+          LIMIT 1
+       ) hn ON TRUE
+      WHERE u.uid = $1::uuid
+        AND u.tenant_id = $2::uuid
+        AND u.role = 'PATIENT'
+        AND u.is_active = true
+      LIMIT 1`,
+    uid,
+    tenantId,
+  );
+  return rows[0] || null;
+}
 
 export const searchPatients = async (req, res) => {
   try {
@@ -44,7 +110,7 @@ export const searchPatients = async (req, res) => {
       MAX_RESULTS,
       parseInt(req.query.limit, 10) || MAX_RESULTS,
     );
-    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
+    const tenantId = tenantOf(req);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
@@ -91,5 +157,152 @@ export const searchPatients = async (req, res) => {
   } catch (err) {
     logger.error('Patient search error:', err);
     error(res, 'Patient search failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const createPatient = async (req, res) => {
+  try {
+    const name = String(req.body.name ?? req.body.patient_name ?? '').trim();
+    const phone = normalizePhone(String(req.body.phone ?? req.body.patient_phone ?? '').trim());
+    if (!name) {
+      return error(res, 'Patient name is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (!phone) {
+      return error(res, 'Valid patient phone is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const tenantId = tenantOf(req);
+    const last10 = phone.replace(/\D/g, '').slice(-10);
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, uid, phone, name, role
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND (phone = $2 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $3)
+        ORDER BY CASE WHEN phone = $2 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
+        LIMIT 1`,
+      tenantId,
+      phone,
+      `%${last10}`,
+    );
+
+    if (existing.length > 0) {
+      if (existing[0].role !== 'PATIENT') {
+        return error(
+          res,
+          'This phone number belongs to a non-patient account',
+          HTTP_STATUS.CONFLICT,
+        );
+      }
+      return error(res, 'Patient already exists', HTTP_STATUS.CONFLICT, {
+        patient: publicPatient(existing[0]),
+      });
+    }
+
+    const gender = normalizeGender(req.body.gender ?? req.body.patient_gender);
+    const birthday = normalizeBirthday(req.body.birthday ?? req.body.patient_birthday);
+    const address = String(req.body.address ?? req.body.patient_address ?? '').trim();
+
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (phone, name, gender, birthday, address, role, is_active, tenant_id, registered_at, updated_at)
+       VALUES ($1, $2, $3, $4::date, $5, 'PATIENT', true, $6::uuid, NOW(), NOW())
+       RETURNING id, uid`,
+      phone,
+      name,
+      gender,
+      birthday,
+      address || null,
+      tenantId,
+    );
+
+    const patient = await fetchPatientByUid(rows[0].uid, tenantId);
+    return success(res, { patient: publicPatient(patient) }, 'Patient created', HTTP_STATUS.CREATED);
+  } catch (err) {
+    logger.error('Patient create error:', err);
+    return error(res, 'Patient creation failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const updatePatient = async (req, res) => {
+  try {
+    const uid = String(req.params.uid ?? '').trim();
+    const tenantId = tenantOf(req);
+    const existing = await fetchPatientByUid(uid, tenantId);
+    if (!existing) {
+      return error(res, 'Patient not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const updates = [];
+    const values = [];
+    const add = (column, value, cast = '') => {
+      values.push(value);
+      updates.push(`${column} = $${values.length}${cast}`);
+    };
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'name') ||
+        Object.prototype.hasOwnProperty.call(req.body, 'patient_name')) {
+      const name = String(req.body.name ?? req.body.patient_name ?? '').trim();
+      if (!name) return error(res, 'Patient name is required', HTTP_STATUS.BAD_REQUEST);
+      add('name', name);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'phone') ||
+        Object.prototype.hasOwnProperty.call(req.body, 'patient_phone')) {
+      const phone = normalizePhone(String(req.body.phone ?? req.body.patient_phone ?? '').trim());
+      if (!phone) return error(res, 'Valid patient phone is required', HTTP_STATUS.BAD_REQUEST);
+      const last10 = phone.replace(/\D/g, '').slice(-10);
+      const duplicate = await prisma.$queryRawUnsafe(
+        `SELECT uid, role
+           FROM users
+          WHERE tenant_id = $1::uuid
+            AND uid <> $2::uuid
+            AND (phone = $3 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $4)
+          LIMIT 1`,
+        tenantId,
+        uid,
+        phone,
+        `%${last10}`,
+      );
+      if (duplicate.length > 0) {
+        return error(res, 'Phone number is already used by another account', HTTP_STATUS.CONFLICT);
+      }
+      add('phone', phone);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'gender') ||
+        Object.prototype.hasOwnProperty.call(req.body, 'patient_gender')) {
+      add('gender', normalizeGender(req.body.gender ?? req.body.patient_gender));
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'birthday') ||
+        Object.prototype.hasOwnProperty.call(req.body, 'patient_birthday')) {
+      add('birthday', normalizeBirthday(req.body.birthday ?? req.body.patient_birthday), '::date');
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'address') ||
+        Object.prototype.hasOwnProperty.call(req.body, 'patient_address')) {
+      const address = String(req.body.address ?? req.body.patient_address ?? '').trim();
+      add('address', address || null);
+    }
+
+    if (updates.length === 0) {
+      return success(res, { patient: publicPatient(existing) }, 'Patient unchanged');
+    }
+
+    values.push(uid, tenantId);
+    await prisma.$queryRawUnsafe(
+      `UPDATE users
+          SET ${updates.join(', ')}, updated_at = NOW()
+        WHERE uid = $${values.length - 1}::uuid
+          AND tenant_id = $${values.length}::uuid
+          AND role = 'PATIENT'`,
+      ...values,
+    );
+
+    const patient = await fetchPatientByUid(uid, tenantId);
+    return success(res, { patient: publicPatient(patient) }, 'Patient updated');
+  } catch (err) {
+    logger.error('Patient update error:', err);
+    return error(res, 'Patient update failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

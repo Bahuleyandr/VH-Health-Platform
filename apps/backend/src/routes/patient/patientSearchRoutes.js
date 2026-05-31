@@ -6,7 +6,11 @@
 // router. Mounted at `/api/v1/patients` from `app.js`.
 
 import express from 'express';
-import { searchPatients } from '../../controllers/patient/patientSearchController.js';
+import {
+  createPatient,
+  searchPatients,
+  updatePatient,
+} from '../../controllers/patient/patientSearchController.js';
 import { phiAccessLogger } from '../../middleware/phiAccessMiddleware.js';
 
 const router = express.Router();
@@ -18,6 +22,24 @@ router.get(
   '/search',
   phiAccessLogger('PATIENT_SEARCH'),
   searchPatients,
+);
+
+router.post(
+  '/',
+  phiAccessLogger('PATIENT_CREATE'),
+  createPatient,
+);
+
+router.put(
+  '/:uid',
+  phiAccessLogger('PATIENT_UPDATE'),
+  updatePatient,
+);
+
+router.patch(
+  '/:uid',
+  phiAccessLogger('PATIENT_UPDATE'),
+  updatePatient,
 );
 
 export default router;

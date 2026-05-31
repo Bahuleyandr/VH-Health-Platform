@@ -71,6 +71,11 @@ describe('Phase F1 role registry', () => {
     expect(SUPPORT_ROLES).toContain('CARE_COORDINATOR');
     expect(SUPPORT_ROLES).toContain('CLAIMS_MANAGER');
     expect(SUPPORT_ROLES).toContain('AMBULANCE_COORDINATOR');
+    expect(SUPPORT_ROLES).toContain('BILLING_INCHARGE');
+    expect(SUPPORT_ROLES).toContain('FINANCE_INCHARGE');
+    expect(SUPPORT_ROLES).toContain('ADMISSION_OFFICER');
+    expect(SUPPORT_ROLES).toContain('IPD_COUNSELLOR');
+    expect(SUPPORT_ROLES).toContain('INSURANCE_COORDINATOR');
   });
 
   it('routes platform-governance roles into PLATFORM_ROLES', () => {
@@ -189,7 +194,9 @@ describe('isStaff / isClinical respect new specialty roles', () => {
   it('isStaff is true for the new roles', () => {
     for (const r of ['CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'COUNSELLOR',
       'CARE_COORDINATOR', 'CLAIMS_MANAGER', 'AMBULANCE_COORDINATOR',
-      'INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER']) {
+      'INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER',
+      'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'ADMISSION_OFFICER',
+      'IPD_COUNSELLOR', 'INSURANCE_COORDINATOR']) {
       expect(isStaff(r)).toBe(true);
     }
   });

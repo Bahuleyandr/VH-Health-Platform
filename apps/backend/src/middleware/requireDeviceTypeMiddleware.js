@@ -16,7 +16,7 @@ import logger from '../logging/logger.js';
  * Build an Express middleware that rejects requests whose JWT `deviceType`
  * claim is not in the allowed list.
  *
- * @param {string|string[]} allowed - 'mobile' | 'desktop' | 'web' or an array
+ * @param {string|string[]} allowed - 'mobile' | 'tablet' | 'desktop' | 'web' or an array
  * @returns {import('express').RequestHandler}
  */
 export function requireDeviceType(allowed) {

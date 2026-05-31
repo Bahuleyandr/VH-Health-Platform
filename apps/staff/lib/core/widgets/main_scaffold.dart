@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../config/api_config.dart';
 import '../config/role_config.dart';
+import '../platform_info.dart';
 
 /// Shell scaffold that provides persistent bottom navigation.
 /// Used as the ShellRoute builder in app_router.dart.
@@ -36,8 +37,52 @@ class _MainScaffoldState extends State<MainScaffold> {
     return 0;
   }
 
+  int _currentRailIndex(List<WorkbenchNavItem> navItems) {
+    final location = GoRouterState.of(context).matchedLocation;
+    for (int i = 0; i < navItems.length; i++) {
+      final route = navItems[i].route;
+      if (route == location ||
+          (route != '/dashboard' && location.startsWith(route))) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final mode = appDeviceModeForContext(context);
+    if (mode.isWorkbench) {
+      final navItems = RoleFeatures.getWorkbenchNavForRole(_role);
+      final selectedIndex = _currentRailIndex(navItems);
+      return Scaffold(
+        body: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: selectedIndex,
+              minWidth: 76,
+              groupAlignment: -0.92,
+              labelType: NavigationRailLabelType.all,
+              onDestinationSelected: (index) {
+                if (index < navItems.length) context.go(navItems[index].route);
+              },
+              destinations: navItems
+                  .map(
+                    (item) => NavigationRailDestination(
+                      icon: Icon(item.icon),
+                      selectedIcon: Icon(item.selectedIcon),
+                      label: Text(item.label),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(child: widget.child),
+          ],
+        ),
+      );
+    }
+
     final navItems = RoleFeatures.getBottomNavForRole(_role);
 
     return Scaffold(

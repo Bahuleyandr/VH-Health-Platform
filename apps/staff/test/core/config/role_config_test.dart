@@ -14,6 +14,11 @@ void main() {
       expect(StaffRole.fromString('SUPER_ADMIN'), StaffRole.superAdmin);
       expect(StaffRole.fromString('PHARMACY_STAFF'), StaffRole.pharmacy);
       expect(StaffRole.fromString('LAB_STAFF'), StaffRole.lab);
+      expect(StaffRole.fromString('BILLING_STAFF'), StaffRole.billingStaff);
+      expect(
+        StaffRole.fromString('ADMISSION_OFFICER'),
+        StaffRole.admissionOfficer,
+      );
       expect(StaffRole.fromString('GENERAL_STAFF'), StaffRole.general);
     });
 
@@ -51,6 +56,10 @@ void main() {
       expect(StaffRole.opStaffNurse.rosterDepartment, 'op_nursing');
       expect(StaffRole.housekeeping.rosterDepartment, 'housekeeping');
       expect(StaffRole.receptionist.rosterDepartment, 'reception');
+      expect(StaffRole.admissionOfficer.rosterDepartment, 'reception');
+      expect(StaffRole.insuranceCoordinator.rosterDepartment, 'reception');
+      expect(StaffRole.billingStaff.rosterDepartment, 'billing');
+      expect(StaffRole.financeIncharge.rosterDepartment, 'billing');
       expect(StaffRole.driver.rosterDepartment, 'ambulance');
       expect(StaffRole.maintenance.rosterDepartment, 'maintenance');
       expect(StaffRole.pharmacy.rosterDepartment, 'pharmacy');
@@ -167,14 +176,44 @@ void main() {
 
         expect(
           receptionistIds,
-          containsAll(['reception_counter', 'appointments', 'admissions']),
+          containsAll([
+            'front_office_workbench',
+            'billing_desk',
+            'reception_counter',
+            'appointments',
+            'admissions',
+          ]),
         );
         expect(
           inchargeIds,
-          containsAll(['reception_counter', 'appointments', 'admissions']),
+          containsAll([
+            'front_office_workbench',
+            'billing_desk',
+            'reception_counter',
+            'appointments',
+            'admissions',
+          ]),
         );
       },
     );
+
+    test('front-office and billing roles get workbench features', () {
+      final billingIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.billingStaff,
+      ).map((f) => f.id).toSet();
+      final admissionIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.admissionOfficer,
+      ).map((f) => f.id).toSet();
+
+      expect(
+        billingIds,
+        containsAll(['front_office_workbench', 'billing_desk']),
+      );
+      expect(
+        admissionIds,
+        containsAll(['front_office_workbench', 'billing_desk', 'admissions']),
+      );
+    });
   });
 
   group('RoleFeatures.getBottomNavForRole', () {
@@ -216,6 +255,49 @@ void main() {
         inchargeItems.map((item) => item.route),
         contains('/reception-counter'),
       );
+    });
+
+    test('new operational roles get focused bottom navigation', () {
+      expect(
+        RoleFeatures.getBottomNavForRole(
+          StaffRole.billingStaff,
+        ).map((item) => item.route),
+        containsAll(['/billing-desk', '/front-office']),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
+          StaffRole.admissionOfficer,
+        ).map((item) => item.route),
+        containsAll(['/front-office', '/emr/admissions']),
+      );
+    });
+  });
+
+  group('RoleFeatures workbench role gates', () {
+    test('front office, billing, and clinical access are distinct', () {
+      expect(
+        RoleFeatures.hasFrontOfficeWorkbench(StaffRole.receptionist),
+        isTrue,
+      );
+      expect(RoleFeatures.hasBillingDesk(StaffRole.billingStaff), isTrue);
+      expect(RoleFeatures.hasClinicalEntry(StaffRole.receptionist), isFalse);
+      expect(RoleFeatures.hasClinicalEntry(StaffRole.doctor), isTrue);
+    });
+
+    test('workbench navigation includes role-permitted destinations', () {
+      final receptionistRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.receptionist,
+      ).map((item) => item.route).toSet();
+      final doctorRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.doctor,
+      ).map((item) => item.route).toSet();
+
+      expect(
+        receptionistRoutes,
+        containsAll(['/front-office', '/appointment-queue', '/billing-desk']),
+      );
+      expect(doctorRoutes, containsAll(['/front-office', '/patient-records']));
+      expect(doctorRoutes, isNot(contains('/billing-desk')));
     });
   });
 }

@@ -9,8 +9,8 @@ import { body, query } from 'express-validator';
 // (e.g. attendance), forcing a re-login on an updated build.
 export const deviceTypeValidator = body('deviceType')
   .optional()
-  .isIn(['mobile', 'desktop', 'web'])
-  .withMessage('deviceType must be one of: mobile, desktop, web');
+  .isIn(['mobile', 'tablet', 'desktop', 'web'])
+  .withMessage('deviceType must be one of: mobile, tablet, desktop, web');
 
 // Phone validators
 export const phoneValidator = [

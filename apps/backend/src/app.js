@@ -554,7 +554,28 @@ app.use('/api/v1/notifications', notificationRoutes);
 // for chart finding. Patient self-search isn't applicable.
 app.use(
   '/api/v1/patients',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'RECEPTIONIST', 'RECEPTION_INCHARGE', 'GENERAL_STAFF'),
+  requireRole(
+    'ADMIN',
+    'SUPER_ADMIN',
+    'DOCTOR',
+    'DUTY_DOCTOR',
+    'MEDICAL_SUPERINTENDENT',
+    'CNO',
+    'NURSING_STAFF',
+    'NURSING_INCHARGE',
+    'OP_STAFF_NURSE',
+    'OP_INCHARGE',
+    'MEDICAL_RECORDS',
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IPD_COUNSELLOR',
+    'BILLING_STAFF',
+    'BILLING_INCHARGE',
+    'FINANCE_INCHARGE',
+    'INSURANCE_COORDINATOR',
+    'GENERAL_STAFF',
+  ),
   patientSearchRoutes,
 );
 app.use('/api/v1/upload', patientRateLimiter, uploadRoutes);
@@ -868,7 +889,24 @@ app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
-app.use('/api/v1/billing/v2', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'NURSING_STAFF', 'DOCTOR'), billingV2Routes);
+app.use(
+  '/api/v1/billing/v2',
+  requireRole(
+    'ADMIN',
+    'SUPER_ADMIN',
+    'BILLING_STAFF',
+    'BILLING_INCHARGE',
+    'FINANCE_INCHARGE',
+    'NURSING_STAFF',
+    'DOCTOR',
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'INSURANCE_COORDINATOR',
+    'IPD_COUNSELLOR',
+  ),
+  billingV2Routes,
+);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for
 // /lab/pathologist/signoff (route-level requirePathologistTier enforces

@@ -239,6 +239,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final checkedIn =
         _attendanceStatus?['isCheckedIn'] == true ||
         _attendanceStatus?['status'] == 'checked-in';
+    final canMarkAttendance = appDeviceModeForContext(
+      context,
+    ).canMarkAttendance;
     final features = RoleFeatures.getFeaturesForRole(_role);
     final dailyFeatures = _dailyFeaturesForRole(features);
     final clinicalServiceTabs = _buildClinicalServiceTabs(features);
@@ -395,7 +398,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           // desktop app (`requireDeviceType('mobile')`),
                           // so we hide the card on desktop too instead
                           // of letting users tap into a 403.
-                          if (!isDesktopPlatform) ...[
+                          if (canMarkAttendance) ...[
                             _AttendanceStatusCard(
                               isCheckedIn: checkedIn,
                               checkInTime: _attendanceStatus?['checkInTime'],
@@ -594,6 +597,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ) {
     final dailyIds = switch (_role) {
       StaffRole.doctor || StaffRole.dutyDoctor => {
+        'front_office_workbench',
         'queue',
         'clinical_ai_review_queue',
         'appointments',
@@ -613,6 +617,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.nursingIncharge ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge => {
+        'front_office_workbench',
         'appointments',
         'appointment_queue',
         'clinical_ai_review_queue',
@@ -636,6 +641,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'staff_directory',
       },
       StaffRole.medicalSuperintendent => {
+        'front_office_workbench',
         'appointments',
         'appointment_queue',
         'clinical_ai_review_queue',
@@ -650,6 +656,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'staff_roster',
       },
       StaffRole.admin || StaffRole.superAdmin => {
+        'front_office_workbench',
         'appointments',
         'appointment_queue',
         'clinical_ai_review_queue',
@@ -693,9 +700,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'housekeeping_tasks',
       },
       StaffRole.receptionist || StaffRole.receptionIncharge => {
+        'front_office_workbench',
+        'billing_desk',
         'reception_counter',
         'appointment_queue',
         'reception_roster',
+      },
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge => {
+        'front_office_workbench',
+        'billing_desk',
+        'appointment_queue',
+      },
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => {
+        'front_office_workbench',
+        'billing_desk',
+        'reception_counter',
+        'appointment_queue',
       },
       StaffRole.driver => {'driver_roster'},
       StaffRole.maintenance => {'maintenance_roster', 'staff_directory'},
@@ -1401,7 +1425,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Attendance — phone-only. The backend's requireDeviceType('mobile')
     // gate rejects desktop attempts; hide the tile on desktop so the user
     // doesn't get a 403 surprise.
-    if (!isDesktopPlatform) {
+    if (appDeviceModeForContext(context).canMarkAttendance) {
       actions.add(
         _QuickAction(
           icon: Icons.fingerprint,
