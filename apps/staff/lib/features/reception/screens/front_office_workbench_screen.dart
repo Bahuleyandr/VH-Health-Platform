@@ -36,6 +36,7 @@ class _FrontOfficeWorkbenchScreenState
   bool _invoiceBusy = false;
   bool _billingActionBusy = false;
   bool _admissionActionBusy = false;
+  int? _queueActionId;
   String? _error;
   String? _lookupError;
 
@@ -47,6 +48,7 @@ class _FrontOfficeWorkbenchScreenState
 
   bool get _canBilling => RoleFeatures.hasBillingDesk(_role);
   bool get _canClinical => RoleFeatures.hasClinicalEntry(_role);
+  bool get _canManageOpQueue => RoleFeatures.hasFrontOfficeWorkbench(_role);
   bool get _canAdmitIp =>
       _role == StaffRole.admin ||
       _role == StaffRole.superAdmin ||
@@ -1201,6 +1203,144 @@ class _FrontOfficeWorkbenchScreenState
     await _loadWorklists();
   }
 
+  Future<bool> _confirmQueueAction({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    Color? confirmColor,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: confirmColor == null
+                ? null
+                : FilledButton.styleFrom(backgroundColor: confirmColor),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _runQueueAction(
+    Map<String, dynamic> row, {
+    required String successMessage,
+    required Future<void> Function(int id) action,
+  }) async {
+    final id = _appointmentId(row);
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Appointment ID is missing.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _queueActionId = id;
+      _error = null;
+    });
+    try {
+      await action(id);
+      await _loadWorklists();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(successMessage),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _queueActionId = null);
+    }
+  }
+
+  Future<void> _confirmQueueAppointment(Map<String, dynamic> row) async {
+    await _runQueueAction(
+      row,
+      successMessage: 'Appointment confirmed',
+      action: (id) => ScheduleApiService.confirmAppointment(id, {
+        'confirmation_notes': 'Confirmed from Front Office Workbench',
+      }).then((_) {}),
+    );
+  }
+
+  Future<void> _completeQueueAppointment(Map<String, dynamic> row) async {
+    final notesCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Complete appointment'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Mark ${_queuePatientName(row)} as completed?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: notesCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Visit notes (optional)',
+                prefixIcon: Icon(Icons.notes_outlined),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.done_all),
+            label: const Text('Complete'),
+          ),
+        ],
+      ),
+    );
+    final notes = notesCtrl.text.trim();
+    notesCtrl.dispose();
+    if (confirmed != true) return;
+
+    await _runQueueAction(
+      row,
+      successMessage: 'Appointment completed',
+      action: (id) => ScheduleApiService.completeAppointmentStaff(
+        id,
+        notes: notes.isEmpty ? null : notes,
+      ).then((_) {}),
+    );
+  }
+
+  Future<void> _markQueueNoShow(Map<String, dynamic> row) async {
+    final confirmed = await _confirmQueueAction(
+      title: 'Mark no-show',
+      message: 'Mark ${_queuePatientName(row)} as no-show?',
+      confirmLabel: 'No-show',
+      confirmColor: AppTheme.textSecondary,
+    );
+    if (!confirmed) return;
+    await _runQueueAction(
+      row,
+      successMessage: 'Appointment marked no-show',
+      action: (id) => ScheduleApiService.markNoShow(id).then((_) {}),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
@@ -1635,22 +1775,71 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   Widget _queueTile(Map<String, dynamic> row) {
-    final name =
-        row['patient_name'] ?? row['name'] ?? row['phone'] ?? 'Patient';
-    final status = row['status']?.toString() ?? 'scheduled';
+    final id = _appointmentId(row);
+    final name = _queuePatientName(row);
+    final status = _appointmentStatus(row);
     final time = row['appointment_time'] ?? row['time'] ?? row['slot'];
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-      title: Text(
-        name.toString(),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+    final busy = id != null && _queueActionId == id;
+    final terminal = const {
+      'COMPLETED',
+      'CANCELLED',
+      'NO_SHOW',
+    }.contains(status);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: CircleAvatar(
+          backgroundColor: _appointmentStatusColor(
+            status,
+          ).withValues(alpha: 0.12),
+          child: busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  Icons.person_outline,
+                  color: _appointmentStatusColor(status),
+                ),
+        ),
+        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text([?time, status].join(' - ')),
+        trailing: _canManageOpQueue && !terminal
+            ? Wrap(
+                spacing: 6,
+                children: [
+                  if (status == 'SCHEDULED')
+                    _QueueActionButton(
+                      icon: Icons.check,
+                      label: 'Confirm',
+                      color: AppTheme.primaryTeal,
+                      onPressed: busy
+                          ? null
+                          : () => _confirmQueueAppointment(row),
+                    ),
+                  if (status == 'CONFIRMED' || status == 'IN_PROGRESS')
+                    _QueueActionButton(
+                      icon: Icons.done_all,
+                      label: 'Complete',
+                      color: AppTheme.successGreen,
+                      onPressed: busy
+                          ? null
+                          : () => _completeQueueAppointment(row),
+                    ),
+                  _QueueActionButton(
+                    icon: Icons.person_off_outlined,
+                    label: 'No-show',
+                    color: AppTheme.textSecondary,
+                    onPressed: busy ? null : () => _markQueueNoShow(row),
+                  ),
+                ],
+              )
+            : const Icon(Icons.chevron_right),
+        onTap: () => context.go('/appointment-queue'),
       ),
-      subtitle: Text([?time, status].join(' - ')),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => context.go('/appointment-queue'),
     );
   }
 
@@ -2039,6 +2228,37 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
+class _QueueActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback? onPressed;
+
+  const _QueueActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 32,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 15),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: color,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
+    );
+  }
+}
+
 class _DateTimeButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -2096,6 +2316,38 @@ String _formatTime(TimeOfDay time) {
   final hour = time.hour.toString().padLeft(2, '0');
   final minute = time.minute.toString().padLeft(2, '0');
   return '$hour:$minute';
+}
+
+int? _appointmentId(Map<String, dynamic> row) =>
+    _intFrom(row['id'] ?? row['appointment_id']);
+
+String _appointmentStatus(Map<String, dynamic> row) {
+  final status = _text(row['status']).toUpperCase();
+  return status.isEmpty ? 'SCHEDULED' : status;
+}
+
+String _queuePatientName(Map<String, dynamic> row) {
+  final name = _text(row['patient_name'] ?? row['name']);
+  if (name.isNotEmpty) return name;
+  final phone = _text(row['patient_phone'] ?? row['phone']);
+  return phone.isEmpty ? 'Patient' : phone;
+}
+
+Color _appointmentStatusColor(String status) {
+  switch (status.toUpperCase()) {
+    case 'CONFIRMED':
+      return AppTheme.primaryTeal;
+    case 'IN_PROGRESS':
+      return AppTheme.primaryBlue;
+    case 'COMPLETED':
+      return AppTheme.successGreen;
+    case 'NO_SHOW':
+      return AppTheme.textSecondary;
+    case 'CANCELLED':
+      return AppTheme.errorRed;
+    default:
+      return AppTheme.warningAmber;
+  }
 }
 
 String _patientAdmissionQuery(Map<String, dynamic> patient) {
