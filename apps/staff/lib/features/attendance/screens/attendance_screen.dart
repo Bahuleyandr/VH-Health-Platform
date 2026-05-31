@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/platform_info.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/location_service.dart';
@@ -127,8 +128,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _getLocationAndCheckIn() async {
+    if (!appDeviceModeForContext(context).canMarkAttendance) {
+      _showPhoneOnlyAttendanceMessage();
+      return;
+    }
+
     setState(() => _gettingLocation = true);
     final locationData = await LocationService.getLocationData();
+    if (!mounted) return;
     setState(() {
       _locationData = locationData;
       _gettingLocation = false;
@@ -166,6 +173,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _performCheckIn(Map<String, dynamic> location) async {
+    if (!appDeviceModeForContext(context).canMarkAttendance) {
+      _showPhoneOnlyAttendanceMessage();
+      return;
+    }
+
     final staffId = await ApiConfig.getStaffId();
     if (staffId == null) return;
 
@@ -195,6 +207,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
+  }
+
+  void _showPhoneOnlyAttendanceMessage() {
+    if (!mounted) return;
+    final s = AppStrings.of(context);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(s.attendancePhoneOnlyReadOnly)));
   }
 
   Color _getDayColor(String status) {
@@ -249,6 +269,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Widget _buildTodayTab() {
     final s = AppStrings.of(context);
+    final canMarkAttendance = appDeviceModeForContext(
+      context,
+    ).canMarkAttendance;
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
@@ -322,6 +345,30 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ShiftCard(shift: _shift),
           const SizedBox(height: 16),
 
+          if (!canMarkAttendance) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.phone_iphone_outlined,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        s.attendancePhoneOnlyReadOnly,
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // Location status
           if (_locationData != null)
             Card(
@@ -353,67 +400,69 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
           const SizedBox(height: 20),
 
-          // Check-in/out button
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: (_actionLoading || _gettingLocation)
-                  ? null
-                  : (_checkedIn
-                        ? () => _performCheckIn({})
-                        : _getLocationAndCheckIn),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _checkedIn
-                    ? Colors.red.shade600
-                    : AppTheme.primaryBlue,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          if (canMarkAttendance) ...[
+            // Check-in/out button
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: (_actionLoading || _gettingLocation)
+                    ? null
+                    : (_checkedIn
+                          ? () => _performCheckIn({})
+                          : _getLocationAndCheckIn),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _checkedIn
+                      ? Colors.red.shade600
+                      : AppTheme.primaryBlue,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-              ),
-              icon: (_actionLoading || _gettingLocation)
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
+                icon: (_actionLoading || _gettingLocation)
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Icon(
+                        _checkedIn ? Icons.logout : Icons.login,
                         color: Colors.white,
-                        strokeWidth: 2,
                       ),
-                    )
-                  : Icon(
-                      _checkedIn ? Icons.logout : Icons.login,
-                      color: Colors.white,
-                    ),
-              label: Text(
-                _gettingLocation
-                    ? s.attendanceGettingLocation
-                    : (_actionLoading
-                          ? s.attendanceProcessing
-                          : (_checkedIn
-                                ? s.attendanceCheckOut
-                                : s.attendanceCheckIn)),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                label: Text(
+                  _gettingLocation
+                      ? s.attendanceGettingLocation
+                      : (_actionLoading
+                            ? s.attendanceProcessing
+                            : (_checkedIn
+                                  ? s.attendanceCheckOut
+                                  : s.attendanceCheckIn)),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
-          ),
 
-          if (!_checkedIn)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                s.attendanceLocationVerifyHint,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            if (!_checkedIn)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  s.attendanceLocationVerifyHint,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
               ),
-            ),
+          ],
 
           const SizedBox(height: 16),
 
           // Break tracker (only when checked in)
-          if (_staffId != null && _checkedIn)
+          if (canMarkAttendance && _staffId != null && _checkedIn)
             BreakTracker(staffId: _staffId!, checkedIn: _checkedIn),
 
           const SizedBox(height: 16),

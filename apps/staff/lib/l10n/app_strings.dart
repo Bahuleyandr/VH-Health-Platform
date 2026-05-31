@@ -306,6 +306,8 @@ class AppStrings {
   String get attendanceProcessing => _t('attendance.processing');
   String get attendanceLocationVerifyHint =>
       _t('attendance.location_verify_hint');
+  String get attendancePhoneOnlyReadOnly =>
+      _t('attendance.phone_only_read_only');
   String get attendanceReportIssue => _t('attendance.report_issue');
   String get attendanceLegendPresent => _t('attendance.legend.present');
   String get attendanceLegendAbsent => _t('attendance.legend.absent');
@@ -2395,6 +2397,8 @@ class AppStrings {
       'attendance.processing': 'Processing...',
       'attendance.location_verify_hint':
           '📍 Location will be verified on check-in',
+      'attendance.phone_only_read_only':
+          'This workstation can view attendance records. Check-in, check-out, and breaks are phone-only.',
       'attendance.report_issue': 'Report Attendance Issue',
       'attendance.legend.present': 'Present',
       'attendance.legend.absent': 'Absent',
