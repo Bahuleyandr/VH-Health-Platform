@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -414,6 +415,12 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     }
   }
 
+  void _openAiPrep(Map<String, dynamic> appt) {
+    final id = appt['id'];
+    if (id == null) return;
+    context.push('/op-ai-assist?appointment_id=$id');
+  }
+
   void _promptUploadPrescription(Map<String, dynamic> appt) {
     showDialog(
       context: context,
@@ -676,6 +683,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
           onNoShow: _markNoShow,
           onComplete: _completeAppointment,
           onUpload: _showUploadDocSheet,
+          onAiPrep: _openAiPrep,
         ),
       ),
     );
@@ -941,6 +949,7 @@ class _QueueCard extends StatefulWidget {
   final void Function(Map<String, dynamic>) onNoShow;
   final Future<void> Function(Map<String, dynamic>) onComplete;
   final void Function(Map<String, dynamic>) onUpload;
+  final void Function(Map<String, dynamic>) onAiPrep;
 
   const _QueueCard({
     required this.appt,
@@ -949,6 +958,7 @@ class _QueueCard extends StatefulWidget {
     required this.onNoShow,
     required this.onComplete,
     required this.onUpload,
+    required this.onAiPrep,
   });
 
   @override
@@ -1091,6 +1101,21 @@ class _QueueCardState extends State<_QueueCard> {
                           ),
                         ),
                         onPressed: () => widget.onComplete(appt.raw),
+                      ),
+                    if (status != 'COMPLETED' &&
+                        status != 'CANCELLED' &&
+                        status != 'NO_SHOW')
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.auto_awesome, size: 16),
+                        label: const Text('AI prep'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primaryBlue,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                        ),
+                        onPressed: () => widget.onAiPrep(appt.raw),
                       ),
                     if (status != 'COMPLETED' &&
                         status != 'CANCELLED' &&

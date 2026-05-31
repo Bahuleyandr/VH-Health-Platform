@@ -130,7 +130,7 @@ export async function runExplainerPipeline({
   req,
 }) {
   const tid = resolveTenantId({ tenantId });
-  const module = await getClinicalAiModule(moduleKey);
+  const module = await getClinicalAiModule(moduleKey, { tenantId: tid });
   if (!module.enabled) {
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
@@ -235,7 +235,7 @@ export async function runExplainerPipeline({
         admissionId || null,
         JSON.stringify({
           review_roles: module.settings?.reviewRoles || ['DOCTOR'],
-          source: 'patient_explainer',
+          source: metadata?.source || 'clinical_ai_pipeline',
         }),
       );
       reviewId = reviewRows?.[0]?.id ?? null;

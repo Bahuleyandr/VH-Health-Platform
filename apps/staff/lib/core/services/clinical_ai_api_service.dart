@@ -185,6 +185,135 @@ class ClinicalAiApiService {
     return _post('$_basePath/discharge-compose/$runId/resume', {});
   }
 
+  // ---------- OP doctor-facing AI assist -------------------------------
+
+  /// GET /op/services - list OP AI Assist services and their Admin toggle
+  /// state. The backend is the authority; the UI uses this only to hide or
+  /// disable actions before the user submits.
+  static Future<List<Map<String, dynamic>>> listOpAssistModules() async {
+    final data = await _get('$_basePath/op/services');
+    final modules = data['modules'];
+    if (modules is List) {
+      return modules.cast<Map<String, dynamic>>();
+    }
+    return const [];
+  }
+
+  /// POST /op/visit-prep - generate a doctor-facing pre-consult brief for
+  /// an OP appointment.
+  static Future<Map<String, dynamic>> generateOpVisitPrep({
+    required int appointmentId,
+  }) async {
+    return _post('$_basePath/op/visit-prep', {'appointment_id': appointmentId});
+  }
+
+  /// POST /op/prescription-safety - advisory medication safety review.
+  static Future<Map<String, dynamic>> reviewOpPrescriptionSafety({
+    int? patientId,
+    String? patientUid,
+    int? admissionId,
+    required List<Map<String, dynamic>> medications,
+  }) async {
+    final body = <String, dynamic>{'medications': medications};
+    if (patientId != null) body['patient_id'] = patientId;
+    if (patientUid != null && patientUid.isNotEmpty) {
+      body['patient_uid'] = patientUid;
+    }
+    if (admissionId != null) body['admission_id'] = admissionId;
+    return _post('$_basePath/op/prescription-safety', body);
+  }
+
+  /// POST /op/investigation-review - doctor-facing lab/radiology review aid.
+  static Future<Map<String, dynamic>> generateOpInvestigationReview({
+    int? investigationId,
+    String? patientUid,
+    String? resultText,
+    String? clinicalQuestion,
+  }) async {
+    final body = <String, dynamic>{};
+    if (investigationId != null) body['investigation_id'] = investigationId;
+    if (patientUid != null && patientUid.isNotEmpty) {
+      body['patient_uid'] = patientUid;
+    }
+    if (resultText != null && resultText.trim().isNotEmpty) {
+      body['result_text'] = resultText.trim();
+    }
+    if (clinicalQuestion != null && clinicalQuestion.trim().isNotEmpty) {
+      body['clinical_question'] = clinicalQuestion.trim();
+    }
+    return _post('$_basePath/op/investigation-review', body);
+  }
+
+  /// POST /op/differential-red-flags - differential and red flag checklist.
+  static Future<Map<String, dynamic>> generateOpDifferentialRedFlags({
+    String? patientUid,
+    required String chiefComplaint,
+    int? ageYears,
+    String? sex,
+    Map<String, dynamic>? vitals,
+    String? examNotes,
+    List<String>? knownDiagnoses,
+  }) async {
+    final body = <String, dynamic>{'chief_complaint': chiefComplaint.trim()};
+    if (patientUid != null && patientUid.isNotEmpty) {
+      body['patient_uid'] = patientUid;
+    }
+    if (ageYears != null) body['age_years'] = ageYears;
+    if (sex != null && sex.isNotEmpty) body['sex'] = sex;
+    if (vitals != null && vitals.isNotEmpty) body['vitals'] = vitals;
+    if (examNotes != null && examNotes.trim().isNotEmpty) {
+      body['exam_notes'] = examNotes.trim();
+    }
+    if (knownDiagnoses != null && knownDiagnoses.isNotEmpty) {
+      body['known_diagnoses'] = knownDiagnoses;
+    }
+    return _post('$_basePath/op/differential-red-flags', body);
+  }
+
+  /// POST /op/follow-up-plan - draft clinician-reviewable follow-up plan.
+  static Future<Map<String, dynamic>> generateOpFollowUpPlan({
+    String? patientUid,
+    required String diagnosis,
+    required String treatmentPlan,
+    String? monitoringContext,
+  }) async {
+    final body = <String, dynamic>{
+      'diagnosis': diagnosis.trim(),
+      'treatment_plan': treatmentPlan.trim(),
+    };
+    if (patientUid != null && patientUid.isNotEmpty) {
+      body['patient_uid'] = patientUid;
+    }
+    if (monitoringContext != null && monitoringContext.trim().isNotEmpty) {
+      body['monitoring_context'] = monitoringContext.trim();
+    }
+    return _post('$_basePath/op/follow-up-plan', body);
+  }
+
+  /// POST /op/referral-draft - structured referral draft for doctor editing.
+  static Future<Map<String, dynamic>> generateOpReferralDraft({
+    String? patientUid,
+    required String referralReason,
+    required String clinicalSummary,
+    String? targetSpecialty,
+    String? currentTreatment,
+  }) async {
+    final body = <String, dynamic>{
+      'referral_reason': referralReason.trim(),
+      'clinical_summary': clinicalSummary.trim(),
+    };
+    if (patientUid != null && patientUid.isNotEmpty) {
+      body['patient_uid'] = patientUid;
+    }
+    if (targetSpecialty != null && targetSpecialty.trim().isNotEmpty) {
+      body['target_specialty'] = targetSpecialty.trim();
+    }
+    if (currentTreatment != null && currentTreatment.trim().isNotEmpty) {
+      body['current_treatment'] = currentTreatment.trim();
+    }
+    return _post('$_basePath/op/referral-draft', body);
+  }
+
   // ---------- voice notes (clinical-plane bridge) ----------------------
   //
   // These bridge `voiceSoapService` (Phase M3 backend) to the multi-agent

@@ -145,25 +145,35 @@ class _QuickAccessRow extends StatelessWidget {
     final s = AppStrings.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Row(
-        children: [
-          // The app theme gives OutlinedButton a full-width (double.infinity)
-          // minimumSize — fine stacked in a Column, but it forces an infinite
-          // width as a direct child of this Row. Size both buttons to content.
-          OutlinedButton.icon(
-            onPressed: () => context.push('/clinical-ai/compose'),
-            icon: const Icon(Icons.account_tree_outlined, size: 16),
-            label: Text(s.clinicalAiQueueComposeButton),
-            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: () => context.push('/clinical-ai/voice-notes'),
-            icon: const Icon(Icons.mic_none, size: 16),
-            label: Text(s.clinicalAiQueueVoiceNotesButton),
-            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
-          ),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            // The app theme gives OutlinedButton a full-width (double.infinity)
+            // minimumSize — fine stacked in a Column, but it forces an infinite
+            // width as a direct child of this Row. Size both buttons to content.
+            OutlinedButton.icon(
+              onPressed: () => context.push('/clinical-ai/compose'),
+              icon: const Icon(Icons.account_tree_outlined, size: 16),
+              label: Text(s.clinicalAiQueueComposeButton),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/clinical-ai/voice-notes'),
+              icon: const Icon(Icons.mic_none, size: 16),
+              label: Text(s.clinicalAiQueueVoiceNotesButton),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/op-ai-assist'),
+              icon: const Icon(Icons.auto_awesome, size: 16),
+              label: const Text('OP AI Assist'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -434,6 +434,13 @@ class RoleFeatures {
     route: '/clinical-ai/queue',
     color: Color(0xFF00838F),
   );
+  static const DashboardFeature _opAiAssist = DashboardFeature(
+    id: 'op_ai_assist',
+    title: 'OP AI Assist',
+    icon: Icons.auto_awesome,
+    route: '/op-ai-assist',
+    color: Color(0xFF5E35B1),
+  );
   static const DashboardFeature _appointmentQueue = DashboardFeature(
     id: 'appointment_queue',
     title: 'Appt Queue',
@@ -544,6 +551,7 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _queue,
         _clinicalAiReviewQueue,
+        _opAiAssist,
         _appointments,
         _appointmentQueue,
         _patientRecords,
@@ -699,6 +707,7 @@ class RoleFeatures {
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
+        _opAiAssist,
         _patientRecords,
         _prescriptions,
         _investigationResults,
@@ -729,6 +738,7 @@ class RoleFeatures {
         _appointments,
         _appointmentQueue,
         _clinicalAiReviewQueue,
+        _opAiAssist,
         _patientRecords,
         _prescriptions,
         _pharmacyOrders,

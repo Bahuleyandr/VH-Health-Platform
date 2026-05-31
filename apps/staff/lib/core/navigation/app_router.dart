@@ -35,6 +35,7 @@ import '../../features/clinical_ai/screens/clinical_ai_draft_detail_screen.dart'
 import '../../features/clinical_ai/screens/clinical_ai_compose_runs_screen.dart';
 import '../../features/clinical_ai/screens/clinical_ai_compose_run_detail_screen.dart';
 import '../../features/clinical_ai/screens/clinical_ai_voice_notes_screen.dart';
+import '../../features/clinical_ai/screens/op_ai_assist_screen.dart';
 
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
@@ -372,6 +373,17 @@ final GoRouter appRouter = GoRouter(
           name: 'clinical-ai-voice-notes',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: ClinicalAiVoiceNotesScreen()),
+        ),
+        GoRoute(
+          path: '/op-ai-assist',
+          name: 'op-ai-assist',
+          pageBuilder: (context, state) {
+            final raw = state.uri.queryParameters['appointment_id'];
+            final appointmentId = int.tryParse(raw ?? '');
+            return NoTransitionPage(
+              child: OpAiAssistScreen(initialAppointmentId: appointmentId),
+            );
+          },
         ),
 
         // Nursing

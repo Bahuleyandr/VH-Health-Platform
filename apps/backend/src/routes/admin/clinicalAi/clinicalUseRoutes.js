@@ -60,6 +60,15 @@ import {
   generatePrescriptionPatientExplanation,
   generateRadiologyPatientExplanation,
 } from '../../../services/ai/patientExplainersService.js';
+import {
+  generateOpDifferentialRedFlags,
+  generateOpFollowUpPlan,
+  generateOpInvestigationReview,
+  generateOpPrescriptionSafetyReview,
+  generateOpReferralDraft,
+  generateOpVisitPrep,
+  listOpdAiModules,
+} from '../../../services/ai/opdClinicalAssistService.js';
 import { getDefaultCheckpointStore } from '../../../services/ai/workflowCheckpointStore.js';
 import { resumeWorkflow } from '../../../services/ai/workflowGraphRunner.js';
 
@@ -73,6 +82,24 @@ function clampInt(value, { min = 1, max = 100, fallback = 25 } = {}) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, min), max);
+}
+
+function auditAndReturnOpAi(req, res, eventType, result, message, statusCode = 201) {
+  return Promise.resolve(
+    logClinicalAiAudit(req, eventType, String(result?.generation_id || result?.review_id || 'inline'), null, {
+      module_key: result?.module_key,
+      generation_id: result?.generation_id || null,
+      review_id: result?.review_id || null,
+      review_status: result?.review_status || result?.reviewer_decision || null,
+      provider: result?.provider,
+      used_ai: result?.used_ai,
+      safety_flag_count: Array.isArray(result?.safety_flags) ? result.safety_flags.length : 0,
+      route_family: 'clinical',
+      care_setting: 'opd',
+      patient_facing: false,
+      decision_support_only: true,
+    }),
+  ).then(() => success(res, result, message, statusCode));
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +309,125 @@ router.patch('/reviews/:id', async (req, res, next) => {
       { ...review, route_family: 'clinical' }
     );
     return success(res, review, 'Clinical AI review updated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// OP doctor-facing AI assist endpoints.
+//
+// These services are clinical decision-support only and are never patient
+// facing. Each module is defined in clinicalAiModuleService.js and is
+// toggleable from the Admin Clinical AI module controls. Disabled modules
+// return 403 from the service layer.
+// ---------------------------------------------------------------------------
+
+router.get('/op/services', async (req, res, next) => {
+  try {
+    const result = await listOpdAiModules({ tenantId: req.tenantId });
+    return success(res, result, 'OP AI services retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/op/visit-prep', async (req, res, next) => {
+  try {
+    const result = await generateOpVisitPrep({
+      tenantId: req.tenantId,
+      appointmentId: req.body?.appointment_id,
+      generatedBy: req.user?.uid || null,
+      req,
+    });
+    return auditAndReturnOpAi(req, res, 'CLINICAL_AI_OP_VISIT_PREP_GENERATED', result, 'OP visit prep drafted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/op/prescription-safety', async (req, res, next) => {
+  try {
+    const result = await generateOpPrescriptionSafetyReview({
+      patientId: req.body?.patient_id || null,
+      patientUid: req.body?.patient_uid || null,
+      medications: req.body?.medications,
+      admissionId: req.body?.admission_id || null,
+      req,
+    });
+    return auditAndReturnOpAi(req, res, 'CLINICAL_AI_OP_PRESCRIPTION_SAFETY_REVIEWED', result, 'Prescription safety review drafted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/op/investigation-review', async (req, res, next) => {
+  try {
+    const result = await generateOpInvestigationReview({
+      tenantId: req.tenantId,
+      investigationId: req.body?.investigation_id || null,
+      patientUid: req.body?.patient_uid || null,
+      resultText: req.body?.result_text || null,
+      clinicalQuestion: req.body?.clinical_question || null,
+      generatedBy: req.user?.uid || null,
+      req,
+    });
+    return auditAndReturnOpAi(req, res, 'CLINICAL_AI_OP_INVESTIGATION_REVIEW_GENERATED', result, 'Investigation review drafted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/op/differential-red-flags', async (req, res, next) => {
+  try {
+    const result = await generateOpDifferentialRedFlags({
+      tenantId: req.tenantId,
+      patientUid: req.body?.patient_uid || null,
+      chiefComplaint: req.body?.chief_complaint,
+      ageYears: req.body?.age_years || null,
+      sex: req.body?.sex || null,
+      vitals: req.body?.vitals || null,
+      examNotes: req.body?.exam_notes || null,
+      knownDiagnoses: req.body?.known_diagnoses || [],
+      generatedBy: req.user?.uid || null,
+      req,
+    });
+    return auditAndReturnOpAi(req, res, 'CLINICAL_AI_OP_DIFFERENTIAL_RED_FLAGS_GENERATED', result, 'Differential and red-flag checklist drafted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/op/follow-up-plan', async (req, res, next) => {
+  try {
+    const result = await generateOpFollowUpPlan({
+      tenantId: req.tenantId,
+      patientUid: req.body?.patient_uid || null,
+      diagnosis: req.body?.diagnosis,
+      treatmentPlan: req.body?.treatment_plan,
+      monitoringContext: req.body?.monitoring_context || null,
+      generatedBy: req.user?.uid || null,
+      req,
+    });
+    return auditAndReturnOpAi(req, res, 'CLINICAL_AI_OP_FOLLOW_UP_PLAN_GENERATED', result, 'Follow-up plan drafted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/op/referral-draft', async (req, res, next) => {
+  try {
+    const result = await generateOpReferralDraft({
+      tenantId: req.tenantId,
+      patientUid: req.body?.patient_uid || null,
+      referralReason: req.body?.referral_reason,
+      clinicalSummary: req.body?.clinical_summary,
+      targetSpecialty: req.body?.target_specialty || null,
+      currentTreatment: req.body?.current_treatment || null,
+      generatedBy: req.user?.uid || null,
+      req,
+    });
+    return auditAndReturnOpAi(req, res, 'CLINICAL_AI_OP_REFERRAL_DRAFT_GENERATED', result, 'Referral draft generated');
   } catch (err) {
     return next(err);
   }
