@@ -2,12 +2,16 @@ import { jest } from '@jest/globals';
 
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
+  admissions: {
+    findMany: jest.fn(),
+  },
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: prismaMock }));
 
 const {
   resolveInpatientAdmissionScope,
+  resolveInpatientLocationScope,
   __testing__,
 } = await import('../../services/emr/inpatientScopeService.js');
 
@@ -17,6 +21,7 @@ const NURSE_UID = '20000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
+  prismaMock.admissions.findMany.mockReset();
 });
 
 describe('resolveInpatientAdmissionScope', () => {
@@ -123,6 +128,31 @@ describe('resolveInpatientAdmissionScope', () => {
 });
 
 describe('inpatient scope coverage helpers', () => {
+  it('keeps doctor location scope to their occupied bed ids only', async () => {
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      { bed_id: 10 },
+      { bed_id: 11 },
+      { bed_id: null },
+    ]);
+
+    const result = await resolveInpatientLocationScope({
+      actor: { uid: DOCTOR_UID, role: 'CONSULTANT', tenantId: TENANT },
+    });
+
+    expect(result.scope).toEqual(expect.objectContaining({
+      type: 'own_patients',
+      source: 'doctor_assignment',
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      allLocations: false,
+      wardIds: [],
+      wardNames: [],
+      bedIds: [10, 11],
+      floors: [],
+    }));
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
   it('parses text floors used by roster boards', () => {
     expect(__testing__.parseFloor('Ground')).toBe(0);
     expect(__testing__.parseFloor('First floor')).toBe(1);

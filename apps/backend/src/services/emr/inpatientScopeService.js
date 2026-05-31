@@ -354,22 +354,9 @@ async function resolveOwnPatientCoverage({ actor, tenantId }) {
     };
   }
 
-  const bedRows = bedIds.length
-    ? await prisma.beds.findMany({
-        where: { id: { in: bedIds } },
-        select: {
-          id: true,
-          ward_id: true,
-          ward_name: true,
-          floor: true,
-          wards: { select: { id: true, name: true, floor: true } },
-        },
-      })
-    : [];
-
   return {
     allFloors: false,
-    wardIds: unique(bedRows.map((row) => row.ward_id ?? row.wards?.id)),
+    wardIds: [],
     wardNames: [],
     bedIds,
     floors: [],
