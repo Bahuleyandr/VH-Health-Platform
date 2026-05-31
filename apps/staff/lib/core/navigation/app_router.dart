@@ -163,7 +163,13 @@ final GoRouter appRouter = GoRouter(
     if (isLoggedIn && !isOnLogin) {
       try {
         final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
-        if (!sp.isSessionExpired) sp.recordActivity();
+        if (!sp.isSessionExpired) {
+          if (sp.isTracking) {
+            sp.recordActivity();
+          } else {
+            sp.startTracking();
+          }
+        }
       } catch (_) {}
     }
 

@@ -23,13 +23,17 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   Timer? _timer;
   bool _expired = false;
+  bool _tracking = false;
 
   /// `true` after the idle timeout fires. Reset by [resetSession].
   bool get isSessionExpired => _expired;
 
+  bool get isTracking => _tracking;
+
   /// Call this on every user interaction (tap, scroll, keyboard).
   /// Resets the idle countdown.
   void recordActivity() {
+    if (!_tracking) return;
     if (_expired) return; // already expired — don't restart
     _timer?.cancel();
     _timer = Timer(timeoutDuration, _onTimeout);
@@ -37,12 +41,14 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   /// Start tracking. Call once after login succeeds.
   void startTracking() {
+    _tracking = true;
     _expired = false;
     recordActivity();
   }
 
   /// Stop tracking. Call on explicit logout to avoid double-clear.
   void stopTracking() {
+    _tracking = false;
     _timer?.cancel();
     _timer = null;
   }
@@ -55,6 +61,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
   }
 
   Future<void> _onTimeout() async {
+    _tracking = false;
     _expired = true;
     _timer = null;
     try {

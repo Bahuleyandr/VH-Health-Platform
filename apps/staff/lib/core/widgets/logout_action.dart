@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../l10n/app_strings.dart';
+import '../providers/session_timeout_provider.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 
@@ -46,6 +48,9 @@ class LogoutAction extends StatelessWidget {
     );
     if (confirmed != true) return;
     await AuthService.logout();
+    if (context.mounted) {
+      context.read<SessionTimeoutProvider>().stopTracking();
+    }
     if (!context.mounted) return;
     context.go('/login');
   }

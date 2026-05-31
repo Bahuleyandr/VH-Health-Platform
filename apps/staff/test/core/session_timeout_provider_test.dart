@@ -16,12 +16,32 @@ void main() {
         addTearDown(provider.dispose);
 
         provider.startTracking();
+        expect(provider.isTracking, isTrue);
         await Future<void>.delayed(const Duration(milliseconds: 40));
 
         expect(provider.isSessionExpired, isTrue);
+        expect(provider.isTracking, isFalse);
         expect(cleanupCount, 1);
       },
     );
+
+    test('recordActivity does not start tracking before login', () async {
+      var cleanupCount = 0;
+      final provider = SessionTimeoutProvider(
+        timeoutDuration: const Duration(milliseconds: 10),
+        onTimeoutCleanup: () async {
+          cleanupCount += 1;
+        },
+      );
+      addTearDown(provider.dispose);
+
+      provider.recordActivity();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+
+      expect(provider.isTracking, isFalse);
+      expect(provider.isSessionExpired, isFalse);
+      expect(cleanupCount, 0);
+    });
 
     test('recordActivity restarts the idle window', () async {
       var cleanupCount = 0;
@@ -59,6 +79,7 @@ void main() {
 
       provider.startTracking();
       provider.stopTracking();
+      expect(provider.isTracking, isFalse);
       await Future<void>.delayed(const Duration(milliseconds: 40));
 
       expect(provider.isSessionExpired, isFalse);

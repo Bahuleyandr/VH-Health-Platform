@@ -15,6 +15,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 
+import '../providers/session_timeout_provider.dart';
 import '../services/auth_service.dart';
 
 class SessionRevocationListener extends StatefulWidget {
@@ -71,6 +72,9 @@ class _SessionRevocationListenerState extends State<SessionRevocationListener> {
     // this just unregisters the device + tidies up local state). Local
     // credentials are cleared regardless.
     await AuthService.logout();
+    if (mounted) {
+      context.read<SessionTimeoutProvider>().stopTracking();
+    }
     if (!mounted) return;
     goRouter.go('/login');
   }

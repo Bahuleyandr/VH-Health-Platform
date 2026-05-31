@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
@@ -118,7 +119,10 @@ class SettingsScreen extends StatelessWidget {
 
     if (confirmed == true) {
       await AuthService.logout();
-      if (context.mounted) context.go('/login');
+      if (context.mounted) {
+        context.read<SessionTimeoutProvider>().stopTracking();
+        context.go('/login');
+      }
     }
   }
 
