@@ -1401,16 +1401,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    // Active admissions (everyone clinical sees this — the patient list
-    // is the natural drill-down for any of the other counts).
+    // Active admissions: clinical roles drill into admissions; housekeeping
+    // drills into the scoped bed board with minimized PHI.
     if (_canSeeInpatientStats) {
+      final inpatientRoute =
+          _role == StaffRole.housekeeping ||
+              _role == StaffRole.housekeepingIncharge
+          ? '/beds'
+          : '/emr/admissions';
       stats.add(
         _StatItem(
           icon: Icons.local_hotel_outlined,
           label: s.dashboardStatInpatients,
           value: '$_activeAdmissionsCount',
           color: const Color(0xFF1565C0),
-          route: '/emr/admissions',
+          route: inpatientRoute,
         ),
       );
     }

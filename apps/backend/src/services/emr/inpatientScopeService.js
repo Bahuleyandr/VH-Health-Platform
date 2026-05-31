@@ -64,7 +64,18 @@ export const MINIMIZED_INPATIENT_PAYLOAD_ROLES = new Set([
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
 
 function normalizeRole(role) {
-  return String(role || '').trim().toUpperCase();
+  const normalized = String(role || '').trim().toUpperCase();
+  return {
+    CHIEF_NURSING_OFFICER: 'CNO',
+    CONSULTANT_PHYSICIAN: 'CONSULTANT',
+    HOUSEKEEPING: 'HOUSEKEEPING_STAFF',
+    HOUSEKEEPING_ATTENDANT: 'HOUSEKEEPING_STAFF',
+    NURSE: 'NURSING_STAFF',
+    NURSING_SUPERINTENDENT: 'CNO',
+    REGISTERED_NURSE: 'NURSING_STAFF',
+    STAFF_NURSE: 'NURSING_STAFF',
+    WARD_NURSE: 'NURSING_STAFF',
+  }[normalized] || normalized;
 }
 
 function compact(value) {
