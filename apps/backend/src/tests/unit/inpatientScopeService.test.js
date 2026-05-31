@@ -54,6 +54,16 @@ describe('resolveInpatientAdmissionScope', () => {
     'CNO',
     'NURSING_SUPERINTENDENT',
     'HOUSEKEEPING_INCHARGE',
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IPD_COUNSELLOR',
+    'INSURANCE_COORDINATOR',
+    'BILLING_STAFF',
+    'BILLING_INCHARGE',
+    'FINANCE_INCHARGE',
+    'PHARMACY_STAFF',
+    'PHARMACY_INCHARGE',
   ])('gives %s full tenant inpatient scope', async (role) => {
     await expect(resolveInpatientAdmissionScope({
       actor: { role, tenantId: TENANT },
@@ -61,6 +71,19 @@ describe('resolveInpatientAdmissionScope', () => {
       where: { tenant_id: TENANT },
       scope: expect.objectContaining({ type: 'full', source: 'governance_role' }),
     }));
+  });
+
+  it('does not fall back to all inpatients for unsupported roles', async () => {
+    const result = await resolveInpatientAdmissionScope({
+      actor: { uid: NURSE_UID, id: 99, role: 'GENERAL_STAFF', tenantId: TENANT },
+    });
+
+    expect(result.scope).toEqual(expect.objectContaining({
+      type: 'none',
+      source: 'role_not_inpatient_scoped',
+    }));
+    expect(result.where).toEqual({ tenant_id: TENANT, id: -1 });
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
   it('scopes staff nurses to their current published roster floor', async () => {
@@ -369,5 +392,25 @@ describe('inpatient scope coverage helpers', () => {
     expect(__testing__.parseFloor('First floor')).toBe(1);
     expect(__testing__.parseFloor('Floor 3')).toBe(3);
     expect(__testing__.parseFloor('All floors')).toBe('all');
+  });
+
+  it('does not grant bed-board location scope to unsupported roles', async () => {
+    const result = await resolveInpatientLocationScope({
+      actor: { uid: NURSE_UID, id: 99, role: 'GENERAL_STAFF', tenantId: TENANT },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      allLocations: false,
+      allFloors: false,
+      wardIds: [],
+      wardNames: [],
+      bedIds: [],
+      floors: [],
+      scope: expect.objectContaining({
+        type: 'none',
+        source: 'role_not_inpatient_scoped',
+      }),
+    }));
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 });

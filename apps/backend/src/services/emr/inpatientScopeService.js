@@ -12,8 +12,15 @@ export const FULL_INPATIENT_SCOPE_ROLES = new Set([
   'NURSING_INCHARGE',
   'ICU_INCHARGE',
   'IPD_COUNSELLOR',
+  'INSURANCE_COORDINATOR',
+  'RECEPTIONIST',
   'ADMISSION_OFFICER',
   'RECEPTION_INCHARGE',
+  'BILLING_STAFF',
+  'BILLING_INCHARGE',
+  'FINANCE_INCHARGE',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
   'HOUSEKEEPING_INCHARGE',
 ]);
 
@@ -535,11 +542,18 @@ export async function resolveInpatientAdmissionScope({
     };
   }
 
+  if (FULL_INPATIENT_SCOPE_ROLES.has(role)) {
+    return {
+      where: tenantId ? { tenant_id: tenantId } : {},
+      scope: { type: 'full', source: 'governance_role', tenant_id: tenantId },
+    };
+  }
+
   return {
-    where: tenantId ? { tenant_id: tenantId } : {},
+    where: withTenant(impossibleAdmissionWhere(), tenantId),
     scope: {
-      type: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'full' : 'role_default',
-      source: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'governance_role' : 'default_role_scope',
+      type: 'none',
+      source: 'role_not_inpatient_scoped',
       tenant_id: tenantId,
     },
   };
@@ -619,16 +633,28 @@ export async function resolveInpatientLocationScope({
     };
   }
 
+  if (FULL_INPATIENT_SCOPE_ROLES.has(role)) {
+    return {
+      allLocations: true,
+      allFloors: true,
+      wardIds: [],
+      wardNames: [],
+      bedIds: [],
+      floors: [],
+      scope: { type: 'full', source: 'governance_role', tenant_id: tenantId },
+    };
+  }
+
   return {
-    allLocations: true,
-    allFloors: true,
+    allLocations: false,
+    allFloors: false,
     wardIds: [],
     wardNames: [],
     bedIds: [],
     floors: [],
     scope: {
-      type: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'full' : 'role_default',
-      source: FULL_INPATIENT_SCOPE_ROLES.has(role) ? 'governance_role' : 'default_role_scope',
+      type: 'none',
+      source: 'role_not_inpatient_scoped',
       tenant_id: tenantId,
     },
   };
