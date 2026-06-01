@@ -952,6 +952,11 @@ class MedicalApiService {
     return _get('/emr/io/$uid/balance', query: {'date': ?date});
   }
 
+  /// GET /emr/io/:uid/chart — I/O rows for history views
+  static Future<Map<String, dynamic>> getIOChart(String uid) async {
+    return _get('/emr/io/$uid/chart');
+  }
+
   // ─── EMR: Diagnosis ───────────────────────────────────────────────────────
 
   /// POST /emr/diagnosis — add a diagnosis

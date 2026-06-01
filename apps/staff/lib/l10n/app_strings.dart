@@ -999,6 +999,14 @@ class AppStrings {
   String get vitalsChartTabRecord => _t('vitals_chart.tab.record');
   String get vitalsChartTabLast24h => _t('vitals_chart.tab.last_24h');
   String get vitalsChartTabIoBalance => _t('vitals_chart.tab.io_balance');
+  String get vitalsChartTabToday => _t('vitals_chart.tab.today');
+  String get vitalsChartTabPreviousDays => _t('vitals_chart.tab.previous_days');
+  String get vitalsChartSectionLast24h => _t('vitals_chart.section.last_24h');
+  String get vitalsChartSectionIoToday => _t('vitals_chart.section.io_today');
+  String get vitalsChartSectionPreviousVitals =>
+      _t('vitals_chart.section.previous_vitals');
+  String get vitalsChartSectionPreviousIo =>
+      _t('vitals_chart.section.previous_io');
   String get vitalsChartRecordVitals => _t('vitals_chart.record_vitals');
   String get vitalsChartHeartRate => _t('vitals_chart.heart_rate');
   String get vitalsChartBpSys => _t('vitals_chart.bp_sys');
@@ -1061,6 +1069,9 @@ class AppStrings {
   String get vitalsChartRecordIoEntry => _t('vitals_chart.record_io_entry');
   String get vitalsChartTodayEntries => _t('vitals_chart.today_entries');
   String get vitalsChartNoIoToday => _t('vitals_chart.no_io_today');
+  String get vitalsChartNoPreviousVitals =>
+      _t('vitals_chart.no_previous_vitals');
+  String get vitalsChartNoPreviousIo => _t('vitals_chart.no_previous_io');
   String vitalsChartRecordForName(String name) =>
       '${_t('vitals_chart.record_for_prefix')} $name';
   String get vitalsChartRecordPatient => _t('vitals_chart.record_patient');
@@ -3005,6 +3016,12 @@ class AppStrings {
       'vitals_chart.tab.record': 'Record',
       'vitals_chart.tab.last_24h': 'Last 24h',
       'vitals_chart.tab.io_balance': 'I/O Balance',
+      'vitals_chart.tab.today': 'Today',
+      'vitals_chart.tab.previous_days': 'Previous Days',
+      'vitals_chart.section.last_24h': 'Last 24h Vitals',
+      'vitals_chart.section.io_today': 'I/O Balance Today',
+      'vitals_chart.section.previous_vitals': 'Previous Vitals',
+      'vitals_chart.section.previous_io': 'Previous I/O',
       'vitals_chart.record_vitals': 'Record Vitals',
       'vitals_chart.heart_rate': 'Heart Rate (bpm)',
       'vitals_chart.bp_sys': 'BP Systolic',
@@ -3062,6 +3079,8 @@ class AppStrings {
       'vitals_chart.record_io_entry': 'Record I/O Entry',
       'vitals_chart.today_entries': "Today's Entries",
       'vitals_chart.no_io_today': 'No I/O entries recorded today',
+      'vitals_chart.no_previous_vitals': 'No previous vitals recorded',
+      'vitals_chart.no_previous_io': 'No previous I/O entries recorded',
       'vitals_chart.record_for_prefix': 'Record vitals for',
       'vitals_chart.record_patient': 'Record patient vitals',
       'vitals_chart.record_now': 'Record Vitals Now',

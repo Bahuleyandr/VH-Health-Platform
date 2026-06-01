@@ -111,16 +111,96 @@ List<Map<String, dynamic>> extractVitalsChartRows(Map<String, dynamic> data) {
       data['vitals'] ?? data['records'] ?? data['data'] ?? data['items'];
   if (list is! List) return [];
 
-  final cutoff = DateTime.now().subtract(const Duration(hours: 24));
-  return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).where((
-    row,
-  ) {
-    final recordedAt = row['recorded_at'];
-    if (recordedAt is! String) return true;
-    final parsed = DateTime.tryParse(recordedAt);
+  return list
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+}
+
+List<Map<String, dynamic>> filterVitalsRowsLast24h(
+  List<Map<String, dynamic>> rows, {
+  DateTime? now,
+}) {
+  final cutoff = (now ?? DateTime.now()).subtract(const Duration(hours: 24));
+  return rows.where((row) {
+    final parsed = parseRecordDateTime(row['recorded_at']);
     if (parsed == null) return true;
     return !parsed.toLocal().isBefore(cutoff);
   }).toList();
+}
+
+List<Map<String, dynamic>> filterVitalsRowsBeforeLast24h(
+  List<Map<String, dynamic>> rows, {
+  DateTime? now,
+}) {
+  final cutoff = (now ?? DateTime.now()).subtract(const Duration(hours: 24));
+  return rows.where((row) {
+    final parsed = parseRecordDateTime(row['recorded_at']);
+    if (parsed == null) return false;
+    return parsed.toLocal().isBefore(cutoff);
+  }).toList();
+}
+
+List<Map<String, dynamic>> extractIOChartRows(Map<String, dynamic> data) {
+  final list =
+      data['entries'] ?? data['records'] ?? data['data'] ?? data['items'];
+  if (list is! List) return [];
+
+  return list
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+}
+
+List<Map<String, dynamic>> filterIOEntriesBeforeToday(
+  List<Map<String, dynamic>> rows, {
+  DateTime? now,
+}) {
+  final localNow = now ?? DateTime.now();
+  final todayStart = DateTime(localNow.year, localNow.month, localNow.day);
+  return rows.where((row) {
+    final parsed = parseRecordDateTime(row['recorded_at']);
+    if (parsed == null) return false;
+    return parsed.toLocal().isBefore(todayStart);
+  }).toList();
+}
+
+DateTime? parseRecordDateTime(dynamic value) {
+  if (value is DateTime) return value;
+  if (value is! String) return null;
+  return DateTime.tryParse(value);
+}
+
+Map<String, dynamic> buildIORecordPayload({
+  required String patientUid,
+  required String type,
+  required String category,
+  required String amount,
+  required String description,
+}) {
+  final data = <String, dynamic>{
+    'patient_uid': patientUid,
+    'io_type': type,
+    'category': category,
+    'amount_ml': int.tryParse(amount) ?? 0,
+    if (description.trim().isNotEmpty) 'description': description.trim(),
+  };
+  return data;
+}
+
+String rowIOType(Map<String, dynamic> row) {
+  return '${row['io_type'] ?? row['type'] ?? ''}'.toLowerCase();
+}
+
+String rowIOAmount(Map<String, dynamic> row) {
+  return '${row['amount_ml'] ?? row['amount'] ?? 0}';
+}
+
+String rowIODateLabel(Map<String, dynamic> row) {
+  final parsed = parseRecordDateTime(row['recorded_at']);
+  if (parsed == null) return '-';
+  final local = parsed.toLocal();
+  return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
 }
 
 class _VitalsChartScreenState extends State<VitalsChartScreen>
@@ -136,13 +216,26 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   Map<String, dynamic>? _ioBalance;
   bool _ioLoading = true;
   String? _ioError;
+  List<Map<String, dynamic>> _ioHistory = [];
+  bool _ioHistoryLoading = true;
+  String? _ioHistoryError;
+
+  List<Map<String, dynamic>> get _last24hVitals =>
+      filterVitalsRowsLast24h(_vitalsHistory);
+
+  List<Map<String, dynamic>> get _previousVitals =>
+      filterVitalsRowsBeforeLast24h(_vitalsHistory);
+
+  List<Map<String, dynamic>> get _previousIOEntries =>
+      filterIOEntriesBeforeToday(_ioHistory);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _loadVitalsHistory();
     _loadIOBalance();
+    _loadIOHistory();
   }
 
   @override
@@ -193,6 +286,33 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         _ioLoading = false;
       });
     }
+  }
+
+  Future<void> _loadIOHistory() async {
+    setState(() {
+      _ioHistoryLoading = true;
+      _ioHistoryError = null;
+    });
+    try {
+      final data = await MedicalApiService.getIOChart(widget.patientUid);
+      setState(() {
+        _ioHistory = extractIOChartRows(data);
+        _ioHistoryLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _ioHistoryError = e.toString();
+        _ioHistoryLoading = false;
+      });
+    }
+  }
+
+  Future<void> _refreshToday() async {
+    await Future.wait([_loadVitalsHistory(), _loadIOBalance()]);
+  }
+
+  Future<void> _refreshPreviousDays() async {
+    await Future.wait([_loadVitalsHistory(), _loadIOHistory()]);
   }
 
   // ── Record Vitals Form ──
@@ -795,13 +915,15 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     required String description,
   }) async {
     try {
-      await MedicalApiService.recordIO({
-        'patient_uid': widget.patientUid,
-        'type': type,
-        'category': category,
-        'amount_ml': int.tryParse(amount) ?? 0,
-        if (description.isNotEmpty) 'description': description,
-      });
+      await MedicalApiService.recordIO(
+        buildIORecordPayload(
+          patientUid: widget.patientUid,
+          type: type,
+          category: category,
+          amount: amount,
+          description: description,
+        ),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -810,6 +932,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           ),
         );
         _loadIOBalance();
+        _loadIOHistory();
       }
     } catch (e) {
       if (mounted) {
@@ -827,38 +950,46 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
 
   // ── Vitals Data Table (last 24h) ──
 
-  Widget _buildVitalsTable() {
-    if (_vitalsLoading) {
-      return const Center(child: CircularProgressIndicator());
+  Widget _buildVitalsTable({
+    required List<Map<String, dynamic>> rows,
+    required bool loading,
+    required String emptyText,
+    String? error,
+    VoidCallback? onRetry,
+  }) {
+    if (loading) {
+      return const SizedBox(
+        height: 160,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
-    if (_vitalsError != null) {
-      return Center(
+    if (error != null) {
+      return SizedBox(
+        height: 180,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 12),
-            Text(_vitalsError!, textAlign: TextAlign.center),
+            Text(error, textAlign: TextAlign.center),
             const SizedBox(height: 12),
             OutlinedButton(
-              onPressed: _loadVitalsHistory,
+              onPressed: onRetry,
               child: Text(AppStrings.of(context).vitalsChartRetry),
             ),
           ],
         ),
       );
     }
-    if (_vitalsHistory.isEmpty) {
-      return Center(
+    if (rows.isEmpty) {
+      return SizedBox(
+        height: 150,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.monitor_heart, size: 64, color: AppTheme.divider),
             const SizedBox(height: 12),
-            Text(
-              AppStrings.of(context).vitalsChartNoVitals,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
+            Text(emptyText, style: TextStyle(color: AppTheme.textSecondary)),
           ],
         ),
       );
@@ -937,7 +1068,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               ),
             ),
           ],
-          rows: _vitalsHistory.map((v) {
+          rows: rows.map((v) {
             final bpSystolic = _firstVitalsValue(v, [
               'systolic_bp',
               'bp_systolic',
@@ -1049,7 +1180,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   static const _cellStyle = TextStyle(fontSize: 13);
 
   String _formatTime(String? ts) {
-    if (ts == null) return '-';
+    if (ts == null || ts.isEmpty) return '-';
     try {
       final dt = DateTime.parse(ts);
       return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -1060,12 +1191,16 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
 
   // ── I/O Balance View ──
 
-  Widget _buildIOSection() {
+  Widget _buildIOSection({bool showRecordButton = true}) {
     if (_ioLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const SizedBox(
+        height: 160,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
     if (_ioError != null) {
-      return Center(
+      return SizedBox(
+        height: 180,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1090,45 +1225,43 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         ? entries.map((e) => Map<String, dynamic>.from(e as Map)).toList()
         : <Map<String, dynamic>>[];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Summary cards
-          Row(
-            children: [
-              Expanded(
-                child: _ioSummaryCard(
-                  AppStrings.of(context).vitalsChartIntakeLabel,
-                  '$totalIntake mL',
-                  Icons.arrow_downward,
-                  AppTheme.primaryBlue,
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary cards
+        Row(
+          children: [
+            Expanded(
+              child: _ioSummaryCard(
+                AppStrings.of(context).vitalsChartIntakeLabel,
+                '$totalIntake mL',
+                Icons.arrow_downward,
+                AppTheme.primaryBlue,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ioSummaryCard(
-                  AppStrings.of(context).vitalsChartOutputLabel,
-                  '$totalOutput mL',
-                  Icons.arrow_upward,
-                  AppTheme.warningAmber,
-                ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _ioSummaryCard(
+                AppStrings.of(context).vitalsChartOutputLabel,
+                '$totalOutput mL',
+                Icons.arrow_upward,
+                AppTheme.warningAmber,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ioSummaryCard(
-                  AppStrings.of(context).vitalsChartBalanceLabel,
-                  '${balance >= 0 ? '+' : ''}$balance mL',
-                  Icons.balance,
-                  balance >= 0 ? AppTheme.successGreen : AppTheme.errorRed,
-                ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _ioSummaryCard(
+                AppStrings.of(context).vitalsChartBalanceLabel,
+                '${balance >= 0 ? '+' : ''}$balance mL',
+                Icons.balance,
+                balance >= 0 ? AppTheme.successGreen : AppTheme.errorRed,
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
 
-          // Record I/O button
+        if (showRecordButton) ...[
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -1138,67 +1271,70 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
             ),
           ),
           const SizedBox(height: 16),
+        ],
 
-          // I/O entries
-          if (entryList.isNotEmpty) ...[
-            Text(
-              AppStrings.of(context).vitalsChartTodayEntries,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-            ),
-            const SizedBox(height: 8),
-            ...entryList.map((entry) {
-              final isIntake =
-                  (entry['type'] as String?)?.toLowerCase() == 'intake';
-              return Card(
-                margin: const EdgeInsets.only(bottom: 6),
-                child: ListTile(
-                  dense: true,
-                  leading: CircleAvatar(
-                    radius: 16,
-                    backgroundColor:
-                        (isIntake
-                                ? AppTheme.primaryBlue
-                                : AppTheme.warningAmber)
-                            .withValues(alpha: 0.15),
-                    child: Icon(
-                      isIntake ? Icons.arrow_downward : Icons.arrow_upward,
-                      size: 16,
-                      color: isIntake
-                          ? AppTheme.primaryBlue
-                          : AppTheme.warningAmber,
-                    ),
-                  ),
-                  title: Text(
-                    '${entry['category'] ?? entry['type']} - ${entry['amount_ml'] ?? entry['amount']} mL',
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  subtitle: entry['description'] != null
-                      ? Text(
-                          entry['description'] as String,
-                          style: const TextStyle(fontSize: 12),
-                        )
-                      : null,
-                  trailing: Text(
-                    _formatTime(entry['recorded_at'] as String?),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ] else
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  AppStrings.of(context).vitalsChartNoIoToday,
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
+        // I/O entries
+        if (entryList.isNotEmpty) ...[
+          Text(
+            AppStrings.of(context).vitalsChartTodayEntries,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          ),
+          const SizedBox(height: 8),
+          ...entryList.map(
+            (entry) => _buildIOEntryTile(entry, showDate: false),
+          ),
+        ] else
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                AppStrings.of(context).vitalsChartNoIoToday,
+                style: TextStyle(color: AppTheme.textSecondary),
               ),
             ),
-        ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildIOEntryTile(
+    Map<String, dynamic> entry, {
+    required bool showDate,
+  }) {
+    final isIntake = rowIOType(entry) == 'intake';
+    final accent = isIntake ? AppTheme.primaryBlue : AppTheme.warningAmber;
+    final description = entry['description'];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppTheme.divider),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        dense: true,
+        leading: CircleAvatar(
+          radius: 16,
+          backgroundColor: accent.withValues(alpha: 0.15),
+          child: Icon(
+            isIntake ? Icons.arrow_downward : Icons.arrow_upward,
+            size: 16,
+            color: accent,
+          ),
+        ),
+        title: Text(
+          '${entry['category'] ?? rowIOType(entry)} - ${rowIOAmount(entry)} mL',
+          style: const TextStyle(fontSize: 13),
+        ),
+        subtitle: description is String && description.isNotEmpty
+            ? Text(description, style: const TextStyle(fontSize: 12))
+            : null,
+        trailing: Text(
+          showDate
+              ? rowIODateLabel(entry)
+              : _formatTime('${entry['recorded_at'] ?? ''}'),
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
       ),
     );
   }
@@ -1209,7 +1345,12 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     IconData icon,
     Color color,
   ) {
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1235,44 +1376,182 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     );
   }
 
-  // ── Record Vitals Quick Entry Tab ──
+  Widget _buildSection({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppTheme.divider),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: AppTheme.primaryBlue),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
 
-  Widget _buildRecordTab() {
+  Widget _buildQuickActions() {
     final s = AppStrings.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 520;
+        final vitalsButton = FilledButton.icon(
+          onPressed: _showRecordVitalsSheet,
+          icon: const Icon(Icons.add_circle_outline),
+          label: Text(s.vitalsChartRecordNow),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          ),
+        );
+        final ioButton = OutlinedButton.icon(
+          onPressed: _showRecordIOSheet,
+          icon: const Icon(Icons.water_drop_outlined),
+          label: Text(s.vitalsChartRecordIo),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          ),
+        );
+        if (narrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [vitalsButton, const SizedBox(height: 10), ioButton],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: vitalsButton),
+            const SizedBox(width: 12),
+            Expanded(child: ioButton),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTodayPage() {
+    final s = AppStrings.of(context);
+    return RefreshIndicator(
+      onRefresh: _refreshToday,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildQuickActions(),
+          const SizedBox(height: 16),
+          _buildSection(
+            title: s.vitalsChartSectionLast24h,
+            icon: Icons.monitor_heart,
+            child: _buildVitalsTable(
+              rows: _last24hVitals,
+              loading: _vitalsLoading,
+              error: _vitalsError,
+              emptyText: s.vitalsChartNoVitals,
+              onRetry: _loadVitalsHistory,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildSection(
+            title: s.vitalsChartSectionIoToday,
+            icon: Icons.water_drop,
+            child: _buildIOSection(showRecordButton: false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviousDaysPage() {
+    final s = AppStrings.of(context);
+    return RefreshIndicator(
+      onRefresh: _refreshPreviousDays,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildSection(
+            title: s.vitalsChartSectionPreviousVitals,
+            icon: Icons.history,
+            child: _buildVitalsTable(
+              rows: _previousVitals,
+              loading: _vitalsLoading,
+              error: _vitalsError,
+              emptyText: s.vitalsChartNoPreviousVitals,
+              onRetry: _loadVitalsHistory,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildSection(
+            title: s.vitalsChartSectionPreviousIo,
+            icon: Icons.receipt_long,
+            child: _buildPreviousIOSection(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviousIOSection() {
+    if (_ioHistoryLoading) {
+      return const SizedBox(
+        height: 160,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_ioHistoryError != null) {
+      return SizedBox(
+        height: 180,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.monitor_heart,
-              size: 80,
-              color: AppTheme.primaryBlue.withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              widget.patientName != null
-                  ? s.vitalsChartRecordForName(widget.patientName!)
-                  : s.vitalsChartRecordPatient,
-              style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _showRecordVitalsSheet,
-              icon: const Icon(Icons.add_circle_outline),
-              label: Text(s.vitalsChartRecordNow),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
-                ),
-              ),
+            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            const SizedBox(height: 12),
+            Text(_ioHistoryError!, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: _loadIOHistory,
+              child: Text(AppStrings.of(context).vitalsChartRetry),
             ),
           ],
         ),
-      ),
+      );
+    }
+    final rows = _previousIOEntries;
+    if (rows.isEmpty) {
+      return SizedBox(
+        height: 140,
+        child: Center(
+          child: Text(
+            AppStrings.of(context).vitalsChartNoPreviousIo,
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
+        ),
+      );
+    }
+    return Column(
+      children: rows
+          .map((entry) => _buildIOEntryTile(entry, showDate: true))
+          .toList(),
     );
   }
 
@@ -1294,26 +1573,15 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.primaryBlue,
               tabs: [
-                Tab(text: s.vitalsChartTabRecord),
-                Tab(text: s.vitalsChartTabLast24h),
-                Tab(text: s.vitalsChartTabIoBalance),
+                Tab(text: s.vitalsChartTabToday),
+                Tab(text: s.vitalsChartTabPreviousDays),
               ],
             ),
           ),
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [
-                _buildRecordTab(),
-                RefreshIndicator(
-                  onRefresh: _loadVitalsHistory,
-                  child: _buildVitalsTable(),
-                ),
-                RefreshIndicator(
-                  onRefresh: _loadIOBalance,
-                  child: _buildIOSection(),
-                ),
-              ],
+              children: [_buildTodayPage(), _buildPreviousDaysPage()],
             ),
           ),
         ],

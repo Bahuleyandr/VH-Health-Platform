@@ -66,28 +66,36 @@ void main() {
     });
   });
 
+  group('buildIORecordPayload', () {
+    test('uses backend I/O field names', () {
+      final payload = buildIORecordPayload(
+        patientUid: 'PAT-1',
+        type: 'intake',
+        category: 'oral',
+        amount: '250',
+        description: 'water',
+      );
+
+      expect(payload['patient_uid'], 'PAT-1');
+      expect(payload['io_type'], 'intake');
+      expect(payload['category'], 'oral');
+      expect(payload['amount_ml'], 250);
+      expect(payload['description'], 'water');
+      expect(payload.containsKey('type'), isFalse);
+    });
+  });
+
   group('extractVitalsChartRows', () {
     test('reads full vitals chart rows from the API data wrapper', () {
-      final now = DateTime.now();
       final rows = extractVitalsChartRows({
         'data': [
-          {
-            'heart_rate': 82,
-            'recorded_at': now
-                .subtract(const Duration(hours: 1))
-                .toIso8601String(),
-          },
-          {
-            'heart_rate': 75,
-            'recorded_at': now
-                .subtract(const Duration(hours: 25))
-                .toIso8601String(),
-          },
+          {'heart_rate': 82, 'recorded_at': '2026-06-01T10:00:00Z'},
+          {'heart_rate': 75, 'recorded_at': '2026-05-31T08:00:00Z'},
         ],
       });
 
-      expect(rows, hasLength(1));
-      expect(rows.single['heart_rate'], 82);
+      expect(rows, hasLength(2));
+      expect(rows.first['heart_rate'], 82);
     });
 
     test('also accepts vitals and records wrappers', () {
@@ -107,6 +115,54 @@ void main() {
         }),
         hasLength(1),
       );
+    });
+  });
+
+  group('vitals and I/O history filters', () {
+    test('splits current and previous vitals around the last 24h', () {
+      final now = DateTime(2026, 6, 1, 12);
+      final rows = [
+        {
+          'heart_rate': 82,
+          'recorded_at': now
+              .subtract(const Duration(hours: 2))
+              .toIso8601String(),
+        },
+        {
+          'heart_rate': 75,
+          'recorded_at': now
+              .subtract(const Duration(hours: 30))
+              .toIso8601String(),
+        },
+      ];
+
+      expect(filterVitalsRowsLast24h(rows, now: now).single['heart_rate'], 82);
+      expect(
+        filterVitalsRowsBeforeLast24h(rows, now: now).single['heart_rate'],
+        75,
+      );
+    });
+
+    test('extracts previous-day I/O entries from chart rows', () {
+      final now = DateTime(2026, 6, 1, 12);
+      final rows = extractIOChartRows({
+        'data': [
+          {
+            'io_type': 'intake',
+            'amount_ml': 100,
+            'recorded_at': DateTime(2026, 6, 1, 8).toIso8601String(),
+          },
+          {
+            'io_type': 'output',
+            'amount_ml': 50,
+            'recorded_at': DateTime(2026, 5, 31, 23).toIso8601String(),
+          },
+        ],
+      });
+
+      final previous = filterIOEntriesBeforeToday(rows, now: now);
+      expect(previous, hasLength(1));
+      expect(previous.single['io_type'], 'output');
     });
   });
 }
