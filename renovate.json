@@ -1,0 +1,214 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
+  "dependencyDashboardTitle": "Dependency Dashboard",
+  "enabledManagers": [
+    "dockerfile",
+    "github-actions",
+    "kubernetes",
+    "npm",
+    "pub"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "prConcurrentLimit": 12,
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "rebaseWhen": "behind-base-branch",
+  "major": {
+    "enabled": false
+  },
+  "packageRules": [
+    {
+      "description": "Keep the local Flutter workspace package linked inside the monorepo.",
+      "matchPackageNames": [
+        "vhhealth_core"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Group backend npm minor and patch updates.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "apps/backend/package.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "backend npm minor and patch dependencies",
+      "groupSlug": "backend-npm-minor-patch",
+      "addLabels": [
+        "backend"
+      ]
+    },
+    {
+      "description": "Group admin npm minor and patch updates.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "apps/admin/package.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "admin npm minor and patch dependencies",
+      "groupSlug": "admin-npm-minor-patch",
+      "addLabels": [
+        "admin"
+      ]
+    },
+    {
+      "description": "Group on-prem checks npm minor and patch updates.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "infra/onprem/vh-checks/package.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "vh-checks npm minor and patch dependencies",
+      "groupSlug": "vh-checks-npm-minor-patch",
+      "addLabels": [
+        "infra",
+        "vh-checks"
+      ]
+    },
+    {
+      "description": "Group MCP npm minor and patch updates.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "infra/mcp/vh-mcp-postgres/package.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "mcp npm minor and patch dependencies",
+      "groupSlug": "mcp-npm-minor-patch",
+      "addLabels": [
+        "infra",
+        "mcp"
+      ]
+    },
+    {
+      "description": "Group staff Flutter minor and patch updates.",
+      "matchManagers": [
+        "pub"
+      ],
+      "matchFileNames": [
+        "apps/staff/pubspec.yaml"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "staff Flutter minor and patch dependencies",
+      "groupSlug": "staff-flutter-minor-patch",
+      "addLabels": [
+        "flutter",
+        "staff"
+      ]
+    },
+    {
+      "description": "Group patient Flutter minor and patch updates.",
+      "matchManagers": [
+        "pub"
+      ],
+      "matchFileNames": [
+        "apps/patient/pubspec.yaml"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "patient Flutter minor and patch dependencies",
+      "groupSlug": "patient-flutter-minor-patch",
+      "addLabels": [
+        "flutter",
+        "patient"
+      ]
+    },
+    {
+      "description": "Group shared core Flutter minor and patch updates.",
+      "matchManagers": [
+        "pub"
+      ],
+      "matchFileNames": [
+        "packages/vhhealth_core/pubspec.yaml"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "core Flutter minor and patch dependencies",
+      "groupSlug": "core-flutter-minor-patch",
+      "addLabels": [
+        "flutter",
+        "core"
+      ]
+    },
+    {
+      "description": "Group CI workflow dependency updates.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "CI action minor and patch dependencies",
+      "groupSlug": "ci-actions-minor-patch",
+      "addLabels": [
+        "ci"
+      ]
+    },
+    {
+      "description": "Group Kubernetes image updates.",
+      "matchManagers": [
+        "dockerfile",
+        "kubernetes"
+      ],
+      "matchFileNames": [
+        "apps/backend/Dockerfile",
+        "apps/admin/Dockerfile",
+        "infra/kubernetes/apps/**"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "Kubernetes and container minor and patch dependencies",
+      "groupSlug": "k8s-container-minor-patch",
+      "addLabels": [
+        "infra",
+        "k8s"
+      ]
+    }
+  ]
+}

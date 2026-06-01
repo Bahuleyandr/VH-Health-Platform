@@ -1,0 +1,44 @@
+name: Renovate Dependency Updates
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 3 * * 1'
+      timezone: Asia/Kolkata
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate-dependency-updates
+  cancel-in-progress: true
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Renovate
+        env:
+          LOG_LEVEL: info
+          RENOVATE_ENDPOINT: ${{ forgejo.api_url }}
+          RENOVATE_GIT_AUTHOR: Renovate Bot <renovate-bot@vhhealth.app>
+          RENOVATE_ONBOARDING: "false"
+          RENOVATE_PLATFORM: forgejo
+          RENOVATE_REQUIRE_CONFIG: required
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          VH_RENOVATE_REPOSITORY: ${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RENOVATE_TOKEN:-}" ]; then
+            echo "RENOVATE_TOKEN repository secret is required before running Renovate."
+            exit 1
+          fi
+
+          npx --yes renovate@latest "$VH_RENOVATE_REPOSITORY"
