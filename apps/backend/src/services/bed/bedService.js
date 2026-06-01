@@ -371,7 +371,9 @@ class BedService {
          ON doc.uid = a.attending_doctor
        ${BED_CLEANING_REQUEST_JOINS}
        ${where}
-       ORDER BY b.bed_number`,
+       ORDER BY regexp_replace(COALESCE(b.bed_number, ''), '\\d.*$', ''),
+                NULLIF(regexp_replace(COALESCE(b.bed_number, ''), '\\D', '', 'g'), '')::numeric NULLS FIRST,
+                b.bed_number`,
       ACTIVE_HOUSEKEEPING_REQUEST_STATUSES,
       ...params
     );

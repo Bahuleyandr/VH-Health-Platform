@@ -171,6 +171,21 @@ describe('Bed + ward management — deep integration', () => {
       }
     });
 
+    it('sorts ward beds in natural bed-number order', async () => {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO beds (ward_id, bed_number, status)
+         VALUES ($1, 'BD-DEEP-2', 'available'),
+                ($1, 'BD-DEEP-10', 'available')`,
+        wardId,
+      );
+
+      const res = await admin.get(`/api/v1/beds/ward/${wardId}`);
+      expect(res.statusCode).toBe(200);
+      const bedNumbers = res.body.data.beds.map((b) => b.bed_number);
+      expect(bedNumbers).toEqual(expect.arrayContaining(['BD-DEEP-001', 'BD-DEEP-2', 'BD-DEEP-10']));
+      expect(bedNumbers.indexOf('BD-DEEP-2')).toBeLessThan(bedNumbers.indexOf('BD-DEEP-10'));
+    });
+
     it('shows routed housekeeping staff names for cleaning beds', async () => {
       const requesterRows = await prisma.$queryRawUnsafe(
         `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
