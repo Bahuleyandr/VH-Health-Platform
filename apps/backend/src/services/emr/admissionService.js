@@ -2865,7 +2865,7 @@ async function getActiveAdmissions(filters = {}, actor = {}) {
           select: { id: true, wards: { select: { name: true } } },
         })
       : [],
-    getHospitalNumberMap({ patientUids }),
+    getHospitalNumberMap({ tenantId: filters.tenantId || actor.tenantId, patientUids }),
   ]);
 
   const patientByUid = new Map(patients.map((p) => [p.uid, p]));
