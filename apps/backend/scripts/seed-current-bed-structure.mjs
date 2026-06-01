@@ -203,16 +203,16 @@ async function upsertWard(client, ward) {
   if (existing.rowCount) {
     await client.query(
       `UPDATE wards
-          SET floor = $2,
-              total_beds = $3,
-              attendant_pass_color = COALESCE(attendant_pass_color, $5),
+          SET floor = $1,
+              total_beds = $2,
+              attendant_pass_color = COALESCE(attendant_pass_color, $4::text),
               attendant_pass_screening_level = CASE
-                WHEN $6::boolean THEN 'strict'
+                WHEN $5::boolean THEN 'strict'
                 ELSE COALESCE(attendant_pass_screening_level, 'standard')
               END,
               updated_at = NOW()
-        WHERE id = $4`,
-      [ward.name, ward.floor, totalBeds, existing.rows[0].id, passColor, strictScreening]
+        WHERE id = $3`,
+      [ward.floor, totalBeds, existing.rows[0].id, passColor, strictScreening]
     );
     return existing.rows[0].id;
   }
