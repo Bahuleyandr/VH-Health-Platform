@@ -447,6 +447,14 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         ),
         const SizedBox(height: 10),
         _ActionTile(
+          icon: Icons.fact_check_outlined,
+          title: 'HR/Admin Report Review',
+          subtitle: 'Central incident and grievance queue with activity logs',
+          color: AppTheme.warningOnSurface,
+          onTap: () => context.go('/reports-grievances/admin'),
+        ),
+        const SizedBox(height: 10),
+        _ActionTile(
           icon: Icons.receipt_long_outlined,
           title: s.hrActionPayslips,
           subtitle: s.hrActionPayslipsSubtitle,

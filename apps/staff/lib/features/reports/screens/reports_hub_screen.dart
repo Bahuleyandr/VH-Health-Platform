@@ -1,41 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../../core/config/api_config.dart';
-import '../../../core/config/role_config.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import 'incident_report_screen.dart';
 import 'grievance_screen.dart';
 import 'my_reports_screen.dart';
-import 'reports_admin_queue_screen.dart';
 
-class ReportsHubScreen extends StatefulWidget {
+class ReportsHubScreen extends StatelessWidget {
   const ReportsHubScreen({super.key});
-
-  @override
-  State<ReportsHubScreen> createState() => _ReportsHubScreenState();
-}
-
-class _ReportsHubScreenState extends State<ReportsHubScreen> {
-  StaffRole _role = StaffRole.general;
-  bool _roleLoaded = false;
-
-  bool get _canReviewAll => _role == StaffRole.hr || _role.isAdminTier;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadRole();
-  }
-
-  Future<void> _loadRole() async {
-    final role = StaffRole.fromString(await ApiConfig.getRole());
-    if (!mounted) return;
-    setState(() {
-      _role = role;
-      _roleLoaded = true;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,19 +99,6 @@ class _ReportsHubScreenState extends State<ReportsHubScreen> {
               icon: const Icon(Icons.history),
               label: Text(s.reportsHubMyReports),
             ),
-            if (_roleLoaded && _canReviewAll) ...[
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ReportsAdminQueueScreen(),
-                  ),
-                ),
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('HR/Admin Review Queue'),
-              ),
-            ],
           ],
         ),
       ),
