@@ -194,6 +194,112 @@ void main() {
     });
   });
 
+  group('frontOfficeFilterDoctors', () {
+    final doctors = [
+      {
+        'id': 11,
+        'uid': 'doctor-11',
+        'name': 'Dr Asha Rao',
+        'department': 'Cardiology',
+        'employee_id': 'EMP-11',
+      },
+      {
+        'user_id': '12',
+        'uid': 'doctor-12',
+        'name': 'Dr Imran Shah',
+        'specialization': 'Emergency Medicine',
+      },
+      {
+        'id': 'not-a-number',
+        'uid': 'doctor-13',
+        'name': 'Dr Mira Das',
+        'department': 'Oncology',
+      },
+      {'id': 14, 'name': 'Dr Neel Patil', 'specialty': 'Neurology'},
+    ];
+
+    test('matches by name, department, specialty, and employee id', () {
+      expect(
+        frontOfficeFilterDoctors(
+          doctors,
+          'cardio',
+          requireNumericId: true,
+        ).map((doctor) => doctor['name']),
+        ['Dr Asha Rao'],
+      );
+      expect(
+        frontOfficeFilterDoctors(
+          doctors,
+          'emergency',
+          requireNumericId: true,
+        ).map((doctor) => doctor['name']),
+        ['Dr Imran Shah'],
+      );
+      expect(
+        frontOfficeFilterDoctors(
+          doctors,
+          'emp-11',
+          requireNumericId: true,
+        ).map((doctor) => doctor['name']),
+        ['Dr Asha Rao'],
+      );
+    });
+
+    test('enforces id requirements and caps large result sets', () {
+      expect(
+        frontOfficeFilterDoctors(
+          doctors,
+          '',
+          requireNumericId: true,
+        ).map((doctor) => doctor['name']),
+        ['Dr Asha Rao', 'Dr Imran Shah', 'Dr Neel Patil'],
+      );
+      expect(
+        frontOfficeFilterDoctors(
+          doctors,
+          '',
+          requireUid: true,
+        ).map((doctor) => doctor['name']),
+        ['Dr Asha Rao', 'Dr Imran Shah', 'Dr Mira Das'],
+      );
+      expect(frontOfficeFilterDoctors(doctors, '', limit: 2), hasLength(2));
+    });
+  });
+
+  group('frontOfficeAdmissionPriorityAfterWardSelection', () {
+    test('promotes emergency-capable wards to emergency priority', () {
+      expect(
+        frontOfficeAdmissionPriorityAfterWardSelection(
+          wardLabel: 'ER - Ground Floor',
+          currentPriority: 'Routine',
+        ),
+        'Emergency',
+      );
+      expect(
+        frontOfficeAdmissionPriorityAfterWardSelection(
+          wardLabel: 'Intensive Care Unit',
+          currentPriority: 'Urgent',
+        ),
+        'Emergency',
+      );
+      expect(frontOfficeWardImpliesEmergencyPriority('Casualty ward'), isTrue);
+    });
+
+    test('keeps the current priority for non-emergency wards', () {
+      expect(
+        frontOfficeWardImpliesEmergencyPriority('Geriatric Ward'),
+        isFalse,
+      );
+      expect(
+        frontOfficeAdmissionPriorityAfterWardSelection(
+          wardLabel: 'General Medicine 2',
+          currentPriority: 'Urgent',
+        ),
+        'Urgent',
+      );
+    });
+  });
+
   group('front-office OP queue gates', () {
     test('doctors use their assigned OP queue instead of the broad queue', () {
       expect(

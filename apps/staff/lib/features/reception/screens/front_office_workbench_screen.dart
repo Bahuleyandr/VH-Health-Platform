@@ -187,6 +187,54 @@ Map<String, dynamic> frontOfficeWalkInRegistrationPayload({
   return body;
 }
 
+@visibleForTesting
+bool frontOfficeWardImpliesEmergencyPriority(String wardLabel) {
+  final normalized = wardLabel.toUpperCase().replaceAll(
+    RegExp(r'[^A-Z0-9]+'),
+    ' ',
+  );
+  return RegExp(
+        r'(^| )(ER|ICU|EMERGENCY|CASUALTY)( |$)',
+      ).hasMatch(normalized) ||
+      normalized.contains('INTENSIVE CARE');
+}
+
+@visibleForTesting
+String frontOfficeAdmissionPriorityAfterWardSelection({
+  required String wardLabel,
+  required String currentPriority,
+}) {
+  return frontOfficeWardImpliesEmergencyPriority(wardLabel)
+      ? 'Emergency'
+      : currentPriority;
+}
+
+@visibleForTesting
+List<Map<String, dynamic>> frontOfficeFilterDoctors(
+  Iterable<Map<String, dynamic>> doctors,
+  String query, {
+  bool requireNumericId = false,
+  bool requireUid = false,
+  int limit = 20,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  final matches = doctors.where((doctor) {
+    if (requireNumericId && _doctorId(doctor) == null) return false;
+    if (requireUid && _doctorUid(doctor) == null) return false;
+    if (normalizedQuery.isEmpty) return true;
+    final haystack = [
+      _doctorLabel(doctor),
+      doctor['department'],
+      doctor['specialty'],
+      doctor['specialization'],
+      doctor['employee_id'],
+      doctor['employeeId'],
+    ].map(_text).join(' ').toLowerCase();
+    return haystack.contains(normalizedQuery);
+  }).toList();
+  return matches.take(limit).toList(growable: false);
+}
+
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
   const FrontOfficeWorkbenchScreen({super.key});
 
@@ -979,48 +1027,33 @@ class _FrontOfficeWorkbenchScreenState
                               ConnectionState.waiting) {
                             return const LinearProgressIndicator(minHeight: 2);
                           }
-                          final doctors = (snapshot.data ?? const [])
-                              .where((doctor) => _doctorId(doctor) != null)
-                              .toList();
-                          return DropdownButtonFormField<int>(
-                            initialValue: selectedDoctor == null
-                                ? null
-                                : _doctorId(selectedDoctor!),
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Consulting doctor',
-                              prefixIcon: Icon(Icons.medical_services_outlined),
-                            ),
-                            items: doctors
-                                .map(
-                                  (doctor) => DropdownMenuItem<int>(
-                                    value: _doctorId(doctor),
-                                    child: Text(
-                                      _doctorLabel(doctor),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: saving
-                                ? null
-                                : (doctorId) {
-                                    final doctor = doctors.firstWhere(
-                                      (item) => _doctorId(item) == doctorId,
-                                      orElse: () => <String, dynamic>{},
-                                    );
-                                    setDialogState(() {
-                                      selectedDoctor = doctor.isEmpty
-                                          ? null
-                                          : doctor;
-                                      final department = _text(
-                                        selectedDoctor?['department'],
-                                      );
-                                      if (department.isNotEmpty) {
-                                        departmentCtrl.text = department;
-                                      }
-                                    });
-                                  },
+                          if (snapshot.hasError) {
+                            return Text(
+                              'Could not load doctors.',
+                              style: TextStyle(color: AppTheme.errorOnSurface),
+                            );
+                          }
+                          final doctors = frontOfficeFilterDoctors(
+                            snapshot.data ?? const [],
+                            '',
+                            requireNumericId: true,
+                            limit: 500,
+                          );
+                          return _DoctorAutocompleteField(
+                            doctors: doctors,
+                            selectedDoctor: selectedDoctor,
+                            enabled: !saving,
+                            labelText: 'Consulting doctor',
+                            requireNumericId: true,
+                            onSelected: (doctor) {
+                              setDialogState(() {
+                                selectedDoctor = doctor;
+                                final department = _text(doctor?['department']);
+                                if (department.isNotEmpty) {
+                                  departmentCtrl.text = department;
+                                }
+                              });
+                            },
                           );
                         },
                       ),
@@ -1440,43 +1473,21 @@ class _FrontOfficeWorkbenchScreenState
                               style: TextStyle(color: AppTheme.errorOnSurface),
                             );
                           }
-                          final doctors = (snapshot.data ?? const [])
-                              .where((doctor) => _doctorId(doctor) != null)
-                              .toList();
-                          return DropdownButtonFormField<int>(
-                            initialValue: selectedDoctor == null
-                                ? null
-                                : _doctorId(selectedDoctor!),
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Consulting doctor',
-                              prefixIcon: Icon(Icons.medical_services_outlined),
-                            ),
-                            items: doctors
-                                .map(
-                                  (doctor) => DropdownMenuItem<int>(
-                                    value: _doctorId(doctor),
-                                    child: Text(
-                                      _doctorLabel(doctor),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: saving
-                                ? null
-                                : (doctorId) {
-                                    setDialogState(() {
-                                      selectedDoctor = doctors.firstWhere(
-                                        (doctor) =>
-                                            _doctorId(doctor) == doctorId,
-                                        orElse: () => <String, dynamic>{},
-                                      );
-                                      if (selectedDoctor!.isEmpty) {
-                                        selectedDoctor = null;
-                                      }
-                                    });
-                                  },
+                          final doctors = frontOfficeFilterDoctors(
+                            snapshot.data ?? const [],
+                            '',
+                            requireNumericId: true,
+                            limit: 500,
+                          );
+                          return _DoctorAutocompleteField(
+                            doctors: doctors,
+                            selectedDoctor: selectedDoctor,
+                            enabled: !saving,
+                            labelText: 'Consulting doctor',
+                            requireNumericId: true,
+                            onSelected: (doctor) {
+                              setDialogState(() => selectedDoctor = doctor);
+                            },
                           );
                         },
                       ),
@@ -1765,43 +1776,21 @@ class _FrontOfficeWorkbenchScreenState
                               style: TextStyle(color: AppTheme.errorOnSurface),
                             );
                           }
-                          final doctors = (snapshot.data ?? const [])
-                              .where((doctor) => _doctorUid(doctor) != null)
-                              .toList();
-                          return DropdownButtonFormField<String>(
-                            initialValue: selectedDoctor == null
-                                ? null
-                                : _doctorUid(selectedDoctor!),
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Admitting doctor',
-                              prefixIcon: Icon(Icons.medical_services_outlined),
-                            ),
-                            items: doctors
-                                .map(
-                                  (doctor) => DropdownMenuItem<String>(
-                                    value: _doctorUid(doctor),
-                                    child: Text(
-                                      _doctorLabel(doctor),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: saving
-                                ? null
-                                : (doctorUid) {
-                                    setDialogState(() {
-                                      selectedDoctor = doctors.firstWhere(
-                                        (doctor) =>
-                                            _doctorUid(doctor) == doctorUid,
-                                        orElse: () => <String, dynamic>{},
-                                      );
-                                      if (selectedDoctor!.isEmpty) {
-                                        selectedDoctor = null;
-                                      }
-                                    });
-                                  },
+                          final doctors = frontOfficeFilterDoctors(
+                            snapshot.data ?? const [],
+                            '',
+                            requireUid: true,
+                            limit: 500,
+                          );
+                          return _DoctorAutocompleteField(
+                            doctors: doctors,
+                            selectedDoctor: selectedDoctor,
+                            enabled: !saving,
+                            labelText: 'Admitting doctor',
+                            requireUid: true,
+                            onSelected: (doctor) {
+                              setDialogState(() => selectedDoctor = doctor);
+                            },
                           );
                         },
                       ),
@@ -1829,64 +1818,66 @@ class _FrontOfficeWorkbenchScreenState
                       LayoutBuilder(
                         builder: (context, constraints) {
                           final compact = constraints.maxWidth < 560;
-                          final wardPicker =
-                              FutureBuilder<List<Map<String, dynamic>>>(
-                                future: _wardOptionsFuture(),
-                                builder: (context, snapshot) {
-                                  if (snapshot.connectionState ==
-                                      ConnectionState.waiting) {
-                                    return const LinearProgressIndicator(
-                                      minHeight: 2,
-                                    );
-                                  }
-                                  final wards = snapshot.data ?? const [];
-                                  return DropdownButtonFormField<int>(
-                                    initialValue: _wardId(selectedWard),
-                                    isExpanded: true,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Ward / floor',
-                                      prefixIcon: Icon(
-                                        Icons.apartment_outlined,
+                          final wardPicker = FutureBuilder<List<Map<String, dynamic>>>(
+                            future: _wardOptionsFuture(),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState ==
+                                  ConnectionState.waiting) {
+                                return const LinearProgressIndicator(
+                                  minHeight: 2,
+                                );
+                              }
+                              final wards = snapshot.data ?? const [];
+                              return DropdownButtonFormField<int>(
+                                initialValue: _wardId(selectedWard),
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Ward / floor',
+                                  prefixIcon: Icon(Icons.apartment_outlined),
+                                ),
+                                items: wards
+                                    .map(
+                                      (ward) => DropdownMenuItem<int>(
+                                        value: _wardId(ward),
+                                        child: Text(
+                                          _wardLabel(ward),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
-                                    ),
-                                    items: wards
-                                        .map(
-                                          (ward) => DropdownMenuItem<int>(
-                                            value: _wardId(ward),
-                                            child: Text(
-                                              _wardLabel(ward),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .where((item) => item.value != null)
-                                        .toList(),
-                                    onChanged: saving
-                                        ? null
-                                        : (wardId) {
-                                            final ward = wards.firstWhere(
-                                              (item) => _wardId(item) == wardId,
-                                              orElse: () => <String, dynamic>{},
-                                            );
-                                            setDialogState(() {
-                                              selectedWard = ward.isEmpty
-                                                  ? null
-                                                  : ward;
-                                              selectedBed = null;
-                                              bedOptionsFuture =
-                                                  MedicalApiService.getAdmissionBedOptions(
-                                                    wardId: _wardId(
-                                                      selectedWard,
-                                                    ),
-                                                    wardLabel: _wardLabel(
-                                                      selectedWard,
-                                                    ),
-                                                  );
-                                            });
-                                          },
-                                  );
-                                },
+                                    )
+                                    .where((item) => item.value != null)
+                                    .toList(),
+                                onChanged: saving
+                                    ? null
+                                    : (wardId) {
+                                        final ward = wards.firstWhere(
+                                          (item) => _wardId(item) == wardId,
+                                          orElse: () => <String, dynamic>{},
+                                        );
+                                        setDialogState(() {
+                                          selectedWard = ward.isEmpty
+                                              ? null
+                                              : ward;
+                                          selectedBed = null;
+                                          priority =
+                                              frontOfficeAdmissionPriorityAfterWardSelection(
+                                                wardLabel: _wardLabel(
+                                                  selectedWard,
+                                                ),
+                                                currentPriority: priority,
+                                              );
+                                          bedOptionsFuture =
+                                              MedicalApiService.getAdmissionBedOptions(
+                                                wardId: _wardId(selectedWard),
+                                                wardLabel: _wardLabel(
+                                                  selectedWard,
+                                                ),
+                                              );
+                                        });
+                                      },
                               );
+                            },
+                          );
                           final bedPicker =
                               FutureBuilder<List<Map<String, dynamic>>>(
                                 future: bedOptionsFuture,
@@ -3217,6 +3208,111 @@ class _PatientCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DoctorAutocompleteField extends StatelessWidget {
+  final List<Map<String, dynamic>> doctors;
+  final Map<String, dynamic>? selectedDoctor;
+  final ValueChanged<Map<String, dynamic>?> onSelected;
+  final String labelText;
+  final bool enabled;
+  final bool requireNumericId;
+  final bool requireUid;
+
+  const _DoctorAutocompleteField({
+    required this.doctors,
+    required this.selectedDoctor,
+    required this.onSelected,
+    required this.labelText,
+    this.enabled = true,
+    this.requireNumericId = false,
+    this.requireUid = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedValue = selectedDoctor;
+
+    return Autocomplete<Map<String, dynamic>>(
+      displayStringForOption: _doctorLabel,
+      initialValue: TextEditingValue(
+        text: selectedValue == null ? '' : _doctorLabel(selectedValue),
+      ),
+      optionsBuilder: (textEditingValue) {
+        if (!enabled) return const Iterable<Map<String, dynamic>>.empty();
+        return frontOfficeFilterDoctors(
+          doctors,
+          textEditingValue.text,
+          requireNumericId: requireNumericId,
+          requireUid: requireUid,
+        );
+      },
+      onSelected: enabled ? (doctor) => onSelected(doctor) : null,
+      fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
+        return TextFormField(
+          controller: textController,
+          focusNode: focusNode,
+          enabled: enabled,
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
+            labelText: labelText,
+            prefixIcon: const Icon(Icons.medical_services_outlined),
+          ),
+          onChanged: (value) {
+            final selectedLabel = selectedDoctor == null
+                ? ''
+                : _doctorLabel(selectedDoctor!);
+            if (selectedDoctor != null && value.trim() != selectedLabel) {
+              onSelected(null);
+            }
+          },
+          onFieldSubmitted: (_) => onFieldSubmitted(),
+        );
+      },
+      optionsViewBuilder: (context, onOptionSelected, options) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280, maxWidth: 560),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final doctor = options.elementAt(index);
+                  final department = _text(
+                    doctor['department'] ??
+                        doctor['specialty'] ??
+                        doctor['specialization'],
+                  );
+                  return ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.person_outline),
+                    title: Text(
+                      _doctorLabel(doctor),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: department.isEmpty
+                        ? null
+                        : Text(
+                            department,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                    onTap: () => onOptionSelected(doctor),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
