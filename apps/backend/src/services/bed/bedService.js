@@ -457,9 +457,118 @@ class BedService {
   }
 
   async deleteBed(id) {
+    const bedId = parseInt(id, 10);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT b.id,
+              b.ward_id,
+              COALESCE(b.ward_name, w.name) AS ward_name,
+              b.floor,
+              b.bed_number,
+              COALESCE(b.status, 'available') AS status,
+              b.patient_id,
+              b.patient_name,
+              b.patient_uid,
+              b.admission_id,
+              b.bed_type,
+              b.notes,
+              b.tenant_id
+         FROM beds b
+         LEFT JOIN wards w ON w.id = b.ward_id
+        WHERE b.id = $1
+        LIMIT 1`,
+      bedId,
+    );
+    const bed = rows[0];
+    if (!bed) return null;
+
+    const activeAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid, status
+         FROM admissions
+        WHERE (bed_id = $1 OR ($2::int IS NOT NULL AND id = $2::int))
+          AND discharged_at IS NULL
+        LIMIT 1`,
+      bedId,
+      bed.admission_id ?? null,
+    );
+    if (activeAdmissions.length > 0) {
+      throw AppError.conflict(
+        `Cannot delete bed ${bed.bed_number}; it is linked to an active admission.`,
+        'BED_DELETE_ACTIVE_ADMISSION',
+        {
+          bed_id: bed.id,
+          bed_number: bed.bed_number,
+          admission_id: activeAdmissions[0].id,
+          status: bed.status,
+        },
+      );
+    }
+
+    if (
+      bed.status === 'occupied'
+      || bed.patient_id != null
+      || bed.patient_uid != null
+      || bed.patient_name != null
+      || bed.admission_id != null
+    ) {
+      throw AppError.conflict(
+        `Cannot delete bed ${bed.bed_number}; clear the patient/admission link first.`,
+        'BED_DELETE_PATIENT_LINKED',
+        {
+          bed_id: bed.id,
+          bed_number: bed.bed_number,
+          status: bed.status,
+        },
+      );
+    }
+
+    if (!['available', 'maintenance'].includes(String(bed.status).toLowerCase())) {
+      throw AppError.conflict(
+        `Cannot delete bed ${bed.bed_number} while status is ${bed.status}.`,
+        'BED_DELETE_STATUS_BLOCKED',
+        {
+          bed_id: bed.id,
+          bed_number: bed.bed_number,
+          status: bed.status,
+          allowed_statuses: ['available', 'maintenance'],
+        },
+      );
+    }
+
+    const activeHousekeepingRequests = await prisma.$queryRawUnsafe(
+      `SELECT id, request_number, status
+         FROM housekeeping_requests hr
+        WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+          AND hr.request_type IN ('bed_cleaning', 'cleaning')
+          AND (
+            COALESCE(hr.description, '') ~* ('(^|[^0-9])bed_id\\s*=\\s*' || $2::text || '([^0-9]|$)')
+            OR LOWER(COALESCE(hr.location_text, '')) = LOWER($3)
+          )
+        ORDER BY hr.created_at DESC, hr.id DESC
+        LIMIT 1`,
+      ACTIVE_HOUSEKEEPING_REQUEST_STATUSES,
+      bed.id,
+      [bed.ward_name, bed.bed_number].filter(Boolean).join(' / '),
+    );
+    if (activeHousekeepingRequests.length > 0) {
+      throw AppError.conflict(
+        `Cannot delete bed ${bed.bed_number}; an active housekeeping request is still open.`,
+        'BED_DELETE_ACTIVE_HOUSEKEEPING',
+        {
+          bed_id: bed.id,
+          bed_number: bed.bed_number,
+          housekeeping_request_id: activeHousekeepingRequests[0].id,
+          housekeeping_request_number: activeHousekeepingRequests[0].request_number,
+          housekeeping_status: activeHousekeepingRequests[0].status,
+        },
+      );
+    }
+
     const count = await prisma.$executeRawUnsafe(
-      `DELETE FROM beds WHERE id = $1`, parseInt(id));
-    return count > 0;
+      `DELETE FROM beds WHERE id = $1`,
+      bedId,
+    );
+    if (count <= 0) return null;
+    return bed;
   }
 
   // Dedicated notes-update path. The full PUT /beds/:id handler nulls

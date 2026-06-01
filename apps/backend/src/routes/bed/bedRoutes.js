@@ -17,6 +17,7 @@ export const wardRouter = express.Router();
 // Re-narrow patient-movement + bed-master endpoints here so housekeeping
 // cannot create/delete beds or admit/discharge patients.
 const requireClinical = requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF');
+const requireBedAdmin = requireRole('ADMIN', 'SUPER_ADMIN');
 
 // ===== BED ROUTES =====
 bedRouter.get('/', bedController.listBeds);
@@ -28,7 +29,7 @@ bedRouter.put('/:id', requireClinical, updateBedValidation, bedController.update
 // Separate from PUT /:id because that handler's body contract requires
 // patient fields and would null them out when the sheet only sends notes.
 bedRouter.patch('/:id/notes', requireClinical, bedController.updateBedNotes);
-bedRouter.delete('/:id', requireClinical, deleteBedValidation, bedController.deleteBed);
+bedRouter.delete('/:id', requireBedAdmin, deleteBedValidation, bedController.deleteBed);
 bedRouter.post('/:id/admit', requireClinical, admitValidation, bedController.admitPatient);
 // /:id/discharge intentionally omitted — handled exclusively by bedManagementRoutes
 // (mounted after this router at /api/v1/beds). Defining it here shadowed the new

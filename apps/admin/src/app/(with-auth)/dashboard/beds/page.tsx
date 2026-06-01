@@ -145,6 +145,12 @@ export default function BedsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: async (bedId: number) =>
+      fetchAdminAPI(`/beds/${bedId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
+  });
+
   function admit(bed: Bed) {
     const uid = window.prompt(`Admit to ${bed.bed_number} — patient UID:`, "");
     if (!uid) return;
@@ -182,6 +188,20 @@ export default function BedsPage() {
     });
   }
 
+  function deleteBedRow(bed: Bed) {
+    const canDelete = (bed.status === "available" || bed.status === "maintenance") && !bed.patient_uid;
+    if (!canDelete) {
+      window.alert("Only available or maintenance beds with no patient attached can be deleted.");
+      return;
+    }
+    const typed = window.prompt(
+      `Type ${bed.bed_number} to permanently delete this bed from ${bed.ward_name ?? "the bed board"}.`,
+      "",
+    );
+    if (typed !== bed.bed_number) return;
+    deleteMut.mutate(bed.id);
+  }
+
   const visibleBeds = beds.filter((b) => {
     if (statusFilter && b.status !== statusFilter) return false;
     if (wardFilter && String(b.ward_id ?? "") !== wardFilter) return false;
@@ -197,10 +217,10 @@ export default function BedsPage() {
   }
 
   const errMsg = (
-    occErr ?? bedsErr ?? admitMut.error ?? dischargeMut.error ?? readyMut.error ?? transferMut.error
+    occErr ?? bedsErr ?? admitMut.error ?? dischargeMut.error ?? readyMut.error ?? transferMut.error ?? deleteMut.error
   )?.toString();
   const busy =
-    admitMut.isPending || dischargeMut.isPending || readyMut.isPending || transferMut.isPending;
+    admitMut.isPending || dischargeMut.isPending || readyMut.isPending || transferMut.isPending || deleteMut.isPending;
 
   return (
     <div className="p-6 space-y-6">
@@ -344,6 +364,7 @@ export default function BedsPage() {
                       onDischarge={() => discharge(bed)}
                       onMarkReady={() => markReady(bed)}
                       onTransfer={() => transfer(bed)}
+                      onDelete={() => deleteBedRow(bed)}
                     />
                   ))}
                 </div>
@@ -362,6 +383,7 @@ function BedTile({
   onDischarge,
   onMarkReady,
   onTransfer,
+  onDelete,
 }: {
   bed: Bed;
   busy: boolean;
@@ -369,7 +391,10 @@ function BedTile({
   onDischarge: () => void;
   onMarkReady: () => void;
   onTransfer: () => void;
+  onDelete: () => void;
 }) {
+  const canDelete = (bed.status === "available" || bed.status === "maintenance") && !bed.patient_uid;
+
   return (
     <div className={`rounded border-2 p-2 text-xs ${STATUS_COLOURS[bed.status]}`}>
       <div className="flex items-center justify-between">
@@ -424,6 +449,15 @@ function BedTile({
             className="px-1.5 py-0.5 rounded bg-emerald-600 text-white disabled:opacity-40"
           >
             Ready
+          </button>
+        )}
+        {canDelete && (
+          <button
+            onClick={onDelete}
+            disabled={busy}
+            className="px-1.5 py-0.5 rounded bg-rose-700 text-white disabled:opacity-40"
+          >
+            Delete
           </button>
         )}
       </div>

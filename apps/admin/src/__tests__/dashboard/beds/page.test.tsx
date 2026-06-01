@@ -57,6 +57,9 @@ describe("<BedsPage />", () => {
       if (init?.method === "PUT" && String(endpoint).startsWith("/beds/")) {
         return { success: true } as never;
       }
+      if (init?.method === "DELETE" && String(endpoint).startsWith("/beds/")) {
+        return { success: true } as never;
+      }
       return [] as never;
     });
   });
@@ -103,6 +106,30 @@ describe("<BedsPage />", () => {
       expect(confirmSpy).toHaveBeenCalled();
     } finally {
       confirmSpy.mockRestore();
+    }
+  });
+
+  it("deletes an available bed after exact bed-number confirmation", async () => {
+    const user = userEvent.setup();
+    const promptSpy = jest.spyOn(window, "prompt").mockReturnValue("B-102");
+    try {
+      renderWithQuery(<BedsPage />);
+
+      await screen.findByText("B-102");
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      await waitFor(() => {
+        expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
+          "/beds/2",
+          expect.objectContaining({ method: "DELETE" }),
+        );
+      });
+      expect(promptSpy).toHaveBeenCalledWith(
+        expect.stringContaining("B-102"),
+        "",
+      );
+    } finally {
+      promptSpy.mockRestore();
     }
   });
 });

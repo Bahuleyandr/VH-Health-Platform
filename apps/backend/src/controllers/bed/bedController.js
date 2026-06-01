@@ -4,6 +4,7 @@ import logger from '../../logging/logger.js';
 import bedService from '../../services/bed/bedService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { emitBedEvent } from '../../utils/websocket/realtimeEmitter.js';
+import { logAudit } from '../../utils/logAudit.js';
 
 // ===== WARD CONTROLLERS =====
 
@@ -134,9 +135,24 @@ export const deleteBed = async (req, res) => {
   try {
     const deleted = await bedService.deleteBed(req.params.id);
     if (!deleted) return error(res, 'Bed not found', HTTP_STATUS.NOT_FOUND);
-    emitBedEvent('bed-deleted', { id: req.params.id });
-    success(res, null, 'Bed deleted');
+    await logAudit(req, 'BED_DELETED', {
+      bed_id: deleted.id,
+      bed_number: deleted.bed_number,
+      ward_id: deleted.ward_id,
+      ward_name: deleted.ward_name,
+      status: deleted.status,
+      bed_type: deleted.bed_type,
+      floor: deleted.floor,
+    }, {
+      resource: 'bed',
+      resourceId: deleted.id,
+    });
+    emitBedEvent('bed-deleted', deleted);
+    success(res, { bed: deleted }, 'Bed deleted');
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
+    }
     logger.error('Error deleting bed:', err);
     error(res, 'Failed to delete bed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
