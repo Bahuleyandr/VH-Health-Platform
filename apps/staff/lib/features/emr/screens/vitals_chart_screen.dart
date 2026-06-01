@@ -20,6 +20,92 @@ class VitalsChartScreen extends StatefulWidget {
   State<VitalsChartScreen> createState() => _VitalsChartScreenState();
 }
 
+const _vitalsConsciousnessCodes = {'A', 'C', 'V', 'P', 'U'};
+const vitalsConsciousnessOptionCodes = ['A', 'C', 'V', 'P', 'U'];
+
+String normalizeVitalsConsciousness(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return 'A';
+
+  final upper = trimmed.toUpperCase();
+  if (_vitalsConsciousnessCodes.contains(upper)) return upper;
+
+  final leadingCode = upper.split(RegExp(r'[\s\-]+')).first;
+  if (_vitalsConsciousnessCodes.contains(leadingCode)) return leadingCode;
+
+  return switch (upper) {
+    'ALERT' => 'A',
+    'CONFUSED' || 'CONFUSION' => 'C',
+    'VERBAL' || 'VOICE' || 'RESPONDS TO VOICE' => 'V',
+    'PAIN' || 'RESPONDS TO PAIN' => 'P',
+    'UNRESPONSIVE' || 'UNRESP' => 'U',
+    _ => 'A',
+  };
+}
+
+String vitalsConsciousnessLabel(AppStrings strings, String code) {
+  return switch (code) {
+    'A' => strings.vitalsChartConsciousAlert,
+    'C' => strings.vitalsChartConsciousConfused,
+    'V' => strings.vitalsChartConsciousVerbal,
+    'P' => strings.vitalsChartConsciousPain,
+    'U' => strings.vitalsChartConsciousUnresp,
+    _ => strings.vitalsChartConsciousAlert,
+  };
+}
+
+Map<String, dynamic> buildVitalsRecordPayload({
+  required String patientUid,
+  required String hr,
+  required String bpSystolic,
+  required String bpDiastolic,
+  required String temp,
+  required String spo2,
+  required String rr,
+  required String glucose,
+  required String pain,
+  required String gcs,
+  required String consciousness,
+}) {
+  final hrValue = normalizeVitalValue(hr, VitalUnit.pulse);
+  final bpSystolicValue = normalizeVitalValue(bpSystolic, VitalUnit.bp);
+  final bpDiastolicValue = normalizeVitalValue(bpDiastolic, VitalUnit.bp);
+  final tempValue = normalizeVitalValue(temp, VitalUnit.temperature);
+  final spo2Value = normalizeVitalValue(spo2, VitalUnit.spo2);
+  final rrValue = normalizeVitalValue(rr, VitalUnit.respiratoryRate);
+  final glucoseValue = normalizeVitalValue(glucose, VitalUnit.cbg);
+  final painValue = normalizeVitalValue(pain, VitalUnit.pain);
+  final gcsValue = normalizeVitalValue(gcs, VitalUnit.gcs);
+  final consciousnessValue = normalizeVitalsConsciousness(consciousness);
+
+  final data = <String, dynamic>{
+    'patient_uid': patientUid,
+    if (hrValue.isNotEmpty) 'heart_rate': int.tryParse(hrValue),
+    if (bpSystolicValue.isNotEmpty)
+      'systolic_bp': int.tryParse(bpSystolicValue),
+    if (bpDiastolicValue.isNotEmpty)
+      'diastolic_bp': int.tryParse(bpDiastolicValue),
+    if (tempValue.isNotEmpty) 'temperature': double.tryParse(tempValue),
+    if (spo2Value.isNotEmpty) 'spo2': int.tryParse(spo2Value),
+    if (rrValue.isNotEmpty) 'respiratory_rate': int.tryParse(rrValue),
+    if (glucoseValue.isNotEmpty) 'blood_glucose': int.tryParse(glucoseValue),
+    if (painValue.isNotEmpty) 'pain_score': int.tryParse(painValue),
+    if (gcsValue.isNotEmpty) 'gcs_score': int.tryParse(gcsValue),
+    'consciousness': consciousnessValue,
+  };
+
+  data.removeWhere((_, v) => v == null);
+  return data;
+}
+
+dynamic _firstVitalsValue(Map<String, dynamic> row, List<String> keys) {
+  for (final key in keys) {
+    final value = row[key];
+    if (value != null) return value;
+  }
+  return null;
+}
+
 class _VitalsChartScreenState extends State<VitalsChartScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -112,7 +198,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     final glucose = TextEditingController();
     final pain = TextEditingController();
     final gcs = TextEditingController();
-    String consciousness = 'Alert';
+    String consciousness = 'A';
 
     showModalBottomSheet(
       context: context,
@@ -295,32 +381,19 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                         ),
                         border: const OutlineInputBorder(),
                       ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'Alert',
-                          child: Text(
-                            AppStrings.of(ctx).vitalsChartConsciousAlert,
-                          ),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Verbal',
-                          child: Text(
-                            AppStrings.of(ctx).vitalsChartConsciousVerbal,
-                          ),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Pain',
-                          child: Text(
-                            AppStrings.of(ctx).vitalsChartConsciousPain,
-                          ),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Unresponsive',
-                          child: Text(
-                            AppStrings.of(ctx).vitalsChartConsciousUnresp,
-                          ),
-                        ),
-                      ],
+                      items: vitalsConsciousnessOptionCodes
+                          .map(
+                            (code) => DropdownMenuItem(
+                              value: code,
+                              child: Text(
+                                vitalsConsciousnessLabel(
+                                  AppStrings.of(ctx),
+                                  code,
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
                       onChanged: (v) => setSheetState(
                         () => consciousness = v ?? consciousness,
                       ),
@@ -393,34 +466,19 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   }) async {
     Navigator.of(context).pop();
 
-    final hrValue = normalizeVitalValue(hr, VitalUnit.pulse);
-    final bpSystolicValue = normalizeVitalValue(bpSystolic, VitalUnit.bp);
-    final bpDiastolicValue = normalizeVitalValue(bpDiastolic, VitalUnit.bp);
-    final tempValue = normalizeVitalValue(temp, VitalUnit.temperature);
-    final spo2Value = normalizeVitalValue(spo2, VitalUnit.spo2);
-    final rrValue = normalizeVitalValue(rr, VitalUnit.respiratoryRate);
-    final glucoseValue = normalizeVitalValue(glucose, VitalUnit.cbg);
-    final painValue = normalizeVitalValue(pain, VitalUnit.pain);
-    final gcsValue = normalizeVitalValue(gcs, VitalUnit.gcs);
-
-    final data = <String, dynamic>{
-      'patient_uid': widget.patientUid,
-      if (hrValue.isNotEmpty) 'heart_rate': int.tryParse(hrValue),
-      if (bpSystolicValue.isNotEmpty)
-        'bp_systolic': int.tryParse(bpSystolicValue),
-      if (bpDiastolicValue.isNotEmpty)
-        'bp_diastolic': int.tryParse(bpDiastolicValue),
-      if (tempValue.isNotEmpty) 'temperature': double.tryParse(tempValue),
-      if (spo2Value.isNotEmpty) 'spo2': int.tryParse(spo2Value),
-      if (rrValue.isNotEmpty) 'respiratory_rate': int.tryParse(rrValue),
-      if (glucoseValue.isNotEmpty) 'glucose': int.tryParse(glucoseValue),
-      if (painValue.isNotEmpty) 'pain_score': int.tryParse(painValue),
-      if (gcsValue.isNotEmpty) 'gcs': int.tryParse(gcsValue),
-      'consciousness': consciousness,
-    };
-
-    // Remove null values from parsing failures
-    data.removeWhere((_, v) => v == null);
+    final data = buildVitalsRecordPayload(
+      patientUid: widget.patientUid,
+      hr: hr,
+      bpSystolic: bpSystolic,
+      bpDiastolic: bpDiastolic,
+      temp: temp,
+      spo2: spo2,
+      rr: rr,
+      glucose: glucose,
+      pain: pain,
+      gcs: gcs,
+      consciousness: consciousness,
+    );
 
     if (data.length <= 2) {
       // Only patient_uid and consciousness — no vitals entered
@@ -870,6 +928,16 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
             ),
           ],
           rows: _vitalsHistory.map((v) {
+            final bpSystolic = _firstVitalsValue(v, [
+              'systolic_bp',
+              'bp_systolic',
+            ]);
+            final bpDiastolic = _firstVitalsValue(v, [
+              'diastolic_bp',
+              'bp_diastolic',
+            ]);
+            final glucose = _firstVitalsValue(v, ['blood_glucose', 'glucose']);
+            final gcs = _firstVitalsValue(v, ['gcs_score', 'gcs']);
             return DataRow(
               cells: [
                 DataCell(
@@ -883,9 +951,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 ),
                 DataCell(
                   Text(
-                    v['bp_systolic'] != null
+                    bpSystolic != null
                         ? vitalValueWithUnit(
-                            '${v['bp_systolic']}/${v['bp_diastolic'] ?? '-'}',
+                            '$bpSystolic/${bpDiastolic ?? '-'}',
                             VitalUnit.bp,
                           )
                         : '-',
@@ -910,9 +978,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                     unit: VitalUnit.respiratoryRate,
                   ),
                 ),
-                DataCell(
-                  _vitalCell(v['glucose'], 70, 180, unit: VitalUnit.cbg),
-                ),
+                DataCell(_vitalCell(glucose, 70, 180, unit: VitalUnit.cbg)),
                 DataCell(
                   Text(
                     v['pain_score'] == null
@@ -923,9 +989,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 ),
                 DataCell(
                   Text(
-                    v['gcs'] == null
-                        ? '-'
-                        : vitalValueWithUnit(v['gcs'], VitalUnit.gcs),
+                    gcs == null ? '-' : vitalValueWithUnit(gcs, VitalUnit.gcs),
                     style: _cellStyle,
                   ),
                 ),

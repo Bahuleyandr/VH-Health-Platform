@@ -1011,6 +1011,8 @@ class AppStrings {
   String get vitalsChartGcs => _t('vitals_chart.gcs');
   String get vitalsChartConsciousness => _t('vitals_chart.consciousness');
   String get vitalsChartConsciousAlert => _t('vitals_chart.conscious.alert');
+  String get vitalsChartConsciousConfused =>
+      _t('vitals_chart.conscious.confused');
   String get vitalsChartConsciousVerbal => _t('vitals_chart.conscious.verbal');
   String get vitalsChartConsciousPain => _t('vitals_chart.conscious.pain');
   String get vitalsChartConsciousUnresp => _t('vitals_chart.conscious.unresp');
@@ -3015,6 +3017,7 @@ class AppStrings {
       'vitals_chart.gcs': 'GCS (3-15)',
       'vitals_chart.consciousness': 'Consciousness',
       'vitals_chart.conscious.alert': 'Alert',
+      'vitals_chart.conscious.confused': 'Confused',
       'vitals_chart.conscious.verbal': 'Responds to Voice',
       'vitals_chart.conscious.pain': 'Responds to Pain',
       'vitals_chart.conscious.unresp': 'Unresponsive',
