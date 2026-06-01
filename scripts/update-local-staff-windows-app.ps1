@@ -5,18 +5,19 @@ Builds and updates the local Windows Staff app without a reinstall.
 .DESCRIPTION
 This is the no-admin hands-on path for this PC. It builds the Flutter Windows
 release, stops the running Staff app, copies the release files into a stable
-C:\Dev\Tools install directory, creates/refreshes the Start Menu shortcut, and
-launches the app. Local app data is stored outside this install directory, so
-overwriting the binaries does not clear logins or test state.
+D:\Dev\Tools install directory, and launches the app. Local app data is stored
+outside this install directory, so overwriting the binaries does not clear
+logins or test state.
 #>
 [CmdletBinding()]
 param(
   [string]$BaseUrl = $env:VH_BASE_URL,
   [string]$ApiKey = $env:VH_API_KEY,
-  [string]$InstallDir = "C:\Dev\Tools\VH Health Staff",
+  [string]$InstallDir = "D:\Dev\Tools\VH Health Staff",
   [switch]$SkipBuild,
   [switch]$SkipAnalyze,
   [switch]$NoLaunch,
+  [switch]$CreateShortcuts,
   [switch]$NoDesktopShortcut,
   [switch]$AllowCustomInstallDir
 )
@@ -30,7 +31,7 @@ $staffDir = Join-Path $repoRoot "apps\staff"
 $releaseDir = Join-Path $staffDir "build\windows\x64\runner\Release"
 $defaultStableBaseUrl = "https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1"
 $defaultInstallDir = [System.IO.Path]::GetFullPath(
-  "C:\Dev\Tools\VH Health Staff"
+  "D:\Dev\Tools\VH Health Staff"
 )
 $installFullPath = [System.IO.Path]::GetFullPath($InstallDir)
 
@@ -92,26 +93,29 @@ if ($robocopyExitCode -gt 7) {
 $global:LASTEXITCODE = 0
 
 $exePath = Join-Path $installFullPath "vhhealth_staff.exe"
-$shortcutDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\VH Health"
-New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
-
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut((Join-Path $shortcutDir "VH Health Staff.lnk"))
-$shortcut.TargetPath = $exePath
-$shortcut.WorkingDirectory = $installFullPath
-$shortcut.IconLocation = $exePath
-$shortcut.Save()
-
 $desktopShortcutPath = $null
-if (-not $NoDesktopShortcut.IsPresent) {
-  $desktopDir = [Environment]::GetFolderPath("Desktop")
-  if (-not [string]::IsNullOrWhiteSpace($desktopDir)) {
-    $desktopShortcutPath = Join-Path $desktopDir "VH Health Staff.lnk"
-    $desktopShortcut = $shell.CreateShortcut($desktopShortcutPath)
-    $desktopShortcut.TargetPath = $exePath
-    $desktopShortcut.WorkingDirectory = $installFullPath
-    $desktopShortcut.IconLocation = $exePath
-    $desktopShortcut.Save()
+if ($CreateShortcuts.IsPresent) {
+  $shortcutDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\VH Health"
+  New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
+
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcutPath = Join-Path $shortcutDir "VH Health Staff.lnk"
+  $shortcut = $shell.CreateShortcut($shortcutPath)
+  $shortcut.TargetPath = $exePath
+  $shortcut.WorkingDirectory = $installFullPath
+  $shortcut.IconLocation = $exePath
+  $shortcut.Save()
+
+  if (-not $NoDesktopShortcut.IsPresent) {
+    $desktopDir = [Environment]::GetFolderPath("Desktop")
+    if (-not [string]::IsNullOrWhiteSpace($desktopDir)) {
+      $desktopShortcutPath = Join-Path $desktopDir "VH Health Staff.lnk"
+      $desktopShortcut = $shell.CreateShortcut($desktopShortcutPath)
+      $desktopShortcut.TargetPath = $exePath
+      $desktopShortcut.WorkingDirectory = $installFullPath
+      $desktopShortcut.IconLocation = $exePath
+      $desktopShortcut.Save()
+    }
   }
 }
 
@@ -121,7 +125,9 @@ if (-not $NoLaunch.IsPresent) {
 
 Write-Host "VH Health Staff local app updated."
 Write-Host "Install directory: $installFullPath"
-Write-Host "Shortcut: $(Join-Path $shortcutDir "VH Health Staff.lnk")"
+if ($CreateShortcuts.IsPresent) {
+  Write-Host "Shortcut: $shortcutPath"
+}
 if ($desktopShortcutPath) {
   Write-Host "Desktop shortcut: $desktopShortcutPath"
 }

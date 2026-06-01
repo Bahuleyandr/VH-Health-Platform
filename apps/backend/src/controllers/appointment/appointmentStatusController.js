@@ -18,6 +18,18 @@ function tenantOf(req) {
   return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
 }
 
+function attachAppointmentPhiContext(req, appointment) {
+  req.phiContext = {
+    ...(req.phiContext ?? {}),
+    appointmentId: appointment?.id ?? req.params?.id ?? null,
+    appointment_id: appointment?.id ?? req.params?.id ?? null,
+    patientId: appointment?.patient_id ?? null,
+    patient_id: appointment?.patient_id ?? null,
+    patientUid: appointment?.patient_uid ?? null,
+    patient_uid: appointment?.patient_uid ?? null,
+  };
+}
+
 async function fanOutQueuePositions(appointment) {
   if (!appointment?.doctor_id || !appointment?.appointment_date) return;
   const date = new Date(appointment.appointment_date).toISOString().split('T')[0];
@@ -70,6 +82,12 @@ export const updateAppointmentStatus = async (req, res) => {
       notes,
       req.user?.name
     );
+    attachAppointmentPhiContext(req, {
+      ...updatedAppointment,
+      id: updatedAppointment?.id ?? appointment.id ?? Number(id),
+      patient_id: updatedAppointment?.patient_id ?? appointment.patient_id ?? null,
+      patient_uid: updatedAppointment?.patient_uid ?? appointment.patient_uid ?? null,
+    });
     await logAudit(req, 'FRONT_OFFICE_APPOINTMENT_STATUS_UPDATED', {
       appointment_id: Number(id),
       appointment_uid: appointment.uid || updatedAppointment?.uid || null,

@@ -29,9 +29,9 @@ Strategy is implemented and verified end to end.
 Recommended cold start on a new PC:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path 'C:\Dev\Projects\VH Health' | Out-Null
-git clone git@forgejo.hippocampus-monitor.ts.net:bahuleyan/VH-Health-Platform.git 'C:\Dev\Projects\VH Health\VH-Health-Platform'
-Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+New-Item -ItemType Directory -Force -Path 'D:\Dev\Projects\VH Health' | Out-Null
+git clone git@forgejo.hippocampus-monitor.ts.net:bahuleyan/VH-Health-Platform.git 'D:\Dev\Projects\VH Health\VH-Health-Platform'
+Set-Location 'D:\Dev\Projects\VH Health\VH-Health-Platform'
 git fetch origin
 git checkout main
 git pull --ff-only origin main
@@ -41,7 +41,7 @@ git status --short --branch
 If a repo already exists on the new PC, assume it may be stale. Run:
 
 ```powershell
-Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+Set-Location 'D:\Dev\Projects\VH Health\VH-Health-Platform'
 git remote -v
 git fetch origin
 git checkout main
@@ -85,17 +85,17 @@ sudo kubectl -n vhhealth rollout status deploy/vhhealth-backend --timeout=180s
 
 ## Local Windows Tooling Policy
 
-Use `C:\Dev\Tools` for local tools and local Staff app installs. Do not install
+Use `D:\Dev\Tools` for local tools and local Staff app installs. Do not install
 project tools into `System32` or `Program Files` unless the user explicitly asks.
 
 Current local Staff app install path:
 
 ```text
-C:\Dev\Tools\VH Health Staff\vhhealth_staff.exe
+D:\Dev\Tools\VH Health Staff\vhhealth_staff.exe
 ```
 
-The Staff app update script now defaults to that path and creates Start Menu and
-Desktop shortcuts pointing there.
+The Staff app update script now defaults to that path. Shortcuts are opt-in with
+`-CreateShortcuts` because they write into the Windows user profile.
 
 Relevant files:
 
@@ -106,7 +106,7 @@ Relevant files:
 To rebuild and install the local Windows Staff app against DalekDefender:
 
 ```powershell
-Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+Set-Location 'D:\Dev\Projects\VH Health\VH-Health-Platform'
 $env:VH_BASE_URL = 'https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1'
 $env:VH_API_KEY = (ssh bahuleyan@dalekdefender.hippocampus-monitor.ts.net "sudo kubectl -n vhhealth get secret vhhealth-backend -o jsonpath='{.data.API_KEY}' | base64 -d")
 .\scripts\update-local-staff-windows-app.ps1
@@ -145,7 +145,7 @@ What those commits established:
   audit context.
 - Role-aware inpatient count routing was improved for housekeeping and other
   workbench roles.
-- Local Staff Windows install/update path is clean and under `C:\Dev\Tools`.
+- Local Staff Windows install/update path is clean and under `D:\Dev\Tools`.
 - Shared tablets/workstations now clear recent-patient local PHI before
   clearing staff credentials on logout or idle timeout.
 
@@ -155,7 +155,7 @@ Recent verification:
   `flutter test test\core\session_timeout_provider_test.dart test\core\services\recent_patients_service_test.dart`
 - Staff updater rebuild completed with `flutter analyze` clean.
 - Local Staff app was installed and launched from:
-  `C:\Dev\Tools\VH Health Staff\vhhealth_staff.exe`
+  `D:\Dev\Tools\VH Health Staff\vhhealth_staff.exe`
 - Local repo was clean after `d30bb852`, with `HEAD`, `origin/main`, and
   `origin/HEAD` aligned.
 
@@ -196,21 +196,21 @@ Suggested next slice when resuming:
 3. Check whether each tablet/desktop PHI read/write path has both:
    PHI access logging and audit context.
 4. Add focused tests before widening the workflow.
-5. Rebuild local Staff app under `C:\Dev\Tools` if Flutter code changes.
+5. Rebuild local Staff app under `D:\Dev\Tools` if Flutter code changes.
 6. Deploy DalekDefender backend if backend code changes.
 
 Useful Staff tests to run while working in this area:
 
 ```powershell
-Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform\apps\staff'
-C:\Dev\Tools\flutter\bin\flutter.bat test test\features\reception\front_office_workbench_test.dart
-C:\Dev\Tools\flutter\bin\flutter.bat test test\features\dashboard\dashboard_inpatient_count_test.dart test\features\emr\patient_command_board_test.dart
+Set-Location 'D:\Dev\Projects\VH Health\VH-Health-Platform\apps\staff'
+D:\Dev\Tools\flutter\bin\flutter.bat test test\features\reception\front_office_workbench_test.dart
+D:\Dev\Tools\flutter\bin\flutter.bat test test\features\dashboard\dashboard_inpatient_count_test.dart test\features\emr\patient_command_board_test.dart
 ```
 
 Useful backend tests from recent AI/audit work:
 
 ```powershell
-Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform\apps\backend'
+Set-Location 'D:\Dev\Projects\VH Health\VH-Health-Platform\apps\backend'
 node --experimental-vm-modules --max-old-space-size=2048 node_modules\jest\bin\jest.js --runInBand src\tests\unit\patientSearchController.test.js src\tests\unit\phiAccessMiddlewareTenant.test.js
 node --experimental-vm-modules --max-old-space-size=2048 node_modules\jest\bin\jest.js --runInBand src\tests\unit\opdClinicalAssistService.test.js src\tests\unit\polypharmacyAiService.test.js
 ```

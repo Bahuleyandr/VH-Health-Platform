@@ -2,7 +2,7 @@
 
 The Staff app has two Windows update paths:
 
-- local hands-on updates on this PC use a stable `C:\Dev\Tools` install directory;
+- local hands-on updates on this PC use a stable `D:\Dev\Tools` install directory;
 - formal pilot/hospital packages use MSIX/App Installer with stable package
   identity `com.vhhealth.staff`.
 
@@ -18,15 +18,16 @@ That command builds the Windows release, stops the running Staff app, overwrites
 the installed app files under:
 
 ```text
-C:\Dev\Tools\VH Health Staff
+D:\Dev\Tools\VH Health Staff
 ```
 
-Then it refreshes the Start Menu shortcut and relaunches Staff. This updates the
-app binaries in place; it does not delete the app's local settings/storage.
+Then it relaunches Staff. This updates the app binaries in place; it does not
+delete the app's local settings/storage. Shortcuts are opt-in with
+`-CreateShortcuts` because they write into the Windows user profile.
 
 The script first uses `flutter` from PATH. On a fresh developer PC where PATH is
 not set yet, it also looks upward from the repo for
-`Tools\flutter\bin\flutter.bat` (for example `C:\Dev\Tools\flutter\bin`).
+`Tools\flutter\bin\flutter.bat` (for example `D:\Dev\Tools\flutter\bin`).
 
 For a quick copy/relaunch after a build has already completed:
 
@@ -62,7 +63,7 @@ That command:
 By default, generated MSIX/App Installer files are written under:
 
 ```text
-C:\Dev\Tools\VH Health Staff Updates
+D:\Dev\Tools\VH Health Staff Updates
 ```
 
 The first MSIX install is a one-time transition from the raw Flutter
