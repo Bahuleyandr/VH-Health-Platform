@@ -70,6 +70,40 @@ describe('staff incident and grievance controllers', () => {
     expect(res.json.mock.calls[0][0].message).toContain('INC-20260504-a1b2c3d4');
   });
 
+  it('preserves the reporter id when an incident is submitted anonymously', async () => {
+    const staffUid = '930cc1d5-0bd2-4739-86ad-844f59ea439d';
+    queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          id: 8,
+          report_number: 'INC-20260504-z9y8x7w6',
+          status: 'submitted',
+          is_anonymous: true,
+          created_at: new Date('2026-05-04T08:00:00.000Z'),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const req = {
+      user: { uid: staffUid },
+      body: {
+        incident_type: 'near_miss',
+        severity: 'moderate',
+        title: 'Near miss at medication station',
+        description: 'Medication almost given to the wrong patient.',
+        incident_date: '2026-05-04T08:00:00.000Z',
+        is_anonymous: true,
+      },
+    };
+    const res = makeRes();
+
+    await submitIncident(req, res);
+
+    expect(queryRawUnsafe.mock.calls[0][1]).toBe(staffUid);
+    expect(queryRawUnsafe.mock.calls[0][12]).toBe(true);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   it('spreads incident list query params instead of passing a parameter array', async () => {
     queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
 
@@ -100,6 +134,31 @@ describe('staff incident and grievance controllers', () => {
       'severe'
     );
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('masks anonymous incident reporters for HR and reveals them for admin-tier review', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
+
+    await getAllIncidents(
+      { query: {}, user: { role: 'HR_STAFF' } },
+      makeRes()
+    );
+
+    const hrSql = queryRawUnsafe.mock.calls[0][0];
+    expect(hrSql).toContain('WHEN ir.is_anonymous AND FALSE THEN ir.reporter_id');
+    expect(hrSql).toContain('CASE WHEN ir.is_anonymous AND FALSE THEN u.name ELSE NULL END as anonymous_reporter_name');
+
+    jest.clearAllMocks();
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
+
+    await getAllIncidents(
+      { query: {}, user: { role: 'ADMIN' } },
+      makeRes()
+    );
+
+    const adminSql = queryRawUnsafe.mock.calls[0][0];
+    expect(adminSql).toContain('WHEN ir.is_anonymous AND TRUE THEN ir.reporter_id');
+    expect(adminSql).toContain('CASE WHEN ir.is_anonymous AND TRUE THEN u.name ELSE NULL END as anonymous_reporter_name');
   });
 
   it('does not expose anonymous incident detail through staff detail lookups', async () => {
@@ -186,6 +245,37 @@ describe('staff incident and grievance controllers', () => {
     expect(res.json.mock.calls[0][0].message).toContain('GRV-20260504-e5f6a7b8');
   });
 
+  it('preserves the reporter id when a grievance is submitted anonymously', async () => {
+    const staffUid = '930cc1d5-0bd2-4739-86ad-844f59ea439d';
+    queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          id: 12,
+          grievance_number: 'GRV-20260504-q1w2e3r4',
+          status: 'submitted',
+          created_at: new Date('2026-05-04T08:00:00.000Z'),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const req = {
+      user: { uid: staffUid },
+      body: {
+        grievance_type: 'unfair_treatment',
+        subject: 'Anonymous staff grievance',
+        description: 'Concern raised without public sender disclosure.',
+        is_anonymous: true,
+      },
+    };
+    const res = makeRes();
+
+    await submitGrievance(req, res);
+
+    expect(queryRawUnsafe.mock.calls[0][1]).toBe(staffUid);
+    expect(queryRawUnsafe.mock.calls[0][8]).toBe(true);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   it('spreads grievance list query params instead of passing a parameter array', async () => {
     queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
 
@@ -216,6 +306,31 @@ describe('staff incident and grievance controllers', () => {
       'workload'
     );
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('masks anonymous grievance reporters for HR and reveals them for super-admin review', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
+
+    await getAllGrievances(
+      { query: {}, user: { role: 'HR_STAFF' } },
+      makeRes()
+    );
+
+    const hrSql = queryRawUnsafe.mock.calls[0][0];
+    expect(hrSql).toContain('WHEN sg.is_anonymous AND FALSE THEN sg.reporter_id');
+    expect(hrSql).toContain('CASE WHEN sg.is_anonymous AND FALSE THEN u.name ELSE NULL END as anonymous_reporter_name');
+
+    jest.clearAllMocks();
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
+
+    await getAllGrievances(
+      { query: {}, user: { role: 'SUPER_ADMIN' } },
+      makeRes()
+    );
+
+    const superAdminSql = queryRawUnsafe.mock.calls[0][0];
+    expect(superAdminSql).toContain('WHEN sg.is_anonymous AND TRUE THEN sg.reporter_id');
+    expect(superAdminSql).toContain('CASE WHEN sg.is_anonymous AND TRUE THEN u.name ELSE NULL END as anonymous_reporter_name');
   });
 
   it('records grievance status changes and HR notes in the report log', async () => {

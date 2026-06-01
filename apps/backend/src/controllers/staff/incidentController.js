@@ -2,6 +2,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { ADMIN, SUPER_ADMIN, normalizeRole } from '../../utils/roles.js';
 
 const VALID_INCIDENT_TYPES = [
   'patient_fall',
@@ -24,10 +25,21 @@ const VALID_STATUSES = [
   'closed',
 ];
 
-const INCIDENT_SELECT = `
+const canRevealAnonymousReporter = (user) => {
+  const roles = [user?.role, user?.rawRole].map(normalizeRole).filter(Boolean);
+  return roles.includes(ADMIN) || roles.includes(SUPER_ADMIN);
+};
+
+const incidentSelect = (revealAnonymousReporter = false) => {
+  const reveal = revealAnonymousReporter ? 'TRUE' : 'FALSE';
+  return `
   ir.id,
   ir.report_number,
-  ir.reporter_id,
+  CASE
+    WHEN ir.is_anonymous AND ${reveal} THEN ir.reporter_id
+    WHEN ir.is_anonymous THEN NULL
+    ELSE ir.reporter_id
+  END as reporter_id,
   ir.incident_type,
   ir.severity,
   ir.title,
@@ -48,6 +60,7 @@ const INCIDENT_SELECT = `
   ir.created_at,
   ir.updated_at
 `;
+};
 
 const parsePagingInt = (value, fallback) => {
   const parsed = Number.parseInt(value, 10);
@@ -110,7 +123,7 @@ export const submitIncident = async (req, res) => {
       RETURNING id, report_number, reporter_id, incident_type, severity, title, status, priority,
         location, incident_date, patient_involved, is_anonymous, created_at, updated_at
     `,
-      is_anonymous ? null : reporterId,
+      reporterId || null,
       incident_type,
       severity,
       title,
@@ -172,7 +185,7 @@ export const getIncidentDetail = async (req, res) => {
 
     const incident = await prisma.$queryRawUnsafe(
       `
-      SELECT ${INCIDENT_SELECT},
+      SELECT ${incidentSelect(false)},
         CASE WHEN ir.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
         u2.name as assigned_to_name
       FROM incident_reports ir
@@ -210,6 +223,7 @@ export const getIncidentDetail = async (req, res) => {
 export const getAllIncidents = async (req, res) => {
   try {
     const { status, severity, incident_type } = req.query;
+    const revealAnonymousReporter = canRevealAnonymousReporter(req.user);
     const limit = parsePagingInt(req.query.limit, 50);
     const offset = parsePagingInt(req.query.offset, 0);
     const conditions = [];
@@ -234,8 +248,11 @@ export const getAllIncidents = async (req, res) => {
 
     const incidents = await prisma.$queryRawUnsafe(
       `
-      SELECT ${INCIDENT_SELECT},
+      SELECT ${incidentSelect(revealAnonymousReporter)},
         CASE WHEN ir.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+        CASE WHEN ir.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.name ELSE NULL END as anonymous_reporter_name,
+        CASE WHEN ir.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN s.department ELSE NULL END as anonymous_reporter_department,
+        CASE WHEN ir.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.uid ELSE NULL END as anonymous_reporter_uid,
         CASE WHEN ir.is_anonymous THEN NULL ELSE s.department END as reporter_department,
         u2.name as assigned_to_name
       FROM incident_reports ir
@@ -276,11 +293,15 @@ export const getAllIncidents = async (req, res) => {
 export const getAdminIncidentDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    const revealAnonymousReporter = canRevealAnonymousReporter(req.user);
 
     const incident = await prisma.$queryRawUnsafe(
       `
-      SELECT ${INCIDENT_SELECT},
+      SELECT ${incidentSelect(revealAnonymousReporter)},
         CASE WHEN ir.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+        CASE WHEN ir.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.name ELSE NULL END as anonymous_reporter_name,
+        CASE WHEN ir.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN s.department ELSE NULL END as anonymous_reporter_department,
+        CASE WHEN ir.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.uid ELSE NULL END as anonymous_reporter_uid,
         CASE WHEN ir.is_anonymous THEN NULL ELSE s.department END as reporter_department,
         u2.name as assigned_to_name
       FROM incident_reports ir
@@ -319,6 +340,7 @@ export const updateIncident = async (req, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user?.uid;
+    const revealAnonymousReporter = canRevealAnonymousReporter(req.user);
     const {
       status,
       assigned_to,
@@ -417,7 +439,7 @@ export const updateIncident = async (req, res) => {
 
     const updated = await prisma.$queryRawUnsafe(
       `
-      SELECT ${INCIDENT_SELECT}, u.name as assigned_to_name
+      SELECT ${incidentSelect(revealAnonymousReporter)}, u.name as assigned_to_name
       FROM incident_reports ir
       LEFT JOIN users u ON ir.assigned_to = u.uid
       WHERE ir.id = $1::int

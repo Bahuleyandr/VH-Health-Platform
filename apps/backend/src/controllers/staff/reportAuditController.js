@@ -8,6 +8,12 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { ADMIN, SUPER_ADMIN, normalizeRole } from '../../utils/roles.js';
+
+const canRevealAnonymousReporter = (user) => {
+  const roles = [user?.role, user?.rawRole].map(normalizeRole).filter(Boolean);
+  return roles.includes(ADMIN) || roles.includes(SUPER_ADMIN);
+};
 
 // ─── SLA thresholds (hours) ──────────────────────────────────────────────────
 const SLA = {
@@ -147,7 +153,8 @@ export const getReportAuditTrail = async (req, res) => {
     }
 
     const reportQuery = type === 'incident'
-      ? `SELECT ir.*, u.name as reporter_name, s.department as reporter_dept,
+      ? `SELECT ir.*, u.name as reporter_name, u.name as actual_reporter_name, s.department as reporter_dept,
+                s.department as actual_reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name
          FROM incident_reports ir
          LEFT JOIN users u ON ir.reporter_id = u.uid
@@ -158,6 +165,7 @@ export const getReportAuditTrail = async (req, res) => {
       : `SELECT sg.*,
                 CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
                 CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_dept,
+                u.name as actual_reporter_name, s.department as actual_reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name
          FROM staff_grievances sg
          LEFT JOIN users u ON sg.reporter_id = u.uid
@@ -180,6 +188,22 @@ export const getReportAuditTrail = async (req, res) => {
 
     // SLA calculation
     const reportData = report[0];
+    if (reportData.is_anonymous) {
+      const actualReporterName = reportData.actual_reporter_name || null;
+      const actualReporterDept = reportData.actual_reporter_dept || null;
+      const actualReporterUid = reportData.reporter_id || null;
+      reportData.reporter_name = 'Anonymous';
+      reportData.reporter_dept = null;
+      if (canRevealAnonymousReporter(req.user)) {
+        reportData.anonymous_reporter_name = actualReporterName;
+        reportData.anonymous_reporter_department = actualReporterDept;
+        reportData.anonymous_reporter_uid = actualReporterUid;
+      } else {
+        reportData.reporter_id = null;
+      }
+    }
+    delete reportData.actual_reporter_name;
+    delete reportData.actual_reporter_dept;
     const createdAt = new Date(reportData.created_at);
     const resolvedAt = reportData.resolved_at ? new Date(reportData.resolved_at) : null;
     const hoursOpen = (Date.now() - createdAt.getTime()) / 3600000;

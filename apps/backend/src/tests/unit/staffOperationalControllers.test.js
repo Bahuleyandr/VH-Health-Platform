@@ -499,6 +499,76 @@ describe('staff operational endpoint drift guards', () => {
     ]);
   });
 
+  it('masks anonymous report sender identity in audit trail responses for HR', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          report_number: 'INC-20260504-a1b2c3d4',
+          reporter_id: staffUid,
+          reporter_name: 'Clinical Staff One',
+          reporter_dept: 'Nursing',
+          actual_reporter_name: 'Clinical Staff One',
+          actual_reporter_dept: 'Nursing',
+          is_anonymous: true,
+          severity: 'moderate',
+          status: 'submitted',
+          created_at: new Date().toISOString(),
+          resolved_at: null,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = makeRes();
+    await getReportAuditTrail(
+      { params: { type: 'incident', id: '1' }, user: { role: 'HR_STAFF' } },
+      res
+    );
+
+    const report = res.json.mock.calls[0][0].data.report;
+    expect(report.reporter_name).toBe('Anonymous');
+    expect(report.reporter_dept).toBeNull();
+    expect(report.reporter_id).toBeNull();
+    expect(report.anonymous_reporter_name).toBeUndefined();
+    expect(report.actual_reporter_name).toBeUndefined();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('reveals anonymous report sender identity in audit trail responses for admin tier', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          grievance_number: 'GRV-20260504-e5f6a7b8',
+          reporter_id: staffUid,
+          reporter_name: 'Anonymous',
+          reporter_dept: null,
+          actual_reporter_name: 'Clinical Staff One',
+          actual_reporter_dept: 'Nursing',
+          is_anonymous: true,
+          priority: 'normal',
+          status: 'submitted',
+          created_at: new Date().toISOString(),
+          resolved_at: null,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = makeRes();
+    await getReportAuditTrail(
+      { params: { type: 'grievance', id: '1' }, user: { role: 'ADMIN' } },
+      res
+    );
+
+    const report = res.json.mock.calls[0][0].data.report;
+    expect(report.reporter_name).toBe('Anonymous');
+    expect(report.anonymous_reporter_name).toBe('Clinical Staff One');
+    expect(report.anonymous_reporter_department).toBe('Nursing');
+    expect(report.anonymous_reporter_uid).toBe(staffUid);
+    expect(report.actual_reporter_name).toBeUndefined();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   it('returns staff auth health without calling a missing service method', async () => {
     const res = makeRes();
 

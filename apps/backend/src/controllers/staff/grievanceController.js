@@ -2,6 +2,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { ADMIN, SUPER_ADMIN, normalizeRole } from '../../utils/roles.js';
 
 const VALID_GRIEVANCE_TYPES = [
   'harassment',
@@ -24,10 +25,21 @@ const VALID_STATUSES = [
   'escalated',
 ];
 
-const GRIEVANCE_SELECT = `
+const canRevealAnonymousReporter = (user) => {
+  const roles = [user?.role, user?.rawRole].map(normalizeRole).filter(Boolean);
+  return roles.includes(ADMIN) || roles.includes(SUPER_ADMIN);
+};
+
+const grievanceSelect = (revealAnonymousReporter = false) => {
+  const reveal = revealAnonymousReporter ? 'TRUE' : 'FALSE';
+  return `
   sg.id,
   sg.grievance_number,
-  sg.reporter_id,
+  CASE
+    WHEN sg.is_anonymous AND ${reveal} THEN sg.reporter_id
+    WHEN sg.is_anonymous THEN NULL
+    ELSE sg.reporter_id
+  END as reporter_id,
   sg.grievance_type,
   sg.subject,
   sg.description,
@@ -46,6 +58,7 @@ const GRIEVANCE_SELECT = `
   sg.created_at,
   sg.updated_at
 `;
+};
 
 const parsePagingInt = (value, fallback) => {
   const parsed = Number.parseInt(value, 10);
@@ -89,7 +102,7 @@ export const submitGrievance = async (req, res) => {
       RETURNING id, grievance_number, reporter_id, grievance_type, subject, status,
         assigned_to, resolution, created_at, updated_at
     `,
-      is_anonymous ? null : reporterId,
+      reporterId || null,
       grievance_type,
       subject,
       description,
@@ -192,6 +205,7 @@ export const getGrievanceDetail = async (req, res) => {
 export const getAllGrievances = async (req, res) => {
   try {
     const { status, grievance_type } = req.query;
+    const revealAnonymousReporter = canRevealAnonymousReporter(req.user);
     const limit = parsePagingInt(req.query.limit, 50);
     const offset = parsePagingInt(req.query.offset, 0);
     const conditions = [];
@@ -212,8 +226,11 @@ export const getAllGrievances = async (req, res) => {
 
     const grievances = await prisma.$queryRawUnsafe(
       `
-      SELECT ${GRIEVANCE_SELECT},
+      SELECT ${grievanceSelect(revealAnonymousReporter)},
              CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+             CASE WHEN sg.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.name ELSE NULL END as anonymous_reporter_name,
+             CASE WHEN sg.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN s.department ELSE NULL END as anonymous_reporter_department,
+             CASE WHEN sg.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.uid ELSE NULL END as anonymous_reporter_uid,
              CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_department,
              u2.name as assigned_to_name
       FROM staff_grievances sg
@@ -254,11 +271,15 @@ export const getAllGrievances = async (req, res) => {
 export const getGrievanceAdminDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    const revealAnonymousReporter = canRevealAnonymousReporter(req.user);
 
     const grievance = await prisma.$queryRawUnsafe(
       `
-      SELECT ${GRIEVANCE_SELECT},
-             CASE WHEN sg.is_anonymous THEN NULL ELSE u.name END as reporter_name,
+      SELECT ${grievanceSelect(revealAnonymousReporter)},
+             CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+             CASE WHEN sg.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.name ELSE NULL END as anonymous_reporter_name,
+             CASE WHEN sg.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN s.department ELSE NULL END as anonymous_reporter_department,
+             CASE WHEN sg.is_anonymous AND ${revealAnonymousReporter ? 'TRUE' : 'FALSE'} THEN u.uid ELSE NULL END as anonymous_reporter_uid,
              CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_department,
              u2.name as assigned_to_name
       FROM staff_grievances sg
@@ -297,6 +318,7 @@ export const updateGrievance = async (req, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user?.uid;
+    const revealAnonymousReporter = canRevealAnonymousReporter(req.user);
     const {
       status,
       assigned_to,
@@ -397,7 +419,7 @@ export const updateGrievance = async (req, res) => {
 
     const updated = await prisma.$queryRawUnsafe(
       `
-      SELECT ${GRIEVANCE_SELECT}, u.name as assigned_to_name
+      SELECT ${grievanceSelect(revealAnonymousReporter)}, u.name as assigned_to_name
       FROM staff_grievances sg
       LEFT JOIN users u ON sg.assigned_to = u.uid
       WHERE sg.id = $1::int

@@ -328,7 +328,7 @@ class _ReportTile extends StatelessWidget {
     final typeLabel = isIncident
         ? _text(report['incident_type']).replaceAll('_', ' ')
         : _text(report['grievance_type']).replaceAll('_', ' ');
-    final reporter = _text(report['reporter_name'], fallback: 'Anonymous');
+    final reporter = _reporterLabel(report);
     final created = _formatDate(report['created_at']);
 
     return Card(
@@ -582,10 +582,7 @@ class _ReportDetailSheetState extends State<_ReportDetailSheet> {
                     _StatusChip(status: _text(detail['status'])),
                     _MetaChip(
                       icon: Icons.person_outline,
-                      label: _text(
-                        detail['reporter_name'],
-                        fallback: 'Anonymous',
-                      ),
+                      label: _reporterLabel(detail),
                     ),
                     _MetaChip(
                       icon: Icons.schedule_outlined,
@@ -1003,6 +1000,20 @@ String _text(dynamic value, {String fallback = ''}) {
   final text = value?.toString().trim() ?? '';
   if (text.isEmpty || text.toLowerCase() == 'null') return fallback;
   return text;
+}
+
+String _reporterLabel(Map<String, dynamic> report) {
+  final reporter = _text(report['reporter_name']);
+  final anonymous =
+      report['is_anonymous'] == true || reporter.toLowerCase() == 'anonymous';
+  final visible = reporter.isNotEmpty
+      ? reporter
+      : (anonymous ? 'Anonymous' : '-');
+  final privilegedSender = _text(report['anonymous_reporter_name']);
+  if (anonymous && privilegedSender.isNotEmpty) {
+    return 'Anonymous ($privilegedSender)';
+  }
+  return visible;
 }
 
 int _intValue(dynamic value) {
