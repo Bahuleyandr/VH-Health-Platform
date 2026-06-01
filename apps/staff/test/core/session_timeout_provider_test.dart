@@ -1,8 +1,19 @@
+import 'dart:convert';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_staff/core/platform_info.dart';
 import 'package:vhhealth_staff/core/providers/session_timeout_provider.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+  });
+
   group('SessionTimeoutProvider', () {
     test(
       'uses stricter idle timeout for tablet and desktop workbench modes',
@@ -41,6 +52,39 @@ void main() {
         expect(provider.isSessionExpired, isTrue);
         expect(provider.isTracking, isFalse);
         expect(cleanupCount, 1);
+      },
+    );
+
+    test(
+      'default idle cleanup clears current staff recents before credentials',
+      () async {
+        FlutterSecureStorage.setMockInitialValues({
+          'jwt': 'header.payload.signature',
+          'staff_id': 'staff-unindexed',
+        });
+        SharedPreferences.setMockInitialValues({
+          'recent_patients:staff:staff-unindexed': jsonEncode([
+            {'uid': 'patient-a', 'name': 'Alice'},
+          ]),
+        });
+
+        final provider = SessionTimeoutProvider(
+          timeoutDuration: const Duration(milliseconds: 10),
+        );
+        addTearDown(provider.dispose);
+
+        provider.startTracking();
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+
+        final prefs = await SharedPreferences.getInstance();
+        const storage = FlutterSecureStorage();
+        expect(provider.isSessionExpired, isTrue);
+        expect(
+          prefs.getString('recent_patients:staff:staff-unindexed'),
+          isNull,
+        );
+        expect(await storage.read(key: 'staff_id'), isNull);
+        expect(await storage.read(key: 'jwt'), isNull);
       },
     );
 

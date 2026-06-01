@@ -93,8 +93,8 @@ class SessionTimeoutProvider extends ChangeNotifier {
   }
 
   static Future<void> _defaultTimeoutCleanup() async {
-    await ApiConfig.clearAll();
     await RecentPatientsService.clear();
+    await ApiConfig.clearAll();
   }
 
   @override

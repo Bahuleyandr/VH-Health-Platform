@@ -116,11 +116,11 @@ class AuthService {
       debugPrint('AuthService.logout error: $e');
       // Best effort
     } finally {
-      await ApiConfig.clearAll();
       // Clear local-only EMR caches so the next staff member to log in
       // on a shared workstation doesn't see the previous user's recent
       // patients (privacy concern on ward kiosks).
       await RecentPatientsService.clear();
+      await ApiConfig.clearAll();
       await Telemetry.event('auth.logout');
     }
   }
