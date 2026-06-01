@@ -229,6 +229,16 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   List<Map<String, dynamic>> get _previousIOEntries =>
       filterIOEntriesBeforeToday(_ioHistory);
 
+  bool get _isDark => AppTheme.brightness == Brightness.dark;
+  Color get _accentColor =>
+      _isDark ? const Color(0xFF90CAF9) : AppTheme.primaryBlue;
+  Color get _sectionSurface => AppTheme.cardSurface;
+  Color get _nestedSurface =>
+      _isDark ? AppTheme.darkSurface : AppTheme.backgroundGrey;
+  Color get _successColor => AppTheme.successOnSurface;
+  Color get _warningColor => AppTheme.warningOnSurface;
+  Color get _errorColor => AppTheme.errorOnSurface;
+
   @override
   void initState() {
     super.initState();
@@ -342,9 +352,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(ctx).size.height * 0.9,
           ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -666,9 +676,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom,
           ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -708,7 +718,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             label: AppStrings.of(ctx).vitalsChartIntake,
                             icon: Icons.arrow_downward,
                             selected: ioType == 'intake',
-                            color: AppTheme.primaryBlue,
+                            color: _accentColor,
                             onTap: () => setSheetState(() => ioType = 'intake'),
                           ),
                         ),
@@ -718,7 +728,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             label: AppStrings.of(ctx).vitalsChartOutput,
                             icon: Icons.arrow_upward,
                             selected: ioType == 'output',
-                            color: AppTheme.warningAmber,
+                            color: _warningColor,
                             onTap: () => setSheetState(() => ioType = 'output'),
                           ),
                         ),
@@ -969,7 +979,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            Icon(Icons.error_outline, size: 48, color: _errorColor),
             const SizedBox(height: 12),
             Text(error, textAlign: TextAlign.center),
             const SizedBox(height: 12),
@@ -1000,7 +1010,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       child: SingleChildScrollView(
         child: DataTable(
           headingRowColor: WidgetStateProperty.all(
-            AppTheme.primaryBlue.withValues(alpha: 0.06),
+            _accentColor.withValues(alpha: _isDark ? 0.18 : 0.08),
           ),
           columnSpacing: 16,
           horizontalMargin: 12,
@@ -1153,12 +1163,12 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     String? unit,
   }) {
     if (value == null) {
-      return const Text('-', style: _cellStyle);
+      return Text('-', style: _cellStyle);
     }
     final num val = value is num ? value : (num.tryParse('$value') ?? 0);
     Color? color;
     if (val < low || val > high) {
-      color = AppTheme.errorRed;
+      color = _errorColor;
     }
     final display = isDouble ? val.toStringAsFixed(1) : '$val';
     return Text(
@@ -1171,13 +1181,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     );
   }
 
-  static const _headerStyle = TextStyle(
-    fontWeight: FontWeight.w600,
-    fontSize: 12,
-    color: AppTheme.primaryBlue,
-  );
+  TextStyle get _headerStyle =>
+      TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: _accentColor);
 
-  static const _cellStyle = TextStyle(fontSize: 13);
+  TextStyle get _cellStyle =>
+      TextStyle(fontSize: 13, color: AppTheme.textPrimary);
 
   String _formatTime(String? ts) {
     if (ts == null || ts.isEmpty) return '-';
@@ -1204,7 +1212,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            Icon(Icons.error_outline, size: 48, color: _errorColor),
             const SizedBox(height: 12),
             Text(_ioError!, textAlign: TextAlign.center),
             const SizedBox(height: 12),
@@ -1236,7 +1244,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 AppStrings.of(context).vitalsChartIntakeLabel,
                 '$totalIntake mL',
                 Icons.arrow_downward,
-                AppTheme.primaryBlue,
+                _accentColor,
               ),
             ),
             const SizedBox(width: 8),
@@ -1245,7 +1253,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 AppStrings.of(context).vitalsChartOutputLabel,
                 '$totalOutput mL',
                 Icons.arrow_upward,
-                AppTheme.warningAmber,
+                _warningColor,
               ),
             ),
             const SizedBox(width: 8),
@@ -1254,7 +1262,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 AppStrings.of(context).vitalsChartBalanceLabel,
                 '${balance >= 0 ? '+' : ''}$balance mL',
                 Icons.balance,
-                balance >= 0 ? AppTheme.successGreen : AppTheme.errorRed,
+                balance >= 0 ? _successColor : _errorColor,
               ),
             ),
           ],
@@ -1302,12 +1310,12 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     required bool showDate,
   }) {
     final isIntake = rowIOType(entry) == 'intake';
-    final accent = isIntake ? AppTheme.primaryBlue : AppTheme.warningAmber;
+    final accent = isIntake ? _accentColor : _warningColor;
     final description = entry['description'];
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _nestedSurface,
         border: Border.all(color: AppTheme.divider),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -1324,10 +1332,13 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         ),
         title: Text(
           '${entry['category'] ?? rowIOType(entry)} - ${rowIOAmount(entry)} mL',
-          style: const TextStyle(fontSize: 13),
+          style: TextStyle(fontSize: 13, color: AppTheme.textPrimary),
         ),
         subtitle: description is String && description.isNotEmpty
-            ? Text(description, style: const TextStyle(fontSize: 12))
+            ? Text(
+                description,
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              )
             : null,
         trailing: Text(
           showDate
@@ -1384,7 +1395,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _sectionSurface,
         border: Border.all(color: AppTheme.divider),
         borderRadius: BorderRadius.circular(8),
       ),
@@ -1393,13 +1404,14 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         children: [
           Row(
             children: [
-              Icon(icon, size: 20, color: AppTheme.primaryBlue),
+              Icon(icon, size: 20, color: _accentColor),
               const SizedBox(width: 8),
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
                 ),
               ),
             ],
@@ -1524,7 +1536,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+            Icon(Icons.error_outline, size: 48, color: _errorColor),
             const SizedBox(height: 12),
             Text(_ioHistoryError!, textAlign: TextAlign.center),
             const SizedBox(height: 12),
@@ -1565,13 +1577,13 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       body: Column(
         children: [
           Material(
-            color: Colors.white,
+            color: AppTheme.surfaceWhite,
             elevation: 1,
             child: TabBar(
               controller: _tabController,
-              labelColor: AppTheme.primaryBlue,
+              labelColor: _accentColor,
               unselectedLabelColor: AppTheme.textSecondary,
-              indicatorColor: AppTheme.primaryBlue,
+              indicatorColor: _accentColor,
               tabs: [
                 Tab(text: s.vitalsChartTabToday),
                 Tab(text: s.vitalsChartTabPreviousDays),
