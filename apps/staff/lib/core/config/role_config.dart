@@ -482,13 +482,6 @@ class RoleFeatures {
     route: '/staff-rosters',
     color: Color(0xFF1565C0),
   );
-  static const DashboardFeature _vitals = DashboardFeature(
-    id: 'vitals',
-    title: 'Vitals Entry',
-    icon: Icons.monitor_heart,
-    route: '/vitals',
-    color: Color(0xFFC62828),
-  );
   static const DashboardFeature _nursingNotes = DashboardFeature(
     id: 'nursing_notes',
     title: 'Nursing Notes',
@@ -526,7 +519,7 @@ class RoleFeatures {
   );
   static const DashboardFeature _handover = DashboardFeature(
     id: 'handover',
-    title: 'Handover',
+    title: 'Shift Handover',
     icon: Icons.swap_horiz,
     route: '/handover',
     color: Color(0xFF00695C),
@@ -665,7 +658,6 @@ class RoleFeatures {
         _clinicalAiReviewQueue,
         _patientRecords,
         _pharmacyOrders,
-        _vitals,
         _nursingNotes,
         _handover,
         _investigationResults,
@@ -694,7 +686,6 @@ class RoleFeatures {
         _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
-        _vitals,
         _nursingNotes,
         _handover,
         _patientCommandBoard,
@@ -718,7 +709,6 @@ class RoleFeatures {
         _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
-        _vitals,
         _nursingNotes,
         _handover,
         _patientCommandBoard,
@@ -740,7 +730,6 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
-        _vitals,
         _leave,
         _organizationHierarchy,
         _staffDirectory,
@@ -756,7 +745,6 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
-        _vitals,
         _leave,
         _staffDirectory,
         _messaging,

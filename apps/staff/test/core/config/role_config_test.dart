@@ -123,14 +123,15 @@ void main() {
     });
 
     test(
-      'nurse gets ward mode + vitals + nursing notes, NOT prescriptions',
+      'nurse gets ward mode + nursing notes + shift handover, NOT generic vitals',
       () {
         final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
         final ids = feats.map((f) => f.id).toSet();
+        final handover = feats.singleWhere((f) => f.id == 'handover');
         expect(ids, contains('ward_mode'));
-        expect(ids, contains('vitals'));
+        expect(ids, isNot(contains('vitals')));
         expect(ids, contains('nursing_notes'));
-        expect(ids, contains('handover'));
+        expect(handover.title, 'Shift Handover');
         expect(ids, contains('clinical_ai_review_queue'));
         expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
       },

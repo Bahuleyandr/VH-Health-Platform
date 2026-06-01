@@ -1774,7 +1774,7 @@ class _DetailRow extends StatelessWidget {
 /// pre-populated via query params:
 ///
 ///   - Open EMR        → /emr/timeline/:uid?name=
-///   - Record Vitals   → /vitals?patient_uid=&name=&phone=
+///   - Record Vitals   → /emr/vitals/:uid?name=
 ///   - Add Note        → doctors: /emr/notes/:uid, nurses: /nursing-notes
 ///   - Handover        → /handover?patient_ref=Bed%20A-101%20—%20Demo%20Patient
 ///   - IP lab/pharmacy/dietary worklists carry patient context as query params
@@ -1840,8 +1840,7 @@ class _BedQuickActions extends StatelessWidget {
         icon: Icons.monitor_heart_outlined,
         label: s.bedSheetActionRecordVitals,
         color: const Color(0xFFC62828),
-        route:
-            '/vitals?patient_uid=$patientUid&patient_id=$pidQ&name=$nameQ&phone=$phoneQ',
+        route: '/emr/vitals/$patientUidPath?name=$nameQ',
       ),
       _QuickAction(
         icon: Icons.note_add_outlined,

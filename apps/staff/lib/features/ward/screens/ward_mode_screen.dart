@@ -175,13 +175,6 @@ class _WardModeScreenState extends State<WardModeScreen> {
           route: '/beds',
         ),
         _WardAction(
-          title: 'Vitals',
-          subtitle: 'Record observations',
-          icon: Icons.monitor_heart,
-          color: AppTheme.errorRed,
-          route: '/vitals',
-        ),
-        _WardAction(
           title: 'Nursing Notes',
           subtitle: 'IP notes',
           icon: Icons.edit_note,
@@ -196,8 +189,8 @@ class _WardModeScreenState extends State<WardModeScreen> {
           route: '/mar/due',
         ),
         _WardAction(
-          title: 'Handover',
-          subtitle: 'Shift continuity',
+          title: 'Shift Handover',
+          subtitle: 'General shift notes',
           icon: Icons.swap_horiz,
           color: AppTheme.primaryTeal,
           route: '/handover',

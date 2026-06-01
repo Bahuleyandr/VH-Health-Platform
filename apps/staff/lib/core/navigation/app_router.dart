@@ -396,10 +396,9 @@ final GoRouter appRouter = GoRouter(
 
         // Nursing
         //
-        // /vitals and /nursing-notes accept optional `patient_uid`,
-        // `name`, and `phone` query params. The bed-board quick actions
-        // pass these in so the form's identifier fields pre-fill — turns
-        // a 5-tap "type the phone number" flow into a 0-tap deep link.
+        // /vitals remains available for the legacy/OP nursing flow.
+        // IP vitals entry is routed through /emr/vitals/:uid so records
+        // share the same chart used by Patient Command Board and Bed Board.
         GoRoute(
           path: '/vitals',
           name: 'vitals',

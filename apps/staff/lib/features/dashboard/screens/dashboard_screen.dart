@@ -663,7 +663,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
-        'vitals',
         'nursing_notes',
         'handover',
         'lab_bookings',
@@ -816,7 +815,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'bed_board',
         'ward_mode',
         'discharge_hub',
-        'vitals',
         'dietary',
         'handover',
       },
@@ -975,7 +973,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'bed_board',
               'ward_mode',
               'discharge_hub',
-              'vitals',
               'nursing_notes',
               'lab_bookings',
               'investigation_results',
@@ -1534,14 +1531,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
     } else if (_role == StaffRole.nurse) {
-      actions.add(
-        _QuickAction(
-          icon: Icons.monitor_heart,
-          label: s.dashboardActionVitals,
-          route: '/vitals',
-          color: const Color(0xFFC62828),
-        ),
-      );
       actions.add(
         _QuickAction(
           icon: Icons.swap_horiz,
