@@ -178,7 +178,7 @@ describe('resolveInpatientAdmissionScope', () => {
     }));
   });
 
-  it('does not broaden nurse admission scope when no roster is published', async () => {
+  it('falls staff nurses back to all tenant inpatient admissions when no roster is published', async () => {
     prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
 
     const result = await resolveInpatientAdmissionScope({
@@ -187,10 +187,11 @@ describe('resolveInpatientAdmissionScope', () => {
 
     expect(result.scope).toEqual(expect.objectContaining({
       type: 'ward_nursing',
-      source: 'no_current_roster_assignment',
+      source: 'all_locations_fallback_no_current_roster',
       assignment_count: 0,
+      all_floors: true,
     }));
-    expect(result.where).toEqual({ tenant_id: TENANT, id: -1 });
+    expect(result.where).toEqual({ tenant_id: TENANT });
   });
 
   it('scopes duty doctors to all currently rostered floors they cover', async () => {

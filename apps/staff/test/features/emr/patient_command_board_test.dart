@@ -65,6 +65,23 @@ void main() {
       expect(patientCommandBoardScopeDetail(board), 'Floor 4');
     });
 
+    test('describes unrostered nursing all-floor fallback', () {
+      final board = {
+        'scope': {
+          'role_scope': {
+            'type': 'ward_nursing',
+            'source': 'all_locations_fallback_no_current_roster',
+            'all_floors': true,
+            'assignment_count': 0,
+          },
+        },
+        'counts': {'total': 46, 'loaded': 46},
+      };
+
+      expect(patientCommandBoardScopeLabel(board), 'All active inpatients');
+      expect(patientCommandBoardScopeDetail(board), 'All floors');
+    });
+
     test('describes housekeeping floor scope and filtered rows', () {
       final board = {
         'scope': {

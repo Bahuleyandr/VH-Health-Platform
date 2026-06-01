@@ -351,6 +351,61 @@ describe('patientCommandBoardService', () => {
     expect(actions).not.toContain('orders');
   });
 
+  it('keeps the nursing board populated before the roster is published', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+    prismaMock.admissions.count.mockResolvedValueOnce(46);
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      {
+        id: 45,
+        tenant_id: TENANT,
+        encounter_id: '20000000-0000-4000-8000-000000000045',
+        patient_uid: '30000000-0000-4000-8000-000000000045',
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        ward: 'A Block - Floor III',
+        bed_id: 303,
+        bed_number: '303',
+        status: 'admitted',
+        admission_type: 'IPD',
+        priority: 'routine',
+        allergies: [],
+        admitted_at: new Date('2026-05-31T08:00:00.000Z'),
+      },
+    ]);
+
+    const result = await patientCommandBoardService.default.getPatientCommandBoard(
+      { limit: 1 },
+      { uid: NURSE_UID, id: 22, role: 'NURSING_STAFF', tenantId: TENANT },
+    );
+
+    expect(result.board.actor).toEqual(expect.objectContaining({
+      role: 'NURSING_STAFF',
+      view_label: 'Nursing board',
+    }));
+    expect(result.board.scope.role_scope).toEqual(expect.objectContaining({
+      type: 'ward_nursing',
+      source: 'all_locations_fallback_no_current_roster',
+      assignment_count: 0,
+      all_floors: true,
+    }));
+    expect(result.board.counts).toEqual(expect.objectContaining({
+      total: 46,
+      returned: 1,
+      has_more: true,
+    }));
+    const countWhere = prismaMock.admissions.count.mock.calls[0][0].where;
+    expect(countWhere).toEqual({
+      AND: [
+        { status: { in: ['admitted', 'transferred'] }, tenant_id: TENANT },
+        { tenant_id: TENANT },
+      ],
+    });
+    expect(result.rows[0].location).toEqual(expect.objectContaining({
+      ward: 'A Block - Floor III',
+      bed_number: '303',
+    }));
+  });
+
   it('scopes housekeeping staff to their floor and minimizes patient PHI', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([])

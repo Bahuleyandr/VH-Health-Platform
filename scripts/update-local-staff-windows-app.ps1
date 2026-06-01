@@ -29,7 +29,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "lib\resolve-dev-tool.ps1")
 $staffDir = Join-Path $repoRoot "apps\staff"
 $releaseDir = Join-Path $staffDir "build\windows\x64\runner\Release"
-$defaultStableBaseUrl = "https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1"
+$defaultStableBaseUrl = "https://api.vhhealth.app/api/v1"
 $defaultInstallDir = [System.IO.Path]::GetFullPath(
   "D:\Dev\Tools\VH Health Staff"
 )
@@ -44,8 +44,8 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
-  if ($BaseUrl -match '^https://dalekdefender\.hippocampus-monitor\.ts\.net:8444/') {
-    throw "ApiKey is required for the DalekDefender backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to build a remote app with the local dev key."
+  if ($BaseUrl -notmatch '^https?://(127\.0\.0\.1|localhost)(:\d+)?/') {
+    throw "ApiKey is required for the remote VH Health backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to build a remote app with the local dev key."
   }
   $ApiKey = "vhhealth-local-api-key"
 }

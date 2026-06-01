@@ -27,15 +27,15 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $staffDir = Join-Path $repoRoot "apps\staff"
 $pubspecPath = Join-Path $staffDir "pubspec.yaml"
 $msixTestCertificatePath = Join-Path $env:LOCALAPPDATA "Pub\Cache\hosted\pub.dev\msix-3.16.13\lib\assets\test_certificate.pfx"
-$defaultStableBaseUrl = "https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1"
+$defaultStableBaseUrl = "https://api.vhhealth.app/api/v1"
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   $BaseUrl = $defaultStableBaseUrl
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
-  if ($BaseUrl -match '^https://dalekdefender\.hippocampus-monitor\.ts\.net:8444/') {
-    throw "ApiKey is required for the DalekDefender backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to package a remote app with the local dev key."
+  if ($BaseUrl -notmatch '^https?://(127\.0\.0\.1|localhost)(:\d+)?/') {
+    throw "ApiKey is required for the remote VH Health backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to package a remote app with the local dev key."
   }
   $ApiKey = "vhhealth-local-api-key"
 }

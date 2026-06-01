@@ -9,6 +9,11 @@ import '../../../core/widgets/logout_action.dart';
 String patientCommandBoardScopeLabel(Map<String, dynamic> board) {
   final scope = _patientCommandBoardRoleScope(board);
   final type = _patientCommandBoardText(scope['type']);
+  final source = _patientCommandBoardText(scope['source']);
+  if (type == 'ward_nursing' &&
+      source == 'all_locations_fallback_no_current_roster') {
+    return 'All active inpatients';
+  }
   return switch (type) {
     'full' => 'All active inpatients',
     'own_patients' => 'Patients assigned to you',
