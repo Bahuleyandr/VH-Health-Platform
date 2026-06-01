@@ -11,7 +11,7 @@ By default this script bumps the app patch/build version before packaging.
 param(
   [string]$BaseUrl = $env:VH_BASE_URL,
   [string]$ApiKey = $env:VH_API_KEY,
-  [string]$PublishFolder = (Join-Path $env:USERPROFILE "VH Health Staff Updates"),
+  [string]$PublishFolder = "C:\Dev\Tools\VH Health Staff Updates",
   [string]$Version,
   [switch]$NoVersionBump,
   [switch]$SkipAnalyze,

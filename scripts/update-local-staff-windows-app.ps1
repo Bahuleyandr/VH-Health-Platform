@@ -5,7 +5,7 @@ Builds and updates the local Windows Staff app without a reinstall.
 .DESCRIPTION
 This is the no-admin hands-on path for this PC. It builds the Flutter Windows
 release, stops the running Staff app, copies the release files into a stable
-per-user install directory, creates/refreshes the Start Menu shortcut, and
+C:\Dev\Tools install directory, creates/refreshes the Start Menu shortcut, and
 launches the app. Local app data is stored outside this install directory, so
 overwriting the binaries does not clear logins or test state.
 #>
@@ -13,7 +13,7 @@ overwriting the binaries does not clear logins or test state.
 param(
   [string]$BaseUrl = $env:VH_BASE_URL,
   [string]$ApiKey = $env:VH_API_KEY,
-  [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "Programs\VH Health Staff"),
+  [string]$InstallDir = "C:\Dev\Tools\VH Health Staff",
   [switch]$SkipBuild,
   [switch]$SkipAnalyze,
   [switch]$NoLaunch,
@@ -30,7 +30,7 @@ $staffDir = Join-Path $repoRoot "apps\staff"
 $releaseDir = Join-Path $staffDir "build\windows\x64\runner\Release"
 $defaultStableBaseUrl = "https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1"
 $defaultInstallDir = [System.IO.Path]::GetFullPath(
-  (Join-Path $env:LOCALAPPDATA "Programs\VH Health Staff")
+  "C:\Dev\Tools\VH Health Staff"
 )
 $installFullPath = [System.IO.Path]::GetFullPath($InstallDir)
 

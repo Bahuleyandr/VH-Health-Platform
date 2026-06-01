@@ -2,7 +2,7 @@
 
 The Staff app has two Windows update paths:
 
-- local hands-on updates on this PC use a stable per-user install directory;
+- local hands-on updates on this PC use a stable `C:\Dev\Tools` install directory;
 - formal pilot/hospital packages use MSIX/App Installer with stable package
   identity `com.vhhealth.staff`.
 
@@ -18,7 +18,7 @@ That command builds the Windows release, stops the running Staff app, overwrites
 the installed app files under:
 
 ```text
-%LOCALAPPDATA%\Programs\VH Health Staff
+C:\Dev\Tools\VH Health Staff
 ```
 
 Then it refreshes the Start Menu shortcut and relaunches Staff. This updates the
@@ -58,6 +58,12 @@ That command:
 - trusts the local test certificate when `-Install` is used;
 - installs it over the current Staff app package; and
 - launches the installed app.
+
+By default, generated MSIX/App Installer files are written under:
+
+```text
+C:\Dev\Tools\VH Health Staff Updates
+```
 
 The first MSIX install is a one-time transition from the raw Flutter
 `vhhealth_staff.exe` build. After that, rerunning the script with a higher
