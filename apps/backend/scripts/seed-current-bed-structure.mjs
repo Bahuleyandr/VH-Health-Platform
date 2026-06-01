@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Seeds the current VH inpatient bed structure from the photographed A/B block
-// room lists. Idempotent and safe to re-run against the local QA database.
+// room lists plus requested specialty units. Idempotent and safe to re-run
+// against the local QA database.
 
 import pg from 'pg';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,34 @@ export const CURRENT_BED_STRUCTURE = [
       ['ER-8', 'er', 'Emergency Bed', null],
       ['ER-9', 'er', 'Emergency Bed', null],
       ['ER-10', 'er', 'Emergency Bed', null],
+    ],
+  },
+  {
+    name: 'Day Care',
+    floor: 0,
+    building: 'Day Care',
+    beds: [
+      ['DC-1', 'day_care', 'Day Care Bed', null],
+      ['DC-2', 'day_care', 'Day Care Bed', null],
+      ['DC-3', 'day_care', 'Day Care Bed', null],
+      ['DC-4', 'day_care', 'Day Care Bed', null],
+      ['DC-5', 'day_care', 'Day Care Bed', null],
+      ['DC-6', 'day_care', 'Day Care Bed', null],
+      ['DC-7', 'day_care', 'Day Care Bed', null],
+      ['DC-8', 'day_care', 'Day Care Bed', null],
+      ['DC-9', 'day_care', 'Day Care Bed', null],
+      ['DC-10', 'day_care', 'Day Care Bed', null],
+    ],
+  },
+  {
+    name: 'Dialysis',
+    floor: 0,
+    building: 'Dialysis Unit',
+    beds: [
+      ['DIAL-1', 'dialysis', 'Dialysis Bed', null],
+      ['DIAL-2', 'dialysis', 'Dialysis Bed', null],
+      ['DIAL-3', 'dialysis', 'Dialysis Bed', null],
+      ['DIAL-4', 'dialysis', 'Dialysis Bed', null],
     ],
   },
   {
