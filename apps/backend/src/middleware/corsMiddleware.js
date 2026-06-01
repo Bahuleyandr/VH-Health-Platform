@@ -21,7 +21,6 @@ const buildOriginMatchers = () => {
   const defaultExact = [
     'https://api.vhhealth.app',
     'https://vh-health-backend.onrender.com',
-    'https://dashboard.vhhealth.app',
   ];
 
   // Only allow localhost origins in development
