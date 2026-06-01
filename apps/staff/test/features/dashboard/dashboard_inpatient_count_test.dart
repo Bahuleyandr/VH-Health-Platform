@@ -12,6 +12,8 @@ void main() {
         StaffRole.nurse,
         StaffRole.nursingIncharge,
         StaffRole.nursingSuperintendent,
+        StaffRole.housekeeping,
+        StaffRole.housekeepingIncharge,
         StaffRole.admin,
         StaffRole.superAdmin,
       ]) {
@@ -24,21 +26,6 @@ void main() {
           'limit': '1',
         });
       }
-    });
-
-    test('keeps housekeeping on scoped occupancy and bed-board path', () {
-      expect(
-        dashboardInpatientCountEndpointForRole(StaffRole.housekeeping),
-        '/admissions/occupancy',
-      );
-      expect(
-        dashboardInpatientCountEndpointForRole(StaffRole.housekeepingIncharge),
-        '/admissions/occupancy',
-      );
-      expect(
-        dashboardInpatientCountQueryForRole(StaffRole.housekeeping),
-        isNull,
-      );
     });
   });
 

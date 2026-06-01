@@ -7,6 +7,8 @@ bool dashboardInpatientCountUsesCommandBoard(StaffRole role) =>
     role == StaffRole.nurse ||
     role == StaffRole.nursingIncharge ||
     role == StaffRole.nursingSuperintendent ||
+    role == StaffRole.housekeeping ||
+    role == StaffRole.housekeepingIncharge ||
     role.isAdminTier;
 
 String dashboardInpatientCountEndpointForRole(StaffRole role) =>
