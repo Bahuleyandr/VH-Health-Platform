@@ -4919,8 +4919,8 @@ model hipaa_access_log {
   actor_uid           String?  @db.Uuid
   subject_uid         String?  @db.Uuid
   acting_as_dependent Boolean  @default(false)
-  device_type         String?
   tenant_id           String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  device_type         String?
   tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hipaa_access_log_tenant")
 
   @@index([accessed_at(sort: Desc)], map: "idx_hipaa_access_recent")
