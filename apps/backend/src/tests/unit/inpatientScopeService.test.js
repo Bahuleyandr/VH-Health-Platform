@@ -178,6 +178,21 @@ describe('resolveInpatientAdmissionScope', () => {
     }));
   });
 
+  it('does not broaden nurse admission scope when no roster is published', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const result = await resolveInpatientAdmissionScope({
+      actor: { uid: NURSE_UID, id: 22, role: 'NURSING_STAFF', tenantId: TENANT },
+    });
+
+    expect(result.scope).toEqual(expect.objectContaining({
+      type: 'ward_nursing',
+      source: 'no_current_roster_assignment',
+      assignment_count: 0,
+    }));
+    expect(result.where).toEqual({ tenant_id: TENANT, id: -1 });
+  });
+
   it('scopes duty doctors to all currently rostered floors they cover', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([
@@ -392,6 +407,29 @@ describe('inpatient scope coverage helpers', () => {
     expect(__testing__.parseFloor('First floor')).toBe(1);
     expect(__testing__.parseFloor('Floor 3')).toBe(3);
     expect(__testing__.parseFloor('All floors')).toBe('all');
+  });
+
+  it('keeps the bed board visible for nurses before roster assignments are published', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const result = await resolveInpatientLocationScope({
+      actor: { uid: NURSE_UID, id: 22, role: 'NURSING_STAFF', tenantId: TENANT },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      allLocations: true,
+      allFloors: true,
+      wardIds: [],
+      wardNames: [],
+      bedIds: [],
+      floors: [],
+      scope: expect.objectContaining({
+        type: 'ward_nursing',
+        source: 'all_locations_fallback_no_current_roster',
+        assignment_count: 0,
+      }),
+    }));
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 
   it('does not grant bed-board location scope to unsupported roles', async () => {

@@ -607,7 +607,10 @@ app.use(
 // guards inside bedManagementRoutes itself. Finding:
 //   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
 const BED_PARENT_ROLES = [
-  'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
+  'ADMIN', 'SUPER_ADMIN',
+  'DOCTOR', 'DUTY_DOCTOR', 'ANAESTHETIST', 'ANESTHETIST',
+  'MEDICAL_SUPERINTENDENT', 'CMO',
+  'NURSING_STAFF', 'NURSING_INCHARGE', 'CNO',
   'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
   'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
 ];

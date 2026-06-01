@@ -42,6 +42,7 @@ const ROSTER_INPATIENT_SCOPE_BY_ROLE = {
     department: 'nursing',
     type: 'ward_nursing',
     fallback: 'none',
+    locationFallback: 'all_locations',
   },
   ICU_NURSE: {
     department: 'nursing',
@@ -586,6 +587,23 @@ export async function resolveInpatientLocationScope({
           scope: {
             type: rosterScope.type,
             source: 'own_patient_fallback_no_current_roster',
+            tenant_id: tenantId,
+            assignment_count: 0,
+          },
+        };
+      }
+
+      if (rosterScope.locationFallback === 'all_locations') {
+        return {
+          allLocations: true,
+          allFloors: true,
+          wardIds: [],
+          wardNames: [],
+          bedIds: [],
+          floors: [],
+          scope: {
+            type: rosterScope.type,
+            source: 'all_locations_fallback_no_current_roster',
             tenant_id: tenantId,
             assignment_count: 0,
           },
