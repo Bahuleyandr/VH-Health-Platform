@@ -114,6 +114,14 @@ describe('patientSearchController front-office mutations', () => {
         },
       },
     });
+    expect(req.phiContext).toEqual(expect.objectContaining({
+      patientId: 51,
+      patient_id: 51,
+      patientUid: PATIENT_UID,
+      patient_uid: PATIENT_UID,
+      source: 'staff_patient_registry',
+      front_office_action: 'create_patient',
+    }));
 
     const [duplicateSql, tenantParam, phoneParam] = queryUnsafeMock.mock.calls[0];
     expect(duplicateSql).toContain('WHERE tenant_id = $1::uuid');
@@ -193,6 +201,15 @@ describe('patientSearchController front-office mutations', () => {
       name: 'New Name',
       phone: '+919812345678',
     });
+    expect(req.phiContext).toEqual(expect.objectContaining({
+      patientId: 51,
+      patient_id: 51,
+      patientUid: PATIENT_UID,
+      patient_uid: PATIENT_UID,
+      source: 'staff_patient_registry',
+      front_office_action: 'update_patient',
+      changed_fields: ['name', 'phone'],
+    }));
 
     const [duplicateSql, duplicateTenant, duplicateUid, duplicatePhone] =
       queryUnsafeMock.mock.calls[1];

@@ -66,6 +66,18 @@ function publicPatient(row) {
   };
 }
 
+function attachPatientPhiContext(req, patient, extra = {}) {
+  if (!patient) return;
+  req.phiContext = {
+    ...(req.phiContext || {}),
+    patientId: patient.id ?? null,
+    patient_id: patient.id ?? null,
+    patientUid: patient.uid ?? null,
+    patient_uid: patient.uid ?? null,
+    ...extra,
+  };
+}
+
 async function fetchPatientByUid(uid, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.birthday, u.address,
@@ -217,6 +229,10 @@ export const createPatient = async (req, res) => {
     );
 
     const patient = await fetchPatientByUid(rows[0].uid, tenantId);
+    attachPatientPhiContext(req, patient ?? rows[0], {
+      source: 'staff_patient_registry',
+      front_office_action: 'create_patient',
+    });
     await logAudit(req, 'FRONT_OFFICE_PATIENT_CREATED', {
       patient_id: patient?.id ?? rows[0].id,
       patient_uid: patient?.uid ?? rows[0].uid,
@@ -241,6 +257,10 @@ export const updatePatient = async (req, res) => {
     if (!existing) {
       return error(res, 'Patient not found', HTTP_STATUS.NOT_FOUND);
     }
+    attachPatientPhiContext(req, existing, {
+      source: 'staff_patient_registry',
+      front_office_action: 'update_patient',
+    });
 
     const updates = [];
     const values = [];
@@ -310,6 +330,11 @@ export const updatePatient = async (req, res) => {
     );
 
     const patient = await fetchPatientByUid(uid, tenantId);
+    attachPatientPhiContext(req, patient ?? existing, {
+      source: 'staff_patient_registry',
+      front_office_action: 'update_patient',
+      changed_fields: updates.map((entry) => String(entry).split(' = ')[0]),
+    });
     await logAudit(req, 'FRONT_OFFICE_PATIENT_UPDATED', {
       patient_id: patient?.id ?? existing.id,
       patient_uid: uid,
