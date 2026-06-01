@@ -1,10 +1,12 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
-const _defaultDepartmentOptions = <String>[
+@visibleForTesting
+const staffDefaultDepartmentOptions = <String>[
   'Admissions',
   'Billing',
   'Emergency',
@@ -22,7 +24,8 @@ const _defaultDepartmentOptions = <String>[
   'Security',
 ];
 
-List<String> _uniqueSortedDepartments(Iterable<Object?> values) {
+@visibleForTesting
+List<String> uniqueSortedStaffDepartments(Iterable<Object?> values) {
   final seen = <String, String>{};
   for (final value in values) {
     final department = value?.toString().trim() ?? '';
@@ -31,6 +34,33 @@ List<String> _uniqueSortedDepartments(Iterable<Object?> values) {
   }
   return seen.values.toList()
     ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+}
+
+@visibleForTesting
+List<String> buildStaffDepartmentOptions({
+  Iterable<Object?> existingDepartments = const [],
+  String? currentValue,
+}) {
+  return uniqueSortedStaffDepartments([
+    ...staffDefaultDepartmentOptions,
+    ...existingDepartments,
+    currentValue,
+  ]);
+}
+
+@visibleForTesting
+List<String> filterStaffDepartmentOptions({
+  required Iterable<String> options,
+  required String query,
+  bool showAllOptions = false,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (showAllOptions || normalizedQuery.isEmpty) {
+    return options.toList(growable: false);
+  }
+  return options
+      .where((department) => department.toLowerCase().contains(normalizedQuery))
+      .toList(growable: false);
 }
 
 /// Staff Management screen — HR/Admin can view and edit staff members.
@@ -50,10 +80,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   String? _selectedDept;
   final _searchCtrl = TextEditingController();
 
-  List<String> get _departmentOptions => _uniqueSortedDepartments([
-    ..._defaultDepartmentOptions,
-    ..._staff.map((row) => row['department']),
-  ]);
+  List<String> get _departmentOptions => buildStaffDepartmentOptions(
+    existingDepartments: _staff.map((row) => row['department']),
+  );
 
   @override
   void initState() {
@@ -213,10 +242,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   void _showEditDialog(BuildContext context, dynamic staff) {
     showDialog(
       context: context,
-      builder: (_) => _StaffFormDialog(
-        staff: staff,
-        departmentOptions: _departmentOptions,
-      ),
+      builder: (_) =>
+          _StaffFormDialog(staff: staff, departmentOptions: _departmentOptions),
     ).then((_) => _load());
   }
 }
@@ -554,10 +581,10 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                   focusNode: _deptFocusNode,
                   label: s.staffMgmtDepartment,
                   showAllOptions: _showAllDepartments,
-                  options: _uniqueSortedDepartments([
-                    ...widget.departmentOptions,
-                    _deptCtrl.text,
-                  ]),
+                  options: buildStaffDepartmentOptions(
+                    existingDepartments: widget.departmentOptions,
+                    currentValue: _deptCtrl.text,
+                  ),
                   onChanged: (_) {
                     if (_showAllDepartments) {
                       setState(() => _showAllDepartments = false);
@@ -656,10 +683,10 @@ class _DepartmentAutocompleteField extends StatelessWidget {
           focusNode: focusNode,
           displayStringForOption: (option) => option,
           optionsBuilder: (textEditingValue) {
-            final query = textEditingValue.text.trim().toLowerCase();
-            if (showAllOptions || query.isEmpty) return options;
-            return options.where(
-              (department) => department.toLowerCase().contains(query),
+            return filterStaffDepartmentOptions(
+              options: options,
+              query: textEditingValue.text,
+              showAllOptions: showAllOptions,
             );
           },
           onSelected: (selection) {
