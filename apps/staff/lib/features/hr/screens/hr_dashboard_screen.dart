@@ -38,7 +38,11 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
 
       // Merge attendance analytics for richer data
       try {
-        final analytics = await HrApiService.getAttendanceAnalytics();
+        final today = DateTime.now().toIso8601String().substring(0, 10);
+        final analytics = await HrApiService.getAttendanceAnalytics(
+          startDate: today,
+          endDate: today,
+        );
         data['attendanceAnalytics'] = analytics;
       } catch (e) {
         debugPrint('hr_dashboard_screen.dart: $e');
@@ -238,11 +242,13 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         _asMap(dashboard['summary'])['totalStaff'] ??
         dashboard['staffCount'];
     final presentToday =
+        overview['present_today'] ??
+        overview['presentToday'] ??
+        _asMap(dashboard['attendance'])['presentToday'] ??
         overview['currently_checked_in'] ??
         overview['currentlyCheckedIn'] ??
         dashboard['presentToday'] ??
-        _asMap(dashboard['summary'])['presentToday'] ??
-        _asMap(dashboard['attendance'])['presentToday'];
+        _asMap(dashboard['summary'])['presentToday'];
     final onLeave =
         leaves['currently_on_leave'] ??
         leaves['currentlyOnLeave'] ??
@@ -321,9 +327,19 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         attendance['rate'] ??
         overview['attendance_rate'];
     final lateArrivals =
-        attendance['lateArrivals'] ?? analyticsSummary['late_arrivals'];
+        attendance['lateArrivals'] ??
+        attendance['late_arrivals'] ??
+        overview['late_arrivals_today'] ??
+        analyticsSummary['late_arrivals'];
     final activeStaff = _asNum(overview['active_staff']) ?? 0;
-    final checkedIn = _asNum(overview['currently_checked_in']) ?? 0;
+    final checkedIn =
+        _asNum(
+          overview['present_today'] ??
+              overview['presentToday'] ??
+              attendance['presentToday'] ??
+              overview['currently_checked_in'],
+        ) ??
+        0;
     final onLeave = _asNum(leaves['currently_on_leave']) ?? 0;
     final inferredAbsentees = (activeStaff - checkedIn - onLeave).clamp(
       0,

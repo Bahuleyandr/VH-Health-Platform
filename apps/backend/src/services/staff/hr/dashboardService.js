@@ -37,6 +37,27 @@ function getTimeframeWindow(timeframe) {
   }
 }
 
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfTomorrow() {
+  const d = startOfToday();
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function isLateArrival(row) {
+  if (Number(row.minutes_late) > 0) return true;
+  const status = String(row.attendance_status || '').toLowerCase();
+  if (status.includes('late')) return true;
+  if (!row.check_in_time) return false;
+  const hour = row.check_in_time.getHours() + row.check_in_time.getMinutes() / 60;
+  return hour > 9.5;
+}
+
 /**
  * Get comprehensive HR dashboard data including staff overview,
  * department breakdown, attendance trends, and performance metrics.
@@ -55,8 +76,12 @@ export const getHRDashboardData = async (timeframe = 'current_month') => {
   const staffRows = await prisma.users.findMany({
     where: { role: { in: staffRoles } },
     select: {
+      id: true,
+      uid: true,
       staff: {
         select: {
+          id: true,
+          user_id: true,
           is_active: true,
           hire_date: true,
           last_check_in: true,
@@ -69,26 +94,55 @@ export const getHRDashboardData = async (timeframe = 'current_month') => {
     },
   });
 
+  const todayStart = startOfToday();
+  const tomorrowStart = startOfTomorrow();
+  const todayAttendanceRows = await prisma.staff_attendance.findMany({
+    where: {
+      check_in_time: { gte: todayStart, lt: tomorrowStart },
+    },
+    select: {
+      staff_id: true,
+      staff_uid: true,
+      check_in_time: true,
+      check_out_time: true,
+      attendance_status: true,
+      minutes_late: true,
+    },
+  });
+
   const thirtyDaysAgo = new Date(Date.now() - 30 * DAY_MS);
   const overview = {
     total_staff: 0,
     active_staff: 0,
     inactive_staff: 0,
     new_hires_30_days: 0,
+    present_today: 0,
     currently_checked_in: 0,
+    late_arrivals_today: 0,
     salary_sum: 0,
     salary_count: 0,
   };
   const deptAgg = new Map();
+  const userIdToActiveKey = new Map();
+  const staffPkToActiveKey = new Map();
+  const activeStaffByKey = new Map();
 
   for (const u of staffRows) {
     const s = u.staff[0];
     if (!s) continue;
+    const staffKey = String(u.uid);
     overview.total_staff += 1;
-    if (s.is_active) overview.active_staff += 1;
-    else overview.inactive_staff += 1;
+    if (s.is_active) {
+      overview.active_staff += 1;
+      userIdToActiveKey.set(u.id, staffKey);
+      if (s.id != null) staffPkToActiveKey.set(s.id, staffKey);
+      activeStaffByKey.set(staffKey, {
+        department: s.department,
+      });
+    } else {
+      overview.inactive_staff += 1;
+    }
     if (s.hire_date && s.hire_date >= thirtyDaysAgo) overview.new_hires_30_days += 1;
-    if (s.last_check_in && !s.last_check_out) overview.currently_checked_in += 1;
     if (s.salary != null) {
       overview.salary_sum += Number(s.salary);
       overview.salary_count += 1;
@@ -105,12 +159,34 @@ export const getHRDashboardData = async (timeframe = 'current_month') => {
     };
     d.total_staff += 1;
     d.active_staff += 1;
-    if (s.last_check_in && !s.last_check_out) d.present_today += 1;
     if (s.salary != null) {
       d.salary_sum += Number(s.salary);
       d.salary_count += 1;
     }
     deptAgg.set(s.department, d);
+  }
+
+  const presentTodayKeys = new Set();
+  const currentlyCheckedInKeys = new Set();
+  let lateArrivalsToday = 0;
+  for (const row of todayAttendanceRows) {
+    const key = (row.staff_uid && activeStaffByKey.has(String(row.staff_uid)))
+      ? String(row.staff_uid)
+      : (userIdToActiveKey.get(row.staff_id) ?? staffPkToActiveKey.get(row.staff_id));
+    if (!key) continue;
+    presentTodayKeys.add(key);
+    if (!row.check_out_time) currentlyCheckedInKeys.add(key);
+    if (isLateArrival(row)) lateArrivalsToday += 1;
+  }
+  overview.present_today = presentTodayKeys.size;
+  overview.currently_checked_in = currentlyCheckedInKeys.size;
+  overview.late_arrivals_today = lateArrivalsToday;
+
+  for (const key of presentTodayKeys) {
+    const department = activeStaffByKey.get(key)?.department;
+    if (!department) continue;
+    const d = deptAgg.get(department);
+    if (d) d.present_today += 1;
   }
 
   const averageSalary = overview.salary_count > 0
@@ -275,10 +351,25 @@ export const getHRDashboardData = async (timeframe = 'current_month') => {
       active_staff: overview.active_staff,
       inactive_staff: overview.inactive_staff,
       new_hires_30_days: overview.new_hires_30_days,
+      present_today: overview.present_today,
       currently_checked_in: overview.currently_checked_in,
+      late_arrivals_today: overview.late_arrivals_today,
       average_salary: averageSalary != null ? Math.round(averageSalary) : null,
-      attendance_rate: overview.total_staff > 0
-        ? Math.round((overview.currently_checked_in / overview.total_staff) * 100) : 0,
+      attendance_rate: overview.active_staff > 0
+        ? Math.round((overview.present_today / overview.active_staff) * 100) : 0,
+    },
+    attendance: {
+      date: todayStart.toISOString().slice(0, 10),
+      presentToday: overview.present_today,
+      currentlyCheckedIn: overview.currently_checked_in,
+      lateArrivals: overview.late_arrivals_today,
+      absentees: Math.max(
+        overview.active_staff - overview.present_today - Number(leaveSummary.currently_on_leave || 0),
+        0,
+      ),
+      averageAttendanceRate: overview.active_staff > 0
+        ? Math.round((overview.present_today / overview.active_staff) * 100) : 0,
+      source: 'staff_attendance_today',
     },
     departmentBreakdown: departmentStats.map((dept) => ({
       ...dept,

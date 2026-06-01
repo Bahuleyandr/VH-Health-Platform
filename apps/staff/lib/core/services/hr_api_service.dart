@@ -204,8 +204,8 @@ class HrApiService {
     return _get(
       '/staff/hr/attendance-analytics',
       query: {
-        'startDate': ?startDate,
-        'endDate': ?endDate,
+        'start_date': ?startDate,
+        'end_date': ?endDate,
         'department': ?department,
       },
     );
