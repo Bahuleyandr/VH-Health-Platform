@@ -197,6 +197,14 @@ function opMetadata(kind, extra = {}) {
   };
 }
 
+async function requireOpdModuleEnabled(moduleKey, { tenantId = null } = {}) {
+  const module = await getClinicalAiModule(moduleKey, { tenantId });
+  if (!module.enabled) {
+    throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name || moduleKey}`);
+  }
+  return module;
+}
+
 export async function listOpdAiModules({ tenantId = null } = {}) {
   const modules = await Promise.all(
     OPD_AI_MODULES.map(async (config) => {
@@ -217,6 +225,7 @@ export async function listOpdAiModules({ tenantId = null } = {}) {
 export async function generateOpVisitPrep({
   tenantId = null, appointmentId, generatedBy = null, req = null,
 } = {}) {
+  await requireOpdModuleEnabled('op_visit_prep', { tenantId });
   const context = await loadAppointmentContext({ tenantId, appointmentId });
   const appointment = context.appointment;
   const patientUid = context.patient_uid;
@@ -249,6 +258,7 @@ export async function generateOpInvestigationReview({
   tenantId = null, investigationId = null, patientUid = null, resultText = null,
   clinicalQuestion = null, generatedBy = null, req = null,
 } = {}) {
+  await requireOpdModuleEnabled('op_investigation_review', { tenantId });
   let uid = maybeUuid(patientUid, 'patient_uid');
   let investigation = null;
   let sourceText = resultText ? requireText(resultText, 'result_text', { min: 10 }) : null;
@@ -325,6 +335,7 @@ export async function generateOpDifferentialRedFlags({
   sex = null, vitals = null, examNotes = null, knownDiagnoses = [],
   generatedBy = null, req = null,
 } = {}) {
+  await requireOpdModuleEnabled('op_differential_red_flags', { tenantId });
   const uid = maybeUuid(patientUid, 'patient_uid');
   const complaint = requireText(chiefComplaint, 'chief_complaint', { min: 3, max: 2000 });
   const context = {
@@ -365,6 +376,7 @@ export async function generateOpFollowUpPlan({
   tenantId = null, patientUid = null, diagnosis, treatmentPlan,
   monitoringContext = null, generatedBy = null, req = null,
 } = {}) {
+  await requireOpdModuleEnabled('op_follow_up_plan', { tenantId });
   const uid = maybeUuid(patientUid, 'patient_uid');
   const dx = requireText(diagnosis, 'diagnosis', { min: 3, max: 2000 });
   const plan = requireText(treatmentPlan, 'treatment_plan', { min: 3, max: 4000 });
@@ -403,6 +415,7 @@ export async function generateOpReferralDraft({
   tenantId = null, patientUid = null, referralReason, clinicalSummary,
   targetSpecialty = null, currentTreatment = null, generatedBy = null, req = null,
 } = {}) {
+  await requireOpdModuleEnabled('op_referral_draft', { tenantId });
   const uid = maybeUuid(patientUid, 'patient_uid');
   const reason = requireText(referralReason, 'referral_reason', { min: 3, max: 2000 });
   const summary = requireText(clinicalSummary, 'clinical_summary', { min: 10, max: 6000 });

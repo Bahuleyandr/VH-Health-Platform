@@ -54,6 +54,11 @@ export async function reviewPolypharmacy({ patientId, patientUid, medications, a
   }
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
 
+  const module = await getClinicalAiModule('polypharmacy_ai_review', { tenantId });
+  if (!module.enabled) {
+    throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
+  }
+
   // 1. Rule layer — existing, authoritative.
   const rules = await validatePrescriptionSafety(patientId || null, medications);
   const ruleFindings = [
@@ -76,10 +81,6 @@ export async function reviewPolypharmacy({ patientId, patientUid, medications, a
     .map((med) => clean(`${med.name || med.medication_name || 'unknown'} ${med.dose || ''} ${med.route || ''} ${med.frequency || ''}`))
     .filter(Boolean);
 
-  const module = await getClinicalAiModule('polypharmacy_ai_review', { tenantId });
-  if (!module.enabled) {
-    throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
-  }
   const systemPrompt = [
     'You are a hospital clinical pharmacist.',
     'Identify drug-drug interactions across the listed medications.',
