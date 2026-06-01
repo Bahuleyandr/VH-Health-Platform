@@ -65,7 +65,9 @@ function isLateArrival(row) {
  * @returns {Object} Dashboard data with multiple sections.
  */
 export const getHRDashboardData = async (timeframe = 'current_month') => {
-  const staffRoles = Object.values(STAFF_ROLES);
+  const staffRoles = Object.values(STAFF_ROLES).filter(
+    (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
+  );
   const { start, end } = getTimeframeWindow(timeframe);
 
   // Load all staff rows (joined with users by the batch-90 FK) plus

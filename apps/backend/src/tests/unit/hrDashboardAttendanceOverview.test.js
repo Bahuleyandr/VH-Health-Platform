@@ -95,6 +95,9 @@ describe('HR dashboard attendance overview', () => {
 
     const dashboard = await getHRDashboardData();
 
+    expect(usersFindMany.mock.calls[0][0].where.role.in).not.toEqual(
+      expect.arrayContaining(['SUPER_ADMIN', 'ADMIN']),
+    );
     expect(staffAttendanceFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
