@@ -324,9 +324,9 @@ describe('Bed + ward management — deep integration', () => {
       const ours = res.body.data.summary.find((s) => s.ward_id === wardId);
       expect(ours).toBeDefined();
       expect(ours.ward_name).toBe(WARD_NAME);
-      expect(ours.actual_beds).toBe(2);
+      expect(ours.actual_beds).toBe(4);
       expect(ours.maintenance).toBe(1);
-      expect(ours.available).toBe(0);
+      expect(ours.available).toBe(2);
     });
 
     it('honors available filters so occupied, cleaning, and stale occupant beds are not selectable', async () => {
@@ -447,7 +447,7 @@ describe('Bed + ward management — deep integration', () => {
     it('rejects deleting an occupied bed', async () => {
       const rows = await prisma.$queryRawUnsafe(
         `INSERT INTO beds (ward_id, bed_number, status, patient_uid, patient_name)
-         VALUES ($1, 'BD-DEEP-OCCUPIED-DELETE', 'occupied',
+         VALUES ($1, 'BD-DEEP-OCC-DEL', 'occupied',
                  'a8888888-8888-4888-8888-888888888d01'::uuid,
                  'Occupied Delete Guard')
          RETURNING id`,

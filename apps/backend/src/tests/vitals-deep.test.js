@@ -15,8 +15,8 @@ const PATIENT_PHONE = '9000020001';
 const ANC_PHONE = '9000020004';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
-function doctorAs(uid = RECORDER_UID) {
-  const token = generateTestToken('DOCTOR', { uid, id: 990201 });
+function doctorAs(uid = RECORDER_UID, id = 990201) {
+  const token = generateTestToken('DOCTOR', { uid, id });
   return {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
@@ -354,7 +354,8 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         appointment_id: appointmentId,
       });
 
-      const queue = await doctor.get(`/api/v1/appointments/queue/today?doctor_id=${recorderIntId}`);
+      const recorderDoctor = doctorAs(RECORDER_UID, recorderIntId);
+      const queue = await recorderDoctor.get('/api/v1/appointments/queue/today');
       expect(queue.statusCode).toBe(200);
       const ancRow = queue.body.data.find((row) => row.id === appointmentId);
       expect(ancRow).toBeDefined();
