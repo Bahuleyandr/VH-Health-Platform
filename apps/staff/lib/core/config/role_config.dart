@@ -363,6 +363,13 @@ class RoleFeatures {
     route: '/leave-approvals',
     color: Color(0xFF00796B),
   );
+  static const DashboardFeature _reportsGrievances = DashboardFeature(
+    id: 'reports_grievances',
+    title: 'Reports & Grievances',
+    icon: Icons.report_problem_outlined,
+    route: '/reports-grievances',
+    color: Color(0xFF00796B),
+  );
   static const DashboardFeature _staffDirectory = DashboardFeature(
     id: 'staff_directory',
     title: 'Staff Directory',
@@ -604,7 +611,7 @@ class RoleFeatures {
 
   /// Returns ordered list of dashboard features for the given role.
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
-    return switch (role) {
+    final features = switch (role) {
       StaffRole.doctor || StaffRole.dutyDoctor => [
         _attendance,
         _schedule,
@@ -977,6 +984,7 @@ class RoleFeatures {
         _settings,
       ],
     };
+    return [...features, _reportsGrievances];
   }
 
   /// Returns role-specific bottom nav items with their routes.

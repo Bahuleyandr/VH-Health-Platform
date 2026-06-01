@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -91,7 +92,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
     final s = AppStrings.of(context);
     if (_submitted) {
       return Scaffold(
-        backgroundColor: const Color(0xFFE0F5F6),
+        backgroundColor: AppTheme.backgroundGrey,
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -114,7 +115,8 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                 const SizedBox(height: 20),
                 Text(
                   s.grievanceSubmittedTitle,
-                  style: const TextStyle(
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
                   ),
@@ -137,7 +139,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                       ? s.grievanceAcknowledgementAnonymous
                       : s.grievanceAcknowledgementNote,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: AppTheme.textSecondary),
                 ),
                 const SizedBox(height: 32),
                 ElevatedButton(
@@ -165,12 +167,11 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
     }
 
     return Scaffold(
+      backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
         title: Text(s.grievanceTitle),
         actions: const [LogoutAction()],
-        backgroundColor: Colors.purple,
-        foregroundColor: Colors.white,
       ),
       body: Form(
         key: _formKey,
@@ -182,24 +183,30 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.purple.shade50,
+                  color: Colors.purple.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.purple.shade200),
+                  border: Border.all(
+                    color: Colors.purple.withValues(alpha: 0.45),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.lock_outline,
-                      color: Colors.purple,
+                      color: AppTheme.brightness == Brightness.dark
+                          ? Colors.purpleAccent
+                          : Colors.purple,
                       size: 18,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         s.grievancePrivacyNote,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Colors.purple,
+                          color: AppTheme.brightness == Brightness.dark
+                              ? Colors.purpleAccent
+                              : Colors.purple,
                         ),
                       ),
                     ),
@@ -210,7 +217,10 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               const SizedBox(height: 16),
               Text(
                 s.grievanceTypeLabel,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
@@ -228,7 +238,10 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               const SizedBox(height: 16),
               Text(
                 s.grievanceSubjectLabel,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -246,7 +259,10 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               const SizedBox(height: 8),
               Text(
                 s.grievanceDescribeLabel,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -303,15 +319,16 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                     vertical: 14,
                   ),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade400),
+                    color: AppTheme.cardSurface,
+                    border: Border.all(color: AppTheme.divider),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.calendar_today,
                         size: 16,
-                        color: Colors.grey,
+                        color: AppTheme.textSecondary,
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -320,8 +337,8 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                             : s.grievanceDateOptional,
                         style: TextStyle(
                           color: _incidentDate != null
-                              ? Colors.black
-                              : Colors.grey.shade600,
+                              ? AppTheme.textPrimary
+                              : AppTheme.textSecondary,
                           fontSize: 13,
                         ),
                       ),
@@ -329,10 +346,10 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                         const Spacer(),
                         GestureDetector(
                           onTap: () => setState(() => _incidentDate = null),
-                          child: const Icon(
+                          child: Icon(
                             Icons.clear,
                             size: 16,
-                            color: Colors.grey,
+                            color: AppTheme.textSecondary,
                           ),
                         ),
                       ],
@@ -345,9 +362,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
+                  color: AppTheme.cardSurface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: AppTheme.divider),
                 ),
                 child: Row(
                   children: [
@@ -362,7 +379,8 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                         children: [
                           Text(
                             s.grievanceAnonymous,
-                            style: const TextStyle(
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
@@ -371,7 +389,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                             s.grievanceAnonymousNote,
                             style: TextStyle(
                               fontSize: 11,
-                              color: Colors.grey.shade600,
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ],

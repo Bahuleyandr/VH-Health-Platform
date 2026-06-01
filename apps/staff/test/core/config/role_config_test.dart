@@ -293,6 +293,19 @@ void main() {
       }
     });
 
+    test('every staff role can open reports and grievances self-service', () {
+      for (final role in StaffRole.values) {
+        final features = RoleFeatures.getFeaturesForRole(role);
+        final reports = features.where((f) => f.id == 'reports_grievances');
+        expect(
+          reports,
+          hasLength(1),
+          reason: 'Role $role should have exactly one reports entry',
+        );
+        expect(reports.single.route, '/reports-grievances');
+      }
+    });
+
     test('front-office and billing roles get workbench features', () {
       final billingIds = RoleFeatures.getFeaturesForRole(
         StaffRole.billingStaff,

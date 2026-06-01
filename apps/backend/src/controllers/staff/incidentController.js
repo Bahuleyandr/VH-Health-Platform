@@ -178,7 +178,7 @@ export const getIncidentDetail = async (req, res) => {
       FROM incident_reports ir
       LEFT JOIN users u ON ir.reporter_id = u.uid
       LEFT JOIN users u2 ON ir.assigned_to = u2.uid
-      WHERE ir.id = $1::int AND (ir.reporter_id = $2::uuid OR ir.is_anonymous = true)
+      WHERE ir.id = $1::int AND ir.reporter_id = $2::uuid
     `,
       id,
       staffId

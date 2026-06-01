@@ -15,8 +15,10 @@ import * as reportAuditController from '../../controllers/staff/reportAuditContr
 import * as salaryRevisionController from '../../controllers/staff/salaryRevisionController.js';
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 
 const router = express.Router();
+const reportReviewRoles = requireRole('HR_STAFF', 'ADMIN', 'SUPER_ADMIN');
 
 wrapAutoRBAC(router, 'staffAdminRoutes', {
   get: [
@@ -67,14 +69,14 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/export/:type', staffAdminController.exportStaffData],
 
     // Incident Reports (admin)
-    ['/incidents', incidentController.getAllIncidents],
-    ['/incidents/stats', incidentController.getIncidentStats],
+    ['/incidents', reportReviewRoles, incidentController.getAllIncidents],
+    ['/incidents/stats', reportReviewRoles, incidentController.getIncidentStats],
 
     // Audit routes — incidents/grievances
-    ['/audit/dashboard', reportAuditController.getAuditDashboard],
-    ['/audit/activity', reportAuditController.getAdminActivityReport],
-    ['/audit/sla', reportAuditController.getSLAReport],
-    ['/audit/trail/:type/:id', reportAuditController.getReportAuditTrail],
+    ['/audit/dashboard', reportReviewRoles, reportAuditController.getAuditDashboard],
+    ['/audit/activity', reportReviewRoles, reportAuditController.getAdminActivityReport],
+    ['/audit/sla', reportReviewRoles, reportAuditController.getSLAReport],
+    ['/audit/trail/:type/:id', reportReviewRoles, reportAuditController.getReportAuditTrail],
 
     // Audit routes — attendance
     ['/audit/attendance/dashboard', attendanceAuditController.getAttendanceAuditDashboard],
@@ -82,12 +84,12 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/audit/attendance/sla', attendanceAuditController.getAttendanceSLAReport],
     ['/audit/attendance/geofence', attendanceAuditController.getGeofenceBreachLog],
     ['/audit/attendance/leave/:id', attendanceAuditController.getLeaveAuditTrail],
-    ['/incidents/:id', incidentController.getAdminIncidentDetail],
+    ['/incidents/:id', reportReviewRoles, incidentController.getAdminIncidentDetail],
 
     // Grievances (admin/HR)
-    ['/grievances', grievanceController.getAllGrievances],
-    ['/grievances/stats', grievanceController.getGrievanceStats],
-    ['/grievances/:id', grievanceController.getGrievanceAdminDetail],
+    ['/grievances', reportReviewRoles, grievanceController.getAllGrievances],
+    ['/grievances/stats', reportReviewRoles, grievanceController.getGrievanceStats],
+    ['/grievances/:id', reportReviewRoles, grievanceController.getGrievanceAdminDetail],
 
     // Housekeeping (admin)
     ['/housekeeping/logs', housekeepingController.getAllCleaningLogs],
@@ -149,10 +151,10 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/sync-biometric', staffAdminController.syncBiometricData],
 
     // Incident update (admin)
-    ['/incidents/:id/update', incidentController.updateIncident],
+    ['/incidents/:id/update', reportReviewRoles, incidentController.updateIncident],
 
     // Grievance update (admin/HR)
-    ['/grievances/:id/update', grievanceController.updateGrievance],
+    ['/grievances/:id/update', reportReviewRoles, grievanceController.updateGrievance],
 
     // Housekeeping (admin actions)
     ['/housekeeping/requests/:id/assign', housekeepingController.assignRequest],

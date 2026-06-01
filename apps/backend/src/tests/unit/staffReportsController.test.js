@@ -18,10 +18,13 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 const {
   submitIncident,
   getAllIncidents,
+  getIncidentDetail,
+  updateIncident,
 } = await import('../../controllers/staff/incidentController.js');
 const {
   submitGrievance,
   getAllGrievances,
+  updateGrievance,
 } = await import('../../controllers/staff/grievanceController.js');
 
 function makeRes() {
@@ -99,6 +102,61 @@ describe('staff incident and grievance controllers', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('does not expose anonymous incident detail through staff detail lookups', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const req = {
+      params: { id: '42' },
+      user: { uid: '930cc1d5-0bd2-4739-86ad-844f59ea439d' },
+    };
+    const res = makeRes();
+
+    await getIncidentDetail(req, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain('ir.reporter_id = $2::uuid');
+    expect(queryRawUnsafe.mock.calls[0][0]).not.toContain('ir.is_anonymous = true');
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('records incident status changes, public updates, and internal notes in the report log', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          id: 7,
+          report_number: 'INC-20260504-a1b2c3d4',
+          status: 'submitted',
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 7, status: 'under_review' }]);
+
+    const req = {
+      params: { id: '7' },
+      user: { uid: '930cc1d5-0bd2-4739-86ad-844f59ea439d' },
+      body: {
+        status: 'under_review',
+        public_update: 'HR has acknowledged the report.',
+        internal_note: 'Assign to safety officer.',
+      },
+    };
+    const res = makeRes();
+
+    await updateIncident(req, res);
+
+    const logInserts = queryRawUnsafe.mock.calls.filter((call) =>
+      call[0].includes('INSERT INTO report_updates')
+    );
+    expect(logInserts).toHaveLength(3);
+    expect(logInserts[0][3]).toBe('Assign to safety officer.');
+    expect(logInserts[1][3]).toBe('HR has acknowledged the report.');
+    expect(logInserts[2][3]).toContain('UNDER REVIEW');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
   it('uses the returned grievance number in the submit response', async () => {
     queryRawUnsafe
       .mockResolvedValueOnce([
@@ -157,6 +215,44 @@ describe('staff incident and grievance controllers', () => {
       'submitted',
       'workload'
     );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('records grievance status changes and HR notes in the report log', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([
+        {
+          id: 11,
+          grievance_number: 'GRV-20260504-e5f6a7b8',
+          status: 'submitted',
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 11, status: 'acknowledged' }]);
+
+    const req = {
+      params: { id: '11' },
+      user: { uid: '930cc1d5-0bd2-4739-86ad-844f59ea439d' },
+      body: {
+        status: 'acknowledged',
+        public_update: 'HR has acknowledged your grievance.',
+        internal_note: 'Needs HR partner review.',
+      },
+    };
+    const res = makeRes();
+
+    await updateGrievance(req, res);
+
+    const logInserts = queryRawUnsafe.mock.calls.filter((call) =>
+      call[0].includes('INSERT INTO report_updates')
+    );
+    expect(logInserts).toHaveLength(3);
+    expect(logInserts[0][3]).toBe('Needs HR partner review.');
+    expect(logInserts[1][3]).toBe('HR has acknowledged your grievance.');
+    expect(logInserts[2][3]).toContain('ACKNOWLEDGED');
     expect(res.status).toHaveBeenCalledWith(200);
   });
 });

@@ -48,6 +48,8 @@ import '../../features/hr/screens/organization_hierarchy_screen.dart';
 import '../../features/hr/screens/staff_management_screen.dart';
 import '../../features/hr/screens/staff_roster_hub_screen.dart';
 import '../../features/hr/screens/performance_screen.dart';
+import '../../features/reports/screens/reports_admin_queue_screen.dart';
+import '../../features/reports/screens/reports_hub_screen.dart';
 
 // Housekeeping
 import '../../features/housekeeping/screens/tasks_screen.dart';
@@ -492,6 +494,18 @@ final GoRouter appRouter = GoRouter(
           name: 'staff-rosters',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: StaffRosterHubScreen()),
+        ),
+        GoRoute(
+          path: '/reports-grievances',
+          name: 'reports-grievances',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ReportsHubScreen()),
+        ),
+        GoRoute(
+          path: '/reports-grievances/admin',
+          name: 'reports-grievances-admin',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ReportsAdminQueueScreen()),
         ),
 
         // Housekeeping

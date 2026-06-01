@@ -269,6 +269,47 @@ class HrApiService {
     return await _get('/staff/hr/incidents/$id');
   }
 
+  /// GET /staff/admin/incidents — HR/Admin central incident queue.
+  static Future<Map<String, dynamic>> getAllIncidents({
+    String? status,
+    String? severity,
+    String? incidentType,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final query = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+      if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+      if (severity != null && severity.trim().isNotEmpty)
+        'severity': severity.trim(),
+      if (incidentType != null && incidentType.trim().isNotEmpty)
+        'incident_type': incidentType.trim(),
+    };
+    return _get('/staff/admin/incidents', query: query);
+  }
+
+  /// GET /staff/admin/incidents/:id — HR/Admin incident detail with log.
+  static Future<Map<String, dynamic>> getAdminIncidentDetail(int id) async {
+    return await _get('/staff/admin/incidents/$id');
+  }
+
+  /// POST /staff/admin/incidents/:id/update — status/notes/action log.
+  static Future<Map<String, dynamic>> updateIncidentReport({
+    required int id,
+    String? status,
+    String? internalNote,
+    String? publicUpdate,
+  }) async {
+    return await _post('/staff/admin/incidents/$id/update', {
+      if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+      if (internalNote != null && internalNote.trim().isNotEmpty)
+        'internal_note': internalNote.trim(),
+      if (publicUpdate != null && publicUpdate.trim().isNotEmpty)
+        'public_update': publicUpdate.trim(),
+    });
+  }
+
   // ─── Grievances ──────────────────────────────────────────────────────────
 
   /// POST /staff/hr/grievances/submit — submit a grievance
@@ -301,6 +342,44 @@ class HrApiService {
   /// GET /api/v1/staff/hr/grievances/:id — get grievance detail
   static Future<Map<String, dynamic>> getGrievanceDetail(String id) async {
     return await _get('/staff/hr/grievances/$id');
+  }
+
+  /// GET /staff/admin/grievances — HR/Admin central grievance queue.
+  static Future<Map<String, dynamic>> getAllGrievances({
+    String? status,
+    String? grievanceType,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final query = <String, String>{
+      'limit': limit.toString(),
+      'offset': offset.toString(),
+      if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+      if (grievanceType != null && grievanceType.trim().isNotEmpty)
+        'grievance_type': grievanceType.trim(),
+    };
+    return _get('/staff/admin/grievances', query: query);
+  }
+
+  /// GET /staff/admin/grievances/:id — HR/Admin grievance detail with log.
+  static Future<Map<String, dynamic>> getAdminGrievanceDetail(int id) async {
+    return await _get('/staff/admin/grievances/$id');
+  }
+
+  /// POST /staff/admin/grievances/:id/update — status/notes/action log.
+  static Future<Map<String, dynamic>> updateGrievanceReport({
+    required int id,
+    String? status,
+    String? internalNote,
+    String? publicUpdate,
+  }) async {
+    return await _post('/staff/admin/grievances/$id/update', {
+      if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+      if (internalNote != null && internalNote.trim().isNotEmpty)
+        'internal_note': internalNote.trim(),
+      if (publicUpdate != null && publicUpdate.trim().isNotEmpty)
+        'public_update': publicUpdate.trim(),
+    });
   }
 
   // ─── Housekeeping ─────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -51,7 +52,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
   Color _statusColor(String status) {
     switch (status) {
       case 'submitted':
-        return Colors.blue;
+        return Theme.of(context).colorScheme.primary;
       case 'under_review':
       case 'acknowledged':
         return Colors.orange;
@@ -59,28 +60,28 @@ class _MyReportsScreenState extends State<MyReportsScreen>
       case 'mediation':
         return Colors.purple;
       case 'resolved':
-        return Colors.green;
+        return AppTheme.successOnSurface;
       case 'closed':
-        return Colors.grey;
+        return AppTheme.textSecondary;
       case 'escalated':
-        return Colors.red;
+        return AppTheme.errorOnSurface;
       default:
-        return Colors.grey;
+        return AppTheme.textSecondary;
     }
   }
 
   Color _severityColor(String severity) {
     switch (severity) {
       case 'low':
-        return Colors.green;
+        return AppTheme.successOnSurface;
       case 'moderate':
         return Colors.orange;
       case 'severe':
-        return Colors.red;
+        return AppTheme.errorOnSurface;
       case 'sentinel':
-        return const Color(0xFF7B0000);
+        return AppTheme.errorOnSurface;
       default:
-        return Colors.grey;
+        return AppTheme.textSecondary;
     }
   }
 
@@ -88,16 +89,13 @@ class _MyReportsScreenState extends State<MyReportsScreen>
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     return Scaffold(
+      backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
         title: Text(s.myReportsTitle),
         actions: const [LogoutAction()],
-        backgroundColor: const Color(0xFF007A64),
-        foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          indicatorColor: Colors.white,
           tabs: [
             Tab(text: '${s.myReportsTabIncidents} (${_incidents.length})'),
             Tab(text: '${s.myReportsTabGrievances} (${_grievances.length})'),
@@ -123,12 +121,12 @@ class _MyReportsScreenState extends State<MyReportsScreen>
             Icon(
               Icons.check_circle_outline,
               size: 48,
-              color: Colors.grey.shade400,
+              color: AppTheme.textSecondary,
             ),
             const SizedBox(height: 8),
             Text(
               s.myReportsEmptyIncidents,
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
         ),
@@ -150,6 +148,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
           );
 
           return Card(
+            color: AppTheme.cardSurface,
             child: ListTile(
               leading: Container(
                 width: 40,
@@ -168,7 +167,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                 inc['title'] as String? ?? '',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
@@ -188,7 +188,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                     type.toUpperCase(),
                     style: TextStyle(
                       fontSize: 10,
-                      color: Colors.grey.shade600,
+                      color: AppTheme.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -231,55 +231,62 @@ class _MyReportsScreenState extends State<MyReportsScreen>
         maxChildSize: 0.95,
         minChildSize: 0.4,
         expand: false,
-        builder: (_, ctrl) => Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            controller: ctrl,
-            children: [
-              Text(
-                inc['report_number'] as String? ?? '',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Color(0xFF007A64),
+        builder: (_, ctrl) => Material(
+          color: AppTheme.cardSurface,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: ListView(
+              controller: ctrl,
+              children: [
+                Text(
+                  inc['report_number'] as String? ?? '',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                inc['title'] as String? ?? '',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
+                const SizedBox(height: 4),
+                Text(
+                  inc['title'] as String? ?? '',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _detailRow(
-                'Status',
-                (inc['status'] as String? ?? '')
-                    .replaceAll('_', ' ')
-                    .toUpperCase(),
-              ),
-              _detailRow(
-                'Severity',
-                (inc['severity'] as String? ?? '').toUpperCase(),
-              ),
-              _detailRow(
-                'Type',
-                (inc['incident_type'] as String? ?? '').replaceAll('_', ' '),
-              ),
-              if (inc['location'] != null)
-                _detailRow('Location', inc['location'] as String),
-              const Divider(),
-              const Text(
-                'Description',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                inc['description'] as String? ?? '',
-                style: TextStyle(color: Colors.grey.shade700),
-              ),
-            ],
+                const SizedBox(height: 12),
+                _detailRow(
+                  'Status',
+                  (inc['status'] as String? ?? '')
+                      .replaceAll('_', ' ')
+                      .toUpperCase(),
+                ),
+                _detailRow(
+                  'Severity',
+                  (inc['severity'] as String? ?? '').toUpperCase(),
+                ),
+                _detailRow(
+                  'Type',
+                  (inc['incident_type'] as String? ?? '').replaceAll('_', ' '),
+                ),
+                if (inc['location'] != null)
+                  _detailRow('Location', inc['location'] as String),
+                const Divider(),
+                Text(
+                  'Description',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  inc['description'] as String? ?? '',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -296,12 +303,12 @@ class _MyReportsScreenState extends State<MyReportsScreen>
             Icon(
               Icons.handshake_outlined,
               size: 48,
-              color: Colors.grey.shade400,
+              color: AppTheme.textSecondary,
             ),
             const SizedBox(height: 8),
             Text(
               s.myReportsEmptyGrievances,
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
         ),
@@ -322,6 +329,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
           );
 
           return Card(
+            color: AppTheme.cardSurface,
             child: ListTile(
               leading: Container(
                 width: 40,
@@ -340,7 +348,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                 grv['subject'] as String? ?? '',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
@@ -361,14 +370,17 @@ class _MyReportsScreenState extends State<MyReportsScreen>
                     type.toUpperCase(),
                     style: TextStyle(
                       fontSize: 10,
-                      color: Colors.grey.shade600,
+                      color: AppTheme.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
                   if (grv['resolution'] != null)
                     Text(
                       '✓ ${grv['resolution']}',
-                      style: const TextStyle(fontSize: 11, color: Colors.green),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.successOnSurface,
+                      ),
                     ),
                 ],
               ),
@@ -405,13 +417,17 @@ class _MyReportsScreenState extends State<MyReportsScreen>
             width: 80,
             child: Text(
               label,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
           ),
         ],

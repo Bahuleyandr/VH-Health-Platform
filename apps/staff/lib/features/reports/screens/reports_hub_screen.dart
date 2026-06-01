@@ -1,24 +1,51 @@
 import 'package:flutter/material.dart';
+import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 import 'incident_report_screen.dart';
 import 'grievance_screen.dart';
 import 'my_reports_screen.dart';
+import 'reports_admin_queue_screen.dart';
 
-class ReportsHubScreen extends StatelessWidget {
+class ReportsHubScreen extends StatefulWidget {
   const ReportsHubScreen({super.key});
+
+  @override
+  State<ReportsHubScreen> createState() => _ReportsHubScreenState();
+}
+
+class _ReportsHubScreenState extends State<ReportsHubScreen> {
+  StaffRole _role = StaffRole.general;
+  bool _roleLoaded = false;
+
+  bool get _canReviewAll => _role == StaffRole.hr || _role.isAdminTier;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final role = StaffRole.fromString(await ApiConfig.getRole());
+    if (!mounted) return;
+    setState(() {
+      _role = role;
+      _roleLoaded = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFE0F5F6),
+      backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
         title: Text(s.reportsHubTitle),
         actions: const [LogoutAction()],
-        backgroundColor: const Color(0xFF007A64),
-        foregroundColor: Colors.white,
         elevation: 0,
       ),
       body: SingleChildScrollView(
@@ -29,22 +56,27 @@ class ReportsHubScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                border: Border.all(color: Colors.amber.shade300),
-                borderRadius: BorderRadius.circular(10),
+                color: AppTheme.warningOnSurface.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: AppTheme.warningOnSurface.withValues(alpha: 0.5),
+                ),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.shield_outlined,
-                    color: Colors.amber.shade700,
+                    color: AppTheme.warningOnSurface,
                     size: 20,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       s.reportsHubConfidentialityNote,
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textPrimary,
+                      ),
                     ),
                   ),
                 ],
@@ -53,7 +85,11 @@ class ReportsHubScreen extends StatelessWidget {
             const SizedBox(height: 20),
             Text(
               s.reportsHubPrompt,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 12),
 
@@ -90,15 +126,20 @@ class ReportsHubScreen extends StatelessWidget {
               ),
               icon: const Icon(Icons.history),
               label: Text(s.reportsHubMyReports),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 48),
-                foregroundColor: const Color(0xFF007A64),
-                side: const BorderSide(color: Color(0xFF007A64)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
             ),
+            if (_roleLoaded && _canReviewAll) ...[
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ReportsAdminQueueScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('HR/Admin Review Queue'),
+              ),
+            ],
           ],
         ),
       ),
@@ -125,12 +166,16 @@ class _HubCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+    );
     return Card(
       elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.cardSurface,
+      shape: shape,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -140,7 +185,7 @@ class _HubCard extends StatelessWidget {
                 height: 48,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, color: color, size: 26),
               ),
@@ -151,7 +196,8 @@ class _HubCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
@@ -161,7 +207,7 @@ class _HubCard extends StatelessWidget {
                       subtitle,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey.shade600,
+                        color: AppTheme.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -176,7 +222,7 @@ class _HubCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              Icon(Icons.chevron_right, color: AppTheme.textSecondary),
             ],
           ),
         ),

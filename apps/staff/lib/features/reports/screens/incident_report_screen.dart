@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -142,12 +143,11 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
     if (_submitted) return _buildSuccessScreen();
 
     return Scaffold(
+      backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
         leading: const NavigationBackAction(),
         title: Text(s.incidentReportTitle),
         actions: const [LogoutAction()],
-        backgroundColor: const Color(0xFF007A64),
-        foregroundColor: Colors.white,
       ),
       body: Form(
         key: _formKey,
@@ -158,7 +158,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
             children: [
               Text(
                 s.incidentReportSeverityLabel,
-                style: const TextStyle(
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
                   fontWeight: FontWeight.w600,
                   fontSize: 15,
                 ),
@@ -179,13 +180,13 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                       ),
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: selected ? color : Colors.grey.shade300,
+                          color: selected ? color : AppTheme.divider,
                           width: selected ? 2 : 1,
                         ),
                         borderRadius: BorderRadius.circular(10),
                         color: selected
                             ? color.withValues(alpha: 0.08)
-                            : Colors.white,
+                            : AppTheme.cardSurface,
                       ),
                       child: Row(
                         children: [
@@ -206,14 +207,16 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                                   label,
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: selected ? color : Colors.black87,
+                                    color: selected
+                                        ? color
+                                        : AppTheme.textPrimary,
                                   ),
                                 ),
                                 Text(
                                   desc,
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Colors.grey.shade600,
+                                    color: AppTheme.textSecondary,
                                   ),
                                 ),
                               ],
@@ -231,7 +234,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 16),
               Text(
                 s.incidentReportTypeLabel,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
@@ -249,7 +255,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 16),
               Text(
                 s.incidentReportTitleLabel,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -267,7 +276,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 8),
               Text(
                 s.incidentReportWhatHappened,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -291,7 +303,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                       children: [
                         Text(
                           s.incidentReportDateLabel,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         InkWell(
@@ -309,22 +324,26 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade400),
+                              color: AppTheme.cardSurface,
+                              border: Border.all(color: AppTheme.divider),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.calendar_today,
                                   size: 16,
-                                  color: Colors.grey,
+                                  color: AppTheme.textSecondary,
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
                                   DateFormat(
                                     'd MMM yyyy',
                                   ).format(_incidentDate),
-                                  style: const TextStyle(fontSize: 13),
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ],
                             ),
@@ -340,7 +359,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                       children: [
                         Text(
                           s.incidentReportTimeLabel,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         InkWell(
@@ -354,20 +376,24 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade400),
+                              color: AppTheme.cardSurface,
+                              border: Border.all(color: AppTheme.divider),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.access_time,
                                   size: 16,
-                                  color: Colors.grey,
+                                  color: AppTheme.textSecondary,
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
                                   _incidentTime.format(context),
-                                  style: const TextStyle(fontSize: 13),
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ],
                             ),
@@ -397,7 +423,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                 children: [
                   Text(
                     s.incidentReportPatientInvolved,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const Spacer(),
                   Switch(
@@ -446,9 +475,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
+                  color: AppTheme.cardSurface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: AppTheme.divider),
                 ),
                 child: Row(
                   children: [
@@ -463,7 +492,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                         children: [
                           Text(
                             s.incidentReportAnonymous,
-                            style: const TextStyle(
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
@@ -472,7 +502,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                             s.incidentReportAnonymousNote,
                             style: TextStyle(
                               fontSize: 11,
-                              color: Colors.grey.shade600,
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -520,7 +550,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   Widget _buildSuccessScreen() {
     final s = AppStrings.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFE0F5F6),
+      backgroundColor: AppTheme.backgroundGrey,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -539,7 +569,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 20),
               Text(
                 s.incidentReportSubmittedTitle,
-                style: const TextStyle(
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                 ),
@@ -548,10 +579,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                 const SizedBox(height: 8),
                 Text(
                   _reportNumber!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF007A64),
+                    color: Theme.of(context).colorScheme.primary,
                     letterSpacing: 1,
                   ),
                 ),
@@ -562,7 +593,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                     ? s.incidentReportEscalationNote
                     : s.incidentReportRoutineNote,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600),
+                style: TextStyle(color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 32),
               ElevatedButton(
