@@ -1,298 +1,236 @@
-# VH Health Platform — Session Handoff
+# VH Health Platform - Session Handoff
 
-_Last updated: 2026-05-02. Historical handoff snapshot. Verify current state
-with `git status`, `git log -1`, and the root README before acting._
+Last updated: 2026-06-01.
 
-This doc is a single-page bootstrap for resuming work in another
-session / environment. Read top-to-bottom, then jump to whichever
-punch-list item you want to work on.
+This file is the durable bootstrap note for continuing the current VH Health
+Platform work from another PC or a fresh Codex run. Treat the current worktree
+and Forgejo state as authoritative; this note is only a map.
 
----
+## Active Goal
 
-## Where we are
+Implement the Staff app multi-device strategy and production-grade
+front-office/staff workflows, including role-aware inpatient visibility,
+OP/reception workbench improvements, governance toggles, auditability, and
+reliable DalekDefender-backed desktop builds.
 
-The platform is mid-rollout. The clinical surface is being driven
-through real test deployments on the home tailnet (`dalekdefender`)
-while the team irons out cross-role bugs, accessibility, and
-internationalisation. **Hindi reached 100% structural coverage on
-both Flutter apps in this run; Tamil/Telugu (and Malayalam on
-patient) are queued for the dedicated translator pass.**
+Goal status at pause: active but intentionally paused. Do not mark the goal
+complete until every requirement in the original Staff App Multi-Device
+Strategy is implemented and verified end to end.
 
-### Repo state on `main` (commit `24e3c974`)
+## Canonical Repo And Branch
 
-| App | Stack | i18n | Notes |
-|---|---|---|---|
-| `apps/backend` | Node 22 + Express 5 + PG 17 + Prisma | English-only | Deployed live on dalekdefender k3s; admin portal at :8445 |
-| `apps/admin` | Next.js 15 + React 19 | English-only | Untouched in this session |
-| `apps/patient` | Flutter 3.41 + Firebase OTP | en/hi 100%, ta/te/ml 50.8% | ARB-based codegen, 5 locales supported |
-| `apps/staff` | Flutter 3.41 + JWT + role config | en/hi 100%, ta/te 61% | Manual map (`lib/l10n/app_strings.dart`) |
-| `packages/vhhealth_core` | Dart shared package | n/a | API client, theme tokens, crash-reporter abstraction |
+- Canonical remote: `git@forgejo.hippocampus-monitor.ts.net:bahuleyan/VH-Health-Platform.git`
+- Current working branch: `main`
+- GitHub may exist only as an optional mirror. Do not push to GitHub unless the
+  user explicitly asks.
+- Current latest known Forgejo commit at this handoff:
+  `d30bb852 Harden staff shared workstation cleanup`
 
-### Live test deployment
+Recommended cold start on a new PC:
 
-- URL: `https://dalekdefender.hippocampus-monitor.ts.net:8444` (Tailnet only)
-- Admin portal: `https://dalekdefender.hippocampus-monitor.ts.net:8445`
-- API key: stored outside the repo in the local deployment secret file. Do not
-  commit live keys to docs.
-- Staff test users: `EMP-1001` through `EMP-1008`; password is stored outside
-  the repo. Roles cover NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, DOCTOR,
-  HR_STAFF, ADMIN, SUPER_ADMIN, GENERAL_STAFF.
-- Admin login: seeded admin account; password is stored outside the repo.
-- Redeploy recipe lives in `~/.claude/projects/.../memory/project_vh_health_dalekdefender.md`.
-
-### Most recent staff `.exe`
-
-`apps/staff/build/windows/x64/runner/Release/vhhealth_staff.exe` —
-built 2026-05-02 at the end of this session with:
-
-```
-flutter build windows --release \
-  --dart-define=VH_BASE_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1 \
-  --dart-define=VH_API_KEY=<release-smoke-api-key>
+```powershell
+New-Item -ItemType Directory -Force -Path 'C:\Dev\Projects\VH Health' | Out-Null
+git clone git@forgejo.hippocampus-monitor.ts.net:bahuleyan/VH-Health-Platform.git 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git status --short --branch
 ```
 
-Contains every change shipped in this session.
+If a repo already exists on the new PC, assume it may be stale. Run:
 
----
+```powershell
+Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+git remote -v
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git log -5 --oneline --decorate
+git status --short --branch
+```
 
-## What landed in this session
+The expected remote should be Forgejo. If `origin` is GitHub, stop and correct
+the remote before pushing anything.
 
-Long arc — 11 merged feature branches over the run, plus this
-handoff doc. In priority order:
+## Deployment And Secrets
 
-### 1. Cross-role backend bug sweep — 10 bugs surfaced by every staff role
+Stable backend used by the Staff app:
 
-Probe matrix of 8 roles × 28 endpoints surfaced:
-- `/auth/staff/profile` 500 (controller called missing method)
-- `/staff/hr/leave-balance/:id` UUID→NaN crash
-- `/staff/hr/replacement/*` UUID-against-INT-FK crash + missing
-  `replacement_requests` table (orphan schema, fixed in
-  migration 142)
-- `identityValidator` role-name drift (HR_STAFF / GENERAL_STAFF
-  blocked from HR endpoints)
-- `/appointments/list?date=today` 500 (Express 5 made `req.query`
-  immutable, validator's customSanitizer couldn't write back; fixed
-  at the service layer)
-- `/staff/list` 500 (raw-Prisma param array passed as 1 arg)
-- `/notifications/my` 400 (staff JWTs lack phone claim; added
-  uid→phone fallback)
-- SUPER_ADMIN profile lookup 404 (STAFF_ROLES enum missing)
-- 2 Flutter path bugs (clinical-AI double-prefix, `/staff` →
-  `/staff/list`)
+```text
+https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1
+```
 
-### 2. UX upgrade run — 21 prioritised improvements
-
-Logout button on every screen (29 screens swept), bed-sheet patient
-quick-actions (Open EMR / Record Vitals / Add Note / Handover) with
-context prefill on Vitals/Nursing Notes/Handover, search on
-Appointments/Due Meds/Notifications/Leave, bed-board status filter
-+ bed# search, long-press inline notes, persistent SuccessToast,
-shared empty/error/loading state widgets, global patient picker
-(Cmd+K), workload dashboard cards, realtime on Due Meds /
-Appointments / Handover, skeleton loaders, bed admit/discharge/
-transfer actions, recent-patients tile, two-pane desktop layouts,
-voice-to-text on notes textareas, keyboard shortcut layer (Cmd+K /
-Esc / Ctrl+/), first-run coach marks, print bed-board, telemetry
-abstraction with 5 example sends, accessibility audit doc.
-
-### 3. Accessibility — 10 audit-doc gaps closed + screen-reader test plan
-
-Bed-card semantic labels, AppBar tooltips on 15 icon-only buttons,
-toast `liveRegion: true`, quick-action chip semantics with
-`ExcludeSemantics`, 48dp hit-target on PatientContextChip close,
-voice dictation `SemanticsService.announce` + haptic, 71 form
-prefix-icons wrapped in `ExcludeSemantics`, skeletons honour
-`MediaQuery.disableAnimations`, status pills inherit theme text
-scale, recent-patients list semantics. Plus `apps/staff/docs/
-SCREEN_READER_TEST_PLAN.md` with 12 NVDA / TalkBack scenarios.
-
-### 4. Colour contrast audit — 13 issues triaged, 3 palette fixes
-
-`warningAmber` darkened (#F57F17 → #E65100, was 2.65:1, now 5.83:1
-both ways). `_lightHint` darkened (was 2.59:1, now 4.32:1). New
-adaptive `successOnSurface` / `errorOnSurface` / `warningOnSurface`
-getters with dark-mode-safe variants. Reproducible via
-`apps/staff/docs/_contrast_calc.mjs`.
-
-### 5. i18n — full migration + Hindi at 100% on both apps
-
-Staff app:
-- ~947 keys × 4 locales (manual map at `apps/staff/lib/l10n/app_strings.dart`)
-- 1576 English keys, **Hindi 100%**, Tamil/Telugu 61.3%
-- 216 `// REVIEW:` flags on clinical-action / security / financial
-  strings for translator validation
-
-Patient app:
-- ARB-based with `flutter gen-l10n` (5 locales: en/hi/ta/te/ml)
-- 528 English keys, **Hindi 100%**, Tamil/Telugu/Malayalam 50.8%
-- 210 hardcoded English strings migrated → 6 remaining (all
-  intentional brand strings: "VH Health", "Venkataeswara Hospitals")
-
-Tooling:
-- `apps/staff/scripts/i18n-verify.mjs` — manual-map verifier
-- `apps/patient/scripts/i18n-verify.mjs` — ARB verifier
-- `melos run i18n-health` — runs both
-- `melos run i18n-health-staff` / `i18n-health-patient` — individually
-
-Documentation:
-- `apps/staff/docs/ACCESSIBILITY_AUDIT.md`
-- `apps/staff/docs/SCREEN_READER_TEST_PLAN.md`
-- `apps/staff/docs/COLOR_CONTRAST_AUDIT.md`
-- `apps/staff/docs/LANGUAGE_HEALTH.md`
-
-### 6. Bed-board feature — patient details + notes flow
-
-Backend: `GET /api/v1/beds/ward/:id` augmented with patient/admission
-JOINs (patient_full_name / age / gender / phone / chief_complaint /
-admitting_diagnosis / attending_doctor_name etc.). New `PATCH
-/api/v1/beds/:id/notes` endpoint that doesn't null patient_id when
-only notes are sent. Flutter: bed cards tappable, modal bottom
-sheet with quick-action chips, notes textarea with PATCH save.
-
----
-
-## Punch list — what's still queued
-
-In priority order. Each item links to where to start.
-
-### High-value, well-scoped
-
-1. **Tamil + Telugu translator pass** on both apps. ~610 keys staff
-   each, ~260 keys patient each. Verifiers list every missing key
-   by name. Drop output into Lokalise / Crowdin / Google Translation
-   Toolkit. Resume command: `melos run i18n-health` from repo root.
-
-2. **Patient Malayalam translator pass.** Same gap as Tamil/Telugu.
-   Verifier output is the worklist.
-
-3. **Pilot-clinician validation of the 216 staff Hindi REVIEW
-   flags** + ~250 patient Hindi REVIEW items. Hindi works at 100%
-   structurally, but the high-stakes clinical / security / financial
-   wording needs human validation before production rollout.
-
-4. **Backend notification template localisation.** SMS / email /
-   push templates in `apps/backend/src/services/notifications/` are
-   still English-only. When a Hindi nurse gets a leave-approval SMS
-   in English, the language work feels half-done.
-
-5. **Run the screen-reader test plan** (`apps/staff/docs/
-   SCREEN_READER_TEST_PLAN.md`) — 12 NVDA / TalkBack scenarios,
-   ~90 minutes. Tells us whether the a11y fixes work in practice.
-
-6. **Cut a real release.** `staff-v1.2.0` and `patient-v1.2.0` tags.
-   The signed-release workflows haven't been exercised against the
-   real `VH_API_KEY` / signing secrets in months.
-
-### Medium-value, defined scope
-
-7. **Admin portal i18n.** Next.js — needs `next-intl` or similar.
-   ~50 screens. Lower priority since most admin users are bilingual.
-8. **Crash reporter wiring validation.** `FirebaseCrashReporter` is
-   registered but Crashlytics events haven't been validated to
-   actually arrive — controlled test crash + dashboard verification.
-9. **Sentry on backend.** DSN env var exists but I haven't confirmed
-   events flow.
-10. **Fill remaining a11y gaps** — high-contrast theme variant,
-    legacy `primaryBlue`-on-darkCard sweep, focus-order audit on
-    long forms.
-
-### Smaller / housekeeping
-
-11. **Prune the 135 unused getters** in staff `app_strings.dart`
-    (~9% of declared accessors; speculatively-added during batch 4).
-
----
-
-## How to resume in another session
-
-### Cold-start commands
+Backend runs on DalekDefender k3s. Do not print, paste, or commit API keys.
+Fetch the backend API key only from the k8s secret when needed:
 
 ```bash
-# Repo
-git clone https://github.com/Bahuleyandr/VH-Health-Platform.git
-cd VH-Health-Platform
-
-# Tooling (per-machine, once)
-dart pub global activate melos 7.5.1
-lefthook install
-
-# Per-stack installs
-cd apps/backend && npm install && cp .env.example .env  # fill secrets
-cd ../admin    && npm install && cp .env.local.example .env.local
-cd ../..
-dart pub get && melos bootstrap
-
-# Verify i18n state
-melos run i18n-health
-
-# Lint
-melos run analyze
+sudo kubectl -n vhhealth get secret vhhealth-backend -o jsonpath='{.data.API_KEY}' | base64 -d
 ```
 
-### To continue any specific punch-list item
+When testing live app behavior, first consider backend freshness. A stale
+DalekDefender backend image has previously caused false app bugs.
 
-1. Read this doc + the relevant `apps/<app>/docs/` audit doc.
-2. Run the verifier (`melos run i18n-health` / lint / test).
-3. Pick a coherent batch (one screen / one feature / one locale).
-4. Branch off `main`: `git checkout -b feat/<slug>`.
-5. Ship + lint + commit + PR-merge into `main`.
+Backend rebuild/restart recipe, no DB reset:
 
-### Where the live deployment is
-
-- `dalekdefender.hippocampus-monitor.ts.net` (home tailnet, k3s).
-- Backend on :8444, admin on :8445, Khata sibling on :8443.
-- SSH access: `ssh dalekdefender` (Tailscale).
-- Redeploy recipe in user-memory `project_vh_health_dalekdefender.md`.
-
-### Key files for orientation
-
-| Topic | Path |
-|---|---|
-| Cross-stack overview | `CLAUDE.md` (root) |
-| Backend conventions | `apps/backend/CLAUDE.md` |
-| Staff app structure | `apps/staff/CLAUDE.md` |
-| Patient app structure | `apps/patient/CLAUDE.md` |
-| i18n state | `apps/staff/docs/LANGUAGE_HEALTH.md` |
-| A11y audit | `apps/staff/docs/ACCESSIBILITY_AUDIT.md` |
-| SR test plan | `apps/staff/docs/SCREEN_READER_TEST_PLAN.md` |
-| Contrast audit | `apps/staff/docs/COLOR_CONTRAST_AUDIT.md` |
-| Test users + creds | `~/.claude/projects/.../memory/project_vh_health_dalekdefender.md` |
-
----
-
-## Branch state (as of 2026-05-02)
-
-- **Local: `main` only.**
-- **Remote: `main` only.** All 14 historical branches were
-  triaged and pruned in the closing minutes of this session:
-    - 13 `feat/*` branches (b1–b4, c1, c3, c4, d1–d4, tier-b
-      surgical schema/ai-modules) had been **fully merged into
-      `main` already** (HEAD commits ancestor of `main` per
-      `git merge-base --is-ancestor`). 0 commits ahead, 110–134
-      behind. Safe to delete; no work lost.
-    - 1 `chore/error-scan-2026-05-01` branch had **4 unique commits**
-      but was 52 behind `main` — merging would have reverted this
-      session's work. Solution: cherry-picked those 4 commits onto
-      `main` (gitleaks TOTP allowlist, gitleaks kubeseal allowlist,
-      sealed-secret placeholder standardisation, weekly scan
-      `REPORT.md`), then deleted the branch.
-
-## Recent commits on `main`
-
-```
-3efd9059 fix: allowlist RFC 4226/6238 TOTP test vector in gitleaks    ← cherry-pick
-5ec6e046 fix: allowlist legacy REPLACE_WITH_KUBESEAL_OUTPUT placeholder ← cherry-pick
-5b43c28b fix: standardise sealed-secret placeholder to allowlisted string ← cherry-pick
-cc3c147c chore: weekly error scan — 5 patterns flagged                 ← cherry-pick
-9c84045f Docs: refresh SESSION_HANDOFF.md with current main-branch state + punch list
-24e3c974 Merge feat/hindi-100pct-patient-i18n: staff Hindi 100% + patient app i18n parity
-a297ed37 Merge feat/i18n-health-verify: i18n verification script + report + final hardcoded sweep
-223d2dc2 Merge feat/i18n-migration-finish: full staff-app i18n coverage
-5b384f27 Merge feat/i18n-migration-contrast: contrast audit + Hindi review + 23-screen i18n migration
-ef5d94e7 Merge feat/a11y-i18n-sr-plan: 10 a11y fixes + i18n expansion + SR test plan
-6b22f8ae Merge feat/voice-print-i18n-telemetry: voice dictation + PDF print + telemetry + i18n + a11y audit
-2aa291f4 Merge feat/role-sweep-2026-05-02: 10 cross-role bug fixes
-022b7a85 Merge feat/logout-everywhere-bed-notes: universal logout button + bed-board patient details + notes flow
+```bash
+cd ~/VH-Health-Platform
+git pull --ff-only origin main
+cd apps/backend
+sudo docker build -t vhhealth-backend:dev .
+sudo docker save vhhealth-backend:dev | sudo k3s ctr images import -
+sudo kubectl -n vhhealth rollout restart deploy/vhhealth-backend
+sudo kubectl -n vhhealth rollout status deploy/vhhealth-backend --timeout=180s
 ```
 
-Pick any task, branch off `main`, and continue.
+## Local Windows Tooling Policy
+
+Use `C:\Dev\Tools` for local tools and local Staff app installs. Do not install
+project tools into `System32` or `Program Files` unless the user explicitly asks.
+
+Current local Staff app install path:
+
+```text
+C:\Dev\Tools\VH Health Staff\vhhealth_staff.exe
+```
+
+The Staff app update script now defaults to that path and creates Start Menu and
+Desktop shortcuts pointing there.
+
+Relevant files:
+
+- `scripts/update-local-staff-windows-app.ps1`
+- `scripts/build-staff-windows-update.ps1`
+- `apps/staff/docs/WINDOWS_UPDATE_PACKAGES.md`
+
+To rebuild and install the local Windows Staff app against DalekDefender:
+
+```powershell
+Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform'
+$env:VH_BASE_URL = 'https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1'
+$env:VH_API_KEY = (ssh bahuleyan@dalekdefender.hippocampus-monitor.ts.net "sudo kubectl -n vhhealth get secret vhhealth-backend -o jsonpath='{.data.API_KEY}' | base64 -d")
+.\scripts\update-local-staff-windows-app.ps1
+```
+
+Use `-SkipBuild` only when the build output is already current:
+
+```powershell
+.\scripts\update-local-staff-windows-app.ps1 -SkipBuild
+```
+
+The old local install path was removed during this run:
+
+```text
+C:\Users\subas\AppData\Local\Programs\VH Health Staff
+```
+
+## Recent Completed Work
+
+Recent commits on `main` that are part of this goal:
+
+```text
+d30bb852 Harden staff shared workstation cleanup
+96ae10be Enrich front office patient PHI context
+c04ce604 Install local staff app under Dev tools
+fe94455b Scope housekeeping dashboard inpatient counts
+eb245d42 Harden OP AI module toggle enforcement
+cb598bc8 Enrich front office appointment PHI audit context
+```
+
+What those commits established:
+
+- OP clinical AI module toggle enforcement is hardened server-side before PHI
+  context loads.
+- Front-office appointment and patient create/update flows carry richer PHI and
+  audit context.
+- Role-aware inpatient count routing was improved for housekeeping and other
+  workbench roles.
+- Local Staff Windows install/update path is clean and under `C:\Dev\Tools`.
+- Shared tablets/workstations now clear recent-patient local PHI before
+  clearing staff credentials on logout or idle timeout.
+
+Recent verification:
+
+- Focused Staff app tests passed:
+  `flutter test test\core\session_timeout_provider_test.dart test\core\services\recent_patients_service_test.dart`
+- Staff updater rebuild completed with `flutter analyze` clean.
+- Local Staff app was installed and launched from:
+  `C:\Dev\Tools\VH Health Staff\vhhealth_staff.exe`
+- Local repo was clean after `d30bb852`, with `HEAD`, `origin/main`, and
+  `origin/HEAD` aligned.
+
+## Multi-Device Strategy Requirements Still In Scope
+
+The target strategy is one Flutter Staff app across phone, tablet, and Windows
+desktop:
+
+- Phone: personal staff app for attendance, shift view, shift requests, leave,
+  profile, and notifications.
+- Tablet/desktop: hospital workbench for OP/reception, front office, patient
+  management, billing/admission flow, and role-permitted clinical entry.
+- Web: reserved for Admin/HR governance workflows.
+
+Guardrails to preserve:
+
+- Attendance check-in/check-out is mobile-only.
+- Tablet/desktop can view attendance, shifts, and rosters but cannot mark
+  attendance.
+- Tenant isolation remains server-side through tenant middleware/RLS.
+- PHI read/write paths used by tablet/desktop must have PHI access logging.
+- Create/update front-office and clinical actions must be auditable with actor,
+  role, device type, patient/admission/appointment context, and request ID.
+- Shared tablets/workstations use stricter idle timeout and clear local
+  recent-patient caches on logout.
+- Admin/HR remains the governance surface for onboarding, staff roster,
+  permissions, audit review, tenant controls, and clinical AI toggles.
+
+## Next Best Work
+
+Suggested next slice when resuming:
+
+1. Inspect the current OP/reception workbench implementation:
+   `apps/staff/lib/features/reception/`
+2. Verify front-office flows against the V1 target:
+   patient search/create/update, OP booking, today's queue, visit reason/intake,
+   billing/receipt handoff, IP admission handoff, and active admissions.
+3. Check whether each tablet/desktop PHI read/write path has both:
+   PHI access logging and audit context.
+4. Add focused tests before widening the workflow.
+5. Rebuild local Staff app under `C:\Dev\Tools` if Flutter code changes.
+6. Deploy DalekDefender backend if backend code changes.
+
+Useful Staff tests to run while working in this area:
+
+```powershell
+Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform\apps\staff'
+C:\Dev\Tools\flutter\bin\flutter.bat test test\features\reception\front_office_workbench_test.dart
+C:\Dev\Tools\flutter\bin\flutter.bat test test\features\dashboard\dashboard_inpatient_count_test.dart test\features\emr\patient_command_board_test.dart
+```
+
+Useful backend tests from recent AI/audit work:
+
+```powershell
+Set-Location 'C:\Dev\Projects\VH Health\VH-Health-Platform\apps\backend'
+node --experimental-vm-modules --max-old-space-size=2048 node_modules\jest\bin\jest.js --runInBand src\tests\unit\patientSearchController.test.js src\tests\unit\phiAccessMiddlewareTenant.test.js
+node --experimental-vm-modules --max-old-space-size=2048 node_modules\jest\bin\jest.js --runInBand src\tests\unit\opdClinicalAssistService.test.js src\tests\unit\polypharmacyAiService.test.js
+```
+
+## Known Test Login Context
+
+Previously used test logins:
+
+- HR employee ID: `EMP-1005`
+- Staff verification user created during prior live API check:
+  - Employee ID: `EMP-1020`
+  - Name: `Codex Test Nurse 152711`
+  - Role: `NURSING_STAFF`
+
+Do not store test passwords in the repo. Treat these IDs as test-only context
+and verify live seeded data before relying on it.
+
+## Pause Note
+
+The work was paused after the Staff app shared-workstation cleanup hardening was
+committed and pushed. The next Codex run should continue the active goal rather
+than starting a new strategy discussion, unless the user asks to revise the
+plan.
