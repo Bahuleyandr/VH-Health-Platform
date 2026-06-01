@@ -11,24 +11,32 @@ import app from '../app.js';
 import { generateToken } from '../utils/jwtUtils.js';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
+const PATIENT_A_UID = '11111111-1111-4111-8111-111111111111';
+const PATIENT_B_UID = '22222222-2222-4222-8222-222222222222';
+const STAFF_UID = '33333333-3333-4333-8333-333333333333';
+
+function uniqueTestUuid() {
+  const suffix = Date.now().toString(16).padStart(12, '0').slice(-12);
+  return `44444444-4444-4444-8444-${suffix}`;
+}
 
 // ── Test tokens ─────────────────────────────────────────────────────────────
 const patientAToken = generateToken({
-  uid: 'test-patient-a',
+  uid: PATIENT_A_UID,
   id: 1,
   phone: '1234567890',
   role: 'PATIENT'
 });
 
 const patientBToken = generateToken({
-  uid: 'test-patient-b',
+  uid: PATIENT_B_UID,
   id: 2,
   phone: '0987654321',
   role: 'PATIENT'
 });
 
 const staffToken = generateToken({
-  uid: 'test-staff-user',
+  uid: STAFF_UID,
   id: 100,
   phone: '5551112222',
   role: 'ADMIN'
@@ -304,7 +312,7 @@ describe('Rate Limiting', () => {
   describe('SOS endpoint rate limiting (3 requests per hour)', () => {
     it('should return 429 after exceeding SOS rate limit', async () => {
       // Use a unique UID so the rate limit counter is fresh for this test.
-      const uniqueUid = `sos-rate-test-${Date.now()}`;
+      const uniqueUid = uniqueTestUuid();
       const sosToken = generateToken({
         uid: uniqueUid,
         id: 99999,
