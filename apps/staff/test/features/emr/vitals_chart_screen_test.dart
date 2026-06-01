@@ -119,6 +119,11 @@ void main() {
   });
 
   group('vitals and I/O history filters', () {
+    test('formats vitals timestamps with dd/mm date and time', () {
+      expect(recordDateTimeLabel(DateTime(2026, 6, 2, 7, 5)), '02/06 07:05');
+      expect(recordDateTimeLabel(null), '-');
+    });
+
     test('splits current and previous vitals around the last 24h', () {
       final now = DateTime(2026, 6, 1, 12);
       final rows = [

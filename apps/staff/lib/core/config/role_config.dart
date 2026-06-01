@@ -1712,7 +1712,7 @@ class RoleFeatures {
       );
       items.add(
         const WorkbenchNavItem(
-          label: 'Admissions',
+          label: 'IP Admissions',
           icon: Icons.local_hospital_outlined,
           selectedIcon: Icons.local_hospital,
           route: '/emr/admissions',
@@ -1734,7 +1734,7 @@ class RoleFeatures {
     if (hasClinicalEntry(role)) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Patients',
+          label: 'Patient Records',
           icon: Icons.folder_shared_outlined,
           selectedIcon: Icons.folder_shared,
           route: '/patient-records',

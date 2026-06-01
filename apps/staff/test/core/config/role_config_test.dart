@@ -418,19 +418,29 @@ void main() {
     });
 
     test('workbench navigation includes role-permitted destinations', () {
-      final receptionistRoutes = RoleFeatures.getWorkbenchNavForRole(
+      final receptionistNav = RoleFeatures.getWorkbenchNavForRole(
         StaffRole.receptionist,
-      ).map((item) => item.route).toSet();
-      final doctorRoutes = RoleFeatures.getWorkbenchNavForRole(
-        StaffRole.doctor,
-      ).map((item) => item.route).toSet();
+      );
+      final doctorNav = RoleFeatures.getWorkbenchNavForRole(StaffRole.doctor);
+      final receptionistRoutes = receptionistNav
+          .map((item) => item.route)
+          .toSet();
+      final doctorRoutes = doctorNav.map((item) => item.route).toSet();
+      final admissionsLabel = receptionistNav
+          .singleWhere((item) => item.route == '/emr/admissions')
+          .label;
+      final patientRecordsLabel = doctorNav
+          .singleWhere((item) => item.route == '/patient-records')
+          .label;
 
       expect(
         receptionistRoutes,
         containsAll(['/front-office', '/billing-desk']),
       );
+      expect(admissionsLabel, 'IP Admissions');
       expect(receptionistRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, containsAll(['/front-office', '/patient-records']));
+      expect(patientRecordsLabel, 'Patient Records');
       expect(doctorRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, isNot(contains('/billing-desk')));
     });

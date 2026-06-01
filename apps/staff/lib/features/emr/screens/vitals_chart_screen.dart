@@ -197,7 +197,11 @@ String rowIOAmount(Map<String, dynamic> row) {
 }
 
 String rowIODateLabel(Map<String, dynamic> row) {
-  final parsed = parseRecordDateTime(row['recorded_at']);
+  return recordDateTimeLabel(row['recorded_at']);
+}
+
+String recordDateTimeLabel(dynamic value) {
+  final parsed = parseRecordDateTime(value);
   if (parsed == null) return '-';
   final local = parsed.toLocal();
   return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
@@ -1093,7 +1097,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               cells: [
                 DataCell(
                   Text(
-                    _formatTime(v['recorded_at'] as String?),
+                    recordDateTimeLabel(v['recorded_at']),
                     style: _cellStyle,
                   ),
                 ),
