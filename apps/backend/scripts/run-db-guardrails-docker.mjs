@@ -13,6 +13,7 @@ const portStart = Number(process.env.VH_DB_GUARDRAILS_PORT || 55433);
 const isWindows = process.platform === 'win32';
 const runTests = process.argv.includes('--with-tests') ||
   process.env.VH_DB_GUARDRAILS_RUN_TESTS === 'true';
+const maxBuffer = 64 * 1024 * 1024;
 
 function resolvePublishedDockerHost() {
   if (process.env.VH_DB_GUARDRAILS_HOST) {
@@ -36,20 +37,21 @@ function commandName(command) {
 }
 
 function run(command, args, options = {}) {
+  const capture = Boolean(options.capture);
   const result = spawnSync(commandName(command), args, {
     cwd: options.cwd || backendRoot,
     env: { ...process.env, ...(options.env || {}) },
-    encoding: 'utf8',
-    stdio: 'pipe',
+    ...(capture ? { encoding: 'utf8' } : {}),
+    maxBuffer,
+    stdio: capture ? 'pipe' : 'inherit',
   });
 
-  if (!options.capture) {
-    if (result.stdout) process.stdout.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) {
+    throw result.error;
   }
 
   if (result.status !== 0) {
-    const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    const output = capture ? [result.stdout, result.stderr].filter(Boolean).join('\n') : '';
     const detail = output ? `\n${output}` : '';
     throw new Error(`${command} ${args.join(' ')} failed${detail}`);
   }

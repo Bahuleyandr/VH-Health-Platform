@@ -10,6 +10,7 @@ const jestBin = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js')
 const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 45);
 const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 3072);
 const passthroughArgs = process.argv.slice(2);
+const maxBuffer = 64 * 1024 * 1024;
 
 if (!existsSync(jestBin)) {
   console.error(`Jest binary not found at ${jestBin}. Run npm ci first.`);
@@ -35,7 +36,8 @@ function run(args, options = {}) {
   return spawnSync(process.execPath, [...nodeFlags, jestBin, ...args], {
     cwd: backendRoot,
     env: { ...process.env, ...(options.env || {}) },
-    encoding: 'utf8',
+    ...(options.capture ? { encoding: 'utf8' } : {}),
+    maxBuffer,
     stdio: options.capture ? 'pipe' : 'inherit',
   });
 }
