@@ -261,7 +261,7 @@ export async function generateOpInvestigationReview({
   await requireOpdModuleEnabled('op_investigation_review', { tenantId });
   let uid = maybeUuid(patientUid, 'patient_uid');
   let investigation = null;
-  let sourceText = resultText ? requireText(resultText, 'result_text', { min: 10 }) : null;
+  const sourceText = resultText ? requireText(resultText, 'result_text', { min: 10 }) : null;
   const citations = [];
 
   if (investigationId) {
