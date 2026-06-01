@@ -85,9 +85,11 @@ Get-Process -Name "vhhealth_staff" -ErrorAction SilentlyContinue | Stop-Process 
 New-Item -ItemType Directory -Force -Path $installFullPath | Out-Null
 
 robocopy $releaseDir $installFullPath /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -gt 7) {
-  throw "robocopy failed with exit code $LASTEXITCODE"
+$robocopyExitCode = $LASTEXITCODE
+if ($robocopyExitCode -gt 7) {
+  throw "robocopy failed with exit code $robocopyExitCode"
 }
+$global:LASTEXITCODE = 0
 
 $exePath = Join-Path $installFullPath "vhhealth_staff.exe"
 $shortcutDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\VH Health"
