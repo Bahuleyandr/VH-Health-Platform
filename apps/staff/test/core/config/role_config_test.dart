@@ -8,6 +8,8 @@ void main() {
   group('StaffRole.fromString', () {
     test('parses canonical uppercase backend values', () {
       expect(StaffRole.fromString('DOCTOR'), StaffRole.doctor);
+      expect(StaffRole.fromString('ANESTHETIST'), StaffRole.anaesthetist);
+      expect(StaffRole.fromString('RADIOLOGY_STAFF'), StaffRole.radiologyStaff);
       expect(StaffRole.fromString('NURSING_STAFF'), StaffRole.nurse);
       expect(StaffRole.fromString('HR_STAFF'), StaffRole.hr);
       expect(StaffRole.fromString('ADMIN'), StaffRole.admin);
@@ -19,6 +21,11 @@ void main() {
         StaffRole.fromString('ADMISSION_OFFICER'),
         StaffRole.admissionOfficer,
       );
+      expect(StaffRole.fromString('SECURITY'), StaffRole.security);
+      expect(
+        StaffRole.fromString('EMERGENCY_RESPONDER'),
+        StaffRole.emergencyResponder,
+      );
       expect(StaffRole.fromString('GENERAL_STAFF'), StaffRole.general);
     });
 
@@ -29,6 +36,7 @@ void main() {
 
     test('normalizes hospital role aliases used by inpatient scoping', () {
       expect(StaffRole.fromString('CONSULTANT_PHYSICIAN'), StaffRole.doctor);
+      expect(StaffRole.fromString('ANAESTHETIST'), StaffRole.anaesthetist);
       expect(
         StaffRole.fromString('DUTY_MEDICAL_OFFICER'),
         StaffRole.dutyDoctor,
@@ -84,12 +92,16 @@ void main() {
       expect(StaffRole.maintenance.rosterDepartment, 'maintenance');
       expect(StaffRole.pharmacy.rosterDepartment, 'pharmacy');
       expect(StaffRole.doctor.rosterDepartment, 'medical');
+      expect(StaffRole.anaesthetist.rosterDepartment, 'medical');
+      expect(StaffRole.emergencyResponder.rosterDepartment, 'ambulance');
     });
 
     test('does not invent a roster department for roles without one', () {
       expect(StaffRole.hr.rosterDepartment, isNull);
       expect(StaffRole.admin.rosterDepartment, isNull);
       expect(StaffRole.lab.rosterDepartment, isNull);
+      expect(StaffRole.radiologyStaff.rosterDepartment, isNull);
+      expect(StaffRole.security.rosterDepartment, isNull);
       expect(StaffRole.general.rosterDepartment, isNull);
     });
   });
@@ -160,6 +172,20 @@ void main() {
       },
     );
 
+    test('radiology and anaesthetist roles get focused clinical tools', () {
+      final radiologyIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.radiologyStaff,
+      ).map((f) => f.id).toSet();
+      final anaesthetistIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.anaesthetist,
+      ).map((f) => f.id).toSet();
+
+      expect(radiologyIds, containsAll(['radiology', 'investigations_upload']));
+      expect(radiologyIds, isNot(contains('hr_dashboard')));
+      expect(anaesthetistIds, containsAll(['theatre', 'patient_records']));
+      expect(anaesthetistIds, isNot(contains('op_ai_assist')));
+    });
+
     test(
       'admin + superAdmin get governance tools but not doctor-only OP AI Assist',
       () {
@@ -208,6 +234,7 @@ void main() {
       );
       expect(RoleFeatures.hasOpAiAssist(StaffRole.admin), isFalse);
       expect(RoleFeatures.hasOpAiAssist(StaffRole.superAdmin), isFalse);
+      expect(RoleFeatures.hasOpAiAssist(StaffRole.anaesthetist), isFalse);
       expect(RoleFeatures.hasOpAiAssist(StaffRole.receptionist), isFalse);
       expect(RoleFeatures.hasOpAiAssist(StaffRole.nurse), isFalse);
     });

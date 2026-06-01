@@ -91,6 +91,7 @@ class StaffScaffold extends StatelessWidget {
     switch (role) {
       case StaffRole.doctor:
       case StaffRole.dutyDoctor:
+      case StaffRole.anaesthetist:
         return [
           const _NavItem(
             'Home',
@@ -252,6 +253,7 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.lab:
+      case StaffRole.radiologyStaff:
         return [
           const _NavItem(
             'Home',
@@ -443,6 +445,8 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.driver:
+      case StaffRole.security:
+      case StaffRole.emergencyResponder:
       case StaffRole.maintenance:
         return [
           const _NavItem(

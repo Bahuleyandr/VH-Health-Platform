@@ -637,7 +637,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<DashboardFeature> features,
   ) {
     final dailyIds = switch (_role) {
-      StaffRole.doctor || StaffRole.dutyDoctor => {
+      StaffRole.doctor || StaffRole.dutyDoctor || StaffRole.anaesthetist => {
         'front_office_workbench',
         'queue',
         'clinical_ai_review_queue',
@@ -725,6 +725,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'lab_bookings',
       },
+      StaffRole.radiologyStaff => {
+        'radiology',
+        'investigations_upload',
+        'investigation_results',
+      },
       StaffRole.housekeeping => {
         'bed_board',
         'housekeeping_hub',
@@ -748,7 +753,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.admissionOfficer ||
       StaffRole.insuranceCoordinator ||
       StaffRole.ipdCounsellor => {'front_office_workbench', 'billing_desk'},
-      StaffRole.driver => {'driver_roster'},
+      StaffRole.driver ||
+      StaffRole.security ||
+      StaffRole.emergencyResponder => {'driver_roster'},
       StaffRole.maintenance => {'maintenance_roster', 'staff_directory'},
       StaffRole.general => {'housekeeping_hub', 'housekeeping_tasks'},
     };

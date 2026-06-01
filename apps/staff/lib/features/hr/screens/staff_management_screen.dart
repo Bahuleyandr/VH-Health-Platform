@@ -62,6 +62,13 @@ List<String> filterStaffDepartmentOptions({
       .toList(growable: false);
 }
 
+@visibleForTesting
+List<String> staffOnboardingRoleValues() {
+  return _StaffFormDialogState._roleOptions
+      .map((option) => option.value)
+      .toList(growable: false);
+}
+
 /// Staff Management screen — HR/Admin can view and edit staff members.
 class StaffManagementScreen extends StatefulWidget {
   const StaffManagementScreen({super.key});
@@ -383,6 +390,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   static const _roleOptions = <_StaffRoleOption>[
     _StaffRoleOption('DOCTOR', 'Doctor'),
     _StaffRoleOption('DUTY_DOCTOR', 'Duty Doctor'),
+    _StaffRoleOption('ANESTHETIST', 'Anaesthetist'),
     _StaffRoleOption('MEDICAL_SUPERINTENDENT', 'Medical Superintendent'),
     _StaffRoleOption('CNO', 'Nursing Superintendent'),
     _StaffRoleOption('NURSING_STAFF', 'Nursing Staff'),
@@ -392,11 +400,20 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     _StaffRoleOption('RECEPTIONIST', 'Receptionist'),
     _StaffRoleOption('RECEPTION_INCHARGE', 'Reception Incharge'),
     _StaffRoleOption('HR_STAFF', 'HR Staff'),
+    _StaffRoleOption('BILLING_STAFF', 'Billing Staff'),
+    _StaffRoleOption('BILLING_INCHARGE', 'Billing Incharge'),
+    _StaffRoleOption('FINANCE_INCHARGE', 'Finance Incharge'),
+    _StaffRoleOption('ADMISSION_OFFICER', 'Admission Officer'),
+    _StaffRoleOption('INSURANCE_COORDINATOR', 'Insurance Coordinator'),
+    _StaffRoleOption('IPD_COUNSELLOR', 'IPD Counsellor'),
     _StaffRoleOption('HOUSEKEEPING_STAFF', 'Housekeeping Staff'),
     _StaffRoleOption('HOUSEKEEPING_INCHARGE', 'Housekeeping Incharge'),
     _StaffRoleOption('PHARMACY_STAFF', 'Pharmacy Staff'),
     _StaffRoleOption('LAB_STAFF', 'Lab Staff'),
+    _StaffRoleOption('RADIOLOGY_STAFF', 'Radiology Staff'),
     _StaffRoleOption('DRIVER', 'Driver'),
+    _StaffRoleOption('SECURITY', 'Security'),
+    _StaffRoleOption('EMERGENCY_RESPONDER', 'Emergency Responder'),
     _StaffRoleOption('MAINTENANCE', 'Maintenance'),
     _StaffRoleOption('GENERAL_STAFF', 'General Staff'),
   ];

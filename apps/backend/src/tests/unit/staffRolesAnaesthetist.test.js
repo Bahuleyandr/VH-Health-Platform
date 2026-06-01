@@ -22,29 +22,51 @@ import { STAFF_ROLES } from '../../config/staffConfig.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 
 describe('STAFF_ROLES + getStaffHierarchy — anaesthetist + radiology coverage (H D30)', () => {
-  it('STAFF_ROLES includes ANAESTHETIST and RADIOLOGY_STAFF', () => {
+  it('STAFF_ROLES includes anaesthesia spellings, RADIOLOGY_STAFF, and desk roles', () => {
     expect(STAFF_ROLES.ANAESTHETIST).toBe('ANAESTHETIST');
+    expect(STAFF_ROLES.ANESTHETIST).toBe('ANESTHETIST');
     expect(STAFF_ROLES.RADIOLOGY_STAFF).toBe('RADIOLOGY_STAFF');
+    expect(STAFF_ROLES.BILLING_STAFF).toBe('BILLING_STAFF');
+    expect(STAFF_ROLES.BILLING_INCHARGE).toBe('BILLING_INCHARGE');
+    expect(STAFF_ROLES.FINANCE_INCHARGE).toBe('FINANCE_INCHARGE');
+    expect(STAFF_ROLES.ADMISSION_OFFICER).toBe('ADMISSION_OFFICER');
+    expect(STAFF_ROLES.INSURANCE_COORDINATOR).toBe('INSURANCE_COORDINATOR');
+    expect(STAFF_ROLES.IPD_COUNSELLOR).toBe('IPD_COUNSELLOR');
   });
 
   it('ADMIN fan-out includes ANAESTHETIST and RADIOLOGY_STAFF (admins see all clinical roles)', () => {
     const admin = getStaffHierarchy('ADMIN');
-    expect(admin).toEqual(expect.arrayContaining(['ANAESTHETIST', 'RADIOLOGY_STAFF']));
+    expect(admin).toEqual(expect.arrayContaining(['ANAESTHETIST', 'ANESTHETIST', 'RADIOLOGY_STAFF']));
   });
 
   it('SUPER_ADMIN fan-out includes ANAESTHETIST and RADIOLOGY_STAFF + SUPER_ADMIN itself', () => {
     const su = getStaffHierarchy('SUPER_ADMIN');
-    expect(su).toEqual(expect.arrayContaining(['ANAESTHETIST', 'RADIOLOGY_STAFF', 'SUPER_ADMIN']));
+    expect(su).toEqual(expect.arrayContaining(['ANAESTHETIST', 'ANESTHETIST', 'RADIOLOGY_STAFF', 'SUPER_ADMIN']));
   });
 
-  it('HR_STAFF fan-out includes ANAESTHETIST and RADIOLOGY_STAFF (HR manages full clinical roster)', () => {
+  it('HR_STAFF fan-out includes all onboardable clinical and operations roles', () => {
     const hr = getStaffHierarchy('HR_STAFF');
-    expect(hr).toEqual(expect.arrayContaining(['ANAESTHETIST', 'RADIOLOGY_STAFF']));
+    expect(hr).toEqual(expect.arrayContaining([
+      'ANAESTHETIST',
+      'ANESTHETIST',
+      'RADIOLOGY_STAFF',
+      'BILLING_STAFF',
+      'BILLING_INCHARGE',
+      'FINANCE_INCHARGE',
+      'ADMISSION_OFFICER',
+      'INSURANCE_COORDINATOR',
+      'IPD_COUNSELLOR',
+      'DRIVER',
+      'SECURITY',
+      'EMERGENCY_RESPONDER',
+    ]));
+    expect(hr).not.toContain('ADMIN');
+    expect(hr).not.toContain('SUPER_ADMIN');
   });
 
   it('DOCTOR fan-out includes ANAESTHETIST (consultants see the OT anaesthesia roster)', () => {
     const doctor = getStaffHierarchy('DOCTOR');
-    expect(doctor).toEqual(expect.arrayContaining(['ANAESTHETIST']));
+    expect(doctor).toEqual(expect.arrayContaining(['ANAESTHETIST', 'ANESTHETIST']));
   });
 
   it('ANAESTHETIST is a self-contained bucket — does not silently fall through to `[role]`', () => {
@@ -52,7 +74,12 @@ describe('STAFF_ROLES + getStaffHierarchy — anaesthetist + radiology coverage 
     // Must be the hierarchy bucket (includes self + NURSING_STAFF), not
     // the bare-fallback `['ANAESTHETIST']`. Anaesthetists see their own
     // bucket plus the nursing staff they work with in OT.
-    expect(anaes).toEqual(expect.arrayContaining(['ANAESTHETIST', 'NURSING_STAFF']));
+    expect(anaes).toEqual(expect.arrayContaining(['ANAESTHETIST', 'ANESTHETIST', 'NURSING_STAFF']));
+  });
+
+  it('ANESTHETIST is supported for theatre route compatibility', () => {
+    const anest = getStaffHierarchy('ANESTHETIST');
+    expect(anest).toEqual(expect.arrayContaining(['ANESTHETIST', 'ANAESTHETIST', 'NURSING_STAFF']));
   });
 
   it('RADIOLOGY_STAFF is its own self-contained bucket (like LAB_STAFF)', () => {

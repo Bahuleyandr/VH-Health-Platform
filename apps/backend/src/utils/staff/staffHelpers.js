@@ -10,6 +10,10 @@ import { STAFF_ROLES } from '../../config/staffConfig.js';
 // (everything ADMIN can see plus other admins).
 export function getStaffHierarchy(userRole) {
   const allStaffRoles = Object.values(STAFF_ROLES);
+  const onboardableStaffRoles = allStaffRoles.filter(
+    (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
+  );
+  const anaesthesiaRoles = ['ANAESTHETIST', 'ANESTHETIST'];
   // Anaesthetists are clinical-doctor tier (same level as DOCTOR for the
   // theatre/ICU/PACU surfaces); RADIOLOGY_STAFF mirrors LAB_STAFF as a
   // self-contained role bucket. HR_STAFF now lists every modality role
@@ -19,34 +23,15 @@ export function getStaffHierarchy(userRole) {
   const hierarchy = {
     SUPER_ADMIN: [...allStaffRoles, 'SUPER_ADMIN'],
     ADMIN: allStaffRoles,
-    HR_STAFF: [
-      'HR_STAFF',
-      'MEDICAL_SUPERINTENDENT',
-      'CNO',
-      'DOCTOR',
-      'ANAESTHETIST',
-      'DUTY_DOCTOR',
-      'NURSING_STAFF',
-      'NURSING_INCHARGE',
-      'OP_STAFF_NURSE',
-      'OP_INCHARGE',
-      'PHARMACY_STAFF',
-      'LAB_STAFF',
-      'RADIOLOGY_STAFF',
-      'GENERAL_STAFF',
-      'HOUSEKEEPING_STAFF',
-      'HOUSEKEEPING_INCHARGE',
-      'RECEPTIONIST',
-      'SECURITY',
-      'MAINTENANCE'
-    ],
-    DOCTOR: ['DOCTOR', 'ANAESTHETIST', 'NURSING_STAFF'],
-    ANAESTHETIST: ['ANAESTHETIST', 'NURSING_STAFF'],
+    HR_STAFF: onboardableStaffRoles,
+    DOCTOR: ['DOCTOR', ...anaesthesiaRoles, 'NURSING_STAFF'],
+    ANAESTHETIST: ['ANAESTHETIST', 'ANESTHETIST', 'NURSING_STAFF'],
+    ANESTHETIST: ['ANESTHETIST', 'ANAESTHETIST', 'NURSING_STAFF'],
     MEDICAL_SUPERINTENDENT: [
       'MEDICAL_SUPERINTENDENT',
       'DOCTOR',
       'DUTY_DOCTOR',
-      'ANAESTHETIST',
+      ...anaesthesiaRoles,
       'NURSING_INCHARGE',
       'NURSING_STAFF',
       'OP_INCHARGE',
@@ -62,6 +47,14 @@ export function getStaffHierarchy(userRole) {
     HOUSEKEEPING_STAFF: ['HOUSEKEEPING_STAFF'],
     HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
     RECEPTIONIST: ['RECEPTIONIST'],
+    RECEPTION_INCHARGE: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
+    BILLING_STAFF: ['BILLING_STAFF'],
+    BILLING_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE'],
+    FINANCE_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE'],
+    ADMISSION_OFFICER: ['ADMISSION_OFFICER'],
+    INSURANCE_COORDINATOR: ['INSURANCE_COORDINATOR'],
+    IPD_COUNSELLOR: ['IPD_COUNSELLOR'],
+    DRIVER: ['DRIVER'],
     SECURITY: ['SECURITY'],
     MAINTENANCE: ['MAINTENANCE'],
     EMERGENCY_RESPONDER: ['EMERGENCY_RESPONDER']

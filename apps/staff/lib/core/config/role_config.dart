@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 enum StaffRole {
   doctor('DOCTOR'),
   dutyDoctor('DUTY_DOCTOR'),
+  anaesthetist('ANESTHETIST'),
   medicalSuperintendent('MEDICAL_SUPERINTENDENT'),
   nursingSuperintendent('CNO'),
   nurse('NURSING_STAFF'),
@@ -16,6 +17,7 @@ enum StaffRole {
   superAdmin('SUPER_ADMIN'),
   pharmacy('PHARMACY_STAFF'),
   lab('LAB_STAFF'),
+  radiologyStaff('RADIOLOGY_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
   housekeepingIncharge('HOUSEKEEPING_INCHARGE'),
   receptionist('RECEPTIONIST'),
@@ -27,6 +29,8 @@ enum StaffRole {
   insuranceCoordinator('INSURANCE_COORDINATOR'),
   ipdCounsellor('IPD_COUNSELLOR'),
   driver('DRIVER'),
+  security('SECURITY'),
+  emergencyResponder('EMERGENCY_RESPONDER'),
   maintenance('MAINTENANCE'),
   general('GENERAL_STAFF');
 
@@ -43,6 +47,21 @@ enum StaffRole {
       'RESIDENT',
     }.contains(normalized)) {
       return StaffRole.doctor;
+    }
+    if (const {
+      'ANAESTHETIST',
+      'ANESTHESIOLOGIST',
+      'ANAESTHESIOLOGIST',
+      'ANESTHETIST',
+    }.contains(normalized)) {
+      return StaffRole.anaesthetist;
+    }
+    if (const {
+      'RADIOLOGIST',
+      'RADIOLOGY',
+      'RADIOLOGY_TECHNICIAN',
+    }.contains(normalized)) {
+      return StaffRole.radiologyStaff;
     }
     if (const {
       'DMO',
@@ -95,6 +114,7 @@ enum StaffRole {
   String get displayName => switch (this) {
     StaffRole.doctor => 'Doctor',
     StaffRole.dutyDoctor => 'Duty Doctor',
+    StaffRole.anaesthetist => 'Anaesthetist',
     StaffRole.medicalSuperintendent => 'Medical Superintendent',
     StaffRole.nursingSuperintendent => 'Nursing Superintendent',
     StaffRole.nurse => 'Nurse',
@@ -106,6 +126,7 @@ enum StaffRole {
     StaffRole.superAdmin => 'Super Admin',
     StaffRole.pharmacy => 'Pharmacy',
     StaffRole.lab => 'Lab Technician',
+    StaffRole.radiologyStaff => 'Radiology Staff',
     StaffRole.housekeeping => 'Housekeeping',
     StaffRole.housekeepingIncharge => 'Housekeeping Incharge',
     StaffRole.receptionist => 'Receptionist',
@@ -117,6 +138,8 @@ enum StaffRole {
     StaffRole.insuranceCoordinator => 'Insurance Coordinator',
     StaffRole.ipdCounsellor => 'IPD Counsellor',
     StaffRole.driver => 'Driver',
+    StaffRole.security => 'Security',
+    StaffRole.emergencyResponder => 'Emergency Responder',
     StaffRole.maintenance => 'Maintenance',
     StaffRole.general => 'Staff',
   };
@@ -124,6 +147,7 @@ enum StaffRole {
   Color get badgeColor => switch (this) {
     StaffRole.doctor => const Color(0xFF1565C0),
     StaffRole.dutyDoctor => const Color(0xFF1565C0),
+    StaffRole.anaesthetist => const Color(0xFF1565C0),
     StaffRole.medicalSuperintendent => const Color(0xFF0D47A1),
     StaffRole.nursingSuperintendent => const Color(0xFF004D40),
     StaffRole.nurse => const Color(0xFF00796B),
@@ -134,6 +158,7 @@ enum StaffRole {
     StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
     StaffRole.pharmacy => const Color(0xFFE65100),
     StaffRole.lab => const Color(0xFF0097A7),
+    StaffRole.radiologyStaff => const Color(0xFF0277BD),
     StaffRole.housekeeping => const Color(0xFF007A64),
     StaffRole.housekeepingIncharge => const Color(0xFF00695C),
     StaffRole.receptionist => const Color(0xFF455A64),
@@ -145,6 +170,8 @@ enum StaffRole {
     StaffRole.insuranceCoordinator ||
     StaffRole.ipdCounsellor => const Color(0xFF6A1B9A),
     StaffRole.driver => const Color(0xFF5D4037),
+    StaffRole.security => const Color(0xFF455A64),
+    StaffRole.emergencyResponder => const Color(0xFFC62828),
     StaffRole.maintenance => const Color(0xFFF9A825),
     StaffRole.general => const Color(0xFF37474F),
   };
@@ -156,6 +183,7 @@ enum StaffRole {
   String? get rosterDepartment => switch (this) {
     StaffRole.doctor ||
     StaffRole.dutyDoctor ||
+    StaffRole.anaesthetist ||
     StaffRole.medicalSuperintendent => 'medical',
     StaffRole.nurse ||
     StaffRole.nursingIncharge ||
@@ -173,10 +201,13 @@ enum StaffRole {
     StaffRole.financeIncharge => 'billing',
     StaffRole.driver => 'ambulance',
     StaffRole.maintenance => 'maintenance',
+    StaffRole.emergencyResponder => 'ambulance',
     StaffRole.hr ||
     StaffRole.admin ||
     StaffRole.superAdmin ||
     StaffRole.lab ||
+    StaffRole.radiologyStaff ||
+    StaffRole.security ||
     StaffRole.general => null,
   };
 
@@ -600,6 +631,24 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.anaesthetist => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _clinicalAiReviewQueue,
+        _patientRecords,
+        _investigationResults,
+        _theatre,
+        _patientCommandBoard,
+        _bedBoard,
+        _wardMode,
+        _bloodBank,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.nurse => [
         _attendance,
         _schedule,
@@ -813,6 +862,19 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.radiologyStaff => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _radiology,
+        _investigationsUpload,
+        _investigationResults,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.housekeeping => [
         _schedule,
         _dutyPreference,
@@ -891,13 +953,8 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.driver => [
-        _schedule,
-        _dutyPreference,
-        _messaging,
-        _profile,
-        _settings,
-      ],
+      StaffRole.driver || StaffRole.security || StaffRole.emergencyResponder =>
+        [_schedule, _dutyPreference, _messaging, _profile, _settings],
       StaffRole.maintenance => [
         _schedule,
         _dutyPreference,
@@ -925,7 +982,7 @@ class RoleFeatures {
   /// Returns role-specific bottom nav items with their routes.
   static List<BottomNavItem> getBottomNavForRole(StaffRole role) {
     return switch (role) {
-      StaffRole.doctor || StaffRole.dutyDoctor => [
+      StaffRole.doctor || StaffRole.dutyDoctor || StaffRole.anaesthetist => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1133,7 +1190,7 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.lab => [
+      StaffRole.lab || StaffRole.radiologyStaff => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1373,7 +1430,10 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.driver || StaffRole.maintenance => [
+      StaffRole.driver ||
+      StaffRole.security ||
+      StaffRole.emergencyResponder ||
+      StaffRole.maintenance => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1495,6 +1555,7 @@ class RoleFeatures {
       StaffRole.superAdmin ||
       StaffRole.medicalSuperintendent ||
       StaffRole.doctor ||
+      StaffRole.anaesthetist ||
       StaffRole.dutyDoctor ||
       StaffRole.nurse ||
       StaffRole.nursingIncharge ||
@@ -1561,6 +1622,7 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent ||
       StaffRole.nursingSuperintendent ||
       StaffRole.doctor ||
+      StaffRole.anaesthetist ||
       StaffRole.dutyDoctor ||
       StaffRole.nurse ||
       StaffRole.nursingIncharge ||

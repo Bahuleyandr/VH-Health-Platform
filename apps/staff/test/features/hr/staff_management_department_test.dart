@@ -66,4 +66,27 @@ void main() {
       );
     });
   });
+
+  group('staff onboarding role options', () {
+    test(
+      'includes front-office, billing, clinical specialty, and safety roles',
+      () {
+        expect(
+          staffOnboardingRoleValues(),
+          containsAll([
+            'ANESTHETIST',
+            'RADIOLOGY_STAFF',
+            'BILLING_STAFF',
+            'BILLING_INCHARGE',
+            'FINANCE_INCHARGE',
+            'ADMISSION_OFFICER',
+            'INSURANCE_COORDINATOR',
+            'IPD_COUNSELLOR',
+            'SECURITY',
+            'EMERGENCY_RESPONDER',
+          ]),
+        );
+      },
+    );
+  });
 }
