@@ -43,6 +43,7 @@ describe('Bed + ward management — deep integration', () => {
     id: 990801,
   });
   const WARD_NAME = 'BED-DEEP-WARD';
+  const EMPTY_WARD_NAME = 'BED-DEEP-EMPTY-WARD';
   let wardId;
 
   beforeAll(async () => {
@@ -67,9 +68,19 @@ describe('Bed + ward management — deep integration', () => {
       CLEANING_INCHARGE_UID,
     );
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME);
+    await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name IN ($1, $2)`, WARD_NAME, EMPTY_WARD_NAME);
     await prisma.$executeRawUnsafe(
       `DELETE FROM audit_logs WHERE action = 'BED_DELETED' AND metadata->>'bed_number' LIKE 'BD-DEEP-%'`,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE action IN ('BED_CREATED', 'WARD_CREATED', 'WARD_DELETED')
+          AND (
+            metadata->>'bed_number' LIKE 'BD-DEEP-%'
+            OR metadata->>'ward_name' IN ($1, $2)
+          )`,
+      WARD_NAME,
+      EMPTY_WARD_NAME,
     );
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
@@ -100,9 +111,19 @@ describe('Bed + ward management — deep integration', () => {
       CLEANING_INCHARGE_UID,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name IN ($1, $2)`, WARD_NAME, EMPTY_WARD_NAME).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM audit_logs WHERE action = 'BED_DELETED' AND metadata->>'bed_number' LIKE 'BD-DEEP-%'`,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM audit_logs
+        WHERE action IN ('BED_CREATED', 'WARD_CREATED', 'WARD_DELETED')
+          AND (
+            metadata->>'bed_number' LIKE 'BD-DEEP-%'
+            OR metadata->>'ward_name' IN ($1, $2)
+          )`,
+      WARD_NAME,
+      EMPTY_WARD_NAME,
     ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
@@ -114,6 +135,13 @@ describe('Bed + ward management — deep integration', () => {
   });
 
   describe('wards', () => {
+    it('forbids nursing staff from creating ward master rows', async () => {
+      const res = await nurse.post('/api/v1/wards').send({
+        name: `${WARD_NAME}-NURSE`, floor: 2, total_beds: 1,
+      });
+      expect(res.statusCode).toBe(403);
+    });
+
     it('creates a ward and returns real ward columns', async () => {
       const res = await admin.post('/api/v1/wards').send({
         name: WARD_NAME, floor: 2, total_beds: 4,
@@ -158,6 +186,13 @@ describe('Bed + ward management — deep integration', () => {
     it('rejects bed creation without ward_id', async () => {
       const res = await admin.post('/api/v1/beds').send({ bed_number: 'BD-DEEP-X' });
       expect(res.statusCode).toBe(400);
+    });
+
+    it('forbids nursing staff from creating bed master rows', async () => {
+      const res = await nurse.post('/api/v1/beds').send({
+        ward_id: wardId, bed_number: 'BD-DEEP-NURSE',
+      });
+      expect(res.statusCode).toBe(403);
     });
 
     it('creates a bed with real bed columns returned', async () => {
@@ -430,6 +465,13 @@ describe('Bed + ward management — deep integration', () => {
       expect(stillThere).toHaveLength(1);
     });
 
+    it('rejects deleting a ward that still owns beds', async () => {
+      const res = await admin.delete(`/api/v1/wards/${wardId}`);
+      expect(res.statusCode).toBe(409);
+      expect(res.body.message).toMatch(/delete or move its/i);
+      expect(Number(res.body.details.bed_count)).toBeGreaterThan(0);
+    });
+
     it('deletes an existing bed and the row is gone', async () => {
       const res = await admin.delete(`/api/v1/beds/${toDeleteId}`);
       expect(res.statusCode).toBe(200);
@@ -453,6 +495,40 @@ describe('Bed + ward management — deep integration', () => {
         bed_id: toDeleteId,
         bed_number: 'BD-DEEP-DELETE',
         ward_id: wardId,
+      });
+    });
+
+    it('deletes an empty ward and writes an audit trail', async () => {
+      const createRes = await admin.post('/api/v1/wards').send({
+        name: EMPTY_WARD_NAME, floor: 1, total_beds: 0,
+      });
+      expect(createRes.statusCode).toBe(201);
+      const emptyWardId = createRes.body.data.ward.id;
+
+      const res = await admin.delete(`/api/v1/wards/${emptyWardId}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.ward.name).toBe(EMPTY_WARD_NAME);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM wards WHERE id = $1`,
+        emptyWardId,
+      );
+      expect(rows).toHaveLength(0);
+
+      const auditRows = await prisma.$queryRawUnsafe(
+        `SELECT action, resource, resource_id, metadata
+           FROM audit_logs
+          WHERE action = 'WARD_DELETED'
+            AND resource = 'ward'
+            AND resource_id = $1
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        String(emptyWardId),
+      );
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].metadata).toMatchObject({
+        ward_id: emptyWardId,
+        ward_name: EMPTY_WARD_NAME,
       });
     });
   });

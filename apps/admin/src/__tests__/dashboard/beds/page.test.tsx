@@ -52,7 +52,13 @@ describe("<BedsPage />", () => {
         } as never;
       }
       if (!init && endpoint === "/wards") {
-        return [{ id: 1, name: "Ward A", floor: 2 }] as never;
+        return [{ id: 1, name: "Ward A", floor: 2, total_beds: 2, bed_count: 2, occupied_count: 1 }] as never;
+      }
+      if (init?.method === "POST" && endpoint === "/wards") {
+        return { ward: { id: 2, name: "Ward B", floor: 4, total_beds: 2 } } as never;
+      }
+      if (init?.method === "POST" && endpoint === "/beds") {
+        return { bed: { id: 3, bed_number: "B-103", status: "available", ward_id: 1 } } as never;
       }
       if (init?.method === "PUT" && String(endpoint).startsWith("/beds/")) {
         return { success: true } as never;
@@ -128,6 +134,68 @@ describe("<BedsPage />", () => {
         expect.stringContaining("B-102"),
         "",
       );
+    } finally {
+      promptSpy.mockRestore();
+    }
+  });
+
+  it("creates a ward from the admin bed master controls", async () => {
+    const user = userEvent.setup();
+    const promptSpy = jest.spyOn(window, "prompt")
+      .mockReturnValueOnce("Ward B")
+      .mockReturnValueOnce("4")
+      .mockReturnValueOnce("2");
+    try {
+      renderWithQuery(<BedsPage />);
+
+      await screen.findByText("B-102");
+      await user.click(screen.getByRole("button", { name: "Add ward" }));
+
+      await waitFor(() => {
+        expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
+          "/wards",
+          expect.objectContaining({
+            method: "POST",
+            body: { name: "Ward B", floor: 4, total_beds: 2 },
+          }),
+        );
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      promptSpy.mockRestore();
+    }
+  });
+
+  it("creates a bed in a selected ward from the admin bed master controls", async () => {
+    const user = userEvent.setup();
+    const promptSpy = jest.spyOn(window, "prompt")
+      .mockReturnValueOnce("1")
+      .mockReturnValueOnce("B-103")
+      .mockReturnValueOnce("general")
+      .mockReturnValueOnce("available")
+      .mockReturnValueOnce("Near nurses station");
+    try {
+      renderWithQuery(<BedsPage />);
+
+      await screen.findByRole("button", { name: "Delete ward Ward A" });
+      await user.click(screen.getByRole("button", { name: "Add bed" }));
+
+      await waitFor(() => {
+        expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
+          "/beds",
+          expect.objectContaining({
+            method: "POST",
+            body: {
+              ward_id: 1,
+              bed_number: "B-103",
+              bed_type: "general",
+              status: "available",
+              notes: "Near nurses station",
+            },
+          }),
+        );
+      });
+      expect(promptSpy).toHaveBeenCalledTimes(5);
     } finally {
       promptSpy.mockRestore();
     }

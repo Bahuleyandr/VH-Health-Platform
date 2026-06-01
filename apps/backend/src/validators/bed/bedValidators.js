@@ -36,8 +36,10 @@ export const createBedValidation = [
   body('ward_id').isInt({ min: 1 }).withMessage('Ward ID is required'),
   body('bed_number').trim().notEmpty().withMessage('Bed number is required')
     .isLength({ max: 20 }).withMessage('Bed number must be under 20 characters'),
-  body('status').optional().isIn(['available', 'occupied', 'reserved', 'maintenance'])
-    .withMessage('Invalid bed status'),
+  body('status').optional().isIn(['available', 'maintenance'])
+    .withMessage('New beds can only start as available or maintenance'),
+  body('bed_type').optional().trim().isLength({ max: 50 })
+    .withMessage('Bed type must be under 50 characters'),
   body('notes').optional().trim(),
   validate
 ];

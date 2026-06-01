@@ -23,7 +23,7 @@ const requireBedAdmin = requireRole('ADMIN', 'SUPER_ADMIN');
 bedRouter.get('/', bedController.listBeds);
 bedRouter.get('/summary', bedController.getBedSummary);
 bedRouter.get('/ward/:wardId', wardIdValidation, bedController.getBedsByWard);
-bedRouter.post('/', requireClinical, createBedValidation, bedController.createBed);
+bedRouter.post('/', requireBedAdmin, createBedValidation, bedController.createBed);
 bedRouter.put('/:id', requireClinical, updateBedValidation, bedController.updateBed);
 // PATCH /:id/notes — quick-note save from the staff bed-board sheet.
 // Separate from PUT /:id because that handler's body contract requires
@@ -38,6 +38,6 @@ bedRouter.post('/:id/admit', requireClinical, admitValidation, bedController.adm
 
 // ===== WARD ROUTES =====
 wardRouter.get('/', bedController.listWards);
-wardRouter.post('/', requireClinical, createWardValidation, bedController.createWard);
-wardRouter.put('/:id', requireClinical, updateWardValidation, bedController.updateWard);
-wardRouter.delete('/:id', requireClinical, deleteWardValidation, bedController.deleteWard);
+wardRouter.post('/', requireBedAdmin, createWardValidation, bedController.createWard);
+wardRouter.put('/:id', requireBedAdmin, updateWardValidation, bedController.updateWard);
+wardRouter.delete('/:id', requireBedAdmin, deleteWardValidation, bedController.deleteWard);

@@ -8,11 +8,13 @@ import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
 
-const BED_RETURNING = `id, ward_id, bed_number, status, patient_id, patient_name,
-    admitted_at, notes, assigned_at, created_at, updated_at`;
+const BED_RETURNING = `id, ward_id, ward_name, floor, bed_number, bed_type, status,
+    patient_id, patient_name, patient_uid, admission_id, admitted_at,
+    expected_discharge, notes, assigned_at, created_at, updated_at, tenant_id`;
 const WARD_RETURNING = `id, name, floor, department_id, total_beds, created_at, updated_at`;
 const VALID_BED_STATUSES = new Set(['available', 'occupied', 'reserved', 'maintenance', 'cleaning', 'dirty']);
 const ACTIVE_HOUSEKEEPING_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const BED_CLEANING_REQUEST_SELECT = `
         hkr.id AS housekeeping_request_id,
         hkr.request_number AS housekeeping_request_number,
@@ -237,12 +239,31 @@ class BedService {
   }
 
   async createWard(data) {
-    const { name, floor, department_id, total_beds } = data;
+    const { floor, department_id, total_beds } = data;
+    const name = String(data.name || '').trim();
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, name
+         FROM wards
+        WHERE LOWER(name) = LOWER($1)
+        LIMIT 1`,
+      name,
+    );
+    if (existing.length > 0) {
+      throw AppError.conflict(
+        `Ward ${name} already exists.`,
+        'WARD_ALREADY_EXISTS',
+        { ward_id: existing[0].id, ward_name: existing[0].name },
+      );
+    }
+
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO wards (name, floor, department_id, total_beds)
        VALUES ($1, $2, $3, $4)
        RETURNING ${WARD_RETURNING}`,
-      name, floor || 1, department_id || null, total_beds || 0
+      name,
+      floor ?? 1,
+      department_id ?? null,
+      total_beds ?? 0,
     );
     return rows[0];
   }
@@ -264,9 +285,69 @@ class BedService {
   }
 
   async deleteWard(id) {
+    const wardId = parseInt(id, 10);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT ${WARD_RETURNING}
+         FROM wards
+        WHERE id = $1
+        LIMIT 1`,
+      wardId,
+    );
+    const ward = rows[0];
+    if (!ward) return null;
+
+    const bedRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS bed_count,
+              ARRAY_REMOVE(ARRAY_AGG(bed_number ORDER BY bed_number), NULL) AS bed_numbers
+         FROM beds
+        WHERE ward_id = $1
+           OR LOWER(COALESCE(ward_name, '')) = LOWER($2)`,
+      wardId,
+      ward.name,
+    );
+    const bedCount = Number(bedRows[0]?.bed_count || 0);
+    if (bedCount > 0) {
+      throw AppError.conflict(
+        `Cannot delete ward ${ward.name}; delete or move its ${bedCount} bed${bedCount === 1 ? '' : 's'} first.`,
+        'WARD_DELETE_HAS_BEDS',
+        {
+          ward_id: ward.id,
+          ward_name: ward.name,
+          bed_count: bedCount,
+          bed_numbers: (bedRows[0]?.bed_numbers || []).slice(0, 10),
+        },
+      );
+    }
+
+    const activeAdmissions = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid, status, bed_number
+         FROM admissions
+        WHERE discharged_at IS NULL
+          AND LOWER(COALESCE(ward, '')) = LOWER($1)
+        ORDER BY admitted_at DESC NULLS LAST, id DESC
+        LIMIT 1`,
+      ward.name,
+    );
+    if (activeAdmissions.length > 0) {
+      throw AppError.conflict(
+        `Cannot delete ward ${ward.name}; it is linked to an active admission.`,
+        'WARD_DELETE_ACTIVE_ADMISSION',
+        {
+          ward_id: ward.id,
+          ward_name: ward.name,
+          admission_id: activeAdmissions[0].id,
+          bed_number: activeAdmissions[0].bed_number,
+          status: activeAdmissions[0].status,
+        },
+      );
+    }
+
     const count = await prisma.$executeRawUnsafe(
-      `DELETE FROM wards WHERE id = $1`, parseInt(id));
-    return count > 0;
+      `DELETE FROM wards WHERE id = $1`,
+      wardId,
+    );
+    if (count <= 0) return null;
+    return ward;
   }
 
   // ===== BED OPERATIONS =====
@@ -426,13 +507,71 @@ class BedService {
     return { summary, scope: locationScope.scope };
   }
 
-  async createBed(data) {
-    const { ward_id, bed_number, status, notes } = data;
+  async createBed(data, { tenantId = null } = {}) {
+    const wardId = parseInt(data.ward_id, 10);
+    const bedNumber = String(data.bed_number || '').trim();
+    const status = data.status || 'available';
+    const bedType = String(data.bed_type || 'general').trim() || 'general';
+    const notes = typeof data.notes === 'string' && data.notes.trim() ? data.notes.trim() : null;
+
+    if (!['available', 'maintenance'].includes(status)) {
+      throw AppError.badRequest(
+        'New beds can only start as available or maintenance.',
+        'BED_CREATE_INVALID_STATUS',
+        { allowed_statuses: ['available', 'maintenance'] },
+      );
+    }
+
+    const wardRows = await prisma.$queryRawUnsafe(
+      `SELECT id, name, floor
+         FROM wards
+        WHERE id = $1
+        LIMIT 1`,
+      wardId,
+    );
+    const ward = wardRows[0];
+    if (!ward) {
+      throw AppError.notFound('Ward not found', 'WARD_NOT_FOUND');
+    }
+
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, ward_id, bed_number
+         FROM beds
+        WHERE LOWER(bed_number) = LOWER($1)
+          AND (
+            ward_id = $2
+            OR LOWER(COALESCE(ward_name, '')) = LOWER($3)
+          )
+        LIMIT 1`,
+      bedNumber,
+      wardId,
+      ward.name,
+    );
+    if (existing.length > 0) {
+      throw AppError.conflict(
+        `Bed ${bedNumber} already exists in ${ward.name}.`,
+        'BED_ALREADY_EXISTS',
+        {
+          bed_id: existing[0].id,
+          ward_id: existing[0].ward_id,
+          bed_number: existing[0].bed_number,
+          ward_name: ward.name,
+        },
+      );
+    }
+
     const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO beds (ward_id, bed_number, status, notes)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO beds (ward_id, ward_name, floor, bed_number, bed_type, status, notes, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::uuid, '${DEFAULT_TENANT_ID}'::uuid))
        RETURNING ${BED_RETURNING}`,
-      parseInt(ward_id), bed_number, status || 'available', notes || null
+      wardId,
+      ward.name,
+      ward.floor ?? null,
+      bedNumber,
+      bedType,
+      status,
+      notes,
+      tenantId || null,
     );
     return rows[0];
   }

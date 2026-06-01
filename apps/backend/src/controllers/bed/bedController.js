@@ -26,8 +26,21 @@ export const listWards = async (req, res) => {
 export const createWard = async (req, res) => {
   try {
     const ward = await bedService.createWard(req.body);
+    await logAudit(req, 'WARD_CREATED', {
+      ward_id: ward.id,
+      ward_name: ward.name,
+      floor: ward.floor,
+      total_beds: ward.total_beds,
+    }, {
+      resource: 'ward',
+      resourceId: ward.id,
+    });
+    emitBedEvent('ward-created', ward);
     success(res, { ward }, 'Ward created', HTTP_STATUS.CREATED);
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
+    }
     logger.error('Error creating ward:', err);
     error(res, 'Failed to create ward', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -48,8 +61,21 @@ export const deleteWard = async (req, res) => {
   try {
     const deleted = await bedService.deleteWard(req.params.id);
     if (!deleted) return error(res, 'Ward not found', HTTP_STATUS.NOT_FOUND);
-    success(res, null, 'Ward deleted');
+    await logAudit(req, 'WARD_DELETED', {
+      ward_id: deleted.id,
+      ward_name: deleted.name,
+      floor: deleted.floor,
+      total_beds: deleted.total_beds,
+    }, {
+      resource: 'ward',
+      resourceId: deleted.id,
+    });
+    emitBedEvent('ward-deleted', deleted);
+    success(res, { ward: deleted }, 'Ward deleted');
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
+    }
     logger.error('Error deleting ward:', err);
     error(res, 'Failed to delete ward', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -110,10 +136,27 @@ export const getBedSummary = async (req, res) => {
 
 export const createBed = async (req, res) => {
   try {
-    const bed = await bedService.createBed(req.body);
+    const bed = await bedService.createBed(req.body, {
+      tenantId: req.tenantId || req.user?.tenant_id || req.user?.tenantId || null,
+    });
+    await logAudit(req, 'BED_CREATED', {
+      bed_id: bed.id,
+      bed_number: bed.bed_number,
+      ward_id: bed.ward_id,
+      ward_name: bed.ward_name,
+      status: bed.status,
+      bed_type: bed.bed_type,
+      floor: bed.floor,
+    }, {
+      resource: 'bed',
+      resourceId: bed.id,
+    });
     emitBedEvent('bed-created', bed);
     success(res, { bed }, 'Bed created', HTTP_STATUS.CREATED);
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, { safe: true, ...(err.details || {}) });
+    }
     logger.error('Error creating bed:', err);
     error(res, 'Failed to create bed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

@@ -59,6 +59,15 @@ interface OccupancySummary {
   }>;
 }
 
+interface Ward {
+  id: number;
+  name: string;
+  floor: number | null;
+  total_beds?: number | null;
+  bed_count?: number | null;
+  occupied_count?: number | null;
+}
+
 const STATUS_COLOURS: Record<string, string> = {
   available: "bg-emerald-100 text-emerald-800 border-emerald-300",
   occupied: "bg-blue-100 text-blue-800 border-blue-300",
@@ -71,11 +80,15 @@ function unwrap<T>(r: unknown): T {
   return ((r as { data?: T }).data ?? r) as T;
 }
 
-function unwrapList<T>(r: unknown, key: string): T[] {
+function unwrapList<T>(r: unknown, key: string, ...fallbackKeys: string[]): T[] {
   const data = (r as { data?: unknown }).data ?? r;
   if (Array.isArray(data)) return data as T[];
-  const inner = (data as Record<string, unknown>)?.[key];
-  return Array.isArray(inner) ? (inner as T[]) : [];
+  const obj = data as Record<string, unknown>;
+  for (const candidate of [key, ...fallbackKeys]) {
+    const inner = obj?.[candidate];
+    if (Array.isArray(inner)) return inner as T[];
+  }
+  return [];
 }
 
 function fmtAge(s: string | null): string {
@@ -107,10 +120,25 @@ export default function BedsPage() {
       queryKey: ["beds", "list"],
       queryFn: async () => {
         const r = await fetchAdminAPI<unknown>("/beds");
-        return unwrapList<Bed>(r, "rows");
+        return unwrapList<Bed>(r, "beds", "rows");
       },
       refetchInterval: 60_000,
     });
+
+  const { data: wards = [], error: wardsErr, isLoading: wardsLoading } =
+    useQuery<Ward[]>({
+      queryKey: ["wards", "list"],
+      queryFn: async () => {
+        const r = await fetchAdminAPI<unknown>("/wards");
+        return unwrapList<Ward>(r, "wards", "rows");
+      },
+      refetchInterval: 60_000,
+    });
+
+  function invalidateBedMaster() {
+    qc.invalidateQueries({ queryKey: ["beds"] });
+    qc.invalidateQueries({ queryKey: ["wards"] });
+  }
 
   const admitMut = useMutation({
     mutationFn: async (vars: { bedId: number; patient_uid: string; expected_discharge?: string }) =>
@@ -148,7 +176,37 @@ export default function BedsPage() {
   const deleteMut = useMutation({
     mutationFn: async (bedId: number) =>
       fetchAdminAPI(`/beds/${bedId}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
+    onSuccess: invalidateBedMaster,
+  });
+
+  const createWardMut = useMutation({
+    mutationFn: async (vars: { name: string; floor?: number; total_beds?: number }) =>
+      fetchAdminAPI("/wards", {
+        method: "POST",
+        body: vars,
+      }),
+    onSuccess: invalidateBedMaster,
+  });
+
+  const createBedMut = useMutation({
+    mutationFn: async (vars: {
+      ward_id: number;
+      bed_number: string;
+      bed_type?: string;
+      status?: "available" | "maintenance";
+      notes?: string;
+    }) =>
+      fetchAdminAPI("/beds", {
+        method: "POST",
+        body: vars,
+      }),
+    onSuccess: invalidateBedMaster,
+  });
+
+  const deleteWardMut = useMutation({
+    mutationFn: async (wardId: number) =>
+      fetchAdminAPI(`/wards/${wardId}`, { method: "DELETE" }),
+    onSuccess: invalidateBedMaster,
   });
 
   function admit(bed: Bed) {
@@ -202,6 +260,83 @@ export default function BedsPage() {
     deleteMut.mutate(bed.id);
   }
 
+  function addWard() {
+    const name = window.prompt("Ward name:", "")?.trim();
+    if (!name) return;
+
+    const floorRaw = window.prompt("Floor:", "");
+    const totalRaw = window.prompt("Planned bed count:", "");
+    const floor = floorRaw?.trim() ? Number(floorRaw) : undefined;
+    const totalBeds = totalRaw?.trim() ? Number(totalRaw) : undefined;
+
+    if (floor !== undefined && !Number.isInteger(floor)) {
+      window.alert("Floor must be a whole number.");
+      return;
+    }
+    if (totalBeds !== undefined && (!Number.isInteger(totalBeds) || totalBeds < 0)) {
+      window.alert("Planned bed count must be a whole number.");
+      return;
+    }
+
+    createWardMut.mutate({
+      name,
+      ...(floor !== undefined ? { floor } : {}),
+      ...(totalBeds !== undefined ? { total_beds: totalBeds } : {}),
+    });
+  }
+
+  function addBed() {
+    if (wards.length === 0) {
+      window.alert("Create a ward before adding beds.");
+      return;
+    }
+
+    const wardOptions = wards
+      .map((ward) => `${ward.id}: ${ward.name}${ward.floor != null ? ` F${ward.floor}` : ""}`)
+      .join("\n");
+    const wardIdRaw = window.prompt(`Ward id:\n${wardOptions}`, String(wards[0]?.id ?? ""))?.trim();
+    if (!wardIdRaw) return;
+
+    const wardId = Number(wardIdRaw);
+    const ward = wards.find((item) => item.id === wardId);
+    if (!ward) {
+      window.alert("Choose a valid ward id.");
+      return;
+    }
+
+    const bedNumber = window.prompt(`Bed number for ${ward.name}:`, "")?.trim();
+    if (!bedNumber) return;
+
+    const bedType = window.prompt("Bed type:", "general")?.trim() || "general";
+    const statusRaw = window.prompt("Starting status (available or maintenance):", "available")?.trim().toLowerCase() || "available";
+    if (statusRaw !== "available" && statusRaw !== "maintenance") {
+      window.alert("New beds can only start as available or maintenance.");
+      return;
+    }
+
+    const notes = window.prompt("Notes:", "")?.trim();
+    createBedMut.mutate({
+      ward_id: ward.id,
+      bed_number: bedNumber,
+      bed_type: bedType,
+      status: statusRaw,
+      ...(notes ? { notes } : {}),
+    });
+  }
+
+  function deleteWardRow(ward: Ward, bedCount: number) {
+    if (bedCount > 0) {
+      window.alert("Delete or move every bed in this ward before deleting the ward.");
+      return;
+    }
+    const typed = window.prompt(
+      `Type ${ward.name} to permanently delete this ward.`,
+      "",
+    );
+    if (typed !== ward.name) return;
+    deleteWardMut.mutate(ward.id);
+  }
+
   const visibleBeds = beds.filter((b) => {
     if (statusFilter && b.status !== statusFilter) return false;
     if (wardFilter && String(b.ward_id ?? "") !== wardFilter) return false;
@@ -216,11 +351,27 @@ export default function BedsPage() {
     grouped.set(k, list);
   }
 
+  const wardUsageById = new Map(
+    (occupancy?.by_ward ?? [])
+      .filter((ward) => ward.ward_id != null)
+      .map((ward) => [Number(ward.ward_id), ward]),
+  );
+  const wardUsageByName = new Map(
+    (occupancy?.by_ward ?? [])
+      .filter((ward) => ward.ward_name)
+      .map((ward) => [String(ward.ward_name).toLowerCase(), ward]),
+  );
+  const wardMaster = [...wards].sort((a, b) => a.name.localeCompare(b.name));
+
   const errMsg = (
-    occErr ?? bedsErr ?? admitMut.error ?? dischargeMut.error ?? readyMut.error ?? transferMut.error ?? deleteMut.error
+    occErr ?? bedsErr ?? wardsErr ?? admitMut.error ?? dischargeMut.error ?? readyMut.error
+      ?? transferMut.error ?? deleteMut.error ?? createWardMut.error ?? createBedMut.error
+      ?? deleteWardMut.error
   )?.toString();
   const busy =
-    admitMut.isPending || dischargeMut.isPending || readyMut.isPending || transferMut.isPending || deleteMut.isPending;
+    admitMut.isPending || dischargeMut.isPending || readyMut.isPending || transferMut.isPending
+      || deleteMut.isPending || createWardMut.isPending || createBedMut.isPending
+      || deleteWardMut.isPending;
 
   return (
     <div className="p-6 space-y-6">
@@ -231,12 +382,29 @@ export default function BedsPage() {
             Occupancy grid + admit / discharge / transfer flow. Auto-refreshes every 60s.
           </p>
         </div>
-        <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["beds"] })}
-          className="px-3 py-1.5 rounded-md border text-foreground hover:bg-muted text-xs"
-        >
-          Refresh now
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={addWard}
+            disabled={busy}
+            className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 text-xs"
+          >
+            Add ward
+          </button>
+          <button
+            onClick={addBed}
+            disabled={busy || wardsLoading}
+            className="px-3 py-1.5 rounded-md bg-emerald-700 text-white hover:bg-emerald-800 disabled:opacity-40 text-xs"
+          >
+            Add bed
+          </button>
+          <button
+            onClick={invalidateBedMaster}
+            disabled={busy}
+            className="px-3 py-1.5 rounded-md border text-foreground hover:bg-muted disabled:opacity-40 text-xs"
+          >
+            Refresh now
+          </button>
+        </div>
       </div>
 
       {errMsg && (
@@ -295,6 +463,52 @@ export default function BedsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {wardMaster.length > 0 && (
+            <section>
+              <h2 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                Ward master
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {wardMaster.map((ward) => {
+                  const usage = wardUsageById.get(ward.id) ?? wardUsageByName.get(ward.name.toLowerCase());
+                  const bedCount = Number(usage?.total ?? ward.bed_count ?? 0);
+                  const occupiedCount = Number(usage?.occupied ?? ward.occupied_count ?? 0);
+                  const plannedBeds = Number(ward.total_beds ?? 0);
+
+                  return (
+                    <div
+                      key={ward.id}
+                      className="bg-white rounded-lg border shadow-sm p-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {ward.name}
+                            {ward.floor != null && (
+                              <span className="text-muted-foreground"> · F{ward.floor}</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {bedCount} bed{bedCount === 1 ? "" : "s"} · {occupiedCount} occupied
+                            {plannedBeds > 0 ? ` · ${plannedBeds} planned` : ""}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => deleteWardRow(ward, bedCount)}
+                          disabled={busy || bedCount > 0}
+                          aria-label={`Delete ward ${ward.name}`}
+                          className="px-2 py-1 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-40 text-[11px]"
+                        >
+                          Delete ward
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           )}
