@@ -9,6 +9,23 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 export const CURRENT_BED_STRUCTURE = [
   {
+    name: 'ER',
+    floor: 0,
+    building: 'Emergency',
+    beds: [
+      ['ER-1', 'er', 'Emergency Bed', null],
+      ['ER-2', 'er', 'Emergency Bed', null],
+      ['ER-3', 'er', 'Emergency Bed', null],
+      ['ER-4', 'er', 'Emergency Bed', null],
+      ['ER-5', 'er', 'Emergency Bed', null],
+      ['ER-6', 'er', 'Emergency Bed', null],
+      ['ER-7', 'er', 'Emergency Bed', null],
+      ['ER-8', 'er', 'Emergency Bed', null],
+      ['ER-9', 'er', 'Emergency Bed', null],
+      ['ER-10', 'er', 'Emergency Bed', null],
+    ],
+  },
+  {
     name: 'A Block - Floor III',
     floor: 3,
     building: 'A Block',
@@ -163,24 +180,39 @@ function tariffNote({ ward, roomType, rate }) {
   return rate ? `${base}; tariff: Rs.${rate}/day` : `${base}; tariff pending confirmation`;
 }
 
+function isStrictScreeningWard(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  return normalized === 'er' || normalized.includes('emergency') || normalized.includes('icu');
+}
+
+function attendantPassColor(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  if (normalized === 'er' || normalized.includes('emergency')) return 'orange';
+  if (normalized.includes('icu')) return 'red';
+  return 'blue';
+}
+
 async function upsertWard(client, ward) {
   const existing = await client.query(
     `SELECT id FROM wards WHERE LOWER(name) = LOWER($1) LIMIT 1`,
     [ward.name]
   );
   const totalBeds = ward.beds.length;
+  const strictScreening = isStrictScreeningWard(ward.name);
+  const passColor = attendantPassColor(ward.name);
   if (existing.rowCount) {
     await client.query(
       `UPDATE wards
           SET floor = $2,
               total_beds = $3,
+              attendant_pass_color = COALESCE(attendant_pass_color, $5),
               attendant_pass_screening_level = CASE
-                WHEN LOWER($1) LIKE '%icu%' THEN 'strict'
+                WHEN $6::boolean THEN 'strict'
                 ELSE COALESCE(attendant_pass_screening_level, 'standard')
               END,
               updated_at = NOW()
         WHERE id = $4`,
-      [ward.name, ward.floor, totalBeds, existing.rows[0].id]
+      [ward.name, ward.floor, totalBeds, existing.rows[0].id, passColor, strictScreening]
     );
     return existing.rows[0].id;
   }
@@ -195,8 +227,8 @@ async function upsertWard(client, ward) {
       ward.name,
       ward.floor,
       totalBeds,
-      ward.name.toLowerCase().includes('icu') ? 'red' : 'blue',
-      ward.name.toLowerCase().includes('icu') ? 'strict' : 'standard',
+      passColor,
+      strictScreening ? 'strict' : 'standard',
     ]
   );
   return inserted.rows[0].id;
