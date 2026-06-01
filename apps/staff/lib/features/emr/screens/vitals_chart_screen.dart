@@ -106,6 +106,23 @@ dynamic _firstVitalsValue(Map<String, dynamic> row, List<String> keys) {
   return null;
 }
 
+List<Map<String, dynamic>> extractVitalsChartRows(Map<String, dynamic> data) {
+  final list =
+      data['vitals'] ?? data['records'] ?? data['data'] ?? data['items'];
+  if (list is! List) return [];
+
+  final cutoff = DateTime.now().subtract(const Duration(hours: 24));
+  return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).where((
+    row,
+  ) {
+    final recordedAt = row['recorded_at'];
+    if (recordedAt is! String) return true;
+    final parsed = DateTime.tryParse(recordedAt);
+    if (parsed == null) return true;
+    return !parsed.toLocal().isBefore(cutoff);
+  }).toList();
+}
+
 class _VitalsChartScreenState extends State<VitalsChartScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -140,16 +157,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       _vitalsError = null;
     });
     try {
-      // Load HR trend as a proxy — the backend returns last 24h records
-      final data = await MedicalApiService.getVitalsTrend(
-        widget.patientUid,
-        'all',
-      );
-      final list = data['vitals'] ?? data['records'] ?? data['trend'];
+      final data = await MedicalApiService.getVitalsChart(widget.patientUid);
       setState(() {
-        _vitalsHistory = list is List
-            ? list.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-            : [];
+        _vitalsHistory = extractVitalsChartRows(data);
         _vitalsLoading = false;
       });
     } catch (e) {

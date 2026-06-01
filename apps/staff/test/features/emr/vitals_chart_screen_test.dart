@@ -65,4 +65,48 @@ void main() {
       expect(payload.containsKey('gcs'), isFalse);
     });
   });
+
+  group('extractVitalsChartRows', () {
+    test('reads full vitals chart rows from the API data wrapper', () {
+      final now = DateTime.now();
+      final rows = extractVitalsChartRows({
+        'data': [
+          {
+            'heart_rate': 82,
+            'recorded_at': now
+                .subtract(const Duration(hours: 1))
+                .toIso8601String(),
+          },
+          {
+            'heart_rate': 75,
+            'recorded_at': now
+                .subtract(const Duration(hours: 25))
+                .toIso8601String(),
+          },
+        ],
+      });
+
+      expect(rows, hasLength(1));
+      expect(rows.single['heart_rate'], 82);
+    });
+
+    test('also accepts vitals and records wrappers', () {
+      expect(
+        extractVitalsChartRows({
+          'vitals': [
+            {'spo2': 98},
+          ],
+        }),
+        hasLength(1),
+      );
+      expect(
+        extractVitalsChartRows({
+          'records': [
+            {'spo2': 97},
+          ],
+        }),
+        hasLength(1),
+      );
+    });
+  });
 }
