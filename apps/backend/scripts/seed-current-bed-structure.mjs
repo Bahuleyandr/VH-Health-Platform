@@ -181,6 +181,14 @@ const LEGACY_SEED_WARDS = [
   'Day Care',
 ];
 
+const CURRENT_WARD_NAME_SET = new Set(
+  CURRENT_BED_STRUCTURE.map((ward) => ward.name.toLowerCase())
+);
+
+const LEGACY_CLEANUP_WARDS = LEGACY_SEED_WARDS.filter(
+  (name) => !CURRENT_WARD_NAME_SET.has(name.toLowerCase())
+);
+
 export const LEGACY_DEMO_BED_NUMBERS = [
   'GW-201',
   'GW-202',
@@ -372,7 +380,7 @@ async function cleanupLegacySeedBeds(client) {
            WHERE a.bed_id = b.id
              AND a.discharged_at IS NULL
         )`,
-    [LEGACY_SEED_WARDS.map((name) => name.toLowerCase())]
+    [LEGACY_CLEANUP_WARDS.map((name) => name.toLowerCase())]
   );
 
   await client.query(
@@ -385,12 +393,47 @@ async function cleanupLegacySeedBeds(client) {
            WHERE LOWER(COALESCE(a.ward, '')) = LOWER(w.name)
              AND a.discharged_at IS NULL
         )`,
-    [LEGACY_SEED_WARDS.map((name) => name.toLowerCase())]
+    [LEGACY_CLEANUP_WARDS.map((name) => name.toLowerCase())]
+  );
+}
+
+async function normalizeLegacyDayCareBedNumbers(client) {
+  await client.query(
+    `WITH candidates AS (
+       SELECT id,
+              bed_number AS old_bed_number,
+              regexp_replace(bed_number, '^DC-0+([1-9][0-9]*)$', 'DC-\\1', 'i') AS new_bed_number
+         FROM beds
+        WHERE bed_number ~* '^DC-0+[1-9][0-9]*$'
+     ),
+     renamed AS (
+       UPDATE beds b
+          SET bed_number = c.new_bed_number,
+              ward_name = COALESCE(b.ward_name, 'Day Care'),
+              bed_type = COALESCE(b.bed_type, 'day_care'),
+              updated_at = NOW()
+         FROM candidates c
+        WHERE b.id = c.id
+          AND NOT EXISTS (
+            SELECT 1
+              FROM beds other
+             WHERE other.id <> b.id
+               AND LOWER(other.bed_number) = LOWER(c.new_bed_number)
+          )
+        RETURNING b.id, c.old_bed_number, c.new_bed_number
+     )
+     UPDATE admissions a
+        SET bed_number = r.new_bed_number,
+            updated_at = NOW()
+       FROM renamed r
+      WHERE a.bed_id = r.id
+        AND a.bed_number = r.old_bed_number`
   );
 }
 
 export async function seedCurrentBedStructure(client, { cleanupLegacy = true } = {}) {
   const summary = { wards: 0, bedsInserted: 0, bedsUpdated: 0, zones: 0 };
+  await normalizeLegacyDayCareBedNumbers(client);
   for (const ward of CURRENT_BED_STRUCTURE) {
     const wardId = await upsertWard(client, ward);
     summary.wards += 1;
