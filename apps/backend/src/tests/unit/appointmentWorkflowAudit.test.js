@@ -131,6 +131,12 @@ describe('appointment workflow audit logging', () => {
     await confirmAppointment(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(req.phiContext).toEqual(expect.objectContaining({
+      appointmentId: 42,
+      appointment_id: 42,
+      patientId: 123,
+      patient_id: 123,
+    }));
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_APPOINTMENT_CONFIRMED',
@@ -192,6 +198,10 @@ describe('appointment workflow audit logging', () => {
     await completeAppointment(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(req.phiContext).toEqual(expect.objectContaining({
+      appointmentId: 42,
+      patientId: 123,
+    }));
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_APPOINTMENT_COMPLETED',

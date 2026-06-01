@@ -65,6 +65,18 @@ function appointmentWorkflowAuditMetadata(appointment, extra = {}) {
   };
 }
 
+function attachAppointmentPhiContext(req, appointment) {
+  req.phiContext = {
+    ...(req.phiContext ?? {}),
+    appointmentId: appointment?.id ?? req.params?.id ?? null,
+    appointment_id: appointment?.id ?? req.params?.id ?? null,
+    patientId: appointment?.patient_id ?? null,
+    patient_id: appointment?.patient_id ?? null,
+    patientUid: appointment?.patient_uid ?? null,
+    patient_uid: appointment?.patient_uid ?? null,
+  };
+}
+
 async function logAppointmentWorkflowAudit(req, action, appointment, extra = {}) {
   await logAudit(
     req,
@@ -257,6 +269,7 @@ export const confirmAppointment = async (req, res) => {
       return { result, a, tokenNumber, newDate, newTime };
     });
 
+    attachAppointmentPhiContext(req, result[0]);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CONFIRMED', result[0], {
       from_status: a.status,
       to_status: 'CONFIRMED',
@@ -335,6 +348,7 @@ export const markNoShow = async (req, res) => {
       return { result: updated[0], prevStatus: appt[0].status };
     });
 
+    attachAppointmentPhiContext(req, result);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_NO_SHOW', result, {
       from_status: prevStatus,
       to_status: 'NO_SHOW',
@@ -401,6 +415,7 @@ export const completeAppointment = async (req, res) => {
       return { result: updated[0], prevStatus: appt[0].status, patientId: appt[0].patient_id };
     });
 
+    attachAppointmentPhiContext(req, result);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_COMPLETED', result, {
       from_status: prevStatus,
       to_status: 'COMPLETED',
@@ -461,6 +476,7 @@ export const cancelAppointment = async (req, res) => {
       return { result: updated[0], patientId: appt[0].patient_id, prevStatus: appt[0].status };
     });
 
+    attachAppointmentPhiContext(req, result);
     await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_CANCELLED', result, {
       from_status: prevStatus,
       to_status: 'CANCELLED',
@@ -1957,6 +1973,7 @@ export const registerWalkIn = async (req, res) => {
       result.gestational_age = computeGestationalAge(lmp_date);
     }
 
+    attachAppointmentPhiContext(req, result);
     await logAudit(req, 'FRONT_OFFICE_WALK_IN_REGISTERED', {
       appointment_id: result.id,
       patient_id: result.patient_id,

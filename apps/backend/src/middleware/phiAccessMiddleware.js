@@ -16,17 +16,27 @@ import { logPhiAccess } from '../utils/hipaaAudit.js';
  * Derive the patient ID from the request (params, query, or body).
  */
 function derivePatientId(req) {
-  return req.params?.patientId
+  return req.phiContext?.patientId
+    || req.phiContext?.patient_id
+    || req.phiContext?.patientUid
+    || req.phiContext?.patient_uid
+    || req.params?.patientId
     || req.params?.patient_uid
     || req.params?.uid
     || req.query?.patient_uid
+    || req.query?.patientUid
     || req.query?.patientId
     || req.query?.patient_id
     || req.query?.phone   // phone can identify a patient
+    || req.query?.patient_phone
+    || req.query?.patientPhone
     || req.body?.patient_uid
+    || req.body?.patientUid
     || req.body?.patientId
     || req.body?.patient_id
     || req.body?.phone
+    || req.body?.patient_phone
+    || req.body?.patientPhone
     || null;
 }
 
