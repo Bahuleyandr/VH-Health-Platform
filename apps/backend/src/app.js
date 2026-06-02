@@ -864,7 +864,6 @@ app.use('/api/v1/dialysis', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSI
 app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
-app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
 app.use(
   '/api/v1/billing/v2',
   requireRole(
@@ -884,6 +883,7 @@ app.use(
   billingPhiAccessLogger(),
   billingV2Routes,
 );
+app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for
 // /lab/pathologist/signoff (route-level requirePathologistTier enforces

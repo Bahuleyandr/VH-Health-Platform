@@ -26,6 +26,13 @@ function hasMountedMiddleware(mountPath, predicate) {
   });
 }
 
+function firstExactMountIndex(mountPath) {
+  const targetPath = `${mountPath}/__probe__`;
+  return app.router.stack.findIndex((layer) =>
+    layer.matchers?.some((matcher) => matcher(targetPath)?.path === mountPath),
+  );
+}
+
 describe('patient self-service namespace', () => {
   it('mounts the mobile patient read routes under /api/v1/patient', () => {
     expect(hasMountedRoute('/api/v1/patient', '/appointments')).toBe(true);
@@ -80,6 +87,14 @@ describe('staff workbench PHI namespaces', () => {
         (handle) => handle?.phiRecordType === 'BILLING_INVOICE',
       ),
     ).toBe(true);
+  });
+
+  it('mounts billing v2 before legacy billing so front-office requests reach the v2 gate', () => {
+    expect(firstExactMountIndex('/api/v1/billing/v2')).toBeGreaterThan(-1);
+    expect(firstExactMountIndex('/api/v1/billing')).toBeGreaterThan(-1);
+    expect(firstExactMountIndex('/api/v1/billing/v2')).toBeLessThan(
+      firstExactMountIndex('/api/v1/billing'),
+    );
   });
 
   it('logs clinical AI clinical-use PHI access for Staff workbench routes', () => {
