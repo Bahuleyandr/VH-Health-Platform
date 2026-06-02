@@ -165,5 +165,45 @@ void main() {
         expect(appointment.matchesDoctorOrDepartment('cardiology'), isFalse);
       },
     );
+
+    test('doctor/department typeahead options filter as the user types', () {
+      final appointments = [
+        StaffAppointment.fromJson({
+          'patient_name': 'Cardiology Patient',
+          'doctor_name': 'Dr Kiran Shah',
+          'department': 'Cardiology',
+        }),
+        StaffAppointment.fromJson({
+          'patient_name': 'Ortho Patient',
+          'doctor_name': 'Dr Meera Nair',
+          'department': 'Orthopaedics',
+        }),
+        StaffAppointment.fromJson({
+          'patient_name': 'Alias Patient',
+          'doctor_name_detail': 'Dr Alias Consultant',
+          'appointment_department': 'ENT',
+        }),
+      ];
+
+      expect(
+        appointmentDoctorDepartmentFilterOptions(appointments, ''),
+        containsAll([
+          'Cardiology',
+          'Dr Kiran Shah',
+          'Dr Meera Nair',
+          'Dr Alias Consultant',
+          'ENT',
+        ]),
+      );
+      expect(appointmentDoctorDepartmentFilterOptions(appointments, 'card'), [
+        'Cardiology',
+      ]);
+      expect(appointmentDoctorDepartmentFilterOptions(appointments, 'meera'), [
+        'Dr Meera Nair',
+      ]);
+      expect(appointmentDoctorDepartmentFilterOptions(appointments, 'ent'), [
+        'ENT',
+      ]);
+    });
   });
 }

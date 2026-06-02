@@ -122,6 +122,40 @@ bool appointmentMatchesCalendarFilters(
       appointment.matchesDoctorOrDepartment(doctorDepartmentQuery);
 }
 
+@visibleForTesting
+List<String> appointmentDoctorDepartmentFilterOptions(
+  Iterable<StaffAppointment> appointments,
+  String query, {
+  int limit = 30,
+}) {
+  final q = query.trim().toLowerCase();
+  final byKey = <String, String>{};
+
+  void addOption(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return;
+    final key = text.toLowerCase();
+    byKey.putIfAbsent(key, () => text);
+  }
+
+  for (final appointment in appointments) {
+    addOption(appointment.doctorName);
+    addOption(appointment.department);
+    addOption(appointment.raw['doctor_display_name']?.toString());
+    addOption(appointment.raw['doctor_name_detail']?.toString());
+    addOption(appointment.raw['appointment_department']?.toString());
+    addOption(appointment.raw['consultant_department']?.toString());
+    addOption(appointment.raw['doctor_department']?.toString());
+  }
+
+  final options = byKey.values
+      .where((option) => q.isEmpty || option.toLowerCase().contains(q))
+      .toList(growable: false);
+  final sorted = options.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return sorted.take(limit).toList(growable: false);
+}
+
 Map<String, List<StaffAppointment>> appointmentSlotGroups(
   Iterable<StaffAppointment> appointments,
 ) {
@@ -216,6 +250,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       .expand((rows) => rows)
       .where(_matchesCalendarFilters)
       .toList();
+
+  List<StaffAppointment> get _weekAppointments =>
+      _appointmentsByDate.values.expand((rows) => rows).toList();
 
   List<StaffAppointment> _appointmentsForDate(DateTime date) =>
       (_appointmentsByDate[_dateParam(date)] ?? const [])
@@ -1092,22 +1129,14 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               ),
               SizedBox(
                 width: searchWidth,
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Filter doctor or department',
-                    prefixIcon: const Icon(Icons.manage_search_outlined),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 11,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    filled: true,
-                    fillColor: AppTheme.surfaceWhite,
+                child: _DoctorDepartmentFilterField(
+                  value: _doctorDepartmentQuery,
+                  options: appointmentDoctorDepartmentFilterOptions(
+                    _weekAppointments,
+                    _doctorDepartmentQuery,
                   ),
                   onChanged: (v) => setState(() => _doctorDepartmentQuery = v),
+                  onSelected: (v) => setState(() => _doctorDepartmentQuery = v),
                 ),
               ),
               _CalendarModePill(scopeLabel: _scopeLabel),
@@ -1320,6 +1349,177 @@ class _CalendarModePill extends StatelessWidget {
           Text(scopeLabel, style: TextStyle(color: AppTheme.textSecondary)),
         ],
       ),
+    );
+  }
+}
+
+class _DoctorDepartmentFilterField extends StatefulWidget {
+  final String value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSelected;
+
+  const _DoctorDepartmentFilterField({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+    required this.onSelected,
+  });
+
+  @override
+  State<_DoctorDepartmentFilterField> createState() =>
+      _DoctorDepartmentFilterFieldState();
+}
+
+class _DoctorDepartmentFilterFieldState
+    extends State<_DoctorDepartmentFilterField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+  late final ScrollController _scrollController;
+  bool _open = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+    _focusNode = FocusNode();
+    _scrollController = ScrollController();
+    _focusNode.addListener(() {
+      setState(() => _open = _focusNode.hasFocus);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _DoctorDepartmentFilterField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != _controller.text) {
+      _controller.value = TextEditingValue(
+        text: widget.value,
+        selection: TextSelection.collapsed(offset: widget.value.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _select(String option) {
+    _controller.value = TextEditingValue(
+      text: option,
+      selection: TextSelection.collapsed(offset: option.length),
+    );
+    widget.onSelected(option);
+    setState(() => _open = false);
+    _focusNode.unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showDropdown = _open;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _controller,
+          focusNode: _focusNode,
+          decoration: InputDecoration(
+            hintText: 'Filter doctor or department',
+            prefixIcon: const Icon(Icons.manage_search_outlined),
+            suffixIcon: _controller.text.trim().isEmpty
+                ? const Icon(Icons.arrow_drop_down)
+                : IconButton(
+                    tooltip: 'Clear doctor or department filter',
+                    onPressed: () {
+                      _controller.clear();
+                      widget.onChanged('');
+                      setState(() => _open = true);
+                      _focusNode.requestFocus();
+                    },
+                    icon: const Icon(Icons.close, size: 18),
+                  ),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 11,
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            filled: true,
+            fillColor: AppTheme.surfaceWhite,
+          ),
+          onTap: () => setState(() => _open = true),
+          onChanged: (value) {
+            widget.onChanged(value);
+            setState(() => _open = true);
+          },
+        ),
+        if (showDropdown) ...[
+          const SizedBox(height: 4),
+          Material(
+            color: AppTheme.cardSurface,
+            elevation: 4,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 190),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppTheme.divider),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: widget.options.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        'No doctor or department matches',
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    )
+                  : Scrollbar(
+                      controller: _scrollController,
+                      thumbVisibility: widget.options.length > 5,
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        shrinkWrap: true,
+                        itemCount: widget.options.length,
+                        itemBuilder: (context, index) {
+                          final option = widget.options[index];
+                          final isDepartment = !option.toLowerCase().startsWith(
+                            'dr ',
+                          );
+                          return ListTile(
+                            dense: true,
+                            minLeadingWidth: 20,
+                            leading: Icon(
+                              isDepartment
+                                  ? Icons.business_outlined
+                                  : Icons.person_outline,
+                              color: isDepartment
+                                  ? AppTheme.primaryTeal
+                                  : AppTheme.primaryBlue,
+                              size: 18,
+                            ),
+                            title: Text(
+                              option,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            onTap: () => _select(option),
+                          );
+                        },
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
