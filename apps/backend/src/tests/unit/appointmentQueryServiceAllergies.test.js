@@ -102,6 +102,73 @@ describe('appointmentQueryService today date handling', () => {
 });
 
 describe('appointmentQueryService department flattening', () => {
+  it('adds unassigned same-department appointments to doctor-scoped lists', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ department: 'Cardiology' }]);
+    countMock.mockResolvedValueOnce(1);
+    findManyMock.mockResolvedValueOnce([
+      {
+        id: 401,
+        appointment_date: new Date('2026-06-03T10:00:00.000Z'),
+        appointment_time: '10:00',
+        status: 'SCHEDULED',
+        reason: 'Department queue booking',
+        notes: null,
+        patient_id: 12,
+        doctor_id: null,
+        phone: '+919000000013',
+        patient_name: 'Department Queue Patient',
+        doctor_name: '',
+        department: 'Cardiology',
+        token_number: null,
+        visit_no: null,
+        advised_for_admission_at: null,
+        advised_for_admission_by: null,
+        advised_for_admission_note: null,
+        created_at: new Date('2026-06-03T09:30:00.000Z'),
+        updated_at: new Date('2026-06-03T09:30:00.000Z'),
+        users_appointments_patient_idTousers: {
+          id: 12,
+          uid: 'ba000000-0000-4000-8000-00000000b013',
+          name: 'Department Queue Patient',
+          phone: '+919000000013',
+          guardian_phone: null,
+          email: null,
+          allergies: null,
+        },
+        users_appointments_doctor_idTousers: null,
+      },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    const result = await appointmentQueryService.getAppointments(
+      { date: '2026-06-03' },
+      {},
+      'DOCTOR',
+      22,
+    );
+
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('FROM doctors doc');
+    expect(countMock.mock.calls[0][0].where.AND[0]).toEqual({
+      OR: [
+        { doctor_id: 22 },
+        {
+          doctor_id: null,
+          department: { equals: 'Cardiology', mode: 'insensitive' },
+        },
+      ],
+    });
+    expect(findManyMock.mock.calls[0][0].where.AND[0]).toEqual(
+      countMock.mock.calls[0][0].where.AND[0],
+    );
+    expect(result.appointments[0]).toEqual(
+      expect.objectContaining({
+        id: 401,
+        doctor_id: null,
+        department: 'Cardiology',
+      }),
+    );
+  });
+
   it('preserves appointment department and exposes consultant department separately', async () => {
     countMock.mockResolvedValueOnce(1);
     findManyMock.mockResolvedValueOnce([

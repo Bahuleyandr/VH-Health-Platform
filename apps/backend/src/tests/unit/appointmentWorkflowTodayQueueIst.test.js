@@ -52,7 +52,9 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
   });
 
   it('constrains doctor callers to their own appointment queue', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ department: 'General Medicine' }])
+      .mockResolvedValueOnce([]);
     const res = {
       req: {},
       status: jest.fn().mockReturnThis(),
@@ -65,10 +67,13 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
       user: { id: 11, role: 'DOCTOR' },
     }, res);
 
-    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
-    const [sql, _today, doctorId] = queryUnsafeMock.mock.calls[0];
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
+    const [sql, _today, doctorId, department] = queryUnsafeMock.mock.calls[1];
     expect(doctorId).toBe(11);
+    expect(department).toBe('General Medicine');
     expect(sql).toContain('a.doctor_id=$2');
+    expect(sql).toContain('a.doctor_id IS NULL');
+    expect(sql).toContain("LOWER(COALESCE(a.department, '')) = LOWER($3)");
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

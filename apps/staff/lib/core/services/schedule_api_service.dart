@@ -119,8 +119,9 @@ class ScheduleApiService {
     int? patientId,
     String? patientPhone,
     String? patientName,
-    required int doctorId,
+    int? doctorId,
     String? doctorUid,
+    String? department,
     required String appointmentDate,
     required String appointmentTime,
     required String reason,
@@ -131,15 +132,22 @@ class ScheduleApiService {
         (patientPhone == null || patientPhone.trim().isEmpty)) {
       throw Exception('Patient phone or patient ID is required');
     }
+    final cleanDepartment = department?.trim();
+    if (doctorId == null &&
+        (cleanDepartment == null || cleanDepartment.isEmpty)) {
+      throw Exception('Select a doctor or department');
+    }
     return _post('/appointments/book', {
       'patient_id': ?patientId,
       if (patientPhone != null && patientPhone.trim().isNotEmpty)
         'patient_phone': patientPhone.trim(),
       if (patientName != null && patientName.trim().isNotEmpty)
         'patient_name': patientName.trim(),
-      'doctor_id': doctorId,
+      'doctor_id': ?doctorId,
       if (doctorUid != null && doctorUid.trim().isNotEmpty)
         'doctor_uid': doctorUid.trim(),
+      if (cleanDepartment != null && cleanDepartment.isNotEmpty)
+        'department': cleanDepartment,
       'appointment_date': appointmentDate,
       'appointment_time': appointmentTime,
       'reason': reason,

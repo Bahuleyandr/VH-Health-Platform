@@ -176,7 +176,7 @@ export const createAppointment = async (req, res) => {
       appointment_uid: hydratedAppointment.uid || null,
       patient_id: hydratedAppointment.patient_id ?? validation.patient.id ?? resolvedPatient?.id ?? null,
       patient_uid: patientUid,
-      doctor_id: hydratedAppointment.doctor_id ?? validation.doctor.id ?? null,
+      doctor_id: hydratedAppointment.doctor_id ?? validation.doctor?.id ?? null,
       appointment_date: hydratedAppointment.appointment_date ?? appointmentDate,
       appointment_time: hydratedAppointment.appointment_time ?? appointmentTime,
       department: hydratedAppointment.department ?? appointmentData.department ?? null,
@@ -197,7 +197,7 @@ export const createAppointment = async (req, res) => {
         phone: validation.patient.phone ?? resolvedPatient?.phone,
         created: createdNewPatient,
       },
-      doctor_name: hydratedAppointment.doctor_name_detail ?? hydratedAppointment.doctor_name ?? validation.doctor.name,
+      doctor_name: hydratedAppointment.doctor_name_detail ?? hydratedAppointment.doctor_name ?? validation.doctor?.name ?? null,
       booked_by: req.user?.name
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_BOOKED, HTTP_STATUS.CREATED);
   } catch (err) {

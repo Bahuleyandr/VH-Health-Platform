@@ -21,6 +21,9 @@ export class AppointmentValidationService {
   async validateBookingRequest(bookingData, user) {
     const errors = [];
     const tenantId = bookingData?.tenant_id || user?.tenant_id || user?.tenantId || null;
+    const department = String(bookingData?.department || '').trim();
+    const doctorId = bookingData?.doctor_id;
+    const hasDoctorId = doctorId !== undefined && doctorId !== null && String(doctorId).trim() !== '';
 
     // Check patient exists
     const patient = await appointmentService.validateUser(bookingData.patient_id, null, tenantId);
@@ -28,12 +31,17 @@ export class AppointmentValidationService {
       errors.push('Patient not found');
     }
 
-    // Check doctor exists and has correct role
-    const doctor = await appointmentService.validateDoctor(bookingData.doctor_id, tenantId);
-    if (!doctor) {
-      errors.push('Doctor not found');
-    } else {
-      bookingData.doctor_id = doctor.id;
+    let doctor = null;
+    if (hasDoctorId) {
+      // Check doctor exists and has correct role
+      doctor = await appointmentService.validateDoctor(doctorId, tenantId);
+      if (!doctor) {
+        errors.push('Doctor not found');
+      } else {
+        bookingData.doctor_id = doctor.id;
+      }
+    } else if (!department) {
+      errors.push('Select a doctor or department');
     }
 
     // P1 IDOR: patient may only book for themselves. jwtMiddleware now surfaces the
@@ -53,7 +61,7 @@ export class AppointmentValidationService {
     }
 
     // Check for conflicts if no errors so far
-    if (errors.length === 0) {
+    if (errors.length === 0 && hasDoctorId) {
       const conflict = await appointmentService.checkConflict(
         bookingData.doctor_id,
         bookingData.appointment_date,

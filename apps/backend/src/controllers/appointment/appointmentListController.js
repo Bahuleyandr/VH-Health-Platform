@@ -17,6 +17,7 @@ export const listAppointments = async (req, res) => {
       status: req.query.status,
       doctor_id: req.query.doctor_id,
       patient_id: req.query.patient_id,
+      department: req.query.department,
       date: req.query.date,
       search: req.query.search,
       // Admission-counter worklist: ?advised_for_admission=true returns

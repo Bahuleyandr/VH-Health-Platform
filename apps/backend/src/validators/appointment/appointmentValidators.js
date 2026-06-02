@@ -41,28 +41,35 @@ export const createAppointmentValidators = [
     .optional({ values: 'falsy' })
     .isUUID()
     .withMessage('Doctor UID must be a valid UUID'),
-  // doctor_id is required for OPD/clinical visits but optional for lab-only,
-  // radiology-only, pathology-only walk-ins where the patient never sees a
-  // consultant. See finding 2026-05-08-lab-walk-in-receptionist-book-requires-doctor.
+  body('department')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ min: 1, max: 100 })
+    .withMessage('Department must be 1-100 characters'),
+  // doctor_id is required only when there is no alternate routing target.
+  // OPD can now be booked department-first so the first available doctor in
+  // that department can pick it up from their queue; lab/radiology-only rows
+  // remain doctorless by design.
   body('doctor_id')
     .if((value, { req }) => {
-      const dept = String(req.body?.department || '').toUpperCase();
+      const dept = String(req.body?.department || '').trim().toUpperCase();
       const visitType = String(req.body?.visit_type || '').toUpperCase();
       const labOnlyDept = ['LAB', 'LABORATORY', 'PATHOLOGY', 'RADIOLOGY', 'IMAGING'].includes(dept);
       const labOnlyVisit = ['LAB_ONLY', 'RADIOLOGY_ONLY', 'INVESTIGATION'].includes(visitType);
       const hasDoctorUid = Boolean(req.body?.doctor_uid);
-      // If neither suggests lab/radiology-only, require doctor_id.
-      return !(labOnlyDept || labOnlyVisit || hasDoctorUid);
+      const hasDepartment = dept.length > 0;
+      return !(hasDepartment || labOnlyDept || labOnlyVisit || hasDoctorUid);
     })
     .isInt({ min: 1 })
     .withMessage('Doctor ID must be a valid integer'),
   body('doctor_id')
     .if((value, { req }) => {
-      const dept = String(req.body?.department || '').toUpperCase();
+      const dept = String(req.body?.department || '').trim().toUpperCase();
       const visitType = String(req.body?.visit_type || '').toUpperCase();
       const labOnlyDept = ['LAB', 'LABORATORY', 'PATHOLOGY', 'RADIOLOGY', 'IMAGING'].includes(dept);
       const labOnlyVisit = ['LAB_ONLY', 'RADIOLOGY_ONLY', 'INVESTIGATION'].includes(visitType);
-      return labOnlyDept || labOnlyVisit;
+      const hasDepartment = dept.length > 0;
+      return hasDepartment || labOnlyDept || labOnlyVisit;
     })
     .optional({ values: 'falsy' })
     .isInt({ min: 1 })

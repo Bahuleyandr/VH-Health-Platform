@@ -39,6 +39,21 @@ function canViewFullOpQueue(role) {
   return FULL_OP_QUEUE_ROLES.has(String(role || '').toUpperCase());
 }
 
+async function resolveDoctorDepartmentForQueue(doctorId) {
+  const parsed = Number.parseInt(doctorId, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COALESCE(dept.name, doc.department) AS department
+       FROM doctors doc
+       LEFT JOIN departments dept ON dept.id = doc.department_id
+      WHERE doc.user_id = $1::int OR doc.id = $1::int
+      LIMIT 1`,
+    parsed,
+  );
+  const department = rows[0]?.department;
+  return department ? String(department).trim().slice(0, 100) : null;
+}
+
 // All four handlers below were originally written against a raw pg.Pool
 // client (await pool.connect → client.query → client.release) and ported
 // poorly when the codebase moved to Prisma — every call crashed with
@@ -560,10 +575,23 @@ export const getTodayQueue = async (req, res) => {
       doctorId = parsed;
     }
 
+    const doctorDepartment = requesterIsDoctor && doctorId !== null
+      ? await resolveDoctorDepartmentForQueue(doctorId)
+      : null;
+
     const today = istDateString();
     let where = `WHERE a.appointment_date::date = $1::date AND a.status NOT IN ('CANCELLED')`;
     const params = [today];
-    if (doctorId !== null) { params.push(doctorId); where += ` AND a.doctor_id=$${params.length}`; }
+    if (doctorId !== null) {
+      params.push(doctorId);
+      const doctorParamIndex = params.length;
+      if (requesterIsDoctor && doctorDepartment) {
+        params.push(doctorDepartment);
+        where += ` AND (a.doctor_id=$${doctorParamIndex} OR (a.doctor_id IS NULL AND LOWER(COALESCE(a.department, '')) = LOWER($${params.length})))`;
+      } else {
+        where += ` AND a.doctor_id=$${doctorParamIndex}`;
+      }
+    }
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
     // Surface ER triage on the doctor's appointment queue.

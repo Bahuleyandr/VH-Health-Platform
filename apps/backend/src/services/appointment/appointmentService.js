@@ -89,10 +89,11 @@ export class AppointmentService {
       'PAEDIATRIC_OPD',
     ]);
     const resolvedVisitType = allowedVisitTypes.has(visitType) ? visitType : null;
+    const hasDoctorId = doctor_id !== undefined && doctor_id !== null && String(doctor_id).trim() !== '';
 
     try {
       return await prisma.$transaction(async (tx) => {
-        // Resolve patient phone + doctor name for the NOT NULL columns on appointments.
+        // Resolve patient phone and, when specified, doctor routing metadata.
         const [pRows, resolvedDoctor] = await Promise.all([
           tx.$queryRaw`
             SELECT id, phone, name
@@ -101,7 +102,9 @@ export class AppointmentService {
                AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
              LIMIT 1
           `,
-          resolveDoctorRef(tx, doctor_id, { tenantId: tenant_id }),
+          hasDoctorId
+            ? resolveDoctorRef(tx, doctor_id, { tenantId: tenant_id })
+            : Promise.resolve(null),
         ]);
         if (!pRows[0]) {
           const err = new Error('Patient not found');
@@ -110,27 +113,34 @@ export class AppointmentService {
         }
         const patientPhone = pRows[0]?.phone ?? '';
         const patientName = pRows[0]?.name ?? null;
-        if (!resolvedDoctor?.id) {
+        if (hasDoctorId && !resolvedDoctor?.id) {
           const err = new Error('Doctor not found');
           err.statusCode = 400;
           throw err;
         }
-        const resolvedDoctorId = resolvedDoctor.id;
+        const resolvedDoctorId = resolvedDoctor?.id ?? null;
         const doctorName = resolvedDoctor?.name ?? '';
         const resolvedDepartment = department
           ? String(department).trim().slice(0, 100)
           : (resolvedDoctor?.department ? String(resolvedDoctor.department).trim().slice(0, 100) : null);
+        if (!resolvedDoctorId && !resolvedDepartment) {
+          const err = new Error('Select a doctor or department');
+          err.statusCode = 400;
+          throw err;
+        }
 
         // Lock conflicting rows
-        const conflict = await tx.$queryRaw`
-          SELECT id FROM appointments
-          WHERE doctor_id = ${parseInt(resolvedDoctorId)}
-            AND DATE(appointment_date) = DATE(${appointment_date}::date)
-            AND appointment_time = ${appointment_time}
-            AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
-            AND status NOT IN ('CANCELLED', 'NO_SHOW')
-          FOR UPDATE
-        `;
+        const conflict = resolvedDoctorId
+          ? await tx.$queryRaw`
+              SELECT id FROM appointments
+              WHERE doctor_id = ${parseInt(resolvedDoctorId, 10)}
+                AND DATE(appointment_date) = DATE(${appointment_date}::date)
+                AND appointment_time = ${appointment_time}
+                AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
+                AND status NOT IN ('CANCELLED', 'NO_SHOW')
+              FOR UPDATE
+            `
+          : [];
 
         if (conflict.length > 0) {
           const err = new Error('Slot no longer available');
@@ -147,7 +157,7 @@ export class AppointmentService {
             tenant_id, created_at, updated_at
           ) VALUES (
             ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
-            ${parseInt(resolvedDoctorId)}, ${doctorName},
+            ${resolvedDoctorId ? parseInt(resolvedDoctorId, 10) : null}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},
             ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, ${resolvedDepartment}, ${resolvedVisitType},

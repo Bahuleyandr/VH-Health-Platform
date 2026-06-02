@@ -27,11 +27,63 @@ String? _doctorUid(Map<String, dynamic> doctor) {
   return text.isEmpty ? null : text;
 }
 
+String _doctorDepartment(Map<String, dynamic> doctor) {
+  final value = doctor['department'] ?? doctor['doctor_department'];
+  return value?.toString().trim() ?? '';
+}
+
+String _departmentKey(String value) => value.trim().toLowerCase();
+
+bool _sameDepartment(String a, String b) {
+  final left = _departmentKey(a);
+  final right = _departmentKey(b);
+  return left.isNotEmpty && left == right;
+}
+
+List<String> _departmentOptionsFromDoctors(List<Map<String, dynamic>> doctors) {
+  final byKey = <String, String>{};
+  for (final doctor in doctors) {
+    final department = _doctorDepartment(doctor);
+    if (department.isEmpty) continue;
+    byKey.putIfAbsent(_departmentKey(department), () => department);
+  }
+  final options = byKey.values.toList(growable: false);
+  options.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return options;
+}
+
+Iterable<Map<String, dynamic>> _filterAppointmentDoctors({
+  required List<Map<String, dynamic>> doctors,
+  required String query,
+  required String department,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  final normalizedDepartment = _departmentKey(department);
+  final filtered = doctors.where((doctor) {
+    final doctorDepartment = _doctorDepartment(doctor);
+    final normalizedDoctorDepartment = _departmentKey(doctorDepartment);
+    if (normalizedDepartment.isNotEmpty &&
+        !normalizedDoctorDepartment.contains(normalizedDepartment)) {
+      return false;
+    }
+    if (normalizedQuery.isEmpty) return true;
+    final label = _doctorLabel(doctor).toLowerCase();
+    final name = doctor['name']?.toString().toLowerCase() ?? '';
+    final specialization =
+        doctor['specialization']?.toString().toLowerCase() ?? '';
+    return label.contains(normalizedQuery) ||
+        name.contains(normalizedQuery) ||
+        doctorDepartment.toLowerCase().contains(normalizedQuery) ||
+        specialization.contains(normalizedQuery);
+  });
+  return filtered.take(25);
+}
+
 String _doctorLabel(Map<String, dynamic> doctor) {
   final id = _doctorId(doctor);
   final name =
       doctor['name']?.toString() ?? (id == null ? 'Doctor' : 'Doctor #$id');
-  final department = doctor['department']?.toString() ?? '';
+  final department = _doctorDepartment(doctor);
   final specialization = doctor['specialization']?.toString() ?? '';
   return [
     name,
@@ -137,6 +189,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     final formKey = GlobalKey<FormState>();
     final patientPhoneCtrl = TextEditingController();
     final patientNameCtrl = TextEditingController();
+    final doctorCtrl = TextEditingController();
+    final doctorFocus = FocusNode();
+    final departmentCtrl = TextEditingController();
+    final departmentFocus = FocusNode();
     final reasonCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     final doctorsFuture = ScheduleApiService.getAppointmentDoctors();
@@ -152,6 +208,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     int? resolvedPatientId;
     int? selectedDoctorId;
     String? selectedDoctorUid;
+    Map<String, dynamic>? selectedDoctor;
     Timer? lookupDebounce;
 
     Future<void> lookupPatient(StateSetter setSheetState) async {
@@ -229,10 +286,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
             Future<void> submit() async {
               if (!formKey.currentState!.validate()) return;
-              if (selectedDoctorId == null) {
+              final selectedDepartment = departmentCtrl.text.trim();
+              if (selectedDoctorId == null && selectedDepartment.isEmpty) {
                 ScaffoldMessenger.of(ctx).showSnackBar(
                   const SnackBar(
-                    content: Text('Select a doctor'),
+                    content: Text('Select a doctor or department'),
                     backgroundColor: AppTheme.errorRed,
                   ),
                 );
@@ -244,8 +302,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   patientId: resolvedPatientId,
                   patientPhone: patientPhoneCtrl.text.trim(),
                   patientName: patientNameCtrl.text.trim(),
-                  doctorId: selectedDoctorId!,
+                  doctorId: selectedDoctorId,
                   doctorUid: selectedDoctorUid,
+                  department: selectedDepartment.isEmpty
+                      ? null
+                      : selectedDepartment,
                   appointmentDate: dateLabel,
                   appointmentTime: timeLabel,
                   reason: reasonCtrl.text.trim(),
@@ -366,147 +427,278 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         builder: (context, snapshot) {
                           final doctors =
                               snapshot.data ?? const <Map<String, dynamic>>[];
+                          final departmentOptions =
+                              _departmentOptionsFromDoctors(doctors);
                           final loading =
                               snapshot.connectionState ==
                               ConnectionState.waiting;
 
-                          return Autocomplete<Map<String, dynamic>>(
-                            displayStringForOption: _doctorLabel,
-                            optionsBuilder: (value) {
-                              final query = value.text.trim().toLowerCase();
-                              final options = query.isEmpty
-                                  ? doctors
-                                  : doctors.where((doctor) {
-                                      final label = _doctorLabel(
-                                        doctor,
-                                      ).toLowerCase();
-                                      final name =
-                                          doctor['name']
-                                              ?.toString()
-                                              .toLowerCase() ??
-                                          '';
-                                      final department =
-                                          doctor['department']
-                                              ?.toString()
-                                              .toLowerCase() ??
-                                          '';
-                                      final specialization =
-                                          doctor['specialization']
-                                              ?.toString()
-                                              .toLowerCase() ??
-                                          '';
-                                      return label.contains(query) ||
-                                          name.contains(query) ||
-                                          department.contains(query) ||
-                                          specialization.contains(query);
-                                    });
-                              return options.take(25);
-                            },
-                            onSelected: (doctor) {
-                              setSheetState(() {
-                                selectedDoctorId = _doctorId(doctor);
-                                selectedDoctorUid = _doctorUid(doctor);
-                              });
-                            },
-                            fieldViewBuilder:
-                                (
-                                  context,
-                                  textController,
-                                  focusNode,
-                                  onFieldSubmitted,
-                                ) {
-                                  return TextFormField(
-                                    controller: textController,
-                                    focusNode: focusNode,
-                                    enabled: !submitting && !loading,
-                                    decoration: InputDecoration(
-                                      labelText: 'Doctor',
-                                      hintText: loading
-                                          ? 'Loading doctors...'
-                                          : snapshot.hasError
-                                          ? 'Could not load doctors'
-                                          : 'Type doctor name',
-                                      prefixIcon: const ExcludeSemantics(
-                                        child: Icon(
-                                          Icons.medical_services_outlined,
-                                        ),
-                                      ),
-                                    ),
-                                    onChanged: (text) {
-                                      final typed = text.trim().toLowerCase();
-                                      int? matchedId;
-                                      String? matchedUid;
-                                      for (final doctor in doctors) {
-                                        if (_doctorLabel(
-                                              doctor,
-                                            ).toLowerCase() ==
-                                            typed) {
-                                          matchedId = _doctorId(doctor);
-                                          matchedUid = _doctorUid(doctor);
-                                          break;
-                                        }
-                                      }
-                                      setSheetState(() {
-                                        selectedDoctorId = matchedId;
-                                        selectedDoctorUid = matchedUid;
-                                      });
-                                    },
-                                    validator: (_) => selectedDoctorId == null
-                                        ? 'Select a doctor'
-                                        : null,
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              RawAutocomplete<Map<String, dynamic>>(
+                                textEditingController: doctorCtrl,
+                                focusNode: doctorFocus,
+                                displayStringForOption: _doctorLabel,
+                                optionsBuilder: (value) {
+                                  if (loading) {
+                                    return const Iterable<
+                                      Map<String, dynamic>
+                                    >.empty();
+                                  }
+                                  return _filterAppointmentDoctors(
+                                    doctors: doctors,
+                                    query: value.text,
+                                    department: departmentCtrl.text,
                                   );
                                 },
-                            optionsViewBuilder: (context, onSelected, options) {
-                              final items = options.toList(growable: false);
-                              return Align(
-                                alignment: Alignment.topLeft,
-                                child: Material(
-                                  elevation: 4,
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxHeight: 260,
-                                      maxWidth: 520,
-                                    ),
-                                    child: ListView.separated(
-                                      padding: EdgeInsets.zero,
-                                      shrinkWrap: true,
-                                      itemCount: items.length,
-                                      separatorBuilder: (_, _) =>
-                                          const Divider(height: 1),
-                                      itemBuilder: (context, index) {
-                                        final doctor = items[index];
-                                        return ListTile(
-                                          dense: true,
-                                          leading: const Icon(
-                                            Icons.person_outline,
+                                onSelected: (doctor) {
+                                  final department = _doctorDepartment(doctor);
+                                  setSheetState(() {
+                                    selectedDoctor = doctor;
+                                    selectedDoctorId = _doctorId(doctor);
+                                    selectedDoctorUid = _doctorUid(doctor);
+                                    doctorCtrl.text = _doctorLabel(doctor);
+                                    if (department.isNotEmpty) {
+                                      departmentCtrl.text = department;
+                                    }
+                                  });
+                                  doctorFocus.unfocus();
+                                },
+                                fieldViewBuilder:
+                                    (
+                                      context,
+                                      textController,
+                                      focusNode,
+                                      onFieldSubmitted,
+                                    ) {
+                                      return TextFormField(
+                                        controller: textController,
+                                        focusNode: focusNode,
+                                        enabled: !submitting && !loading,
+                                        decoration: InputDecoration(
+                                          labelText: 'Doctor',
+                                          hintText: loading
+                                              ? 'Loading doctors...'
+                                              : snapshot.hasError
+                                              ? 'Could not load doctors'
+                                              : 'Type doctor name',
+                                          prefixIcon: const ExcludeSemantics(
+                                            child: Icon(
+                                              Icons.medical_services_outlined,
+                                            ),
                                           ),
-                                          title: Text(
-                                            doctor['name']?.toString() ??
-                                                'Doctor',
-                                            overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onChanged: (text) {
+                                          final selectedLabel =
+                                              selectedDoctor == null
+                                              ? ''
+                                              : _doctorLabel(selectedDoctor!);
+                                          if (selectedDoctor != null &&
+                                              text.trim() != selectedLabel) {
+                                            setSheetState(() {
+                                              selectedDoctor = null;
+                                              selectedDoctorId = null;
+                                              selectedDoctorUid = null;
+                                            });
+                                          }
+                                        },
+                                        validator: (_) =>
+                                            selectedDoctorId == null &&
+                                                departmentCtrl.text
+                                                    .trim()
+                                                    .isEmpty
+                                            ? 'Select a doctor or department'
+                                            : null,
+                                      );
+                                    },
+                                optionsViewBuilder:
+                                    (context, onSelected, options) {
+                                      final items = options.toList(
+                                        growable: false,
+                                      );
+                                      return Align(
+                                        alignment: Alignment.topLeft,
+                                        child: Material(
+                                          elevation: 4,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
                                           ),
-                                          subtitle: Text(
-                                            [
-                                                  doctor['department']
-                                                          ?.toString() ??
-                                                      '',
-                                                  doctor['specialization']
-                                                          ?.toString() ??
-                                                      '',
-                                                ]
-                                                .where((v) => v.isNotEmpty)
-                                                .join(' - '),
-                                            overflow: TextOverflow.ellipsis,
+                                          child: ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                              maxHeight: 260,
+                                              maxWidth: 520,
+                                            ),
+                                            child: ListView.separated(
+                                              padding: EdgeInsets.zero,
+                                              shrinkWrap: true,
+                                              itemCount: items.length,
+                                              separatorBuilder: (_, _) =>
+                                                  const Divider(height: 1),
+                                              itemBuilder: (context, index) {
+                                                final doctor = items[index];
+                                                return ListTile(
+                                                  dense: true,
+                                                  leading: const Icon(
+                                                    Icons.person_outline,
+                                                  ),
+                                                  title: Text(
+                                                    doctor['name']
+                                                            ?.toString() ??
+                                                        'Doctor',
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  subtitle: Text(
+                                                    [
+                                                          _doctorDepartment(
+                                                            doctor,
+                                                          ),
+                                                          doctor['specialization']
+                                                                  ?.toString() ??
+                                                              '',
+                                                        ]
+                                                        .where(
+                                                          (v) => v.isNotEmpty,
+                                                        )
+                                                        .join(' - '),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  onTap: () =>
+                                                      onSelected(doctor),
+                                                );
+                                              },
+                                            ),
                                           ),
-                                          onTap: () => onSelected(doctor),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
+                                        ),
+                                      );
+                                    },
+                              ),
+                              const SizedBox(height: 12),
+                              RawAutocomplete<String>(
+                                textEditingController: departmentCtrl,
+                                focusNode: departmentFocus,
+                                optionsBuilder: (value) {
+                                  final query = value.text.trim().toLowerCase();
+                                  if (query.isEmpty) {
+                                    return departmentOptions.take(25);
+                                  }
+                                  return departmentOptions
+                                      .where(
+                                        (department) => department
+                                            .toLowerCase()
+                                            .contains(query),
+                                      )
+                                      .take(25);
+                                },
+                                onSelected: (department) {
+                                  setSheetState(() {
+                                    departmentCtrl.text = department;
+                                    if (selectedDoctor != null &&
+                                        !_sameDepartment(
+                                          _doctorDepartment(selectedDoctor!),
+                                          department,
+                                        )) {
+                                      selectedDoctor = null;
+                                      selectedDoctorId = null;
+                                      selectedDoctorUid = null;
+                                      doctorCtrl.clear();
+                                    }
+                                  });
+                                  departmentFocus.unfocus();
+                                },
+                                fieldViewBuilder:
+                                    (
+                                      context,
+                                      textController,
+                                      focusNode,
+                                      onFieldSubmitted,
+                                    ) {
+                                      return TextFormField(
+                                        controller: textController,
+                                        focusNode: focusNode,
+                                        enabled: !submitting,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Department',
+                                          hintText: 'Any available doctor',
+                                          prefixIcon: ExcludeSemantics(
+                                            child: Icon(Icons.business),
+                                          ),
+                                        ),
+                                        onChanged: (value) {
+                                          final department = value.trim();
+                                          if (selectedDoctor != null &&
+                                              department.isNotEmpty &&
+                                              !_sameDepartment(
+                                                _doctorDepartment(
+                                                  selectedDoctor!,
+                                                ),
+                                                department,
+                                              )) {
+                                            setSheetState(() {
+                                              selectedDoctor = null;
+                                              selectedDoctorId = null;
+                                              selectedDoctorUid = null;
+                                              doctorCtrl.clear();
+                                            });
+                                          }
+                                        },
+                                        validator: (_) =>
+                                            selectedDoctorId == null &&
+                                                textController.text
+                                                    .trim()
+                                                    .isEmpty
+                                            ? 'Select a doctor or department'
+                                            : null,
+                                      );
+                                    },
+                                optionsViewBuilder:
+                                    (context, onSelected, options) {
+                                      final items = options.toList(
+                                        growable: false,
+                                      );
+                                      return Align(
+                                        alignment: Alignment.topLeft,
+                                        child: Material(
+                                          elevation: 4,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          child: ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                              maxHeight: 220,
+                                              maxWidth: 520,
+                                            ),
+                                            child: ListView.separated(
+                                              padding: EdgeInsets.zero,
+                                              shrinkWrap: true,
+                                              itemCount: items.length,
+                                              separatorBuilder: (_, _) =>
+                                                  const Divider(height: 1),
+                                              itemBuilder: (context, index) {
+                                                final department = items[index];
+                                                return ListTile(
+                                                  dense: true,
+                                                  leading: const Icon(
+                                                    Icons.business_outlined,
+                                                  ),
+                                                  title: Text(
+                                                    department,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  onTap: () =>
+                                                      onSelected(department),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -635,6 +827,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       lookupDebounce?.cancel();
       patientPhoneCtrl.dispose();
       patientNameCtrl.dispose();
+      doctorCtrl.dispose();
+      doctorFocus.dispose();
+      departmentCtrl.dispose();
+      departmentFocus.dispose();
       reasonCtrl.dispose();
       notesCtrl.dispose();
     }
