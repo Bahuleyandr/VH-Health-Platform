@@ -56,7 +56,7 @@ ssh dalekdefender "sudo kubectl -n vhhealth create secret generic vhhealth-backe
   --from-literal=ADMIN_BOOTSTRAP_PASSWORD='${ADMIN_PASSWORD}' \
   --from-literal=ADMIN_BOOTSTRAP_EMAIL='admin@vhhealth.local' \
   --from-literal=ADMIN_BOOTSTRAP_NAME='Super Admin' \
-  --from-literal=ALLOWED_ORIGINS='https://dalekdefender.hippocampus-monitor.ts.net:8444' \
+  --from-literal=ALLOWED_ORIGINS='https://admin.vhhealth.app,https://api.vhhealth.app,https://vhhealth.app,https://dalekdefender.hippocampus-monitor.ts.net:8445,https://dalekdefender.hippocampus-monitor.ts.net:8444' \
   --from-literal=REQUIRE_MFA_FOR_SUPER_ADMIN='false' \
   --from-literal=ALERTS_ENABLED='false' \
   --from-literal=CLINICAL_AI_PROVIDER='template' \
