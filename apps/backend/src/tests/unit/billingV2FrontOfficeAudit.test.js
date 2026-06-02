@@ -3,6 +3,7 @@ import request from 'supertest';
 import { jest } from '@jest/globals';
 
 const createDraftInvoiceMock = jest.fn();
+const listInvoicesMock = jest.fn();
 const addInvoiceItemMock = jest.fn();
 const removeInvoiceItemMock = jest.fn();
 const itemizeAdmissionInvoiceMock = jest.fn();
@@ -29,6 +30,7 @@ const logAuditMock = jest.fn();
 
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
   createDraftInvoice: createDraftInvoiceMock,
+  listInvoices: listInvoicesMock,
   addInvoiceItem: addInvoiceItemMock,
   removeInvoiceItem: removeInvoiceItemMock,
   itemizeAdmissionInvoice: itemizeAdmissionInvoiceMock,
@@ -97,6 +99,7 @@ function makeApp({ role = 'BILLING_STAFF' } = {}) {
 
 beforeEach(() => {
   createDraftInvoiceMock.mockReset();
+  listInvoicesMock.mockReset();
   addInvoiceItemMock.mockReset();
   removeInvoiceItemMock.mockReset();
   itemizeAdmissionInvoiceMock.mockReset();
@@ -123,6 +126,22 @@ beforeEach(() => {
 });
 
 describe('billing v2 front-office audit logging', () => {
+  it('allows receptionists to read patient invoices from the front-office workbench', async () => {
+    listInvoicesMock.mockResolvedValueOnce({
+      invoices: [],
+      pagination: { page: 1, limit: 8, total: 0 },
+    });
+
+    const response = await request(makeApp({ role: 'RECEPTIONIST' }))
+      .get(`/invoices?patient_uid=${PATIENT_UID}&limit=8`);
+
+    expect(response.status).toBe(200);
+    expect(listInvoicesMock).toHaveBeenCalledWith(expect.objectContaining({
+      patient_uid: PATIENT_UID,
+      limit: '8',
+    }));
+  });
+
   it('writes structured audit context when staff creates a draft OP invoice', async () => {
     createDraftInvoiceMock.mockResolvedValueOnce({
       id: 77,

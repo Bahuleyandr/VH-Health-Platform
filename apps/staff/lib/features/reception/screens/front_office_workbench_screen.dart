@@ -2950,7 +2950,7 @@ class _FrontOfficeWorkbenchScreenState
     final id = _appointmentId(row);
     final name = _queuePatientName(row);
     final status = _appointmentStatus(row);
-    final time = row['appointment_time'] ?? row['time'] ?? row['slot'];
+    final time = _text(row['appointment_time'] ?? row['time'] ?? row['slot']);
     final busy = id != null && _queueActionId == id;
     final selected = _queueRowMatchesSelectedPatient(row);
     final terminal = const {
@@ -2965,65 +2965,113 @@ class _FrontOfficeWorkbenchScreenState
     final canNoShow = _canManageOpQueue;
     final hasQueueAction =
         !terminal && (canConfirm || canComplete || canNoShow);
+    final actions = <Widget>[
+      if (canConfirm)
+        _QueueActionButton(
+          icon: Icons.check,
+          label: 'Confirm',
+          color: AppTheme.primaryTeal,
+          onPressed: busy ? null : () => _confirmQueueAppointment(row),
+        ),
+      if (canComplete)
+        _QueueActionButton(
+          icon: Icons.done_all,
+          label: 'Complete',
+          color: AppTheme.successGreen,
+          onPressed: busy ? null : () => _completeQueueAppointment(row),
+        ),
+      if (canNoShow)
+        _QueueActionButton(
+          icon: Icons.person_off_outlined,
+          label: 'No-show',
+          color: AppTheme.textSecondary,
+          onPressed: busy ? null : () => _markQueueNoShow(row),
+        ),
+    ];
+    final subtitle = [
+      if (time.isNotEmpty) time,
+      if (status.isNotEmpty) status,
+    ].join(' - ');
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        dense: true,
-        contentPadding: EdgeInsets.zero,
-        leading: CircleAvatar(
-          backgroundColor: _appointmentStatusColor(
-            status,
-          ).withValues(alpha: 0.12),
-          child: busy
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(
-                  selected
-                      ? Icons.person_pin_circle_outlined
-                      : Icons.person_outline,
-                  color: _appointmentStatusColor(status),
+      child: Material(
+        color: selected
+            ? AppTheme.primaryBlue.withValues(alpha: 0.06)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _selectQueuePatient(row),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: _appointmentStatusColor(
+                    status,
+                  ).withValues(alpha: 0.12),
+                  child: busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          selected
+                              ? Icons.person_pin_circle_outlined
+                              : Icons.person_outline,
+                          color: _appointmentStatusColor(status),
+                        ),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: false,
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (hasQueueAction)
+                  SizedBox(
+                    width: 132,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < actions.length; i++)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: i == actions.length - 1 ? 0 : 4,
+                            ),
+                            child: actions[i],
+                          ),
+                      ],
+                    ),
+                  )
+                else
+                  const Icon(Icons.chevron_right),
+              ],
+            ),
+          ),
         ),
-        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text([?time, status].join(' - ')),
-        selected: selected,
-        selectedTileColor: AppTheme.primaryBlue.withValues(alpha: 0.06),
-        trailing: hasQueueAction
-            ? Wrap(
-                spacing: 6,
-                children: [
-                  if (canConfirm)
-                    _QueueActionButton(
-                      icon: Icons.check,
-                      label: 'Confirm',
-                      color: AppTheme.primaryTeal,
-                      onPressed: busy
-                          ? null
-                          : () => _confirmQueueAppointment(row),
-                    ),
-                  if (canComplete)
-                    _QueueActionButton(
-                      icon: Icons.done_all,
-                      label: 'Complete',
-                      color: AppTheme.successGreen,
-                      onPressed: busy
-                          ? null
-                          : () => _completeQueueAppointment(row),
-                    ),
-                  if (canNoShow)
-                    _QueueActionButton(
-                      icon: Icons.person_off_outlined,
-                      label: 'No-show',
-                      color: AppTheme.textSecondary,
-                      onPressed: busy ? null : () => _markQueueNoShow(row),
-                    ),
-                ],
-              )
-            : const Icon(Icons.chevron_right),
-        onTap: () => _selectQueuePatient(row),
       ),
     );
   }
@@ -3844,7 +3892,7 @@ class _QueueActionButton extends StatelessWidget {
       child: OutlinedButton.icon(
         onPressed: onPressed,
         icon: Icon(icon, size: 15),
-        label: Text(label),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
         style: OutlinedButton.styleFrom(
           foregroundColor: color,
           padding: const EdgeInsets.symmetric(horizontal: 8),
