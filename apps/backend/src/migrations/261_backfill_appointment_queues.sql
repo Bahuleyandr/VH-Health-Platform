@@ -64,6 +64,24 @@ missing_queues AS (
       AND COALESCE(q.doctor_id, 0) = COALESCE(c.doctor_id, 0)
       AND q.status IN ('draft', 'open', 'paused')
   )
+),
+deduped_missing_queues AS (
+  SELECT DISTINCT ON (
+    tenant_id,
+    queue_date,
+    queue_kind,
+    COALESCE(department_id, 0),
+    COALESCE(doctor_id, 0)
+  )
+    *
+  FROM missing_queues
+  ORDER BY
+    tenant_id,
+    queue_date,
+    queue_kind,
+    COALESCE(department_id, 0),
+    COALESCE(doctor_id, 0),
+    NULLIF(queue_label, '') NULLS LAST
 )
 INSERT INTO appointment_queues (
   tenant_id, queue_date, queue_kind, department_id, department_name,
@@ -83,7 +101,8 @@ SELECT
   jsonb_build_object('source', 'migration_261_backfill'),
   NOW(),
   NOW()
-FROM missing_queues;
+FROM deduped_missing_queues
+ON CONFLICT DO NOTHING;
 
 WITH appointment_context AS (
   SELECT

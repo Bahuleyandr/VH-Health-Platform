@@ -29,6 +29,14 @@ describe('migration 261 — appointment queue backfill', () => {
     expect(sql).toMatch(/jsonb_build_object\('source', 'migration_261_backfill'\)/i);
   });
 
+  it('deduplicates source rows before inserting queues', () => {
+    expect(sql).toMatch(/deduped_missing_queues AS/i);
+    expect(sql).toMatch(/SELECT DISTINCT ON \([\s\S]*tenant_id,[\s\S]*queue_date,[\s\S]*queue_kind/i);
+    expect(sql).toMatch(/COALESCE\(department_id, 0\)/i);
+    expect(sql).toMatch(/COALESCE\(doctor_id, 0\)/i);
+    expect(sql).toMatch(/FROM deduped_missing_queues[\s\S]*ON CONFLICT DO NOTHING/i);
+  });
+
   it('links appointments back to the matched queue id', () => {
     expect(sql).toMatch(/UPDATE appointments a[\s\S]*SET queue_id = m\.queue_id/i);
     expect(sql).toMatch(/JOIN appointment_queues q/i);
