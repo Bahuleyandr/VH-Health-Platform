@@ -89,6 +89,14 @@ describe('staff workbench PHI namespaces', () => {
     ).toBe(true);
   });
 
+  it('mounts EMR timeline before the broad EMR gate so reception can open selected patients', () => {
+    expect(firstExactMountIndex('/api/v1/emr/timeline')).toBeGreaterThan(-1);
+    expect(firstExactMountIndex('/api/v1/emr')).toBeGreaterThan(-1);
+    expect(firstExactMountIndex('/api/v1/emr/timeline')).toBeLessThan(
+      firstExactMountIndex('/api/v1/emr'),
+    );
+  });
+
   it('mounts billing v2 before legacy billing so front-office requests reach the v2 gate', () => {
     expect(firstExactMountIndex('/api/v1/billing/v2')).toBeGreaterThan(-1);
     expect(firstExactMountIndex('/api/v1/billing')).toBeGreaterThan(-1);

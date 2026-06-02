@@ -179,6 +179,7 @@ import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
+import clinicalTimelineRoutes from './routes/emr/clinicalTimelineRoutes.js';
 
 // EMR — ADT (Admission/Discharge/Transfer)
 import admissionOccupancyRoutes from './routes/emr/admissionOccupancyRoutes.js';
@@ -243,6 +244,11 @@ const CLINICAL_STAFF_ROLES = [
   'ICU_INCHARGE',
   'ADMISSION_OFFICER',
   'IPD_COUNSELLOR',
+];
+const EMR_TIMELINE_READ_ROLES = [
+  ...CLINICAL_STAFF_ROLES,
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
 ];
 const ADMISSION_SURFACE_ROLES = [
   ...CLINICAL_STAFF_ROLES,
@@ -701,6 +707,7 @@ app.use(
 app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
+app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
 app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
 app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
   '/api/v1/emr/notes',

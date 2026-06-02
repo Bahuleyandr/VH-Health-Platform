@@ -21,8 +21,19 @@ function doctorAs(uid = DOCTOR_UID) {
   };
 }
 
+function receptionistAs(uid = 'a6666666-6666-4666-8666-666666666a03') {
+  const token = generateTestToken('RECEPTIONIST', { uid, id: 990602 });
+  return {
+    get: (path) => request(app)
+      .get(path)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`),
+  };
+}
+
 describe('EMR chart read endpoints', () => {
   const doctor = doctorAs();
+  const receptionist = receptionistAs();
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID);
@@ -88,5 +99,16 @@ describe('EMR chart read endpoints', () => {
       patient_uid: PATIENT_UID,
       note_type: 'progress',
     });
+  });
+
+  it('lets reception open the patient timeline without unlocking EMR notes', async () => {
+    const timeline = await receptionist.get(`/api/v1/emr/timeline/${PATIENT_UID}`);
+
+    expect(timeline.statusCode).toBe(200);
+    expect(Array.isArray(timeline.body.data)).toBe(true);
+
+    const notes = await receptionist.get(`/api/v1/emr/notes/patient/${PATIENT_UID}?limit=5`);
+
+    expect(notes.statusCode).toBe(403);
   });
 });
