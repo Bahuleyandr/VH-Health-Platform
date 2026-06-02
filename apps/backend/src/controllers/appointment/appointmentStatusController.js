@@ -11,7 +11,7 @@ import { emitQueuePosition } from '../../utils/websocket/realtimeEmitter.js';
 import { logAudit } from '../../utils/logAudit.js';
 
 // Status transitions that shift every downstream patient's queue position
-const QUEUE_SHIFTING_STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']);
+const QUEUE_SHIFTING_STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED']);
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function tenantOf(req) {

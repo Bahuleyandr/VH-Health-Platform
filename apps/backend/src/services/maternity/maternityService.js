@@ -515,7 +515,7 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
          FROM appointments a
          JOIN users u ON u.id = a.patient_id
         WHERE u.uid = $1::uuid
-          AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+          AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
           AND a.appointment_date >= COALESCE($2::date, a.appointment_date)
           AND (
             a.visit_no LIKE 'ANC-%'

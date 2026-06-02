@@ -245,6 +245,21 @@ class ScheduleApiService {
     return _post('/appointments/$id/no-show', {});
   }
 
+  /// POST /appointments/:id/reschedule
+  static Future<Map<String, dynamic>> rescheduleAppointmentStaff(
+    int id, {
+    required String appointmentDate,
+    required String appointmentTime,
+    String? notes,
+  }) async {
+    return _post('/appointments/$id/reschedule', {
+      'appointment_date': appointmentDate,
+      'appointment_time': appointmentTime,
+      if (notes != null && notes.trim().isNotEmpty)
+        'confirmation_notes': notes.trim(),
+    });
+  }
+
   /// POST /appointments/:id/complete
   static Future<Map<String, dynamic>> completeAppointmentStaff(
     int id, {

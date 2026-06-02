@@ -33,6 +33,23 @@ void main() {
     });
   });
 
+  group('frontOfficeAppointmentStatusLabel', () {
+    test('renders queue statuses as user-facing labels', () {
+      expect(frontOfficeAppointmentStatusLabel('RESCHEDULED'), 'Rescheduled');
+      expect(frontOfficeAppointmentStatusLabel('NO_SHOW'), 'No-show');
+      expect(frontOfficeAppointmentStatusLabel('IN_PROGRESS'), 'In progress');
+      expect(frontOfficeAppointmentStatusLabel('CONFIRMED'), 'Confirmed');
+    });
+
+    test('treats rescheduled appointments as terminal queue rows', () {
+      expect(frontOfficeAppointmentStatusIsTerminal('RESCHEDULED'), isTrue);
+      expect(frontOfficeAppointmentStatusIsTerminal('COMPLETED'), isTrue);
+      expect(frontOfficeAppointmentStatusIsTerminal('NO_SHOW'), isTrue);
+      expect(frontOfficeAppointmentStatusIsTerminal('SCHEDULED'), isFalse);
+      expect(frontOfficeAppointmentStatusIsTerminal('CONFIRMED'), isFalse);
+    });
+  });
+
   group('frontOfficeWorkbenchCanLoad', () {
     test(
       'allows front-office roles only on tablet or desktop workbench modes',

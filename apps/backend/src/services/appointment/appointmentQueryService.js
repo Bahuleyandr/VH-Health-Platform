@@ -41,6 +41,7 @@ const APPT_BASE_SELECT = {
   advised_for_admission_at: true,
   advised_for_admission_by: true,
   advised_for_admission_note: true,
+  parent_appointment_id: true,
   created_at: true,
   updated_at: true,
 };

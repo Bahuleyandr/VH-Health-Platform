@@ -8,6 +8,7 @@ const prismaMock = {
   $executeRawUnsafe: jest.fn(),
 };
 const logAuditMock = jest.fn();
+const ensureAppointmentQueueForAppointmentMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
@@ -33,11 +34,16 @@ jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', ()
   sendPushNotification: jest.fn(),
 }));
 
+jest.unstable_mockModule('../../services/appointment/appointmentQueueService.js', () => ({
+  ensureAppointmentQueueForAppointment: ensureAppointmentQueueForAppointmentMock,
+}));
+
 const {
   cancelAppointment,
   completeAppointment,
   confirmAppointment,
   markNoShow,
+  rescheduleAppointment,
 } = await import('../../controllers/appointment/appointmentWorkflowController.js');
 
 function makeReq(overrides = {}) {
@@ -97,6 +103,8 @@ describe('appointment workflow audit logging', () => {
     }));
     prismaMock.$queryRawUnsafe.mockReset();
     prismaMock.$executeRawUnsafe.mockReset();
+    ensureAppointmentQueueForAppointmentMock.mockReset();
+    ensureAppointmentQueueForAppointmentMock.mockResolvedValue(null);
     logAuditMock.mockResolvedValue(undefined);
     setImmediateSpy = jest
       .spyOn(global, 'setImmediate')
@@ -182,6 +190,78 @@ describe('appointment workflow audit logging', () => {
       }),
       { resource: 'appointment', resourceId: 42 },
     );
+  });
+
+  it('marks the original appointment RESCHEDULED and audits the linked replacement', async () => {
+    const previous = appointmentRow({ status: 'CONFIRMED' });
+    const replacement = appointmentRow({
+      id: 84,
+      uid: '33333333-3333-4333-8333-333333333333',
+      status: 'SCHEDULED',
+      appointment_date: '2026-06-03',
+      appointment_time: '11:30',
+      token_number: null,
+      visit_no: null,
+      parent_appointment_id: 42,
+    });
+    const original = appointmentRow({ status: 'RESCHEDULED' });
+    txQueryRawUnsafe
+      .mockResolvedValueOnce([previous])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([replacement])
+      .mockResolvedValueOnce([original]);
+    txExecuteRawUnsafe
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+
+    const req = makeReq({
+      body: {
+        appointment_date: '2026-06-03',
+        appointment_time: '11:30',
+        confirmation_notes: 'Patient requested later visit',
+      },
+    });
+    const res = makeRes(req);
+
+    await rescheduleAppointment(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(ensureAppointmentQueueForAppointmentMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: 84,
+        status: 'SCHEDULED',
+        parent_appointment_id: 42,
+      }),
+      expect.objectContaining({ source: 'reschedule' }),
+    );
+    expect(logAuditMock).toHaveBeenCalledWith(
+      req,
+      'FRONT_OFFICE_APPOINTMENT_RESCHEDULED',
+      expect.objectContaining({
+        appointment_id: 42,
+        from_status: 'CONFIRMED',
+        to_status: 'RESCHEDULED',
+        status: 'RESCHEDULED',
+        replacement_appointment_id: 84,
+        replacement_appointment_uid: '33333333-3333-4333-8333-333333333333',
+        replacement_appointment_date: '2026-06-03',
+        replacement_appointment_time: '11:30',
+        reschedule_note: 'Patient requested later visit',
+      }),
+      { resource: 'appointment', resourceId: 42 },
+    );
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      data: expect.objectContaining({
+        original: expect.objectContaining({ status: 'RESCHEDULED' }),
+        appointment: expect.objectContaining({
+          id: 84,
+          status: 'SCHEDULED',
+          parent_appointment_id: 42,
+        }),
+      }),
+    }));
   });
 
   it('writes structured audit context when a permitted user completes an OP appointment', async () => {

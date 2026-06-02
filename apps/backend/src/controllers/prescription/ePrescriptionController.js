@@ -886,7 +886,7 @@ export const createPrescription = async (req, res) => {
             WHERE patient_id = $1::int
               AND doctor_id  = $2::int
               AND DATE(appointment_date) = $3::date
-              AND status NOT IN ('CANCELLED', 'NO_SHOW')
+              AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
             LIMIT 1`,
           patientId, doctorId, follow_up_date,
         );

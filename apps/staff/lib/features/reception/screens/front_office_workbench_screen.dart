@@ -34,6 +34,39 @@ String frontOfficeQueueDateLabel(DateTime date, {DateTime? now}) {
   return '${DateFormat('EEE, d MMM').format(day)} OP Queue';
 }
 
+@visibleForTesting
+bool frontOfficeAppointmentStatusIsTerminal(String status) {
+  return const {
+    'COMPLETED',
+    'CANCELLED',
+    'NO_SHOW',
+    'RESCHEDULED',
+  }.contains(status.trim().toUpperCase());
+}
+
+@visibleForTesting
+String frontOfficeAppointmentStatusLabel(String status) {
+  switch (status.trim().toUpperCase()) {
+    case 'NO_SHOW':
+      return 'No-show';
+    case 'RESCHEDULED':
+      return 'Rescheduled';
+    case 'IN_PROGRESS':
+      return 'In progress';
+    case 'COMPLETED':
+      return 'Complete';
+    case 'CANCELLED':
+      return 'Cancelled';
+    case 'CONFIRMED':
+      return 'Confirmed';
+    case 'SCHEDULED':
+      return 'Scheduled';
+    default:
+      final cleaned = status.trim();
+      return cleaned.isEmpty ? 'Scheduled' : cleaned;
+  }
+}
+
 int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
   if (data is! Map) return fallbackCount;
   final pagination = data['pagination'];
@@ -2869,13 +2902,12 @@ class _FrontOfficeWorkbenchScreenState
     await _runQueueAction(
       row,
       successMessage: 'Appointment rescheduled',
-      action: (id) => ScheduleApiService.confirmAppointment(id, {
-        'appointment_date': _dateParam(appointmentDate),
-        'appointment_time': _formatTime(appointmentTime),
-        'confirmation_notes': notes.isEmpty
-            ? 'Rescheduled from Front Office Workbench'
-            : notes,
-      }).then((_) {}),
+      action: (id) => ScheduleApiService.rescheduleAppointmentStaff(
+        id,
+        appointmentDate: _dateParam(appointmentDate),
+        appointmentTime: _formatTime(appointmentTime),
+        notes: notes.isEmpty ? 'Rescheduled from Front Office Workbench' : notes,
+      ).then((_) {}),
     );
   }
 
@@ -3622,11 +3654,7 @@ class _FrontOfficeWorkbenchScreenState
     final dateTime = _queueAppointmentDateTimeLabel(row);
     final busy = id != null && _queueActionId == id;
     final selected = _queueRowMatchesSelectedPatient(row);
-    final terminal = const {
-      'COMPLETED',
-      'CANCELLED',
-      'NO_SHOW',
-    }.contains(status);
+    final terminal = frontOfficeAppointmentStatusIsTerminal(status);
     final canConfirm = _canManageOpQueue && status == 'SCHEDULED';
     final canComplete =
         _canCompleteOpQueue &&
@@ -3736,7 +3764,7 @@ class _FrontOfficeWorkbenchScreenState
                     ),
                     const SizedBox(width: 8),
                     _StatusPill(
-                      label: status,
+                      label: frontOfficeAppointmentStatusLabel(status),
                       color: _appointmentStatusColor(status),
                     ),
                   ],
@@ -4991,6 +5019,8 @@ Color _appointmentStatusColor(String status) {
       return AppTheme.successGreen;
     case 'NO_SHOW':
       return AppTheme.textSecondary;
+    case 'RESCHEDULED':
+      return AppTheme.primaryBlue;
     case 'CANCELLED':
       return AppTheme.errorRed;
     default:

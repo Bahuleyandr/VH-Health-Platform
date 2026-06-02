@@ -57,6 +57,7 @@ router.get('/admin/documents', docController.getAllDocumentsAdmin);
 // ── Per-appointment actions (parameterized) ──────────────────────────────────
 router.post('/:id/confirm', paramId(), validate, workflowController.confirmAppointment);
 router.post('/:id/no-show', paramId(), validate, workflowController.markNoShow);
+router.post('/:id/reschedule', paramId(), validate, workflowController.rescheduleAppointment);
 router.post('/:id/complete', paramId(), validate, workflowController.completeAppointment);
 router.post('/:id/cancel', paramId(), validate, workflowController.cancelAppointment);
 // OPD→IPD bridge: doctor flips this on a visit; admission counter sees it.

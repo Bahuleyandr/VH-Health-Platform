@@ -276,7 +276,7 @@ router.post(
            JOIN users u ON u.id = a.patient_id
           WHERE u.uid = $1::uuid
             AND DATE(a.appointment_date) = CURRENT_DATE
-            AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+            AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
           ORDER BY a.created_at DESC
           LIMIT 1`,
         patientUid,

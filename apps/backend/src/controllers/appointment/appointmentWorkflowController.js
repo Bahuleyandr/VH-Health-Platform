@@ -391,6 +391,197 @@ export const markNoShow = async (req, res) => {
 };
 
 /**
+ * Staff reschedules an appointment by closing the original row as
+ * RESCHEDULED and creating a new linked SCHEDULED row for the target slot.
+ * This preserves the original day's queue trail while showing the future
+ * appointment on the requested date.
+ */
+export const rescheduleAppointment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const staffId = req.user?.id;
+    const actorUid = req.user?.uid || null;
+    const { appointment_date, appointment_time } = req.body;
+    const note = req.body.confirmation_notes || req.body.notes || null;
+
+    if (!appointment_date || !appointment_time) {
+      return error(
+        res,
+        'appointment_date and appointment_time are required to reschedule',
+        HTTP_STATUS.BAD_REQUEST,
+      );
+    }
+
+    const {
+      original,
+      replacement,
+      prevStatus,
+    } = await prisma.$transaction(async (tx) => {
+      const apptRows = await tx.$queryRawUnsafe(
+        `SELECT id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
+                appointment_date, appointment_time, status, reason, notes,
+                department, visit_type, payer_type, patient_category,
+                insurer_name, policy_number, scheme_name, triage_acuity, tenant_id
+           FROM appointments
+          WHERE id = $1::int
+          FOR UPDATE`,
+        Number(id),
+      );
+      if (!apptRows.length) {
+        const err = new Error('Appointment not found');
+        err.statusCode = HTTP_STATUS.NOT_FOUND;
+        throw err;
+      }
+
+      const current = apptRows[0];
+      const prevStatus = current.status || 'SCHEDULED';
+      if (['CANCELLED', 'NO_SHOW', 'COMPLETED', 'RESCHEDULED'].includes(prevStatus)) {
+        const err = new Error(`Cannot reschedule an appointment with status ${prevStatus}`);
+        err.statusCode = HTTP_STATUS.BAD_REQUEST;
+        throw err;
+      }
+
+      if (current.doctor_id) {
+        const conflicts = await tx.$queryRawUnsafe(
+          `SELECT id
+             FROM appointments
+            WHERE doctor_id = $1::int
+              AND appointment_date::date = $2::date
+              AND appointment_time = $3
+              AND id <> $4::int
+              AND tenant_id = $5::uuid
+              AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
+            LIMIT 1
+            FOR UPDATE`,
+          Number(current.doctor_id),
+          appointment_date,
+          appointment_time,
+          Number(id),
+          current.tenant_id,
+        );
+        if (conflicts.length) {
+          const err = new Error('Time slot already booked');
+          err.statusCode = HTTP_STATUS.CONFLICT;
+          throw err;
+        }
+      }
+
+      const auditNote = note
+        ? `Rescheduled to ${appointment_date} ${appointment_time}: ${note}`
+        : `Rescheduled to ${appointment_date} ${appointment_time}`;
+
+      const newRows = await tx.$queryRawUnsafe(
+        `INSERT INTO appointments (
+           phone, patient_id, patient_name, doctor_id, doctor_name,
+           appointment_date, appointment_time, reason, notes, status,
+           department, visit_type, parent_appointment_id,
+           payer_type, patient_category, insurer_name, policy_number, scheme_name,
+           triage_acuity, created_by, updated_by, tenant_id, created_at, updated_at
+         )
+         SELECT
+           phone, patient_id, patient_name, doctor_id, doctor_name,
+           $2::date, $3, reason,
+           CASE
+             WHEN $4::text IS NOT NULL
+             THEN COALESCE(notes || ' | ', '') || $4::text
+             ELSE notes
+           END,
+           'SCHEDULED',
+           department, visit_type, id,
+           payer_type, patient_category, insurer_name, policy_number, scheme_name,
+           triage_acuity, $5::uuid, $5::uuid, tenant_id, NOW(), NOW()
+         FROM appointments
+         WHERE id = $1::int
+         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
+                   status, reason, notes, token_number, visit_no, department,
+                   parent_appointment_id, tenant_id, created_at, updated_at`,
+        Number(id),
+        appointment_date,
+        appointment_time,
+        note || `Rescheduled from appointment #${id}`,
+        actorUid,
+      );
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history
+           (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+         VALUES ($1::int, NULL, 'SCHEDULED', $2::int, 'staff', $3)`,
+        Number(newRows[0].id),
+        staffId || null,
+        `Created by rescheduling appointment #${id}`,
+      );
+
+      const queue = await ensureAppointmentQueueForAppointment(tx, newRows[0], {
+        actorUid,
+        source: 'reschedule',
+      });
+      if (queue) {
+        newRows[0] = {
+          ...newRows[0],
+          queue_id: queue.id,
+          appointment_queue: queue,
+        };
+      }
+
+      const updatedOriginal = await tx.$queryRawUnsafe(
+        `UPDATE appointments
+            SET status = 'RESCHEDULED',
+                notes = CASE
+                          WHEN $2::text IS NOT NULL
+                          THEN COALESCE(notes || ' | ', '') || $2::text
+                          ELSE notes
+                        END,
+                updated_by = COALESCE($3::uuid, updated_by),
+                updated_at = NOW()
+          WHERE id = $1::int
+          RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
+                    status, reason, notes, token_number, visit_no, department,
+                    tenant_id, updated_at`,
+        Number(id),
+        auditNote,
+        actorUid,
+      );
+
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history
+           (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+         VALUES ($1::int, $2, 'RESCHEDULED', $3::int, 'staff', $4)`,
+        Number(id),
+        prevStatus,
+        staffId || null,
+        auditNote,
+      );
+
+      return {
+        original: updatedOriginal[0],
+        replacement: newRows[0],
+        prevStatus,
+      };
+    });
+
+    attachAppointmentPhiContext(req, original);
+    await logAppointmentWorkflowAudit(req, 'FRONT_OFFICE_APPOINTMENT_RESCHEDULED', original, {
+      from_status: prevStatus,
+      to_status: 'RESCHEDULED',
+      replacement_appointment_id: replacement.id,
+      replacement_appointment_uid: replacement.uid || null,
+      replacement_appointment_date: replacement.appointment_date,
+      replacement_appointment_time: replacement.appointment_time,
+      reschedule_note: note || null,
+    });
+
+    success(res, {
+      original,
+      appointment: replacement,
+    }, 'Appointment rescheduled');
+  } catch (err) {
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('Reschedule Appointment Error:', err);
+    error(res, 'Failed to reschedule appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
  * Staff marks appointment as completed (patient visited)
  */
 export const completeAppointment = async (req, res) => {
@@ -829,7 +1020,7 @@ export const getAvailableSlots = async (req, res) => {
       SELECT appointment_time FROM appointments
       WHERE doctor_id = $1
         AND DATE(appointment_date) = DATE($2)
-        AND status NOT IN ('CANCELLED', 'NO_SHOW')
+        AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
     `, doctorUserId, date);
 
     const bookedTimes = new Set(booked.map(r => r.appointment_time));
@@ -1696,7 +1887,7 @@ export const registerWalkIn = async (req, res) => {
               SELECT COUNT(*) FROM appointments a
                WHERE a.doctor_id = u.id
                  AND a.appointment_date::date = $2::date
-                 AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+                 AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
             ) ASC, u.id ASC
             LIMIT 1`,
           appointmentDepartment,
@@ -1725,7 +1916,7 @@ export const registerWalkIn = async (req, res) => {
              FROM appointments
             WHERE patient_id = $1::int
               AND appointment_date::date = $3::date
-              AND status NOT IN ('CANCELLED', 'NO_SHOW')
+              AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
               AND ($2::int IS NULL OR doctor_id = $2::int)
             ORDER BY created_at ASC`,
           patientId,

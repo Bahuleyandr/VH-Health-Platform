@@ -269,7 +269,7 @@ async function evaluatePatientAccess(req, patient) {
         WHERE a.tenant_id = $1::uuid
           AND p.uid = $2::uuid
           AND a.doctor_id = $3::int
-          AND COALESCE(a.status, '') NOT IN ('CANCELLED', 'NO_SHOW')
+          AND COALESCE(a.status, '') NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
           AND a.appointment_date >= (CURRENT_DATE - INTERVAL '30 days')
         ORDER BY a.appointment_date DESC, a.id DESC
         LIMIT 1`,

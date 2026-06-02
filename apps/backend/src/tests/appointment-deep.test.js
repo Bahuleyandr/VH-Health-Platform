@@ -507,6 +507,51 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     });
   });
 
+  describe('front office queue reschedule', () => {
+    it('keeps the original date row as RESCHEDULED and creates a linked future appointment', async () => {
+      const book = await receptionist.post('/api/v1/appointments/book').send({
+        patient_id: patientIntId,
+        doctor_id: doctorIntId,
+        appointment_date: apptDate,
+        appointment_time: '16:30',
+        reason: 'Queue reschedule regression',
+        confirm_duplicate: true,
+      });
+      expect(book.statusCode).toBe(201);
+      const originalId = book.body.data.appointment.id;
+      const targetDate = futureDateISO(91);
+
+      const res = await receptionist
+        .post(`/api/v1/appointments/${originalId}/reschedule`)
+        .send({
+          appointment_date: targetDate,
+          appointment_time: '17:00',
+          confirmation_notes: 'Patient requested next available day',
+        });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.original.status).toBe('RESCHEDULED');
+      expect(res.body.data.appointment.status).toBe('SCHEDULED');
+      expect(res.body.data.appointment.parent_appointment_id).toBe(originalId);
+      expect(res.body.data.appointment.appointment_date.slice(0, 10)).toBe(targetDate);
+
+      const todayList = await receptionist
+        .get(`/api/v1/appointments/list?date=${apptDate}&page=1&limit=100`);
+      expect(todayList.statusCode).toBe(200);
+      const todayRow = todayList.body.data.appointments.find((row) => row.id === originalId);
+      expect(todayRow?.status).toBe('RESCHEDULED');
+
+      const futureList = await receptionist
+        .get(`/api/v1/appointments/list?date=${targetDate}&page=1&limit=100`);
+      expect(futureList.statusCode).toBe(200);
+      const futureRow = futureList.body.data.appointments.find(
+        (row) => row.id === res.body.data.appointment.id,
+      );
+      expect(futureRow?.status).toBe('SCHEDULED');
+      expect(futureRow?.parent_appointment_id).toBe(originalId);
+    });
+  });
+
   describe('admission counter worklist', () => {
     it('allows reception desk roles to list appointments and receives doctor uid options', async () => {
       const list = await receptionist.get('/api/v1/appointments/list?limit=5');

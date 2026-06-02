@@ -205,7 +205,7 @@ async function reserveFollowUpAppointment({
       WHERE doctor_id = $1::int
         AND DATE(appointment_date) = ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
         AND appointment_time = to_char($2::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')
-        AND status NOT IN ('CANCELLED', 'NO_SHOW')
+        AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
       LIMIT 1`,
     Number(doctor.id),
     dueAt,

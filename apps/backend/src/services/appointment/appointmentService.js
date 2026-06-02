@@ -43,7 +43,7 @@ export class AppointmentService {
             AND DATE(appointment_date) = DATE(${appointmentDate}::date)
             AND appointment_time = ${appointmentTime}
             AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
-            AND status NOT IN ('CANCELLED', 'NO_SHOW')
+            AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
             AND id != ${parseInt(excludeId)}
           LIMIT 1
         `;
@@ -54,7 +54,7 @@ export class AppointmentService {
             AND DATE(appointment_date) = DATE(${appointmentDate}::date)
             AND appointment_time = ${appointmentTime}
             AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
-            AND status NOT IN ('CANCELLED', 'NO_SHOW')
+            AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
           LIMIT 1
         `;
       }
@@ -138,7 +138,7 @@ export class AppointmentService {
                 AND DATE(appointment_date) = DATE(${appointment_date}::date)
                 AND appointment_time = ${appointment_time}
                 AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
-                AND status NOT IN ('CANCELLED', 'NO_SHOW')
+                AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
               FOR UPDATE
             `
           : [];
@@ -355,7 +355,7 @@ export class AppointmentService {
         apptId,
       );
       const appointment = rows[0];
-      if (appointment && !['CANCELLED', 'NO_SHOW'].includes(String(appointment.status || '').toUpperCase())) {
+      if (appointment && !['CANCELLED', 'NO_SHOW', 'RESCHEDULED'].includes(String(appointment.status || '').toUpperCase())) {
         const queue = await ensureAppointmentQueueForAppointment(prisma, appointment, {
           source: 'status_update',
         });
