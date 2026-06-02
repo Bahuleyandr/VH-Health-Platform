@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../services/patient_api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/patient_identity.dart';
 
 /// Global patient picker — opens as a top-of-screen modal sheet.
 ///
@@ -66,12 +67,12 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   void _onChanged(String value) {
     _debounce?.cancel();
     final trimmed = value.trim();
-    if (trimmed.isEmpty) {
+    if (!patientLookupQueryReady(trimmed)) {
       setState(() {
         _results = [];
         _loading = false;
         _error = null;
-        _lastQuery = '';
+        _lastQuery = trimmed;
       });
       return;
     }
@@ -89,7 +90,9 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
       _error = null;
     });
     try {
-      final rows = await PatientApiService.search(query);
+      final rows = (await PatientApiService.search(query))
+          .where((patient) => patientMatchesLookupQuery(patient, query))
+          .toList(growable: false);
       if (!mounted || query != _lastQuery) return;
       setState(() {
         _results = rows;
@@ -107,7 +110,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   void _openPatient(BuildContext context, Map<String, dynamic> patient) {
     final uid = (patient['uid'] ?? '').toString();
     if (uid.isEmpty) return;
-    final name = (patient['name'] ?? 'Patient').toString();
+    final name = patientNameFrom(patient);
     Navigator.of(context).pop();
     context.go('/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}');
   }
@@ -182,10 +185,18 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
   }
 
   Widget _buildBody() {
-    if (_lastQuery.isEmpty && _controller.text.isEmpty) {
+    if (_controller.text.trim().isEmpty) {
       return _emptyHint(
         Icons.search_outlined,
         'Type a Hospital ID, name, phone, or ABHA address to find a patient.',
+      );
+    }
+    if (!patientLookupQueryReady(_controller.text)) {
+      return _emptyHint(
+        Icons.search_outlined,
+        patientPhoneLikeQuery(_controller.text)
+            ? 'Enter at least 10 digits to search by phone.'
+            : 'Type at least 2 characters to search.',
       );
     }
     if (_loading && _results.isEmpty) {
@@ -205,22 +216,14 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final p = _results[index];
-        final name = (p['name'] ?? 'Unnamed').toString();
-        final age = p['age'];
-        final gender = (p['gender'] ?? '').toString();
-        final phone = (p['phone'] ?? '').toString();
-        final hospitalNumber =
-            (p['hospital_number'] ?? p['patient_hospital_number'] ?? '')
-                .toString();
-        final abha = (p['abha_address'] ?? '').toString();
-        final subtitleParts = <String>[
-          if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
-          if (age != null && age.toString().isNotEmpty) '${age.toString()} yr',
-          if (gender.isNotEmpty)
-            gender[0].toUpperCase() + gender.substring(1).toLowerCase(),
-          if (phone.isNotEmpty) phone,
-          if (abha.isNotEmpty) abha,
-        ];
+        final name = patientNameFrom(p, fallback: 'Unnamed');
+        final subtitle = patientSubtitle(
+          p,
+          includeAgeGender: true,
+          includeAbha: true,
+          prefixHospitalId: true,
+          separator: ' · ',
+        );
         return ListTile(
           leading: CircleAvatar(
             backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
@@ -236,9 +239,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
             name,
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: subtitleParts.isEmpty
-              ? null
-              : Text(subtitleParts.join(' · ')),
+          subtitle: subtitle.isEmpty ? null : Text(subtitle),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => _openPatient(context, p),
         );

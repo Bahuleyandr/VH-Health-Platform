@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/billing_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
@@ -63,6 +64,25 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
 
   void _queuePatientLookup(String value) {
     _searchDebounce?.cancel();
+    final query = value.trim();
+    final selected = _selectedPatient;
+    final selectedChanged =
+        selected != null && query != patientSearchLabel(selected);
+    setState(() {
+      if (selectedChanged) {
+        _selectedPatient = null;
+        _invoices = const [];
+      }
+      if (!patientLookupQueryReady(query)) {
+        _patientMatches = const [];
+        _lookupBusy = false;
+        _error = null;
+      } else {
+        _lookupBusy = true;
+        _error = null;
+      }
+    });
+    if (!patientLookupQueryReady(query)) return;
     _searchDebounce = Timer(
       const Duration(milliseconds: 280),
       () => _searchPatients(value),
@@ -71,9 +91,10 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
 
   Future<void> _searchPatients(String value) async {
     final query = value.trim();
-    if (query.length < 2) {
+    if (!patientLookupQueryReady(query)) {
       setState(() {
         _patientMatches = const [];
+        _lookupBusy = false;
         _error = null;
       });
       return;
@@ -83,8 +104,10 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
       _error = null;
     });
     try {
-      final matches = await PatientApiService.search(query, limit: 12);
-      if (!mounted) return;
+      final matches = (await PatientApiService.search(query, limit: 12))
+          .where((patient) => patientMatchesLookupQuery(patient, query))
+          .toList(growable: false);
+      if (!mounted || _searchCtrl.text.trim() != query) return;
       setState(() {
         _patientMatches = matches;
         _lookupBusy = false;
@@ -209,14 +232,7 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   }
 
   String _patientLabel(Map<String, dynamic> patient) {
-    final hn = patient['hospital_number']?.toString();
-    final name = patient['name']?.toString();
-    final phone = patient['phone']?.toString();
-    return [
-      if (hn != null && hn.isNotEmpty) hn,
-      if (name != null && name.isNotEmpty) name,
-      if (phone != null && phone.isNotEmpty) phone,
-    ].join(' - ');
+    return patientSearchLabel(patient);
   }
 
   num _sumDue() => _invoices.fold<num>(
@@ -633,50 +649,54 @@ class _PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = patient['name']?.toString() ?? 'Patient';
-    final phone = patient['phone']?.toString();
-    final hn = patient['hospital_number']?.toString();
-    return Material(
-      color: selected
-          ? AppTheme.primaryBlue.withValues(alpha: 0.08)
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
+    final name = patientNameFrom(patient);
+    final subtitle = patientSubtitle(patient);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: [name, subtitle].where((part) => part.isNotEmpty).join(', '),
+      child: Material(
+        color: selected
+            ? AppTheme.primaryBlue.withValues(alpha: 0.08)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
-                child: const Icon(Icons.person_outline),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    Text(
-                      [
-                        if (hn != null && hn.isNotEmpty) hn,
-                        if (phone != null && phone.isNotEmpty) phone,
-                      ].join(' - '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
+                  child: const ExcludeSemantics(
+                    child: Icon(Icons.person_outline),
+                  ),
                 ),
-              ),
-              const Icon(Icons.chevron_right),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      if (subtitle.isNotEmpty)
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
           ),
         ),
       ),

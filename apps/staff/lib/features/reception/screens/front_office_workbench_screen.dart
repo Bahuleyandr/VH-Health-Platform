@@ -12,6 +12,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/patient_identity.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
@@ -278,52 +279,21 @@ bool frontOfficePatientMatchesLookupQuery(
   Map<String, dynamic> patient,
   String rawQuery,
 ) {
-  final query = rawQuery.trim();
-  final queryDigits = _digitsOnly(query);
-  final phoneLikeQuery =
-      queryDigits.isNotEmpty && RegExp(r'^[\d\s()+.-]+$').hasMatch(query);
-  if (!phoneLikeQuery) return true;
-  if (queryDigits.length < 10) return false;
-
-  final patientDigits = _digitsOnly(_text(patient['phone']));
-  if (patientDigits.length < 10) return false;
-
-  final normalizedDigits = queryDigits.length == 10
-      ? '91$queryDigits'
-      : queryDigits;
-  final nationalDigits =
-      normalizedDigits.startsWith('91') && normalizedDigits.length == 12
-      ? normalizedDigits.substring(2)
-      : queryDigits;
-  final patientNationalDigits =
-      patientDigits.startsWith('91') && patientDigits.length == 12
-      ? patientDigits.substring(2)
-      : patientDigits;
-
-  return patientDigits == normalizedDigits ||
-      patientDigits == nationalDigits ||
-      patientNationalDigits == nationalDigits;
+  return patientMatchesLookupQuery(patient, rawQuery);
 }
 
 @visibleForTesting
 bool frontOfficePhoneMeetsMinimum(String value) {
-  return _digitsOnly(value).length >= 10;
+  return patientPhoneMeetsMinimum(value);
 }
 
 bool _frontOfficePhoneLikeQuery(String value) {
-  final query = value.trim();
-  final queryDigits = _digitsOnly(query);
-  return queryDigits.isNotEmpty && RegExp(r'^[\d\s()+.-]+$').hasMatch(query);
+  return patientPhoneLikeQuery(value);
 }
 
 @visibleForTesting
 bool frontOfficeLookupQueryReady(String value) {
-  final query = value.trim();
-  if (query.length < 2) return false;
-  if (_frontOfficePhoneLikeQuery(query)) {
-    return frontOfficePhoneMeetsMinimum(query);
-  }
-  return true;
+  return patientLookupQueryReady(value);
 }
 
 @visibleForTesting
@@ -349,19 +319,11 @@ String frontOfficePatientScopedRoute(
   Map<String, dynamic>? patient,
   Map<String, String> queryParameters = const {},
 }) {
-  final params = <String, String>{...queryParameters};
-  final uid = _text(patient?['uid']);
-  final id = _text(patient?['id']);
-  final name = _text(patient?['name']);
-  final phone = _text(patient?['phone']);
-  final hospitalNumber = _text(patient?['hospital_number']);
-  if (uid.isNotEmpty) params['patient_uid'] = uid;
-  if (id.isNotEmpty) params['patient_id'] = id;
-  if (name.isNotEmpty) params['name'] = name;
-  if (phone.isNotEmpty) params['phone'] = phone;
-  if (hospitalNumber.isNotEmpty) params['hospital_number'] = hospitalNumber;
-  final query = Uri(queryParameters: params).query;
-  return query.isEmpty ? path : '$path?$query';
+  return patientScopedRoute(
+    path,
+    patient: patient,
+    queryParameters: queryParameters,
+  );
 }
 
 @visibleForTesting
@@ -905,14 +867,7 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   String _patientLabel(Map<String, dynamic> patient) {
-    final hn = patient['hospital_number']?.toString();
-    final name = patient['name']?.toString();
-    final phone = patient['phone']?.toString();
-    return [
-      if (hn != null && hn.isNotEmpty) hn,
-      if (name != null && name.isNotEmpty) name,
-      if (phone != null && phone.isNotEmpty) phone,
-    ].join(' - ');
+    return patientSearchLabel(patient);
   }
 
   String? _selectedPatientUid() => _selectedPatient?['uid']?.toString();
@@ -3541,54 +3496,54 @@ class _PatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = patient['name']?.toString() ?? 'Patient';
-    final phone = patient['phone']?.toString();
-    final hn = patient['hospital_number']?.toString();
-    final age = patient['age']?.toString();
-    final gender = patient['gender']?.toString();
-    return Material(
-      color: selected
-          ? AppTheme.primaryBlue.withValues(alpha: 0.08)
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
+    final name = patientNameFrom(patient);
+    final subtitle = patientSubtitle(patient, includeAgeGender: true);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: [name, subtitle].where((part) => part.isNotEmpty).join(', '),
+      child: Material(
+        color: selected
+            ? AppTheme.primaryBlue.withValues(alpha: 0.08)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
-                child: const Icon(Icons.person_outline),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    Text(
-                      [
-                        if (hn != null && hn.isNotEmpty) hn,
-                        if (phone != null && phone.isNotEmpty) phone,
-                        if (age != null && age.isNotEmpty) '$age yrs',
-                        if (gender != null && gender.isNotEmpty) gender,
-                      ].join(' - '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.14),
+                  child: const ExcludeSemantics(
+                    child: Icon(Icons.person_outline),
+                  ),
                 ),
-              ),
-              const Icon(Icons.chevron_right),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      if (subtitle.isNotEmpty)
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
           ),
         ),
       ),
