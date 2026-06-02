@@ -49,7 +49,7 @@ function Start-Backend {
 Set-Location -LiteralPath '$backendDir'
 `$env:PORT = '$BackendPort'
 `$env:VH_BASE_URL = '$BaseUrl'
-npm run dev
+npm start
 "@
 
   if (Test-Path -LiteralPath $logPath) {
