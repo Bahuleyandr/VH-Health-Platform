@@ -4,9 +4,9 @@ import 'package:flutter/services.dart';
 
 /// AppBar leading action for staff screens.
 ///
-/// Many screens use `context.go(...)`, so there is often no native
-/// Navigator stack to pop. In that case, the safest shared fallback is
-/// the staff dashboard.
+/// GoRouter owns most Staff navigation, so check its route stack before
+/// falling back to the dashboard. The plain Navigator fallback still keeps
+/// dialogs and locally pushed routes behaving like normal Flutter screens.
 class NavigationBackAction extends StatelessWidget {
   final String fallbackRoute;
   final bool closeOnFallback;
@@ -23,6 +23,12 @@ class NavigationBackAction extends StatelessWidget {
       icon: const Icon(Icons.arrow_back),
       tooltip: MaterialLocalizations.of(context).backButtonTooltip,
       onPressed: () async {
+        final router = GoRouter.of(context);
+        if (router.canPop()) {
+          router.pop();
+          return;
+        }
+
         final navigator = Navigator.of(context);
         if (navigator.canPop()) {
           await navigator.maybePop();

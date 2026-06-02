@@ -38,6 +38,7 @@ import {
   MINIMIZED_INPATIENT_PAYLOAD_ROLES,
   resolveInpatientAdmissionScope,
 } from './inpatientScopeService.js';
+import { normalizeRole as normalizeCanonicalRole } from '../../utils/roles.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -58,6 +59,17 @@ const READINESS_GATED_DISCHARGE_TYPES = new Set(['home', 'transfer', 'aor']);
 // Mirrors the CHECK on admissions.room_category (migration 177).
 const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
 const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
+const ICU_ALLOCATE_ROLES = new Set([
+  'DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
+  'ADMIN', 'SUPER_ADMIN', 'MEDICAL_SUPERINTENDENT',
+  'ICU_NURSE', 'ICU_INCHARGE',
+  'RECEPTIONIST', 'RECEPTION_INCHARGE', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR',
+]);
+
+export function canAllocateIcuBedForAdmission(role) {
+  const normalizedRole = normalizeCanonicalRole(role);
+  return normalizedRole ? ICU_ALLOCATE_ROLES.has(normalizedRole) : false;
+}
 
 function shouldMinimizeInpatientPayload(role) {
   return MINIMIZED_INPATIENT_PAYLOAD_ROLES.has(normalizeRole(role));
@@ -534,23 +546,19 @@ async function admitPatient(data) {
     resolvedRoomCategory = 'day_care';
   }
 
-  // E-4 — ICU tier RBAC. Admitting to an ICU/CCU bed requires a higher
-  // privilege tier than general-ward admission. Caller's role is passed
-  // via data.actor_role (admit endpoint forwards req.user.role). The
-  // standard NURSING_STAFF (ward nurse) cannot allocate ICU beds; only
-  // ICU_NURSE / DOCTOR / ADMIN tiers can. See finding:
+  // E-4 — ICU tier RBAC. Admitting to an ICU/CCU bed requires either
+  // clinical/admin authority or the front-office admission-desk tier that
+  // owns bed allocation during IP creation. Caller's role is passed via
+  // data.actor_role (admit endpoint forwards req.user.role). Standard
+  // NURSING_STAFF (ward nurse) still cannot independently allocate ICU beds.
+  // See finding:
   // 2026-05-08-emergency-walk-in-admission-no-icu-rbac-tier.
   const isIcuTarget = resolvedRoomCategory === 'icu';
   if (isIcuTarget) {
-    const ICU_ALLOCATE_ROLES = new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
-      'ADMIN', 'SUPER_ADMIN',
-      'ICU_NURSE', 'ICU_INCHARGE',
-    ]);
     const actorRole = data.actor_role || data.created_by_role || null;
-    if (actorRole && !ICU_ALLOCATE_ROLES.has(actorRole)) {
+    if (actorRole && !canAllocateIcuBedForAdmission(actorRole)) {
       throw AppError.forbidden(
-        `ICU bed allocation requires DOCTOR / ICU_NURSE / ADMIN tier (got role=${actorRole})`,
+        `ICU bed allocation requires DOCTOR / ICU_NURSE / ADMIN / ADMISSION_DESK tier (got role=${actorRole})`,
         'ICU_TIER_REQUIRED',
       );
     }
