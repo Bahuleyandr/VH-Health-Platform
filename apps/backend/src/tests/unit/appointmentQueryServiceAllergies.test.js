@@ -169,6 +169,73 @@ describe('appointmentQueryService department flattening', () => {
     );
   });
 
+  it('scopes duty-doctor lists to the authenticated doctor, ignoring foreign doctor filters', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ department: 'Emergency' }]);
+    countMock.mockResolvedValueOnce(1);
+    findManyMock.mockResolvedValueOnce([
+      {
+        id: 402,
+        appointment_date: new Date('2026-06-04T11:00:00.000Z'),
+        appointment_time: '11:00',
+        status: 'CONFIRMED',
+        reason: 'Duty doctor review',
+        notes: null,
+        patient_id: 13,
+        doctor_id: 23,
+        phone: '+919000000014',
+        patient_name: 'Duty Queue Patient',
+        doctor_name: 'Dr Duty',
+        department: 'Emergency',
+        token_number: null,
+        visit_no: null,
+        advised_for_admission_at: null,
+        advised_for_admission_by: null,
+        advised_for_admission_note: null,
+        created_at: new Date('2026-06-04T10:30:00.000Z'),
+        updated_at: new Date('2026-06-04T10:30:00.000Z'),
+        users_appointments_patient_idTousers: {
+          id: 13,
+          uid: 'ba000000-0000-4000-8000-00000000b014',
+          name: 'Duty Queue Patient',
+          phone: '+919000000014',
+          guardian_phone: null,
+          email: null,
+          allergies: null,
+        },
+        users_appointments_doctor_idTousers: {
+          id: 23,
+          uid: 'da000000-0000-4000-8000-00000000d023',
+          name: 'Dr Duty',
+          doctors: [
+            { specialty: 'Emergency Medicine', department: 'Emergency' },
+          ],
+        },
+      },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await appointmentQueryService.getAppointments(
+      { date: '2026-06-04', doctor_id: '999' },
+      {},
+      'DUTY_DOCTOR',
+      23,
+    );
+
+    expect(countMock.mock.calls[0][0].where.doctor_id).toBeUndefined();
+    expect(countMock.mock.calls[0][0].where.AND[0]).toEqual({
+      OR: [
+        { doctor_id: 23 },
+        {
+          doctor_id: null,
+          department: { equals: 'Emergency', mode: 'insensitive' },
+        },
+      ],
+    });
+    expect(findManyMock.mock.calls[0][0].where.AND[0]).toEqual(
+      countMock.mock.calls[0][0].where.AND[0],
+    );
+  });
+
   it('preserves appointment department and exposes consultant department separately', async () => {
     countMock.mockResolvedValueOnce(1);
     findManyMock.mockResolvedValueOnce([

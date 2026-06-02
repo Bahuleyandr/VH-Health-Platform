@@ -132,7 +132,10 @@ class StaffAppointment {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return true;
     return patientName.toLowerCase().contains(q) ||
-        patientPhone.toLowerCase().contains(q);
+        patientPhone.toLowerCase().contains(q) ||
+        doctorName.toLowerCase().contains(q) ||
+        department.toLowerCase().contains(q) ||
+        reason.toLowerCase().contains(q);
   }
 }
 

@@ -11,6 +11,8 @@ import { computeGestationalAge } from '../maternity/maternityService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { istDateString } from '../../utils/dateUtils.js';
 
+const DOCTOR_SCOPED_APPOINTMENT_ROLES = new Set(['DOCTOR', 'DUTY_DOCTOR']);
+
 // Base set of appointment columns every list view returns.
 const APPT_BASE_SELECT = {
   id: true,
@@ -428,7 +430,8 @@ export class AppointmentQueryService {
 
       const where = {};
       const andFilters = [];
-      if (userRole === 'DOCTOR') {
+      const isDoctorScopedRole = DOCTOR_SCOPED_APPOINTMENT_ROLES.has(userRole);
+      if (isDoctorScopedRole) {
         const doctorId = parseInt(userId, 10);
         const doctorDepartment = await resolveDoctorDepartmentForUser(userId);
         const doctorScope = [{ doctor_id: doctorId }];
@@ -441,7 +444,7 @@ export class AppointmentQueryService {
         andFilters.push({ OR: doctorScope });
       }
       if (filters.status) where.status = filters.status.toUpperCase();
-      if (filters.doctor_id && userRole !== 'DOCTOR') where.doctor_id = parseInt(filters.doctor_id, 10);
+      if (filters.doctor_id && !isDoctorScopedRole) where.doctor_id = parseInt(filters.doctor_id, 10);
       if (filters.patient_id) where.patient_id = parseInt(filters.patient_id);
       if (filters.date) where.appointment_date = dateRangeFilter(filters.date);
       if (filters.department) {

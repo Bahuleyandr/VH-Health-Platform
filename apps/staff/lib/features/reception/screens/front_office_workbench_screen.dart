@@ -16,6 +16,22 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../widgets/billing_document_actions.dart';
 import '../widgets/billing_payment_dialog.dart';
 
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
+
+String _dateParam(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
+
+@visibleForTesting
+String frontOfficeQueueDateLabel(DateTime date, {DateTime? now}) {
+  final today = _dateOnly(now ?? DateTime.now());
+  final day = _dateOnly(date);
+  final offset = day.difference(today).inDays;
+  if (offset == 0) return 'Today Queue';
+  if (offset == 1) return 'Tomorrow Queue';
+  if (offset == 2) return 'Following Day Queue';
+  return '${DateFormat('EEE, d MMM').format(day)} Queue';
+}
+
 int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
   if (data is! Map) return fallbackCount;
   final pagination = data['pagination'];
@@ -390,6 +406,7 @@ class _FrontOfficeWorkbenchScreenState
   int? _queueActionId;
   String? _error;
   String? _lookupError;
+  DateTime _queueDate = _dateOnly(DateTime.now());
 
   List<Map<String, dynamic>> _patientMatches = const [];
   Map<String, dynamic>? _selectedPatient;
@@ -502,10 +519,8 @@ class _FrontOfficeWorkbenchScreenState
     });
     try {
       final queueFuture = switch (_queueScope) {
-        FrontOfficeQueueScope.full =>
-          ScheduleApiService.getTodayAppointmentQueue(),
-        FrontOfficeQueueScope.mine =>
-          ScheduleApiService.getMyTodayAppointmentQueue(),
+        FrontOfficeQueueScope.full ||
+        FrontOfficeQueueScope.mine => _loadAppointmentQueueForSelectedDate(),
         FrontOfficeQueueScope.none => Future<List<dynamic>>.value(const []),
       };
       final admissionHandoffFuture = _canViewAdmissionHandoffs
@@ -533,6 +548,28 @@ class _FrontOfficeWorkbenchScreenState
     }
   }
 
+  Future<List<dynamic>> _loadAppointmentQueueForSelectedDate() async {
+    final doctorId = _queueScope == FrontOfficeQueueScope.mine
+        ? await ApiConfig.getStaffId()
+        : null;
+    final data = await ScheduleApiService.getAppointments(
+      doctorId: doctorId,
+      date: _dateParam(_queueDate),
+      page: 1,
+      limit: 100,
+    );
+    return _mapList(data)
+        .where((row) => _appointmentStatus(row) != 'CANCELLED')
+        .toList(growable: false);
+  }
+
+  Future<void> _setQueueDate(DateTime value) async {
+    final next = _dateOnly(value);
+    if (_queueDate == next) return;
+    setState(() => _queueDate = next);
+    await _refreshWorklists();
+  }
+
   Future<List<Map<String, dynamic>>> _doctorOptionsFuture() {
     _doctorsFuture ??= ScheduleApiService.getAppointmentDoctors();
     return _doctorsFuture!;
@@ -553,7 +590,14 @@ class _FrontOfficeWorkbenchScreenState
   }
 
   List<Map<String, dynamic>> _mapList(dynamic value) {
-    if (value is Map) value = value['data'] ?? value['items'] ?? value['rows'];
+    if (value is Map) {
+      value =
+          value['appointments'] ??
+          value['queue'] ??
+          value['data'] ??
+          value['items'] ??
+          value['rows'];
+    }
     if (value is! List) return const [];
     return value
         .whereType<Map>()
@@ -2913,8 +2957,9 @@ class _FrontOfficeWorkbenchScreenState
   Widget _buildQueuePanel() {
     final queueScope = _queueScope;
     final title = queueScope == FrontOfficeQueueScope.mine
-        ? 'My OP Queue'
-        : 'Today Queue';
+        ? 'My ${frontOfficeQueueDateLabel(_queueDate)}'
+        : frontOfficeQueueDateLabel(_queueDate);
+    final dateParam = _dateParam(_queueDate);
     return _Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2922,13 +2967,33 @@ class _FrontOfficeWorkbenchScreenState
           _SectionTitle(
             icon: Icons.event_note,
             title: title,
-            trailing: TextButton.icon(
-              onPressed: _refreshWorklists,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh'),
+            trailing: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: () =>
+                      context.push('/appointments?date=$dateParam'),
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  label: const Text('Calendar'),
+                ),
+                TextButton.icon(
+                  onPressed: _refreshWorklists,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
+          if (queueScope != FrontOfficeQueueScope.none) ...[
+            _QueueDateSwitcher(
+              selectedDate: _queueDate,
+              onSelected: _setQueueDate,
+            ),
+            const SizedBox(height: 8),
+          ],
           if (queueScope == FrontOfficeQueueScope.none)
             const _EmptyLine(
               icon: Icons.lock_outline,
@@ -2937,7 +3002,7 @@ class _FrontOfficeWorkbenchScreenState
           else if (_todayQueue.isEmpty)
             const _EmptyLine(
               icon: Icons.event_busy,
-              text: 'No queue rows loaded',
+              text: 'No appointments queued for this date',
             )
           else
             ..._todayQueue.take(5).map(_queueTile),
@@ -3898,6 +3963,62 @@ class _QueueActionButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8),
           visualDensity: VisualDensity.compact,
         ),
+      ),
+    );
+  }
+}
+
+class _QueueDateSwitcher extends StatelessWidget {
+  final DateTime selectedDate;
+  final Future<void> Function(DateTime date) onSelected;
+
+  const _QueueDateSwitcher({
+    required this.selectedDate,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final today = _dateOnly(DateTime.now());
+    final days = [
+      today,
+      today.add(const Duration(days: 1)),
+      today.add(const Duration(days: 2)),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final day in days) ...[
+            ChoiceChip(
+              label: Text(switch (day.difference(today).inDays) {
+                0 => 'Today',
+                1 => 'Tomorrow',
+                _ => 'Following day',
+              }),
+              selected: _dateOnly(selectedDate) == day,
+              onSelected: (_) => onSelected(day),
+            ),
+            const SizedBox(width: 8),
+          ],
+          OutlinedButton.icon(
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: selectedDate,
+                firstDate: today.subtract(const Duration(days: 30)),
+                lastDate: today.add(const Duration(days: 180)),
+              );
+              if (picked != null) await onSelected(picked);
+            },
+            icon: const Icon(Icons.event_outlined, size: 18),
+            label: Text(DateFormat('d MMM').format(selectedDate)),
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(0, 36),
+            ),
+          ),
+        ],
       ),
     );
   }

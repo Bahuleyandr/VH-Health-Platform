@@ -4,6 +4,35 @@ import 'package:vhhealth_staff/core/platform_info.dart';
 import 'package:vhhealth_staff/features/reception/screens/front_office_workbench_screen.dart';
 
 void main() {
+  group('frontOfficeQueueDateLabel', () {
+    final today = DateTime(2026, 6, 2);
+
+    test('labels today, tomorrow, and following day queues', () {
+      expect(frontOfficeQueueDateLabel(today, now: today), 'Today Queue');
+      expect(
+        frontOfficeQueueDateLabel(
+          today.add(const Duration(days: 1)),
+          now: today,
+        ),
+        'Tomorrow Queue',
+      );
+      expect(
+        frontOfficeQueueDateLabel(
+          today.add(const Duration(days: 2)),
+          now: today,
+        ),
+        'Following Day Queue',
+      );
+    });
+
+    test('falls back to a compact date label outside quick queue days', () {
+      expect(
+        frontOfficeQueueDateLabel(DateTime(2026, 6, 8), now: today),
+        'Mon, 8 Jun Queue',
+      );
+    });
+  });
+
   group('frontOfficeWorkbenchCanLoad', () {
     test(
       'allows front-office roles only on tablet or desktop workbench modes',

@@ -223,8 +223,14 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/appointments',
           name: 'appointments',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: AppointmentsScreen()),
+          pageBuilder: (context, state) {
+            final initialDate = DateTime.tryParse(
+              state.uri.queryParameters['date'] ?? '',
+            );
+            return NoTransitionPage(
+              child: AppointmentsScreen(initialDate: initialDate),
+            );
+          },
         ),
         GoRoute(
           path: '/investigations',
