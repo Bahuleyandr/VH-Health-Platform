@@ -73,6 +73,8 @@ class StaffAppointment {
       doctorName: doctorName,
       department: _firstText([
         json['department'],
+        json['appointment_department'],
+        json['consultant_department'],
         json['doctor_department'],
         doctor?['department'],
         profile?['department'],
@@ -131,11 +133,36 @@ class StaffAppointment {
   bool matchesPatientSearch(String query) {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return true;
+    return matchesPatientIdentity(q) ||
+        matchesDoctorOrDepartment(q) ||
+        reason.toLowerCase().contains(q);
+  }
+
+  bool matchesPatientIdentity(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
     return patientName.toLowerCase().contains(q) ||
         patientPhone.toLowerCase().contains(q) ||
-        doctorName.toLowerCase().contains(q) ||
+        tokenNumber.toLowerCase().contains(q) ||
+        _rawText('visit_no').contains(q) ||
+        _rawText('hospital_number').contains(q) ||
+        _rawText('patient_uid').contains(q);
+  }
+
+  bool matchesDoctorOrDepartment(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return doctorName.toLowerCase().contains(q) ||
         department.toLowerCase().contains(q) ||
-        reason.toLowerCase().contains(q);
+        _rawText('doctor_display_name').contains(q) ||
+        _rawText('doctor_name_detail').contains(q) ||
+        _rawText('appointment_department').contains(q) ||
+        _rawText('consultant_department').contains(q) ||
+        _rawText('doctor_department').contains(q);
+  }
+
+  String _rawText(String key) {
+    return raw[key]?.toString().trim().toLowerCase() ?? '';
   }
 }
 

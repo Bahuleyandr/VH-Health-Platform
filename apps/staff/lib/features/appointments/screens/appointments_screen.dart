@@ -112,6 +112,16 @@ Color _appointmentStatusColor(String status) {
   };
 }
 
+@visibleForTesting
+bool appointmentMatchesCalendarFilters(
+  StaffAppointment appointment, {
+  String patientQuery = '',
+  String doctorDepartmentQuery = '',
+}) {
+  return appointment.matchesPatientIdentity(patientQuery) &&
+      appointment.matchesDoctorOrDepartment(doctorDepartmentQuery);
+}
+
 Map<String, List<StaffAppointment>> appointmentSlotGroups(
   Iterable<StaffAppointment> appointments,
 ) {
@@ -197,19 +207,28 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   bool _loading = true;
   String? _error;
   String _selectedStatus = 'all';
-  String _searchQuery = '';
+  String _patientSearchQuery = '';
+  String _doctorDepartmentQuery = '';
   late DateTime _selectedDate;
   String _scopeLabel = 'All OP queues';
 
   List<StaffAppointment> get _filtered => _appointmentsByDate.values
       .expand((rows) => rows)
-      .where((a) => a.matchesPatientSearch(_searchQuery))
+      .where(_matchesCalendarFilters)
       .toList();
 
   List<StaffAppointment> _appointmentsForDate(DateTime date) =>
       (_appointmentsByDate[_dateParam(date)] ?? const [])
-          .where((a) => a.matchesPatientSearch(_searchQuery))
+          .where(_matchesCalendarFilters)
           .toList(growable: false);
+
+  bool _matchesCalendarFilters(StaffAppointment appointment) {
+    return appointmentMatchesCalendarFilters(
+      appointment,
+      patientQuery: _patientSearchQuery,
+      doctorDepartmentQuery: _doctorDepartmentQuery,
+    );
+  }
 
   static const _statuses = [
     'all',
@@ -1055,7 +1074,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 width: searchWidth,
                 child: TextField(
                   decoration: InputDecoration(
-                    hintText: 'Search patient, phone, doctor, department',
+                    hintText: 'Search patient or phone',
                     prefixIcon: const Icon(Icons.search),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
@@ -1068,7 +1087,27 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                     filled: true,
                     fillColor: AppTheme.surfaceWhite,
                   ),
-                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onChanged: (v) => setState(() => _patientSearchQuery = v),
+                ),
+              ),
+              SizedBox(
+                width: searchWidth,
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Filter doctor or department',
+                    prefixIcon: const Icon(Icons.manage_search_outlined),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: AppTheme.surfaceWhite,
+                  ),
+                  onChanged: (v) => setState(() => _doctorDepartmentQuery = v),
                 ),
               ),
               _CalendarModePill(scopeLabel: _scopeLabel),
@@ -1195,7 +1234,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           days: weekDays,
           selectedDate: _selectedDate,
           appointmentsByDate: _appointmentsByDate,
-          searchQuery: _searchQuery,
+          patientQuery: _patientSearchQuery,
+          doctorDepartmentQuery: _doctorDepartmentQuery,
           onDateSelected: _selectDate,
           onAppointmentTap: _openAppointmentActions,
         );
@@ -1556,7 +1596,8 @@ class _WeekCalendarBoard extends StatelessWidget {
   final List<DateTime> days;
   final DateTime selectedDate;
   final Map<String, List<StaffAppointment>> appointmentsByDate;
-  final String searchQuery;
+  final String patientQuery;
+  final String doctorDepartmentQuery;
   final ValueChanged<DateTime> onDateSelected;
   final ValueChanged<StaffAppointment> onAppointmentTap;
 
@@ -1564,14 +1605,21 @@ class _WeekCalendarBoard extends StatelessWidget {
     required this.days,
     required this.selectedDate,
     required this.appointmentsByDate,
-    required this.searchQuery,
+    required this.patientQuery,
+    required this.doctorDepartmentQuery,
     required this.onDateSelected,
     required this.onAppointmentTap,
   });
 
   List<StaffAppointment> _appointmentsFor(DateTime day) =>
       (appointmentsByDate[_dateParam(day)] ?? const [])
-          .where((appointment) => appointment.matchesPatientSearch(searchQuery))
+          .where(
+            (appointment) => appointmentMatchesCalendarFilters(
+              appointment,
+              patientQuery: patientQuery,
+              doctorDepartmentQuery: doctorDepartmentQuery,
+            ),
+          )
           .toList(growable: false);
 
   List<StaffAppointment> _appointmentsForHour(DateTime day, int hour) {
