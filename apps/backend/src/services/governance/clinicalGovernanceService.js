@@ -496,7 +496,12 @@ export async function listPatientAccessAudit({
   params.push(limit(take));
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT * FROM patient_access_audit_log
+      `SELECT
+         id, tenant_id, patient_uid, actor_uid, actor_role,
+         access_decision, access_source, reason AS access_reason,
+         route, action, care_team_id, break_glass_id, request_id,
+         metadata, metadata->>'record_type' AS record_type, created_at
+       FROM patient_access_audit_log
        WHERE ${filters.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
       ...params,

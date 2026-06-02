@@ -152,6 +152,9 @@ export type {
 } from "./database";
 export { getDatabaseOverview, getDatabaseTableRows };
 
+// Clinical governance
+export * from "./clinicalGovernance";
+
 // Infrastructure & Logs
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";
 export { getAuditLogs, toggleUserStatus };

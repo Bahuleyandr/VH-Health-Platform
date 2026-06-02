@@ -1,0 +1,125 @@
+import { jest } from '@jest/globals';
+
+const prismaMock = {
+  $queryRawUnsafe: jest.fn(),
+  $executeRawUnsafe: jest.fn(),
+};
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaMock,
+}));
+
+jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
+  logPhiAccess: jest.fn(),
+}));
+
+jest.unstable_mockModule('../../logging/logger.js', () => ({
+  default: {
+    warn: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
+
+const { patientAccessGuard } = await import('../../middleware/phiAccessMiddleware.js');
+
+afterEach(() => {
+  prismaMock.$queryRawUnsafe.mockReset();
+  prismaMock.$executeRawUnsafe.mockReset();
+});
+
+function resStub() {
+  return {
+    statusCode: 200,
+    status: jest.fn().mockReturnThis(),
+    json: jest.fn().mockReturnThis(),
+    on: jest.fn(),
+  };
+}
+
+describe('patientAccessGuard', () => {
+  it('passes through when no patient context is present', async () => {
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('MEDICAL_RECORD')({
+      method: 'GET',
+      params: {},
+      query: {},
+      body: {},
+      user: { id: 9, uid: '22222222-2222-4222-8222-222222222222', role: 'DOCTOR' },
+    }, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('allows active care-team members and writes an allow audit row', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 4, care_team_id: 5 }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('MEDICAL_RECORD')({
+      id: 'req-1',
+      method: 'GET',
+      originalUrl: '/api/v1/records?patient_id=15',
+      params: {},
+      query: { patient_id: '15' },
+      body: {},
+      user: {
+        id: 9,
+        uid: '22222222-2222-4222-8222-222222222222',
+        role: 'DOCTOR',
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+      },
+    }, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('allow');
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('care_team');
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][10]).toBe(5);
+  });
+
+  it('denies patient-specific access without relationship or break-glass', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('MEDICAL_RECORD')({
+      id: 'req-2',
+      method: 'GET',
+      originalUrl: '/api/v1/records?patient_id=15',
+      params: {},
+      query: { patient_id: '15' },
+      body: {},
+      user: {
+        id: 9,
+        uid: '22222222-2222-4222-8222-222222222222',
+        role: 'DOCTOR',
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+      },
+    }, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_ACCESS_DENIED',
+      break_glass_available: true,
+    }));
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('deny');
+  });
+});

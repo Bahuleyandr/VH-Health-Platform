@@ -14,6 +14,7 @@ import { isDoctor } from '../../utils/roleHelpers.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
 import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
+import { ensureAppointmentQueueForAppointment } from '../../services/appointment/appointmentQueueService.js';
 
 const FULL_OP_QUEUE_ROLES = new Set([
   'ADMIN',
@@ -206,7 +207,7 @@ export const confirmAppointment = async (req, res) => {
 
     const { result, a, tokenNumber, newDate, newTime } = await prisma.$transaction(async (tx) => {
       const apptRows = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no, tenant_id FROM appointments WHERE id=$1 FOR UPDATE',
         Number(id),
       );
       if (!apptRows.length) {
@@ -270,7 +271,7 @@ export const confirmAppointment = async (req, res) => {
           updated_at = NOW()
         WHERE id = $4
         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
-                  token_number, visit_no, confirmed_at, department, created_at, updated_at
+                  token_number, visit_no, confirmed_at, department, tenant_id, created_at, updated_at
       `,
         tokenNumber, newDate, newTime, Number(id), visitNo,
       );
@@ -280,6 +281,18 @@ export const confirmAppointment = async (req, res) => {
          VALUES ($1,$2,'CONFIRMED',$3,'staff',$4)`,
         Number(id), a.status, staffId, confirmation_notes || null,
       );
+
+      const queue = await ensureAppointmentQueueForAppointment(tx, result[0], {
+        actorUid: req.user?.uid,
+        source: 'confirm',
+      });
+      if (queue) {
+        result[0] = {
+          ...result[0],
+          queue_id: queue.id,
+          appointment_queue: queue,
+        };
+      }
 
       return { result, a, tokenNumber, newDate, newTime };
     });
@@ -658,7 +671,10 @@ export const getTodayQueue = async (req, res) => {
       )
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
-        a.visit_type, a.triage_acuity,
+        a.visit_type, a.triage_acuity, a.queue_id,
+        q.queue_kind, q.queue_label, q.status AS queue_status,
+        q.queue_date, q.department_name AS queue_department_name,
+        q.doctor_id AS queue_doctor_id,
         p.name as patient_name, p.phone as patient_phone, p.blood_group, p.uid as patient_uid,
         d.name as doctor_display_name, doc.specialty AS specialization,
         doc.department as doctor_department,
@@ -678,6 +694,7 @@ export const getTodayQueue = async (req, res) => {
       LEFT JOIN users p ON a.patient_id = p.id
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+      LEFT JOIN appointment_queues q ON q.id = a.queue_id
       LEFT JOIN ed_today ed ON ed.patient_uid = p.uid
       LEFT JOIN anc_preg mp ON mp.patient_uid = p.uid
       ${where}
@@ -692,11 +709,27 @@ export const getTodayQueue = async (req, res) => {
 
     // Decorate ANC rows with computed GA so the receptionist queue can
     // render "GA 24+0" without each client repeating the LMP math.
-    const enriched = result.map((row) => (
-      row.anc_lmp_date
-        ? { ...row, gestational_age: computeGestationalAge(row.anc_lmp_date) }
-        : row
-    ));
+    const enriched = result.map((row) => {
+      const appointmentQueue = row.queue_id
+        ? {
+            id: row.queue_id,
+            queue_id: row.queue_id,
+            queue_kind: row.queue_kind ?? null,
+            queue_label: row.queue_label ?? null,
+            status: row.queue_status ?? null,
+            queue_date: row.queue_date ?? null,
+            department_name: row.queue_department_name ?? null,
+            doctor_id: row.queue_doctor_id ?? null,
+          }
+        : null;
+      return {
+        ...row,
+        appointment_queue: appointmentQueue,
+        ...(row.anc_lmp_date
+          ? { gestational_age: computeGestationalAge(row.anc_lmp_date) }
+          : {}),
+      };
+    });
 
     success(res, enriched, "Today's queue fetched");
   } catch (err) {
@@ -1719,7 +1752,8 @@ export const registerWalkIn = async (req, res) => {
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                    status, confirmed_at, token_number, visit_no, department, created_at,
                    visit_type, parent_appointment_id,
-                   payer_type, patient_category, insurer_name, policy_number, scheme_name`,
+                   payer_type, patient_category, insurer_name, policy_number, scheme_name,
+                   tenant_id`,
         patientId,
         resolvedDoctorIdForInsert,
         resolvedTime,
@@ -1756,6 +1790,15 @@ export const registerWalkIn = async (req, res) => {
         appt.id,
         staffId,
       );
+
+      const queue = await ensureAppointmentQueueForAppointment(tx, appt, {
+        actorUid: staffUid,
+        source: 'walk_in',
+      });
+      if (queue) {
+        appt.queue_id = queue.id;
+        appt.appointment_queue = queue;
+      }
 
       // visit_no was computed pre-INSERT and persisted on the appointments
       // row (migration 217). Use it for the ER visit_number FK below.

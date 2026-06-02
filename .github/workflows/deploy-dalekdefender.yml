@@ -109,6 +109,9 @@ jobs:
           # Stamp the deployed commit into the build so the swarm's
           # live-recheck can read it back from /health/version.
           GIT_COMMIT=$(git rev-parse HEAD)
+          GIT_TAG=$(git rev-parse --short=12 HEAD)
+          BACKEND_IMAGE="vhhealth-backend:${GIT_TAG}"
+          ADMIN_IMAGE="vhhealth-admin:${GIT_TAG}"
           echo "Deploying commit $GIT_COMMIT"
 
           # Generate the Dockerfile.dalek variants — the upstream
@@ -123,24 +126,25 @@ jobs:
           # Build + import backend image.
           cd ~/VH-Health-Platform/apps/backend
           sudo -n docker build \
-            -t vhhealth-backend:dev \
+            -t "$BACKEND_IMAGE" \
             --build-arg GIT_COMMIT="$GIT_COMMIT" \
             -f Dockerfile.dalek .
-          sudo -n docker save vhhealth-backend:dev | sudo -n k3s ctr images import -
+          sudo -n docker save "$BACKEND_IMAGE" | sudo -n k3s ctr images import -
 
           # Build + import admin image.
           cd ~/VH-Health-Platform/apps/admin
           sudo -n docker build \
-            -t vhhealth-admin:dev \
+            -t "$ADMIN_IMAGE" \
             --build-arg NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444 \
             --build-arg GIT_COMMIT="$GIT_COMMIT" \
             -f Dockerfile.dalek .
-          sudo -n docker save vhhealth-admin:dev | sudo -n k3s ctr images import -
+          sudo -n docker save "$ADMIN_IMAGE" | sudo -n k3s ctr images import -
 
           # Roll both deployments + wait for readiness.
+          sudo -n kubectl -n vhhealth set image deploy/vhhealth-backend backend="$BACKEND_IMAGE"
+          sudo -n kubectl -n vhhealth set image deploy/vhhealth-admin admin="$ADMIN_IMAGE"
           sudo -n kubectl -n vhhealth set env deploy/vhhealth-backend GIT_COMMIT="$GIT_COMMIT"
           sudo -n kubectl -n vhhealth set env deploy/vhhealth-admin GIT_COMMIT="$GIT_COMMIT"
-          sudo -n kubectl -n vhhealth rollout restart deploy/vhhealth-backend deploy/vhhealth-admin
           sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-backend --timeout=300s
           sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-admin --timeout=300s
 

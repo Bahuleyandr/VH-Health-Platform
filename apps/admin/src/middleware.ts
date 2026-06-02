@@ -82,6 +82,7 @@ const ADMIN_ONLY_PATHS = [
   "/dashboard/settings",
   "/dashboard/audit",
   "/dashboard/admin-management",
+  "/dashboard/clinical-governance",
 ];
 
 // Clinical AI is a control-plane surface: ADMIN/SUPER_ADMIN plus IT operators.

@@ -26,7 +26,7 @@ import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
-import { phiAccessLogger } from './middleware/phiAccessMiddleware.js';
+import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
@@ -519,7 +519,7 @@ app.use(
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
+app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
 app.use('/api/v1/investigations', patientRateLimiter, requireRole(
   'ADMIN',
   'SUPER_ADMIN',
@@ -709,6 +709,7 @@ app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOC
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
 app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
+app.use('/api/v1/emr', patientAccessGuard('EMR'));
 app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
   '/api/v1/emr/notes',
   '/api/v1/emr/timeline',

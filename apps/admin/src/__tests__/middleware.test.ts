@@ -296,6 +296,7 @@ describe("ADMIN_ONLY_PATHS", () => {
     "/dashboard/settings",
     "/dashboard/audit",
     "/dashboard/admin-management",
+    "/dashboard/clinical-governance",
   ];
 
   it.each(adminOnlyPaths)(

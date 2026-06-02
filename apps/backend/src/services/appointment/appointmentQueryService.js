@@ -10,6 +10,7 @@ import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../maternity/maternityService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { attachAppointmentQueues } from './appointmentQueueService.js';
 
 const DOCTOR_SCOPED_APPOINTMENT_ROLES = new Set(['DOCTOR', 'DUTY_DOCTOR']);
 
@@ -502,8 +503,13 @@ export class AppointmentQueryService {
 
       const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
 
+      const appointments = await attachAppointmentQueues(
+        rows.map((row) => flattenListRow(row, allergyMap)),
+        prisma,
+      );
+
       return {
-        appointments: rows.map((row) => flattenListRow(row, allergyMap)),
+        appointments,
         pagination: buildPagination(total, listQuery.page, listQuery.limit),
         filters: {
           ...filters,
@@ -557,7 +563,7 @@ export class AppointmentQueryService {
       const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
 
       // This view only needs patient_* fields, no doctor aliases.
-      return rows.map((r) => {
+      const appointments = rows.map((r) => {
         const p = r[REL_PATIENT] ?? null;
         const flat = { ...r };
         delete flat[REL_PATIENT];
@@ -566,6 +572,7 @@ export class AppointmentQueryService {
         flat.patient_email = p?.email ?? null;
         return attachPatientAllergies(flat, p, allergyMap);
       });
+      return attachAppointmentQueues(appointments, prisma);
     } catch (error) {
       logger.error('Error getting doctor appointments:', error);
       throw error;
@@ -610,7 +617,7 @@ export class AppointmentQueryService {
       // (this view is scoped to one patient). Prefer the appointment's own
       // `department` column; fall back to the doctor's profile department
       // for legacy rows where department was never written on the row.
-      return rows.map((r) => {
+      const appointments = rows.map((r) => {
         const d = r[REL_DOCTOR] ?? null;
         const p = r[REL_PATIENT] ?? null;
         const profile = d?.doctors?.[0] ?? null;
@@ -623,6 +630,7 @@ export class AppointmentQueryService {
         flat.department = r.department ?? profile?.department ?? null;
         return attachPatientAllergies(flat, p, allergyMap);
       });
+      return attachAppointmentQueues(appointments, prisma);
     } catch (error) {
       logger.error('Error getting patient appointments:', error);
       throw error;
@@ -674,7 +682,7 @@ export class AppointmentQueryService {
         return attachPatientAllergies(flat, p, allergyMap);
       });
 
-      return { appointments, date: todayStr };
+      return { appointments: await attachAppointmentQueues(appointments, prisma), date: todayStr };
     } catch (error) {
       logger.error('Error getting today appointments:', error);
       throw error;
@@ -842,7 +850,8 @@ export class AppointmentQueryService {
         }
       }
 
-      return flat;
+      const [withQueue] = await attachAppointmentQueues([flat], prisma);
+      return withQueue;
     } catch (error) {
       logger.error('Error getting appointment by ID:', error);
       throw error;

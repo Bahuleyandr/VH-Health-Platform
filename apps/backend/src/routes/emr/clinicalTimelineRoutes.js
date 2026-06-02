@@ -1,5 +1,6 @@
 // src/routes/emr/clinicalTimelineRoutes.js
 import express from 'express';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success } from '../../utils/responseHelper.js';
@@ -7,7 +8,7 @@ import { success } from '../../utils/responseHelper.js';
 const router = express.Router();
 
 // GET /emr/timeline/:patientUid - Unified clinical timeline
-router.get('/:patientUid', async (req, res, next) => {
+router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE'), async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { date_from, date_to } = req.query;

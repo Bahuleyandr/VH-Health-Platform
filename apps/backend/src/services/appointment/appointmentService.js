@@ -6,6 +6,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
+import { ensureAppointmentQueueForAppointment } from './appointmentQueueService.js';
 
 export class AppointmentService {
   async validateUser(userId, requiredRole = null, tenantId = null) {
@@ -170,7 +171,17 @@ export class AppointmentService {
             tenant_id, created_at, updated_at
         `;
 
-        return rows[0];
+        const appointment = rows[0];
+        const queue = await ensureAppointmentQueueForAppointment(tx, appointment, {
+          actorUid: created_by,
+          source: 'book',
+        });
+
+        return {
+          ...appointment,
+          queue_id: queue?.id ?? null,
+          appointment_queue: queue,
+        };
       });
     } catch (error) {
       logger.error('Error creating appointment:', error);
@@ -334,6 +345,7 @@ export class AppointmentService {
                 COALESCE(NULLIF(a.doctor_name, ''), d.name) AS doctor_name,
                 a.appointment_date, a.appointment_time, a.status, a.notes,
                 a.token_number, a.confirmed_at, a.department,
+                a.tenant_id,
                 a.created_at, a.updated_at, a.visit_type
            FROM appointments a
            LEFT JOIN users p ON p.id = a.patient_id
@@ -342,7 +354,18 @@ export class AppointmentService {
           LIMIT 1`,
         apptId,
       );
-      return rows[0];
+      const appointment = rows[0];
+      if (appointment && !['CANCELLED', 'NO_SHOW'].includes(String(appointment.status || '').toUpperCase())) {
+        const queue = await ensureAppointmentQueueForAppointment(prisma, appointment, {
+          source: 'status_update',
+        });
+        return {
+          ...appointment,
+          queue_id: queue?.id ?? null,
+          appointment_queue: queue,
+        };
+      }
+      return appointment;
     } catch (error) {
       logger.error('Error updating appointment status:', error);
       throw error;

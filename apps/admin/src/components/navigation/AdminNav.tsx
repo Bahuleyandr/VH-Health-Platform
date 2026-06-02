@@ -125,6 +125,7 @@ const navSections: NavSection[] = [
       { name: "Patient Dedupe",  href: "/dashboard/patients/dedupe" },
       { name: "Doctors",         href: "/dashboard/doctors" },
       { name: "Departments",     href: "/dashboard/departments" },
+      { name: "Clinical Governance", href: "/dashboard/clinical-governance" },
       { name: "Payroll",         href: "/dashboard/payroll" },
       { name: "Analytics",       href: "/dashboard/analytics" },
       { name: "Operations",      href: "/dashboard/operations" },
