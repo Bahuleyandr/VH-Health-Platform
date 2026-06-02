@@ -327,6 +327,28 @@ String frontOfficePatientScopedRoute(
 }
 
 @visibleForTesting
+Map<String, dynamic>? frontOfficeInitialPatientFromQuery({
+  String? patientUid,
+  String? patientId,
+  String? patientName,
+  String? patientPhone,
+  String? hospitalNumber,
+}) {
+  final patient = <String, dynamic>{};
+  void putIfPresent(String key, String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isNotEmpty) patient[key] = text;
+  }
+
+  putIfPresent('uid', patientUid);
+  putIfPresent('id', patientId);
+  putIfPresent('name', patientName);
+  putIfPresent('phone', patientPhone);
+  putIfPresent('hospital_number', hospitalNumber);
+  return patient.isEmpty ? null : patient;
+}
+
+@visibleForTesting
 List<String> frontOfficeDepartmentOptionsFromDoctors(
   Iterable<Map<String, dynamic>> doctors,
 ) {
@@ -342,7 +364,20 @@ List<String> frontOfficeDepartmentOptionsFromDoctors(
 }
 
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
-  const FrontOfficeWorkbenchScreen({super.key});
+  final String? initialPatientUid;
+  final String? initialPatientId;
+  final String? initialPatientName;
+  final String? initialPatientPhone;
+  final String? initialHospitalNumber;
+
+  const FrontOfficeWorkbenchScreen({
+    super.key,
+    this.initialPatientUid,
+    this.initialPatientId,
+    this.initialPatientName,
+    this.initialPatientPhone,
+    this.initialHospitalNumber,
+  });
 
   @override
   State<FrontOfficeWorkbenchScreen> createState() =>
@@ -426,13 +461,28 @@ class _FrontOfficeWorkbenchScreenState
 
   Future<void> _loadInitialState() async {
     final role = StaffRole.fromString(await ApiConfig.getRole());
+    final initialPatient = frontOfficeInitialPatientFromQuery(
+      patientUid: widget.initialPatientUid,
+      patientId: widget.initialPatientId,
+      patientName: widget.initialPatientName,
+      patientPhone: widget.initialPatientPhone,
+      hospitalNumber: widget.initialHospitalNumber,
+    );
     if (!mounted) return;
     setState(() {
       _role = role;
       _roleLoaded = true;
       _loading = false;
+      if (initialPatient != null) {
+        _selectedPatient = initialPatient;
+        _searchCtrl.text = _patientLabel(initialPatient);
+      }
     });
 
+    if (initialPatient != null) {
+      await _loadInvoicesFor(initialPatient);
+      if (!mounted) return;
+    }
     await _requestWorklistsForMode(appDeviceModeForContext(context));
   }
 
@@ -2759,13 +2809,7 @@ class _FrontOfficeWorkbenchScreenState
             ),
           if (selected != null) ...[
             const SizedBox(height: 10),
-            _PatientCard(
-              patient: selected,
-              selected: true,
-              onTap: () => context.push(
-                '/emr/timeline/${selected['uid']}?name=${Uri.encodeComponent(selected['name']?.toString() ?? 'Patient')}',
-              ),
-            ),
+            _PatientCard(patient: selected, selected: true, onTap: null),
           ],
           if (_patientMatches.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -3486,7 +3530,7 @@ class _Metric extends StatelessWidget {
 class _PatientCard extends StatelessWidget {
   final Map<String, dynamic> patient;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _PatientCard({
     required this.patient,
@@ -3498,8 +3542,9 @@ class _PatientCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = patientNameFrom(patient);
     final subtitle = patientSubtitle(patient, includeAgeGender: true);
+    final interactive = onTap != null;
     return Semantics(
-      button: true,
+      button: interactive,
       selected: selected,
       label: [name, subtitle].where((part) => part.isNotEmpty).join(', '),
       child: Material(
@@ -3541,7 +3586,7 @@ class _PatientCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right),
+                if (interactive) const Icon(Icons.chevron_right),
               ],
             ),
           ),

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../config/api_config.dart';
+import '../config/role_config.dart';
 import '../services/patient_api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/patient_identity.dart';
@@ -10,9 +12,8 @@ import '../utils/patient_identity.dart';
 ///
 /// Type a few characters → debounced search hits
 /// `GET /api/v1/patients/search?q=…` → tap a row jumps to
-/// `/emr/timeline/:uid?name=…` for that patient. Replaces the
-/// "navigate to /emr/admissions, scroll, find patient, tap" loop
-/// nurses and doctors used to do for every patient handoff.
+/// the role-appropriate patient workspace. Clinical users open the EMR
+/// timeline; front-office users keep the selected patient in the workbench.
 ///
 /// Open via [PatientSearchSheet.show] from any screen — typically a
 /// magnifier icon in the AppBar or a Cmd+K shortcut.
@@ -36,6 +37,34 @@ class PatientSearchSheet extends StatefulWidget {
 
   @override
   State<PatientSearchSheet> createState() => _PatientSearchSheetState();
+}
+
+@visibleForTesting
+bool patientSearchShouldOpenFrontOffice(String role) {
+  return switch (StaffRole.fromString(role)) {
+    StaffRole.receptionist ||
+    StaffRole.receptionIncharge ||
+    StaffRole.billingStaff ||
+    StaffRole.billingIncharge ||
+    StaffRole.financeIncharge ||
+    StaffRole.admissionOfficer ||
+    StaffRole.insuranceCoordinator ||
+    StaffRole.ipdCounsellor => true,
+    _ => false,
+  };
+}
+
+@visibleForTesting
+String patientSearchOpenRouteForRole(
+  String role,
+  Map<String, dynamic> patient,
+) {
+  if (patientSearchShouldOpenFrontOffice(role)) {
+    return patientScopedRoute('/front-office', patient: patient);
+  }
+  final uid = patientUidFrom(patient);
+  final name = patientNameFrom(patient);
+  return '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}';
 }
 
 class _PatientSearchSheetState extends State<PatientSearchSheet> {
@@ -107,12 +136,16 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
     }
   }
 
-  void _openPatient(BuildContext context, Map<String, dynamic> patient) {
-    final uid = (patient['uid'] ?? '').toString();
+  Future<void> _openPatient(
+    BuildContext context,
+    Map<String, dynamic> patient,
+  ) async {
+    final uid = patientUidFrom(patient);
     if (uid.isEmpty) return;
-    final name = patientNameFrom(patient);
+    final role = await ApiConfig.getRole();
+    if (!context.mounted) return;
     Navigator.of(context).pop();
-    context.go('/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}');
+    context.go(patientSearchOpenRouteForRole(role, patient));
   }
 
   @override

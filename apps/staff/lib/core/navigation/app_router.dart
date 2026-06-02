@@ -265,14 +265,34 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/reception-counter',
           name: 'reception-counter',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: FrontOfficeWorkbenchScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: FrontOfficeWorkbenchScreen(
+                initialPatientUid: q['patient_uid'],
+                initialPatientId: q['patient_id'],
+                initialPatientName: q['name'],
+                initialPatientPhone: q['phone'],
+                initialHospitalNumber: q['hospital_number'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/front-office',
           name: 'front-office',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: FrontOfficeWorkbenchScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: FrontOfficeWorkbenchScreen(
+                initialPatientUid: q['patient_uid'],
+                initialPatientId: q['patient_id'],
+                initialPatientName: q['name'],
+                initialPatientPhone: q['phone'],
+                initialHospitalNumber: q['hospital_number'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/billing-desk',

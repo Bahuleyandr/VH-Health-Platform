@@ -478,6 +478,35 @@ void main() {
       expect(uri.queryParameters['name'], 'Test Patient');
       expect(uri.queryParameters['phone'], '+911234567890');
     });
+
+    test('builds selected patient context from route query parameters', () {
+      final patient = frontOfficeInitialPatientFromQuery(
+        patientUid: 'patient-18',
+        patientId: '18',
+        patientName: 'Test Patient',
+        patientPhone: '+911234567890',
+        hospitalNumber: 'VH-000018',
+      );
+
+      expect(patient, isNotNull);
+      expect(patient?['uid'], 'patient-18');
+      expect(patient?['id'], '18');
+      expect(patient?['name'], 'Test Patient');
+      expect(patient?['phone'], '+911234567890');
+      expect(patient?['hospital_number'], 'VH-000018');
+    });
+
+    test('ignores empty route patient context', () {
+      expect(frontOfficeInitialPatientFromQuery(), isNull);
+      expect(
+        frontOfficeInitialPatientFromQuery(
+          patientUid: ' ',
+          patientName: '',
+          patientPhone: '   ',
+        ),
+        isNull,
+      );
+    });
   });
 
   group('front-office OP queue gates', () {
