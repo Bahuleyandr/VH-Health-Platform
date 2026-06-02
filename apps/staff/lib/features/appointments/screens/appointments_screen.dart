@@ -8,10 +8,8 @@ import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
-import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
-import '../../../l10n/app_strings.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../models/staff_appointment.dart';
 
@@ -45,18 +43,74 @@ DateTime _dateOnly(DateTime value) =>
 
 String _dateParam(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
 
-String _dayLabel(DateTime value) {
-  final today = _dateOnly(DateTime.now());
+@visibleForTesting
+DateTime appointmentWeekStart(DateTime value) {
   final day = _dateOnly(value);
-  final offset = day.difference(today).inDays;
-  if (offset == 0) return 'Today';
-  if (offset == 1) return 'Tomorrow';
-  if (offset == -1) return 'Yesterday';
-  return DateFormat('EEE, d MMM').format(day);
+  return day.subtract(Duration(days: day.weekday - DateTime.monday));
+}
+
+List<DateTime> _appointmentWeekDays(DateTime value) {
+  final start = appointmentWeekStart(value);
+  return List.generate(7, (index) => start.add(Duration(days: index)));
+}
+
+String _appointmentWeekTitle(DateTime weekStart) {
+  final end = weekStart.add(const Duration(days: 6));
+  if (weekStart.year == end.year && weekStart.month == end.month) {
+    return DateFormat('MMMM yyyy').format(weekStart);
+  }
+  if (weekStart.year == end.year) {
+    return '${DateFormat('MMM').format(weekStart)} - ${DateFormat('MMM yyyy').format(end)}';
+  }
+  return '${DateFormat('MMM yyyy').format(weekStart)} - ${DateFormat('MMM yyyy').format(end)}';
+}
+
+@visibleForTesting
+int? appointmentMinuteOfDayFromText(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return null;
+  if (raw.toLowerCase() == 'walk-in') return null;
+
+  final timeMatch = RegExp(
+    r'^(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])?$',
+  ).firstMatch(raw);
+  if (timeMatch == null) return null;
+
+  var hour = int.tryParse(timeMatch.group(1) ?? '');
+  final minute = int.tryParse(timeMatch.group(2) ?? '0');
+  final suffix = timeMatch.group(3)?.toUpperCase();
+  if (hour == null || minute == null || minute > 59) return null;
+  if (suffix != null) {
+    if (hour < 1 || hour > 12) return null;
+    if (suffix == 'PM' && hour != 12) hour += 12;
+    if (suffix == 'AM' && hour == 12) hour = 0;
+  } else if (hour > 23) {
+    return null;
+  }
+  return hour * 60 + minute;
 }
 
 bool _isDoctorQueueRole(String role) =>
     role == 'DOCTOR' || role == 'DUTY_DOCTOR';
+
+const int _calendarStartHour = 5;
+const int _calendarEndHour = 22;
+const double _calendarHourHeight = 68;
+const double _calendarTimeGutterWidth = 64;
+const double _calendarDayColumnWidth = 156;
+
+Color _appointmentStatusColor(String status) {
+  return switch (status.toLowerCase()) {
+    'confirmed' => AppTheme.successOnSurface,
+    'cancelled' => AppTheme.errorOnSurface,
+    'completed' =>
+      AppTheme.brightness == Brightness.dark
+          ? const Color(0xFF80CBC4)
+          : AppTheme.primaryTeal,
+    'no_show' => AppTheme.textSecondary,
+    _ => AppTheme.warningOnSurface,
+  };
+}
 
 Map<String, List<StaffAppointment>> appointmentSlotGroups(
   Iterable<StaffAppointment> appointments,
@@ -139,17 +193,23 @@ class AppointmentsScreen extends StatefulWidget {
 }
 
 class _AppointmentsScreenState extends State<AppointmentsScreen> {
-  List<StaffAppointment> _appointments = [];
+  Map<String, List<StaffAppointment>> _appointmentsByDate = {};
   bool _loading = true;
   String? _error;
   String _selectedStatus = 'all';
   String _searchQuery = '';
   late DateTime _selectedDate;
-  bool _doctorScoped = false;
   String _scopeLabel = 'All OP queues';
 
-  List<StaffAppointment> get _filtered =>
-      _appointments.where((a) => a.matchesPatientSearch(_searchQuery)).toList();
+  List<StaffAppointment> get _filtered => _appointmentsByDate.values
+      .expand((rows) => rows)
+      .where((a) => a.matchesPatientSearch(_searchQuery))
+      .toList();
+
+  List<StaffAppointment> _appointmentsForDate(DateTime date) =>
+      (_appointmentsByDate[_dateParam(date)] ?? const [])
+          .where((a) => a.matchesPatientSearch(_searchQuery))
+          .toList(growable: false);
 
   static const _statuses = [
     'all',
@@ -201,18 +261,27 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       final role = (await ApiConfig.getRole()).toUpperCase();
       final doctorScoped = _isDoctorQueueRole(role);
       final doctorId = doctorScoped ? await ApiConfig.getStaffId() : null;
-      final data = await ScheduleApiService.getAppointments(
-        doctorId: doctorId,
-        date: _dateParam(_selectedDate),
-        status: _selectedStatus == 'all' ? null : _selectedStatus,
-        page: 1,
-        limit: 100,
+      final days = _appointmentWeekDays(_selectedDate);
+      final results = await Future.wait(
+        days.map(
+          (day) => ScheduleApiService.getAppointments(
+            doctorId: doctorId,
+            date: _dateParam(day),
+            status: _selectedStatus == 'all' ? null : _selectedStatus,
+            page: 1,
+            limit: 100,
+          ),
+        ),
       );
-      final list = StaffAppointment.listFrom(data);
+      final byDate = <String, List<StaffAppointment>>{};
+      for (var index = 0; index < days.length; index += 1) {
+        byDate[_dateParam(days[index])] = StaffAppointment.listFrom(
+          results[index],
+        );
+      }
       if (mounted) {
         setState(() {
-          _appointments = list;
-          _doctorScoped = doctorScoped;
+          _appointmentsByDate = byDate;
           _scopeLabel = doctorScoped ? 'My OP queue' : 'All OP queues';
         });
       }
@@ -228,8 +297,19 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _selectDate(DateTime date) async {
     final next = _dateOnly(date);
     if (_selectedDate == next) return;
+    final needsReload =
+        appointmentWeekStart(_selectedDate) != appointmentWeekStart(next);
     setState(() => _selectedDate = next);
-    await _load();
+    if (needsReload) await _load();
+  }
+
+  Future<void> _shiftWeek(int delta) async {
+    await _selectDate(_selectedDate.add(Duration(days: delta * 7)));
+  }
+
+  Future<void> _shiftMonth(int delta) async {
+    final next = DateTime(_selectedDate.year, _selectedDate.month + delta, 1);
+    await _selectDate(next);
   }
 
   Future<void> _updateStatus(String id, String status) async {
@@ -895,88 +975,197 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     }
   }
 
+  Widget _buildStatusChips() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final status in _statuses)
+          ChoiceChip(
+            label: Text(status.replaceAll('_', ' ').toUpperCase()),
+            selected: status == _selectedStatus,
+            onSelected: (_) {
+              setState(() => _selectedStatus = status);
+              _load();
+            },
+            selectedColor: AppTheme.primaryBlue.withValues(alpha: 0.16),
+            labelStyle: TextStyle(
+              color: status == _selectedStatus
+                  ? AppTheme.primaryBlue
+                  : AppTheme.textSecondary,
+              fontSize: 11,
+              fontWeight: status == _selectedStatus
+                  ? FontWeight.w800
+                  : FontWeight.w600,
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildToolbar() {
+    final weekStart = appointmentWeekStart(_selectedDate);
+    final title = _appointmentWeekTitle(weekStart);
     return Container(
       color: AppTheme.cardSurface,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final s in _statuses)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        label: Text(s.replaceAll('_', ' ').toUpperCase()),
-                        selected: s == _selectedStatus,
-                        onSelected: (_) {
-                          setState(() => _selectedStatus = s);
-                          _load();
-                        },
-                        selectedColor: AppTheme.primaryBlue.withValues(
-                          alpha: 0.15,
-                        ),
-                        checkmarkColor: AppTheme.primaryBlue,
-                        labelStyle: TextStyle(
-                          color: s == _selectedStatus
-                              ? AppTheme.primaryBlue
-                              : AppTheme.textSecondary,
-                          fontSize: 11,
-                          fontWeight: s == _selectedStatus
-                              ? FontWeight.bold
-                              : FontWeight.normal,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final searchWidth = constraints.maxWidth >= 1100
+              ? 340.0
+              : constraints.maxWidth >= 760
+              ? 260.0
+              : constraints.maxWidth - 32;
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OutlinedButton(
+                onPressed: () => _selectDate(DateTime.now()),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+                child: const Text('Today'),
+              ),
+              IconButton(
+                tooltip: 'Previous week',
+                onPressed: () => _shiftWeek(-1),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              IconButton(
+                tooltip: 'Next week',
+                onPressed: () => _shiftWeek(1),
+                icon: const Icon(Icons.chevron_right),
+              ),
+              SizedBox(
+                width: constraints.maxWidth >= 900 ? 210 : searchWidth,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: searchWidth,
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Search patient, phone, doctor, department',
+                    prefixIcon: const Icon(Icons.search),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: AppTheme.surfaceWhite,
+                  ),
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                ),
+              ),
+              _CalendarModePill(scopeLabel: _scopeLabel),
+              FilledButton.icon(
+                onPressed: _createAppointment,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Book OP'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _openAppointmentActions(StaffAppointment appointment) {
+    final statusColor = _appointmentStatusColor(appointment.status);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.cardSurface,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final id = appointment.id?.toString() ?? '';
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        appointment.patientName,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: AppTheme.textPrimary,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
                     ),
+                    _StatusBadge(label: appointment.status, color: statusColor),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _InfoRow(Icons.schedule_outlined, appointment.scheduledLabel),
+                if (appointment.department.isNotEmpty)
+                  _InfoRow(Icons.business_outlined, appointment.department),
+                if (appointment.doctorName.isNotEmpty)
+                  _InfoRow(Icons.person_outlined, appointment.doctorName),
+                if (appointment.reason.isNotEmpty)
+                  _InfoRow(Icons.local_hospital_outlined, appointment.reason),
+                if (appointment.isScheduled && id.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            _updateStatus(id, 'cancelled');
+                          },
+                          icon: const Icon(Icons.close, size: 18),
+                          label: const Text('Cancel'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.errorOnSurface,
+                            side: BorderSide(color: AppTheme.errorOnSurface),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            _updateStatus(id, 'confirmed');
+                          },
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('Confirm'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: _createAppointment,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('New'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 38),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildSearchField() {
-    return TextField(
-      decoration: InputDecoration(
-        hintText: 'Search patient, phone, doctor, department',
-        prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        filled: true,
-        fillColor: AppTheme.surfaceWhite,
-      ),
-      onChanged: (v) => setState(() => _searchQuery = v),
-    );
-  }
-
-  Widget _buildCalendarPanel() {
-    final today = _dateOnly(DateTime.now());
-    return _CalendarPanel(
-      selectedDate: _selectedDate,
-      scopeLabel: _scopeLabel,
-      appointmentCount: _filtered.length,
-      doctorScoped: _doctorScoped,
-      onDateSelected: _selectDate,
-      onToday: () => _selectDate(today),
-      onTomorrow: () => _selectDate(today.add(const Duration(days: 1))),
-    );
-  }
-
-  Widget _buildSchedulePanel() {
+  Widget _buildCalendarSurface() {
     if (_loading) return const SkeletonList();
     if (_error != null) {
       return ErrorState(
@@ -985,45 +1174,59 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         onRetry: _load,
       );
     }
-    if (_filtered.isEmpty) {
-      if (_searchQuery.trim().isNotEmpty) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              AppStrings.of(context).noMatchesFor(_searchQuery),
-              style: TextStyle(color: AppTheme.textSecondary),
+
+    final weekDays = _appointmentWeekDays(_selectedDate);
+    final selectedDayAppointments = _appointmentsForDate(_selectedDate);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 1040;
+        final sidebar = _SchedulerSidebar(
+          selectedDate: _selectedDate,
+          scopeLabel: _scopeLabel,
+          visibleCount: _filtered.length,
+          selectedDayAppointments: selectedDayAppointments,
+          statusChips: _buildStatusChips(),
+          onDateSelected: _selectDate,
+          onPreviousMonth: () => _shiftMonth(-1),
+          onNextMonth: () => _shiftMonth(1),
+          onAppointmentTap: _openAppointmentActions,
+        );
+        final board = _WeekCalendarBoard(
+          days: weekDays,
+          selectedDate: _selectedDate,
+          appointmentsByDate: _appointmentsByDate,
+          searchQuery: _searchQuery,
+          onDateSelected: _selectDate,
+          onAppointmentTap: _openAppointmentActions,
+        );
+
+        if (!wide) {
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [sidebar, const SizedBox(height: 14), board],
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: constraints.maxWidth - 32,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(width: 286, child: sidebar),
+                const SizedBox(width: 16),
+                Expanded(child: board),
+              ],
             ),
           ),
         );
-      }
-      return EmptyState(
-        icon: Icons.event_available_outlined,
-        title: 'No appointments for ${_dayLabel(_selectedDate)}',
-        body: 'Booked patients will appear under their timing slots.',
-      );
-    }
-
-    final groups = appointmentSlotGroups(_filtered);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _ScheduleHeader(
-          title: '${_dayLabel(_selectedDate)} slots',
-          subtitle:
-              '${_filtered.length} patient${_filtered.length == 1 ? '' : 's'} queued',
-        ),
-        const SizedBox(height: 10),
-        for (final entry in groups.entries) ...[
-          _SlotSection(
-            time: entry.key,
-            appointments: entry.value,
-            onConfirm: (id) => _updateStatus(id, 'confirmed'),
-            onCancel: (id) => _updateStatus(id, 'cancelled'),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ],
+      },
     );
   }
 
@@ -1037,41 +1240,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: _load,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final wide = constraints.maxWidth >= 980;
-                  return ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      if (wide)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(width: 330, child: _buildCalendarPanel()),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildSearchField(),
-                                  const SizedBox(height: 14),
-                                  _buildSchedulePanel(),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      else ...[
-                        _buildCalendarPanel(),
-                        const SizedBox(height: 14),
-                        _buildSearchField(),
-                        const SizedBox(height: 14),
-                        _buildSchedulePanel(),
-                      ],
-                    ],
-                  );
-                },
-              ),
+              child: _buildCalendarSurface(),
             ),
           ),
         ],
@@ -1080,198 +1249,69 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 }
 
-class _CalendarPanel extends StatelessWidget {
-  final DateTime selectedDate;
+class _CalendarModePill extends StatelessWidget {
   final String scopeLabel;
-  final int appointmentCount;
-  final bool doctorScoped;
-  final ValueChanged<DateTime> onDateSelected;
-  final VoidCallback onToday;
-  final VoidCallback onTomorrow;
 
-  const _CalendarPanel({
-    required this.selectedDate,
-    required this.scopeLabel,
-    required this.appointmentCount,
-    required this.doctorScoped,
-    required this.onDateSelected,
-    required this.onToday,
-    required this.onTomorrow,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final today = _dateOnly(DateTime.now());
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
-        border: Border.all(color: AppTheme.divider),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.calendar_month_outlined,
-                color: AppTheme.primaryBlue,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Queue Calendar',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            doctorScoped
-                ? 'Doctor view: only your queued patients are shown.'
-                : 'Counter view: all visible OP queues are shown.',
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: onToday,
-                icon: const Icon(Icons.today_outlined, size: 18),
-                label: const Text('Today'),
-              ),
-              OutlinedButton.icon(
-                onPressed: onTomorrow,
-                icon: const Icon(Icons.next_week_outlined, size: 18),
-                label: const Text('Tomorrow'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          CalendarDatePicker(
-            initialDate: selectedDate,
-            firstDate: today.subtract(const Duration(days: 60)),
-            lastDate: today.add(const Duration(days: 240)),
-            onDateChanged: onDateSelected,
-          ),
-          const SizedBox(height: 8),
-          _QueueSummary(
-            dateLabel: DateFormat('EEE, d MMM yyyy').format(selectedDate),
-            scopeLabel: scopeLabel,
-            appointmentCount: appointmentCount,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QueueSummary extends StatelessWidget {
-  final String dateLabel;
-  final String scopeLabel;
-  final int appointmentCount;
-
-  const _QueueSummary({
-    required this.dateLabel,
-    required this.scopeLabel,
-    required this.appointmentCount,
-  });
+  const _CalendarModePill({required this.scopeLabel});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+        color: AppTheme.primaryTeal.withValues(alpha: 0.12),
+        border: Border.all(color: AppTheme.primaryTeal.withValues(alpha: 0.35)),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.22)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          const Icon(Icons.view_week_outlined, size: 18),
+          const SizedBox(width: 8),
           Text(
-            dateLabel,
+            'Week',
             style: TextStyle(
               color: AppTheme.textPrimary,
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            '$scopeLabel - $appointmentCount patient${appointmentCount == 1 ? '' : 's'}',
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScheduleHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-
-  const _ScheduleHeader({required this.title, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
-        border: Border.all(color: AppTheme.divider),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.schedule_outlined, color: AppTheme.primaryTeal),
           const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(subtitle, style: TextStyle(color: AppTheme.textSecondary)),
-              ],
-            ),
-          ),
+          Text(scopeLabel, style: TextStyle(color: AppTheme.textSecondary)),
         ],
       ),
     );
   }
 }
 
-class _SlotSection extends StatelessWidget {
-  final String time;
-  final List<StaffAppointment> appointments;
-  final Function(String) onConfirm;
-  final Function(String) onCancel;
+class _SchedulerSidebar extends StatelessWidget {
+  final DateTime selectedDate;
+  final String scopeLabel;
+  final int visibleCount;
+  final List<StaffAppointment> selectedDayAppointments;
+  final Widget statusChips;
+  final ValueChanged<DateTime> onDateSelected;
+  final VoidCallback onPreviousMonth;
+  final VoidCallback onNextMonth;
+  final ValueChanged<StaffAppointment> onAppointmentTap;
 
-  const _SlotSection({
-    required this.time,
-    required this.appointments,
-    required this.onConfirm,
-    required this.onCancel,
+  const _SchedulerSidebar({
+    required this.selectedDate,
+    required this.scopeLabel,
+    required this.visibleCount,
+    required this.selectedDayAppointments,
+    required this.statusChips,
+    required this.onDateSelected,
+    required this.onPreviousMonth,
+    required this.onNextMonth,
+    required this.onAppointmentTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final groups = appointmentSlotGroups(selectedDayAppointments);
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.cardSurface,
         border: Border.all(color: AppTheme.divider),
@@ -1283,35 +1323,398 @@ class _SlotSection extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryTeal.withValues(alpha: 0.12),
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
+                child: const Icon(
+                  Icons.event_note_outlined,
+                  color: AppTheme.primaryBlue,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      scopeLabel,
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      '$visibleCount visible this week',
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
                 child: Text(
-                  time,
-                  style: const TextStyle(
-                    color: AppTheme.primaryTeal,
+                  DateFormat('MMMM yyyy').format(selectedDate),
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Previous month',
+                onPressed: onPreviousMonth,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              IconButton(
+                tooltip: 'Next month',
+                onPressed: onNextMonth,
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _MiniMonthCalendar(
+            selectedDate: selectedDate,
+            onDateSelected: onDateSelected,
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Queue filter',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          statusChips,
+          const SizedBox(height: 18),
+          Text(
+            DateFormat('EEE, d MMM').format(selectedDate),
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (selectedDayAppointments.isEmpty)
+            const _MutedPanel(
+              icon: Icons.event_busy_outlined,
+              text: 'No appointments',
+            )
+          else
+            for (final entry in groups.entries) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 6),
+                child: Text(
+                  entry.key,
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-              Text(
-                '${appointments.length} patient${appointments.length == 1 ? '' : 's'}',
-                style: TextStyle(color: AppTheme.textSecondary),
+              for (final appointment in entry.value)
+                _SidebarAppointmentRow(
+                  appointment: appointment,
+                  onTap: () => onAppointmentTap(appointment),
+                ),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniMonthCalendar extends StatelessWidget {
+  final DateTime selectedDate;
+  final ValueChanged<DateTime> onDateSelected;
+
+  const _MiniMonthCalendar({
+    required this.selectedDate,
+    required this.onDateSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final monthStart = DateTime(selectedDate.year, selectedDate.month, 1);
+    final firstCell = monthStart.subtract(
+      Duration(days: monthStart.weekday - DateTime.monday),
+    );
+    final today = _dateOnly(DateTime.now());
+    final selected = _dateOnly(selectedDate);
+    final weekLabels = const ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    return Column(
+      children: [
+        Row(
+          children: [
+            for (final label in weekLabels)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
               ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        for (var row = 0; row < 6; row += 1)
+          Row(
+            children: [
+              for (var column = 0; column < 7; column += 1)
+                Expanded(
+                  child: _MiniMonthDay(
+                    day: firstCell.add(Duration(days: row * 7 + column)),
+                    selected: selected,
+                    today: today,
+                    visibleMonth: selectedDate.month,
+                    onDateSelected: onDateSelected,
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 10),
-          for (final appointment in appointments)
-            _AppointmentCard(
-              appointment: appointment,
-              onConfirm: onConfirm,
-              onCancel: onCancel,
+      ],
+    );
+  }
+}
+
+class _MiniMonthDay extends StatelessWidget {
+  final DateTime day;
+  final DateTime selected;
+  final DateTime today;
+  final int visibleMonth;
+  final ValueChanged<DateTime> onDateSelected;
+
+  const _MiniMonthDay({
+    required this.day,
+    required this.selected,
+    required this.today,
+    required this.visibleMonth,
+    required this.onDateSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = _dateOnly(day) == selected;
+    final isToday = _dateOnly(day) == today;
+    final inMonth = day.month == visibleMonth;
+    return Padding(
+      padding: const EdgeInsets.all(2),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(7),
+        onTap: () => onDateSelected(day),
+        child: Container(
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppTheme.primaryBlue
+                : isToday
+                ? AppTheme.primaryBlue.withValues(alpha: 0.12)
+                : Colors.transparent,
+            border: isToday && !isSelected
+                ? Border.all(color: AppTheme.primaryBlue)
+                : null,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(
+            '${day.day}',
+            style: TextStyle(
+              color: isSelected
+                  ? Colors.white
+                  : inMonth
+                  ? AppTheme.textPrimary
+                  : AppTheme.textSecondary.withValues(alpha: 0.58),
+              fontWeight: isSelected || isToday
+                  ? FontWeight.w900
+                  : FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekCalendarBoard extends StatelessWidget {
+  final List<DateTime> days;
+  final DateTime selectedDate;
+  final Map<String, List<StaffAppointment>> appointmentsByDate;
+  final String searchQuery;
+  final ValueChanged<DateTime> onDateSelected;
+  final ValueChanged<StaffAppointment> onAppointmentTap;
+
+  const _WeekCalendarBoard({
+    required this.days,
+    required this.selectedDate,
+    required this.appointmentsByDate,
+    required this.searchQuery,
+    required this.onDateSelected,
+    required this.onAppointmentTap,
+  });
+
+  List<StaffAppointment> _appointmentsFor(DateTime day) =>
+      (appointmentsByDate[_dateParam(day)] ?? const [])
+          .where((appointment) => appointment.matchesPatientSearch(searchQuery))
+          .toList(growable: false);
+
+  List<StaffAppointment> _appointmentsForHour(DateTime day, int hour) {
+    final start = hour * 60;
+    final end = start + 60;
+    return _appointmentsFor(day)
+        .where((appointment) {
+          final minute = appointmentMinuteOfDayFromText(
+            appointment.appointmentTime,
+          );
+          return minute != null && minute >= start && minute < end;
+        })
+        .toList(growable: false);
+  }
+
+  List<StaffAppointment> _floatingAppointments(DateTime day) {
+    return _appointmentsFor(day)
+        .where((appointment) {
+          final minute = appointmentMinuteOfDayFromText(
+            appointment.appointmentTime,
+          );
+          return minute == null ||
+              minute < _calendarStartHour * 60 ||
+              minute >= _calendarEndHour * 60;
+        })
+        .toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = _dateOnly(selectedDate);
+    final minWidth =
+        _calendarTimeGutterWidth + (_calendarDayColumnWidth * days.length);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final boardWidth = constraints.maxWidth > minWidth
+            ? constraints.maxWidth
+            : minWidth;
+        final dayWidth = (boardWidth - _calendarTimeGutterWidth) / days.length;
+        return Container(
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            border: Border.all(color: AppTheme.divider),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: boardWidth,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _WeekHeader(
+                    days: days,
+                    selectedDate: selected,
+                    dayWidth: dayWidth,
+                    onDateSelected: onDateSelected,
+                    appointmentCountFor: (day) => _appointmentsFor(day).length,
+                  ),
+                  _FloatingAppointmentRow(
+                    days: days,
+                    dayWidth: dayWidth,
+                    selectedDate: selected,
+                    appointmentsFor: _floatingAppointments,
+                    onDateSelected: onDateSelected,
+                    onAppointmentTap: onAppointmentTap,
+                  ),
+                  for (
+                    var hour = _calendarStartHour;
+                    hour < _calendarEndHour;
+                    hour += 1
+                  )
+                    _HourRow(
+                      hour: hour,
+                      days: days,
+                      dayWidth: dayWidth,
+                      selectedDate: selected,
+                      appointmentsForHour: (day) =>
+                          _appointmentsForHour(day, hour),
+                      onDateSelected: onDateSelected,
+                      onAppointmentTap: onAppointmentTap,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WeekHeader extends StatelessWidget {
+  final List<DateTime> days;
+  final DateTime selectedDate;
+  final double dayWidth;
+  final ValueChanged<DateTime> onDateSelected;
+  final int Function(DateTime day) appointmentCountFor;
+
+  const _WeekHeader({
+    required this.days,
+    required this.selectedDate,
+    required this.dayWidth,
+    required this.onDateSelected,
+    required this.appointmentCountFor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        border: Border(bottom: BorderSide(color: AppTheme.divider)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: _calendarTimeGutterWidth,
+            height: 84,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                  'GMT+5:30',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          for (final day in days)
+            _DayHeaderCell(
+              day: day,
+              width: dayWidth,
+              selected: _dateOnly(day) == selectedDate,
+              today: _dateOnly(day) == _dateOnly(DateTime.now()),
+              count: appointmentCountFor(day),
+              onTap: () => onDateSelected(day),
             ),
         ],
       ),
@@ -1319,118 +1722,451 @@ class _SlotSection extends StatelessWidget {
   }
 }
 
-class _AppointmentCard extends StatelessWidget {
-  final StaffAppointment appointment;
-  final Function(String) onConfirm;
-  final Function(String) onCancel;
+class _DayHeaderCell extends StatelessWidget {
+  final DateTime day;
+  final double width;
+  final bool selected;
+  final bool today;
+  final int count;
+  final VoidCallback onTap;
 
-  const _AppointmentCard({
-    required this.appointment,
-    required this.onConfirm,
-    required this.onCancel,
+  const _DayHeaderCell({
+    required this.day,
+    required this.width,
+    required this.selected,
+    required this.today,
+    required this.count,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final id = appointment.id?.toString() ?? '';
-    final patientName = appointment.patientName;
-    final type = appointment.reasonLabel;
-    final dateTime = appointment.scheduledLabel;
-    final status = appointment.status;
-    final doctor = appointment.doctorName;
-    final department = appointment.department;
-
-    final statusColor = switch (status.toLowerCase()) {
-      'confirmed' => AppTheme.successGreen,
-      'cancelled' => AppTheme.errorRed,
-      'completed' => AppTheme.primaryTeal,
-      _ => AppTheme.warningAmber,
-    };
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: width,
+        height: 84,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.primaryBlue.withValues(alpha: 0.12)
+              : Colors.transparent,
+          border: Border(left: BorderSide(color: AppTheme.divider)),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              DateFormat('EEE').format(day),
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Spacer(),
             Row(
               children: [
-                Expanded(
+                Container(
+                  constraints: const BoxConstraints(minWidth: 30),
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? AppTheme.primaryBlue
+                        : today
+                        ? AppTheme.primaryBlue.withValues(alpha: 0.14)
+                        : Colors.transparent,
+                    border: today && !selected
+                        ? Border.all(color: AppTheme.primaryBlue)
+                        : null,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
                   child: Text(
-                    patientName,
+                    '${day.day}',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                      color: AppTheme.textPrimary,
+                      color: selected ? Colors.white : AppTheme.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    status.toUpperCase(),
-                    style: TextStyle(
-                      color: statusColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+                const SizedBox(width: 8),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            _InfoRow(Icons.local_hospital_outlined, type),
-            if (department.isNotEmpty) _InfoRow(Icons.business, department),
-            if (doctor.isNotEmpty) _InfoRow(Icons.person_outlined, doctor),
-            if (dateTime.isNotEmpty)
-              _InfoRow(Icons.schedule_outlined, dateTime),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-            if (appointment.isScheduled) ...[
-              const SizedBox(height: 10),
-              const Divider(height: 1),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: id.isEmpty ? null : () => onCancel(id),
-                      icon: const Icon(Icons.close, size: 16),
-                      label: const Text('Cancel'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.errorRed,
-                        side: const BorderSide(color: AppTheme.errorRed),
-                        minimumSize: const Size(0, 36),
+class _FloatingAppointmentRow extends StatelessWidget {
+  final List<DateTime> days;
+  final double dayWidth;
+  final DateTime selectedDate;
+  final List<StaffAppointment> Function(DateTime day) appointmentsFor;
+  final ValueChanged<DateTime> onDateSelected;
+  final ValueChanged<StaffAppointment> onAppointmentTap;
+
+  const _FloatingAppointmentRow({
+    required this.days,
+    required this.dayWidth,
+    required this.selectedDate,
+    required this.appointmentsFor,
+    required this.onDateSelected,
+    required this.onAppointmentTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasFloating = days.any((day) => appointmentsFor(day).isNotEmpty);
+    if (!hasFloating) return const SizedBox.shrink();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: _calendarTimeGutterWidth,
+          child: Center(
+            child: Text(
+              'Flex',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+        for (final day in days)
+          _CalendarCell(
+            width: dayWidth,
+            minHeight: 80,
+            selected: _dateOnly(day) == selectedDate,
+            onTap: () => onDateSelected(day),
+            appointments: appointmentsFor(day),
+            onAppointmentTap: onAppointmentTap,
+          ),
+      ],
+    );
+  }
+}
+
+class _HourRow extends StatelessWidget {
+  final int hour;
+  final List<DateTime> days;
+  final double dayWidth;
+  final DateTime selectedDate;
+  final List<StaffAppointment> Function(DateTime day) appointmentsForHour;
+  final ValueChanged<DateTime> onDateSelected;
+  final ValueChanged<StaffAppointment> onAppointmentTap;
+
+  const _HourRow({
+    required this.hour,
+    required this.days,
+    required this.dayWidth,
+    required this.selectedDate,
+    required this.appointmentsForHour,
+    required this.onDateSelected,
+    required this.onAppointmentTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _calendarHourHeight,
+      child: Row(
+        children: [
+          SizedBox(
+            width: _calendarTimeGutterWidth,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _hourLabel(hour),
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          for (final day in days)
+            _CalendarCell(
+              width: dayWidth,
+              minHeight: _calendarHourHeight,
+              selected: _dateOnly(day) == selectedDate,
+              onTap: () => onDateSelected(day),
+              appointments: appointmentsForHour(day),
+              onAppointmentTap: onAppointmentTap,
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _hourLabel(int hour) {
+    if (hour == 0) return '12am';
+    if (hour < 12) return '${hour}am';
+    if (hour == 12) return '12pm';
+    return '${hour - 12}pm';
+  }
+}
+
+class _CalendarCell extends StatelessWidget {
+  final double width;
+  final double minHeight;
+  final bool selected;
+  final VoidCallback onTap;
+  final List<StaffAppointment> appointments;
+  final ValueChanged<StaffAppointment> onAppointmentTap;
+
+  const _CalendarCell({
+    required this.width,
+    required this.minHeight,
+    required this.selected,
+    required this.onTap,
+    required this.appointments,
+    required this.onAppointmentTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleAppointments = appointments.take(2).toList(growable: false);
+    final extra = appointments.length - visibleAppointments.length;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        width: width,
+        constraints: BoxConstraints(minHeight: minHeight),
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.primaryBlue.withValues(alpha: 0.05)
+              : Colors.transparent,
+          border: Border(
+            top: BorderSide(color: AppTheme.divider),
+            left: BorderSide(color: AppTheme.divider),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final appointment in visibleAppointments)
+              _CalendarAppointmentPill(
+                appointment: appointment,
+                onTap: () => onAppointmentTap(appointment),
+              ),
+            if (extra > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '+$extra more',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CalendarAppointmentPill extends StatelessWidget {
+  final StaffAppointment appointment;
+  final VoidCallback onTap;
+
+  const _CalendarAppointmentPill({
+    required this.appointment,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _appointmentStatusColor(appointment.status);
+    final time = appointment.appointmentTime.trim().isEmpty
+        ? 'Flex'
+        : appointment.appointmentTime.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withValues(
+              alpha: AppTheme.brightness == Brightness.dark ? 0.18 : 0.10,
+            ),
+            border: Border(left: BorderSide(color: color, width: 3)),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$time  ${appointment.patientName}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              if (appointment.reason.isNotEmpty ||
+                  appointment.doctorName.isNotEmpty)
+                Text(
+                  appointment.reason.isNotEmpty
+                      ? appointment.reason
+                      : appointment.doctorName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarAppointmentRow extends StatelessWidget {
+  final StaffAppointment appointment;
+  final VoidCallback onTap;
+
+  const _SidebarAppointmentRow({
+    required this.appointment,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _appointmentStatusColor(appointment.status);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceWhite,
+            border: Border.all(color: AppTheme.divider),
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      appointment.patientName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: id.isEmpty ? null : () => onConfirm(id),
-                      icon: const Icon(
-                        Icons.check,
-                        size: 16,
-                        color: Colors.white,
-                      ),
-                      label: const Text('Confirm'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.successGreen,
-                        minimumSize: const Size(0, 36),
+                    Text(
+                      appointment.appointmentTime.isEmpty
+                          ? appointment.status
+                          : '${appointment.appointmentTime} - ${appointment.status}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 12,
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MutedPanel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _MutedPanel({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        border: Border.all(color: AppTheme.divider),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppTheme.textSecondary),
+          const SizedBox(width: 8),
+          Text(text, style: TextStyle(color: AppTheme.textSecondary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _StatusBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );

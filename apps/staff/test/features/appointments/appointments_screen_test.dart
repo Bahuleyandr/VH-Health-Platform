@@ -3,6 +3,23 @@ import 'package:vhhealth_staff/features/appointments/models/staff_appointment.da
 import 'package:vhhealth_staff/features/appointments/screens/appointments_screen.dart';
 
 void main() {
+  group('appointment calendar helpers', () {
+    test('uses Monday as the start of the displayed week', () {
+      expect(appointmentWeekStart(DateTime(2026, 6, 2)), DateTime(2026, 6, 1));
+      expect(appointmentWeekStart(DateTime(2026, 6, 7)), DateTime(2026, 6, 1));
+      expect(appointmentWeekStart(DateTime(2026, 6, 8)), DateTime(2026, 6, 8));
+    });
+
+    test('parses 24-hour and AM/PM appointment times', () {
+      expect(appointmentMinuteOfDayFromText('09:30'), 570);
+      expect(appointmentMinuteOfDayFromText('5 PM'), 1020);
+      expect(appointmentMinuteOfDayFromText('5:30 pm'), 1050);
+      expect(appointmentMinuteOfDayFromText('12:15 AM'), 15);
+      expect(appointmentMinuteOfDayFromText('Walk-in'), isNull);
+      expect(appointmentMinuteOfDayFromText('not a time'), isNull);
+    });
+  });
+
   group('appointmentSlotGroups', () {
     test('groups appointments by timing slot and keeps unscheduled last', () {
       final appointments = StaffAppointment.listFrom([
