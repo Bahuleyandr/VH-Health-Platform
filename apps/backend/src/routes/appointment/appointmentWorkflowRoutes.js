@@ -42,6 +42,8 @@ router.post('/walk-in', validate, workflowController.registerWalkIn);
 // Patient records
 router.get('/patient/records/all', docController.getPatientAllRecords);
 router.post('/patient/records/upload', upload.single('file'), validateFileContent, validatePatientUpload, docController.uploadPatientRecord);
+router.get('/patient/records/:id/extraction', docController.getPatientRecordExtraction);
+router.patch('/patient/records/:id/extraction-review', docController.reviewPatientRecordExtraction);
 router.delete('/patient/records/:id', docController.deletePatientRecord);
 
 // Document upload (staff)

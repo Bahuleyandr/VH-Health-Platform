@@ -15,11 +15,102 @@ String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 /// Patient Records screen — Doctors/Nurses/Admin view patient records.
 class PatientRecordsScreen extends StatefulWidget {
   final String? contextMode;
+  final String? initialPatientId;
+  final String? initialPatientPhone;
+  final String? initialPatientName;
+  final String? initialHospitalNumber;
 
-  const PatientRecordsScreen({super.key, this.contextMode});
+  const PatientRecordsScreen({
+    super.key,
+    this.contextMode,
+    this.initialPatientId,
+    this.initialPatientPhone,
+    this.initialPatientName,
+    this.initialHospitalNumber,
+  });
 
   @override
   State<PatientRecordsScreen> createState() => _PatientRecordsScreenState();
+}
+
+@visibleForTesting
+int? patientRecordsPatientIdFromQuery(String? value) {
+  final parsed = int.tryParse(value?.trim() ?? '');
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+@visibleForTesting
+String patientRecordsPhoneSearchDigits(String? value) {
+  final digits = _digitsOnly(value ?? '');
+  if (digits.length < 10) return '';
+  return digits.substring(digits.length - 10);
+}
+
+@visibleForTesting
+String patientRecordsInitialSearchText({
+  String? hospitalNumber,
+  String? name,
+  String? phone,
+}) {
+  return [
+    if ((hospitalNumber ?? '').trim().isNotEmpty) hospitalNumber!.trim(),
+    if ((name ?? '').trim().isNotEmpty) name!.trim(),
+    if ((phone ?? '').trim().isNotEmpty) phone!.trim(),
+  ].join(' - ');
+}
+
+@visibleForTesting
+bool patientRecordsHasScopedUploadPatient({String? patientId, String? phone}) {
+  return patientRecordsPatientIdFromQuery(patientId) != null ||
+      patientRecordsPhoneSearchDigits(phone).isNotEmpty;
+}
+
+@visibleForTesting
+String patientRecordsUploadLookupMessage({required bool hasScopedPatient}) {
+  return hasScopedPatient
+      ? 'Using selected patient from Patient Records'
+      : 'Enter phone, then tap Check';
+}
+
+@visibleForTesting
+Map<String, dynamic>? patientRecordAiExtractionFrom(dynamic record) {
+  if (record is! Map) return null;
+  final direct = record['ai_extraction'];
+  if (direct is Map) return Map<String, dynamic>.from(direct);
+  if (record['ai_intake_id'] == null) return null;
+  return {
+    'intake_id': record['ai_intake_id'],
+    'extraction_status': record['ai_extraction_status'] ?? 'pending',
+    'reviewer_decision': record['ai_reviewer_decision'] ?? 'pending',
+    'document_type': record['ai_document_type'] ?? record['document_type'],
+  };
+}
+
+@visibleForTesting
+String patientRecordAiReviewLabel(Map<String, dynamic>? extraction) {
+  if (extraction == null) return 'No AI draft';
+  final status =
+      extraction['extraction_status']?.toString().toLowerCase() ?? '';
+  final decision =
+      extraction['reviewer_decision']?.toString().toLowerCase() ?? 'pending';
+  if (status == 'unavailable') return 'AI unavailable';
+  if (status == 'failed') return 'Needs manual review';
+  return switch (decision) {
+    'accepted' => 'AI confirmed',
+    'rejected' => 'AI rejected',
+    'needs_revision' => 'Needs revision',
+    _ => status == 'completed' ? 'Review AI draft' : 'AI draft pending',
+  };
+}
+
+@visibleForTesting
+bool patientRecordHasReviewableAiDraft(dynamic record) {
+  final extraction = patientRecordAiExtractionFrom(record);
+  if (extraction == null) return false;
+  final id = extraction['intake_id']?.toString().trim() ?? '';
+  final status =
+      extraction['extraction_status']?.toString().toLowerCase() ?? '';
+  return id.isNotEmpty && status != 'unavailable';
 }
 
 class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
@@ -28,12 +119,28 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   String? _error;
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
+  String _scopedSearchQuery = '';
   bool get _isIpContext => widget.contextMode?.toLowerCase() == 'ip';
 
   @override
   void initState() {
     super.initState();
-    _load();
+    final initialSearch = patientRecordsInitialSearchText(
+      hospitalNumber: widget.initialHospitalNumber,
+      name: widget.initialPatientName,
+      phone: widget.initialPatientPhone,
+    );
+    if (initialSearch.isNotEmpty) {
+      _searchCtrl.text = initialSearch;
+      _searchQuery = initialSearch;
+      if (patientRecordsPatientIdFromQuery(widget.initialPatientId) != null ||
+          patientRecordsPhoneSearchDigits(
+            widget.initialPatientPhone,
+          ).isNotEmpty) {
+        _scopedSearchQuery = initialSearch;
+      }
+    }
+    _loadInitial();
   }
 
   @override
@@ -42,13 +149,15 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int? patientId}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final data = await MedicalApiService.getMedicalRecords(limit: 50);
+      final data = patientId == null
+          ? await MedicalApiService.getMedicalRecords(limit: 50)
+          : await MedicalApiService.getPatientRecords(patientId);
       final list = data['records'] as List? ?? data['data'] as List? ?? [];
       if (mounted) setState(() => _appointments = list);
     } catch (e) {
@@ -58,6 +167,22 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadInitial() async {
+    final patientId = patientRecordsPatientIdFromQuery(widget.initialPatientId);
+    if (patientId != null) {
+      await _load(patientId: patientId);
+      return;
+    }
+    final phoneDigits = patientRecordsPhoneSearchDigits(
+      widget.initialPatientPhone,
+    );
+    if (phoneDigits.isNotEmpty) {
+      await _searchByPhone(phoneDigits);
+      return;
+    }
+    await _load();
   }
 
   Future<void> _searchByPhone(String phone) async {
@@ -79,9 +204,18 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   }
 
   Future<void> _showUploadRecordSheet() async {
+    final scopedPatientId = patientRecordsPatientIdFromQuery(
+      widget.initialPatientId,
+    );
+    final scopedPatientPhone = (widget.initialPatientPhone ?? '').trim();
+    final scopedPatientName = (widget.initialPatientName ?? '').trim();
+    final hasScopedPatient = patientRecordsHasScopedUploadPatient(
+      patientId: widget.initialPatientId,
+      phone: widget.initialPatientPhone,
+    );
     final formKey = GlobalKey<FormState>();
-    final phoneCtrl = TextEditingController();
-    final patientNameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController(text: scopedPatientPhone);
+    final patientNameCtrl = TextEditingController(text: scopedPatientName);
     final titleCtrl = TextEditingController();
     final sourceCtrl = TextEditingController(text: 'Venkataeswara Hospitals');
     final notesCtrl = TextEditingController();
@@ -91,8 +225,10 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     String? pickedName;
     var submitting = false;
     var lookupBusy = false;
-    var patientNameReadOnly = false;
-    var lookupMessage = 'Enter phone, then tap Check';
+    var patientNameReadOnly = hasScopedPatient && scopedPatientName.isNotEmpty;
+    var lookupMessage = patientRecordsUploadLookupMessage(
+      hasScopedPatient: hasScopedPatient,
+    );
 
     Future<void> lookupPatient(StateSetter setSheetState) async {
       final digits = _digitsOnly(phoneCtrl.text);
@@ -175,6 +311,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
             setSheetState(() => submitting = true);
             try {
               await MedicalApiService.uploadPatientPriorRecord(
+                patientId: scopedPatientId,
                 patientPhone: phoneCtrl.text.trim(),
                 patientName: patientNameCtrl.text.trim(),
                 title: titleCtrl.text.trim(),
@@ -240,13 +377,16 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     TextFormField(
                       controller: phoneCtrl,
                       keyboardType: TextInputType.phone,
+                      readOnly: hasScopedPatient,
                       decoration: InputDecoration(
                         labelText: 'Patient phone',
                         helperText: lookupMessage,
                         prefixIcon: const ExcludeSemantics(
                           child: Icon(Icons.phone_outlined),
                         ),
-                        suffixIcon: lookupBusy
+                        suffixIcon: hasScopedPatient
+                            ? const Icon(Icons.lock_outline)
+                            : lookupBusy
                             ? const Padding(
                                 padding: EdgeInsets.all(12),
                                 child: SizedBox(
@@ -264,7 +404,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                 child: const Text('Check'),
                               ),
                       ),
-                      validator: (value) => _digitsOnly(value ?? '').length < 10
+                      validator: (value) =>
+                          !hasScopedPatient &&
+                              _digitsOnly(value ?? '').length < 10
                           ? 'Enter a valid phone number'
                           : null,
                     ),
@@ -278,7 +420,8 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                           child: Icon(Icons.person_outline),
                         ),
                       ),
-                      validator: (value) => (value?.trim().length ?? 0) < 2
+                      validator: (value) =>
+                          !hasScopedPatient && (value?.trim().length ?? 0) < 2
                           ? 'Enter patient name'
                           : null,
                     ),
@@ -488,12 +631,15 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           return;
         }
       }
-      _load();
+      _loadInitial();
     }
   }
 
   List<dynamic> get _filtered {
     if (_searchQuery.isEmpty) return _appointments;
+    if (_scopedSearchQuery.isNotEmpty && _searchQuery == _scopedSearchQuery) {
+      return _appointments;
+    }
     final q = _searchQuery.toLowerCase();
     return _appointments.where((a) {
       final name =
@@ -612,17 +758,20 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
 
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _load,
+            onRefresh: _loadInitial,
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                ? _ErrorState(error: _error!, onRetry: _load)
+                ? _ErrorState(error: _error!, onRetry: _loadInitial)
                 : _filtered.isEmpty
                 ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: _filtered.length,
-                    itemBuilder: (ctx, i) => _PatientCard(record: _filtered[i]),
+                    itemBuilder: (ctx, i) => _PatientCard(
+                      record: _filtered[i],
+                      onReviewChanged: _loadInitial,
+                    ),
                   ),
           ),
         ),
@@ -1043,8 +1192,10 @@ class _IpPriorRecordsTabState extends State<_IpPriorRecordsTab> {
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: _records.length,
-                    itemBuilder: (context, index) =>
-                        _IpPriorRecordCard(item: _records[index]),
+                    itemBuilder: (context, index) => _IpPriorRecordCard(
+                      item: _records[index],
+                      onReviewChanged: _load,
+                    ),
                   ),
           ),
         ),
@@ -1062,8 +1213,9 @@ class _IpPriorRecord {
 
 class _IpPriorRecordCard extends StatelessWidget {
   final _IpPriorRecord item;
+  final Future<void> Function()? onReviewChanged;
 
-  const _IpPriorRecordCard({required this.item});
+  const _IpPriorRecordCard({required this.item, this.onReviewChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -1094,45 +1246,775 @@ class _IpPriorRecordCard extends StatelessWidget {
       record['uploaded_at'],
     ]);
     final bed = _firstText([admission['bed_number']]);
+    final extraction = patientRecordAiExtractionFrom(record);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
-          child: Icon(
-            fileName.toLowerCase().endsWith('.pdf')
-                ? Icons.picture_as_pdf_outlined
-                : Icons.image_outlined,
-            color: AppTheme.primaryBlue,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
+              child: Icon(
+                fileName.toLowerCase().endsWith('.pdf')
+                    ? Icons.picture_as_pdf_outlined
+                    : Icons.image_outlined,
+                color: AppTheme.primaryBlue,
+              ),
+            ),
+            title: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              [
+                patientName,
+                if (bed.isNotEmpty) 'Bed $bed',
+                type,
+                fileName,
+                if (source.isNotEmpty) source,
+                if (date.isNotEmpty) date,
+              ].join(' • '),
+            ),
+            trailing: IconButton(
+              tooltip: 'Open',
+              icon: const Icon(Icons.open_in_new),
+              onPressed: fileUrl.isEmpty
+                  ? null
+                  : () async {
+                      final uri = Uri.tryParse(fileUrl);
+                      if (uri != null && await canLaunchUrl(uri)) {
+                        await launchUrl(
+                          uri,
+                          mode: LaunchMode.externalApplication,
+                        );
+                      }
+                    },
+            ),
           ),
+          if (extraction != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _AiExtractionActionRow(
+                record: record,
+                extraction: extraction,
+                onReviewChanged: onReviewChanged,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiExtractionActionRow extends StatelessWidget {
+  final Map<String, dynamic> record;
+  final Map<String, dynamic> extraction;
+  final Future<void> Function()? onReviewChanged;
+
+  const _AiExtractionActionRow({
+    required this.record,
+    required this.extraction,
+    this.onReviewChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canReview = patientRecordHasReviewableAiDraft(record);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final chip = _AiExtractionChip(extraction: extraction);
+        final action = OutlinedButton.icon(
+          onPressed: canReview
+              ? () => showDialog<void>(
+                  context: context,
+                  builder: (_) => _PatientRecordExtractionDialog(
+                    initialRecord: record,
+                    onReviewChanged: onReviewChanged,
+                  ),
+                )
+              : null,
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('AI Review'),
+        );
+        if (constraints.maxWidth < 420) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [chip, const SizedBox(height: 8), action],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: chip),
+            const SizedBox(width: 10),
+            action,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AiExtractionChip extends StatelessWidget {
+  final Map<String, dynamic> extraction;
+
+  const _AiExtractionChip({required this.extraction});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final decision =
+        extraction['reviewer_decision']?.toString().toLowerCase() ?? 'pending';
+    final status =
+        extraction['extraction_status']?.toString().toLowerCase() ?? 'pending';
+    final color = switch (decision) {
+      'accepted' => AppTheme.successGreen,
+      'rejected' => AppTheme.errorRed,
+      'needs_revision' => AppTheme.warningAmber,
+      _ =>
+        status == 'failed'
+            ? AppTheme.errorRed
+            : status == 'unavailable'
+            ? scheme.outline
+            : AppTheme.primaryBlue,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.auto_awesome_outlined, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              patientRecordAiReviewLabel(extraction),
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PatientRecordExtractionDialog extends StatefulWidget {
+  final Map<String, dynamic> initialRecord;
+  final Future<void> Function()? onReviewChanged;
+
+  const _PatientRecordExtractionDialog({
+    required this.initialRecord,
+    this.onReviewChanged,
+  });
+
+  @override
+  State<_PatientRecordExtractionDialog> createState() =>
+      _PatientRecordExtractionDialogState();
+}
+
+class _PatientRecordExtractionDialogState
+    extends State<_PatientRecordExtractionDialog> {
+  final _noteCtrl = TextEditingController();
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
+  Map<String, dynamic>? _record;
+  Map<String, dynamic>? _extraction;
+
+  @override
+  void initState() {
+    super.initState();
+    _record = Map<String, dynamic>.from(widget.initialRecord);
+    _extraction = patientRecordAiExtractionFrom(_record);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final recordId = _firstText([widget.initialRecord['id']]);
+    if (recordId.isEmpty) {
+      setState(() {
+        _error = 'Record id is missing';
+        _loading = false;
+      });
+      return;
+    }
+    try {
+      final data = await MedicalApiService.getPatientPriorRecordExtraction(
+        recordId,
+      );
+      if (!mounted) return;
+      final record = data['record'] is Map
+          ? Map<String, dynamic>.from(data['record'] as Map)
+          : Map<String, dynamic>.from(widget.initialRecord);
+      final extraction = data['ai_extraction'] is Map
+          ? Map<String, dynamic>.from(data['ai_extraction'] as Map)
+          : patientRecordAiExtractionFrom(record);
+      setState(() {
+        _record = record;
+        _extraction = extraction;
+        _error = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _saveDecision(String decision) async {
+    final recordId = _firstText([widget.initialRecord['id'], _record?['id']]);
+    if (recordId.isEmpty || _saving) return;
+    setState(() => _saving = true);
+    try {
+      final data = await MedicalApiService.reviewPatientPriorRecordExtraction(
+        recordId: recordId,
+        decision: decision,
+        note: _noteCtrl.text,
+      );
+      final updated = data['ai_extraction'] is Map
+          ? Map<String, dynamic>.from(data['ai_extraction'] as Map)
+          : null;
+      if (!mounted) return;
+      setState(() {
+        if (updated != null) _extraction = updated;
+        _saving = false;
+      });
+      await widget.onReviewChanged?.call();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Extraction review saved'),
+          backgroundColor: AppTheme.successGreen,
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text(
-          [
-            patientName,
-            if (bed.isNotEmpty) 'Bed $bed',
-            type,
-            fileName,
-            if (source.isNotEmpty) source,
-            if (date.isNotEmpty) date,
-          ].join(' • '),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppTheme.errorRed,
         ),
-        trailing: IconButton(
-          tooltip: 'Open',
-          icon: const Icon(Icons.open_in_new),
-          onPressed: fileUrl.isEmpty
-              ? null
-              : () async {
-                  final uri = Uri.tryParse(fileUrl);
-                  if (uri != null && await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 1120,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 10, 10),
+              child: Row(
+                children: [
+                  Icon(Icons.auto_awesome_outlined, color: scheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'AI-assisted record review',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(child: _buildBody(context)),
+          ],
         ),
       ),
     );
   }
+
+  Widget _buildBody(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return _ErrorState(error: _error!, onRetry: _load);
+    }
+    final record = _record ?? widget.initialRecord;
+    final extraction = _extraction;
+    if (extraction == null) {
+      return const _SimpleEmptyState(
+        icon: Icons.find_in_page_outlined,
+        title: 'No extraction draft',
+        body: 'This upload does not have a reviewable extraction draft.',
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final preview = _RecordDocumentPreview(record: record);
+        final draft = _ExtractionDraftPane(
+          extraction: extraction,
+          noteCtrl: _noteCtrl,
+          saving: _saving,
+          onDecision: _saveDecision,
+        );
+        if (constraints.maxWidth < 820) {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              SizedBox(height: 340, child: preview),
+              const SizedBox(height: 14),
+              draft,
+            ],
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(flex: 5, child: preview),
+              const SizedBox(width: 16),
+              Expanded(flex: 5, child: draft),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RecordDocumentPreview extends StatelessWidget {
+  final Map<String, dynamic> record;
+
+  const _RecordDocumentPreview({required this.record});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fileUrl = _firstText([record['file_url']]);
+    final fileName = _firstText([record['file_name']], fallback: 'Document');
+    final mime = _firstText([
+      record['file_mime'],
+      record['mime_type'],
+    ]).toLowerCase();
+    final lowerUrl = fileUrl.toLowerCase();
+    final isImage =
+        mime.startsWith('image/') ||
+        lowerUrl.endsWith('.png') ||
+        lowerUrl.endsWith('.jpg') ||
+        lowerUrl.endsWith('.jpeg') ||
+        lowerUrl.endsWith('.webp');
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Icon(
+                  isImage
+                      ? Icons.image_outlined
+                      : Icons.picture_as_pdf_outlined,
+                  color: scheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    fileName,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: fileUrl.isEmpty
+                      ? null
+                      : () async {
+                          final uri = Uri.tryParse(fileUrl);
+                          if (uri != null && await canLaunchUrl(uri)) {
+                            await launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          }
+                        },
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Open'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: fileUrl.isEmpty
+                ? Center(
+                    child: Text(
+                      'Document link unavailable',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                  )
+                : isImage
+                ? InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 4,
+                    child: Center(
+                      child: Image.network(
+                        fileUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const _PreviewPlaceholder(
+                              icon: Icons.broken_image_outlined,
+                              title: 'Image preview failed',
+                              subtitle: 'Open the document to inspect it.',
+                            ),
+                      ),
+                    ),
+                  )
+                : const _PreviewPlaceholder(
+                    icon: Icons.picture_as_pdf_outlined,
+                    title: 'PDF preview opens externally',
+                    subtitle:
+                        'Use Open to inspect the document beside this draft.',
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewPlaceholder extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _PreviewPlaceholder({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 54, color: scheme.primary),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExtractionDraftPane extends StatelessWidget {
+  final Map<String, dynamic> extraction;
+  final TextEditingController noteCtrl;
+  final bool saving;
+  final Future<void> Function(String decision) onDecision;
+
+  const _ExtractionDraftPane({
+    required this.extraction,
+    required this.noteCtrl,
+    required this.saving,
+    required this.onDecision,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final normalized = extraction['normalized_sections'] is Map
+        ? Map<String, dynamic>.from(extraction['normalized_sections'] as Map)
+        : const <String, dynamic>{};
+    final fields = extraction['extracted_fields'] is Map
+        ? Map<String, dynamic>.from(extraction['extracted_fields'] as Map)
+        : const <String, dynamic>{};
+    final rawText = _firstText([extraction['raw_text']]);
+    final safetyFlags = _stringListFrom(extraction['safety_flags']);
+    final confidence = extraction['confidence'];
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _AiExtractionChip(extraction: extraction),
+                if (confidence != null)
+                  Chip(label: Text('Confidence $confidence')),
+                Chip(
+                  label: Text(
+                    'OCR ${_firstText([extraction['ocr_status']], fallback: 'unknown')}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(14),
+              children: [
+                Text(
+                  'Draft, not imported to chart',
+                  style: TextStyle(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (safetyFlags.isNotEmpty)
+                  _ExtractionTextSection(
+                    title: 'Safety flags',
+                    icon: Icons.warning_amber_outlined,
+                    items: safetyFlags,
+                  ),
+                _ExtractionTextSection(
+                  title: 'Summary',
+                  icon: Icons.summarize_outlined,
+                  items: _stringListFrom(normalized['summary']),
+                ),
+                _ExtractionTextSection(
+                  title: 'Medications',
+                  icon: Icons.medication_outlined,
+                  items: _stringListFrom(
+                    normalized['medication_reconciliation_candidates'] ??
+                        fields['medications'],
+                  ),
+                ),
+                _ExtractionTextSection(
+                  title: 'Diagnoses',
+                  icon: Icons.monitor_heart_outlined,
+                  items: _stringListFrom(
+                    normalized['diagnosis_candidates'] ?? fields['diagnoses'],
+                  ),
+                ),
+                _ExtractionTextSection(
+                  title: 'Investigations',
+                  icon: Icons.biotech_outlined,
+                  items: _stringListFrom(
+                    normalized['investigation_candidates'] ??
+                        fields['investigations'],
+                  ),
+                ),
+                _ExtractionTextSection(
+                  title: 'Follow-up',
+                  icon: Icons.event_available_outlined,
+                  items: _stringListFrom(
+                    normalized['follow_up_candidates'] ?? fields['follow_up'],
+                  ),
+                ),
+                _ExtractionTextSection(
+                  title: 'Raw extracted text',
+                  icon: Icons.text_snippet_outlined,
+                  items: rawText.isEmpty ? const [] : [rawText],
+                  selectable: true,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: noteCtrl,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Review note',
+                    prefixIcon: Icon(Icons.edit_note_outlined),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: saving ? null : () => onDecision('rejected'),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Reject'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: saving ? null : () => onDecision('needs_revision'),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Needs Revision'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: saving ? null : () => onDecision('accepted'),
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: const Text('Accept'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExtractionTextSection extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final List<String> items;
+  final bool selectable;
+
+  const _ExtractionTextSection({
+    required this.title,
+    required this.icon,
+    required this.items,
+    this.selectable = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (items.isEmpty)
+            Text(
+              'No clear text extracted',
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            )
+          else
+            ...items.map((item) {
+              final text = item.trim();
+              if (selectable) {
+                return SelectableText(
+                  text,
+                  style: TextStyle(color: scheme.onSurface),
+                );
+              }
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 7),
+                      child: CircleAvatar(
+                        radius: 3,
+                        backgroundColor: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        text,
+                        style: TextStyle(color: scheme.onSurface),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
+List<String> _stringListFrom(dynamic value) {
+  if (value == null) return const [];
+  if (value is String) {
+    final text = value.trim();
+    return text.isEmpty ? const [] : [text];
+  }
+  if (value is List) {
+    return value
+        .expand((item) => _stringListFrom(item))
+        .where((item) => item.trim().isNotEmpty)
+        .take(24)
+        .toList();
+  }
+  if (value is Map) {
+    final textValue = _firstText([
+      value['text'],
+      value['message'],
+      value['label'],
+    ]);
+    if (textValue.isNotEmpty) return [textValue];
+    return value.entries
+        .where((entry) => entry.value != null)
+        .map((entry) => '${entry.key.toString().capitalize()}: ${entry.value}')
+        .take(12)
+        .toList();
+  }
+  final text = value.toString().trim();
+  return text.isEmpty ? const [] : [text];
 }
 
 class _SimpleEmptyState extends StatelessWidget {
@@ -1176,7 +2058,8 @@ class _SimpleEmptyState extends StatelessWidget {
 
 class _PatientCard extends StatelessWidget {
   final dynamic record;
-  const _PatientCard({required this.record});
+  final Future<void> Function()? onReviewChanged;
+  const _PatientCard({required this.record, this.onReviewChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -1199,6 +2082,7 @@ class _PatientCard extends StatelessWidget {
     final status = record['status']?.toString().toLowerCase() ?? 'active';
     final doctor =
         record['doctorName']?.toString() ?? record['doctor']?.toString() ?? '';
+    final extraction = patientRecordAiExtractionFrom(record);
 
     Color statusColor = switch (status) {
       'confirmed' => AppTheme.successGreen,
@@ -1288,6 +2172,14 @@ class _PatientCard extends StatelessWidget {
                   _InfoRow(Icons.person_outlined, 'Dr. $doctor'),
                 if (dateTime.isNotEmpty)
                   _InfoRow(Icons.schedule_outlined, dateTime),
+              ],
+              if (extraction != null) ...[
+                const SizedBox(height: 10),
+                _AiExtractionActionRow(
+                  record: record,
+                  extraction: extraction,
+                  onReviewChanged: onReviewChanged,
+                ),
               ],
             ],
           ),

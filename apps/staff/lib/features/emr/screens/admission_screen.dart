@@ -958,7 +958,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final uid = _detail?['patient_uid'] as String?;
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
-                            context.go(
+                            context.push(
                               '/emr/vitals/$uid${name != null ? '?name=$name' : ''}',
                             );
                           }
@@ -974,7 +974,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final uid = _detail?['patient_uid'] as String?;
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
-                            context.go(
+                            context.push(
                               '/emr/notes/$uid${name != null ? '?name=$name' : ''}',
                             );
                           }
@@ -990,7 +990,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final uid = _detail?['patient_uid'] as String?;
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
-                            context.go(
+                            context.push(
                               '/emr/orders/$uid${name != null ? '?name=$name' : ''}',
                             );
                           }
@@ -1006,7 +1006,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final uid = _detail?['patient_uid'] as String?;
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
-                            context.go(
+                            context.push(
                               '/emr/timeline/$uid${name != null ? '?name=$name' : ''}',
                             );
                           }
@@ -1019,7 +1019,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           Navigator.pop(context);
                           final id = widget.admissionId;
                           final name = _detail?['patient_name'] as String?;
-                          context.go(
+                          context.push(
                             '/emr/discharge-hub/$id${name != null ? '?name=${Uri.encodeQueryComponent(name)}' : ''}',
                           );
                         },

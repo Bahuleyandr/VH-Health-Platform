@@ -264,6 +264,29 @@ void main() {
       );
       expect(frontOfficeFilterDoctors(doctors, '', limit: 2), hasLength(2));
     });
+
+    test('supports department-routed booking filters', () {
+      expect(frontOfficeDepartmentOptionsFromDoctors(doctors), [
+        'Cardiology',
+        'Oncology',
+      ]);
+      expect(
+        frontOfficeFilterDoctors(
+          doctors,
+          '',
+          department: 'cardio',
+          requireNumericId: true,
+        ).map((doctor) => doctor['name']),
+        ['Dr Asha Rao'],
+      );
+      expect(
+        frontOfficeSameDepartment(
+          frontOfficeDoctorDepartment(doctors.first),
+          'Cardiology',
+        ),
+        isTrue,
+      );
+    });
   });
 
   group('frontOfficeAdmissionPriorityAfterWardSelection', () {
@@ -297,6 +320,134 @@ void main() {
         ),
         'Urgent',
       );
+    });
+  });
+
+  group('frontOfficePatientMatchesLookupQuery', () {
+    test('does not treat adjacent country-code digits as the same phone', () {
+      expect(
+        frontOfficePatientMatchesLookupQuery({
+          'phone': '+911234567890',
+        }, '1123456789'),
+        isFalse,
+      );
+      expect(
+        frontOfficePatientMatchesLookupQuery({
+          'phone': '+911123456789',
+        }, '1123456789'),
+        isTrue,
+      );
+      expect(
+        frontOfficePatientMatchesLookupQuery({
+          'phone': '123456789',
+        }, '1234566789'),
+        isFalse,
+      );
+    });
+
+    test('requires 10 digits for phone-like searches', () {
+      expect(
+        frontOfficePatientMatchesLookupQuery({
+          'phone': '+911234567890',
+        }, '123456789'),
+        isFalse,
+      );
+      expect(frontOfficePhoneMeetsMinimum('123456789'), isFalse);
+      expect(frontOfficePhoneMeetsMinimum('1234567890'), isTrue);
+    });
+
+    test('leaves name and short identifier searches unfiltered', () {
+      expect(
+        frontOfficePatientMatchesLookupQuery({
+          'phone': '+911234567890',
+        }, 'test'),
+        isTrue,
+      );
+      expect(
+        frontOfficePatientMatchesLookupQuery({
+          'phone': '+911234567890',
+        }, 'VH-97'),
+        isTrue,
+      );
+    });
+  });
+
+  group('frontOfficeLookupQueryReady', () {
+    test('keeps name search dynamic but waits for 10 phone digits', () {
+      expect(frontOfficeLookupQueryReady('pr'), isTrue);
+      expect(frontOfficeLookupQueryReady('123456789'), isFalse);
+      expect(frontOfficeLookupQueryReady('1234567890'), isTrue);
+      expect(frontOfficeLookupQueryReady('+91 12345 67890'), isTrue);
+    });
+
+    test('offers create only for registry-write roles and ready searches', () {
+      expect(RoleFeatures.hasPatientRegistryCreate(StaffRole.nurse), isFalse);
+      expect(RoleFeatures.hasPatientRegistryWrite(StaffRole.nurse), isFalse);
+      expect(
+        frontOfficeShouldOfferPatientCreate(
+          role: StaffRole.receptionist,
+          query: '1234567890',
+          lookupBusy: false,
+          hasSelectedPatient: false,
+          matchCount: 0,
+        ),
+        isTrue,
+      );
+      expect(
+        frontOfficeShouldOfferPatientCreate(
+          role: StaffRole.receptionist,
+          query: '123456789',
+          lookupBusy: false,
+          hasSelectedPatient: false,
+          matchCount: 0,
+        ),
+        isFalse,
+      );
+      expect(
+        frontOfficeShouldOfferPatientCreate(
+          role: StaffRole.receptionist,
+          query: 'Priya',
+          lookupBusy: false,
+          hasSelectedPatient: true,
+          matchCount: 0,
+        ),
+        isFalse,
+      );
+      expect(
+        frontOfficeShouldOfferPatientCreate(
+          role: StaffRole.doctor,
+          query: 'Priya',
+          lookupBusy: false,
+          hasSelectedPatient: false,
+          matchCount: 0,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('frontOfficePatientScopedRoute', () {
+    test('carries selected patient context into Patient Records', () {
+      final route = frontOfficePatientScopedRoute(
+        '/patient-records',
+        queryParameters: const {'context': 'front-office'},
+        patient: {
+          'id': 18,
+          'uid': 'patient-18',
+          'hospital_number': 'VH-000018',
+          'name': 'Test Patient',
+          'phone': '+911234567890',
+        },
+      );
+
+      final uri = Uri.parse(route);
+      expect(uri.path, '/patient-records');
+      expect(uri.queryParameters['context'], 'front-office');
+      expect(uri.queryParameters['patient_id'], '18');
+      expect(uri.queryParameters['patient_uid'], 'patient-18');
+      expect(uri.queryParameters['hospital_number'], 'VH-000018');
+      expect(uri.queryParameters['name'], 'Test Patient');
+      expect(uri.queryParameters['phone'], '+911234567890');
     });
   });
 

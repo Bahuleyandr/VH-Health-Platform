@@ -213,14 +213,22 @@ String frontOfficeAdmissionPriorityAfterWardSelection({
 List<Map<String, dynamic>> frontOfficeFilterDoctors(
   Iterable<Map<String, dynamic>> doctors,
   String query, {
+  String department = '',
   bool requireNumericId = false,
   bool requireUid = false,
   int limit = 20,
 }) {
   final normalizedQuery = query.trim().toLowerCase();
+  final normalizedDepartment = _departmentKey(department);
   final matches = doctors.where((doctor) {
     if (requireNumericId && _doctorId(doctor) == null) return false;
     if (requireUid && _doctorUid(doctor) == null) return false;
+    if (normalizedDepartment.isNotEmpty) {
+      final doctorDepartment = _departmentKey(
+        frontOfficeDoctorDepartment(doctor),
+      );
+      if (!doctorDepartment.contains(normalizedDepartment)) return false;
+    }
     if (normalizedQuery.isEmpty) return true;
     final haystack = [
       _doctorLabel(doctor),
@@ -233,6 +241,126 @@ List<Map<String, dynamic>> frontOfficeFilterDoctors(
     return haystack.contains(normalizedQuery);
   }).toList();
   return matches.take(limit).toList(growable: false);
+}
+
+@visibleForTesting
+String frontOfficeDoctorDepartment(Map<String, dynamic> doctor) {
+  return _firstText([doctor['department'], doctor['doctor_department']]);
+}
+
+String _departmentKey(String value) => value.trim().toLowerCase();
+
+@visibleForTesting
+bool frontOfficeSameDepartment(String left, String right) {
+  final normalizedLeft = _departmentKey(left);
+  final normalizedRight = _departmentKey(right);
+  return normalizedLeft.isNotEmpty && normalizedLeft == normalizedRight;
+}
+
+@visibleForTesting
+bool frontOfficePatientMatchesLookupQuery(
+  Map<String, dynamic> patient,
+  String rawQuery,
+) {
+  final query = rawQuery.trim();
+  final queryDigits = _digitsOnly(query);
+  final phoneLikeQuery =
+      queryDigits.isNotEmpty && RegExp(r'^[\d\s()+.-]+$').hasMatch(query);
+  if (!phoneLikeQuery) return true;
+  if (queryDigits.length < 10) return false;
+
+  final patientDigits = _digitsOnly(_text(patient['phone']));
+  if (patientDigits.length < 10) return false;
+
+  final normalizedDigits = queryDigits.length == 10
+      ? '91$queryDigits'
+      : queryDigits;
+  final nationalDigits =
+      normalizedDigits.startsWith('91') && normalizedDigits.length == 12
+      ? normalizedDigits.substring(2)
+      : queryDigits;
+  final patientNationalDigits =
+      patientDigits.startsWith('91') && patientDigits.length == 12
+      ? patientDigits.substring(2)
+      : patientDigits;
+
+  return patientDigits == normalizedDigits ||
+      patientDigits == nationalDigits ||
+      patientNationalDigits == nationalDigits;
+}
+
+@visibleForTesting
+bool frontOfficePhoneMeetsMinimum(String value) {
+  return _digitsOnly(value).length >= 10;
+}
+
+bool _frontOfficePhoneLikeQuery(String value) {
+  final query = value.trim();
+  final queryDigits = _digitsOnly(query);
+  return queryDigits.isNotEmpty && RegExp(r'^[\d\s()+.-]+$').hasMatch(query);
+}
+
+@visibleForTesting
+bool frontOfficeLookupQueryReady(String value) {
+  final query = value.trim();
+  if (query.length < 2) return false;
+  if (_frontOfficePhoneLikeQuery(query)) {
+    return frontOfficePhoneMeetsMinimum(query);
+  }
+  return true;
+}
+
+@visibleForTesting
+bool frontOfficeShouldOfferPatientCreate({
+  required StaffRole role,
+  required String query,
+  required bool lookupBusy,
+  required bool hasSelectedPatient,
+  required int matchCount,
+}) {
+  if (!RoleFeatures.hasPatientRegistryCreate(role) ||
+      lookupBusy ||
+      hasSelectedPatient ||
+      matchCount > 0) {
+    return false;
+  }
+  return frontOfficeLookupQueryReady(query);
+}
+
+@visibleForTesting
+String frontOfficePatientScopedRoute(
+  String path, {
+  Map<String, dynamic>? patient,
+  Map<String, String> queryParameters = const {},
+}) {
+  final params = <String, String>{...queryParameters};
+  final uid = _text(patient?['uid']);
+  final id = _text(patient?['id']);
+  final name = _text(patient?['name']);
+  final phone = _text(patient?['phone']);
+  final hospitalNumber = _text(patient?['hospital_number']);
+  if (uid.isNotEmpty) params['patient_uid'] = uid;
+  if (id.isNotEmpty) params['patient_id'] = id;
+  if (name.isNotEmpty) params['name'] = name;
+  if (phone.isNotEmpty) params['phone'] = phone;
+  if (hospitalNumber.isNotEmpty) params['hospital_number'] = hospitalNumber;
+  final query = Uri(queryParameters: params).query;
+  return query.isEmpty ? path : '$path?$query';
+}
+
+@visibleForTesting
+List<String> frontOfficeDepartmentOptionsFromDoctors(
+  Iterable<Map<String, dynamic>> doctors,
+) {
+  final byKey = <String, String>{};
+  for (final doctor in doctors) {
+    final department = frontOfficeDoctorDepartment(doctor);
+    if (department.isEmpty) continue;
+    byKey.putIfAbsent(_departmentKey(department), () => department);
+  }
+  final options = byKey.values.toList(growable: false);
+  options.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return options;
 }
 
 class FrontOfficeWorkbenchScreen extends StatefulWidget {
@@ -278,6 +406,8 @@ class _FrontOfficeWorkbenchScreenState
   bool get _canManageOpQueue => frontOfficeCanManageAppointmentQueue(_role);
   bool get _canCompleteOpQueue => frontOfficeCanCompleteAppointment(_role);
   bool get _canPatientLookup => RoleFeatures.hasPatientLookup(_role);
+  bool get _canPatientRegistryCreate =>
+      RoleFeatures.hasPatientRegistryCreate(_role);
   bool get _canPatientRegistryWrite =>
       RoleFeatures.hasPatientRegistryWrite(_role);
   bool get _canViewAdmissionHandoffs => _canAdmitIp;
@@ -413,6 +543,15 @@ class _FrontOfficeWorkbenchScreenState
     return _wardsFuture!;
   }
 
+  String? _patientDialogInitialPhone() {
+    final raw = _searchCtrl.text.trim();
+    final digits = _digitsOnly(raw);
+    if (digits.length >= 10 && RegExp(r'^[\d\s()+.-]+$').hasMatch(raw)) {
+      return raw;
+    }
+    return null;
+  }
+
   List<Map<String, dynamic>> _mapList(dynamic value) {
     if (value is Map) value = value['data'] ?? value['items'] ?? value['rows'];
     if (value is! List) return const [];
@@ -442,6 +581,26 @@ class _FrontOfficeWorkbenchScreenState
 
   void _queuePatientLookup(String value) {
     _searchDebounce?.cancel();
+    final query = value.trim();
+    final selected = _selectedPatient;
+    final selectedChanged =
+        selected != null && query != _patientLabel(selected);
+    final lookupReady = frontOfficeLookupQueryReady(query);
+    setState(() {
+      if (selectedChanged) {
+        _selectedPatient = null;
+        _patientInvoices = const [];
+      }
+      if (!lookupReady) {
+        _patientMatches = const [];
+        _lookupBusy = false;
+        _lookupError = null;
+      } else {
+        _lookupBusy = true;
+        _lookupError = null;
+      }
+    });
+    if (!lookupReady) return;
     _searchDebounce = Timer(
       const Duration(milliseconds: 280),
       () => _searchPatients(value),
@@ -450,9 +609,10 @@ class _FrontOfficeWorkbenchScreenState
 
   Future<void> _searchPatients(String value) async {
     final query = value.trim();
-    if (query.length < 2) {
+    if (!frontOfficeLookupQueryReady(query)) {
       setState(() {
         _patientMatches = const [];
+        _lookupBusy = false;
         _lookupError = null;
       });
       return;
@@ -462,14 +622,18 @@ class _FrontOfficeWorkbenchScreenState
       _lookupError = null;
     });
     try {
-      final matches = await PatientApiService.search(query, limit: 12);
-      if (!mounted) return;
+      final matches = (await PatientApiService.search(query, limit: 12))
+          .where(
+            (patient) => frontOfficePatientMatchesLookupQuery(patient, query),
+          )
+          .toList(growable: false);
+      if (!mounted || _searchCtrl.text.trim() != query) return;
       setState(() {
         _patientMatches = matches;
         _lookupBusy = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || _searchCtrl.text.trim() != query) return;
       setState(() {
         _lookupError = e.toString();
         _lookupBusy = false;
@@ -710,22 +874,24 @@ class _FrontOfficeWorkbenchScreenState
   String? _selectedPatientUid() => _selectedPatient?['uid']?.toString();
 
   String _patientRoute(String path) {
-    final patient = _selectedPatient;
-    final uid = patient?['uid']?.toString();
-    final params = <String, String>{
-      if (uid != null && uid.isNotEmpty) 'patient_uid': uid,
-      if (patient?['id'] != null) 'patient_id': patient!['id'].toString(),
-      if (patient?['name'] != null) 'name': patient!['name'].toString(),
-      if (patient?['phone'] != null) 'phone': patient!['phone'].toString(),
-    };
-    final query = Uri(queryParameters: params).query;
-    return query.isEmpty ? path : '$path?$query';
+    return frontOfficePatientScopedRoute(path, patient: _selectedPatient);
   }
 
-  Future<void> _showPatientDialog({Map<String, dynamic>? patient}) async {
+  String _patientRecordsRoute() {
+    return frontOfficePatientScopedRoute(
+      '/patient-records',
+      patient: _selectedPatient,
+      queryParameters: const {'context': 'front-office'},
+    );
+  }
+
+  Future<void> _showPatientDialog({
+    Map<String, dynamic>? patient,
+    String? initialPhone,
+  }) async {
     final nameCtrl = TextEditingController(text: patient?['name']?.toString());
     final phoneCtrl = TextEditingController(
-      text: patient?['phone']?.toString(),
+      text: patient?['phone']?.toString() ?? initialPhone,
     );
     final genderCtrl = TextEditingController(
       text: patient?['gender']?.toString(),
@@ -745,6 +911,12 @@ class _FrontOfficeWorkbenchScreenState
         return StatefulBuilder(
           builder: (context, setDialogState) {
             Future<void> save() async {
+              if (!frontOfficePhoneMeetsMinimum(phoneCtrl.text)) {
+                setDialogState(() {
+                  dialogError = 'Patient phone must be at least 10 digits.';
+                });
+                return;
+              }
               setDialogState(() {
                 saving = true;
                 dialogError = null;
@@ -885,7 +1057,11 @@ class _FrontOfficeWorkbenchScreenState
     addressCtrl.dispose();
 
     if (saved == null || !mounted) return;
-    setState(() => _selectedPatient = saved);
+    setState(() {
+      _selectedPatient = saved;
+      _patientMatches = const [];
+      _searchCtrl.text = _patientLabel(saved);
+    });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(patient == null ? 'Patient created' : 'Patient updated'),
@@ -1351,6 +1527,10 @@ class _FrontOfficeWorkbenchScreenState
 
     final reasonCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
+    final doctorCtrl = TextEditingController();
+    final doctorFocus = FocusNode();
+    final departmentCtrl = TextEditingController();
+    final departmentFocus = FocusNode();
     var appointmentDate = DateTime.now();
     var appointmentTime = TimeOfDay.fromDateTime(
       DateTime.now().add(const Duration(hours: 1)),
@@ -1390,12 +1570,13 @@ class _FrontOfficeWorkbenchScreenState
             Future<void> book() async {
               final doctor = selectedDoctor;
               final doctorId = doctor == null ? null : _doctorId(doctor);
+              final department = departmentCtrl.text.trim();
               final reason = reasonCtrl.text.trim();
               final patientId = _intFrom(patient['id']);
               final patientPhone = _text(patient['phone']);
-              if (doctorId == null) {
+              if (doctorId == null && department.isEmpty) {
                 setDialogState(
-                  () => dialogError = 'Select the consulting doctor.',
+                  () => dialogError = 'Select a doctor or department.',
                 );
                 return;
               }
@@ -1423,7 +1604,8 @@ class _FrontOfficeWorkbenchScreenState
                   patientPhone: patientId == null ? patientPhone : null,
                   patientName: _text(patient['name']),
                   doctorId: doctorId,
-                  doctorUid: _doctorUid(doctor!),
+                  doctorUid: doctor == null ? null : _doctorUid(doctor),
+                  department: department.isEmpty ? null : department,
                   appointmentDate: DateFormat(
                     'yyyy-MM-dd',
                   ).format(appointmentDate),
@@ -1479,14 +1661,50 @@ class _FrontOfficeWorkbenchScreenState
                             requireNumericId: true,
                             limit: 500,
                           );
-                          return _DoctorAutocompleteField(
+                          return _OpBookingClinicianFields(
                             doctors: doctors,
                             selectedDoctor: selectedDoctor,
+                            doctorController: doctorCtrl,
+                            doctorFocus: doctorFocus,
+                            departmentController: departmentCtrl,
+                            departmentFocus: departmentFocus,
                             enabled: !saving,
-                            labelText: 'Consulting doctor',
-                            requireNumericId: true,
-                            onSelected: (doctor) {
-                              setDialogState(() => selectedDoctor = doctor);
+                            onDoctorSelected: (doctor) {
+                              setDialogState(() {
+                                selectedDoctor = doctor;
+                                if (doctor == null) return;
+                                doctorCtrl.text = _doctorLabel(doctor);
+                                final department = frontOfficeDoctorDepartment(
+                                  doctor,
+                                );
+                                if (department.isNotEmpty) {
+                                  departmentCtrl.text = department;
+                                }
+                              });
+                              doctorFocus.unfocus();
+                            },
+                            onDoctorTextChanged: (text) {
+                              final selectedLabel = selectedDoctor == null
+                                  ? ''
+                                  : _doctorLabel(selectedDoctor!);
+                              if (selectedDoctor != null &&
+                                  text.trim() != selectedLabel) {
+                                setDialogState(() => selectedDoctor = null);
+                              }
+                            },
+                            onDepartmentChanged: (department) {
+                              if (selectedDoctor == null ||
+                                  department.trim().isEmpty ||
+                                  frontOfficeSameDepartment(
+                                    frontOfficeDoctorDepartment(
+                                      selectedDoctor!,
+                                    ),
+                                    department,
+                                  )) {
+                                return;
+                              }
+                              setDialogState(() => selectedDoctor = null);
+                              doctorCtrl.clear();
                             },
                           );
                         },
@@ -1606,6 +1824,10 @@ class _FrontOfficeWorkbenchScreenState
 
     reasonCtrl.dispose();
     notesCtrl.dispose();
+    doctorCtrl.dispose();
+    doctorFocus.dispose();
+    departmentCtrl.dispose();
+    departmentFocus.dispose();
 
     if (booked != true || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -2262,19 +2484,19 @@ class _FrontOfficeWorkbenchScreenState
                   icon: Icons.schedule_outlined,
                   label: 'Roster',
                   color: AppTheme.primaryTeal,
-                  onTap: () => context.go('/schedule'),
+                  onTap: () => context.push('/schedule'),
                 ),
                 _ActionTile(
                   icon: Icons.event_available_outlined,
                   label: 'Leave',
                   color: AppTheme.primaryBlue,
-                  onTap: () => context.go('/leave'),
+                  onTap: () => context.push('/leave'),
                 ),
                 _ActionTile(
                   icon: Icons.person_outline,
                   label: 'Profile',
                   color: AppTheme.warningAmber,
-                  onTap: () => context.go('/profile'),
+                  onTap: () => context.push('/profile'),
                 ),
               ],
             ),
@@ -2406,6 +2628,12 @@ class _FrontOfficeWorkbenchScreenState
             avatar: const Icon(Icons.devices_outlined, size: 18),
             label: Text(mode.apiValue.toUpperCase()),
           ),
+          if (_canBookOp)
+            FilledButton.icon(
+              onPressed: _showOpBookingDialog,
+              icon: const Icon(Icons.event_available_outlined),
+              label: const Text('Book OP Appointment'),
+            ),
           IconButton.filledTonal(
             tooltip: 'Refresh',
             onPressed: _refreshWorklists,
@@ -2440,6 +2668,16 @@ class _FrontOfficeWorkbenchScreenState
 
   Widget _buildPatientPanel() {
     final selected = _selectedPatient;
+    final createOffer = frontOfficeShouldOfferPatientCreate(
+      role: _role,
+      query: _searchCtrl.text,
+      lookupBusy: _lookupBusy,
+      hasSelectedPatient: selected != null,
+      matchCount: _patientMatches.length,
+    );
+    final phoneLikeQuery = _frontOfficePhoneLikeQuery(_searchCtrl.text);
+    final shortPhoneQuery =
+        phoneLikeQuery && !frontOfficePhoneMeetsMinimum(_searchCtrl.text);
     return _Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2456,11 +2694,13 @@ class _FrontOfficeWorkbenchScreenState
                     onPressed: () => _showPatientDialog(patient: selected),
                     icon: const Icon(Icons.edit_outlined),
                   ),
-                if (_canPatientRegistryWrite)
-                  IconButton.filled(
-                    tooltip: 'New patient',
-                    onPressed: () => _showPatientDialog(),
+                if (_canPatientRegistryCreate)
+                  FilledButton.icon(
+                    onPressed: () => _showPatientDialog(
+                      initialPhone: _patientDialogInitialPhone(),
+                    ),
                     icon: const Icon(Icons.person_add_alt_1),
+                    label: const Text('New Patient'),
                   ),
               ],
             ),
@@ -2506,6 +2746,12 @@ class _FrontOfficeWorkbenchScreenState
                 _lookupError!,
                 style: TextStyle(color: AppTheme.errorOnSurface),
               ),
+            ] else if (shortPhoneQuery) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Enter at least 10 digits to search or create by phone.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
             ],
           ] else
             Text(
@@ -2517,7 +2763,7 @@ class _FrontOfficeWorkbenchScreenState
             _PatientCard(
               patient: selected,
               selected: true,
-              onTap: () => context.go(
+              onTap: () => context.push(
                 '/emr/timeline/${selected['uid']}?name=${Uri.encodeComponent(selected['name']?.toString() ?? 'Patient')}',
               ),
             ),
@@ -2532,6 +2778,25 @@ class _FrontOfficeWorkbenchScreenState
                   onTap: () => _selectPatient(patient),
                 ),
               ),
+            ),
+          ] else if (createOffer) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () => _showPatientDialog(
+                initialPhone: _patientDialogInitialPhone(),
+              ),
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('Create New Patient'),
+            ),
+          ] else if (!_canPatientRegistryCreate &&
+              !_lookupBusy &&
+              _patientMatches.isEmpty &&
+              selected == null &&
+              frontOfficeLookupQueryReady(_searchCtrl.text)) ...[
+            const SizedBox(height: 10),
+            Text(
+              'No patient found. ${_role.displayName} can search, but cannot create patient registry entries.',
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
         ],
@@ -2554,10 +2819,16 @@ class _FrontOfficeWorkbenchScreenState
               if (_canBookOp)
                 _ActionTile(
                   icon: Icons.calendar_month,
-                  label: 'Book OP',
+                  label: 'Book OP Appointment',
                   color: AppTheme.accentCyan,
-                  enabled: hasPatient,
                   onTap: _showOpBookingDialog,
+                ),
+              if (_canBookOp)
+                _ActionTile(
+                  icon: Icons.event_note_outlined,
+                  label: 'Appointments',
+                  color: AppTheme.primaryBlue,
+                  onTap: () => context.push('/appointments'),
                 ),
               if (_canBookOp)
                 _ActionTile(
@@ -2579,22 +2850,22 @@ class _FrontOfficeWorkbenchScreenState
                 icon: Icons.local_hospital,
                 label: 'Admissions',
                 color: AppTheme.warningAmber,
-                onTap: () => context.go('/emr/admissions'),
+                onTap: () => context.push('/emr/admissions'),
               ),
               if (_canBilling)
                 _ActionTile(
                   icon: Icons.receipt_long,
                   label: 'Billing',
                   color: AppTheme.primaryBlue,
-                  onTap: () => context.go(_patientRoute('/billing-desk')),
+                  onTap: () => context.push(_patientRoute('/billing-desk')),
                 ),
               if (_canClinical)
                 _ActionTile(
                   icon: Icons.folder_shared,
                   label: 'Records',
                   color: AppTheme.primaryTeal,
-                  onTap: () =>
-                      context.go('/patient-records?context=front-office'),
+                  enabled: hasPatient,
+                  onTap: () => context.push(_patientRecordsRoute()),
                 ),
               if (_canClinical)
                 _ActionTile(
@@ -2605,7 +2876,7 @@ class _FrontOfficeWorkbenchScreenState
                   onTap: () {
                     final uid = _selectedPatientUid();
                     if (uid == null) return;
-                    context.go(
+                    context.push(
                       '/emr/notes/$uid?name=${Uri.encodeComponent(_selectedPatient?['name']?.toString() ?? 'Patient')}',
                     );
                   },
@@ -2616,7 +2887,7 @@ class _FrontOfficeWorkbenchScreenState
                   label: 'Vitals',
                   color: AppTheme.errorRed,
                   enabled: hasPatient,
-                  onTap: () => context.go(_patientRoute('/vitals')),
+                  onTap: () => context.push(_patientRoute('/vitals')),
                 ),
               if (_canClinical)
                 _ActionTile(
@@ -2627,7 +2898,7 @@ class _FrontOfficeWorkbenchScreenState
                   onTap: () {
                     final uid = _selectedPatientUid();
                     if (uid == null) return;
-                    context.go(
+                    context.push(
                       '/emr/orders/$uid?name=${Uri.encodeComponent(_selectedPatient?['name']?.toString() ?? 'Patient')}',
                     );
                   },
@@ -2774,7 +3045,7 @@ class _FrontOfficeWorkbenchScreenState
                     children: [
                       TextButton.icon(
                         onPressed: () =>
-                            context.go(_patientRoute('/billing-desk')),
+                            context.push(_patientRoute('/billing-desk')),
                         icon: const Icon(Icons.open_in_new),
                         label: const Text('Open'),
                       ),
@@ -2917,7 +3188,7 @@ class _FrontOfficeWorkbenchScreenState
                     label: const Text('Admit IP'),
                   ),
                 TextButton.icon(
-                  onPressed: () => context.go('/emr/admissions'),
+                  onPressed: () => context.push('/emr/admissions'),
                   icon: const Icon(Icons.open_in_new),
                   label: const Text('Open'),
                 ),
@@ -3046,7 +3317,7 @@ class _FrontOfficeWorkbenchScreenState
         ].join(' - '),
       ),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => context.go('/emr/admissions'),
+      onTap: () => context.push('/emr/admissions'),
     );
   }
 }
@@ -3208,6 +3479,190 @@ class _PatientCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _OpBookingClinicianFields extends StatelessWidget {
+  final List<Map<String, dynamic>> doctors;
+  final Map<String, dynamic>? selectedDoctor;
+  final TextEditingController doctorController;
+  final FocusNode doctorFocus;
+  final TextEditingController departmentController;
+  final FocusNode departmentFocus;
+  final bool enabled;
+  final ValueChanged<Map<String, dynamic>?> onDoctorSelected;
+  final ValueChanged<String> onDoctorTextChanged;
+  final ValueChanged<String> onDepartmentChanged;
+
+  const _OpBookingClinicianFields({
+    required this.doctors,
+    required this.selectedDoctor,
+    required this.doctorController,
+    required this.doctorFocus,
+    required this.departmentController,
+    required this.departmentFocus,
+    required this.onDoctorSelected,
+    required this.onDoctorTextChanged,
+    required this.onDepartmentChanged,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final departments = frontOfficeDepartmentOptionsFromDoctors(doctors);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RawAutocomplete<Map<String, dynamic>>(
+          textEditingController: doctorController,
+          focusNode: doctorFocus,
+          displayStringForOption: _doctorLabel,
+          optionsBuilder: (value) {
+            if (!enabled) return const Iterable<Map<String, dynamic>>.empty();
+            return frontOfficeFilterDoctors(
+              doctors,
+              value.text,
+              department: departmentController.text,
+              requireNumericId: true,
+              limit: 25,
+            );
+          },
+          onSelected: enabled ? onDoctorSelected : null,
+          fieldViewBuilder: (context, textController, focusNode, _) {
+            return TextFormField(
+              controller: textController,
+              focusNode: focusNode,
+              enabled: enabled,
+              textInputAction: TextInputAction.search,
+              decoration: const InputDecoration(
+                labelText: 'Consulting doctor',
+                hintText: 'Optional if department is selected',
+                prefixIcon: Icon(Icons.medical_services_outlined),
+              ),
+              onChanged: onDoctorTextChanged,
+            );
+          },
+          optionsViewBuilder: (context, onOptionSelected, options) {
+            final items = options.toList(growable: false);
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxHeight: 260,
+                    maxWidth: 560,
+                  ),
+                  child: ListView.separated(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final doctor = items[index];
+                      final department = _firstText([
+                        frontOfficeDoctorDepartment(doctor),
+                        doctor['specialty'],
+                        doctor['specialization'],
+                      ]);
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.person_outline),
+                        title: Text(
+                          _doctorLabel(doctor),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: department.isEmpty
+                            ? null
+                            : Text(
+                                department,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                        onTap: () => onOptionSelected(doctor),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        RawAutocomplete<String>(
+          textEditingController: departmentController,
+          focusNode: departmentFocus,
+          optionsBuilder: (value) {
+            if (!enabled) return const Iterable<String>.empty();
+            final query = value.text.trim().toLowerCase();
+            if (query.isEmpty) return departments.take(25);
+            return departments
+                .where((department) => department.toLowerCase().contains(query))
+                .take(25);
+          },
+          onSelected: enabled
+              ? (department) {
+                  departmentController.text = department;
+                  onDepartmentChanged(department);
+                  departmentFocus.unfocus();
+                }
+              : null,
+          fieldViewBuilder: (context, textController, focusNode, _) {
+            return TextFormField(
+              controller: textController,
+              focusNode: focusNode,
+              enabled: enabled,
+              decoration: const InputDecoration(
+                labelText: 'Department',
+                hintText: 'Any available doctor',
+                prefixIcon: Icon(Icons.business),
+              ),
+              onChanged: onDepartmentChanged,
+            );
+          },
+          optionsViewBuilder: (context, onOptionSelected, options) {
+            final items = options.toList(growable: false);
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxHeight: 220,
+                    maxWidth: 560,
+                  ),
+                  child: ListView.separated(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final department = items[index];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.business_outlined),
+                        title: Text(
+                          department,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: selectedDoctor == null
+                            ? const Text('Any doctor')
+                            : null,
+                        onTap: () => onOptionSelected(department),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

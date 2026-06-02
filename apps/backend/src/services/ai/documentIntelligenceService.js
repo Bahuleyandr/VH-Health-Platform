@@ -532,6 +532,7 @@ export async function ingestClinicalDocument({
         ocr_provider: ocrResult?.provider || null,
         file_hash: ocrResult?.file_hash || null,
         file_size_bytes: ocrResult?.file_size_bytes || null,
+        text_char_count: ocrResult?.text_char_count || text.length || 0,
         ocr_metadata: ocrResult?.metadata || {},
         fallback_reason: aiResult.reason || null,
         prompt_injection: injectionResult ? {
@@ -588,6 +589,7 @@ export async function ingestClinicalDocument({
         ocr_provider: ocrResult?.provider || null,
         file_hash: ocrResult?.file_hash || null,
         file_size_bytes: ocrResult?.file_size_bytes || null,
+        text_char_count: ocrResult?.text_char_count || text.length || 0,
         ocr_metadata: ocrResult?.metadata || {},
         text_truncated: cleanText(rawText).length > MAX_RAW_TEXT_CHARS,
         prompt_injection_verdict: injectionResult?.verdict || null,

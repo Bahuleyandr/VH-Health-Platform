@@ -6,6 +6,15 @@ import '../config/role_config.dart';
 import '../platform_info.dart';
 import '../providers/session_timeout_provider.dart';
 
+@visibleForTesting
+bool shouldPushWorkbenchNav({
+  required String currentRoute,
+  required String targetRoute,
+}) {
+  if (currentRoute == targetRoute) return false;
+  return targetRoute != '/dashboard';
+}
+
 /// Shell scaffold that provides persistent bottom navigation.
 /// Used as the ShellRoute builder in app_router.dart.
 class MainScaffold extends StatefulWidget {
@@ -51,6 +60,20 @@ class _MainScaffoldState extends State<MainScaffold> {
     return 0;
   }
 
+  void _navigateWorkbench(List<WorkbenchNavItem> navItems, int index) {
+    if (index >= navItems.length) return;
+    final currentRoute = GoRouterState.of(context).matchedLocation;
+    final targetRoute = navItems[index].route;
+    if (shouldPushWorkbenchNav(
+      currentRoute: currentRoute,
+      targetRoute: targetRoute,
+    )) {
+      context.push(targetRoute);
+      return;
+    }
+    if (currentRoute != targetRoute) context.go(targetRoute);
+  }
+
   @override
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
@@ -66,9 +89,8 @@ class _MainScaffoldState extends State<MainScaffold> {
               minWidth: 76,
               groupAlignment: -0.92,
               labelType: NavigationRailLabelType.all,
-              onDestinationSelected: (index) {
-                if (index < navItems.length) context.go(navItems[index].route);
-              },
+              onDestinationSelected: (index) =>
+                  _navigateWorkbench(navItems, index),
               destinations: navItems
                   .map(
                     (item) => NavigationRailDestination(

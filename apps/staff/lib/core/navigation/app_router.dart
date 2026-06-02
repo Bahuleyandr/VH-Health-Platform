@@ -296,6 +296,11 @@ final GoRouter appRouter = GoRouter(
           pageBuilder: (context, state) => NoTransitionPage(
             child: PatientRecordsScreen(
               contextMode: state.uri.queryParameters['context'],
+              initialPatientId: state.uri.queryParameters['patient_id'],
+              initialPatientPhone: state.uri.queryParameters['phone'],
+              initialPatientName: state.uri.queryParameters['name'],
+              initialHospitalNumber:
+                  state.uri.queryParameters['hospital_number'],
             ),
           ),
         ),

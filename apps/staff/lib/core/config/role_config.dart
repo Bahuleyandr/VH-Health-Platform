@@ -1652,6 +1652,10 @@ class RoleFeatures {
     };
   }
 
+  static bool hasPatientRegistryCreate(StaffRole role) {
+    return hasPatientRegistryWrite(role);
+  }
+
   static bool hasStaffRosterHub(StaffRole role) {
     return switch (role) {
       StaffRole.admin ||

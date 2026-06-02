@@ -33,6 +33,14 @@ class MedicalApiService {
     return _handle(resp);
   }
 
+  static Future<Map<String, dynamic>> _patch(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final resp = await ApiClient.patch(path, body: body);
+    return _handle(resp);
+  }
+
   static Map<String, dynamic> _handle(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
       final raw = resp.raw as Map<String, dynamic>;
@@ -616,7 +624,8 @@ class MedicalApiService {
 
   /// POST /appointments/patient/records/upload — upload prior patient record.
   static Future<Map<String, dynamic>> uploadPatientPriorRecord({
-    required String patientPhone,
+    int? patientId,
+    String? patientPhone,
     String? patientName,
     required String title,
     required String documentType,
@@ -627,7 +636,9 @@ class MedicalApiService {
     String? notes,
   }) async {
     final fields = <String, String>{
-      'patient_phone': patientPhone,
+      if (patientId != null) 'patient_id': patientId.toString(),
+      if (patientPhone != null && patientPhone.trim().isNotEmpty)
+        'patient_phone': patientPhone.trim(),
       if (patientName != null && patientName.trim().isNotEmpty)
         'patient_name': patientName.trim(),
       'title': title,
@@ -666,6 +677,25 @@ class MedicalApiService {
         'patient_phone': ?patientPhone,
       },
     );
+  }
+
+  /// GET /appointments/patient/records/:id/extraction — OCR/AI draft detail.
+  static Future<Map<String, dynamic>> getPatientPriorRecordExtraction(
+    Object recordId,
+  ) async {
+    return _get('/appointments/patient/records/$recordId/extraction');
+  }
+
+  /// PATCH /appointments/patient/records/:id/extraction-review — staff review.
+  static Future<Map<String, dynamic>> reviewPatientPriorRecordExtraction({
+    required Object recordId,
+    required String decision,
+    String? note,
+  }) async {
+    return _patch('/appointments/patient/records/$recordId/extraction-review', {
+      'decision': decision,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+    });
   }
 
   // ─── EMR: Admissions ──────────────────────────────────────────────────────

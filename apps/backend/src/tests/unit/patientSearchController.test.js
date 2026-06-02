@@ -24,6 +24,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const {
   createPatient,
+  searchPatients,
   updatePatient,
 } = await import('../../controllers/patient/patientSearchController.js');
 
@@ -47,11 +48,12 @@ function makeRes() {
   return res;
 }
 
-function makeReq({ body = {}, params = {}, tenantId = TENANT_ID } = {}) {
+function makeReq({ body = {}, params = {}, query = {}, tenantId = TENANT_ID } = {}) {
   return {
     id: 'req-front-office-patient',
     body,
     params,
+    query,
     tenantId,
     headers: {
       'x-forwarded-for': '10.0.0.20',
@@ -72,7 +74,69 @@ beforeEach(() => {
   logAuditMock.mockReset().mockResolvedValue(undefined);
 });
 
+describe('patientSearchController search', () => {
+  it('returns no phone matches for phone-like queries below 10 digits', async () => {
+    const res = makeRes();
+    await searchPatients(makeReq({
+      query: { q: '123456789', limit: '12' },
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: { patients: [], count: 0, query: '123456789' },
+    });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('uses exact phone matching for full phone-like queries', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    const res = makeRes();
+    await searchPatients(makeReq({
+      query: { q: '1123456789', limit: '12' },
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: { patients: [], count: 0, query: '1123456789' },
+    });
+
+    const [
+      sql,
+      normalizedPhone,
+      normalizedPhoneDigits,
+      nationalPhoneDigits,
+      tenantId,
+      limit,
+    ] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toContain('u.phone = $1');
+    expect(sql).toContain("REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2");
+    expect(sql).not.toContain("LOWER(COALESCE(u.phone, '')) LIKE");
+    expect(normalizedPhone).toBe('+911123456789');
+    expect(normalizedPhoneDigits).toBe('911123456789');
+    expect(nationalPhoneDigits).toBe('1123456789');
+    expect(tenantId).toBe(TENANT_ID);
+    expect(limit).toBe(12);
+  });
+});
+
 describe('patientSearchController front-office mutations', () => {
+  it('rejects patient creation when the phone has fewer than 10 digits', async () => {
+    const res = makeRes();
+    await createPatient(makeReq({
+      body: { name: 'Short Phone Patient', phone: '123456789' },
+    }), res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.body).toMatchObject({
+      success: false,
+      message: 'Valid patient phone is required',
+    });
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
   it('creates a tenant-scoped patient and normalizes phone/gender', async () => {
     queryUnsafeMock
       .mockResolvedValueOnce([])

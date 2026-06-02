@@ -27,11 +27,20 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
-import { normalizePhone } from '../../utils/phoneUtils.js';
+import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { error, success } from '../../utils/responseHelper.js';
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 20;
+const PHONE_QUERY_RE = /^[+\d\s().-]+$/;
+
+function validPatientPhone(rawValue) {
+  const raw = String(rawValue ?? '').trim();
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  const normalized = normalizePhone(raw);
+  return normalized && isValidPhone(normalized) ? normalized : null;
+}
 
 function tenantOf(req) {
   return req.tenantId || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
@@ -119,13 +128,67 @@ export const searchPatients = async (req, res) => {
       return success(res, { patients: [], count: 0 }, 'Patient search results');
     }
     const q = raw.toLowerCase();
+    const rawDigits = raw.replace(/\D/g, '');
+    const isPhoneLikeSearch = PHONE_QUERY_RE.test(raw) && rawDigits.length > 0;
+    if (isPhoneLikeSearch && rawDigits.length < 10) {
+      return success(res, { patients: [], count: 0, query: raw }, 'Patient search results');
+    }
+    const normalizedPhone = isPhoneLikeSearch ? validPatientPhone(raw) : null;
+    const normalizedPhoneDigits = normalizedPhone?.replace(/\D/g, '') || rawDigits;
+    const nationalPhoneDigits = normalizedPhoneDigits.startsWith('91') &&
+      normalizedPhoneDigits.length === 12
+      ? normalizedPhoneDigits.slice(2)
+      : rawDigits;
     const limit = Math.min(
       MAX_RESULTS,
       parseInt(req.query.limit, 10) || MAX_RESULTS,
     );
     const tenantId = tenantOf(req);
 
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = normalizedPhone
+      ? await prisma.$queryRawUnsafe(
+        `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
+                COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
+                CASE WHEN u.birthday IS NOT NULL
+                     THEN DATE_PART('year', AGE(u.birthday))::int
+                END AS age
+           FROM users u
+           LEFT JOIN LATERAL (
+             SELECT pi.identifier_value
+               FROM patient_identifiers pi
+              WHERE pi.tenant_id = u.tenant_id
+                AND pi.patient_uid = u.uid
+                AND pi.identifier_type IN ('mrn', 'uhid')
+                AND pi.status = 'active'
+              ORDER BY pi.is_primary DESC,
+                       CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                       pi.created_at ASC
+              LIMIT 1
+           ) hn ON TRUE
+          WHERE u.role = 'PATIENT'
+            AND u.is_active = true
+            AND u.tenant_id = $4::uuid
+            AND (
+              u.phone = $1
+              OR REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2
+              OR REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $3
+            )
+          ORDER BY
+            CASE
+              WHEN u.phone = $1 THEN 0
+              WHEN REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $2 THEN 1
+              WHEN REGEXP_REPLACE(COALESCE(u.phone, ''), '\\D', '', 'g') = $3 THEN 2
+              ELSE 3
+            END,
+            u.name ASC
+          LIMIT $5`,
+        normalizedPhone,
+        normalizedPhoneDigits,
+        nationalPhoneDigits,
+        tenantId,
+        limit,
+      )
+      : await prisma.$queryRawUnsafe(
       `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
               COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
               CASE WHEN u.birthday IS NOT NULL
@@ -160,7 +223,7 @@ export const searchPatients = async (req, res) => {
           u.name ASC
         LIMIT $3`,
       `%${q}%`, `${q}%`, limit, tenantId, q,
-    );
+      );
 
     success(
       res,
@@ -176,7 +239,7 @@ export const searchPatients = async (req, res) => {
 export const createPatient = async (req, res) => {
   try {
     const name = String(req.body.name ?? req.body.patient_name ?? '').trim();
-    const phone = normalizePhone(String(req.body.phone ?? req.body.patient_phone ?? '').trim());
+    const phone = validPatientPhone(req.body.phone ?? req.body.patient_phone);
     if (!name) {
       return error(res, 'Patient name is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -278,7 +341,7 @@ export const updatePatient = async (req, res) => {
 
     if (Object.prototype.hasOwnProperty.call(req.body, 'phone') ||
         Object.prototype.hasOwnProperty.call(req.body, 'patient_phone')) {
-      const phone = normalizePhone(String(req.body.phone ?? req.body.patient_phone ?? '').trim());
+      const phone = validPatientPhone(req.body.phone ?? req.body.patient_phone);
       if (!phone) return error(res, 'Valid patient phone is required', HTTP_STATUS.BAD_REQUEST);
       const last10 = phone.replace(/\D/g, '').slice(-10);
       const duplicate = await prisma.$queryRawUnsafe(
