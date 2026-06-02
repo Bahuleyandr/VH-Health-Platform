@@ -19,6 +19,7 @@ class PatientRecordsScreen extends StatefulWidget {
   final String? initialPatientPhone;
   final String? initialPatientName;
   final String? initialHospitalNumber;
+  final String? initialAction;
 
   const PatientRecordsScreen({
     super.key,
@@ -27,6 +28,7 @@ class PatientRecordsScreen extends StatefulWidget {
     this.initialPatientPhone,
     this.initialPatientName,
     this.initialHospitalNumber,
+    this.initialAction,
   });
 
   @override
@@ -141,6 +143,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       }
     }
     _loadInitial();
+    if (widget.initialAction?.toLowerCase() == 'upload') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showUploadRecordSheet();
+      });
+    }
   }
 
   @override

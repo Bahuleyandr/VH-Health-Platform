@@ -8,27 +8,27 @@ void main() {
     final today = DateTime(2026, 6, 2);
 
     test('labels today, tomorrow, and following day queues', () {
-      expect(frontOfficeQueueDateLabel(today, now: today), 'Today Queue');
+      expect(frontOfficeQueueDateLabel(today, now: today), 'Today OP Queue');
       expect(
         frontOfficeQueueDateLabel(
           today.add(const Duration(days: 1)),
           now: today,
         ),
-        'Tomorrow Queue',
+        'Tomorrow OP Queue',
       );
       expect(
         frontOfficeQueueDateLabel(
           today.add(const Duration(days: 2)),
           now: today,
         ),
-        'Following Day Queue',
+        'Following Day OP Queue',
       );
     });
 
     test('falls back to a compact date label outside quick queue days', () {
       expect(
         frontOfficeQueueDateLabel(DateTime(2026, 6, 8), now: today),
-        'Mon, 8 Jun Queue',
+        'Mon, 8 Jun OP Queue',
       );
     });
   });
@@ -397,6 +397,46 @@ void main() {
           'phone': '+911234567890',
         }, 'VH-97'),
         isTrue,
+      );
+    });
+  });
+
+  group('frontOfficePotentialDuplicatePatient', () {
+    test('flags matching 10-digit phone numbers', () {
+      expect(
+        frontOfficePotentialDuplicatePatient(
+          patient: {'name': 'Test Patient', 'phone': '+911234567890'},
+          name: 'Different Name',
+          phone: '1234567890',
+        ),
+        isTrue,
+      );
+    });
+
+    test('flags same name when birth date also matches', () {
+      expect(
+        frontOfficePotentialDuplicatePatient(
+          patient: {
+            'name': 'Priya Iyer',
+            'phone': '9999999999',
+            'birthday': '1990-04-12T00:00:00.000Z',
+          },
+          name: 'priya   iyer',
+          phone: '8888888888',
+          birthday: '1990-04-12',
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not flag different name and phone', () {
+      expect(
+        frontOfficePotentialDuplicatePatient(
+          patient: {'name': 'Priya Iyer', 'phone': '9999999999'},
+          name: 'Saraswati Raman',
+          phone: '8888888888',
+        ),
+        isFalse,
       );
     });
   });

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -27,10 +28,10 @@ String frontOfficeQueueDateLabel(DateTime date, {DateTime? now}) {
   final today = _dateOnly(now ?? DateTime.now());
   final day = _dateOnly(date);
   final offset = day.difference(today).inDays;
-  if (offset == 0) return 'Today Queue';
-  if (offset == 1) return 'Tomorrow Queue';
-  if (offset == 2) return 'Following Day Queue';
-  return '${DateFormat('EEE, d MMM').format(day)} Queue';
+  if (offset == 0) return 'Today OP Queue';
+  if (offset == 1) return 'Tomorrow OP Queue';
+  if (offset == 2) return 'Following Day OP Queue';
+  return '${DateFormat('EEE, d MMM').format(day)} OP Queue';
 }
 
 int frontOfficeAdmissionTotalFrom(dynamic data, {int fallbackCount = 0}) {
@@ -297,6 +298,39 @@ bool frontOfficeLookupQueryReady(String value) {
 }
 
 @visibleForTesting
+bool frontOfficePotentialDuplicatePatient({
+  required Map<String, dynamic> patient,
+  required String name,
+  required String phone,
+  String? birthday,
+}) {
+  final phoneDigits = _digitsOnly(phone);
+  final patientPhoneDigits = _digitsOnly(patientPhoneFrom(patient));
+  if (phoneDigits.length >= 10 && patientPhoneDigits.length >= 10) {
+    final queryLast10 = phoneDigits.substring(phoneDigits.length - 10);
+    final patientLast10 = patientPhoneDigits.substring(
+      patientPhoneDigits.length - 10,
+    );
+    if (queryLast10 == patientLast10) return true;
+  }
+
+  final normalizedName = _normalizedPersonName(name);
+  final patientName = _normalizedPersonName(
+    patientNameFrom(patient, fallback: ''),
+  );
+  if (normalizedName.isEmpty || patientName.isEmpty) return false;
+  if (normalizedName != patientName) return false;
+
+  final queryBirthDate = _dateText(birthday);
+  final patientBirthDate = _dateText(
+    patient['birthday'] ?? patient['date_of_birth'] ?? patient['dob'],
+  );
+  return queryBirthDate.isEmpty ||
+      patientBirthDate.isEmpty ||
+      queryBirthDate == patientBirthDate;
+}
+
+@visibleForTesting
 bool frontOfficeShouldOfferPatientCreate({
   required StaffRole role,
   required String query,
@@ -387,6 +421,12 @@ class FrontOfficeWorkbenchScreen extends StatefulWidget {
 class _FrontOfficeWorkbenchScreenState
     extends State<FrontOfficeWorkbenchScreen> {
   final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
+  final _scrollController = ScrollController();
+  final _patientPanelKey = GlobalKey();
+  final _queuePanelKey = GlobalKey();
+  final _billingPanelKey = GlobalKey();
+  final _admissionsPanelKey = GlobalKey();
   Timer? _searchDebounce;
   Future<List<Map<String, dynamic>>>? _doctorsFuture;
   Future<List<Map<String, dynamic>>>? _wardsFuture;
@@ -442,6 +482,9 @@ class _FrontOfficeWorkbenchScreenState
   void initState() {
     super.initState();
     _loadInitialState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _canPatientLookup) _searchFocus.requestFocus();
+    });
   }
 
   @override
@@ -455,6 +498,8 @@ class _FrontOfficeWorkbenchScreenState
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchFocus.dispose();
+    _scrollController.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -477,6 +522,9 @@ class _FrontOfficeWorkbenchScreenState
         _selectedPatient = initialPatient;
         _searchCtrl.text = _patientLabel(initialPatient);
       }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _canPatientLookup) _searchFocus.requestFocus();
     });
 
     if (initialPatient != null) {
@@ -582,6 +630,17 @@ class _FrontOfficeWorkbenchScreenState
     await _refreshWorklists();
   }
 
+  void _scrollTo(GlobalKey key) {
+    final target = key.currentContext;
+    if (target == null) return;
+    Scrollable.ensureVisible(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      alignment: 0.05,
+    );
+  }
+
   Future<List<Map<String, dynamic>>> _doctorOptionsFuture() {
     _doctorsFuture ??= ScheduleApiService.getAppointmentDoctors();
     return _doctorsFuture!;
@@ -663,7 +722,7 @@ class _FrontOfficeWorkbenchScreenState
     );
   }
 
-  Future<void> _searchPatients(String value) async {
+  Future<List<Map<String, dynamic>>> _searchPatients(String value) async {
     final query = value.trim();
     if (!frontOfficeLookupQueryReady(query)) {
       setState(() {
@@ -671,7 +730,7 @@ class _FrontOfficeWorkbenchScreenState
         _lookupBusy = false;
         _lookupError = null;
       });
-      return;
+      return const [];
     }
     setState(() {
       _lookupBusy = true;
@@ -683,18 +742,34 @@ class _FrontOfficeWorkbenchScreenState
             (patient) => frontOfficePatientMatchesLookupQuery(patient, query),
           )
           .toList(growable: false);
-      if (!mounted || _searchCtrl.text.trim() != query) return;
+      if (!mounted || _searchCtrl.text.trim() != query) return const [];
       setState(() {
         _patientMatches = matches;
         _lookupBusy = false;
       });
+      return matches;
     } catch (e) {
-      if (!mounted || _searchCtrl.text.trim() != query) return;
+      if (!mounted || _searchCtrl.text.trim() != query) return const [];
       setState(() {
         _lookupError = e.toString();
         _lookupBusy = false;
       });
+      return const [];
     }
+  }
+
+  Future<void> _handlePatientSearchSubmitted(String value) async {
+    final query = value.trim();
+    final currentMatch = _bestPatientLookupMatch(_patientMatches, query);
+    if (currentMatch != null) {
+      await _selectPatient(currentMatch);
+      return;
+    }
+
+    final matches = await _searchPatients(query);
+    if (!mounted) return;
+    final loadedMatch = _bestPatientLookupMatch(matches, query);
+    if (loadedMatch != null) await _selectPatient(loadedMatch);
   }
 
   Future<void> _selectPatient(Map<String, dynamic> patient) async {
@@ -704,6 +779,19 @@ class _FrontOfficeWorkbenchScreenState
       _searchCtrl.text = _patientLabel(patient);
     });
     await _loadInvoicesFor(patient);
+  }
+
+  void _clearSelectedPatient() {
+    _searchDebounce?.cancel();
+    setState(() {
+      _selectedPatient = null;
+      _patientMatches = const [];
+      _patientInvoices = const [];
+      _lookupBusy = false;
+      _lookupError = null;
+      _searchCtrl.clear();
+    });
+    _searchFocus.requestFocus();
   }
 
   bool _queueRowMatchesSelectedPatient(Map<String, dynamic> row) {
@@ -789,6 +877,68 @@ class _FrontOfficeWorkbenchScreenState
     await _selectPatient(selected);
     if (!mounted) return;
     await _showIpAdmissionDialog(admissionAdvice: row);
+  }
+
+  Future<void> _openBillingForAdvice(Map<String, dynamic> row) async {
+    final advicePatient = frontOfficeAdmissionAdvicePatientFrom(row);
+    if (advicePatient == null) return;
+    final selected = await _resolveQueuePatient(advicePatient);
+    if (!mounted) return;
+    await _selectPatient(selected);
+    if (!mounted) return;
+    context.push(_patientRoute('/billing-desk'));
+  }
+
+  Future<void> _showAdmissionAdviceDialog(Map<String, dynamic> row) async {
+    final patient = frontOfficeAdmissionAdvicePatientFrom(row);
+    final doctor = _firstText([
+      row['doctor_name'],
+      row['doctorName'],
+      row['consultant_name'],
+      row['consultantName'],
+    ]);
+    final note = _admissionAdviceNote(row);
+    final advisedAt = _admissionAdviceDate(row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('OPD to IPD advice'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (patient != null) _PatientCard(patient: patient, onTap: null),
+              const SizedBox(height: 10),
+              _DetailLine(label: 'Doctor', value: doctor),
+              _DetailLine(label: 'Advised at', value: advisedAt),
+              _DetailLine(label: 'Advice', value: note),
+              const SizedBox(height: 10),
+              const _InlineAlert(
+                message:
+                    'Admission stays pending until ward/bed, billing deposit, and counter consent are handled as applicable.',
+                color: AppTheme.warningAmber,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _startAdmissionFromAdvice(row);
+            },
+            icon: const Icon(Icons.local_hospital_outlined),
+            label: const Text('Assign ward/bed'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadInvoicesFor(Map<String, dynamic>? patient) async {
@@ -934,6 +1084,99 @@ class _FrontOfficeWorkbenchScreenState
     );
   }
 
+  String _patientRecordsUploadRoute() {
+    return frontOfficePatientScopedRoute(
+      '/patient-records',
+      patient: _selectedPatient,
+      queryParameters: const {'context': 'front-office', 'action': 'upload'},
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _findPotentialDuplicatePatients({
+    required String name,
+    required String phone,
+    String? birthday,
+  }) async {
+    final seen = <String>{};
+    final candidates = <Map<String, dynamic>>[];
+
+    Future<void> addMatches(String query) async {
+      if (!frontOfficeLookupQueryReady(query)) return;
+      final matches = await PatientApiService.search(query, limit: 8);
+      for (final match in matches) {
+        final key = _firstText([
+          match['uid'],
+          match['id'],
+          match['hospital_number'],
+          match['phone'],
+          match['name'],
+        ]);
+        if (key.isEmpty || !seen.add(key)) continue;
+        if (frontOfficePotentialDuplicatePatient(
+          patient: match,
+          name: name,
+          phone: phone,
+          birthday: birthday,
+        )) {
+          candidates.add(match);
+        }
+      }
+    }
+
+    await addMatches(phone);
+    await addMatches(name);
+    return candidates;
+  }
+
+  Future<Map<String, dynamic>?> _showDuplicatePatientDialog(
+    List<Map<String, dynamic>> matches,
+  ) {
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Possible existing patient'),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'A similar patient already exists. Select the existing patient or create a separate new record only if this is truly different.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              ...matches
+                  .take(5)
+                  .map(
+                    (patient) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: _PatientCard(
+                        patient: patient,
+                        onTap: () => Navigator.pop(dialogContext, patient),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, {'_action': 'cancel'}),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () =>
+                Navigator.pop(dialogContext, {'_action': 'create'}),
+            icon: const Icon(Icons.person_add_alt_1),
+            label: const Text('Create separate record'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showPatientDialog({
     Map<String, dynamic>? patient,
     String? initialPhone,
@@ -965,6 +1208,43 @@ class _FrontOfficeWorkbenchScreenState
                   dialogError = 'Patient phone must be at least 10 digits.';
                 });
                 return;
+              }
+              if (patient == null) {
+                setDialogState(() {
+                  saving = true;
+                  dialogError = 'Checking for existing patients...';
+                });
+                try {
+                  final duplicates = await _findPotentialDuplicatePatients(
+                    name: nameCtrl.text,
+                    phone: phoneCtrl.text,
+                    birthday: birthdayCtrl.text,
+                  );
+                  if (duplicates.isNotEmpty) {
+                    if (!dialogContext.mounted) return;
+                    setDialogState(() {
+                      saving = false;
+                      dialogError = null;
+                    });
+                    final decision = await _showDuplicatePatientDialog(
+                      duplicates,
+                    );
+                    final action = decision?['_action']?.toString();
+                    if (action == 'cancel' || decision == null) return;
+                    if (action != 'create') {
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop(decision);
+                      }
+                      return;
+                    }
+                  }
+                } catch (_) {
+                  if (!dialogContext.mounted) return;
+                  setDialogState(() {
+                    saving = false;
+                    dialogError = null;
+                  });
+                }
               }
               setDialogState(() {
                 saving = true;
@@ -2420,9 +2700,9 @@ class _FrontOfficeWorkbenchScreenState
   Future<void> _confirmQueueAppointment(Map<String, dynamic> row) async {
     await _runQueueAction(
       row,
-      successMessage: 'Appointment confirmed',
+      successMessage: 'Patient checked in',
       action: (id) => ScheduleApiService.confirmAppointment(id, {
-        'confirmation_notes': 'Confirmed from Front Office Workbench',
+        'confirmation_notes': 'Checked in from Front Office Workbench',
       }).then((_) {}),
     );
   }
@@ -2488,6 +2768,168 @@ class _FrontOfficeWorkbenchScreenState
       row,
       successMessage: 'Appointment marked no-show',
       action: (id) => ScheduleApiService.markNoShow(id).then((_) {}),
+    );
+  }
+
+  Future<void> _rescheduleQueueAppointment(Map<String, dynamic> row) async {
+    final currentDate = _appointmentDate(row) ?? _queueDate;
+    final currentTime = _appointmentTime(row) ?? TimeOfDay.now();
+    var appointmentDate = currentDate;
+    var appointmentTime = currentTime;
+    final notesCtrl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> pickDate() async {
+            final picked = await showDatePicker(
+              context: dialogContext,
+              initialDate: appointmentDate,
+              firstDate: DateTime.now().subtract(const Duration(days: 1)),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (picked != null) {
+              setDialogState(() => appointmentDate = picked);
+            }
+          }
+
+          Future<void> pickTime() async {
+            final picked = await showTimePicker(
+              context: dialogContext,
+              initialTime: appointmentTime,
+            );
+            if (picked != null) {
+              setDialogState(() => appointmentTime = picked);
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Reschedule appointment'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_queuePatientName(row)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DateTimeButton(
+                          icon: Icons.calendar_today,
+                          label: DateFormat(
+                            'dd MMM yyyy',
+                          ).format(appointmentDate),
+                          onTap: pickDate,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _DateTimeButton(
+                          icon: Icons.schedule,
+                          label: appointmentTime.format(dialogContext),
+                          onTap: pickTime,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: notesCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Reschedule note',
+                      prefixIcon: Icon(Icons.notes_outlined),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                icon: const Icon(Icons.event_repeat_outlined),
+                label: const Text('Reschedule'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    final notes = notesCtrl.text.trim();
+    notesCtrl.dispose();
+    if (confirmed != true) return;
+
+    await _runQueueAction(
+      row,
+      successMessage: 'Appointment rescheduled',
+      action: (id) => ScheduleApiService.confirmAppointment(id, {
+        'appointment_date': _dateParam(appointmentDate),
+        'appointment_time': _formatTime(appointmentTime),
+        'confirmation_notes': notes.isEmpty
+            ? 'Rescheduled from Front Office Workbench'
+            : notes,
+      }).then((_) {}),
+    );
+  }
+
+  Future<void> _cancelQueueAppointment(Map<String, dynamic> row) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel appointment'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_queuePatientName(row)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Cancellation reason',
+                  prefixIcon: Icon(Icons.notes_outlined),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep appointment'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cancel appointment'),
+          ),
+        ],
+      ),
+    );
+    final reason = reasonCtrl.text.trim();
+    reasonCtrl.dispose();
+    if (confirmed != true) return;
+
+    await _runQueueAction(
+      row,
+      successMessage: 'Appointment cancelled',
+      action: (id) => ScheduleApiService.cancelAppointmentStaff(
+        id,
+        reason: reason.isEmpty
+            ? 'Cancelled from Front Office Workbench'
+            : reason,
+      ).then((_) {}),
     );
   }
 
@@ -2562,12 +3004,17 @@ class _FrontOfficeWorkbenchScreenState
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 980;
             return ListView(
+              controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
                 _buildHeader(mode),
                 const SizedBox(height: 12),
                 if (_error != null)
                   _InlineAlert(message: _error!, color: AppTheme.errorRed),
+                if (_selectedPatient != null) ...[
+                  _buildPatientContextStrip(_selectedPatient!),
+                  const SizedBox(height: 12),
+                ],
                 if (_loading) const LinearProgressIndicator(minHeight: 2),
                 if (wide)
                   Row(
@@ -2577,7 +3024,10 @@ class _FrontOfficeWorkbenchScreenState
                         flex: 5,
                         child: Column(
                           children: [
-                            _buildPatientPanel(),
+                            KeyedSubtree(
+                              key: _patientPanelKey,
+                              child: _buildPatientPanel(),
+                            ),
                             const SizedBox(height: 12),
                             _buildActionPanel(),
                           ],
@@ -2588,26 +3038,44 @@ class _FrontOfficeWorkbenchScreenState
                         flex: 4,
                         child: Column(
                           children: [
-                            _buildQueuePanel(),
+                            KeyedSubtree(
+                              key: _queuePanelKey,
+                              child: _buildQueuePanel(),
+                            ),
                             const SizedBox(height: 12),
-                            _buildBillingPanel(),
+                            KeyedSubtree(
+                              key: _billingPanelKey,
+                              child: _buildBillingPanel(),
+                            ),
                             const SizedBox(height: 12),
-                            _buildAdmissionsPanel(),
+                            KeyedSubtree(
+                              key: _admissionsPanelKey,
+                              child: _buildAdmissionsPanel(),
+                            ),
                           ],
                         ),
                       ),
                     ],
                   )
                 else ...[
-                  _buildPatientPanel(),
+                  KeyedSubtree(
+                    key: _patientPanelKey,
+                    child: _buildPatientPanel(),
+                  ),
                   const SizedBox(height: 12),
                   _buildActionPanel(),
                   const SizedBox(height: 12),
-                  _buildQueuePanel(),
+                  KeyedSubtree(key: _queuePanelKey, child: _buildQueuePanel()),
                   const SizedBox(height: 12),
-                  _buildBillingPanel(),
+                  KeyedSubtree(
+                    key: _billingPanelKey,
+                    child: _buildBillingPanel(),
+                  ),
                   const SizedBox(height: 12),
-                  _buildAdmissionsPanel(),
+                  KeyedSubtree(
+                    key: _admissionsPanelKey,
+                    child: _buildAdmissionsPanel(),
+                  ),
                 ],
               ],
             );
@@ -2656,22 +3124,25 @@ class _FrontOfficeWorkbenchScreenState
           ),
           _Metric(
             icon: Icons.event_available,
-            label: 'Today Queue',
+            label: 'Today OP Queue',
             value: '${_todayQueue.length}',
             color: AppTheme.primaryTeal,
+            onTap: () => _scrollTo(_queuePanelKey),
           ),
           _Metric(
             icon: Icons.local_hospital,
-            label: 'Active IP',
+            label: 'Active IP Admissions',
             value: '$_activeAdmissionsTotal',
             color: AppTheme.primaryBlue,
+            onTap: () => _scrollTo(_admissionsPanelKey),
           ),
           if (_canViewAdmissionHandoffs)
             _Metric(
               icon: Icons.move_down_outlined,
-              label: 'IP Handoff',
+              label: 'OPD -> IPD Handoff',
               value: '${_admissionHandoffs.length}',
               color: AppTheme.warningAmber,
+              onTap: () => _scrollTo(_admissionsPanelKey),
             ),
           Chip(
             avatar: const Icon(Icons.devices_outlined, size: 18),
@@ -2687,6 +3158,125 @@ class _FrontOfficeWorkbenchScreenState
             tooltip: 'Refresh',
             onPressed: _refreshWorklists,
             icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatientContextStrip(Map<String, dynamic> patient) {
+    final appointments = _todayQueue
+        .where(_queueRowMatchesSelectedPatient)
+        .toList(growable: false);
+    final invoiceDue = _patientInvoices.fold<num>(
+      0,
+      (total, invoice) => total + billingInvoiceAmountDue(invoice),
+    );
+    final demographics = [
+      patientHospitalNumberFrom(patient),
+      patientNameFrom(patient),
+      patientPhoneFrom(patient),
+      [
+        patientAgeFrom(patient).isEmpty ? null : '${patientAgeFrom(patient)}y',
+        patientGenderFrom(patient),
+      ].whereType<String>().where((value) => value.isNotEmpty).join('/'),
+    ].where((value) => value.isNotEmpty).join(' | ');
+
+    return _Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: AppTheme.primaryTeal.withValues(alpha: 0.14),
+                child: const Icon(Icons.person_pin_outlined),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      patientNameFrom(patient),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    if (demographics.isNotEmpty)
+                      Text(
+                        demographics,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _clearSelectedPatient,
+                icon: const Icon(Icons.close),
+                label: const Text('Clear'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _InfoPill(
+                icon: Icons.event_available_outlined,
+                label:
+                    '${appointments.length} OP appointment${appointments.length == 1 ? '' : 's'} today',
+                color: AppTheme.primaryTeal,
+              ),
+              _InfoPill(
+                icon: Icons.receipt_long_outlined,
+                label: _patientInvoices.isEmpty
+                    ? 'No bills loaded'
+                    : '${_patientInvoices.length} bill${_patientInvoices.length == 1 ? '' : 's'} | Due ${_money(invoiceDue)}',
+                color: AppTheme.primaryBlue,
+              ),
+              const _InfoPill(
+                icon: Icons.folder_shared_outlined,
+                label: 'Front-office summary only',
+                color: AppTheme.warningAmber,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (_canBookOp)
+                FilledButton.icon(
+                  onPressed: _showOpBookingDialog,
+                  icon: const Icon(Icons.event_available_outlined),
+                  label: const Text('Book OP'),
+                ),
+              if (_canBookOp)
+                OutlinedButton.icon(
+                  onPressed: _showWalkInRegistrationDialog,
+                  icon: const Icon(Icons.how_to_reg_outlined),
+                  label: const Text('Register Walk-in'),
+                ),
+              if (_canBilling)
+                OutlinedButton.icon(
+                  onPressed: _billingActionBusy ? null : _createDraftInvoice,
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('Draft Bill'),
+                ),
+              OutlinedButton.icon(
+                onPressed: () => context.push(_patientRecordsUploadRoute()),
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Upload Prior Record'),
+              ),
+            ],
           ),
         ],
       ),
@@ -2759,25 +3349,36 @@ class _FrontOfficeWorkbenchScreenState
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    onChanged: _queuePatientLookup,
-                    onSubmitted: _searchPatients,
-                    decoration: InputDecoration(
-                      labelText: 'Hospital ID / phone / name',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _lookupBusy
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                  child: Focus(
+                    onKeyEvent: (node, event) {
+                      if (event is KeyDownEvent &&
+                          event.logicalKey == LogicalKeyboardKey.escape) {
+                        _clearSelectedPatient();
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: TextField(
+                      controller: _searchCtrl,
+                      focusNode: _searchFocus,
+                      onChanged: _queuePatientLookup,
+                      onSubmitted: _handlePatientSearchSubmitted,
+                      decoration: InputDecoration(
+                        labelText: 'Hospital ID / phone / name',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _lookupBusy
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
-                              ),
-                            )
-                          : null,
+                              )
+                            : null,
+                      ),
                     ),
                   ),
                 ),
@@ -3013,8 +3614,12 @@ class _FrontOfficeWorkbenchScreenState
   Widget _queueTile(Map<String, dynamic> row) {
     final id = _appointmentId(row);
     final name = _queuePatientName(row);
+    final patient = _patientFromQueueRow(row);
+    final phone = patientPhoneFrom(patient);
+    final doctor = _queueDoctorName(row);
+    final department = _queueDepartment(row);
     final status = _appointmentStatus(row);
-    final time = _text(row['appointment_time'] ?? row['time'] ?? row['slot']);
+    final dateTime = _queueAppointmentDateTimeLabel(row);
     final busy = id != null && _queueActionId == id;
     final selected = _queueRowMatchesSelectedPatient(row);
     final terminal = const {
@@ -3027,13 +3632,16 @@ class _FrontOfficeWorkbenchScreenState
         _canCompleteOpQueue &&
         (status == 'CONFIRMED' || status == 'IN_PROGRESS');
     final canNoShow = _canManageOpQueue;
+    final canReschedule = _canManageOpQueue;
+    final canCancel = _canManageOpQueue;
     final hasQueueAction =
-        !terminal && (canConfirm || canComplete || canNoShow);
+        !terminal &&
+        (canConfirm || canComplete || canNoShow || canReschedule || canCancel);
     final actions = <Widget>[
       if (canConfirm)
         _QueueActionButton(
           icon: Icons.check,
-          label: 'Confirm',
+          label: 'Check in',
           color: AppTheme.primaryTeal,
           onPressed: busy ? null : () => _confirmQueueAppointment(row),
         ),
@@ -3051,11 +3659,21 @@ class _FrontOfficeWorkbenchScreenState
           color: AppTheme.textSecondary,
           onPressed: busy ? null : () => _markQueueNoShow(row),
         ),
+      if (canReschedule)
+        _QueueActionButton(
+          icon: Icons.event_repeat_outlined,
+          label: 'Reschedule',
+          color: AppTheme.primaryBlue,
+          onPressed: busy ? null : () => _rescheduleQueueAppointment(row),
+        ),
+      if (canCancel)
+        _QueueActionButton(
+          icon: Icons.cancel_outlined,
+          label: 'Cancel',
+          color: AppTheme.errorRed,
+          onPressed: busy ? null : () => _cancelQueueAppointment(row),
+        ),
     ];
-    final subtitle = [
-      if (time.isNotEmpty) time,
-      if (status.isNotEmpty) status,
-    ].join(' - ');
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
@@ -3067,71 +3685,89 @@ class _FrontOfficeWorkbenchScreenState
           borderRadius: BorderRadius.circular(8),
           onTap: () => _selectQueuePatient(row),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-            child: Row(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  backgroundColor: _appointmentStatusColor(
-                    status,
-                  ).withValues(alpha: 0.12),
-                  child: busy
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          selected
-                              ? Icons.person_pin_circle_outlined
-                              : Icons.person_outline,
-                          color: _appointmentStatusColor(status),
-                        ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      if (subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (hasQueueAction)
-                  SizedBox(
-                    width: 132,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (var i = 0; i < actions.length; i++)
-                          Padding(
-                            padding: EdgeInsets.only(
-                              bottom: i == actions.length - 1 ? 0 : 4,
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: _appointmentStatusColor(
+                        status,
+                      ).withValues(alpha: 0.12),
+                      child: busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              selected
+                                  ? Icons.person_pin_circle_outlined
+                                  : Icons.person_outline,
+                              color: _appointmentStatusColor(status),
                             ),
-                            child: actions[i],
-                          ),
-                      ],
                     ),
-                  )
-                else
-                  const Icon(Icons.chevron_right),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            [
+                              if (dateTime.isNotEmpty) dateTime,
+                              if (phone.isNotEmpty) phone,
+                            ].join(' - '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
+                            style: TextStyle(color: AppTheme.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _StatusPill(
+                      label: status,
+                      color: _appointmentStatusColor(status),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if (doctor.isNotEmpty)
+                      _InfoPill(
+                        icon: Icons.medical_services_outlined,
+                        label: doctor,
+                        color: AppTheme.primaryBlue,
+                      ),
+                    if (department.isNotEmpty)
+                      _InfoPill(
+                        icon: Icons.business_outlined,
+                        label: department,
+                        color: AppTheme.primaryTeal,
+                      ),
+                  ],
+                ),
+                if (hasQueueAction) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [for (final action in actions) action],
+                  ),
+                ],
               ],
             ),
           ),
@@ -3281,7 +3917,7 @@ class _FrontOfficeWorkbenchScreenState
         children: [
           _SectionTitle(
             icon: Icons.local_hospital,
-            title: 'Active Admissions',
+            title: 'Active IP Admissions',
             trailing: Wrap(
               spacing: 8,
               children: [
@@ -3315,7 +3951,7 @@ class _FrontOfficeWorkbenchScreenState
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'OPD Admission Handoff',
+                    'OPD -> IPD Handoff',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -3371,37 +4007,81 @@ class _FrontOfficeWorkbenchScreenState
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        dense: true,
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.assignment_returned_outlined),
-        title: Text(
-          name.isEmpty ? 'Patient advised for IP' : name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppTheme.warningAmber.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: AppTheme.warningAmber.withValues(alpha: 0.24),
+          ),
         ),
-        subtitle: Text(
-          [
-            if (phone.isNotEmpty) phone,
-            if (doctor.isNotEmpty) doctor,
-            if (advisedAt.isNotEmpty) advisedAt,
-            if (note.isNotEmpty) note,
-          ].join(' - '),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.assignment_returned_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    name.isEmpty ? 'Patient advised for IP' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                if (busy)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              [
+                if (phone.isNotEmpty) phone,
+                if (doctor.isNotEmpty) doctor,
+                if (advisedAt.isNotEmpty) advisedAt,
+                if (note.isNotEmpty) note,
+              ].join(' - '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                const _InfoPill(
+                  icon: Icons.rule_outlined,
+                  label: 'Needs bed, deposit, consent',
+                  color: AppTheme.warningAmber,
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _showAdmissionAdviceDialog(row),
+                  icon: const Icon(Icons.visibility_outlined, size: 16),
+                  label: const Text('View advice'),
+                ),
+                FilledButton.icon(
+                  onPressed: busy ? null : () => _startAdmissionFromAdvice(row),
+                  icon: const Icon(Icons.bed_outlined, size: 16),
+                  label: const Text('Assign ward/bed'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: patient == null
+                      ? null
+                      : () => _openBillingForAdvice(row),
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                  label: const Text('Billing deposit'),
+                ),
+              ],
+            ),
+          ],
         ),
-        trailing: IconButton.filledTonal(
-          tooltip: 'Admit IP',
-          onPressed: busy ? null : () => _startAdmissionFromAdvice(row),
-          icon: busy
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.local_hospital_outlined),
-        ),
-        onTap: busy ? null : () => _startAdmissionFromAdvice(row),
       ),
     );
   }
@@ -3486,40 +4166,152 @@ class _Metric extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final VoidCallback? onTap;
 
   const _Metric({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 132),
+    final content = Container(
+      constraints: const BoxConstraints(minWidth: 156),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: color),
           const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: color,
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
                 ),
-              ),
-              Text(label, style: TextStyle(color: AppTheme.textSecondary)),
-            ],
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return Material(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: content,
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _InfoPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _StatusPill({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailLine extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailLine({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    if (value.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(label, style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -4136,6 +4928,59 @@ String _queuePatientName(Map<String, dynamic> row) {
   return phone.isEmpty ? 'Patient' : phone;
 }
 
+String _queueDoctorName(Map<String, dynamic> row) {
+  return _firstText([
+    row['doctor_name'],
+    row['doctorName'],
+    row['consultant_name'],
+    row['consultantName'],
+    row['staff_name'],
+    row['provider_name'],
+  ]);
+}
+
+String _queueDepartment(Map<String, dynamic> row) {
+  return _firstText([
+    row['department'],
+    row['doctor_department'],
+    row['specialty'],
+    row['specialization'],
+  ]);
+}
+
+DateTime? _appointmentDate(Map<String, dynamic> row) {
+  final raw = _firstText([
+    row['appointment_date'],
+    row['date'],
+    row['scheduled_date'],
+  ]);
+  if (raw.isEmpty) return null;
+  return DateTime.tryParse(raw)?.toLocal();
+}
+
+TimeOfDay? _appointmentTime(Map<String, dynamic> row) {
+  final raw = _firstText([row['appointment_time'], row['time'], row['slot']]);
+  final match = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(raw);
+  if (match == null) return null;
+  final hour = int.tryParse(match.group(1) ?? '');
+  final minute = int.tryParse(match.group(2) ?? '');
+  if (hour == null || minute == null) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return TimeOfDay(hour: hour, minute: minute);
+}
+
+String _queueAppointmentDateTimeLabel(Map<String, dynamic> row) {
+  final date = _appointmentDate(row);
+  final time = _appointmentTime(row);
+  final parts = [
+    if (date != null) DateFormat('dd MMM').format(date),
+    if (time != null)
+      '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+  ];
+  if (parts.isNotEmpty) return parts.join(' ');
+  return _firstText([row['appointment_time'], row['time'], row['slot']]);
+}
+
 Color _appointmentStatusColor(String status) {
   switch (status.toUpperCase()) {
     case 'CONFIRMED':
@@ -4261,6 +5106,35 @@ Map<String, dynamic>? _bestQueuePatientMatch(
   return matches.length == 1 ? matches.first : null;
 }
 
+Map<String, dynamic>? _bestPatientLookupMatch(
+  List<Map<String, dynamic>> matches,
+  String query,
+) {
+  if (matches.isEmpty) return null;
+  final normalizedQuery = query.trim().toLowerCase();
+  final queryDigits = _digitsOnly(query);
+  for (final match in matches) {
+    final hospitalNumber = _text(match['hospital_number']).toLowerCase();
+    final uid = _text(match['uid']).toLowerCase();
+    final id = _text(match['id']).toLowerCase();
+    final name = patientNameFrom(match, fallback: '').toLowerCase();
+    final phoneDigits = _digitsOnly(patientPhoneFrom(match));
+    if (normalizedQuery.isNotEmpty &&
+        (normalizedQuery == hospitalNumber ||
+            normalizedQuery == uid ||
+            normalizedQuery == id ||
+            normalizedQuery == name)) {
+      return match;
+    }
+    if (queryDigits.length >= 10 && phoneDigits.length >= 10) {
+      final queryLast10 = queryDigits.substring(queryDigits.length - 10);
+      final patientLast10 = phoneDigits.substring(phoneDigits.length - 10);
+      if (queryLast10 == patientLast10) return match;
+    }
+  }
+  return null;
+}
+
 Map<String, dynamic>? _mapFromAny(dynamic value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
@@ -4273,6 +5147,21 @@ String _firstText(Iterable<dynamic> values) {
     if (text.isNotEmpty) return text;
   }
   return '';
+}
+
+String _normalizedPersonName(String value) {
+  return value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+String _dateText(dynamic value) {
+  final text = _text(value);
+  if (text.isEmpty) return '';
+  return text.split('T').first;
 }
 
 Map<String, dynamic> _admissionFromResponse(Map<String, dynamic> result) {

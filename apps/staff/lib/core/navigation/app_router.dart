@@ -327,6 +327,7 @@ final GoRouter appRouter = GoRouter(
               initialPatientName: state.uri.queryParameters['name'],
               initialHospitalNumber:
                   state.uri.queryParameters['hospital_number'],
+              initialAction: state.uri.queryParameters['action'],
             ),
           ),
         ),
