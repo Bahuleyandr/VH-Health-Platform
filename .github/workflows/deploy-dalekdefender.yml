@@ -88,10 +88,15 @@ jobs:
           # `bahuleyan` owns ~/VH-Health-Platform and the sudo-no-password
           # entries for docker/kubectl used by the deploy commands.
           DALEK_HOST: bahuleyan@dalekdefender
+          SENTRY_DSN_BACKEND: ${{ secrets.SENTRY_DSN_BACKEND }}
+          SENTRY_DSN_ADMIN: ${{ secrets.SENTRY_DSN_ADMIN }}
         run: |
           set -euo pipefail
+          SENTRY_DSN_BACKEND_B64="$(printf '%s' "${SENTRY_DSN_BACKEND:-}" | base64 -w0)"
+          SENTRY_DSN_ADMIN_B64="$(printf '%s' "${SENTRY_DSN_ADMIN:-}" | base64 -w0)"
           ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
-              "$DALEK_HOST" 'bash -s' <<'REMOTE'
+              "$DALEK_HOST" \
+              "SENTRY_DSN_BACKEND_B64='$SENTRY_DSN_BACKEND_B64' SENTRY_DSN_ADMIN_B64='$SENTRY_DSN_ADMIN_B64' bash -s" <<'REMOTE'
           set -euo pipefail
 
           cd ~/VH-Health-Platform
@@ -113,6 +118,19 @@ jobs:
           BACKEND_IMAGE="vhhealth-backend:${GIT_TAG}"
           ADMIN_IMAGE="vhhealth-admin:${GIT_TAG}"
           echo "Deploying commit $GIT_COMMIT"
+
+          ADMIN_SENTRY_DSN=""
+          if [ -n "${SENTRY_DSN_BACKEND_B64:-}" ]; then
+            sudo -n kubectl -n vhhealth patch secret vhhealth-backend \
+              --type merge \
+              -p "{\"data\":{\"SENTRY_DSN\":\"${SENTRY_DSN_BACKEND_B64}\"}}"
+          fi
+          if [ -n "${SENTRY_DSN_ADMIN_B64:-}" ]; then
+            sudo -n kubectl -n vhhealth patch secret vhhealth-admin \
+              --type merge \
+              -p "{\"data\":{\"NEXT_PUBLIC_SENTRY_DSN\":\"${SENTRY_DSN_ADMIN_B64}\"}}"
+            ADMIN_SENTRY_DSN="$(printf '%s' "$SENTRY_DSN_ADMIN_B64" | base64 -d)"
+          fi
 
           # Generate the Dockerfile.dalek variants — the upstream
           # Dockerfiles include an `apk add curl` + HEALTHCHECK step
@@ -136,6 +154,12 @@ jobs:
           sudo -n docker build \
             -t "$ADMIN_IMAGE" \
             --build-arg NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444 \
+            --build-arg NEXT_PUBLIC_SENTRY_DSN="$ADMIN_SENTRY_DSN" \
+            --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
+            --build-arg NEXT_PUBLIC_SENTRY_RELEASE="$GIT_COMMIT" \
+            --build-arg NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1 \
+            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=0 \
+            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=0 \
             --build-arg GIT_COMMIT="$GIT_COMMIT" \
             -f Dockerfile.dalek .
           sudo -n docker save "$ADMIN_IMAGE" | sudo -n k3s ctr images import -
@@ -145,6 +169,12 @@ jobs:
           sudo -n kubectl -n vhhealth set image deploy/vhhealth-admin admin="$ADMIN_IMAGE"
           sudo -n kubectl -n vhhealth set env deploy/vhhealth-backend GIT_COMMIT="$GIT_COMMIT"
           sudo -n kubectl -n vhhealth set env deploy/vhhealth-admin GIT_COMMIT="$GIT_COMMIT"
+          sudo -n kubectl -n vhhealth set env deploy/vhhealth-backend \
+            SENTRY_ENVIRONMENT=dalekdefender \
+            SENTRY_TRACES_SAMPLE_RATE=0.1
+          sudo -n kubectl -n vhhealth set env deploy/vhhealth-admin \
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
+            NEXT_PUBLIC_SENTRY_RELEASE="$GIT_COMMIT"
           sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-backend --timeout=300s
           sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-admin --timeout=300s
 

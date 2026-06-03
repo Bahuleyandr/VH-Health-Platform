@@ -328,7 +328,12 @@ jobs:
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app' }}
             NEXT_PUBLIC_APP_NAME=${{ vars.NEXT_PUBLIC_APP_NAME || 'VH Health Admin' }}
             NEXT_PUBLIC_ALLOWED_ORIGIN=${{ vars.NEXT_PUBLIC_ALLOWED_ORIGIN || 'https://admin.vhhealth.app' }}
-            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.SENTRY_DSN_ADMIN }}
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=${{ vars.SENTRY_ENVIRONMENT || 'production' }}
+            NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }}
+            NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ vars.SENTRY_TRACES_SAMPLE_RATE || '0.1' }}
+            NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=${{ vars.NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE || '0' }}
+            NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=${{ vars.NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE || '0' }}
 
       - name: Prune local Docker cache before release analysis
         run: |
@@ -503,7 +508,9 @@ jobs:
             API_URL=${{ vars.STAFF_WEB_API_URL || 'https://clinical.vhhealth.hospital.local' }}
             API_KEY=${{ vars.STAFF_WEB_API_KEY }}
             APP_NAME=${{ vars.STAFF_WEB_APP_NAME || 'VH Health Staff' }}
-            SENTRY_DSN=${{ vars.STAFF_WEB_SENTRY_DSN }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN_STAFF }}
+            SENTRY_ENVIRONMENT=${{ vars.SENTRY_ENVIRONMENT || 'production' }}
+            SENTRY_RELEASE=${{ github.sha }}
 
       - name: Prune local Docker cache before release analysis
         run: |
