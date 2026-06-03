@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -998,7 +999,11 @@ class _AdmissionNotesCard extends StatelessWidget {
     final bed = _firstText([admission['bed_number'], admission['bed_id']]);
     final ward = _firstText([admission['ward'], admission['bed_ward_name']]);
     final admittedAt = _firstText([admission['admitted_at']]);
-    final routeName = Uri.encodeQueryComponent(patientName);
+    final admissionId = _firstText([
+      admission['admission_id'],
+      admission['id'],
+      admission['encounter_id'],
+    ]);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1042,7 +1047,14 @@ class _AdmissionNotesCard extends StatelessWidget {
               child: OutlinedButton.icon(
                 onPressed: uid.isEmpty
                     ? null
-                    : () => context.push('/emr/notes/$uid?name=$routeName'),
+                    : () => context.push(
+                        ipCommandBoardRoute(
+                          patientUid: uid,
+                          admissionId: admissionId,
+                          patientName: patientName,
+                          action: 'notes',
+                        ),
+                      ),
                 icon: const Icon(Icons.open_in_new),
                 label: const Text('Open Notes'),
               ),

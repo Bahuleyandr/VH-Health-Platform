@@ -18,36 +18,44 @@ let pendingAuditLogs = 0;
 const MAX_PENDING_AUDIT_LOGS = 1000;
 
 // ─── Path → module mapping ───────────────────────────────────────────────────
-function deriveModule(path) {
-  if (path.includes('/auth'))              return 'auth';
-  if (path.includes('/attendance'))        return 'attendance';
-  if (path.includes('/leave'))             return 'leave';
-  if (path.includes('/shift'))             return 'shifts';
-  if (path.includes('/incident'))          return 'incidents';
-  if (path.includes('/grievance'))         return 'grievances';
-  if (path.includes('/housekeeping'))      return 'housekeeping';
-  if (path.includes('/overtime'))          return 'overtime';
-  if (path.includes('/replacement'))       return 'replacement';
-  if (path.includes('/regulariz'))         return 'regularization';
-  if (path.includes('/dispute'))           return 'disputes';
-  if (path.includes('/doctor'))            return 'doctors';
-  if (path.includes('/patient'))           return 'patients';
-  if (path.includes('/appointment'))       return 'appointments';
-  if (path.includes('/admission'))         return 'admissions';
-  if (path.includes('/emr/vitals'))        return 'vitals';
-  if (path.includes('/emr/io'))            return 'intake_output';
-  if (path.includes('/pharmacy'))          return 'pharmacy';
-  if (path.includes('/investigation'))     return 'investigations';
-  if (path.includes('/bed'))               return 'beds';
-  if (path.includes('/department'))        return 'departments';
-  if (path.includes('/staff'))             return 'staff';
-  if (path.includes('/user'))              return 'users';
-  if (path.includes('/admin'))             return 'admin';
-  if (path.includes('/setting'))           return 'settings';
-  if (path.includes('/report'))            return 'reports';
-  if (path.includes('/audit'))             return 'audit';
-  if (path.includes('/notification'))      return 'notifications';
-  if (path.includes('/log'))               return 'logs';
+export function deriveModule(path) {
+  const p = String(path || '').toLowerCase();
+  if (p.includes('/auth'))              return 'auth';
+  if (p.includes('/attendance'))        return 'attendance';
+  if (p.includes('/leave'))             return 'leave';
+  if (p.includes('/shift'))             return 'shifts';
+  if (p.includes('/incident'))          return 'incidents';
+  if (p.includes('/grievance'))         return 'grievances';
+  if (p.includes('/housekeeping'))      return 'housekeeping';
+  if (p.includes('/overtime'))          return 'overtime';
+  if (p.includes('/replacement'))       return 'replacement';
+  if (p.includes('/regulariz'))         return 'regularization';
+  if (p.includes('/dispute'))           return 'disputes';
+  if (p.includes('/doctor'))            return 'doctors';
+  if (p.includes('/appointment'))       return 'appointments';
+  if (p.includes('/lab/alerts/critical')) return 'critical_lab_alerts';
+  if (p.includes('/emr/notes'))         return 'clinical_notes';
+  if (p.includes('/emr/orders'))        return 'clinical_orders';
+  if (p.includes('/emr/vitals'))        return 'vitals';
+  if (p.includes('/emr/io'))            return 'intake_output';
+  if (p.includes('/emr/timeline'))      return 'clinical_timeline';
+  if (p.includes('/emr/case-sheet'))    return 'case_sheet';
+  if (p.includes('/drug-chart') || p.includes('/clinical/drug-chart')) return 'drug_chart';
+  if (p.includes('/discharge-summaries')) return 'discharge_summaries';
+  if (p.includes('/admission'))         return 'admissions';
+  if (p.includes('/patient'))           return 'patients';
+  if (p.includes('/pharmacy'))          return 'pharmacy';
+  if (p.includes('/investigation'))     return 'investigations';
+  if (p.includes('/bed'))               return 'beds';
+  if (p.includes('/department'))        return 'departments';
+  if (p.includes('/staff'))             return 'staff';
+  if (p.includes('/user'))              return 'users';
+  if (p.includes('/admin'))             return 'admin';
+  if (p.includes('/setting'))           return 'settings';
+  if (p.includes('/report'))            return 'reports';
+  if (p.includes('/audit'))             return 'audit';
+  if (p.includes('/notification'))      return 'notifications';
+  if (p.includes('/log'))               return 'logs';
   return 'other';
 }
 
@@ -132,6 +140,25 @@ export function deriveAction(method, path) {
   if (m === 'POST' && p.includes('/admission'))                     return 'create_ip_admission';
 
   // IP vitals and I/O
+  if (p.includes('/emr/notes') && p.includes('/sign'))             return 'sign_clinical_note';
+  if (p.includes('/emr/notes') && m === 'POST')                    return 'create_clinical_note';
+  if (p.includes('/emr/notes') && (m === 'PUT' || m === 'PATCH'))  return 'update_clinical_note';
+  if (p.includes('/emr/notes') && m === 'GET')                     return 'view_clinical_notes';
+  if (p.includes('/emr/orders') && p.includes('/verify'))          return 'verify_clinical_order';
+  if (p.includes('/emr/orders') && p.includes('/complete'))        return 'complete_clinical_order';
+  if (p.includes('/emr/orders') && p.includes('/discontinue'))     return 'discontinue_clinical_order';
+  if (p.includes('/emr/orders') && m === 'POST')                   return 'create_clinical_order';
+  if (p.includes('/emr/orders') && m === 'GET')                    return 'view_clinical_orders';
+  if (p.includes('/emr/timeline') && m === 'GET')                  return 'view_patient_timeline';
+  if (p.includes('/emr/case-sheet') && m === 'GET')                return 'view_case_sheet';
+  if ((p.includes('/drug-chart') || p.includes('/clinical/drug-chart')) && m === 'GET') return 'view_drug_chart';
+  if ((p.includes('/drug-chart') || p.includes('/clinical/drug-chart')) && m !== 'GET') return 'update_drug_chart';
+  if (p.includes('/discharge-summaries') && p.includes('/sign'))   return 'sign_discharge_summary';
+  if (p.includes('/discharge-summaries') && m === 'POST')          return 'create_discharge_summary';
+  if (p.includes('/discharge-summaries') && (m === 'PUT' || m === 'PATCH')) return 'update_discharge_summary';
+  if (p.includes('/discharge-summaries') && m === 'GET')           return 'view_discharge_summary';
+
+  // IP vitals and I/O
   if (p.includes('/emr/vitals') && m === 'POST')                     return 'record_vitals';
   if (p.includes('/emr/vitals') && (m === 'PUT' || m === 'PATCH'))   return 'correct_vitals';
   if (p.includes('/emr/vitals') && m === 'GET')                      return 'view_vitals';
@@ -148,6 +175,8 @@ export function deriveAction(method, path) {
   if (p.includes('/housekeeping') && p.includes('/verify'))          return 'verify_housekeeping_task';
 
   // Notifications and safety acknowledgement
+  if (p.includes('/lab/alerts/critical') && p.includes('/ack'))      return 'acknowledge_critical_lab_alert';
+  if (p.includes('/lab/alerts/critical'))                            return 'view_critical_lab_alert';
   if (p.includes('/notifications') && p.includes('/ack'))            return 'acknowledge_alert';
   if (p.includes('/notifications') && p.includes('/read'))           return 'mark_alert_read';
 

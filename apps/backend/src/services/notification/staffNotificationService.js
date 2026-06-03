@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { sendToUser } from '../../utils/websocket/wsServer.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -12,6 +13,9 @@ const PRIORITY_MAP = {
   NORMAL: 'MEDIUM',
   LOW: 'LOW',
 };
+const LOWERCASE_EVENT_TYPES = new Set([
+  'lab_critical_alert',
+]);
 
 function compact(value) {
   return String(value ?? '').trim();
@@ -26,7 +30,10 @@ function normalizeRole(role) {
 }
 
 function normalizeType(type) {
-  return compact(type || 'SYSTEM').toUpperCase().slice(0, 50);
+  const value = compact(type || 'SYSTEM').slice(0, 50);
+  const lower = value.toLowerCase();
+  if (LOWERCASE_EVENT_TYPES.has(lower)) return lower;
+  return value.toUpperCase();
 }
 
 function normalizePriority(priority) {
@@ -110,7 +117,7 @@ export async function resolveStaffNotificationRecipients({
        LEFT JOIN staff s ON s.user_id = u.uid
        LEFT JOIN doctors doc ON doc.user_id = u.id
        LEFT JOIN departments dpt ON dpt.id = doc.department_id
-      WHERE u.tenant_id = $1::uuid
+      WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
         AND COALESCE(u.is_active, true) = true
         AND u.role <> 'PATIENT'
         AND (
@@ -172,6 +179,13 @@ export async function sendStaffNotifications({
   }
 
   const userIds = uniqueInts(recipients.map(row => row.id));
+  const phoneByUserId = new Map(
+    recipients.map(row => [
+      Number.parseInt(String(row.id), 10),
+      normalizePhone(row.phone || '') || 'unknown',
+    ]),
+  );
+  const normalizedPhones = userIds.map(id => phoneByUserId.get(id) || 'unknown');
   const notificationType = normalizeType(type);
   const notificationPriority = normalizePriority(priority);
   const normalizedTenant = normalizeTenant(tenantId);
@@ -181,13 +195,16 @@ export async function sendStaffNotifications({
   });
 
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO notifications
+    `WITH recipient_phone(user_id, phone) AS (
+       SELECT * FROM unnest($10::int[], $11::text[])
+     )
+     INSERT INTO notifications
        (tenant_id, uid, user_id, phone, title, body, type, priority,
         data, is_read, created_at, updated_at, related_id, recipient_role)
      SELECT $1::uuid,
             u.uid,
             u.id,
-            COALESCE(NULLIF(TRIM(u.phone), ''), 'unknown'),
+            COALESCE(rp.phone, NULLIF(TRIM(u.phone), ''), 'unknown'),
             $2,
             $3,
             $4,
@@ -199,6 +216,7 @@ export async function sendStaffNotifications({
             $7::int,
             u.role
        FROM users u
+       LEFT JOIN recipient_phone rp ON rp.user_id = u.id
       WHERE u.id = ANY($8::int[])
         AND COALESCE(u.is_active, true) = true
         AND (
@@ -209,8 +227,8 @@ export async function sendStaffNotifications({
               FROM notifications n
              WHERE n.tenant_id = $1::uuid
                AND n.user_id = u.id
-               AND n.type = $4
-               AND n.related_id = $7::int
+            AND n.type = $4
+            AND n.related_id = $7::int
           )
         )
       RETURNING id, tenant_id, uid, user_id, phone, title, body AS message,
@@ -224,6 +242,8 @@ export async function sendStaffNotifications({
     relatedId == null ? null : Number(relatedId),
     userIds,
     dedupe === true,
+    userIds,
+    normalizedPhones,
   );
 
   for (const row of rows) {

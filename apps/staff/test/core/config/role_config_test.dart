@@ -348,6 +348,35 @@ void main() {
         );
       }
     });
+
+    test('role-specific feature gates are enforced for every role', () {
+      for (final role in StaffRole.values) {
+        final ids = RoleFeatures.getFeaturesForRole(
+          role,
+        ).map((feature) => feature.id).toSet();
+
+        expect(
+          ids.contains('front_office_workbench'),
+          RoleFeatures.hasFrontOfficeWorkbench(role),
+          reason: '$role front-office visibility drifted',
+        );
+        expect(
+          ids.contains('admissions'),
+          RoleFeatures.hasIpAdmissionAccess(role),
+          reason: '$role IP admission visibility drifted',
+        );
+        expect(
+          ids.contains('billing_desk'),
+          RoleFeatures.hasBillingDesk(role),
+          reason: '$role billing visibility drifted',
+        );
+        expect(
+          ids.contains('audit_logs'),
+          role == StaffRole.admin || role == StaffRole.superAdmin,
+          reason: '$role audit log visibility drifted',
+        );
+      }
+    });
   });
 
   group('RoleFeatures.getBottomNavForRole', () {
@@ -492,6 +521,35 @@ void main() {
       expect(nurseRoutes, isNot(contains('/front-office')));
       expect(nurseRoutes, isNot(contains('/emr/admissions')));
       expect(nurseRoutes, contains('/patient-records'));
+    });
+
+    test('workbench side bar gates match role predicates for every role', () {
+      for (final role in StaffRole.values) {
+        final routes = RoleFeatures.getWorkbenchNavForRole(
+          role,
+        ).map((item) => item.route).toSet();
+
+        expect(
+          routes.contains('/front-office'),
+          RoleFeatures.hasFrontOfficeWorkbench(role),
+          reason: '$role front-office side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/emr/admissions'),
+          RoleFeatures.hasIpAdmissionAccess(role),
+          reason: '$role IP admissions side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/billing-desk'),
+          RoleFeatures.hasBillingDesk(role),
+          reason: '$role billing side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/audit-logs'),
+          role == StaffRole.admin || role == StaffRole.superAdmin,
+          reason: '$role audit side bar visibility drifted',
+        );
+      }
     });
 
     test('staff governance navigation consolidates rosters into the hub', () {

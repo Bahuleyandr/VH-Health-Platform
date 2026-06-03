@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -959,7 +960,12 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
                             context.push(
-                              '/emr/vitals/$uid${name != null ? '?name=$name' : ''}',
+                              ipCommandBoardRoute(
+                                patientUid: uid,
+                                admissionId: widget.admissionId,
+                                patientName: name,
+                                action: 'vitals',
+                              ),
                             );
                           }
                         },
@@ -975,7 +981,12 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
                             context.push(
-                              '/emr/notes/$uid${name != null ? '?name=$name' : ''}',
+                              ipCommandBoardRoute(
+                                patientUid: uid,
+                                admissionId: widget.admissionId,
+                                patientName: name,
+                                action: 'notes',
+                              ),
                             );
                           }
                         },
@@ -991,7 +1002,12 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
                             context.push(
-                              '/emr/orders/$uid${name != null ? '?name=$name' : ''}',
+                              ipCommandBoardRoute(
+                                patientUid: uid,
+                                admissionId: widget.admissionId,
+                                patientName: name,
+                                action: 'orders',
+                              ),
                             );
                           }
                         },
@@ -1007,7 +1023,11 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final name = _detail?['patient_name'] as String?;
                           if (uid != null) {
                             context.push(
-                              '/emr/timeline/$uid${name != null ? '?name=$name' : ''}',
+                              ipCommandBoardRoute(
+                                patientUid: uid,
+                                admissionId: widget.admissionId,
+                                patientName: name,
+                              ),
                             );
                           }
                         },
@@ -1020,7 +1040,12 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                           final id = widget.admissionId;
                           final name = _detail?['patient_name'] as String?;
                           context.push(
-                            '/emr/discharge-hub/$id${name != null ? '?name=${Uri.encodeQueryComponent(name)}' : ''}',
+                            ipCommandBoardRoute(
+                              patientUid: _detail?['patient_uid'] as String?,
+                              admissionId: id,
+                              patientName: name,
+                              action: 'discharge',
+                            ),
                           );
                         },
                       ),

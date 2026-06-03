@@ -3537,39 +3537,11 @@ class _FrontOfficeWorkbenchScreenState
                 ),
               if (_canClinical)
                 _ActionTile(
-                  icon: Icons.note_add_outlined,
-                  label: 'Notes',
-                  color: AppTheme.primaryBlue,
-                  enabled: hasPatient,
-                  onTap: () {
-                    final uid = _selectedPatientUid();
-                    if (uid == null) return;
-                    context.push(
-                      '/emr/notes/$uid?name=${Uri.encodeComponent(_selectedPatient?['name']?.toString() ?? 'Patient')}',
-                    );
-                  },
-                ),
-              if (_canClinical)
-                _ActionTile(
                   icon: Icons.monitor_heart_outlined,
                   label: 'Vitals',
                   color: AppTheme.errorRed,
                   enabled: hasPatient,
                   onTap: () => context.push(_patientRoute('/vitals')),
-                ),
-              if (_canClinical)
-                _ActionTile(
-                  icon: Icons.playlist_add_check_circle_outlined,
-                  label: 'Orders',
-                  color: AppTheme.warningAmber,
-                  enabled: hasPatient,
-                  onTap: () {
-                    final uid = _selectedPatientUid();
-                    if (uid == null) return;
-                    context.push(
-                      '/emr/orders/$uid?name=${Uri.encodeComponent(_selectedPatient?['name']?.toString() ?? 'Patient')}',
-                    );
-                  },
                 ),
             ],
           ),

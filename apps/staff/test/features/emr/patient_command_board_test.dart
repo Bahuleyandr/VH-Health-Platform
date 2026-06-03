@@ -155,5 +155,61 @@ void main() {
       expect(patientCommandBoardHasMore(board: board, loadedRows: 100), isTrue);
       expect(patientCommandBoardNextOffset(board: board, loadedRows: 50), 100);
     });
+
+    test('action destinations preserve existing query and add IP context', () {
+      final route = patientCommandBoardActionDestination(
+        rawRoute: '/nursing-notes?patient_uid=patient-18',
+        actionKey: 'notes',
+        patientUid: 'patient-18',
+        admissionId: 44,
+        patientName: 'Saraswati Raman',
+        patientRef: 'A Block - Bed 301 - Saraswati Raman',
+      );
+
+      final uri = Uri.parse(route);
+      expect(uri.path, '/nursing-notes');
+      expect(uri.queryParameters['patient_uid'], 'patient-18');
+      expect(uri.queryParameters['admission_id'], '44');
+      expect(uri.queryParameters['name'], 'Saraswati Raman');
+    });
+
+    test('handover destinations include traceable patient reference', () {
+      final route = patientCommandBoardActionDestination(
+        rawRoute: '/handover',
+        actionKey: 'handover',
+        patientUid: 'patient-18',
+        admissionId: 44,
+        patientName: 'Saraswati Raman',
+        patientRef: 'A Block - Bed 301 - Saraswati Raman',
+      );
+
+      final uri = Uri.parse(route);
+      expect(uri.path, '/handover');
+      expect(
+        uri.queryParameters['patient_ref'],
+        'A Block - Bed 301 - Saraswati Raman',
+      );
+      expect(uri.queryParameters['patient_uid'], 'patient-18');
+      expect(uri.queryParameters['admission_id'], '44');
+    });
+
+    test(
+      'command-board destinations stay on the board with action context',
+      () {
+        final route = patientCommandBoardActionDestination(
+          rawRoute: '/patient-command-board',
+          actionKey: 'discharge',
+          patientUid: 'patient-18',
+          admissionId: 44,
+          patientName: 'Saraswati Raman',
+          patientRef: 'A Block - Bed 301 - Saraswati Raman',
+        );
+
+        final uri = Uri.parse(route);
+        expect(uri.path, '/patient-command-board');
+        expect(uri.queryParameters['action'], 'discharge');
+        expect(uri.queryParameters['admission_id'], '44');
+      },
+    );
   });
 }

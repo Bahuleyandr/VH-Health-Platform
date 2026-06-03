@@ -17,7 +17,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { auditLogMiddleware, deriveAction, deriveAuditResourceContext } = await import(
+const { auditLogMiddleware, deriveAction, deriveModule, deriveAuditResourceContext } = await import(
   '../../middleware/auditLog.js'
 );
 
@@ -158,5 +158,28 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(deriveAction('POST', '/api/v1/beds/20/ready')).toBe('mark_bed_ready');
     expect(deriveAction('POST', '/api/v1/notifications/7/acknowledge'))
       .toBe('acknowledge_alert');
+  });
+
+  it('uses clinical audit action and module names for IP command board workflows', () => {
+    expect(deriveAction('POST', '/api/v1/emr/notes')).toBe('create_clinical_note');
+    expect(deriveAction('PUT', '/api/v1/emr/notes/10')).toBe('update_clinical_note');
+    expect(deriveAction('POST', '/api/v1/emr/notes/10/sign')).toBe('sign_clinical_note');
+    expect(deriveAction('POST', '/api/v1/emr/orders')).toBe('create_clinical_order');
+    expect(deriveAction('PUT', '/api/v1/emr/orders/9/verify')).toBe('verify_clinical_order');
+    expect(deriveAction('PUT', '/api/v1/emr/orders/9/complete')).toBe('complete_clinical_order');
+    expect(deriveAction('PUT', '/api/v1/emr/orders/9/discontinue')).toBe('discontinue_clinical_order');
+    expect(deriveAction('GET', '/api/v1/emr/timeline/patient-1')).toBe('view_patient_timeline');
+    expect(deriveAction('GET', '/api/v1/emr/case-sheet/55')).toBe('view_case_sheet');
+    expect(deriveAction('GET', '/api/v1/clinical/drug-chart/admission/55')).toBe('view_drug_chart');
+    expect(deriveAction('PATCH', '/api/v1/clinical/drug-chart/55/administer')).toBe('update_drug_chart');
+    expect(deriveAction('POST', '/api/v1/discharge-summaries/55/sign')).toBe('sign_discharge_summary');
+    expect(deriveAction('POST', '/api/v1/lab/alerts/critical/55/ack')).toBe('acknowledge_critical_lab_alert');
+
+    expect(deriveModule('/api/v1/emr/notes/patient/patient-1')).toBe('clinical_notes');
+    expect(deriveModule('/api/v1/emr/orders/patient/patient-1')).toBe('clinical_orders');
+    expect(deriveModule('/api/v1/clinical/drug-chart/admission/55')).toBe('drug_chart');
+    expect(deriveModule('/api/v1/emr/case-sheet/55')).toBe('case_sheet');
+    expect(deriveModule('/api/v1/discharge-summaries/55')).toBe('discharge_summaries');
+    expect(deriveModule('/API/V1/LAB/ALERTS/CRITICAL/55')).toBe('critical_lab_alerts');
   });
 });

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/role_config.dart';
+import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/bed_board_print_service.dart';
@@ -1292,6 +1293,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
         (bed['patient_hospital_number'] ?? bed['hospital_number'] ?? '')
             .toString()
             .trim();
+    final admissionId =
+        (bed['admission_id'] ?? bed['admissionId'])?.toString() ?? '';
     final chiefComplaint = (bed['chief_complaint'] ?? '').toString();
     final admittingDx = (bed['admitting_diagnosis'] ?? '').toString();
     final admissionType = (bed['admission_type'] ?? '').toString();
@@ -1397,9 +1400,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
               // back to a half-open sheet).
               if (isOccupied && patientUid.isNotEmpty) ...[
                 _BedQuickActions(
-                  admissionId:
-                      (bed['admission_id'] ?? bed['admissionId'])?.toString() ??
-                      '',
+                  admissionId: admissionId,
                   patientUid: patientUid,
                   patientId: bed['patient_id']?.toString() ?? '',
                   patientName: patientName,
@@ -1455,7 +1456,11 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                       ? () {
                           Navigator.of(context).pop(false);
                           context.push(
-                            '/emr/timeline/$patientUid?name=${Uri.encodeQueryComponent(patientName)}',
+                            ipCommandBoardRoute(
+                              patientUid: patientUid,
+                              admissionId: admissionId,
+                              patientName: patientName,
+                            ),
                           );
                         }
                       : null,
@@ -1806,58 +1811,74 @@ class _BedQuickActions extends StatelessWidget {
     final nameQ = Uri.encodeQueryComponent(patientName);
     final phoneQ = Uri.encodeQueryComponent(patientPhone);
     final pidQ = Uri.encodeQueryComponent(patientId);
-    final patientUidQ = Uri.encodeQueryComponent(patientUid);
-    final admissionQ = Uri.encodeQueryComponent(admissionId);
-
-    String commandBoardRoute([String? action]) {
-      final params = <String>[
-        if (patientUid.isNotEmpty) 'patient_uid=$patientUidQ',
-        if (admissionId.isNotEmpty) 'admission_id=$admissionQ',
-        if (action != null && action.isNotEmpty)
-          'action=${Uri.encodeQueryComponent(action)}',
-        if (patientName.isNotEmpty) 'name=$nameQ',
-      ];
-      return '/patient-command-board?${params.join('&')}';
-    }
 
     final actions = <_QuickAction>[
       _QuickAction(
         icon: Icons.timeline,
         label: s.bedSheetActionOpenEmr,
         color: AppTheme.primaryBlue,
-        route: commandBoardRoute(),
+        route: ipCommandBoardRoute(
+          patientUid: patientUid,
+          admissionId: admissionId,
+          patientName: patientName,
+        ),
       ),
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.assignment_outlined,
           label: 'Case Sheet',
           color: const Color(0xFF5D4037),
-          route: commandBoardRoute('case_sheet'),
+          route: ipCommandBoardRoute(
+            patientUid: patientUid,
+            admissionId: admissionId,
+            patientName: patientName,
+            action: 'case_sheet',
+          ),
         ),
       _QuickAction(
         icon: Icons.monitor_heart_outlined,
         label: s.bedSheetActionRecordVitals,
         color: const Color(0xFFC62828),
-        route: commandBoardRoute('vitals'),
+        route: ipCommandBoardRoute(
+          patientUid: patientUid,
+          admissionId: admissionId,
+          patientName: patientName,
+          action: 'vitals',
+        ),
       ),
       _QuickAction(
         icon: Icons.note_add_outlined,
         label: s.bedSheetActionAddNote,
         color: const Color(0xFF00695C),
-        route: commandBoardRoute('notes'),
+        route: ipCommandBoardRoute(
+          patientUid: patientUid,
+          admissionId: admissionId,
+          patientName: patientName,
+          action: 'notes',
+        ),
       ),
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.medication_liquid_outlined,
           label: 'Drug Chart',
           color: const Color(0xFFE65100),
-          route: commandBoardRoute('drug_chart'),
+          route: ipCommandBoardRoute(
+            patientUid: patientUid,
+            admissionId: admissionId,
+            patientName: patientName,
+            action: 'drug_chart',
+          ),
         ),
       _QuickAction(
         icon: Icons.swap_horiz,
         label: s.bedSheetActionHandover,
         color: const Color(0xFF6A1B9A),
-        route: commandBoardRoute('handover'),
+        route: ipCommandBoardRoute(
+          patientUid: patientUid,
+          admissionId: admissionId,
+          patientName: patientName,
+          action: 'handover',
+        ),
       ),
       _QuickAction(
         icon: Icons.science_outlined,
@@ -1892,7 +1913,12 @@ class _BedQuickActions extends StatelessWidget {
           icon: Icons.rule_folder_outlined,
           label: 'Discharge',
           color: const Color(0xFF3949AB),
-          route: commandBoardRoute('discharge'),
+          route: ipCommandBoardRoute(
+            patientUid: patientUid,
+            admissionId: admissionId,
+            patientName: patientName,
+            action: 'discharge',
+          ),
         ),
     ];
 
@@ -2154,8 +2180,13 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
     final patientName =
         (widget.bed['patient_full_name'] ?? widget.bed['patient_name'] ?? '')
             .toString();
-    final nameQ = Uri.encodeQueryComponent(patientName);
-    final route = '/emr/discharge-hub/$admissionId?name=$nameQ';
+    final patientUid = (widget.bed['patient_uid'] ?? '').toString();
+    final route = ipCommandBoardRoute(
+      patientUid: patientUid,
+      admissionId: admissionId,
+      patientName: patientName,
+      action: 'discharge',
+    );
     Navigator.of(context).pop(false);
     context.push(route);
   }

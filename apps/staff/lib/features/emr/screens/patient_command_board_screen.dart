@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -95,6 +96,51 @@ int patientCommandBoardNextOffset({
   final counts = _patientCommandBoardMap(board['counts']);
   final countedLoaded = _patientCommandBoardInt(counts['loaded']);
   return countedLoaded > loadedRows ? countedLoaded : loadedRows;
+}
+
+@visibleForTesting
+String patientCommandBoardActionDestination({
+  required String rawRoute,
+  required String actionKey,
+  required String patientUid,
+  required int admissionId,
+  required String patientName,
+  required String patientRef,
+}) {
+  final route = rawRoute.trim();
+  if (route.isEmpty || route.startsWith('/patient-command-board')) {
+    return ipCommandBoardRoute(
+      patientUid: patientUid,
+      admissionId: admissionId,
+      patientName: patientName,
+      action: actionKey,
+    );
+  }
+
+  if (route == '/handover') {
+    return _appendPatientContext(route, {
+      'patient_ref': patientRef,
+      'patient_uid': patientUid,
+      'admission_id': admissionId <= 0 ? '' : '$admissionId',
+      'name': patientName,
+    });
+  }
+
+  return _appendPatientContext(route, {
+    'name': patientName,
+    'patient_uid': patientUid,
+    'admission_id': admissionId <= 0 ? '' : '$admissionId',
+  });
+}
+
+String _appendPatientContext(String route, Map<String, String> context) {
+  final uri = Uri.parse(route);
+  final query = Map<String, String>.from(uri.queryParameters);
+  for (final entry in context.entries) {
+    if (entry.value.trim().isEmpty || query.containsKey(entry.key)) continue;
+    query[entry.key] = entry.value.trim();
+  }
+  return uri.replace(queryParameters: query.isEmpty ? null : query).toString();
 }
 
 Map<String, dynamic> _patientCommandBoardRoleScope(Map<String, dynamic> board) {
@@ -449,20 +495,20 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     final patientName = _text(patient['name'], 'Patient');
     final patientUid = _text(patient['uid']);
     final admissionId = _int(row['admission_id']);
-    final encodedName = Uri.encodeQueryComponent(patientName);
-    final patientRef = Uri.encodeQueryComponent(
-      [
-        _text(row['ward']),
-        if (_text(row['bed_number']).isNotEmpty)
-          'Bed ${_text(row['bed_number'])}',
-        patientName,
-      ].where((part) => part.isNotEmpty).join(' - '),
+    final patientRef = [
+      _text(row['ward']),
+      if (_text(row['bed_number']).isNotEmpty)
+        'Bed ${_text(row['bed_number'])}',
+      patientName,
+    ].where((part) => part.isNotEmpty).join(' - ');
+    final route = patientCommandBoardActionDestination(
+      rawRoute: rawRoute,
+      actionKey: _text(action['key']),
+      patientUid: patientUid,
+      admissionId: admissionId,
+      patientName: patientName,
+      patientRef: patientRef,
     );
-    final route = rawRoute.contains('?')
-        ? rawRoute
-        : rawRoute == '/handover'
-        ? '$rawRoute?patient_ref=$patientRef&patient_uid=$patientUid&admission_id=$admissionId'
-        : '$rawRoute?name=$encodedName';
     context.push(route);
   }
 
@@ -518,8 +564,8 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'vitals' ||
       'io' ||
       'i/o' => uid.isEmpty ? null : '/emr/vitals/$uid?name=$name',
-      'notes' =>
-        uid.isEmpty ? null : '/nursing-notes?patient_uid=$uid&name=$name',
+      'notes' => uid.isEmpty ? null : '/emr/notes/$uid?name=$name',
+      'orders' => uid.isEmpty ? null : '/emr/orders/$uid?name=$name',
       'timeline' ||
       'emr' => uid.isEmpty ? null : '/emr/timeline/$uid?name=$name',
       'drug_chart' =>

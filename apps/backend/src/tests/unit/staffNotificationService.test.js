@@ -52,7 +52,7 @@ describe('central staff notification service', () => {
     });
 
     expect(rows).toHaveLength(1);
-    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/u\.tenant_id = \$1::uuid/);
+    expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/COALESCE\(u\.tenant_id, \$1::uuid\) = \$1::uuid/);
     expect(queryUnsafeMock.mock.calls[0][4]).toEqual(['NURSING_STAFF']);
     expect(queryUnsafeMock.mock.calls[0][5]).toEqual(['icu']);
   });
@@ -97,6 +97,7 @@ describe('central staff notification service', () => {
     expect(result.notification_count).toBe(1);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO notifications/);
     expect(queryUnsafeMock.mock.calls[1][4]).toBe('ADMISSION_CREATED');
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/WITH recipient_phone/);
     expect(sendToUserMock).toHaveBeenCalledWith(
       USER_UID,
       'notification',
@@ -120,5 +121,32 @@ describe('central staff notification service', () => {
 
     expect(result.notification_count).toBe(0);
     expect(sendToUserMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves the established lower-case lab critical alert type', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 7,
+        uid: USER_UID,
+        name: 'Doctor One',
+        phone: '9000000001',
+        role: 'DOCTOR',
+        department: 'Emergency',
+      }])
+      .mockResolvedValueOnce([]);
+
+    await sendStaffNotifications({
+      tenantId: TENANT,
+      recipientUserIds: [7],
+      title: 'CRITICAL lab: Troponin I',
+      body: 'Troponin I = 0.85 ng/mL.',
+      type: 'LAB_CRITICAL_ALERT',
+      priority: 'HIGH',
+      relatedId: 44,
+      data: { result_id: 22 },
+    });
+
+    expect(queryUnsafeMock.mock.calls[1][4]).toBe('lab_critical_alert');
+    expect(queryUnsafeMock.mock.calls[1][11]).toEqual(['+919000000001']);
   });
 });

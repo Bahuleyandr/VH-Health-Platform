@@ -431,8 +431,8 @@ final GoRouter appRouter = GoRouter(
         // Nursing
         //
         // /vitals remains available for the legacy/OP nursing flow.
-        // IP vitals entry is routed through /emr/vitals/:uid so records
-        // share the same chart used by Patient Command Board and Bed Board.
+        // IP vitals entry is launched from Patient Command Board; Bed Board
+        // and admission shortcuts route there instead of owning a separate UI.
         GoRoute(
           path: '/vitals',
           name: 'vitals',
