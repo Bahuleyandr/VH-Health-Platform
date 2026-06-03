@@ -1,7 +1,10 @@
 // src/routes/messaging/messagingRoutes.js
 
 import express from 'express';
-import { validationResult } from 'express-validator';
+import multer from 'multer';
+import { body, param, validationResult } from 'express-validator';
+import { HOSPITAL_UPLOAD_CONFIG } from '../../config/uploadConfig.js';
+import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { sanitizeBody } from '../../middleware/sanitizeMiddleware.js';
 import messagingService from '../../services/messaging/messagingService.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -14,6 +17,22 @@ const validate = (req, res, next) => {
 };
 
 const router = express.Router();
+const messageAttachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 15 * 1024 * 1024,
+    files: 1
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.includes(file.mimetype)) {
+      const err = new Error(`File type ${file.mimetype} is not allowed`);
+      err.statusCode = 400;
+      err.code = 'INVALID_FILE_TYPE';
+      return cb(err);
+    }
+    return cb(null, true);
+  }
+});
 
 // Sanitize message text fields
 const sanitizeMessageFields = sanitizeBody('body', 'subject');
@@ -210,6 +229,124 @@ router.get('/threads/:threadId/messages', async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * POST /messaging/threads/:threadId/attachments
+ * Upload one binary attachment and create the linked conversation message.
+ */
+router.post(
+  '/threads/:threadId/attachments',
+  param('threadId').isUUID().withMessage('threadId must be a valid UUID'),
+  messageAttachmentUpload.single('file'),
+  validateFileContent,
+  body('recipient_uid')
+    .optional({ nullable: true, checkFalsy: true })
+    .isUUID()
+    .withMessage('recipient_uid must be a valid UUID'),
+  body('body')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('body must be at most 2000 characters'),
+  body('subject')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString()
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage('subject must be at most 255 characters'),
+  body('priority')
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(['normal', 'urgent', 'critical'])
+    .withMessage('priority must be one of: normal, urgent, critical'),
+  validate,
+  sanitizeMessageFields,
+  async (req, res, next) => {
+    try {
+      const senderUid = req.user?.uid;
+      if (!senderUid) {
+        return error(res, 'Authentication required', 401);
+      }
+      if (!req.file) {
+        return error(res, 'file is required', 400);
+      }
+
+      const result = await messagingService.sendThreadAttachment({
+        senderUid,
+        tenantId: tenantOf(req),
+        threadId: req.params.threadId,
+        recipientUid: req.body?.recipient_uid || null,
+        file: req.file,
+        body: req.body?.body || '',
+        subject: req.body?.subject || null,
+        priority: req.body?.priority || 'normal'
+      });
+
+      return success(res, result, 'Attachment sent successfully', 201);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /messaging/threads/:threadId/attachments
+ * List attachment metadata for a thread the caller participates in.
+ */
+router.get(
+  '/threads/:threadId/attachments',
+  param('threadId').isUUID().withMessage('threadId must be a valid UUID'),
+  validate,
+  async (req, res, next) => {
+    try {
+      const staffUid = req.user?.uid;
+      if (!staffUid) {
+        return error(res, 'Authentication required', 401);
+      }
+
+      const attachments = await messagingService.listThreadAttachments(
+        staffUid,
+        req.params.threadId,
+        tenantOf(req)
+      );
+
+      return success(res, attachments, 'Attachments retrieved');
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /messaging/attachments/:attachmentId/download
+ * Authenticated binary download for a staff-message attachment.
+ */
+router.get(
+  '/attachments/:attachmentId/download',
+  param('attachmentId').isUUID().withMessage('attachmentId must be a valid UUID'),
+  validate,
+  async (req, res, next) => {
+    try {
+      const staffUid = req.user?.uid;
+      if (!staffUid) {
+        return error(res, 'Authentication required', 401);
+      }
+
+      const { attachment, bytes } = await messagingService.getAttachmentDownload(
+        staffUid,
+        req.params.attachmentId,
+        tenantOf(req)
+      );
+      const safeFileName = String(attachment.file_name || 'attachment').replace(/["\r\n]/g, '_');
+      res.setHeader('Content-Type', attachment.content_type || 'application/octet-stream');
+      res.setHeader('Content-Length', String(bytes.length));
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFileName}"`);
+      return res.status(200).send(bytes);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 router.patch('/threads/:threadId/archive', async (req, res, next) => {
   try {

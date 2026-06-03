@@ -1,13 +1,17 @@
 // src/services/messaging/messagingService.js
 
+import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
+import { getFileFromR2, uploadFileToR2 } from '../../utils/r2Storage.js';
+import { scanBuffer } from '../../utils/virusScanner.js';
 import { emitStaffMessage } from '../../utils/websocket/realtimeEmitter.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VALID_PRIORITIES = ['normal', 'urgent', 'critical'];
+const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 const ADMIN_BROADCAST_ROLES = new Set(['ADMIN', 'SUPER_ADMIN', 'HR_STAFF']);
 const DEPARTMENT_BROADCAST_ROLES = new Set([
   'ADMIN',
@@ -58,6 +62,25 @@ const ensurePriority = (priority = 'normal') => {
 };
 
 const compactString = value => String(value || '').trim();
+const normalizeFileName = value =>
+  compactString(value || 'attachment')
+    .replace(/[^a-zA-Z0-9._ -]/g, '_')
+    .replace(/\s+/g, ' ')
+    .slice(0, 180) || 'attachment';
+
+const publicAttachment = row => ({
+  id: row.id,
+  thread_id: row.thread_id,
+  message_id: row.message_id == null ? null : Number(row.message_id),
+  uploaded_by_uid: row.uploaded_by_uid,
+  file_name: row.file_name,
+  content_type: row.content_type,
+  file_size: row.file_size == null ? null : Number(row.file_size),
+  scan_status: row.scan_status || 'pending',
+  metadata: row.metadata || {},
+  created_at: row.created_at,
+  updated_at: row.updated_at
+});
 
 const getUserIdForUid = async uid => {
   if (!uid) return null;
@@ -96,6 +119,13 @@ function baseMessageJoins(alias = 'm') {
           LEFT JOIN staff sender_staff ON sender_staff.user_id = sender.uid
           LEFT JOIN users recipient ON recipient.uid = ${alias}.recipient_uid
           LEFT JOIN staff recipient_staff ON recipient_staff.user_id = recipient.uid`;
+}
+
+function attachmentSelect(alias = 'a') {
+  const prefix = alias ? `${alias}.` : '';
+  return `${prefix}id, ${prefix}thread_id, ${prefix}message_id, ${prefix}uploaded_by_uid,
+          ${prefix}file_name, ${prefix}content_type, ${prefix}file_size, ${prefix}storage_key,
+          ${prefix}scan_status, ${prefix}metadata, ${prefix}created_at, ${prefix}updated_at`;
 }
 
 async function addThreadParticipants(db, threadId, tenantId, participantUids) {
@@ -313,6 +343,116 @@ async function notifyMessageRecipient(message, senderUid, priority, subject, bod
   });
 }
 
+async function resolveThreadRecipient(db, { threadId, senderUid, recipientUid = null, tenantId }) {
+  const normalizedTenant = normalizeTenant(tenantId);
+  await assertThreadAccess(db, {
+    threadId,
+    staffUid: senderUid,
+    recipientUid,
+    tenantId: normalizedTenant
+  });
+
+  if (recipientUid && recipientUid !== senderUid) {
+    return recipientUid;
+  }
+
+  const rows = await query(
+    `SELECT participant_uid
+       FROM staff_message_thread_participants
+      WHERE thread_id = $1::uuid
+        AND tenant_id = $2::uuid
+        AND participant_uid <> $3::uuid
+      ORDER BY created_at ASC
+      LIMIT 1`,
+    [threadId, normalizedTenant, senderUid],
+    db
+  );
+
+  const resolved = rows[0]?.participant_uid;
+  if (!resolved) {
+    throw AppError.badRequest('Message thread has no recipient for this attachment');
+  }
+  return resolved;
+}
+
+async function hydrateMessageAttachments(messages, tenantId, db = prisma) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+  const messageIds = messages.map(message => Number(message.id)).filter(Number.isInteger);
+  if (messageIds.length === 0) return messages.map(message => ({ ...message, attachments: [] }));
+
+  const attachments = await query(
+    `SELECT ${attachmentSelect()}
+       FROM staff_message_attachments a
+      WHERE a.tenant_id = $1::uuid
+        AND a.message_id = ANY($2::int[])
+      ORDER BY a.created_at ASC`,
+    [normalizeTenant(tenantId), messageIds],
+    db
+  );
+
+  const byMessageId = new Map();
+  for (const row of attachments) {
+    const key = Number(row.message_id);
+    if (!byMessageId.has(key)) byMessageId.set(key, []);
+    byMessageId.get(key).push(publicAttachment(row));
+  }
+
+  return messages.map(message => ({
+    ...message,
+    attachments: byMessageId.get(Number(message.id)) || []
+  }));
+}
+
+async function scanAttachmentBuffer(buffer) {
+  try {
+    await scanBuffer(Buffer.from(buffer));
+    return {
+      scanStatus: 'clean',
+      metadata: {
+        scanner: 'clamav',
+        scanned_at: new Date().toISOString()
+      }
+    };
+  } catch (err) {
+    const message = compactString(err?.message || err);
+    const infected = /virus detected|malicious|infected/i.test(message);
+    return {
+      scanStatus: infected ? 'quarantined' : 'failed',
+      metadata: {
+        scanner: 'clamav',
+        scanned_at: new Date().toISOString(),
+        scan_error: message || 'Attachment scan failed'
+      }
+    };
+  }
+}
+
+function assertAttachmentFile(file) {
+  if (!file || !file.buffer) {
+    throw AppError.badRequest('file is required');
+  }
+  const size = Number(file.size || file.buffer.length || 0);
+  if (!Number.isFinite(size) || size <= 0) {
+    throw AppError.badRequest('Attachment file is empty');
+  }
+  if (size > MAX_ATTACHMENT_BYTES) {
+    throw AppError.badRequest('Attachment file exceeds the 15 MB staff-message limit');
+  }
+  const fileName = normalizeFileName(file.originalname || file.filename || 'attachment');
+  const contentType = compactString(file.mimetype || 'application/octet-stream');
+  return {
+    buffer: Buffer.from(file.buffer),
+    fileName,
+    contentType,
+    size
+  };
+}
+
+function storageKeyForAttachment({ tenantId, threadId, fileName }) {
+  const suffix = `${Date.now()}-${crypto.randomUUID()}-${fileName}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `staff-messages/${normalizeTenant(tenantId)}/${threadId}/${suffix}`;
+}
+
 async function resolveRecipientUids({
   tenantId,
   scope,
@@ -480,6 +620,130 @@ const messagingService = {
       if (err instanceof AppError) throw err;
       logger.error('Error sending staff message:', err.message);
       throw AppError.internal('Failed to send message');
+    }
+  },
+
+  async sendThreadAttachment({
+    senderUid,
+    tenantId = DEFAULT_TENANT_ID,
+    threadId,
+    recipientUid = null,
+    file,
+    body = '',
+    subject = null,
+    priority = 'normal'
+  }) {
+    if (!senderUid || !threadId) {
+      throw AppError.badRequest('senderUid and threadId are required');
+    }
+
+    const normalizedPriority = ensurePriority(priority);
+    const normalizedTenant = normalizeTenant(tenantId);
+    const attachmentFile = assertAttachmentFile(file);
+    const thread = await assertThreadAccess(prisma, {
+      threadId,
+      staffUid: senderUid,
+      recipientUid,
+      tenantId: normalizedTenant
+    });
+    const resolvedRecipientUid = await resolveThreadRecipient(prisma, {
+      threadId,
+      senderUid,
+      recipientUid,
+      tenantId: normalizedTenant
+    });
+    if (resolvedRecipientUid === senderUid) {
+      throw AppError.badRequest('Cannot send an attachment to yourself');
+    }
+
+    const scan = await scanAttachmentBuffer(attachmentFile.buffer);
+    if (scan.scanStatus === 'quarantined') {
+      throw AppError.badRequest('Attachment failed virus scan', 'ATTACHMENT_QUARANTINED');
+    }
+
+    const storageKey = storageKeyForAttachment({
+      tenantId: normalizedTenant,
+      threadId,
+      fileName: attachmentFile.fileName
+    });
+    await uploadFileToR2(attachmentFile.buffer, storageKey, attachmentFile.contentType);
+
+    const messageBody =
+      compactString(body) || `Attachment: ${attachmentFile.fileName}`;
+    const metadata = {
+      ...scan.metadata,
+      original_name: file.originalname || attachmentFile.fileName,
+      storage_backend: 'r2'
+    };
+
+    try {
+      const result = await prisma.$transaction(async tx => {
+        await assertThreadAccess(tx, {
+          threadId,
+          staffUid: senderUid,
+          recipientUid: resolvedRecipientUid,
+          tenantId: normalizedTenant
+        });
+        const message = await insertMessage(tx, {
+          senderUid,
+          recipientUid: resolvedRecipientUid,
+          tenantId: normalizedTenant,
+          body: messageBody,
+          priority: normalizedPriority,
+          patientUid: thread.patient_uid || null,
+          subject,
+          threadId
+        });
+        const attachmentRows = await query(
+          `INSERT INTO staff_message_attachments
+             (tenant_id, thread_id, message_id, uploaded_by_uid, file_name, content_type,
+              file_size, storage_key, scan_status, metadata, created_at, updated_at)
+           VALUES ($1::uuid, $2::uuid, $3::int, $4::uuid, $5, $6,
+                   $7::int, $8, $9, $10::jsonb, NOW(), NOW())
+           RETURNING ${attachmentSelect('')}`,
+          [
+            normalizedTenant,
+            threadId,
+            message.id,
+            senderUid,
+            attachmentFile.fileName,
+            attachmentFile.contentType,
+            attachmentFile.size,
+            storageKey,
+            scan.scanStatus,
+            JSON.stringify(metadata)
+          ],
+          tx
+        );
+        const attachment = publicAttachment(attachmentRows[0]);
+        await touchThreadAfterMessage(tx, {
+          threadId,
+          messageId: message.id,
+          priority: normalizedPriority,
+          subject
+        });
+        return {
+          message: { ...message, attachments: [attachment] },
+          attachment
+        };
+      });
+
+      await notifyMessageRecipient(
+        result.message,
+        senderUid,
+        normalizedPriority,
+        subject,
+        messageBody
+      );
+
+      logger.info(
+        `Staff message attachment sent: ${result.attachment.id} in thread ${threadId} by ${senderUid}`
+      );
+      return result;
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      logger.error('Error sending staff message attachment:', err.message);
+      throw AppError.internal('Failed to send message attachment');
     }
   },
 
@@ -847,10 +1111,60 @@ const messagingService = {
         ORDER BY m.created_at ASC NULLS LAST, m.id ASC`,
       [threadId, normalizedTenant]
     );
+    const messagesWithAttachments = await hydrateMessageAttachments(
+      messages,
+      normalizedTenant
+    );
 
     return {
       thread: threadRows[0] || null,
-      messages
+      messages: messagesWithAttachments
+    };
+  },
+
+  async listThreadAttachments(staffUid, threadId, tenantId = DEFAULT_TENANT_ID) {
+    const normalizedTenant = normalizeTenant(tenantId);
+    await assertThreadAccess(prisma, { threadId, staffUid, tenantId: normalizedTenant });
+
+    const rows = await query(
+      `SELECT ${attachmentSelect()}
+         FROM staff_message_attachments a
+        WHERE a.thread_id = $1::uuid
+          AND a.tenant_id = $2::uuid
+        ORDER BY a.created_at DESC`,
+      [threadId, normalizedTenant]
+    );
+    return rows.map(publicAttachment);
+  },
+
+  async getAttachmentDownload(staffUid, attachmentId, tenantId = DEFAULT_TENANT_ID) {
+    const normalizedTenant = normalizeTenant(tenantId);
+    const rows = await query(
+      `SELECT ${attachmentSelect()}
+         FROM staff_message_attachments a
+        WHERE a.id = $1::uuid
+          AND a.tenant_id = $2::uuid
+        LIMIT 1`,
+      [attachmentId, normalizedTenant]
+    );
+    const row = rows[0];
+    if (!row) {
+      throw AppError.notFound('Attachment not found');
+    }
+
+    await assertThreadAccess(prisma, {
+      threadId: row.thread_id,
+      staffUid,
+      tenantId: normalizedTenant
+    });
+    if (row.scan_status === 'quarantined') {
+      throw AppError.conflict('Attachment is quarantined and cannot be downloaded');
+    }
+
+    const bytes = Buffer.from(await getFileFromR2(row.storage_key));
+    return {
+      attachment: publicAttachment(row),
+      bytes
     };
   },
 
@@ -877,7 +1191,8 @@ const messagingService = {
 
       sql += ` ORDER BY m.created_at ASC`;
 
-      return await query(sql, params);
+      const messages = await query(sql, params);
+      return await hydrateMessageAttachments(messages, tenantId);
     } catch (err) {
       logger.error('Error fetching thread:', err.message);
       throw AppError.internal('Failed to fetch conversation thread');

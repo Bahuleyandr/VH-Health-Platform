@@ -1,4 +1,5 @@
 import clamav from 'clamav.js';
+import { PassThrough } from 'stream';
 
 /**
  * Scan a buffer with ClamAV
@@ -7,8 +8,7 @@ import clamav from 'clamav.js';
  */
 export function scanBuffer(buffer) {
   return new Promise((resolve, reject) => {
-    const stream = require('stream');
-    const readable = new stream.PassThrough();
+    const readable = new PassThrough();
     readable.end(buffer);
 
     clamav.ping(3310, '127.0.0.1', 1000, err => {

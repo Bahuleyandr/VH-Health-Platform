@@ -1,9 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/services/messaging_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -11,8 +16,54 @@ import '../../../core/config/api_config.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
+class ThreadAttachment {
+  final String id;
+  final int? messageId;
+  final String uploadedByUid;
+  final String fileName;
+  final String contentType;
+  final int fileSize;
+  final String scanStatus;
+  final DateTime? createdAt;
+
+  const ThreadAttachment({
+    required this.id,
+    this.messageId,
+    required this.uploadedByUid,
+    required this.fileName,
+    required this.contentType,
+    required this.fileSize,
+    required this.scanStatus,
+    this.createdAt,
+  });
+
+  factory ThreadAttachment.fromJson(Map<String, dynamic> json) {
+    return ThreadAttachment(
+      id: _text(json['id']),
+      messageId: _nullableInt(json['message_id']),
+      uploadedByUid: _text(json['uploaded_by_uid']),
+      fileName: _optionalText(json['file_name']) ?? 'Attachment',
+      contentType:
+          _optionalText(json['content_type']) ?? 'application/octet-stream',
+      fileSize: _nullableInt(json['file_size']) ?? 0,
+      scanStatus: _optionalText(json['scan_status']) ?? 'pending',
+      createdAt: _dateValue(json['created_at']),
+    );
+  }
+
+  String get sizeLabel {
+    if (fileSize <= 0) return '';
+    if (fileSize < 1024) return '$fileSize B';
+    if (fileSize < 1024 * 1024) {
+      return '${(fileSize / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
 class ThreadMessage {
   final int id;
+  final String? threadId;
   final String senderUid;
   final String? senderName;
   final String? senderRole;
@@ -26,9 +77,11 @@ class ThreadMessage {
   final String priority;
   final bool isRead;
   final DateTime createdAt;
+  final List<ThreadAttachment> attachments;
 
   const ThreadMessage({
     required this.id,
+    this.threadId,
     required this.senderUid,
     this.senderName,
     this.senderRole,
@@ -42,11 +95,14 @@ class ThreadMessage {
     required this.priority,
     required this.isRead,
     required this.createdAt,
+    this.attachments = const [],
   });
 
   factory ThreadMessage.fromJson(Map<String, dynamic> json) {
+    final rawAttachments = json['attachments'];
     return ThreadMessage(
       id: json['id'] as int,
+      threadId: _optionalText(json['thread_id']),
       senderUid: json['sender_uid'] as String,
       senderName: json['sender_name'] as String?,
       senderRole: json['sender_role'] as String?,
@@ -60,6 +116,16 @@ class ThreadMessage {
       priority: json['priority'] as String? ?? 'normal',
       isRead: json['is_read'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
+      attachments: rawAttachments is List
+          ? rawAttachments
+                .whereType<Map>()
+                .map(
+                  (row) =>
+                      ThreadAttachment.fromJson(Map<String, dynamic>.from(row)),
+                )
+                .where((attachment) => attachment.id.isNotEmpty)
+                .toList()
+          : const [],
     );
   }
 
@@ -103,6 +169,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   List<ThreadMessage> _messages = [];
   bool _loading = true;
   bool _sending = false;
+  bool _uploadingAttachment = false;
   String? _error;
   String? _myUid;
   String? _threadId;
@@ -112,6 +179,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   DateTime? _mutedUntil;
   bool _urgentOnly = false;
   String _selectedPriority = 'normal';
+  final Set<String> _downloadingAttachmentIds = {};
 
   @override
   void initState() {
@@ -168,6 +236,14 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       final parsed = list
           .map((e) => ThreadMessage.fromJson(e as Map<String, dynamic>))
           .toList();
+      if ((_threadId ?? '').isEmpty) {
+        for (final message in parsed) {
+          if ((message.threadId ?? '').trim().isNotEmpty) {
+            _threadId = message.threadId!.trim();
+            break;
+          }
+        }
+      }
 
       // Collect unread IDs (messages sent to me that I haven't read)
       final unreadIds = parsed
@@ -244,6 +320,155 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       }
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _attachFile() async {
+    if (_uploadingAttachment || _sending) return;
+    final threadId = (_threadId ?? '').trim();
+    if (threadId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Send a first message before attaching a file.'),
+          backgroundColor: AppTheme.warningAmber,
+        ),
+      );
+      return;
+    }
+
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: [
+        'pdf',
+        'jpg',
+        'jpeg',
+        'png',
+        'gif',
+        'webp',
+        'txt',
+        'csv',
+        'doc',
+        'docx',
+        'xls',
+        'xlsx',
+      ],
+      withData: false,
+    );
+    final file = picked?.files.single;
+    final path = file?.path;
+    if (path == null || path.isEmpty) return;
+
+    setState(() => _uploadingAttachment = true);
+    try {
+      final result = await MessagingApiService.uploadThreadAttachment(
+        threadId: threadId,
+        filePath: path,
+        fileName: file?.name,
+        recipientUid: widget.otherStaffUid,
+        body: _textController.text.trim(),
+        priority: _selectedPriority,
+      );
+      _textController.clear();
+      setState(() => _selectedPriority = 'normal');
+      await _loadThread();
+
+      if (!mounted) return;
+      final attachment = result['attachment'] is Map
+          ? ThreadAttachment.fromJson(
+              Map<String, dynamic>.from(result['attachment'] as Map),
+            )
+          : null;
+      final status = attachment?.scanStatus ?? 'pending';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status == 'clean'
+                ? 'Attachment sent'
+                : 'Attachment sent; scan status: $status',
+          ),
+          backgroundColor: status == 'clean'
+              ? AppTheme.successGreen
+              : AppTheme.warningAmber,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Attachment failed: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _uploadingAttachment = false);
+    }
+  }
+
+  Future<void> _downloadAttachment(ThreadAttachment attachment) async {
+    if (attachment.id.isEmpty ||
+        _downloadingAttachmentIds.contains(attachment.id)) {
+      return;
+    }
+    setState(() => _downloadingAttachmentIds.add(attachment.id));
+    try {
+      final bytes = await MessagingApiService.downloadAttachment(attachment.id);
+      final saved = await _saveAttachmentBytes(attachment, bytes);
+      await _openSavedAttachment(saved);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Saved to ${saved.path}')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Download failed: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingAttachmentIds.remove(attachment.id));
+      }
+    }
+  }
+
+  Future<File> _saveAttachmentBytes(
+    ThreadAttachment attachment,
+    List<int> bytes,
+  ) async {
+    final baseDir =
+        await getDownloadsDirectory() ?? await getTemporaryDirectory();
+    final dir = Directory(
+      p.join(baseDir.path, 'VH Health Staff', 'message-attachments'),
+    );
+    await dir.create(recursive: true);
+    final baseName = _safeLocalFileName(attachment.fileName);
+    var candidate = File(p.join(dir.path, baseName));
+    if (await candidate.exists()) {
+      final ext = p.extension(baseName);
+      final stem = p.basenameWithoutExtension(baseName);
+      var i = 1;
+      while (await candidate.exists()) {
+        candidate = File(p.join(dir.path, '$stem ($i)$ext'));
+        i += 1;
+      }
+    }
+    return candidate.writeAsBytes(bytes, flush: true);
+  }
+
+  Future<void> _openSavedAttachment(File file) async {
+    final uri = Uri.file(file.path);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+    if (Platform.isWindows) {
+      await Process.start('explorer.exe', [file.path]);
     }
   }
 
@@ -563,6 +788,8 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               continuesFromPrevious: continuesFromPrevious,
               continuesToNext: continuesToNext,
               onLongPress: () => _copyMessage(msg),
+              downloadingAttachmentIds: _downloadingAttachmentIds,
+              onAttachmentTap: _downloadAttachment,
             ),
           ],
         );
@@ -649,6 +876,20 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    icon: _uploadingAttachment
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.attach_file),
+                    tooltip: 'Attach file',
+                    onPressed: (_uploadingAttachment || _sending)
+                        ? null
+                        : _attachFile,
+                  ),
+                  const SizedBox(width: 2),
                   // Priority button
                   PopupMenuButton<String>(
                     icon: Icon(
@@ -764,6 +1005,8 @@ class _MessageBubble extends StatelessWidget {
   final bool continuesFromPrevious;
   final bool continuesToNext;
   final VoidCallback onLongPress;
+  final Set<String> downloadingAttachmentIds;
+  final ValueChanged<ThreadAttachment> onAttachmentTap;
 
   const _MessageBubble({
     required this.message,
@@ -774,10 +1017,17 @@ class _MessageBubble extends StatelessWidget {
     required this.continuesFromPrevious,
     required this.continuesToNext,
     required this.onLongPress,
+    required this.downloadingAttachmentIds,
+    required this.onAttachmentTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final defaultAttachmentBody =
+        message.attachments.length == 1 &&
+        message.body.trim() ==
+            'Attachment: ${message.attachments.first.fileName}';
+    final showBody = message.body.trim().isNotEmpty && !defaultAttachmentBody;
     final bubbleColor = isMine
         ? AppTheme.primaryBlue
         : Theme.of(context).colorScheme.surfaceContainerHighest;
@@ -862,10 +1112,27 @@ class _MessageBubble extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                     ],
-                    Text(
-                      message.body,
-                      style: TextStyle(fontSize: 14, color: textColor),
-                    ),
+                    if (showBody)
+                      Text(
+                        message.body,
+                        style: TextStyle(fontSize: 14, color: textColor),
+                      ),
+                    if (message.attachments.isNotEmpty) ...[
+                      if (showBody) const SizedBox(height: 8),
+                      ...message.attachments.map(
+                        (attachment) => Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: _AttachmentChip(
+                            attachment: attachment,
+                            isMine: isMine,
+                            downloading: downloadingAttachmentIds.contains(
+                              attachment.id,
+                            ),
+                            onTap: () => onAttachmentTap(attachment),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -891,6 +1158,114 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ],
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentChip extends StatelessWidget {
+  final ThreadAttachment attachment;
+  final bool isMine;
+  final bool downloading;
+  final VoidCallback onTap;
+
+  const _AttachmentChip({
+    required this.attachment,
+    required this.isMine,
+    required this.downloading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final blocked = attachment.scanStatus == 'quarantined';
+    final foreground = isMine ? Colors.white : AppTheme.primaryBlue;
+    final background = isMine
+        ? Colors.white.withValues(alpha: 0.14)
+        : AppTheme.primaryBlue.withValues(alpha: 0.10);
+    final borderColor = isMine
+        ? Colors.white.withValues(alpha: 0.32)
+        : AppTheme.primaryBlue.withValues(alpha: 0.25);
+    final statusColor = switch (attachment.scanStatus) {
+      'clean' => isMine ? Colors.white70 : AppTheme.successGreen,
+      'failed' => isMine ? Colors.white70 : AppTheme.warningAmber,
+      'quarantined' => AppTheme.errorRed,
+      _ => isMine ? Colors.white70 : Theme.of(context).colorScheme.outline,
+    };
+
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: blocked || downloading ? null : onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              downloading
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: foreground,
+                      ),
+                    )
+                  : Icon(
+                      _attachmentIcon(attachment),
+                      color: blocked ? AppTheme.errorRed : foreground,
+                      size: 20,
+                    ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      attachment.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: blocked ? AppTheme.errorRed : foreground,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        if (attachment.sizeLabel.isNotEmpty)
+                          attachment.sizeLabel,
+                        _scanLabel(attachment.scanStatus),
+                      ].join(' - '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                blocked ? Icons.block : Icons.download_outlined,
+                color: blocked ? AppTheme.errorRed : foreground,
+                size: 16,
               ),
             ],
           ),
@@ -1029,4 +1404,48 @@ DateTime? _dateValue(Object? value) {
   if (value == null) return null;
   if (value is DateTime) return value;
   return DateTime.tryParse(value.toString());
+}
+
+String _scanLabel(String status) {
+  return switch (status) {
+    'clean' => 'Scan clean',
+    'failed' => 'Scan unavailable',
+    'quarantined' => 'Quarantined',
+    'pending' => 'Scan pending',
+    _ => status,
+  };
+}
+
+IconData _attachmentIcon(ThreadAttachment attachment) {
+  final contentType = attachment.contentType.toLowerCase();
+  final name = attachment.fileName.toLowerCase();
+  if (contentType.contains('pdf') || name.endsWith('.pdf')) {
+    return Icons.picture_as_pdf_outlined;
+  }
+  if (contentType.startsWith('image/') ||
+      [
+        '.jpg',
+        '.jpeg',
+        '.png',
+        '.gif',
+        '.webp',
+      ].any((ext) => name.endsWith(ext))) {
+    return Icons.image_outlined;
+  }
+  if (name.endsWith('.xls') || name.endsWith('.xlsx')) {
+    return Icons.table_chart_outlined;
+  }
+  if (name.endsWith('.doc') || name.endsWith('.docx')) {
+    return Icons.description_outlined;
+  }
+  return Icons.attach_file;
+}
+
+String _safeLocalFileName(String value) {
+  final trimmed = value.trim().isEmpty ? 'attachment' : value.trim();
+  final safe = trimmed
+      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  return safe.isEmpty ? 'attachment' : safe;
 }

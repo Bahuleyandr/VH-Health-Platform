@@ -1,3 +1,7 @@
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
 import 'api_client.dart';
 
 class MessagingApiService {
@@ -90,6 +94,59 @@ class MessagingApiService {
   static Future<Map<String, dynamic>> threadMessages(String threadId) async {
     final resp = await ApiClient.get('/messaging/threads/$threadId/messages');
     return _map(resp);
+  }
+
+  static Future<List<dynamic>> threadAttachments(String threadId) async {
+    final resp = await ApiClient.get(
+      '/messaging/threads/$threadId/attachments',
+    );
+    final mapped = await _map(resp);
+    return mapped['data'] as List? ??
+        mapped['attachments'] as List? ??
+        mapped['items'] as List? ??
+        [];
+  }
+
+  static Future<Map<String, dynamic>> uploadThreadAttachment({
+    required String threadId,
+    required String filePath,
+    String? fileName,
+    String? recipientUid,
+    String? body,
+    String? subject,
+    String priority = 'normal',
+  }) async {
+    final fields = <String, String>{'priority': priority};
+    if (recipientUid != null && recipientUid.trim().isNotEmpty) {
+      fields['recipient_uid'] = recipientUid.trim();
+    }
+    if (body != null && body.trim().isNotEmpty) {
+      fields['body'] = body.trim();
+    }
+    if (subject != null && subject.trim().isNotEmpty) {
+      fields['subject'] = subject.trim();
+    }
+    final resp = await ApiClient.multipart(
+      '/messaging/threads/$threadId/attachments',
+      fields: fields,
+      fileBuilder: () async => [
+        await ApiClient.multipartFileFromPath(
+          'file',
+          filePath,
+          filename: fileName,
+        ),
+      ],
+      timeout: const Duration(seconds: 60),
+    );
+    return _map(resp);
+  }
+
+  static Future<Uint8List> downloadAttachment(String attachmentId) async {
+    final response = await ApiClient.getBytes(
+      '/messaging/attachments/$attachmentId/download',
+      timeout: const Duration(seconds: 45),
+    );
+    return _bytesFrom(response, 'Attachment download failed');
   }
 
   static Future<Map<String, dynamic>> adminLog({
@@ -197,5 +254,13 @@ class MessagingApiService {
       },
     );
     return _map(resp);
+  }
+
+  static Uint8List _bytesFrom(http.Response response, String fallback) {
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+    final parsed = ApiResponse.parse(response.statusCode, response.body);
+    throw Exception(parsed.message ?? '$fallback (${response.statusCode})');
   }
 }

@@ -8,6 +8,9 @@ const prismaMock = {
 
 const notificationQueueMock = jest.fn();
 const emitStaffMessageMock = jest.fn();
+const uploadFileToR2Mock = jest.fn();
+const getFileFromR2Mock = jest.fn();
+const scanBufferMock = jest.fn();
 const loggerMock = {
   warn: jest.fn(),
   error: jest.fn(),
@@ -36,6 +39,15 @@ jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
   emitStaffMessage: emitStaffMessageMock
 }));
 
+jest.unstable_mockModule('../../utils/r2Storage.js', () => ({
+  uploadFileToR2: uploadFileToR2Mock,
+  getFileFromR2: getFileFromR2Mock
+}));
+
+jest.unstable_mockModule('../../utils/virusScanner.js', () => ({
+  scanBuffer: scanBufferMock
+}));
+
 const messagingService = (await import('../../services/messaging/messagingService.js')).default;
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
@@ -51,6 +63,9 @@ afterEach(() => {
   prismaMock.$transaction.mockReset();
   notificationQueueMock.mockReset();
   emitStaffMessageMock.mockReset();
+  uploadFileToR2Mock.mockReset();
+  getFileFromR2Mock.mockReset();
+  scanBufferMock.mockReset();
   Object.values(loggerMock).forEach(fn => fn.mockReset());
 });
 
@@ -193,6 +208,109 @@ describe('messagingService', () => {
     );
     expect(notificationQueueMock).not.toHaveBeenCalled();
     expect(emitStaffMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('sends a scanned attachment as a linked thread message', async () => {
+    const threadRow = {
+      id: threadOne,
+      thread_type: 'direct',
+      subject: null,
+      patient_uid: null,
+      admission_id: null,
+      priority: 'normal',
+      status: 'active',
+      tenant_id: tenantId
+    };
+    const tx = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValueOnce([threadRow])
+        .mockResolvedValueOnce([
+          {
+            id: 21,
+            thread_id: threadOne,
+            sender_uid: senderUid,
+            recipient_uid: recipientOne,
+            patient_uid: null,
+            subject: null,
+            body: 'Please review attached handover.',
+            priority: 'normal',
+            is_read: false,
+            read_at: null,
+            created_at: new Date('2026-06-03T09:00:00Z'),
+            tenant_id: tenantId
+          }
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            thread_id: threadOne,
+            message_id: 21,
+            uploaded_by_uid: senderUid,
+            file_name: 'handover.pdf',
+            content_type: 'application/pdf',
+            file_size: 20,
+            storage_key: `staff-messages/${tenantId}/${threadOne}/handover.pdf`,
+            scan_status: 'clean',
+            metadata: { scanner: 'clamav' },
+            created_at: new Date('2026-06-03T09:00:00Z'),
+            updated_at: new Date('2026-06-03T09:00:00Z')
+          }
+        ]),
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1)
+    };
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([threadRow])
+      .mockResolvedValueOnce([threadRow])
+      .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
+      .mockResolvedValueOnce([{ id: 42 }]);
+    prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
+    scanBufferMock.mockResolvedValueOnce();
+    uploadFileToR2Mock.mockResolvedValueOnce('local://staff-messages/thread/handover.pdf');
+    notificationQueueMock.mockResolvedValueOnce({ id: 99 });
+
+    const result = await messagingService.sendThreadAttachment({
+      senderUid,
+      recipientUid: recipientOne,
+      threadId: threadOne,
+      tenantId,
+      body: 'Please review attached handover.',
+      file: {
+        originalname: 'handover.pdf',
+        mimetype: 'application/pdf',
+        size: 20,
+        buffer: Buffer.from('%PDF-1.4 attachment')
+      }
+    });
+
+    expect(scanBufferMock).toHaveBeenCalledWith(Buffer.from('%PDF-1.4 attachment'));
+    expect(uploadFileToR2Mock).toHaveBeenCalledWith(
+      Buffer.from('%PDF-1.4 attachment'),
+      expect.stringContaining(`staff-messages/${tenantId}/${threadOne}/`),
+      'application/pdf'
+    );
+    expect(result.message).toEqual(
+      expect.objectContaining({
+        id: 21,
+        thread_id: threadOne,
+        attachments: [
+          expect.objectContaining({
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            file_name: 'handover.pdf',
+            scan_status: 'clean'
+          })
+        ]
+      })
+    );
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(3);
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(notificationQueueMock).toHaveBeenCalledTimes(1);
+    expect(emitStaffMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUid: recipientOne,
+        message: expect.objectContaining({ id: 21, thread_id: threadOne })
+      })
+    );
   });
 
   it('allows HR/Admin all-staff broadcast and creates one saved row per recipient', async () => {
