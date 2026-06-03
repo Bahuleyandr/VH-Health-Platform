@@ -1,5 +1,6 @@
 // src/middleware/rateLimitMiddleware.js
 import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import crypto from 'crypto';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 
 /**
@@ -34,6 +35,22 @@ const defaultKeyGenerator = (req) => {
     req.body?.username ||
     req.body?.email;
   if (account) return `acct:${ipKeyGenerator(req)}:${String(account).toLowerCase()}`;
+
+  const authorization =
+    req.headers?.authorization ||
+    req.get?.('authorization') ||
+    req.header?.('authorization');
+  const bearerMatch = typeof authorization === 'string'
+    ? authorization.match(/^Bearer\s+(.+)$/i)
+    : null;
+  if (bearerMatch?.[1]) {
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(bearerMatch[1])
+      .digest('hex')
+      .slice(0, 24);
+    return `jwt:${tokenHash}`;
+  }
 
   if (apiKey) return `k:${String(apiKey)}`;
 

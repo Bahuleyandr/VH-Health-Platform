@@ -58,6 +58,7 @@ $accounts = @(
   @{ employeeId = "EMP-1006"; role = "ADMIN"; label = "Admin" },
   @{ employeeId = "EMP-1007"; role = "SUPER_ADMIN"; label = "Super admin" },
   @{ employeeId = "EMP-1008"; role = "GENERAL_STAFF"; label = "General staff" },
+  @{ employeeId = "EMP-1009"; role = "RECEPTIONIST"; label = "Receptionist" },
   # Stage-5 desk roles (EMP-1016..1019, seeded by seed-test-staff-accounts.mjs).
   # The original 1001..1008 matrix never exercised the billing / TPA-insurance /
   # admission-counter surfaces that the Stage-5 fix chips actually changed, so a
@@ -309,14 +310,25 @@ function Invoke-RoleChecks {
     "NURSING_STAFF" {
       $list = Invoke-StaffRequest $role "appointments_list_today" "GET" "/appointments/list?date=today&page=1&limit=10" -Token $Token
       Set-ContextFromAppointmentPayload $list.json
-      $queue = Invoke-StaffRequest $role "appointments_queue_today" "GET" "/appointments/queue/today" -Token $Token
-      Set-ContextFromAppointmentPayload $queue.json
+      Invoke-StaffRequest $role "appointments_queue_today_denied" "GET" "/appointments/queue/today" -Token $Token -ExpectedStatus @(403) -Severity "expected-deny" | Out-Null
       Invoke-StaffRequest $role "appointments_pending" "GET" "/appointments/pending" -Token $Token | Out-Null
       Invoke-StaffRequest $role "patient_search" "GET" "/patients/search?q=Smoke&limit=5" -Token $Token | Out-Null
       Invoke-StaffRequest $role "bed_summary" "GET" "/beds/summary" -Token $Token | Out-Null
       Invoke-StaffRequest $role "bed_list" "GET" "/beds?limit=10" -Token $Token | Out-Null
       Invoke-StaffRequest $role "investigation_queue" "GET" "/investigations/bookings/queue?limit=5" -Token $Token | Out-Null
       Invoke-StaffRequest $role "pharmacy_queue" "GET" "/pharmacy-orders/orders/queue?limit=5" -Token $Token | Out-Null
+    }
+    "RECEPTIONIST" {
+      $list = Invoke-StaffRequest $role "appointments_list_today" "GET" "/appointments/list?date=today&page=1&limit=10" -Token $Token
+      Set-ContextFromAppointmentPayload $list.json
+      $queue = Invoke-StaffRequest $role "appointments_queue_today" "GET" "/appointments/queue/today" -Token $Token
+      Set-ContextFromAppointmentPayload $queue.json
+      Invoke-StaffRequest $role "appointments_pending" "GET" "/appointments/pending" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "doctor_options" "GET" "/appointments/doctors/options?limit=20" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "patient_search" "GET" "/patients/search?q=Smoke&limit=5" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "bed_summary" "GET" "/beds/summary" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "bed_list" "GET" "/beds?limit=10" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "billing_invoices" "GET" "/billing/v2/invoices?limit=5" -Token $Token | Out-Null
     }
     "DOCTOR" {
       $queue = Invoke-StaffRequest $role "appointments_queue_today" "GET" "/appointments/queue/today" -Token $Token
@@ -402,13 +414,13 @@ function Invoke-RoleChecks {
 }
 
 function Invoke-CreateChecks {
-  $token = $script:Tokens["NURSING_STAFF"]
+  $token = $script:Tokens["RECEPTIONIST"]
   if (-not $token) {
-    Add-SmokeResult "NURSING_STAFF" "create_checks_skipped" "ASSERT" "(tokens)" "SKIP" $false "Nursing token unavailable" "optional"
+    Add-SmokeResult "RECEPTIONIST" "create_checks_skipped" "ASSERT" "(tokens)" "SKIP" $false "Receptionist token unavailable" "optional"
     return
   }
 
-  $doctorOptions = Invoke-StaffRequest "NURSING_STAFF" "doctor_options_for_create" "GET" "/appointments/doctors/options?limit=1" -Token $token
+  $doctorOptions = Invoke-StaffRequest "RECEPTIONIST" "doctor_options_for_create" "GET" "/appointments/doctors/options?limit=1" -Token $token
   Set-ContextFromDoctorOptionsPayload $doctorOptions.json
 
   $stamp = Get-Date -Format "MMddHHmmss"
@@ -426,7 +438,7 @@ function Invoke-CreateChecks {
   }
 
   $walkIn = Invoke-StaffRequest `
-    -Role "NURSING_STAFF" `
+    -Role "RECEPTIONIST" `
     -Check "create_walk_in_appointment" `
     -Method "POST" `
     -Path "/appointments/walk-in" `
@@ -444,11 +456,11 @@ function Invoke-CreateChecks {
     $script:Context.doctorId = Get-FirstPresent @((Get-JsonField $apptData "doctor_id"), $script:Context.doctorId)
   }
 
-  Invoke-StaffRequest "NURSING_STAFF" "search_created_patient" "GET" "/patients/search?q=$phone&limit=5" -Token $token | Out-Null
-  Invoke-StaffRequest "NURSING_STAFF" "created_appointment_in_list" "GET" "/appointments/list?search=$phone&page=1&limit=5" -Token $token | Out-Null
+  Invoke-StaffRequest "RECEPTIONIST" "search_created_patient" "GET" "/patients/search?q=$phone&limit=5" -Token $token | Out-Null
+  Invoke-StaffRequest "RECEPTIONIST" "created_appointment_in_list" "GET" "/appointments/list?search=$phone&page=1&limit=5" -Token $token | Out-Null
 
   $investigation = Invoke-StaffRequest `
-    -Role "NURSING_STAFF" `
+    -Role "RECEPTIONIST" `
     -Check "create_investigation_booking" `
     -Method "POST" `
     -Path "/investigations/bookings/create" `

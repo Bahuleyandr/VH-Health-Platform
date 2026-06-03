@@ -52,6 +52,36 @@ describe('Rate Limiting', () => {
     expect(emp1004).not.toBe(emp1007);
   });
 
+  it('keys bearer-token requests separately before falling back to shared API key', () => {
+    const baseReq = {
+      headers: { 'x-api-key': API_KEY },
+      get: (name) => (name === 'x-api-key' ? API_KEY : undefined),
+      ip: '127.0.0.1',
+      socket: { remoteAddress: '127.0.0.1' },
+    };
+
+    const firstToken = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      headers: {
+        ...baseReq.headers,
+        authorization: 'Bearer staff-token-a',
+      },
+    });
+    const secondToken = rateLimitTesting.defaultKeyGenerator({
+      ...baseReq,
+      headers: {
+        ...baseReq.headers,
+        authorization: 'Bearer staff-token-b',
+      },
+    });
+    const apiKeyOnly = rateLimitTesting.defaultKeyGenerator(baseReq);
+
+    expect(firstToken).toMatch(/^jwt:/);
+    expect(secondToken).toMatch(/^jwt:/);
+    expect(firstToken).not.toBe(secondToken);
+    expect(apiKeyOnly).toBe(`k:${API_KEY}`);
+  });
+
   it('keys auth limiter by IP plus account and ignores successful logins', () => {
     const baseReq = {
       headers: { 'x-api-key': API_KEY },
