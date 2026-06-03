@@ -157,7 +157,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return const Color(0xFF1565C0);
     }
     if (type.contains('HOUSEKEEPING')) return const Color(0xFF00796B);
-    if (_hasAny(type, const ['BED', 'CLEANING'])) return const Color(0xFF00695C);
+    if (_hasAny(type, const ['BED', 'CLEANING']))
+      return const Color(0xFF00695C);
     if (type.contains('HANDOVER')) return const Color(0xFF00695C);
     if (_hasAny(type, const ['LAB', 'INVESTIGATION', 'CRITICAL_VALUE'])) {
       return const Color(0xFFC62828);

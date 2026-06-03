@@ -86,7 +86,8 @@ class AuditLogResult {
               .map((row) => Map<String, dynamic>.from(row))
               .toList()
         : <Map<String, dynamic>>[];
-    final total = _int(json['total']) ?? _int(pagination['total']) ?? logs.length;
+    final total =
+        _int(json['total']) ?? _int(pagination['total']) ?? logs.length;
     final limit = _int(json['limit']) ?? _int(pagination['limit']) ?? 50;
     final page = _int(json['page']) ?? _int(pagination['page']) ?? 1;
     return AuditLogResult(

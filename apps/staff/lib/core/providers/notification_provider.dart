@@ -71,8 +71,7 @@ class NotificationItem {
   bool get isAdmissionAlert =>
       _hasAny(normalizedType, const ['ADMISSION', 'IPD']);
 
-  bool get isBedAlert =>
-      _hasAny(normalizedType, const ['BED', 'CLEANING']);
+  bool get isBedAlert => _hasAny(normalizedType, const ['BED', 'CLEANING']);
 
   bool get isHousekeepingAlert => normalizedType.contains('HOUSEKEEPING');
 

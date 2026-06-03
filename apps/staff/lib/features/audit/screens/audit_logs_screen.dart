@@ -167,7 +167,10 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: _ErrorBanner(
-                      message: _error.toString().replaceFirst('Exception: ', ''),
+                      message: _error.toString().replaceFirst(
+                        'Exception: ',
+                        '',
+                      ),
                     ),
                   ),
                 Expanded(child: _logList()),
@@ -263,7 +266,10 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                           value: 'last_30d',
                           child: Text('Last 30 days'),
                         ),
-                        DropdownMenuItem(value: 'custom', child: Text('Custom')),
+                        DropdownMenuItem(
+                          value: 'custom',
+                          child: Text('Custom'),
+                        ),
                       ],
                       onChanged: (value) {
                         setState(() {
@@ -455,7 +461,10 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                   ),
                   const SizedBox(height: 8),
                   for (final entry in row.entries)
-                    _DetailLine(label: entry.key, value: _formatValue(entry.value)),
+                    _DetailLine(
+                      label: entry.key,
+                      value: _formatValue(entry.value),
+                    ),
                 ],
               ),
             ),
