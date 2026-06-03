@@ -131,6 +131,13 @@ jobs:
               -p "{\"data\":{\"NEXT_PUBLIC_SENTRY_DSN\":\"${SENTRY_DSN_ADMIN_B64}\"}}"
             ADMIN_SENTRY_DSN="$(printf '%s' "$SENTRY_DSN_ADMIN_B64" | base64 -d)"
           fi
+          if [ -z "$ADMIN_SENTRY_DSN" ]; then
+            ADMIN_SENTRY_DSN="$(
+              sudo -n kubectl -n vhhealth get secret vhhealth-admin \
+                -o jsonpath='{.data.NEXT_PUBLIC_SENTRY_DSN}' 2>/dev/null \
+                | base64 -d 2>/dev/null || true
+            )"
+          fi
 
           # Generate the Dockerfile.dalek variants — the upstream
           # Dockerfiles include an `apk add curl` + HEALTHCHECK step
