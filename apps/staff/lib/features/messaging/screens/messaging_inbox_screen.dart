@@ -127,6 +127,101 @@ class MessageTarget {
   }
 }
 
+class StaffMessageThread {
+  final String threadId;
+  final String threadType;
+  final String partnerUid;
+  final String partnerName;
+  final String partnerRole;
+  final String partnerDepartment;
+  final String? patientUid;
+  final String? patientName;
+  final int? admissionId;
+  final String? subject;
+  final String body;
+  final String priority;
+  final int unreadCount;
+  final bool archived;
+  final bool urgentOnly;
+  final DateTime? mutedUntil;
+  final DateTime lastMessageAt;
+  final StaffMessage latestMessage;
+
+  const StaffMessageThread({
+    required this.threadId,
+    required this.threadType,
+    required this.partnerUid,
+    required this.partnerName,
+    required this.partnerRole,
+    required this.partnerDepartment,
+    this.patientUid,
+    this.patientName,
+    this.admissionId,
+    this.subject,
+    required this.body,
+    required this.priority,
+    required this.unreadCount,
+    required this.archived,
+    required this.urgentOnly,
+    required this.mutedUntil,
+    required this.lastMessageAt,
+    required this.latestMessage,
+  });
+
+  factory StaffMessageThread.fromJson(Map<String, dynamic> json) {
+    final latest = StaffMessage.fromJson(json);
+    final threadSubject =
+        _optionalText(json['thread_subject']) ?? _optionalText(json['subject']);
+    final contextPatientUid =
+        _optionalText(json['context_patient_uid']) ??
+        _optionalText(json['patient_uid']);
+    final lastMessageAt =
+        _dateValue(json['last_message_at']) ??
+        _dateValue(json['created_at']) ??
+        DateTime.now();
+    final partnerUid =
+        _optionalText(json['partner_uid']) ?? latest.partnerUid(null);
+    final partnerName =
+        _optionalText(json['partner_name']) ?? latest.partnerName(null);
+    return StaffMessageThread(
+      threadId: _text(json['thread_id']),
+      threadType: _optionalText(json['thread_type']) ?? 'direct',
+      partnerUid: partnerUid,
+      partnerName: partnerName.isEmpty ? 'Staff conversation' : partnerName,
+      partnerRole: _optionalText(json['partner_role']) ?? '',
+      partnerDepartment:
+          _optionalText(json['partner_department']) ??
+          latest.partnerDepartment(null),
+      patientUid: contextPatientUid,
+      patientName: _optionalText(json['patient_name']),
+      admissionId: _nullableInt(json['admission_id']),
+      subject: threadSubject,
+      body: _optionalText(json['body']) ?? '',
+      priority:
+          _optionalText(json['priority']) ??
+          _optionalText(json['thread_priority']) ??
+          'normal',
+      unreadCount: _intValue(json['unread_count']),
+      archived: json['archived_at'] != null,
+      urgentOnly: json['urgent_only'] == true,
+      mutedUntil: _dateValue(json['muted_until']),
+      lastMessageAt: lastMessageAt,
+      latestMessage: latest,
+    );
+  }
+
+  bool get hasUnread => unreadCount > 0;
+  bool get isMuted => mutedUntil != null && mutedUntil!.isAfter(DateTime.now());
+
+  String get contextLabel {
+    final parts = [
+      if (patientName != null && patientName!.isNotEmpty) patientName,
+      if (admissionId != null) 'IP #$admissionId',
+    ];
+    return parts.join(' - ');
+  }
+}
+
 class MessagingInboxScreen extends StatefulWidget {
   const MessagingInboxScreen({super.key});
 
@@ -135,7 +230,8 @@ class MessagingInboxScreen extends StatefulWidget {
 }
 
 class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
-  List<StaffMessage> _messages = [];
+  final _searchController = TextEditingController();
+  List<StaffMessageThread> _threads = [];
   List<StaffMessage> _adminMessages = [];
   bool _loading = true;
   bool _adminLoading = false;
@@ -144,6 +240,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   String? _myUid;
   StaffRole _role = StaffRole.general;
   int _unreadCount = 0;
+  String _threadStatus = 'active';
+  String _threadPriority = '';
+  String _threadSearch = '';
 
   bool get _canViewAdminLog => _role.isAdminTier;
 
@@ -151,6 +250,12 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -162,14 +267,19 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     try {
       final roleValue = await ApiConfig.getRole();
       final staffUid = await ApiConfig.getStaffId();
-      final inboxFuture = MessagingApiService.inbox(limit: 100);
+      final threadsFuture = MessagingApiService.threads(
+        limit: 100,
+        status: _threadStatus,
+        priority: _threadPriority.isEmpty ? null : _threadPriority,
+        search: _threadSearch.isEmpty ? null : _threadSearch,
+      );
       final countFuture = MessagingApiService.unreadCount();
 
-      final inbox = await inboxFuture;
+      final threads = await threadsFuture;
       final count = await countFuture;
-      final parsed = inbox
+      final parsedThreads = threads
           .whereType<Map>()
-          .map((e) => StaffMessage.fromJson(Map<String, dynamic>.from(e)))
+          .map((e) => StaffMessageThread.fromJson(Map<String, dynamic>.from(e)))
           .toList();
 
       final role = StaffRole.fromString(roleValue);
@@ -183,7 +293,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
         setState(() {
           _role = role;
           _myUid = staffUid;
-          _messages = parsed;
+          _threads = parsedThreads;
           _adminMessages = adminMessages;
           _unreadCount = unread;
           _loading = false;
@@ -228,39 +338,6 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       }
       return [];
     }
-  }
-
-  List<_ConversationSummary> _buildConversations() {
-    final byPartner = <String, _ConversationSummary>{};
-    for (final msg in _messages) {
-      final partnerUid = msg.partnerUid(_myUid);
-      final existing = byPartner[partnerUid];
-      final isUnreadIncoming = msg.recipientUid == _myUid && !msg.isRead;
-      if (existing == null ||
-          msg.createdAt.isAfter(existing.latestMessage.createdAt)) {
-        byPartner[partnerUid] = _ConversationSummary(
-          partnerUid: partnerUid,
-          partnerName: msg.partnerName(_myUid),
-          partnerDepartment: msg.partnerDepartment(_myUid),
-          latestMessage: msg,
-          unreadCount:
-              (existing?.unreadCount ?? 0) + (isUnreadIncoming ? 1 : 0),
-        );
-      } else if (isUnreadIncoming) {
-        byPartner[partnerUid] = _ConversationSummary(
-          partnerUid: partnerUid,
-          partnerName: existing.partnerName,
-          partnerDepartment: existing.partnerDepartment,
-          latestMessage: existing.latestMessage,
-          unreadCount: existing.unreadCount + 1,
-        );
-      }
-    }
-    final list = byPartner.values.toList();
-    list.sort(
-      (a, b) => b.latestMessage.createdAt.compareTo(a.latestMessage.createdAt),
-    );
-    return list;
   }
 
   Color _priorityColor(String priority) {
@@ -376,209 +453,382 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       );
     }
 
-    final conversations = _buildConversations();
-    if (conversations.isEmpty) {
-      return EmptyState(
-        icon: Icons.forum_outlined,
-        title: s.messagingEmpty,
-        body: 'Start a direct staff message or use a team announcement.',
-      );
-    }
-
+    final threads = _threads;
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: conversations.length,
+        itemCount: threads.isEmpty ? 2 : threads.length + 1,
         separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
         itemBuilder: (context, index) {
-          final conv = conversations[index];
-          final msg = conv.latestMessage;
-          final hasUnread = conv.unreadCount > 0;
-          final priorityColor = _priorityColor(msg.priority);
-          final sentByMe = msg.sentBy(_myUid);
+          if (index == 0) return _buildThreadFilters();
+          if (threads.isEmpty) {
+            return SizedBox(
+              height: 320,
+              child: EmptyState(
+                icon: Icons.forum_outlined,
+                title: s.messagingEmpty,
+                body:
+                    'Start a direct staff message or use a team announcement.',
+              ),
+            );
+          }
+          return _buildThreadTile(threads[index - 1]);
+        },
+      ),
+    );
+  }
 
-          return InkWell(
-            onTap: () {
-              context.push(
-                '/messaging/thread/${conv.partnerUid}',
-                extra: {
-                  'otherStaffName': conv.partnerName,
-                  'otherStaffDepartment': conv.partnerDepartment,
-                },
-              );
+  Widget _buildThreadFilters() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              labelText: 'Search conversations',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _threadSearch.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _threadSearch = '');
+                        _loadData();
+                      },
+                    ),
+            ),
+            onSubmitted: (value) {
+              setState(() => _threadSearch = value.trim());
+              _loadData();
             },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 24,
-                        backgroundColor: AppTheme.primaryBlue.withValues(
-                          alpha: 0.1,
-                        ),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _FilterPill(
+                  label: 'Active',
+                  selected: _threadStatus == 'active',
+                  onTap: () => _setStatusFilter('active'),
+                ),
+                _FilterPill(
+                  label: 'Archived',
+                  selected: _threadStatus == 'archived',
+                  onTap: () => _setStatusFilter('archived'),
+                ),
+                _FilterPill(
+                  label: 'All',
+                  selected: _threadStatus == 'all',
+                  onTap: () => _setStatusFilter('all'),
+                ),
+                const SizedBox(width: 8),
+                _FilterPill(
+                  label: 'Any priority',
+                  selected: _threadPriority.isEmpty,
+                  onTap: () => _setPriorityFilter(''),
+                ),
+                _FilterPill(
+                  label: 'Urgent',
+                  selected: _threadPriority == 'urgent',
+                  onTap: () => _setPriorityFilter('urgent'),
+                ),
+                _FilterPill(
+                  label: 'Critical',
+                  selected: _threadPriority == 'critical',
+                  onTap: () => _setPriorityFilter('critical'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _setStatusFilter(String value) {
+    setState(() => _threadStatus = value);
+    _loadData();
+  }
+
+  void _setPriorityFilter(String value) {
+    setState(() => _threadPriority = value);
+    _loadData();
+  }
+
+  Widget _buildThreadTile(StaffMessageThread thread) {
+    final msg = thread.latestMessage;
+    final hasUnread = thread.hasUnread;
+    final priorityColor = _priorityColor(thread.priority);
+    final sentByMe = msg.sentBy(_myUid);
+
+    return InkWell(
+      onTap: () {
+        context.push(
+          '/messaging/thread/${thread.partnerUid}',
+          extra: {
+            'threadId': thread.threadId,
+            'otherStaffName': thread.partnerName,
+            'otherStaffDepartment': thread.partnerDepartment,
+            'patientName': thread.patientName,
+            'patientUid': thread.patientUid,
+            'admissionId': thread.admissionId?.toString(),
+          },
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                  child: Text(
+                    thread.partnerName.isNotEmpty
+                        ? thread.partnerName[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                      color: AppTheme.primaryBlue,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+                if (hasUnread)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: AppTheme.errorRed,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: Center(
                         child: Text(
-                          conv.partnerName.isNotEmpty
-                              ? conv.partnerName[0].toUpperCase()
-                              : '?',
+                          thread.unreadCount > 9
+                              ? '9+'
+                              : '${thread.unreadCount}',
                           style: const TextStyle(
-                            color: AppTheme.primaryBlue,
+                            color: Colors.white,
+                            fontSize: 8,
                             fontWeight: FontWeight.bold,
-                            fontSize: 18,
                           ),
                         ),
                       ),
-                      if (hasUnread)
-                        Positioned(
-                          right: 0,
-                          top: 0,
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: AppTheme.errorRed,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                            child: Center(
-                              child: Text(
-                                conv.unreadCount > 9
-                                    ? '9+'
-                                    : '${conv.unreadCount}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          thread.partnerName,
+                          style: TextStyle(
+                            fontWeight: hasUnread
+                                ? FontWeight.bold
+                                : FontWeight.w600,
+                            fontSize: 15,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (thread.isMuted || thread.urgentOnly) ...[
+                        Icon(
+                          thread.urgentOnly
+                              ? Icons.notification_important_outlined
+                              : Icons.notifications_off_outlined,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        _formatTime(thread.lastMessageAt),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: hasUnread
+                              ? AppTheme.primaryBlue
+                              : Theme.of(context).colorScheme.outline,
+                          fontWeight: hasUnread
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
+                      ),
+                      if (msg.shouldShowReceiptFor(_myUid)) ...[
+                        const SizedBox(width: 4),
+                        _MessageReceiptIcon(message: msg),
+                      ],
                     ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                conv.partnerName,
-                                style: TextStyle(
-                                  fontWeight: hasUnread
-                                      ? FontWeight.bold
-                                      : FontWeight.w600,
-                                  fontSize: 15,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _formatTime(msg.createdAt),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: hasUnread
-                                    ? AppTheme.primaryBlue
-                                    : Theme.of(context).colorScheme.outline,
-                                fontWeight: hasUnread
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                            if (msg.shouldShowReceiptFor(_myUid)) ...[
-                              const SizedBox(width: 4),
-                              _MessageReceiptIcon(message: msg),
-                            ],
-                          ],
-                        ),
-                        if (conv.partnerDepartment.isNotEmpty)
-                          Text(
-                            conv.partnerDepartment,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                          ),
-                        if (msg.subject != null && msg.subject!.isNotEmpty)
-                          Text(
-                            msg.subject!,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: priorityColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            if (sentByMe) ...[
-                              Icon(
-                                Icons.call_made,
-                                size: 13,
-                                color: Theme.of(context).colorScheme.outline,
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            if (msg.priority != 'normal') ...[
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: priorityColor.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  msg.priority.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: priorityColor,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                            ],
-                            Expanded(
-                              child: Text(
-                                msg.body,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: hasUnread
-                                      ? Theme.of(context).colorScheme.onSurface
-                                      : Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
-                                  fontWeight: hasUnread
-                                      ? FontWeight.w500
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                  if (thread.partnerDepartment.isNotEmpty)
+                    Text(
+                      thread.partnerDepartment,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
                     ),
+                  if (thread.contextLabel.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: _ContextChip(label: thread.contextLabel),
+                    ),
+                  if (thread.subject != null && thread.subject!.isNotEmpty)
+                    Text(
+                      thread.subject!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: priorityColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      if (sentByMe) ...[
+                        Icon(
+                          Icons.call_made,
+                          size: 13,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      if (thread.priority != 'normal') ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: priorityColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            thread.priority.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: priorityColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: Text(
+                          thread.body.isEmpty ? 'No message text' : thread.body,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: hasUnread
+                                ? Theme.of(context).colorScheme.onSurface
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                            fontWeight: hasUnread
+                                ? FontWeight.w500
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-          );
-        },
+            PopupMenuButton<String>(
+              tooltip: 'Conversation actions',
+              onSelected: (action) => _handleThreadAction(thread, action),
+              itemBuilder: (_) => [
+                if (thread.archived)
+                  const PopupMenuItem(
+                    value: 'unarchive',
+                    child: Text('Restore'),
+                  )
+                else
+                  const PopupMenuItem(value: 'archive', child: Text('Archive')),
+                const PopupMenuItem(
+                  value: 'mark-unread',
+                  child: Text('Mark unread'),
+                ),
+                if (thread.isMuted || thread.urgentOnly)
+                  const PopupMenuItem(
+                    value: 'unmute',
+                    child: Text('Restore alerts'),
+                  )
+                else ...[
+                  const PopupMenuItem(value: 'mute', child: Text('Mute 8h')),
+                  const PopupMenuItem(
+                    value: 'urgent-only',
+                    child: Text('Urgent only'),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _handleThreadAction(
+    StaffMessageThread thread,
+    String action,
+  ) async {
+    try {
+      switch (action) {
+        case 'archive':
+          await MessagingApiService.archiveThread(thread.threadId);
+          break;
+        case 'unarchive':
+          await MessagingApiService.unarchiveThread(thread.threadId);
+          break;
+        case 'mark-unread':
+          await MessagingApiService.markThreadUnread(thread.threadId);
+          break;
+        case 'mute':
+          await MessagingApiService.muteThread(thread.threadId);
+          break;
+        case 'urgent-only':
+          await MessagingApiService.urgentOnlyThread(thread.threadId);
+          break;
+        case 'unmute':
+          await MessagingApiService.unmuteThread(thread.threadId);
+          break;
+      }
+      if (mounted) {
+        await context.read<MessageUnreadProvider>().refresh();
+        await _loadData();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    }
   }
 
   Widget _buildAdminLog() {
@@ -1042,20 +1292,58 @@ class _ModeChip extends StatelessWidget {
   }
 }
 
-class _ConversationSummary {
-  final String partnerUid;
-  final String partnerName;
-  final String partnerDepartment;
-  final StaffMessage latestMessage;
-  final int unreadCount;
+class _FilterPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
-  const _ConversationSummary({
-    required this.partnerUid,
-    required this.partnerName,
-    required this.partnerDepartment,
-    required this.latestMessage,
-    required this.unreadCount,
+  const _FilterPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        selected: selected,
+        label: Text(label),
+        onSelected: (_) => onTap(),
+        selectedColor: AppTheme.primaryBlue.withValues(alpha: 0.18),
+        checkmarkColor: AppTheme.primaryBlue,
+      ),
+    );
+  }
+}
+
+class _ContextChip extends StatelessWidget {
+  final String label;
+
+  const _ContextChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.teal.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 10,
+          color: Colors.teal,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 bool _isReceiptSuppressedRole(String? role) {
@@ -1102,4 +1390,17 @@ int _intValue(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+int? _nullableInt(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
+}
+
+DateTime? _dateValue(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  return DateTime.tryParse(value.toString());
 }

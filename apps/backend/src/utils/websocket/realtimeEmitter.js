@@ -131,6 +131,7 @@ export function emitStaffMessage({ recipientUid, message, senderUid, priority, s
     sendToUser(String(recipientUid), 'staff:message', {
       kind: 'staff-message-created',
       messageId: message?.id ?? null,
+      threadId: message?.thread_id ?? null,
       senderUid: senderUid ? String(senderUid) : message?.sender_uid ?? null,
       subject: subject || message?.subject || null,
       body: body || message?.body || null,

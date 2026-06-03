@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/message_unread_provider.dart';
@@ -74,12 +75,20 @@ class MessagingThreadScreen extends StatefulWidget {
   final String otherStaffUid;
   final String? otherStaffName;
   final String? otherStaffDepartment;
+  final String? threadId;
+  final String? patientName;
+  final String? patientUid;
+  final int? admissionId;
 
   const MessagingThreadScreen({
     super.key,
     required this.otherStaffUid,
     this.otherStaffName,
     this.otherStaffDepartment,
+    this.threadId,
+    this.patientName,
+    this.patientUid,
+    this.admissionId,
   });
 
   @override
@@ -96,6 +105,12 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   bool _sending = false;
   String? _error;
   String? _myUid;
+  String? _threadId;
+  String? _patientName;
+  String? _patientUid;
+  int? _admissionId;
+  DateTime? _mutedUntil;
+  bool _urgentOnly = false;
   String _selectedPriority = 'normal';
 
   @override
@@ -119,9 +134,37 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     });
     try {
       _myUid = await ApiConfig.getStaffId();
-      final List<dynamic> list = await MessagingApiService.thread(
-        widget.otherStaffUid,
-      );
+      final List<dynamic> list;
+      if ((widget.threadId ?? '').trim().isNotEmpty) {
+        final result = await MessagingApiService.threadMessages(
+          widget.threadId!.trim(),
+        );
+        final thread = result['thread'] is Map
+            ? Map<String, dynamic>.from(result['thread'] as Map)
+            : <String, dynamic>{};
+        list =
+            result['messages'] as List? ??
+            result['data'] as List? ??
+            result['items'] as List? ??
+            [];
+        _threadId = _optionalText(thread['thread_id']) ?? widget.threadId;
+        _patientName =
+            _optionalText(thread['patient_name']) ?? widget.patientName;
+        _patientUid =
+            _optionalText(thread['context_patient_uid']) ?? widget.patientUid;
+        _admissionId =
+            _nullableInt(thread['admission_id']) ?? widget.admissionId;
+        _mutedUntil = _dateValue(thread['muted_until']);
+        _urgentOnly = thread['urgent_only'] == true;
+      } else {
+        list = await MessagingApiService.thread(widget.otherStaffUid);
+        _threadId = null;
+        _patientName = widget.patientName;
+        _patientUid = widget.patientUid;
+        _admissionId = widget.admissionId;
+        _mutedUntil = null;
+        _urgentOnly = false;
+      }
       final parsed = list
           .map((e) => ThreadMessage.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -178,6 +221,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         recipientUid: widget.otherStaffUid,
         body: text,
         priority: _selectedPriority,
+        threadId: _threadId,
+        patientUid: _patientUid,
+        admissionId: _admissionId,
       );
 
       _textController.clear();
@@ -279,11 +325,41 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
             onPressed: _loadThread,
             tooltip: s.actionRefresh,
           ),
+          if ((_threadId ?? '').isNotEmpty)
+            PopupMenuButton<String>(
+              tooltip: 'Conversation actions',
+              onSelected: _handleThreadAction,
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'archive', child: Text('Archive')),
+                const PopupMenuItem(
+                  value: 'mark-unread',
+                  child: Text('Mark unread'),
+                ),
+                if (_isMuted || _urgentOnly)
+                  const PopupMenuItem(
+                    value: 'unmute',
+                    child: Text('Restore alerts'),
+                  )
+                else ...[
+                  const PopupMenuItem(value: 'mute', child: Text('Mute 8h')),
+                  const PopupMenuItem(
+                    value: 'urgent-only',
+                    child: Text('Urgent only'),
+                  ),
+                ],
+              ],
+            ),
           const LogoutAction(),
         ],
       ),
       body: Column(
         children: [
+          if (_contextLabel.isNotEmpty || _isMuted || _urgentOnly)
+            _ThreadContextBanner(
+              contextLabel: _contextLabel,
+              muted: _isMuted,
+              urgentOnly: _urgentOnly,
+            ),
           Expanded(child: _buildMessageList()),
           _buildComposer(),
         ],
@@ -324,6 +400,62 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       }
     }
     return s.profileFallbackName;
+  }
+
+  bool get _isMuted =>
+      _mutedUntil != null && _mutedUntil!.isAfter(DateTime.now());
+
+  String get _contextLabel {
+    final parts = [
+      if ((_patientName ?? '').trim().isNotEmpty) _patientName!.trim(),
+      if (_admissionId != null) 'IP #$_admissionId',
+    ];
+    return parts.join(' - ');
+  }
+
+  Future<void> _handleThreadAction(String action) async {
+    final threadId = _threadId;
+    if (threadId == null || threadId.isEmpty) return;
+    try {
+      switch (action) {
+        case 'archive':
+          await MessagingApiService.archiveThread(threadId);
+          if (mounted) Navigator.of(context).maybePop();
+          return;
+        case 'mark-unread':
+          await MessagingApiService.markThreadUnread(threadId);
+          break;
+        case 'mute':
+          await MessagingApiService.muteThread(threadId);
+          break;
+        case 'urgent-only':
+          await MessagingApiService.urgentOnlyThread(threadId);
+          break;
+        case 'unmute':
+          await MessagingApiService.unmuteThread(threadId);
+          break;
+      }
+      if (mounted) {
+        unawaited(context.read<MessageUnreadProvider>().refresh());
+        await _loadThread();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    }
+  }
+
+  Future<void> _copyMessage(ThreadMessage message) async {
+    await Clipboard.setData(ClipboardData(text: message.body));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Message copied')));
   }
 
   Widget _buildMessageList() {
@@ -430,6 +562,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               showReceipt: msg.shouldShowReceiptFor(_myUid),
               continuesFromPrevious: continuesFromPrevious,
               continuesToNext: continuesToNext,
+              onLongPress: () => _copyMessage(msg),
             ),
           ],
         );
@@ -630,6 +763,7 @@ class _MessageBubble extends StatelessWidget {
   final bool showReceipt;
   final bool continuesFromPrevious;
   final bool continuesToNext;
+  final VoidCallback onLongPress;
 
   const _MessageBubble({
     required this.message,
@@ -639,6 +773,7 @@ class _MessageBubble extends StatelessWidget {
     required this.showReceipt,
     required this.continuesFromPrevious,
     required this.continuesToNext,
+    required this.onLongPress,
   });
 
   @override
@@ -655,103 +790,180 @@ class _MessageBubble extends StatelessWidget {
     final topCorner = continuesFromPrevious ? 8.0 : 18.0;
     final bottomCorner = continuesToNext ? 8.0 : 18.0;
 
-    return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: EdgeInsets.only(
-          top: continuesFromPrevious ? 1 : 6,
-          bottom: continuesToNext ? 1 : 5,
-        ),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
-        child: Column(
-          crossAxisAlignment: isMine
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: bubbleColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(isMine ? 18 : topCorner),
-                  topRight: Radius.circular(isMine ? topCorner : 18),
-                  bottomLeft: Radius.circular(isMine ? 18 : bottomCorner),
-                  bottomRight: Radius.circular(isMine ? bottomCorner : 18),
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Align(
+        alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: EdgeInsets.only(
+            top: continuesFromPrevious ? 1 : 6,
+            bottom: continuesToNext ? 1 : 5,
+          ),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.75,
+          ),
+          child: Column(
+            crossAxisAlignment: isMine
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
                 ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (message.priority != 'normal') ...[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          message.priority == 'critical'
-                              ? Icons.warning
-                              : Icons.priority_high,
-                          size: 12,
-                          color: isMine ? Colors.white70 : priorityColor,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          message.priority.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+                decoration: BoxDecoration(
+                  color: bubbleColor,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(isMine ? 18 : topCorner),
+                    topRight: Radius.circular(isMine ? topCorner : 18),
+                    bottomLeft: Radius.circular(isMine ? 18 : bottomCorner),
+                    bottomRight: Radius.circular(isMine ? bottomCorner : 18),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (message.priority != 'normal') ...[
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            message.priority == 'critical'
+                                ? Icons.warning
+                                : Icons.priority_high,
+                            size: 12,
                             color: isMine ? Colors.white70 : priorityColor,
                           ),
+                          const SizedBox(width: 4),
+                          Text(
+                            message.priority.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: isMine ? Colors.white70 : priorityColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    if (message.subject != null &&
+                        message.subject!.isNotEmpty) ...[
+                      Text(
+                        message.subject!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isMine
+                              ? Colors.white70
+                              : AppTheme.textSecondary,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                  if (message.subject != null &&
-                      message.subject!.isNotEmpty) ...[
+                      ),
+                      const SizedBox(height: 4),
+                    ],
                     Text(
-                      message.subject!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: isMine ? Colors.white70 : AppTheme.textSecondary,
+                      message.body,
+                      style: TextStyle(fontSize: 14, color: textColor),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    timeLabel,
+                    style: TextStyle(fontSize: 10, color: timeColor),
+                  ),
+                  if (showReceipt) ...[
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: message.isRead ? 'Read' : 'Delivered',
+                      child: Icon(
+                        message.isRead ? Icons.done_all : Icons.done,
+                        size: 12,
+                        color: message.isRead
+                            ? AppTheme.accentCyan
+                            : Theme.of(context).colorScheme.outline,
                       ),
                     ),
-                    const SizedBox(height: 4),
                   ],
-                  Text(
-                    message.body,
-                    style: TextStyle(fontSize: 14, color: textColor),
-                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 2),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  timeLabel,
-                  style: TextStyle(fontSize: 10, color: timeColor),
-                ),
-                if (showReceipt) ...[
-                  const SizedBox(width: 4),
-                  Tooltip(
-                    message: message.isRead ? 'Read' : 'Delivered',
-                    child: Icon(
-                      message.isRead ? Icons.done_all : Icons.done,
-                      size: 12,
-                      color: message.isRead
-                          ? AppTheme.accentCyan
-                          : Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _ThreadContextBanner extends StatelessWidget {
+  final String contextLabel;
+  final bool muted;
+  final bool urgentOnly;
+
+  const _ThreadContextBanner({
+    required this.contextLabel,
+    required this.muted,
+    required this.urgentOnly,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = [
+      if (contextLabel.isNotEmpty)
+        _BannerChip(icon: Icons.person_search, label: contextLabel),
+      if (urgentOnly)
+        const _BannerChip(
+          icon: Icons.notification_important_outlined,
+          label: 'Urgent alerts only',
+        )
+      else if (muted)
+        const _BannerChip(
+          icon: Icons.notifications_off_outlined,
+          label: 'Muted',
+        ),
+    ];
+    return Container(
+      width: double.infinity,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Wrap(spacing: 8, runSpacing: 6, children: chips),
+    );
+  }
+}
+
+class _BannerChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _BannerChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.primaryBlue),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.primaryBlue,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -797,4 +1009,24 @@ bool _isReceiptSuppressedRole(String? role) {
     'CHIEF_EXECUTIVE',
     'CHIEF_EXECUTIVE_OFFICER',
   }.contains(normalized);
+}
+
+String _text(Object? value) => value?.toString().trim() ?? '';
+
+String? _optionalText(Object? value) {
+  final text = _text(value);
+  return text.isEmpty ? null : text;
+}
+
+int? _nullableInt(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
+}
+
+DateTime? _dateValue(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  return DateTime.tryParse(value.toString());
 }

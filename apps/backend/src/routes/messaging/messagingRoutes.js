@@ -64,7 +64,8 @@ router.post(
         return error(res, 'Authentication required', 401);
       }
 
-      const { recipient_uid, body, priority, patient_uid, subject } = req.body;
+      const { recipient_uid, body, priority, patient_uid, subject, thread_id, admission_id } =
+        req.body;
 
       if (!recipient_uid || !body) {
         return error(res, 'recipient_uid and body are required', 400);
@@ -77,7 +78,11 @@ router.post(
         priority || 'normal',
         patient_uid || null,
         subject || null,
-        tenantOf(req)
+        tenantOf(req),
+        {
+          threadId: thread_id || null,
+          admissionId: admission_id || null
+        }
       );
 
       return success(res, message, 'Message sent successfully', 201);
@@ -116,7 +121,8 @@ router.post(
         body: req.body.body,
         priority: req.body.priority || 'normal',
         subject: req.body.subject || null,
-        patientUid: req.body.patient_uid || null
+        patientUid: req.body.patient_uid || null,
+        admissionId: req.body.admission_id || null
       });
 
       return success(res, result, 'Message sent successfully', 201);
@@ -146,6 +152,156 @@ router.get('/targets', async (req, res, next) => {
     );
 
     return success(res, result, 'Message targets retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /messaging/threads
+ * First-class staff conversation thread list.
+ */
+router.get('/threads', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+
+    const result = await messagingService.getThreads({
+      staffUid,
+      tenantId: tenantOf(req),
+      page: req.query.page,
+      limit: req.query.limit,
+      status: req.query.status,
+      priority: req.query.priority,
+      search: req.query.search
+    });
+
+    return success(res, result.threads, 'Threads retrieved', 200, {
+      total: result.total,
+      page: result.page,
+      limit: result.limit
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /messaging/threads/:threadId/messages
+ * Thread detail and ordered messages.
+ */
+router.get('/threads/:threadId/messages', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+
+    const result = await messagingService.getThreadById(
+      staffUid,
+      req.params.threadId,
+      tenantOf(req)
+    );
+
+    return success(res, result, 'Thread retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/threads/:threadId/archive', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+    const result = await messagingService.setThreadArchived(
+      req.params.threadId,
+      staffUid,
+      tenantOf(req),
+      true
+    );
+    return success(res, result, 'Thread archived');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/threads/:threadId/unarchive', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+    const result = await messagingService.setThreadArchived(
+      req.params.threadId,
+      staffUid,
+      tenantOf(req),
+      false
+    );
+    return success(res, result, 'Thread restored');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/threads/:threadId/mark-unread', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+    const result = await messagingService.markThreadUnread(
+      req.params.threadId,
+      staffUid,
+      tenantOf(req)
+    );
+    return success(res, result, 'Thread marked unread');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/threads/:threadId/mute', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+    const hours = Math.min(Math.max(parseInt(req.body?.hours) || 8, 1), 168);
+    const urgentOnly = req.body?.urgent_only === true || req.body?.urgentOnly === true;
+    const mutedUntil = urgentOnly
+      ? null
+      : req.body?.muted_until ||
+        req.body?.mutedUntil ||
+        new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+    const result = await messagingService.setThreadMute({
+      threadId: req.params.threadId,
+      staffUid,
+      tenantId: tenantOf(req),
+      mutedUntil,
+      urgentOnly
+    });
+    return success(res, result, urgentOnly ? 'Thread set to urgent-only' : 'Thread muted');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/threads/:threadId/unmute', async (req, res, next) => {
+  try {
+    const staffUid = req.user?.uid;
+    if (!staffUid) {
+      return error(res, 'Authentication required', 401);
+    }
+    const result = await messagingService.clearThreadMute(
+      req.params.threadId,
+      staffUid,
+      tenantOf(req)
+    );
+    return success(res, result, 'Thread notifications restored');
   } catch (err) {
     next(err);
   }

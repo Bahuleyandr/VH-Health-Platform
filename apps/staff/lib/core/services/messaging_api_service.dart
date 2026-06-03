@@ -32,6 +32,35 @@ class MessagingApiService {
         [];
   }
 
+  static Future<List<dynamic>> threads({
+    int page = 1,
+    int limit = 100,
+    String status = 'active',
+    String? priority,
+    String? search,
+  }) async {
+    final query = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+      'status': status,
+    };
+    if (priority != null && priority.trim().isNotEmpty) {
+      query['priority'] = priority.trim();
+    }
+    if (search != null && search.trim().isNotEmpty) {
+      query['search'] = search.trim();
+    }
+    final resp = await ApiClient.get(
+      '/messaging/threads',
+      queryParameters: query,
+    );
+    final mapped = await _map(resp);
+    return mapped['data'] as List? ??
+        mapped['threads'] as List? ??
+        mapped['items'] as List? ??
+        [];
+  }
+
   static Future<Map<String, dynamic>> unreadCount() async {
     final resp = await ApiClient.get('/messaging/unread-count');
     return _map(resp);
@@ -58,6 +87,11 @@ class MessagingApiService {
         [];
   }
 
+  static Future<Map<String, dynamic>> threadMessages(String threadId) async {
+    final resp = await ApiClient.get('/messaging/threads/$threadId/messages');
+    return _map(resp);
+  }
+
   static Future<Map<String, dynamic>> adminLog({
     int page = 1,
     int limit = 100,
@@ -81,22 +115,63 @@ class MessagingApiService {
     await ApiClient.patch('/messaging/$id/read');
   }
 
+  static Future<void> archiveThread(String threadId) async {
+    await ApiClient.patch('/messaging/threads/$threadId/archive');
+  }
+
+  static Future<void> unarchiveThread(String threadId) async {
+    await ApiClient.patch('/messaging/threads/$threadId/unarchive');
+  }
+
+  static Future<void> markThreadUnread(String threadId) async {
+    await ApiClient.patch('/messaging/threads/$threadId/mark-unread');
+  }
+
+  static Future<void> muteThread(String threadId, {int hours = 8}) async {
+    await ApiClient.patch(
+      '/messaging/threads/$threadId/mute',
+      body: {'hours': hours},
+    );
+  }
+
+  static Future<void> urgentOnlyThread(String threadId) async {
+    await ApiClient.patch(
+      '/messaging/threads/$threadId/mute',
+      body: {'urgent_only': true},
+    );
+  }
+
+  static Future<void> unmuteThread(String threadId) async {
+    await ApiClient.patch('/messaging/threads/$threadId/unmute');
+  }
+
   static Future<Map<String, dynamic>> sendDirect({
     required String recipientUid,
     required String body,
     String? subject,
     String priority = 'normal',
+    String? threadId,
+    String? patientUid,
+    int? admissionId,
   }) async {
-    final resp = await ApiClient.post(
-      '/messaging/send',
-      body: {
-        'recipient_uid': recipientUid,
-        'body': body,
-        'priority': priority,
-        if (subject != null && subject.trim().isNotEmpty)
-          'subject': subject.trim(),
-      },
-    );
+    final payload = <String, dynamic>{
+      'recipient_uid': recipientUid,
+      'body': body,
+      'priority': priority,
+    };
+    if (threadId != null && threadId.trim().isNotEmpty) {
+      payload['thread_id'] = threadId.trim();
+    }
+    if (patientUid != null && patientUid.trim().isNotEmpty) {
+      payload['patient_uid'] = patientUid.trim();
+    }
+    if (admissionId != null) {
+      payload['admission_id'] = admissionId;
+    }
+    if (subject != null && subject.trim().isNotEmpty) {
+      payload['subject'] = subject.trim();
+    }
+    final resp = await ApiClient.post('/messaging/send', body: payload);
     return _map(resp);
   }
 

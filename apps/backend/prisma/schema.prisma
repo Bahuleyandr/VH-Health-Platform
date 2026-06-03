@@ -7720,22 +7720,91 @@ model staff_grievances {
 }
 
 model staff_messages {
-  id            Int       @id @default(autoincrement())
-  sender_uid    String    @db.Uuid
-  recipient_uid String    @db.Uuid
-  patient_uid   String?   @db.Uuid
-  subject       String?   @db.VarChar(255)
-  body          String
-  priority      String?   @default("normal") @db.VarChar(20)
-  is_read       Boolean?  @default(false)
-  read_at       DateTime? @db.Timestamp(6)
-  created_at    DateTime? @default(now()) @db.Timestamp(6)
-  tenant_id     String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_messages_tenant")
+  id                        Int                         @id @default(autoincrement())
+  sender_uid                String                      @db.Uuid
+  recipient_uid             String                      @db.Uuid
+  patient_uid               String?                     @db.Uuid
+  subject                   String?                     @db.VarChar(255)
+  body                      String
+  priority                  String?                     @default("normal") @db.VarChar(20)
+  is_read                   Boolean?                    @default(false)
+  read_at                   DateTime?                   @db.Timestamp(6)
+  created_at                DateTime?                   @default(now()) @db.Timestamp(6)
+  tenant_id                 String                      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  thread_id                 String?                     @db.Uuid
+  staff_message_attachments staff_message_attachments[]
+  staff_message_threads     staff_message_threads?      @relation(fields: [thread_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_staff_messages_thread")
+  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_messages_tenant")
 
   @@index([recipient_uid, created_at(sort: Desc)], map: "idx_staff_messages_recipient")
   @@index([sender_uid, created_at(sort: Desc)], map: "idx_staff_messages_sender")
   @@index([tenant_id], map: "idx_staff_messages_tenant_id")
+  @@index([thread_id, created_at], map: "idx_staff_messages_thread")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_message_threads {
+  id                                String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                         String                              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  thread_type                       String                              @default("direct") @db.VarChar(30)
+  subject                           String?                             @db.VarChar(255)
+  patient_uid                       String?                             @db.Uuid
+  admission_id                      Int?
+  created_by_uid                    String                              @db.Uuid
+  status                            String                              @default("active") @db.VarChar(20)
+  priority                          String                              @default("normal") @db.VarChar(20)
+  last_message_id                   Int?
+  last_message_at                   DateTime?                           @default(now()) @db.Timestamptz(6)
+  created_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  updated_at                        DateTime                            @default(now()) @db.Timestamptz(6)
+  staff_message_attachments         staff_message_attachments[]
+  staff_message_thread_participants staff_message_thread_participants[]
+  staff_messages                    staff_messages[]
+  tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_message_threads_tenant")
+
+  @@index([admission_id], map: "idx_staff_message_threads_admission")
+  @@index([patient_uid], map: "idx_staff_message_threads_patient")
+  @@index([tenant_id, last_message_at(sort: Desc)], map: "idx_staff_message_threads_tenant_last_message")
+}
+
+model staff_message_thread_participants {
+  thread_id             String                @db.Uuid
+  participant_uid       String                @db.Uuid
+  tenant_id             String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  last_read_at          DateTime?             @db.Timestamptz(6)
+  archived_at           DateTime?             @db.Timestamptz(6)
+  muted_until           DateTime?             @db.Timestamptz(6)
+  urgent_only           Boolean               @default(false)
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  staff_message_threads staff_message_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_staff_msg_participants_thread")
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_msg_participants_tenant")
+
+  @@id([thread_id, participant_uid])
+  @@index([participant_uid, archived_at, updated_at(sort: Desc)], map: "idx_staff_message_threads_participant_lookup")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_message_attachments {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String                 @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  thread_id             String                 @db.Uuid
+  message_id            Int?
+  uploaded_by_uid       String                 @db.Uuid
+  file_name             String                 @db.VarChar(255)
+  content_type          String                 @db.VarChar(120)
+  file_size             Int
+  storage_key           String
+  scan_status           String                 @default("pending") @db.VarChar(30)
+  metadata              Json                   @default("{}")
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  staff_message_threads staff_message_threads  @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_staff_msg_attachments_thread")
+  staff_messages        staff_messages?        @relation(fields: [message_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_staff_msg_attachments_message")
+  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_msg_attachments_tenant")
+
+  @@index([message_id], map: "idx_staff_msg_attachments_message")
+  @@index([thread_id, created_at(sort: Desc)], map: "idx_staff_msg_attachments_thread")
 }
 
 model staff_onboarding_tasks {
@@ -8393,6 +8462,9 @@ model tenants {
   staff_leave_forecast_runs                  staff_leave_forecast_runs[]
   staff_leave_forecast_scores                staff_leave_forecast_scores[]
   staff_leave_forecast_shift_risks           staff_leave_forecast_shift_risks[]
+  staff_message_attachments                  staff_message_attachments[]
+  staff_message_thread_participants          staff_message_thread_participants[]
+  staff_message_threads                      staff_message_threads[]
   staff_messages                             staff_messages[]
   staff_roster_preferences                   staff_roster_preferences[]
   staff_roster_runs                          staff_roster_runs[]

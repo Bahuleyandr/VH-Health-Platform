@@ -42,6 +42,8 @@ const tenantId = '00000000-0000-4000-8000-000000000001';
 const senderUid = '11111111-1111-4111-8111-111111111111';
 const recipientOne = '22222222-2222-4222-8222-222222222222';
 const recipientTwo = '33333333-3333-4333-8333-333333333333';
+const threadOne = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const threadTwo = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 afterEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
@@ -54,22 +56,40 @@ afterEach(() => {
 
 describe('messagingService', () => {
   it('persists a direct staff message with tenant and queues a notification', async () => {
+    const tx = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: threadOne,
+            priority: 'urgent',
+            subject: 'Bed update',
+            patient_uid: null,
+            admission_id: null
+          }
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 7,
+            thread_id: threadOne,
+            sender_uid: senderUid,
+            recipient_uid: recipientOne,
+            patient_uid: null,
+            subject: 'Bed update',
+            body: 'Patient shifted to B block.',
+            priority: 'urgent',
+            is_read: false,
+            read_at: null,
+            created_at: new Date('2026-06-03T08:00:00Z'),
+            tenant_id: tenantId
+          }
+        ]),
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1)
+    };
+    prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
     prismaMock.$queryRawUnsafe
-      .mockResolvedValueOnce([
-        {
-          id: 7,
-          sender_uid: senderUid,
-          recipient_uid: recipientOne,
-          patient_uid: null,
-          subject: 'Bed update',
-          body: 'Patient shifted to B block.',
-          priority: 'urgent',
-          is_read: false,
-          read_at: null,
-          created_at: new Date('2026-06-03T08:00:00Z'),
-          tenant_id: tenantId
-        }
-      ])
+      .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
       .mockResolvedValueOnce([{ id: 42 }]);
     notificationQueueMock.mockResolvedValueOnce({ id: 99 });
 
@@ -86,14 +106,14 @@ describe('messagingService', () => {
     expect(message).toEqual(
       expect.objectContaining({
         id: 7,
+        thread_id: threadOne,
         tenant_id: tenantId,
         priority: 'urgent'
       })
     );
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(3);
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledTimes(2);
     expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(2);
-    expect(prismaMock.$queryRawUnsafe.mock.calls[0][1]).toBe(senderUid);
-    expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(recipientOne);
-    expect(prismaMock.$queryRawUnsafe.mock.calls[0][7]).toBe(tenantId);
     expect(notificationQueueMock).toHaveBeenCalledWith(
       expect.objectContaining({
         recipientId: 42,
@@ -101,6 +121,7 @@ describe('messagingService', () => {
         data: expect.objectContaining({
           type: 'staff_message',
           message_id: 7,
+          thread_id: threadOne,
           sender_uid: senderUid,
           priority: 'urgent'
         })
@@ -113,9 +134,65 @@ describe('messagingService', () => {
         senderUid,
         priority: 'urgent',
         subject: 'Bed update',
-        message: expect.objectContaining({ id: 7 })
+        message: expect.objectContaining({ id: 7, thread_id: threadOne })
       })
     );
+  });
+
+  it('suppresses muted thread notifications without dropping the saved message', async () => {
+    const tx = {
+      $queryRawUnsafe: jest.fn().mockResolvedValueOnce([
+        {
+          id: threadOne,
+          priority: 'normal',
+          subject: null,
+          patient_uid: null,
+          admission_id: null
+        }
+      ]).mockResolvedValueOnce([
+        {
+          id: 8,
+          thread_id: threadOne,
+          sender_uid: senderUid,
+          recipient_uid: recipientOne,
+          patient_uid: null,
+          subject: null,
+          body: 'Quiet update',
+          priority: 'normal',
+          is_read: false,
+          read_at: null,
+          created_at: new Date('2026-06-03T08:00:00Z'),
+          tenant_id: tenantId
+        }
+      ]),
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1)
+    };
+    prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([
+      {
+        muted_until: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        urgent_only: false
+      }
+    ]);
+
+    const message = await messagingService.sendMessage(
+      senderUid,
+      recipientOne,
+      'Quiet update',
+      'normal',
+      null,
+      null,
+      tenantId
+    );
+
+    expect(message).toEqual(
+      expect.objectContaining({
+        id: 8,
+        thread_id: threadOne
+      })
+    );
+    expect(notificationQueueMock).not.toHaveBeenCalled();
+    expect(emitStaffMessageMock).not.toHaveBeenCalled();
   });
 
   it('allows HR/Admin all-staff broadcast and creates one saved row per recipient', async () => {
@@ -132,9 +209,20 @@ describe('messagingService', () => {
           }
         ])
         .mockResolvedValueOnce([{ uid: recipientOne }, { uid: recipientTwo }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: threadOne,
+            priority: 'normal',
+            subject: 'Policy',
+            patient_uid: null,
+            admission_id: null
+          }
+        ])
         .mockResolvedValueOnce([
           {
             id: 11,
+            thread_id: threadOne,
             sender_uid: senderUid,
             recipient_uid: recipientOne,
             patient_uid: null,
@@ -147,9 +235,20 @@ describe('messagingService', () => {
             tenant_id: tenantId
           }
         ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: threadTwo,
+            priority: 'normal',
+            subject: 'Policy',
+            patient_uid: null,
+            admission_id: null
+          }
+        ])
         .mockResolvedValueOnce([
           {
             id: 12,
+            thread_id: threadTwo,
             sender_uid: senderUid,
             recipient_uid: recipientTwo,
             patient_uid: null,
@@ -162,10 +261,14 @@ describe('messagingService', () => {
             tenant_id: tenantId
           }
         ]),
-      $executeRawUnsafe: jest.fn()
+      $executeRawUnsafe: jest.fn().mockResolvedValue(1)
     };
     prismaMock.$transaction.mockImplementationOnce(callback => callback(tx));
-    prismaMock.$queryRawUnsafe.mockResolvedValue([{ id: 42 }]);
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
+      .mockResolvedValueOnce([{ id: 42 }])
+      .mockResolvedValueOnce([{ muted_until: null, urgent_only: false }])
+      .mockResolvedValueOnce([{ id: 43 }]);
     notificationQueueMock.mockResolvedValue({ id: 99 });
 
     const result = await messagingService.sendBroadcast({
@@ -179,7 +282,8 @@ describe('messagingService', () => {
 
     expect(result.count).toBe(2);
     expect(result.messages.map(msg => msg.recipient_uid)).toEqual([recipientOne, recipientTwo]);
-    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(4);
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(8);
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledTimes(4);
     expect(notificationQueueMock).toHaveBeenCalledTimes(2);
     expect(emitStaffMessageMock).toHaveBeenCalledTimes(2);
     expect(emitStaffMessageMock.mock.calls.map(call => call[0].recipientUid)).toEqual([

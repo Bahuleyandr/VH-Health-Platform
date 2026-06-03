@@ -665,6 +665,12 @@ final GoRouter appRouter = GoRouter(
                 otherStaffName: extraMap['otherStaffName']?.toString(),
                 otherStaffDepartment: extraMap['otherStaffDepartment']
                     ?.toString(),
+                threadId: extraMap['threadId']?.toString(),
+                patientName: extraMap['patientName']?.toString(),
+                patientUid: extraMap['patientUid']?.toString(),
+                admissionId: int.tryParse(
+                  extraMap['admissionId']?.toString() ?? '',
+                ),
               ),
             );
           },
