@@ -26,9 +26,19 @@ class AuthService {
     await ApiConfig.saveEmployeeId(employeeId);
 
     final staffId =
-        data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
+        data['staff']?['_id'] ?? data['staff']?['id'] ?? data['staff_id'];
     if (staffId != null) {
       await ApiConfig.saveStaffId(staffId.toString());
+    }
+
+    final staffUid =
+        data['staff']?['uid'] ??
+        data['staff']?['user_uid'] ??
+        data['staff_uid'] ??
+        data['uid'];
+    if (staffUid != null) {
+      await ApiConfig.saveStaffUid(staffUid.toString());
+      if (staffId == null) await ApiConfig.saveStaffId(staffUid.toString());
     }
 
     final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';

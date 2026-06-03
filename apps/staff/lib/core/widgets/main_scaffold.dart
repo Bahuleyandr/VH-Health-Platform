@@ -20,6 +20,15 @@ bool shouldPushWorkbenchNav({
   return targetRoute != '/dashboard';
 }
 
+@visibleForTesting
+bool shouldNavigateWorkbenchNav({
+  required String currentRoute,
+  required String targetRoute,
+}) {
+  if (targetRoute == '/dashboard') return true;
+  return currentRoute != targetRoute;
+}
+
 /// Shell scaffold that provides persistent bottom navigation.
 /// Used as the ShellRoute builder in app_router.dart.
 class MainScaffold extends StatefulWidget {
@@ -71,6 +80,16 @@ class _MainScaffoldState extends State<MainScaffold> {
     if (index >= navItems.length) return;
     final currentRoute = GoRouterState.of(context).matchedLocation;
     final targetRoute = navItems[index].route;
+    if (!shouldNavigateWorkbenchNav(
+      currentRoute: currentRoute,
+      targetRoute: targetRoute,
+    )) {
+      return;
+    }
+    if (targetRoute == '/dashboard') {
+      context.go(targetRoute);
+      return;
+    }
     if (shouldPushWorkbenchNav(
       currentRoute: currentRoute,
       targetRoute: targetRoute,
@@ -137,6 +156,16 @@ class _MainScaffoldState extends State<MainScaffold> {
           if (i >= navItems.length) return;
           final currentRoute = GoRouterState.of(context).matchedLocation;
           final targetRoute = navItems[i].route;
+          if (!shouldNavigateWorkbenchNav(
+            currentRoute: currentRoute,
+            targetRoute: targetRoute,
+          )) {
+            return;
+          }
+          if (targetRoute == '/dashboard') {
+            context.go(targetRoute);
+            return;
+          }
           if (shouldPushWorkbenchNav(
             currentRoute: currentRoute,
             targetRoute: targetRoute,

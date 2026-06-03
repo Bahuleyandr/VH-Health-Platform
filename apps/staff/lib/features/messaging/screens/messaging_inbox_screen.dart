@@ -266,7 +266,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     });
     try {
       final roleValue = await ApiConfig.getRole();
-      final staffUid = await ApiConfig.getStaffId();
+      final staffUid =
+          await ApiConfig.getStaffUid() ?? await ApiConfig.getStaffId();
       final threadsFuture = MessagingApiService.threads(
         limit: 100,
         status: _threadStatus,

@@ -3,6 +3,8 @@
 // Re-exports core's [ApiConfig] for baseUrl, apiKey, jsonHeaders, etc.
 // Adds staff-specific JWT and credential storage using separate keys
 // so staff and patient tokens never collide.
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth_core/config/api_config.dart' as core;
 
@@ -39,6 +41,23 @@ class ApiConfig {
 
   static Future<String?> getStaffId() async {
     return await _storage.read(key: 'staff_id');
+  }
+
+  static Future<void> saveStaffUid(String staffUid) async {
+    await _storage.write(key: 'staff_uid', value: staffUid);
+  }
+
+  static Future<String?> getStaffUid() async {
+    final stored = await _storage.read(key: 'staff_uid');
+    if (stored != null && stored.trim().isNotEmpty) return stored.trim();
+
+    final jwt = await _storage.read(key: 'jwt');
+    final decoded = _staffUidFromJwt(jwt);
+    if (decoded != null && decoded.isNotEmpty) {
+      await saveStaffUid(decoded);
+      return decoded;
+    }
+    return null;
   }
 
   static Future<void> saveEmployeeId(String employeeId) async {
@@ -91,5 +110,27 @@ class ApiConfig {
       } catch (_) {}
       return false;
     }
+  }
+
+  static String? _staffUidFromJwt(String? jwt) {
+    try {
+      if (jwt == null || jwt.isEmpty) return null;
+      final parts = jwt.split('.');
+      if (parts.length != 3 || parts[1].isEmpty) return null;
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      if (payload is! Map<String, dynamic>) return null;
+      final staff = payload['staff'];
+      for (final key in ['uid', 'user_uid', 'staff_uid', 'sub']) {
+        final value = payload[key] ?? (staff is Map ? staff[key] : null);
+        if (value != null && value.toString().trim().isNotEmpty) {
+          return value.toString().trim();
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 }

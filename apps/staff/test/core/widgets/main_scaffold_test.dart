@@ -30,4 +30,40 @@ void main() {
       );
     });
   });
+
+  group('shouldNavigateWorkbenchNav', () {
+    test('always allows Home navigation so nested screens can exit', () {
+      expect(
+        shouldNavigateWorkbenchNav(
+          currentRoute: '/dashboard',
+          targetRoute: '/dashboard',
+        ),
+        isTrue,
+      );
+      expect(
+        shouldNavigateWorkbenchNav(
+          currentRoute: '/messaging/thread/staff-1',
+          targetRoute: '/dashboard',
+        ),
+        isTrue,
+      );
+    });
+
+    test('skips duplicate non-Home workbench navigation', () {
+      expect(
+        shouldNavigateWorkbenchNav(
+          currentRoute: '/messaging',
+          targetRoute: '/messaging',
+        ),
+        isFalse,
+      );
+      expect(
+        shouldNavigateWorkbenchNav(
+          currentRoute: '/messaging',
+          targetRoute: '/front-office',
+        ),
+        isTrue,
+      );
+    });
+  });
 }

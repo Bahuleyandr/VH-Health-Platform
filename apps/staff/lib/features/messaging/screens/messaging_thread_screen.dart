@@ -222,7 +222,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       _error = null;
     });
     try {
-      _myUid = await ApiConfig.getStaffId();
+      _myUid = await ApiConfig.getStaffUid() ?? await ApiConfig.getStaffId();
       final List<dynamic> list;
       if ((widget.threadId ?? '').trim().isNotEmpty) {
         final result = await MessagingApiService.threadMessages(
