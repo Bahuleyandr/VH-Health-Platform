@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../config/role_config.dart';
+import '../providers/message_unread_provider.dart';
 import '../theme/app_theme.dart';
 import 'code_blue_listener.dart';
 import 'logout_action.dart';
+import 'message_unread_badge.dart';
 import 'offline_sync_badge.dart';
 import 'patient_search_action.dart';
 import 'theme_toggle_action.dart';
@@ -67,6 +70,7 @@ class StaffScaffold extends StatelessWidget {
 
   Widget _buildBottomNav(BuildContext context) {
     final navItems = _getNavItems(role ?? StaffRole.general);
+    final unreadMessages = context.watch<MessageUnreadProvider>().unreadCount;
     return BottomNavigationBar(
       currentIndex: currentIndex ?? 0,
       type: BottomNavigationBarType.fixed,
@@ -84,13 +88,23 @@ class StaffScaffold extends StatelessWidget {
       items: navItems
           .map(
             (item) => BottomNavigationBarItem(
-              icon: Icon(item.icon),
-              activeIcon: Icon(item.activeIcon),
+              icon: _bottomIcon(item.icon, item.route, unreadMessages),
+              activeIcon: _bottomIcon(
+                item.activeIcon,
+                item.route,
+                unreadMessages,
+              ),
               label: item.label,
             ),
           )
           .toList(),
     );
+  }
+
+  Widget _bottomIcon(IconData icon, String route, int unreadMessages) {
+    final child = Icon(icon);
+    if (route != '/messaging') return child;
+    return MessageUnreadBadge(unreadCount: unreadMessages, child: child);
   }
 
   List<_NavItem> _getNavItems(StaffRole role) {

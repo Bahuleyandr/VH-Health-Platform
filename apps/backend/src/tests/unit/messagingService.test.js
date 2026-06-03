@@ -7,6 +7,7 @@ const prismaMock = {
 };
 
 const notificationQueueMock = jest.fn();
+const emitStaffMessageMock = jest.fn();
 const loggerMock = {
   warn: jest.fn(),
   error: jest.fn(),
@@ -31,6 +32,10 @@ jest.unstable_mockModule('../../utils/notifications/notificationOutbox.js', () =
   }
 }));
 
+jest.unstable_mockModule('../../utils/websocket/realtimeEmitter.js', () => ({
+  emitStaffMessage: emitStaffMessageMock
+}));
+
 const messagingService = (await import('../../services/messaging/messagingService.js')).default;
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
@@ -43,6 +48,7 @@ afterEach(() => {
   prismaMock.$executeRawUnsafe.mockReset();
   prismaMock.$transaction.mockReset();
   notificationQueueMock.mockReset();
+  emitStaffMessageMock.mockReset();
   Object.values(loggerMock).forEach(fn => fn.mockReset());
 });
 
@@ -98,6 +104,16 @@ describe('messagingService', () => {
           sender_uid: senderUid,
           priority: 'urgent'
         })
+      })
+    );
+    expect(emitStaffMessageMock).toHaveBeenCalledTimes(1);
+    expect(emitStaffMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUid: recipientOne,
+        senderUid,
+        priority: 'urgent',
+        subject: 'Bed update',
+        message: expect.objectContaining({ id: 7 })
       })
     );
   });
@@ -165,6 +181,11 @@ describe('messagingService', () => {
     expect(result.messages.map(msg => msg.recipient_uid)).toEqual([recipientOne, recipientTwo]);
     expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(4);
     expect(notificationQueueMock).toHaveBeenCalledTimes(2);
+    expect(emitStaffMessageMock).toHaveBeenCalledTimes(2);
+    expect(emitStaffMessageMock.mock.calls.map(call => call[0].recipientUid)).toEqual([
+      recipientOne,
+      recipientTwo
+    ]);
   });
 
   it('blocks department incharges from messaging a different department', async () => {
@@ -198,5 +219,6 @@ describe('messagingService', () => {
 
     expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
     expect(notificationQueueMock).not.toHaveBeenCalled();
+    expect(emitStaffMessageMock).not.toHaveBeenCalled();
   });
 });

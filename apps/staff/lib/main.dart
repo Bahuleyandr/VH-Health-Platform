@@ -12,6 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
 import 'core/platform_info.dart';
 import 'core/navigation/app_router.dart';
+import 'core/providers/message_unread_provider.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/session_timeout_provider.dart';
@@ -269,6 +270,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         ChangeNotifierProvider(
           create: (_) => RealtimeProvider()..ensureConnected(),
         ),
+        ChangeNotifierProvider(create: (_) => MessageUnreadProvider()..start()),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: sessionTimeoutForDeviceMode(currentAppDeviceMode),
@@ -359,8 +361,10 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                     // next API call to 401. Lives in the MaterialApp
                     // builder so a ScaffoldMessenger is reachable for the
                     // snackbar.
-                    builder: (context, child) => SessionRevocationListener(
-                      child: child ?? const SizedBox.shrink(),
+                    builder: (context, child) => StaffMessageAlertListener(
+                      child: SessionRevocationListener(
+                        child: child ?? const SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 ),

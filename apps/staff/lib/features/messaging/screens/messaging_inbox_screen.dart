@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
+import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/services/messaging_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -16,9 +18,11 @@ class StaffMessage {
   final int id;
   final String senderUid;
   final String? senderName;
+  final String? senderRole;
   final String? senderDepartment;
   final String recipientUid;
   final String? recipientName;
+  final String? recipientRole;
   final String? recipientDepartment;
   final String? patientUid;
   final String? subject;
@@ -31,9 +35,11 @@ class StaffMessage {
     required this.id,
     required this.senderUid,
     this.senderName,
+    this.senderRole,
     this.senderDepartment,
     required this.recipientUid,
     this.recipientName,
+    this.recipientRole,
     this.recipientDepartment,
     this.patientUid,
     this.subject,
@@ -48,9 +54,11 @@ class StaffMessage {
       id: _intValue(json['id']),
       senderUid: _text(json['sender_uid']),
       senderName: _optionalText(json['sender_name']),
+      senderRole: _optionalText(json['sender_role']),
       senderDepartment: _optionalText(json['sender_department']),
       recipientUid: _text(json['recipient_uid']),
       recipientName: _optionalText(json['recipient_name']),
+      recipientRole: _optionalText(json['recipient_role']),
       recipientDepartment: _optionalText(json['recipient_department']),
       patientUid: _optionalText(json['patient_uid']),
       subject: _optionalText(json['subject']),
@@ -73,6 +81,11 @@ class StaffMessage {
   String partnerDepartment(String? myUid) {
     final department = sentBy(myUid) ? recipientDepartment : senderDepartment;
     return department ?? '';
+  }
+
+  bool shouldShowReceiptFor(String? myUid) {
+    if (!sentBy(myUid)) return false;
+    return !_isReceiptSuppressedRole(recipientRole);
   }
 }
 
@@ -165,12 +178,14 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           : <StaffMessage>[];
 
       if (mounted) {
+        final unread = _intValue(count['unread_count'] ?? count['count']);
+        context.read<MessageUnreadProvider>().setUnreadCountFromServer(unread);
         setState(() {
           _role = role;
           _myUid = staffUid;
           _messages = parsed;
           _adminMessages = adminMessages;
-          _unreadCount = _intValue(count['unread_count'] ?? count['count']);
+          _unreadCount = unread;
           _loading = false;
         });
       }
@@ -477,6 +492,10 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                                     : FontWeight.normal,
                               ),
                             ),
+                            if (msg.shouldShowReceiptFor(_myUid)) ...[
+                              const SizedBox(width: 4),
+                              _MessageReceiptIcon(message: msg),
+                            ],
                           ],
                         ),
                         if (conv.partnerDepartment.isNotEmpty)
@@ -1037,6 +1056,39 @@ class _ConversationSummary {
     required this.latestMessage,
     required this.unreadCount,
   });
+}
+
+bool _isReceiptSuppressedRole(String? role) {
+  final normalized = _text(role).toUpperCase();
+  return const {
+    'ADMIN',
+    'SUPER_ADMIN',
+    'CEO',
+    'COO',
+    'CHIEF_EXECUTIVE',
+    'CHIEF_EXECUTIVE_OFFICER',
+  }.contains(normalized);
+}
+
+class _MessageReceiptIcon extends StatelessWidget {
+  final StaffMessage message;
+
+  const _MessageReceiptIcon({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final read = message.isRead;
+    return Tooltip(
+      message: read ? 'Read' : 'Delivered',
+      child: Icon(
+        read ? Icons.done_all : Icons.done,
+        size: 14,
+        color: read
+            ? AppTheme.accentCyan
+            : Theme.of(context).colorScheme.outline,
+      ),
+    );
+  }
 }
 
 String _text(Object? value) => value?.toString().trim() ?? '';

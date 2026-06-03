@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import '../config/api_config.dart';
 import '../config/role_config.dart';
 import '../platform_info.dart';
+import '../providers/message_unread_provider.dart';
 import '../providers/session_timeout_provider.dart';
+import 'message_unread_badge.dart';
 
 @visibleForTesting
 bool shouldPushWorkbenchNav({
@@ -38,6 +43,8 @@ class _MainScaffoldState extends State<MainScaffold> {
     final roleStr = await ApiConfig.getRole();
     if (!mounted) return;
     setState(() => _role = StaffRole.fromString(roleStr));
+    unawaited(context.read<RealtimeProvider>().ensureConnected());
+    unawaited(context.read<MessageUnreadProvider>().refresh());
   }
 
   int _currentIndex(List<BottomNavItem> navItems) {
@@ -78,6 +85,7 @@ class _MainScaffoldState extends State<MainScaffold> {
   Widget build(BuildContext context) {
     final mode = appDeviceModeForContext(context);
     context.read<SessionTimeoutProvider>().configureForDeviceMode(mode);
+    final unreadMessages = context.watch<MessageUnreadProvider>().unreadCount;
     if (mode.isWorkbench) {
       final navItems = RoleFeatures.getWorkbenchNavForRole(_role);
       final selectedIndex = _currentRailIndex(navItems);
@@ -94,8 +102,16 @@ class _MainScaffoldState extends State<MainScaffold> {
               destinations: navItems
                   .map(
                     (item) => NavigationRailDestination(
-                      icon: Icon(item.icon),
-                      selectedIcon: Icon(item.selectedIcon),
+                      icon: _messagesAwareIcon(
+                        item.icon,
+                        item.route,
+                        unreadMessages,
+                      ),
+                      selectedIcon: _messagesAwareIcon(
+                        item.selectedIcon,
+                        item.route,
+                        unreadMessages,
+                      ),
                       label: Text(item.label),
                     ),
                   )
@@ -130,8 +146,36 @@ class _MainScaffoldState extends State<MainScaffold> {
           }
           if (currentRoute != targetRoute) context.go(targetRoute);
         },
-        items: navItems.map((n) => n.item).toList(),
+        items: navItems
+            .map((n) => _messagesAwareBottomItem(n, unreadMessages))
+            .toList(),
       ),
+    );
+  }
+
+  Widget _messagesAwareIcon(IconData icon, String route, int unreadMessages) {
+    final child = Icon(icon);
+    if (route != '/messaging') return child;
+    return MessageUnreadBadge(unreadCount: unreadMessages, child: child);
+  }
+
+  BottomNavigationBarItem _messagesAwareBottomItem(
+    BottomNavItem navItem,
+    int unreadMessages,
+  ) {
+    if (navItem.route != '/messaging') return navItem.item;
+    return BottomNavigationBarItem(
+      icon: MessageUnreadBadge(
+        unreadCount: unreadMessages,
+        child: navItem.item.icon,
+      ),
+      activeIcon: MessageUnreadBadge(
+        unreadCount: unreadMessages,
+        child: navItem.item.activeIcon,
+      ),
+      label: navItem.item.label,
+      tooltip: navItem.item.tooltip,
+      backgroundColor: navItem.item.backgroundColor,
     );
   }
 }

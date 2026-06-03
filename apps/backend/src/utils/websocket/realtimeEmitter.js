@@ -124,6 +124,24 @@ export function emitHandover(handover) {
   }
 }
 
+/** New direct or broadcast staff message delivered to one recipient. */
+export function emitStaffMessage({ recipientUid, message, senderUid, priority, subject, body }) {
+  if (!recipientUid) return;
+  try {
+    sendToUser(String(recipientUid), 'staff:message', {
+      kind: 'staff-message-created',
+      messageId: message?.id ?? null,
+      senderUid: senderUid ? String(senderUid) : message?.sender_uid ?? null,
+      subject: subject || message?.subject || null,
+      body: body || message?.body || null,
+      priority: priority || message?.priority || 'normal',
+      at: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.warn('emitStaffMessage failed:', err.message);
+  }
+}
+
 /** Queue position recomputed for a patient. */
 export function emitQueuePosition({ patientId, appointmentId, position, etaMinutes }) {
   if (!patientId) return;

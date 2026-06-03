@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
+import { emitStaffMessage } from '../../utils/websocket/realtimeEmitter.js';
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VALID_PRIORITIES = ['normal', 'urgent', 'critical'];
@@ -82,9 +83,9 @@ async function getSenderContext(senderUid, tenantId, db = prisma) {
 }
 
 function baseMessageSelect() {
-  return `m.id, m.sender_uid, sender.name AS sender_name,
+  return `m.id, m.sender_uid, sender.name AS sender_name, sender.role AS sender_role,
           sender_staff.department AS sender_department,
-          m.recipient_uid, recipient.name AS recipient_name,
+          m.recipient_uid, recipient.name AS recipient_name, recipient.role AS recipient_role,
           recipient_staff.department AS recipient_department,
           m.patient_uid, m.subject, m.body, m.priority, m.is_read, m.read_at,
           m.created_at, m.tenant_id`;
@@ -127,6 +128,18 @@ async function queueMessageNotification(message, senderUid, priority, subject, b
       sender_uid: senderUid,
       priority
     }
+  });
+}
+
+async function notifyMessageRecipient(message, senderUid, priority, subject, body) {
+  await queueMessageNotification(message, senderUid, priority, subject, body);
+  emitStaffMessage({
+    recipientUid: message.recipient_uid,
+    message,
+    senderUid,
+    priority,
+    subject,
+    body
   });
 }
 
@@ -265,7 +278,7 @@ const messagingService = {
         subject
       });
 
-      await queueMessageNotification(message, senderUid, normalizedPriority, subject, body);
+      await notifyMessageRecipient(message, senderUid, normalizedPriority, subject, body);
 
       logger.info(
         `Staff message sent: ${message.id} from ${senderUid} to ${recipientUid} [${normalizedPriority}]`
@@ -331,7 +344,7 @@ const messagingService = {
 
       await Promise.all(
         created.map(message =>
-          queueMessageNotification(message, senderUid, normalizedPriority, subject, body)
+          notifyMessageRecipient(message, senderUid, normalizedPriority, subject, body)
         )
       );
 

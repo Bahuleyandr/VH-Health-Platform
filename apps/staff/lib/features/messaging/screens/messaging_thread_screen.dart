@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/services/messaging_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/api_config.dart';
@@ -10,8 +14,10 @@ class ThreadMessage {
   final int id;
   final String senderUid;
   final String? senderName;
+  final String? senderRole;
   final String recipientUid;
   final String? recipientName;
+  final String? recipientRole;
   final String? recipientDepartment;
   final String? patientUid;
   final String? subject;
@@ -24,8 +30,10 @@ class ThreadMessage {
     required this.id,
     required this.senderUid,
     this.senderName,
+    this.senderRole,
     required this.recipientUid,
     this.recipientName,
+    this.recipientRole,
     this.recipientDepartment,
     this.patientUid,
     this.subject,
@@ -40,8 +48,10 @@ class ThreadMessage {
       id: json['id'] as int,
       senderUid: json['sender_uid'] as String,
       senderName: json['sender_name'] as String?,
+      senderRole: json['sender_role'] as String?,
       recipientUid: json['recipient_uid'] as String,
       recipientName: json['recipient_name'] as String?,
+      recipientRole: json['recipient_role'] as String?,
       recipientDepartment: json['recipient_department'] as String?,
       patientUid: json['patient_uid'] as String?,
       subject: json['subject'] as String?,
@@ -50,6 +60,13 @@ class ThreadMessage {
       isRead: json['is_read'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
+  }
+
+  bool sentBy(String? uid) => senderUid == uid;
+
+  bool shouldShowReceiptFor(String? myUid) {
+    if (!sentBy(myUid)) return false;
+    return !_isReceiptSuppressedRole(recipientRole);
   }
 }
 
@@ -144,6 +161,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       } catch (_) {
         // Non-critical — silently ignore individual failures
       }
+    }
+    if (mounted) {
+      unawaited(context.read<MessageUnreadProvider>().refresh());
     }
   }
 
@@ -386,6 +406,17 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         final msg = _messages[index];
         final isMine = _isMyMessage(msg);
         final showSeparator = _showDateSeparator(index);
+        final continuesFromPrevious =
+            !showSeparator &&
+            index > 0 &&
+            _messages[index - 1].senderUid == msg.senderUid;
+        final continuesToNext =
+            index < _messages.length - 1 &&
+            DateUtils.isSameDay(
+              msg.createdAt,
+              _messages[index + 1].createdAt,
+            ) &&
+            _messages[index + 1].senderUid == msg.senderUid;
 
         return Column(
           children: [
@@ -396,6 +427,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               isMine: isMine,
               timeLabel: _formatMessageTime(msg.createdAt),
               priorityColor: _priorityColor(msg.priority),
+              showReceipt: msg.shouldShowReceiptFor(_myUid),
+              continuesFromPrevious: continuesFromPrevious,
+              continuesToNext: continuesToNext,
             ),
           ],
         );
@@ -538,7 +572,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: s.messagingTypeHint,
+                        hintText: 'Reply in this conversation',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                           borderSide: BorderSide.none,
@@ -593,12 +627,18 @@ class _MessageBubble extends StatelessWidget {
   final bool isMine;
   final String timeLabel;
   final Color priorityColor;
+  final bool showReceipt;
+  final bool continuesFromPrevious;
+  final bool continuesToNext;
 
   const _MessageBubble({
     required this.message,
     required this.isMine,
     required this.timeLabel,
     required this.priorityColor,
+    required this.showReceipt,
+    required this.continuesFromPrevious,
+    required this.continuesToNext,
   });
 
   @override
@@ -612,11 +652,16 @@ class _MessageBubble extends StatelessWidget {
     final timeColor = isMine
         ? Colors.white70
         : Theme.of(context).colorScheme.outline;
+    final topCorner = continuesFromPrevious ? 8.0 : 18.0;
+    final bottomCorner = continuesToNext ? 8.0 : 18.0;
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
+        margin: EdgeInsets.only(
+          top: continuesFromPrevious ? 1 : 6,
+          bottom: continuesToNext ? 1 : 5,
+        ),
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
@@ -630,10 +675,10 @@ class _MessageBubble extends StatelessWidget {
               decoration: BoxDecoration(
                 color: bubbleColor,
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(18),
-                  topRight: const Radius.circular(18),
-                  bottomLeft: Radius.circular(isMine ? 18 : 4),
-                  bottomRight: Radius.circular(isMine ? 4 : 18),
+                  topLeft: Radius.circular(isMine ? 18 : topCorner),
+                  topRight: Radius.circular(isMine ? topCorner : 18),
+                  bottomLeft: Radius.circular(isMine ? 18 : bottomCorner),
+                  bottomRight: Radius.circular(isMine ? bottomCorner : 18),
                 ),
               ),
               child: Column(
@@ -690,14 +735,17 @@ class _MessageBubble extends StatelessWidget {
                   timeLabel,
                   style: TextStyle(fontSize: 10, color: timeColor),
                 ),
-                if (isMine) ...[
+                if (showReceipt) ...[
                   const SizedBox(width: 4),
-                  Icon(
-                    message.isRead ? Icons.done_all : Icons.done,
-                    size: 12,
-                    color: message.isRead
-                        ? AppTheme.accentCyan
-                        : Theme.of(context).colorScheme.outline,
+                  Tooltip(
+                    message: message.isRead ? 'Read' : 'Delivered',
+                    child: Icon(
+                      message.isRead ? Icons.done_all : Icons.done,
+                      size: 12,
+                      color: message.isRead
+                          ? AppTheme.accentCyan
+                          : Theme.of(context).colorScheme.outline,
+                    ),
                   ),
                 ],
               ],
@@ -737,4 +785,16 @@ class _DateSeparator extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _isReceiptSuppressedRole(String? role) {
+  final normalized = (role ?? '').trim().toUpperCase();
+  return const {
+    'ADMIN',
+    'SUPER_ADMIN',
+    'CEO',
+    'COO',
+    'CHIEF_EXECUTIVE',
+    'CHIEF_EXECUTIVE_OFFICER',
+  }.contains(normalized);
 }
