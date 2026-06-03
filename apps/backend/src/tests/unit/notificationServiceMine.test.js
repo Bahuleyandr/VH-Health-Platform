@@ -66,6 +66,7 @@ describe('notificationService authenticated feed', () => {
       title: 'Appointment due soon',
       type: 'APPOINTMENT_DUE',
       is_read: false,
+      related_id: 3,
     }));
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/n\.uid = \$1::uuid/);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/n\.user_id = \$2::int/);

@@ -763,6 +763,11 @@ class HrApiService {
     await ApiClient.patch('/notifications/my/mark-all-read');
   }
 
+  /// PATCH /notifications/:id/read
+  static Future<void> markNotificationRead(String id) async {
+    await ApiClient.patch('/notifications/$id/read');
+  }
+
   // ─── Device Registration ──────────────────────────────────────────────────
 
   /// POST /devices/register — register FCM token

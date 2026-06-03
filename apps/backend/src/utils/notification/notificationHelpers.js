@@ -196,6 +196,7 @@ export const formatNotificationResponse = (notification, includePrivateData = fa
     formatted.sender_id = notification.sender_id;
     formatted.phone = notification.phone;
     formatted.data = notification.data;
+    formatted.related_id = notification.related_id ?? null;
     
     if (notification.recipient_name) {
       formatted.recipient_name = notification.recipient_name;
