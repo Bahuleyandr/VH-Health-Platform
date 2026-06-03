@@ -1424,7 +1424,7 @@ async function materialiseDischargeMedsFromClinicalNote({
       `INSERT INTO e_prescriptions
          (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
           diagnosis, clinical_notes, medications, status)
-       VALUES (NULL, $1::int, $2, $3::uuid, $4,
+       VALUES (NULL, $1::int, $2::int, $3::uuid, $4::uuid,
                NULL, $5, $6::jsonb, 'active')`,
       patientId,
       doctorId,

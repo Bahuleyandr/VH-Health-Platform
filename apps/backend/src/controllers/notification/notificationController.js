@@ -100,7 +100,17 @@ export const notificationController = {
       }, 'Notifications fetched successfully');
     } catch (err) {
       logger.error('Error in getMine:', err.message);
-      if (err.message.includes('User not found') || err.message.includes('Access denied')) {
+      if (err.message.includes('User not found')) {
+        return success(res, {
+          notifications: [],
+          count: 0,
+          unread_count: 0,
+          pagination: buildPagination(0, 1, 20),
+          requestedBy: req.user?.uid,
+          accessLevel: req.user?.role?.toUpperCase(),
+        }, 'Notifications fetched successfully');
+      }
+      if (err.message.includes('Access denied')) {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);

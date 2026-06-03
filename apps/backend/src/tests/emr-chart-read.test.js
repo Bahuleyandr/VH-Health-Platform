@@ -8,8 +8,10 @@ import app from '../app.js';
 
 const PATIENT_UID = 'a6666666-6666-4666-8666-666666666a01';
 const DOCTOR_UID = 'a6666666-6666-4666-8666-666666666a02';
+const RECEPTIONIST_UID = 'a6666666-6666-4666-8666-666666666a03';
 const PATIENT_PHONE = '9000060001';
 const ORDER_NUMBER = 'TEST-CHART-ORDER-0001';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function doctorAs(uid = DOCTOR_UID) {
   const token = generateTestToken('DOCTOR', { uid, id: 990601 });
@@ -21,7 +23,7 @@ function doctorAs(uid = DOCTOR_UID) {
   };
 }
 
-function receptionistAs(uid = 'a6666666-6666-4666-8666-666666666a03') {
+function receptionistAs(uid = RECEPTIONIST_UID) {
   const token = generateTestToken('RECEPTIONIST', { uid, id: 990602 });
   return {
     get: (path) => request(app)
@@ -31,6 +33,11 @@ function receptionistAs(uid = 'a6666666-6666-4666-8666-666666666a03') {
   };
 }
 
+async function clearCareTeam() {
+  await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+}
+
 describe('EMR chart read endpoints', () => {
   const doctor = doctorAs();
   const receptionist = receptionistAs();
@@ -38,7 +45,13 @@ describe('EMR chart read endpoints', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID);
+    await clearCareTeam();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID,
+      DOCTOR_UID,
+      RECEPTIONIST_UID,
+    );
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
@@ -50,6 +63,32 @@ describe('EMR chart read endpoints', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
        VALUES ($1::uuid, '9000060002', 'Chart Read Test Doctor', 'DOCTOR', true, 'active', NOW())`,
       DOCTOR_UID);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1::uuid, '9000060003', 'Chart Read Receptionist', 'RECEPTIONIST', true, 'active', NOW())`,
+      RECEPTIONIST_UID);
+
+    const careTeam = await prisma.$queryRawUnsafe(
+      `INSERT INTO care_teams
+         (tenant_id, patient_uid, team_kind, display_name, status, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'op', 'Chart read front-office team', 'active', $3::uuid, NOW())
+       RETURNING id`,
+      TENANT_ID,
+      PATIENT_UID,
+      RECEPTIONIST_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO care_team_members
+         (tenant_id, care_team_id, patient_uid, staff_uid, staff_role, member_name,
+          relationship_kind, break_glass_allowed, created_by, updated_at)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, 'RECEPTIONIST', 'Chart Read Receptionist',
+               'care_coordinator', false, $4::uuid, NOW())`,
+      TENANT_ID,
+      careTeam[0].id,
+      PATIENT_UID,
+      RECEPTIONIST_UID,
+    );
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO clinical_orders
@@ -74,7 +113,13 @@ describe('EMR chart read endpoints', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
+    await clearCareTeam();
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID,
+      DOCTOR_UID,
+      RECEPTIONIST_UID,
+    ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 

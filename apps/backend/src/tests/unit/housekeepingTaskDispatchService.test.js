@@ -75,6 +75,26 @@ describe('housekeepingTaskDispatchService', () => {
           source: params[4],
         }];
       }
+      if (sql.includes('SELECT DISTINCT ON (u.id)') && sql.includes('FROM users u')) {
+        return [
+          {
+            id: 20,
+            uid: STAFF_UID,
+            name: 'HK Staff',
+            phone: '9000000020',
+            role: 'HOUSEKEEPING_STAFF',
+            department: 'housekeeping',
+          },
+          {
+            id: 30,
+            uid: INCHARGE_UID,
+            name: 'HK Incharge',
+            phone: '9000000030',
+            role: 'HOUSEKEEPING_INCHARGE',
+            department: 'housekeeping',
+          },
+        ];
+      }
       if (sql.includes('INSERT INTO notifications')) {
         return [{ id: 500 }, { id: 501 }];
       }
@@ -123,7 +143,7 @@ describe('housekeepingTaskDispatchService', () => {
       sql.includes('INSERT INTO notifications')
     );
     expect(notificationInsert).toBeTruthy();
-    expect(notificationInsert[5]).toContain('"source":"bed_cleaning_dispatch"');
+    expect(notificationInsert[6]).toContain('"source":"bed_cleaning_dispatch"');
     expect(result.fanout.notification_count).toBe(2);
   });
 });

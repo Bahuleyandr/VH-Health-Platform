@@ -40,6 +40,8 @@ function doctorClient() {
 
 async function delPatient(uid) {
   // Order matters: blow away dependents before users.
+  await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, uid).catch(() => {});
@@ -59,6 +61,30 @@ async function makePatient(uid, phone, name) {
     uid, phone, name,
   );
   return rows[0].id;
+}
+
+async function grantDoctorCareTeam(patientUid, displayName) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO care_teams
+       (tenant_id, patient_uid, team_kind, display_name, status, created_by, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'longitudinal', $3, 'active', $4::uuid, NOW())
+     RETURNING id`,
+    TENANT_ID,
+    patientUid,
+    displayName,
+    ORDERING_DOCTOR_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO care_team_members
+       (tenant_id, care_team_id, patient_uid, staff_uid, staff_role, member_name,
+        relationship_kind, break_glass_allowed, created_by, updated_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, 'DOCTOR', 'Lab Worklist Doctor',
+             'attending_doctor', true, $4::uuid, NOW())`,
+    TENANT_ID,
+    rows[0].id,
+    patientUid,
+    ORDERING_DOCTOR_UID,
+  );
 }
 
 async function makeInvestigation({ patientId, testName, testType, priority = 'NORMAL', status = 'REQUESTED', phone }) {
@@ -98,6 +124,9 @@ describe('Lab worklist + manual result validation — deep integration', () => {
     erPatientId  = await makePatient(PATIENT_ER_UID,  PATIENT_ER_PHONE,  'Lab Worklist ER Patient');
     ipdPatientId = await makePatient(PATIENT_IPD_UID, PATIENT_IPD_PHONE, 'Lab Worklist IPD Patient');
     opdPatientId = await makePatient(PATIENT_OPD_UID, PATIENT_OPD_PHONE, 'Lab Worklist OPD Patient');
+    await grantDoctorCareTeam(PATIENT_ER_UID, 'Lab Worklist ER care team');
+    await grantDoctorCareTeam(PATIENT_IPD_UID, 'Lab Worklist IPD care team');
+    await grantDoctorCareTeam(PATIENT_OPD_UID, 'Lab Worklist OPD care team');
 
     // ER patient — emergency_visits row + STAT troponin order.
     await prisma.$executeRawUnsafe(

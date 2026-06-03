@@ -12,6 +12,7 @@ const PATIENT_PHONE = '9000030001';
 const TEST_ICD_CODE = 'TESTDX1';
 const ER_ENCOUNTER_UID = 'a3333333-3333-4333-8333-333333333e01';
 const API_KEY = process.env.API_KEY || 'test-api-key';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function doctorAs(uid = DOCTOR_UID) {
   const token = generateTestToken('DOCTOR', { uid, id: 990301 });
@@ -22,12 +23,18 @@ function doctorAs(uid = DOCTOR_UID) {
   };
 }
 
+async function clearCareTeam() {
+  await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+}
+
 describe('EMR diagnosis + ICD-10 — deep integration', () => {
   const doctor = doctorAs();
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM diagnoses WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM icd10_codes WHERE code = $1`, TEST_ICD_CODE);
+    await clearCareTeam();
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID);
 
     await prisma.$executeRawUnsafe(
@@ -42,12 +49,34 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
       `INSERT INTO icd10_codes (code, description, category)
        VALUES ($1, 'Unit Test Diagnosis', 'Test Category')`,
       TEST_ICD_CODE);
+
+    const careTeam = await prisma.$queryRawUnsafe(
+      `INSERT INTO care_teams
+         (tenant_id, patient_uid, team_kind, display_name, status, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, 'longitudinal', 'Diagnosis test care team', 'active', $3::uuid, NOW())
+       RETURNING id`,
+      TENANT_ID,
+      PATIENT_UID,
+      DOCTOR_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO care_team_members
+         (tenant_id, care_team_id, patient_uid, staff_uid, staff_role, member_name,
+          relationship_kind, break_glass_allowed, created_by, updated_at)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, 'DOCTOR', 'Diagnosis Test Doctor',
+               'attending_doctor', true, $4::uuid, NOW())`,
+      TENANT_ID,
+      careTeam[0].id,
+      PATIENT_UID,
+      DOCTOR_UID,
+    );
   });
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM diagnoses WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM icd10_codes WHERE code = $1`, TEST_ICD_CODE).catch(() => {});
+    await clearCareTeam();
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });

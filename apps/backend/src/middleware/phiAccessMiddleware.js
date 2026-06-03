@@ -183,7 +183,6 @@ async function evaluatePatientAccess(req, patient) {
   const actorUid = cleanUuid(actorUidOf(req));
   const actorId = cleanInt(req.user?.id);
   const patientUid = cleanUuid(patient?.uid);
-  const patientId = cleanInt(patient?.id);
 
   if (!patientUid) {
     return { allowed: true, accessDecision: 'allow', accessSource: 'unknown', reason: 'patient unresolved' };
@@ -261,14 +260,18 @@ async function evaluatePatientAccess(req, patient) {
     };
   }
 
-  if (actorId) {
+  if (actorId || actorUid) {
     const appointment = await prisma.$queryRawUnsafe(
       `SELECT a.id
          FROM appointments a
          JOIN users p ON p.id = a.patient_id
+         LEFT JOIN users d ON d.id = a.doctor_id
         WHERE a.tenant_id = $1::uuid
           AND p.uid = $2::uuid
-          AND a.doctor_id = $3::int
+          AND (
+            ($3::int IS NOT NULL AND a.doctor_id = $3::int)
+            OR ($4::uuid IS NOT NULL AND d.uid = $4::uuid)
+          )
           AND COALESCE(a.status, '') NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
           AND a.appointment_date >= (CURRENT_DATE - INTERVAL '30 days')
         ORDER BY a.appointment_date DESC, a.id DESC
@@ -276,23 +279,36 @@ async function evaluatePatientAccess(req, patient) {
       tenantId,
       patientUid,
       actorId,
+      actorUid,
     );
     if (appointment[0]?.id) {
       return { allowed: true, accessDecision: 'allow', accessSource: 'appointment', reason: 'assigned appointment relationship' };
     }
   }
 
-  if (patientId && ['NURSING_STAFF', 'NURSING_INCHARGE', 'DUTY_DOCTOR', 'DOCTOR'].includes(role)) {
+  if (['NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE', 'DUTY_DOCTOR', 'DOCTOR'].includes(role)) {
     const admission = await prisma.$queryRawUnsafe(
       `SELECT id
          FROM admissions
         WHERE tenant_id = $1::uuid
-          AND patient_id = $2::int
+          AND patient_uid = $2::uuid
           AND COALESCE(status, '') NOT IN ('DISCHARGED', 'CANCELLED')
+          AND (
+            $4::text IN ('NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE')
+            OR (
+              $3::uuid IS NOT NULL
+              AND (
+                admitting_doctor = $3::uuid
+                OR attending_doctor = $3::uuid
+              )
+            )
+          )
         ORDER BY admitted_at DESC NULLS LAST, id DESC
         LIMIT 1`,
       tenantId,
-      patientId,
+      patientUid,
+      actorUid,
+      role,
     );
     if (admission[0]?.id) {
       return { allowed: true, accessDecision: 'allow', accessSource: 'admission', reason: 'active admission relationship' };

@@ -646,7 +646,7 @@ export const completeAppointment = async (req, res) => {
       try {
         await prisma.$executeRawUnsafe(
           `INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
-           VALUES ($1, 'feedback_request', $2, NOW() + INTERVAL '2 hours', 'pending')`,
+           VALUES ($1, 'feedback_request', $2::jsonb, NOW() + INTERVAL '2 hours', 'pending')`,
           patientId,
           JSON.stringify({ appointment_id: id, type: 'appointment_feedback' }),
         );

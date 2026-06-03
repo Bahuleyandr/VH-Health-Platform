@@ -22,6 +22,7 @@ import { API_KEY, generateTestToken } from './testClient.js';
 const PATIENT_UID = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b20201';
 const ASSIGNED_DOCTOR_UID = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b20202';
 const OTHER_DOCTOR_UID = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b20203';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const PROGRESS_NOTE_CONTENT = {
   summary: 'Follow-up: BP controlled.',
@@ -42,7 +43,14 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
   let assignedDoctorToken;
   let otherDoctorToken;
 
+  async function clearCareTeam() {
+    await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+  }
+
   beforeAll(async () => {
+    await clearCareTeam();
+
     const patient = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, '9020200201', 'H2 Patient', 'PATIENT', true, NOW())
@@ -75,6 +83,29 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
 
     assignedDoctorToken = generateTestToken('DOCTOR', { uid: ASSIGNED_DOCTOR_UID, id: assignedDoctorId });
     otherDoctorToken = generateTestToken('DOCTOR', { uid: OTHER_DOCTOR_UID, id: otherDoctorId });
+
+    const careTeam = await prisma.$queryRawUnsafe(
+      `INSERT INTO care_teams
+         (tenant_id, patient_uid, appointment_id, team_kind, display_name, status, created_by, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::int, 'op', 'H2 visit ownership test team', 'active', $4::uuid, NOW())
+       RETURNING id`,
+      TENANT_ID,
+      PATIENT_UID,
+      appointmentId,
+      ASSIGNED_DOCTOR_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO care_team_members
+         (tenant_id, care_team_id, patient_uid, staff_uid, staff_role, member_name,
+          relationship_kind, break_glass_allowed, created_by, updated_at)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, 'DOCTOR', 'Dr Other',
+               'covering_doctor', false, $5::uuid, NOW())`,
+      TENANT_ID,
+      careTeam[0].id,
+      PATIENT_UID,
+      OTHER_DOCTOR_UID,
+      ASSIGNED_DOCTOR_UID,
+    );
   });
 
   afterAll(async () => {
@@ -83,6 +114,7 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
       await prisma.$executeRawUnsafe(`DELETE FROM appointment_status_history WHERE appointment_id = $1::int`, appointmentId).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE id = $1::int`, appointmentId).catch(() => {});
     }
+    await clearCareTeam();
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, ASSIGNED_DOCTOR_UID, OTHER_DOCTOR_UID,

@@ -14,6 +14,7 @@ const ANC_UID = 'a2222222-2222-4222-8222-222222222a04';
 const PATIENT_PHONE = '9000020001';
 const ANC_PHONE = '9000020004';
 const API_KEY = process.env.API_KEY || 'test-api-key';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function doctorAs(uid = RECORDER_UID, id = 990201) {
   const token = generateTestToken('DOCTOR', { uid, id });
@@ -23,6 +24,35 @@ function doctorAs(uid = RECORDER_UID, id = 990201) {
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     patch: (p) => request(app).patch(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
+}
+
+async function clearCareTeam(patientUid) {
+  await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, patientUid).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, patientUid).catch(() => {});
+}
+
+async function grantDoctorCareTeam(patientUid, displayName) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO care_teams
+       (tenant_id, patient_uid, team_kind, display_name, status, created_by, updated_at)
+     VALUES ($1::uuid, $2::uuid, 'longitudinal', $3, 'active', $4::uuid, NOW())
+     RETURNING id`,
+    TENANT_ID,
+    patientUid,
+    displayName,
+    RECORDER_UID,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO care_team_members
+       (tenant_id, care_team_id, patient_uid, staff_uid, staff_role, member_name,
+        relationship_kind, break_glass_allowed, created_by, updated_at)
+     VALUES ($1::uuid, $2::int, $3::uuid, $4::uuid, 'DOCTOR', 'Vitals Test Doctor',
+             'attending_doctor', true, $4::uuid, NOW())`,
+    TENANT_ID,
+    rows[0].id,
+    patientUid,
+    RECORDER_UID,
+  );
 }
 
 describe('EMR vitals + anomaly alerts — deep integration', () => {
@@ -51,6 +81,8 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'ANC-VITALS-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID);
+    await clearCareTeam(PATIENT_UID);
+    await clearCareTeam(ANC_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID);
 
     const p = await prisma.$queryRawUnsafe(
@@ -73,6 +105,9 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
        RETURNING id`,
       ANC_UID, ANC_PHONE);
     ancPatientIntId = ancPatient[0].id;
+
+    await grantDoctorCareTeam(PATIENT_UID, 'Vitals Test Patient care team');
+    await grantDoctorCareTeam(ANC_UID, 'ANC Vitals Test Patient care team');
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO maternity_pregnancies
@@ -100,6 +135,8 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id).catch(() => {});
     }
     await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID).catch(() => {});
+    await clearCareTeam(PATIENT_UID);
+    await clearCareTeam(ANC_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -540,6 +577,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     beforeAll(async () => {
       await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID);
       await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PAEDS_UID);
+      await clearCareTeam(PAEDS_UID);
       await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID);
       // ~2-year-old (730 days) male — the Baby Aarav cohort from 4354eb08.
       const dob = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
@@ -547,11 +585,13 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         `INSERT INTO users (uid, phone, name, role, gender, birthday, is_active, updated_at)
          VALUES ($1::uuid, '9000020003', 'Growth Test Toddler', 'PATIENT', 'Male', $2::date, true, NOW())`,
         PAEDS_UID, dob);
+      await grantDoctorCareTeam(PAEDS_UID, 'Growth Test Toddler care team');
     });
 
     afterAll(async () => {
       await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
+      await clearCareTeam(PAEDS_UID);
       await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID).catch(() => {});
     });
 
