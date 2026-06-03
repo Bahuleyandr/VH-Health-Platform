@@ -657,8 +657,15 @@ final GoRouter appRouter = GoRouter(
           name: 'messaging-thread',
           pageBuilder: (context, state) {
             final otherStaffUid = state.pathParameters['otherStaffUid']!;
+            final extra = state.extra;
+            final extraMap = extra is Map ? extra : const {};
             return NoTransitionPage(
-              child: MessagingThreadScreen(otherStaffUid: otherStaffUid),
+              child: MessagingThreadScreen(
+                otherStaffUid: otherStaffUid,
+                otherStaffName: extraMap['otherStaffName']?.toString(),
+                otherStaffDepartment: extraMap['otherStaffDepartment']
+                    ?.toString(),
+              ),
             );
           },
         ),

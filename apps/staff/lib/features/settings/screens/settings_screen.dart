@@ -266,7 +266,7 @@ class SettingsScreen extends StatelessWidget {
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
-                onTap: () => context.go('/profile'),
+                onTap: () => context.push('/profile'),
               ),
               const Divider(height: 1, indent: 56),
               _SettingsTile(
@@ -277,7 +277,7 @@ class SettingsScreen extends StatelessWidget {
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
-                onTap: () => context.go('/attendance'),
+                onTap: () => context.push('/attendance'),
               ),
               const Divider(height: 1, indent: 56),
               _SettingsTile(
@@ -288,7 +288,7 @@ class SettingsScreen extends StatelessWidget {
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
-                onTap: () => context.go('/leave'),
+                onTap: () => context.push('/leave'),
               ),
             ],
           ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -186,7 +187,7 @@ class _StaffTile extends StatelessWidget {
     final dept = _staffText(staff, const ['department'], fallback: '-');
     final position = _staffText(staff, const ['position']);
     final shift = _staffText(staff, const ['shift']);
-    final phone = _staffText(staff, const ['phone', 'contact']);
+    final uid = _staffText(staff, const ['uid', 'user_id', 'staff_uid']);
     final empId = _staffText(staff, const [
       'employee_id',
       'employeeId',
@@ -269,72 +270,22 @@ class _StaffTile extends StatelessWidget {
                 ),
               ),
             ),
-            if (phone.isNotEmpty) ...[
+            if (uid.isNotEmpty) ...[
               const SizedBox(height: 4),
               Icon(
-                Icons.phone_outlined,
+                Icons.chat_outlined,
                 size: 14,
                 color: AppTheme.textSecondary,
               ),
             ],
           ],
         ),
-        onTap: phone.isNotEmpty
-            ? () => _showContact(context, name, phone, dept, role)
+        onTap: uid.isNotEmpty
+            ? () => context.push(
+                '/messaging/thread/$uid',
+                extra: {'otherStaffName': name, 'otherStaffDepartment': dept},
+              )
             : null,
-      ),
-    );
-  }
-
-  void _showContact(
-    BuildContext context,
-    String name,
-    String phone,
-    String dept,
-    String role,
-  ) {
-    final s = AppStrings.of(context);
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _DialogRow(Icons.badge_outlined, role),
-            _DialogRow(Icons.business_outlined, dept),
-            if (phone.isNotEmpty) _DialogRow(Icons.phone_outlined, phone),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(s.actionClose),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DialogRow extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _DialogRow(this.icon, this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: AppTheme.textSecondary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(text, style: TextStyle(color: AppTheme.textPrimary)),
-          ),
-        ],
       ),
     );
   }

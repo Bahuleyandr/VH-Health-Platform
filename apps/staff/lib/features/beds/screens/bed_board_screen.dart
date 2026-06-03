@@ -1455,7 +1455,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   onTap: patientUid.isNotEmpty
                       ? () {
                           Navigator.of(context).pop(false);
-                          context.go(
+                          context.push(
                             '/emr/timeline/$patientUid?name=${Uri.encodeQueryComponent(patientName)}',
                           );
                         }

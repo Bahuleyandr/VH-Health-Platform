@@ -118,7 +118,17 @@ class _MainScaffoldState extends State<MainScaffold> {
         currentIndex: _currentIndex(navItems),
         type: BottomNavigationBarType.fixed,
         onTap: (i) {
-          if (i < navItems.length) context.go(navItems[i].route);
+          if (i >= navItems.length) return;
+          final currentRoute = GoRouterState.of(context).matchedLocation;
+          final targetRoute = navItems[i].route;
+          if (shouldPushWorkbenchNav(
+            currentRoute: currentRoute,
+            targetRoute: targetRoute,
+          )) {
+            context.push(targetRoute);
+            return;
+          }
+          if (currentRoute != targetRoute) context.go(targetRoute);
         },
         items: navItems.map((n) => n.item).toList(),
       ),

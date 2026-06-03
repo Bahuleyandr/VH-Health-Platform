@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/api_client.dart';
+import '../../../core/services/messaging_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/widgets/logout_action.dart';
@@ -9,7 +9,10 @@ import '../../../l10n/app_strings.dart';
 class ThreadMessage {
   final int id;
   final String senderUid;
+  final String? senderName;
   final String recipientUid;
+  final String? recipientName;
+  final String? recipientDepartment;
   final String? patientUid;
   final String? subject;
   final String body;
@@ -20,7 +23,10 @@ class ThreadMessage {
   const ThreadMessage({
     required this.id,
     required this.senderUid,
+    this.senderName,
     required this.recipientUid,
+    this.recipientName,
+    this.recipientDepartment,
     this.patientUid,
     this.subject,
     required this.body,
@@ -33,7 +39,10 @@ class ThreadMessage {
     return ThreadMessage(
       id: json['id'] as int,
       senderUid: json['sender_uid'] as String,
+      senderName: json['sender_name'] as String?,
       recipientUid: json['recipient_uid'] as String,
+      recipientName: json['recipient_name'] as String?,
+      recipientDepartment: json['recipient_department'] as String?,
       patientUid: json['patient_uid'] as String?,
       subject: json['subject'] as String?,
       body: json['body'] as String,
@@ -46,8 +55,15 @@ class ThreadMessage {
 
 class MessagingThreadScreen extends StatefulWidget {
   final String otherStaffUid;
+  final String? otherStaffName;
+  final String? otherStaffDepartment;
 
-  const MessagingThreadScreen({super.key, required this.otherStaffUid});
+  const MessagingThreadScreen({
+    super.key,
+    required this.otherStaffUid,
+    this.otherStaffName,
+    this.otherStaffDepartment,
+  });
 
   @override
   State<MessagingThreadScreen> createState() => _MessagingThreadScreenState();
@@ -86,16 +102,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     });
     try {
       _myUid = await ApiConfig.getStaffId();
-      final resp = await ApiClient.get(
-        '/messaging/thread/${widget.otherStaffUid}',
+      final List<dynamic> list = await MessagingApiService.thread(
+        widget.otherStaffUid,
       );
-
-      if (!resp.isSuccess) {
-        throw Exception(resp.message ?? 'Failed to load thread');
-      }
-
-      final rawList = resp.data;
-      final List<dynamic> list = rawList is List ? rawList : [];
       final parsed = list
           .map((e) => ThreadMessage.fromJson(e as Map<String, dynamic>))
           .toList();
@@ -131,7 +140,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   Future<void> _markMessagesRead(List<int> ids) async {
     for (final id in ids) {
       try {
-        await ApiClient.patch('/messaging/$id/read');
+        await MessagingApiService.markRead(id);
       } catch (_) {
         // Non-critical — silently ignore individual failures
       }
@@ -145,18 +154,11 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     setState(() => _sending = true);
 
     try {
-      final resp = await ApiClient.post(
-        '/messaging/send',
-        body: {
-          'recipient_uid': widget.otherStaffUid,
-          'body': text,
-          'priority': _selectedPriority,
-        },
+      await MessagingApiService.sendDirect(
+        recipientUid: widget.otherStaffUid,
+        body: text,
+        priority: _selectedPriority,
       );
-
-      if (!resp.isSuccess) {
-        throw Exception(resp.message ?? 'Failed to send message');
-      }
 
       _textController.clear();
       setState(() => _selectedPriority = 'normal');
@@ -239,9 +241,14 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.otherStaffUid, style: const TextStyle(fontSize: 16)),
             Text(
-              s.profileFallbackName,
+              _threadTitle,
+              style: const TextStyle(fontSize: 16),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              _threadSubtitle(s),
               style: const TextStyle(fontSize: 11, color: Colors.white70),
             ),
           ],
@@ -262,6 +269,41 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         ],
       ),
     );
+  }
+
+  String get _threadTitle {
+    if (widget.otherStaffName != null &&
+        widget.otherStaffName!.trim().isNotEmpty) {
+      return widget.otherStaffName!.trim();
+    }
+    for (final msg in _messages) {
+      if (msg.senderUid == widget.otherStaffUid &&
+          msg.senderName != null &&
+          msg.senderName!.trim().isNotEmpty) {
+        return msg.senderName!.trim();
+      }
+      if (msg.recipientUid == widget.otherStaffUid &&
+          msg.recipientName != null &&
+          msg.recipientName!.trim().isNotEmpty) {
+        return msg.recipientName!.trim();
+      }
+    }
+    return widget.otherStaffUid;
+  }
+
+  String _threadSubtitle(AppStrings s) {
+    if (widget.otherStaffDepartment != null &&
+        widget.otherStaffDepartment!.trim().isNotEmpty) {
+      return widget.otherStaffDepartment!.trim();
+    }
+    for (final msg in _messages) {
+      if (msg.recipientUid == widget.otherStaffUid &&
+          msg.recipientDepartment != null &&
+          msg.recipientDepartment!.trim().isNotEmpty) {
+        return msg.recipientDepartment!.trim();
+      }
+    }
+    return s.profileFallbackName;
   }
 
   Widget _buildMessageList() {

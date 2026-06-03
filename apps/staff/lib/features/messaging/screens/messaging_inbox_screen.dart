@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import '../../../core/services/api_client.dart';
-import '../../../core/theme/app_theme.dart';
+
 import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
+import '../../../core/services/messaging_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
@@ -13,7 +15,11 @@ import '../../../l10n/app_strings.dart';
 class StaffMessage {
   final int id;
   final String senderUid;
+  final String? senderName;
+  final String? senderDepartment;
   final String recipientUid;
+  final String? recipientName;
+  final String? recipientDepartment;
   final String? patientUid;
   final String? subject;
   final String body;
@@ -24,7 +30,11 @@ class StaffMessage {
   const StaffMessage({
     required this.id,
     required this.senderUid,
+    this.senderName,
+    this.senderDepartment,
     required this.recipientUid,
+    this.recipientName,
+    this.recipientDepartment,
     this.patientUid,
     this.subject,
     required this.body,
@@ -35,16 +45,72 @@ class StaffMessage {
 
   factory StaffMessage.fromJson(Map<String, dynamic> json) {
     return StaffMessage(
-      id: json['id'] as int,
-      senderUid: json['sender_uid'] as String,
-      recipientUid: json['recipient_uid'] as String,
-      patientUid: json['patient_uid'] as String?,
-      subject: json['subject'] as String?,
-      body: json['body'] as String,
-      priority: json['priority'] as String? ?? 'normal',
+      id: _intValue(json['id']),
+      senderUid: _text(json['sender_uid']),
+      senderName: _optionalText(json['sender_name']),
+      senderDepartment: _optionalText(json['sender_department']),
+      recipientUid: _text(json['recipient_uid']),
+      recipientName: _optionalText(json['recipient_name']),
+      recipientDepartment: _optionalText(json['recipient_department']),
+      patientUid: _optionalText(json['patient_uid']),
+      subject: _optionalText(json['subject']),
+      body: _text(json['body']),
+      priority: _optionalText(json['priority']) ?? 'normal',
       isRead: json['is_read'] as bool? ?? false,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.tryParse(_text(json['created_at'])) ?? DateTime.now(),
     );
+  }
+
+  bool sentBy(String? uid) => senderUid == uid;
+
+  String partnerUid(String? myUid) => sentBy(myUid) ? recipientUid : senderUid;
+
+  String partnerName(String? myUid) {
+    final name = sentBy(myUid) ? recipientName : senderName;
+    return (name == null || name.isEmpty) ? partnerUid(myUid) : name;
+  }
+
+  String partnerDepartment(String? myUid) {
+    final department = sentBy(myUid) ? recipientDepartment : senderDepartment;
+    return department ?? '';
+  }
+}
+
+class MessageTarget {
+  final String uid;
+  final String name;
+  final String role;
+  final String department;
+  final String employeeId;
+  final String position;
+
+  const MessageTarget({
+    required this.uid,
+    required this.name,
+    required this.role,
+    required this.department,
+    required this.employeeId,
+    required this.position,
+  });
+
+  factory MessageTarget.fromJson(Map<String, dynamic> json) {
+    return MessageTarget(
+      uid: _text(json['uid']),
+      name: _optionalText(json['name']) ?? 'Unnamed staff',
+      role: _optionalText(json['role']) ?? 'GENERAL_STAFF',
+      department: _optionalText(json['department']) ?? 'Unassigned',
+      employeeId: _optionalText(json['employee_id']) ?? '',
+      position: _optionalText(json['position']) ?? '',
+    );
+  }
+
+  String get subtitle {
+    final parts = [
+      role.replaceAll('_', ' '),
+      if (department.isNotEmpty) department,
+      if (employeeId.isNotEmpty) employeeId,
+    ];
+    return parts.join(' - ');
   }
 }
 
@@ -57,10 +123,16 @@ class MessagingInboxScreen extends StatefulWidget {
 
 class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   List<StaffMessage> _messages = [];
+  List<StaffMessage> _adminMessages = [];
   bool _loading = true;
+  bool _adminLoading = false;
   String? _error;
+  String? _adminError;
   String? _myUid;
+  StaffRole _role = StaffRole.general;
   int _unreadCount = 0;
+
+  bool get _canViewAdminLog => _role.isAdminTier;
 
   @override
   void initState() {
@@ -72,37 +144,33 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _adminError = null;
     });
     try {
-      _myUid = await ApiConfig.getStaffId();
-      final results = await Future.wait([
-        ApiClient.get('/messaging/inbox'),
-        ApiClient.get('/messaging/unread-count'),
-      ]);
+      final roleValue = await ApiConfig.getRole();
+      final staffUid = await ApiConfig.getStaffId();
+      final inboxFuture = MessagingApiService.inbox(limit: 100);
+      final countFuture = MessagingApiService.unreadCount();
 
-      final inboxResp = results[0];
-      final countResp = results[1];
-
-      if (!inboxResp.isSuccess) {
-        throw Exception(inboxResp.message ?? 'Failed to load inbox');
-      }
-
-      final rawList = inboxResp.data;
-      final List<dynamic> list = rawList is List ? rawList : [];
-      final parsed = list
-          .map((e) => StaffMessage.fromJson(e as Map<String, dynamic>))
+      final inbox = await inboxFuture;
+      final count = await countFuture;
+      final parsed = inbox
+          .whereType<Map>()
+          .map((e) => StaffMessage.fromJson(Map<String, dynamic>.from(e)))
           .toList();
 
-      int unread = 0;
-      if (countResp.isSuccess && countResp.data is Map) {
-        final data = countResp.data as Map<String, dynamic>;
-        unread = data['unread_count'] as int? ?? data['count'] as int? ?? 0;
-      }
+      final role = StaffRole.fromString(roleValue);
+      final adminMessages = role.isAdminTier
+          ? await _loadAdminMessages()
+          : <StaffMessage>[];
 
       if (mounted) {
         setState(() {
+          _role = role;
+          _myUid = staffUid;
           _messages = parsed;
-          _unreadCount = unread;
+          _adminMessages = adminMessages;
+          _unreadCount = _intValue(count['unread_count'] ?? count['count']);
           _loading = false;
         });
       }
@@ -116,27 +184,58 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     }
   }
 
-  /// Groups messages by conversation partner (sender_uid for inbox).
-  /// Returns one entry per unique sender showing the latest message.
+  Future<List<StaffMessage>> _loadAdminMessages() async {
+    setState(() => _adminLoading = true);
+    try {
+      final raw = await MessagingApiService.adminLog(limit: 100);
+      final list =
+          raw['data'] as List? ??
+          raw['messages'] as List? ??
+          raw['items'] as List? ??
+          [];
+      final parsed = list
+          .whereType<Map>()
+          .map((e) => StaffMessage.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      if (mounted) {
+        setState(() {
+          _adminLoading = false;
+          _adminError = null;
+        });
+      }
+      return parsed;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _adminLoading = false;
+          _adminError = e.toString();
+        });
+      }
+      return [];
+    }
+  }
+
   List<_ConversationSummary> _buildConversations() {
-    final Map<String, _ConversationSummary> byPartner = {};
+    final byPartner = <String, _ConversationSummary>{};
     for (final msg in _messages) {
-      final partnerUid = msg.senderUid == _myUid
-          ? msg.recipientUid
-          : msg.senderUid;
+      final partnerUid = msg.partnerUid(_myUid);
       final existing = byPartner[partnerUid];
+      final isUnreadIncoming = msg.recipientUid == _myUid && !msg.isRead;
       if (existing == null ||
           msg.createdAt.isAfter(existing.latestMessage.createdAt)) {
         byPartner[partnerUid] = _ConversationSummary(
           partnerUid: partnerUid,
+          partnerName: msg.partnerName(_myUid),
+          partnerDepartment: msg.partnerDepartment(_myUid),
           latestMessage: msg,
-          unreadCount: existing != null
-              ? existing.unreadCount + (msg.isRead ? 0 : 1)
-              : (msg.isRead ? 0 : 1),
+          unreadCount:
+              (existing?.unreadCount ?? 0) + (isUnreadIncoming ? 1 : 0),
         );
-      } else if (!msg.isRead) {
+      } else if (isUnreadIncoming) {
         byPartner[partnerUid] = _ConversationSummary(
           partnerUid: partnerUid,
+          partnerName: existing.partnerName,
+          partnerDepartment: existing.partnerDepartment,
           latestMessage: existing.latestMessage,
           unreadCount: existing.unreadCount + 1,
         );
@@ -150,7 +249,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   }
 
   Color _priorityColor(String priority) {
-    return switch (priority) {
+    return switch (priority.toLowerCase()) {
       'critical' => AppTheme.errorRed,
       'urgent' => AppTheme.warningAmber,
       _ => AppTheme.primaryBlue,
@@ -171,9 +270,40 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     return DateFormat('dd MMM').format(dt);
   }
 
+  Future<void> _openComposeSheet() async {
+    final sent = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => const _ComposeMessageSheet(),
+    );
+    if (sent == true && mounted) {
+      await _loadData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final body = _canViewAdminLog
+        ? DefaultTabController(
+            length: 2,
+            child: Column(
+              children: [
+                TabBar(
+                  tabs: [
+                    Tab(text: s.messagingInboxTitle),
+                    const Tab(text: 'Admin log'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(children: [_buildBody(), _buildAdminLog()]),
+                ),
+              ],
+            ),
+          )
+        : _buildBody();
+
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
@@ -209,9 +339,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _buildBody(),
+      body: body,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/staff-directory'),
+        onPressed: _openComposeSheet,
         icon: const Icon(Icons.edit),
         label: Text(s.messagingNewMessage),
         backgroundColor: AppTheme.primaryBlue,
@@ -222,9 +352,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
 
   Widget _buildBody() {
     final s = AppStrings.of(context);
-    if (_loading) {
-      return const SkeletonList();
-    }
+    if (_loading) return const SkeletonList();
 
     if (_error != null) {
       return ErrorState(
@@ -234,12 +362,11 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     }
 
     final conversations = _buildConversations();
-
     if (conversations.isEmpty) {
       return EmptyState(
         icon: Icons.forum_outlined,
         title: s.messagingEmpty,
-        body: s.messagingEmptyBody,
+        body: 'Start a direct staff message or use a team announcement.',
       );
     }
 
@@ -254,12 +381,16 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           final msg = conv.latestMessage;
           final hasUnread = conv.unreadCount > 0;
           final priorityColor = _priorityColor(msg.priority);
+          final sentByMe = msg.sentBy(_myUid);
 
           return InkWell(
             onTap: () {
-              context.go(
+              context.push(
                 '/messaging/thread/${conv.partnerUid}',
-                extra: {'partnerUid': conv.partnerUid},
+                extra: {
+                  'otherStaffName': conv.partnerName,
+                  'otherStaffDepartment': conv.partnerDepartment,
+                },
               );
             },
             child: Padding(
@@ -267,7 +398,6 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Avatar
                   Stack(
                     children: [
                       CircleAvatar(
@@ -276,8 +406,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                           alpha: 0.1,
                         ),
                         child: Text(
-                          conv.partnerUid.isNotEmpty
-                              ? conv.partnerUid[0].toUpperCase()
+                          conv.partnerName.isNotEmpty
+                              ? conv.partnerName[0].toUpperCase()
                               : '?',
                           style: const TextStyle(
                             color: AppTheme.primaryBlue,
@@ -315,7 +445,6 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                     ],
                   ),
                   const SizedBox(width: 12),
-                  // Content
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -324,7 +453,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                conv.partnerUid,
+                                conv.partnerName,
                                 style: TextStyle(
                                   fontWeight: hasUnread
                                       ? FontWeight.bold
@@ -350,7 +479,14 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 2),
+                        if (conv.partnerDepartment.isNotEmpty)
+                          Text(
+                            conv.partnerDepartment,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
                         if (msg.subject != null && msg.subject!.isNotEmpty)
                           Text(
                             msg.subject!,
@@ -365,6 +501,14 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                         const SizedBox(height: 2),
                         Row(
                           children: [
+                            if (sentByMe) ...[
+                              Icon(
+                                Icons.call_made,
+                                size: 13,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                              const SizedBox(width: 4),
+                            ],
                             if (msg.priority != 'normal') ...[
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -394,7 +538,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: hasUnread
-                                      ? AppTheme.textPrimary
+                                      ? Theme.of(context).colorScheme.onSurface
                                       : Theme.of(
                                           context,
                                         ).colorScheme.onSurfaceVariant,
@@ -417,16 +561,493 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       ),
     );
   }
+
+  Widget _buildAdminLog() {
+    if (_adminLoading) return const SkeletonList();
+    if (_adminError != null) {
+      return ErrorState(
+        message: _adminError!.replaceFirst('Exception: ', ''),
+        onRetry: () async {
+          final rows = await _loadAdminMessages();
+          if (mounted) setState(() => _adminMessages = rows);
+        },
+      );
+    }
+    if (_adminMessages.isEmpty) {
+      return const EmptyState(
+        icon: Icons.manage_search_outlined,
+        title: 'No staff messages logged',
+        body:
+            'All staff messages will appear here for Admin/SuperAdmin review.',
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: () async {
+        final rows = await _loadAdminMessages();
+        if (mounted) setState(() => _adminMessages = rows);
+      },
+      child: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemCount: _adminMessages.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final msg = _adminMessages[index];
+          return Card(
+            child: ListTile(
+              leading: Icon(
+                Icons.forum_outlined,
+                color: _priorityColor(msg.priority),
+              ),
+              title: Text(
+                '${msg.senderName ?? msg.senderUid} -> ${msg.recipientName ?? msg.recipientUid}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (msg.subject != null && msg.subject!.isNotEmpty)
+                    Text(
+                      msg.subject!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  Text(msg.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    '${DateFormat('dd/MM HH:mm').format(msg.createdAt)} - ${msg.priority.toUpperCase()}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ComposeMessageSheet extends StatefulWidget {
+  const _ComposeMessageSheet();
+
+  @override
+  State<_ComposeMessageSheet> createState() => _ComposeMessageSheetState();
+}
+
+class _ComposeMessageSheetState extends State<_ComposeMessageSheet> {
+  final _subjectController = TextEditingController();
+  final _bodyController = TextEditingController();
+  final _searchController = TextEditingController();
+  List<MessageTarget> _targets = [];
+  List<String> _departments = [];
+  Map<String, dynamic> _viewer = {};
+  Set<String> _selected = {};
+  String _mode = 'direct';
+  String _priority = 'normal';
+  String? _department;
+  bool _loading = true;
+  bool _sending = false;
+  String? _error;
+  String _search = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTargets();
+  }
+
+  @override
+  void dispose() {
+    _subjectController.dispose();
+    _bodyController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  bool get _canAll => _viewer['can_send_all'] == true;
+  bool get _canSelected => _viewer['can_send_selected'] == true;
+  bool get _canDepartment => _viewer['can_send_department'] == true;
+  String get _viewerDepartment => _optionalText(_viewer['department']) ?? '';
+
+  Future<void> _loadTargets() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await MessagingApiService.targets();
+      final staff = result['staff'] as List? ?? [];
+      final departments = result['departments'] as List? ?? [];
+      final viewer = result['viewer'] as Map? ?? {};
+      final parsed = staff
+          .whereType<Map>()
+          .map((e) => MessageTarget.fromJson(Map<String, dynamic>.from(e)))
+          .where((target) => target.uid.isNotEmpty)
+          .toList();
+      if (mounted) {
+        setState(() {
+          _targets = parsed;
+          _departments = departments.map((e) => e.toString()).toList();
+          _viewer = Map<String, dynamic>.from(viewer);
+          _department = _viewerDepartment.isNotEmpty
+              ? _viewerDepartment
+              : (_departments.isNotEmpty ? _departments.first : null);
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  List<MessageTarget> get _filteredTargets {
+    final q = _search.toLowerCase();
+    if (q.isEmpty) return _targets;
+    return _targets.where((target) {
+      return [
+        target.name,
+        target.role,
+        target.department,
+        target.employeeId,
+        target.position,
+      ].join(' ').toLowerCase().contains(q);
+    }).toList();
+  }
+
+  void _toggleTarget(String uid) {
+    setState(() {
+      if (_mode == 'direct') {
+        _selected = {uid};
+        return;
+      }
+      if (_selected.contains(uid)) {
+        _selected.remove(uid);
+      } else {
+        _selected.add(uid);
+      }
+    });
+  }
+
+  Future<void> _send() async {
+    final body = _bodyController.text.trim();
+    final subject = _subjectController.text.trim();
+    if (body.isEmpty || _sending) return;
+
+    if (_mode == 'direct' && _selected.length != 1) {
+      _showError('Select one staff member.');
+      return;
+    }
+    if (_mode == 'selected' && _selected.isEmpty) {
+      _showError('Select at least one staff member.');
+      return;
+    }
+    if (_mode == 'department' &&
+        (_department == null || _department!.isEmpty)) {
+      _showError('Select a department.');
+      return;
+    }
+
+    setState(() => _sending = true);
+    try {
+      if (_mode == 'direct') {
+        await MessagingApiService.sendDirect(
+          recipientUid: _selected.first,
+          body: body,
+          subject: subject,
+          priority: _priority,
+        );
+      } else {
+        await MessagingApiService.sendBroadcast(
+          scope: _mode == 'all' ? 'all' : _mode,
+          department: _mode == 'department' ? _department : null,
+          recipientUids: _mode == 'selected' ? _selected.toList() : const [],
+          body: body,
+          subject: subject,
+          priority: _priority,
+        );
+      }
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      _showError(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppTheme.errorRed),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 12,
+        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.86,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? ErrorState(message: _error!, onRetry: _loadTargets)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.edit_note, color: AppTheme.primaryBlue),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          s.messagingNewMessage,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(false),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _ModeChip(
+                        label: 'One staff',
+                        selected: _mode == 'direct',
+                        onTap: () => setState(() {
+                          _mode = 'direct';
+                          if (_selected.length > 1) _selected = {};
+                        }),
+                      ),
+                      if (_canSelected)
+                        _ModeChip(
+                          label: 'Selected team',
+                          selected: _mode == 'selected',
+                          onTap: () => setState(() => _mode = 'selected'),
+                        ),
+                      if (_canDepartment)
+                        _ModeChip(
+                          label: 'Department',
+                          selected: _mode == 'department',
+                          onTap: () => setState(() => _mode = 'department'),
+                        ),
+                      if (_canAll)
+                        _ModeChip(
+                          label: 'All staff',
+                          selected: _mode == 'all',
+                          onTap: () => setState(() => _mode = 'all'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _subjectController,
+                          decoration: const InputDecoration(
+                            labelText: 'Subject',
+                            prefixIcon: Icon(Icons.subject),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 150,
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _priority,
+                          decoration: const InputDecoration(
+                            labelText: 'Priority',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'normal',
+                              child: Text('Normal'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'urgent',
+                              child: Text('Urgent'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'critical',
+                              child: Text('Critical'),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _priority = value ?? 'normal'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bodyController,
+                    minLines: 3,
+                    maxLines: 5,
+                    decoration: InputDecoration(
+                      labelText: s.messagingTypeHint,
+                      alignLabelWithHint: true,
+                      prefixIcon: const Padding(
+                        padding: EdgeInsets.only(bottom: 58),
+                        child: Icon(Icons.message_outlined),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_mode == 'department')
+                    DropdownButtonFormField<String>(
+                      initialValue: _department,
+                      decoration: const InputDecoration(
+                        labelText: 'Department',
+                        prefixIcon: Icon(Icons.groups_outlined),
+                      ),
+                      items: (_canAll ? _departments : [_viewerDepartment])
+                          .where((d) => d.isNotEmpty)
+                          .map(
+                            (department) => DropdownMenuItem(
+                              value: department,
+                              child: Text(department),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _canAll
+                          ? (value) => setState(() => _department = value)
+                          : null,
+                    )
+                  else if (_mode != 'all') ...[
+                    TextField(
+                      controller: _searchController,
+                      decoration: const InputDecoration(
+                        labelText: 'Search staff',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                      onChanged: (value) => setState(() => _search = value),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: _filteredTargets.isEmpty
+                          ? const Center(child: Text('No matching staff'))
+                          : ListView.builder(
+                              itemCount: _filteredTargets.length,
+                              itemBuilder: (context, index) {
+                                final target = _filteredTargets[index];
+                                final selected = _selected.contains(target.uid);
+                                return CheckboxListTile(
+                                  value: selected,
+                                  onChanged: (_) => _toggleTarget(target.uid),
+                                  title: Text(target.name),
+                                  subtitle: Text(target.subtitle),
+                                  secondary: CircleAvatar(
+                                    child: Text(
+                                      target.name.isNotEmpty
+                                          ? target.name[0].toUpperCase()
+                                          : '?',
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ] else
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          'This will send one saved message to every active staff member.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_mode == 'department') const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _sending ? null : _send,
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
+                    label: Text(_sending ? 'Sending...' : s.messagingSend),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      selected: selected,
+      label: Text(label),
+      onSelected: (_) => onTap(),
+      selectedColor: AppTheme.primaryBlue.withValues(alpha: 0.18),
+      checkmarkColor: AppTheme.primaryBlue,
+    );
+  }
 }
 
 class _ConversationSummary {
   final String partnerUid;
+  final String partnerName;
+  final String partnerDepartment;
   final StaffMessage latestMessage;
   final int unreadCount;
 
   const _ConversationSummary({
     required this.partnerUid,
+    required this.partnerName,
+    required this.partnerDepartment,
     required this.latestMessage,
     required this.unreadCount,
   });
+}
+
+String _text(Object? value) => value?.toString().trim() ?? '';
+
+String? _optionalText(Object? value) {
+  final text = _text(value);
+  return text.isEmpty ? null : text;
+}
+
+int _intValue(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
 }

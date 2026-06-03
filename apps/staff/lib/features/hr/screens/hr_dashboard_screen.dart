@@ -180,8 +180,8 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         activeStaff: 0,
         departmentCounts: const {},
         visibleStaff: const [],
-        onOpenRoster: () => context.go('/staff-rosters'),
-        onOpenOnboarding: () => context.go('/staff-management'),
+        onOpenRoster: () => context.push('/staff-rosters'),
+        onOpenOnboarding: () => context.push('/staff-management'),
       );
     }
 
@@ -226,8 +226,8 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
       activeStaff: activeStaff,
       departmentCounts: sortedDepartments,
       visibleStaff: sortedStaff.take(6).toList(growable: false),
-      onOpenRoster: () => context.go('/staff-rosters'),
-      onOpenOnboarding: () => context.go('/staff-management'),
+      onOpenRoster: () => context.push('/staff-rosters'),
+      onOpenOnboarding: () => context.push('/staff-management'),
     );
   }
 
@@ -399,7 +399,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: s.hrActionStaffManagement,
           subtitle: s.hrActionStaffManagementSubtitle,
           color: AppTheme.primaryBlue,
-          onTap: () => context.go('/staff-management'),
+          onTap: () => context.push('/staff-management'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
@@ -408,7 +408,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           subtitle:
               'Open doctor, nursing, OP, reception, driver, maintenance, pharmacy, or housekeeping boards',
           color: const Color(0xFF1565C0),
-          onTap: () => context.go('/staff-rosters'),
+          onTap: () => context.push('/staff-rosters'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
@@ -416,7 +416,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: s.hrActionPerformance,
           subtitle: s.hrActionPerformanceSubtitle,
           color: const Color(0xFFF57F17),
-          onTap: () => context.go('/performance'),
+          onTap: () => context.push('/performance'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
@@ -424,7 +424,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: 'Leave approvals',
           subtitle: 'Review pending leave requests and record HR decisions',
           color: AppTheme.successGreen,
-          onTap: () => context.go('/leave-approvals'),
+          onTap: () => context.push('/leave-approvals'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
@@ -432,7 +432,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: 'My roster',
           subtitle: 'View duty roster, leave, attendance, and duty requests',
           color: AppTheme.accentCyan,
-          onTap: () => context.go('/schedule'),
+          onTap: () => context.push('/schedule'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
@@ -451,7 +451,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: 'HR/Admin Report Review',
           subtitle: 'Central incident and grievance queue with activity logs',
           color: AppTheme.warningOnSurface,
-          onTap: () => context.go('/reports-grievances/admin'),
+          onTap: () => context.push('/reports-grievances/admin'),
         ),
         const SizedBox(height: 10),
         _ActionTile(

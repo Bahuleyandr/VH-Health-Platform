@@ -1115,7 +1115,7 @@ class _AccessRestrictedPanel extends StatelessWidget {
               runSpacing: 8,
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => context.go('/clinical-ai/queue'),
+                  onPressed: () => context.push('/clinical-ai/queue'),
                   icon: const Icon(Icons.fact_check_outlined, size: 16),
                   label: const Text('Review queue'),
                   style: OutlinedButton.styleFrom(

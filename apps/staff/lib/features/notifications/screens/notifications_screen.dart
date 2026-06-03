@@ -192,7 +192,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: route != null
-                                ? () => context.go(route)
+                                ? () => context.push(route)
                                 : null,
                             child: Padding(
                               padding: const EdgeInsets.all(14),
@@ -296,7 +296,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
-                          onTap: route != null ? () => context.go(route) : null,
+                          onTap: route != null
+                              ? () => context.push(route)
+                              : null,
                           child: Padding(
                             padding: const EdgeInsets.all(14),
                             child: Row(

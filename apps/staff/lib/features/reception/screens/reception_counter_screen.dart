@@ -1216,7 +1216,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             icon: Icons.view_list,
             title: 'Today at counter',
             trailing: TextButton(
-              onPressed: () => context.go('/appointments'),
+              onPressed: () => context.push('/appointments'),
               child: const Text('Open appointments'),
             ),
           ),
@@ -1275,12 +1275,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             runSpacing: 10,
             children: [
               OutlinedButton.icon(
-                onPressed: () => context.go('/front-office'),
+                onPressed: () => context.push('/front-office'),
                 icon: const Icon(Icons.space_dashboard_outlined),
                 label: const Text('Front Office'),
               ),
               OutlinedButton.icon(
-                onPressed: () => context.go('/emr/admissions'),
+                onPressed: () => context.push('/emr/admissions'),
                 icon: const Icon(Icons.local_hospital),
                 label: const Text('Admissions'),
               ),

@@ -145,7 +145,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
     final role = await ApiConfig.getRole();
     if (!context.mounted) return;
     Navigator.of(context).pop();
-    context.go(patientSearchOpenRouteForRole(role, patient));
+    context.push(patientSearchOpenRouteForRole(role, patient));
   }
 
   @override

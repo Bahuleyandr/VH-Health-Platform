@@ -292,7 +292,7 @@ class _StaffActionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: () => context.go(action.route),
+      onTap: () => context.push(action.route),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -348,7 +348,7 @@ class _RosterTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: () => context.go('/staff-roster/${item.department}'),
+      onTap: () => context.push('/staff-roster/${item.department}'),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(

@@ -284,7 +284,7 @@ class _WardActionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: () => context.go(action.route),
+      onTap: () => context.push(action.route),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(

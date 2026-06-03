@@ -71,8 +71,14 @@ class StaffScaffold extends StatelessWidget {
       currentIndex: currentIndex ?? 0,
       type: BottomNavigationBarType.fixed,
       onTap: (index) {
-        if (index < navItems.length) {
-          context.go(navItems[index].route);
+        if (index >= navItems.length) return;
+        final currentRoute = GoRouterState.of(context).matchedLocation;
+        final targetRoute = navItems[index].route;
+        if (currentRoute == targetRoute) return;
+        if (targetRoute == '/dashboard') {
+          context.go(targetRoute);
+        } else {
+          context.push(targetRoute);
         }
       },
       items: navItems

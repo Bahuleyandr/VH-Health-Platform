@@ -31,7 +31,7 @@ class PatientContextChip extends StatelessWidget {
     final uri = GoRouter.of(context).state.uri;
     // Drop all query params; keep the path so the form resets to its
     // empty state (the screen's State.didUpdateWidget kicks back in).
-    context.go(uri.path);
+    context.replace(uri.path);
   }
 
   @override
