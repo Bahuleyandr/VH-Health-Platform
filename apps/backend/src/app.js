@@ -3,6 +3,7 @@ import { initializeSourceMaps } from './config/sourceMapConfig.js';
 
 // Initialize source maps before anything else
 initializeSourceMaps();
+await import('./utils/sentry.js');
 
 import dotenv from 'dotenv';
 import express from 'express';

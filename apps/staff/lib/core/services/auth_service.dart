@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
+import 'package:vhhealth_core/services/crash_reporter.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
@@ -52,6 +53,12 @@ class AuthService {
       'role': role.toString(),
       'method': loginMethod,
     });
+
+    final crashUserId =
+        staffUid?.toString() ?? staffId?.toString() ?? employeeId;
+    await CrashReporter.instance.setUserId(crashUserId);
+    await CrashReporter.instance.setCustomKey('role', role.toString());
+    await CrashReporter.instance.setCustomKey('device_type', currentDeviceType);
   }
 
   /// Staff login with employee ID + password
@@ -132,6 +139,7 @@ class AuthService {
       await RecentPatientsService.clear();
       await ApiConfig.clearAll();
       await Telemetry.event('auth.logout');
+      await CrashReporter.instance.setUserId(null);
     }
   }
 

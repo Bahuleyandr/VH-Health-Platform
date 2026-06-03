@@ -74,7 +74,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               scriptSrc,
               "style-src 'self' 'unsafe-inline'",
-              `connect-src 'self' ${apiUrl} ${webSocketOrigin} https://*.sentry.io`,
+              `connect-src 'self' ${apiUrl} ${webSocketOrigin} https://*.sentry.io https://*.ingest.sentry.io`,
               "img-src 'self' data: blob:",
               "font-src 'self' data:",
               "worker-src 'self' blob:",

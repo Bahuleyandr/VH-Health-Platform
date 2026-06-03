@@ -7,10 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
 import 'core/platform_info.dart';
+import 'core/config/observability_config.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/message_unread_provider.dart';
 import 'core/providers/notification_provider.dart';
@@ -18,8 +19,11 @@ import 'core/providers/theme_provider.dart';
 import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/code_blue_notifier.dart';
+import 'core/services/composite_crash_reporter.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
+import 'core/services/phi_scrubber.dart';
+import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
 import 'core/widgets/patient_search_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
@@ -64,6 +68,34 @@ void main() async {
     sqflite_ffi.databaseFactory = sqflite_ffi.databaseFactoryFfi;
   }
 
+  final enableSentry = ObservabilityConfig.sentryEnabled;
+  if (enableSentry) {
+    await SentryFlutter.init((options) {
+      options.dsn = ObservabilityConfig.sentryDsn;
+      options.environment = ObservabilityConfig.sentryEnvironment;
+      if (ObservabilityConfig.sentryRelease.isNotEmpty) {
+        options.release = ObservabilityConfig.sentryRelease;
+      }
+      options.tracesSampleRate = ObservabilityConfig.sentryTracesSampleRate;
+      options.sendDefaultPii = false;
+      options.attachStacktrace = true;
+      options.attachScreenshot = false;
+      options.enableUserInteractionBreadcrumbs = false;
+      options.enableUserInteractionTracing = false;
+      options.beforeSend = SentryCrashReporter.scrubEvent;
+      options.beforeSendTransaction = SentryCrashReporter.scrubTransaction;
+      options.beforeBreadcrumb = SentryCrashReporter.scrubBreadcrumb;
+      options.tracePropagationTargets
+        ..clear()
+        ..addAll([
+          'api.vhhealth.app',
+          'clinical.vhhealth',
+          '127.0.0.1',
+          'localhost',
+        ]);
+    });
+  }
+
   // Firebase (core init + messaging + crashlytics) has no Flutter desktop
   // implementation — skip the whole stack on Windows/Linux/macOS. Desktop
   // staff workstations get realtime delivery over the WebSocket fabric.
@@ -78,11 +110,19 @@ void main() async {
   final disableCrashlytics =
       const bool.fromEnvironment('VH_DISABLE_CRASHLYTICS') || isDesktopPlatform;
 
-  // Route non-fatal errors from core + app through the same Crashlytics-backed
-  // reporter. Fatal errors are still handled via FlutterError.onError below.
-  if (!disableCrashlytics) {
-    CrashReporter.install(const FirebaseCrashReporter());
+  // Route non-fatal errors from core + app through one reporting abstraction.
+  // Desktop/web builds can use Sentry; mobile builds can use Firebase
+  // Crashlytics; both receive the same PHI-scrubbed payloads.
+  final crashReporters = <CrashReporter>[
+    if (enableSentry) const SentryCrashReporter(),
+    if (!disableCrashlytics) const FirebaseCrashReporter(),
+  ];
+  if (crashReporters.length == 1) {
+    CrashReporter.install(crashReporters.single);
+  } else if (crashReporters.length > 1) {
+    CrashReporter.install(CompositeCrashReporter(crashReporters));
   }
+  final crashReportingEnabled = crashReporters.isNotEmpty;
 
   // Register the terminated/background Code Blue handler *before* any foreground
   // plumbing so notifications fire even if the app hasn't been opened this session.
@@ -93,18 +133,17 @@ void main() async {
   }
   await CodeBlueNotifier.instance.initialize();
 
-  // Strip potential PHI from error messages before sending to Crashlytics.
-  // Phone numbers, patient names, or medical data may appear in stack traces.
-  if (!disableCrashlytics) {
+  // Strip potential PHI from error messages before sending to crash reporting.
+  if (crashReportingEnabled) {
     FlutterError.onError = (FlutterErrorDetails details) {
       final sanitised = FlutterErrorDetails(
-        exception: _sanitiseForCrashlytics(details.exception),
+        exception: PhiScrubber.sanitizeError(details.exception),
         stack: details.stack,
         library: details.library,
         context: details.context,
         silent: details.silent,
       );
-      _recordCrashlyticsFlutterFatalError(sanitised);
+      _recordFlutterFatalError(sanitised);
     };
   }
 
@@ -136,7 +175,7 @@ void main() async {
                   const SizedBox(height: 4),
                   Text(
                     kDebugMode
-                        ? details.exceptionAsString()
+                        ? PhiScrubber.scrubText(details.exceptionAsString())
                         : s.errorRestartOrContact,
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
@@ -159,67 +198,66 @@ void main() async {
   // Catch async errors not handled by Flutter framework.
   runZonedGuarded(
     () {
-      runApp(const VHHealthStaffApp());
+      final app = enableSentry
+          ? SentryWidget(child: const VHHealthStaffApp())
+          : const VHHealthStaffApp();
+      runApp(app);
     },
     (error, stack) {
-      if (!disableCrashlytics) {
-        _recordCrashlyticsAsyncError(error, stack);
+      if (crashReportingEnabled) {
+        _recordAsyncFatalError(error, stack);
       } else if (kDebugMode) {
-        debugPrint('Uncaught async error: ${_sanitiseForCrashlytics(error)}');
+        debugPrint('Uncaught async error: ${PhiScrubber.sanitizeError(error)}');
       }
     },
   );
 }
 
-void _recordCrashlyticsFlutterFatalError(FlutterErrorDetails details) {
+void _recordFlutterFatalError(FlutterErrorDetails details) {
   try {
     unawaited(
-      FirebaseCrashlytics.instance.recordFlutterFatalError(details).catchError((
-        Object e,
-      ) {
-        if (kDebugMode) {
-          debugPrint('Crashlytics Flutter error recording failed: $e');
-        }
-      }),
-    );
-  } catch (e) {
-    if (kDebugMode) {
-      debugPrint('Crashlytics Flutter error recording failed: $e');
-    }
-  }
-}
-
-void _recordCrashlyticsAsyncError(Object error, StackTrace stack) {
-  try {
-    unawaited(
-      FirebaseCrashlytics.instance
-          .recordError(_sanitiseForCrashlytics(error), stack, fatal: true)
+      CrashReporter.instance
+          .recordError(
+            details.exception,
+            details.stack,
+            context: details.context?.toString(),
+            extra: {'library': details.library},
+            fatal: true,
+          )
           .catchError((Object e) {
             if (kDebugMode) {
-              debugPrint('Crashlytics async error recording failed: $e');
+              debugPrint('Crash reporter Flutter error recording failed: $e');
             }
           }),
     );
   } catch (e) {
     if (kDebugMode) {
-      debugPrint('Crashlytics async error recording failed: $e');
+      debugPrint('Crash reporter Flutter error recording failed: $e');
     }
   }
 }
 
-/// Redact potential PHI (phone numbers, emails) from error messages
-/// before they are sent to Firebase Crashlytics.
-Object _sanitiseForCrashlytics(Object error) {
-  final msg = error.toString();
-  // Mask 10-digit phone numbers and common Indian formats (+91...)
-  final redacted = msg
-      .replaceAll(RegExp(r'\+?\d{10,13}'), '[REDACTED_PHONE]')
-      .replaceAll(
-        RegExp(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'),
-        '[REDACTED_EMAIL]',
-      );
-  if (redacted == msg) return error; // nothing to redact
-  return Exception(redacted);
+void _recordAsyncFatalError(Object error, StackTrace stack) {
+  try {
+    unawaited(
+      CrashReporter.instance
+          .recordError(
+            PhiScrubber.sanitizeError(error),
+            stack,
+            context: 'uncaught async error',
+            fatal: true,
+          )
+          .catchError((Object e) {
+            if (kDebugMode) {
+              debugPrint('Crash reporter async error recording failed: $e');
+            }
+          }),
+    );
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Crash reporter async error recording failed: $e');
+    }
+  }
 }
 
 class VHHealthStaffApp extends StatefulWidget {

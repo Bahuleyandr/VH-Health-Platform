@@ -725,8 +725,19 @@ team grows past two reviewers.
 
 ### Sentry
 
-- Backend: 10% trace sample in prod, release tracking via `GIT_COMMIT`, DSN via `SENTRY_DSN`.
-- Admin: `NEXT_PUBLIC_SENTRY_DSN` activates the admin portal; instrumentation files already wired.
+- Backend: `SENTRY_DSN` activates reporting outside tests. `SENTRY_ENVIRONMENT`,
+  `SENTRY_TRACES_SAMPLE_RATE`, and `GIT_COMMIT`/`RENDER_GIT_COMMIT` control
+  environment, trace sampling, and release. `beforeSend`/transaction hooks strip
+  request bodies, cookies, query strings, tokens, phone/email/patient IDs, and
+  dynamic route IDs.
+- Admin: `NEXT_PUBLIC_SENTRY_DSN` activates the admin portal. Replay defaults
+  to disabled (`NEXT_PUBLIC_SENTRY_REPLAY_*_SAMPLE_RATE=0`) and, when enabled,
+  masks all text and blocks media. Admin events use the shared Sentry scrubber
+  before send.
+- Staff: Windows/web builds accept `SENTRY_DSN` or `VH_SENTRY_DSN` plus
+  `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, and `SENTRY_TRACES_SAMPLE_RATE`.
+  Staff disables screenshot/view-hierarchy capture and user-interaction
+  breadcrumbs/tracing so clinical screen content is not captured.
 
 ### Clinical safety monitors
 

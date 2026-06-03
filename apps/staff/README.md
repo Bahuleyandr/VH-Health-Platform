@@ -59,8 +59,15 @@ Example Windows release build:
 cd apps/staff
 flutter build windows --release `
   --dart-define=VH_BASE_URL=https://<host>/api/v1 `
-  --dart-define=VH_API_KEY=<release-smoke-api-key>
+  --dart-define=VH_API_KEY=<release-smoke-api-key> `
+  --dart-define=SENTRY_DSN=<staff-sentry-dsn> `
+  --dart-define=SENTRY_ENVIRONMENT=staff-windows
 ```
+
+Sentry is disabled unless `SENTRY_DSN` or `VH_SENTRY_DSN` is provided at build
+time. When enabled, Staff reports through the shared `CrashReporter`
+abstraction with PHI scrubbing, screenshot capture disabled, view hierarchy
+capture disabled, and user-interaction breadcrumbs/tracing disabled.
 
 Do not commit real staff credentials, API keys, or deployment secrets.
 

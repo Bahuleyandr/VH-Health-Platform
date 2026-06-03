@@ -1,15 +1,15 @@
 // src/utils/sentry.js
-//
-// Sentry bootstrap. Call this module's side-effectful init ONCE at the top
-// of app.js (before other imports that may throw). Per-request scope
-// enrichment lives in `src/middleware/sentryScopeMiddleware.js`; the error
-// handler (errorHandlerMiddleware) continues to call `Sentry.captureException`
-// for 5xx paths.
 import * as Sentry from '@sentry/node';
+import dotenv from 'dotenv';
+import { scrubSentryEvent } from './sentryScrubber.js';
+
+dotenv.config();
 
 const env = process.env.NODE_ENV || 'development';
 const dsn = process.env.SENTRY_DSN;
 const release = process.env.GIT_COMMIT || process.env.RENDER_GIT_COMMIT || 'unknown';
+const sampleRate = Number.parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE || '');
+const tracesSampleRate = Number.isFinite(sampleRate) ? sampleRate : (env === 'production' ? 0.1 : 1.0);
 
 // Production without a DSN means we're losing server errors — warn loudly.
 if (!dsn && env === 'production') {
@@ -19,10 +19,14 @@ if (!dsn && env === 'production') {
 
 Sentry.init({
   dsn,
-  tracesSampleRate: env === 'production' ? 0.1 : 1.0,
-  environment: env,
+  enabled: Boolean(dsn) && env !== 'test',
+  tracesSampleRate,
+  environment: process.env.SENTRY_ENVIRONMENT || env,
   release,
   serverName: process.env.HOSTNAME || process.env.COMPUTERNAME || undefined,
+  sendDefaultPii: false,
+  beforeSend: scrubSentryEvent,
+  beforeSendTransaction: scrubSentryEvent,
   initialScope: {
     tags: {
       service: 'vh-health-backend',

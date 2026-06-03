@@ -5,7 +5,7 @@
 # Three stages:
 #   1. flutter-build  — compile the web bundle (CanvasKit renderer)
 #                       with the LAN backend URL baked in via
-#                       --dart-define=API_URL=<...>
+#                       --dart-define=VH_BASE_URL=<...>
 #   2. asset-prep     — copy the build/web output into a fresh layer
 #                       so the runner stage doesn't carry the SDK
 #   3. runner         — nginx:alpine serving the static assets, gzip
@@ -17,7 +17,7 @@
 # ships behind the nginx-internal IngressClass at clinical.<hospital>.local.
 # When that's not desired (e.g. building for the Cloudflare-tunnel'd
 # patient-care surface) the same Flutter source can be rebuilt with a
-# different API_URL — this Dockerfile is the LAN variant.
+# different VH_BASE_URL — this Dockerfile is the LAN variant.
 
 ARG FLUTTER_VERSION=3.41.7
 
@@ -43,12 +43,17 @@ COPY packages/vhhealth_core/ packages/vhhealth_core/
 COPY apps/staff/ apps/staff/
 
 # Build args for the dart-define values that get baked into the bundle.
-# API_URL is the most important one — clinicians on the LAN need to
+# VH_BASE_URL is the most important one — clinicians on the LAN need to
 # point at clinical.<hospital>.local, which differs per environment.
-ARG API_URL=https://clinical.vhhealth.hospital.local
+ARG VH_BASE_URL=https://clinical.vhhealth.hospital.local
+ARG VH_API_KEY=
+# Backward-compatible build args for older scripts.
+ARG API_URL=
 ARG API_KEY=
 ARG APP_NAME="VH Health Staff"
 ARG SENTRY_DSN=
+ARG SENTRY_ENVIRONMENT=staff-web
+ARG SENTRY_RELEASE=
 
 WORKDIR /workspace/apps/staff
 
@@ -57,10 +62,12 @@ WORKDIR /workspace/apps/staff
 RUN flutter build web \
       --release \
       --web-renderer canvaskit \
-      --dart-define=API_URL=$API_URL \
-      --dart-define=API_KEY=$API_KEY \
+      --dart-define=VH_BASE_URL=${VH_BASE_URL:-$API_URL} \
+      --dart-define=VH_API_KEY=${VH_API_KEY:-$API_KEY} \
       --dart-define=APP_NAME="$APP_NAME" \
-      --dart-define=SENTRY_DSN=$SENTRY_DSN
+      --dart-define=SENTRY_DSN=$SENTRY_DSN \
+      --dart-define=SENTRY_ENVIRONMENT=$SENTRY_ENVIRONMENT \
+      --dart-define=SENTRY_RELEASE=$SENTRY_RELEASE
 
 # ---- Stage 2: asset isolation ----------------------------------------
 # Pure copy stage so the runner doesn't carry the Flutter SDK

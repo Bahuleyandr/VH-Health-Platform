@@ -11,6 +11,9 @@ By default this script bumps the app patch/build version before packaging.
 param(
   [string]$BaseUrl = $env:VH_BASE_URL,
   [string]$ApiKey = $env:VH_API_KEY,
+  [string]$SentryDsn = $env:VH_SENTRY_DSN,
+  [string]$SentryEnvironment = $env:VH_SENTRY_ENVIRONMENT,
+  [string]$SentryRelease = $env:VH_SENTRY_RELEASE,
   [string]$PublishFolder = "D:\Dev\Tools\VH Health Staff Updates",
   [string]$Version,
   [switch]$NoVersionBump,
@@ -38,6 +41,20 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
     throw "ApiKey is required for the remote VH Health backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to package a remote app with the local dev key."
   }
   $ApiKey = "vhhealth-local-api-key"
+}
+
+if ([string]::IsNullOrWhiteSpace($SentryDsn)) {
+  $SentryDsn = $env:SENTRY_DSN
+}
+if ([string]::IsNullOrWhiteSpace($SentryEnvironment)) {
+  $SentryEnvironment = if ([string]::IsNullOrWhiteSpace($env:SENTRY_ENVIRONMENT)) {
+    "staff-windows-update"
+  } else {
+    $env:SENTRY_ENVIRONMENT
+  }
+}
+if ([string]::IsNullOrWhiteSpace($SentryRelease)) {
+  $SentryRelease = $env:SENTRY_RELEASE
 }
 
 $flutterCommand = Resolve-DevTool `
@@ -127,6 +144,9 @@ try {
   $windowsBuildArgs = @(
     "--dart-define=VH_BASE_URL=$BaseUrl"
     ("--dart-define=VH_API_" + "KEY=$ApiKey")
+    "--dart-define=SENTRY_DSN=$SentryDsn"
+    "--dart-define=SENTRY_ENVIRONMENT=$SentryEnvironment"
+    "--dart-define=SENTRY_RELEASE=$SentryRelease"
     "--dart-define=VH_DISABLE_CRASHLYTICS=true"
   ) -join " "
   & $dartCommand run msix:publish `

@@ -62,6 +62,7 @@ dependencies:
   # document; `printing` shows the platform print dialog.
   printing: ^5.13.0
   pdf: ^3.11.0
+  sentry_flutter: ^8.14.2
 
 dev_dependencies:
   flutter_test:
