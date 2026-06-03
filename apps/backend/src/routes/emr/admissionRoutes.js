@@ -60,6 +60,8 @@ router.get(
         ward: req.query?.ward,
         status: req.query?.status,
         mine: req.query?.mine,
+        patient_uid: req.query?.patient_uid,
+        admission_id: req.query?.admission_id,
         limit: req.query?.limit,
         offset: req.query?.offset,
       },

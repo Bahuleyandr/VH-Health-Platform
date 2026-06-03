@@ -63,6 +63,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 // Notifications
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/audit/screens/audit_logs_screen.dart';
+import '../../features/safety/screens/safety_center_screen.dart';
 
 // Schedule
 import '../../features/schedule/screens/schedule_screen.dart';
@@ -638,6 +639,12 @@ final GoRouter appRouter = GoRouter(
               const NoTransitionPage(child: NotificationsScreen()),
         ),
         GoRoute(
+          path: '/safety-center',
+          name: 'safety-center',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: SafetyCenterScreen()),
+        ),
+        GoRoute(
           path: '/audit-logs',
           name: 'audit-logs',
           pageBuilder: (context, state) =>
@@ -774,8 +781,17 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/patient-command-board',
           name: 'patient-command-board',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: PatientCommandBoardScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: PatientCommandBoardScreen(
+                initialPatientUid: q['patient_uid'],
+                initialAdmissionId: int.tryParse(q['admission_id'] ?? ''),
+                initialAction: q['action'],
+                initialPatientName: q['name'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/emr/admissions',

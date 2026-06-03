@@ -345,6 +345,8 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
   const ward = compactText(filters.ward);
   const status = compactText(filters.status);
+  const patientUid = compactText(filters.patient_uid || filters.patientUid);
+  const admissionId = Number.parseInt(filters.admission_id || filters.admissionId, 10);
   const mine = filters.mine === true || filters.mine === 'true' || filters.mine === '1';
 
   const normalizedStatus = String(status || '').toLowerCase();
@@ -355,6 +357,8 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   };
   if (tenantId) baseWhere.tenant_id = tenantId;
   if (ward) baseWhere.ward = ward;
+  if (patientUid) baseWhere.patient_uid = patientUid;
+  if (Number.isInteger(admissionId) && admissionId > 0) baseWhere.id = admissionId;
   const inpatientScope = await resolveInpatientAdmissionScope({
     actor: { ...actor, role, tenantId },
     filters: { ...filters, tenantId, mine },

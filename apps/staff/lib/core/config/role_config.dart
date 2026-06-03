@@ -545,6 +545,13 @@ class RoleFeatures {
     route: '/messaging',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _safetyCenter = DashboardFeature(
+    id: 'safety_center',
+    title: 'Safety Center',
+    icon: Icons.health_and_safety_outlined,
+    route: '/safety-center',
+    color: Color(0xFFC62828),
+  );
   static const DashboardFeature _auditLogs = DashboardFeature(
     id: 'audit_logs',
     title: 'Audit Logs',
@@ -980,7 +987,7 @@ class RoleFeatures {
         _settings,
       ],
     };
-    return [...features, _reportsGrievances];
+    return [...features, _safetyCenter, _reportsGrievances];
   }
 
   /// Returns role-specific bottom nav items with their routes.
@@ -1790,6 +1797,12 @@ class RoleFeatures {
         icon: Icons.notifications_outlined,
         selectedIcon: Icons.notifications_active,
         route: '/notifications',
+      ),
+      WorkbenchNavItem(
+        label: 'Safety',
+        icon: Icons.health_and_safety_outlined,
+        selectedIcon: Icons.health_and_safety,
+        route: '/safety-center',
       ),
     ]);
 

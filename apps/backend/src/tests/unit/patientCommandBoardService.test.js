@@ -143,6 +143,49 @@ describe('patientCommandBoardService', () => {
     }));
   });
 
+  it('keeps focused patient deep-links scoped to the requested admission', async () => {
+    prismaMock.admissions.count.mockResolvedValueOnce(1);
+    prismaMock.admissions.findMany.mockResolvedValueOnce([
+      {
+        id: 77,
+        tenant_id: TENANT,
+        encounter_id: '20000000-0000-4000-8000-000000000077',
+        patient_uid: '30000000-0000-4000-8000-000000000077',
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        ward: 'B Block - ICU',
+        bed_id: 112,
+        bed_number: 'B-112',
+        status: 'admitted',
+        admission_type: 'IPD',
+        priority: 'emergency',
+        allergies: [],
+        admitted_at: new Date('2026-06-03T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await patientCommandBoardService.default.getPatientCommandBoard(
+      {
+        patient_uid: '30000000-0000-4000-8000-000000000077',
+        admission_id: '77',
+        limit: 20,
+      },
+      { uid: DOCTOR_UID, role: 'ADMIN', tenantId: TENANT },
+    );
+
+    const where = prismaMock.admissions.findMany.mock.calls[0][0].where;
+    const whereJson = JSON.stringify(where);
+    expect(whereJson).toContain(TENANT);
+    expect(whereJson).toContain('30000000-0000-4000-8000-000000000077');
+    expect(whereJson).toContain('"id":77');
+    expect(result.board.counts.total).toBe(1);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toEqual(expect.objectContaining({
+      admission_id: 77,
+      patient_uid: '30000000-0000-4000-8000-000000000077',
+    }));
+  });
+
   it('normalizes consultant aliases before selecting board actions and scope labels', async () => {
     prismaMock.admissions.count.mockResolvedValueOnce(1);
     prismaMock.admissions.findMany.mockResolvedValueOnce([

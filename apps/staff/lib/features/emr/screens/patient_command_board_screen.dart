@@ -126,7 +126,18 @@ List<String> _patientCommandBoardTextList(dynamic value) {
 }
 
 class PatientCommandBoardScreen extends StatefulWidget {
-  const PatientCommandBoardScreen({super.key});
+  final String? initialPatientUid;
+  final int? initialAdmissionId;
+  final String? initialAction;
+  final String? initialPatientName;
+
+  const PatientCommandBoardScreen({
+    super.key,
+    this.initialPatientUid,
+    this.initialAdmissionId,
+    this.initialAction,
+    this.initialPatientName,
+  });
 
   @override
   State<PatientCommandBoardScreen> createState() =>
@@ -143,6 +154,20 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   String? _ward;
   Map<String, dynamic> _board = const {};
   List<Map<String, dynamic>> _rows = const [];
+  bool _initialActionConsumed = false;
+
+  bool get _hasFocusedPatient =>
+      _text(widget.initialPatientUid).isNotEmpty ||
+      (widget.initialAdmissionId ?? 0) > 0;
+
+  String get _focusedPatientLabel {
+    final name = _text(widget.initialPatientName);
+    if (name.isNotEmpty) return name;
+    final uid = _text(widget.initialPatientUid);
+    if (uid.isNotEmpty) return uid;
+    final id = widget.initialAdmissionId;
+    return id == null ? 'selected patient' : 'admission #$id';
+  }
 
   @override
   void initState() {
@@ -158,6 +183,8 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     try {
       final data = await MedicalApiService.getPatientCommandBoard(
         ward: _ward,
+        patientUid: widget.initialPatientUid,
+        admissionId: widget.initialAdmissionId,
         limit: _pageSize,
       );
       final rows = _asListOfMaps(data['rows']);
@@ -167,6 +194,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
         _rows = rows;
         _board = board;
       });
+      _maybeOpenInitialAction();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -184,6 +212,8 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     try {
       final data = await MedicalApiService.getPatientCommandBoard(
         ward: _ward,
+        patientUid: widget.initialPatientUid,
+        admissionId: widget.initialAdmissionId,
         limit: _pageSize,
         offset: patientCommandBoardNextOffset(
           board: _board,
@@ -197,6 +227,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
         _rows = _mergeRows(_rows, nextRows);
         _board = board;
       });
+      _maybeOpenInitialAction();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -421,6 +452,68 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
     context.push(route);
   }
 
+  void _maybeOpenInitialAction() {
+    final key = _text(widget.initialAction).toLowerCase();
+    if (_initialActionConsumed || key.isEmpty || _rows.isEmpty) return;
+
+    final row = _focusedRow() ?? _rows.first;
+    _initialActionConsumed = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openActionKey(row, key);
+    });
+  }
+
+  Map<String, dynamic>? _focusedRow() {
+    for (final row in _rows) {
+      final patient = _asMap(row['patient']);
+      if (_text(widget.initialPatientUid).isNotEmpty &&
+          _text(patient['uid']) == _text(widget.initialPatientUid)) {
+        return row;
+      }
+      final admissionId = widget.initialAdmissionId;
+      if (admissionId != null && _int(row['admission_id']) == admissionId) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  void _openActionKey(Map<String, dynamic> row, String key) {
+    final actions = _asListOfMaps(row['actions']);
+    for (final action in actions) {
+      if (_text(action['key']).toLowerCase() == key) {
+        _openAction(row, action);
+        return;
+      }
+    }
+
+    final fallback = _fallbackActionRoute(row, key);
+    if (fallback == null) return;
+    context.push(fallback);
+  }
+
+  String? _fallbackActionRoute(Map<String, dynamic> row, String key) {
+    final patient = _asMap(row['patient']);
+    final uid = _text(patient['uid'], widget.initialPatientUid ?? '');
+    final name = Uri.encodeQueryComponent(
+      _text(patient['name'], _focusedPatientLabel),
+    );
+    final admissionId = _int(row['admission_id']);
+    return switch (key) {
+      'vitals' ||
+      'io' ||
+      'i/o' => uid.isEmpty ? null : '/emr/vitals/$uid?name=$name',
+      'notes' =>
+        uid.isEmpty ? null : '/nursing-notes?patient_uid=$uid&name=$name',
+      'case_sheet' =>
+        admissionId <= 0 ? null : '/emr/case-sheet/$admissionId?name=$name',
+      'discharge' =>
+        admissionId <= 0 ? null : '/emr/discharge-hub/$admissionId?name=$name',
+      _ => null,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -447,6 +540,15 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
                 children: [
                   _buildHeader(theme),
+                  if (_hasFocusedPatient) ...[
+                    const SizedBox(height: 12),
+                    _FocusedPatientBanner(
+                      patientLabel: _focusedPatientLabel,
+                      actionLabel: _text(widget.initialAction).isEmpty
+                          ? null
+                          : _text(widget.initialAction).replaceAll('_', ' '),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _buildFilters(theme),
                   const SizedBox(height: 12),
@@ -909,6 +1011,59 @@ class _ErrorView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FocusedPatientBanner extends StatelessWidget {
+  final String patientLabel;
+  final String? actionLabel;
+
+  const _FocusedPatientBanner({
+    required this.patientLabel,
+    required this.actionLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.my_location_outlined, color: AppTheme.primaryBlue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Focused patient: $patientLabel',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  actionLabel == null
+                      ? 'Only this patient is loaded from the command board scope.'
+                      : 'Opening ${actionLabel!.toLowerCase()} from the command board workflow.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

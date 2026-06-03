@@ -860,6 +860,8 @@ class MedicalApiService {
   /// GET /admissions/command-board — role-aware live inpatient command board.
   static Future<Map<String, dynamic>> getPatientCommandBoard({
     String? ward,
+    String? patientUid,
+    int? admissionId,
     String status = 'active',
     bool? mine,
     int limit = 200,
@@ -869,6 +871,10 @@ class MedicalApiService {
       '/admissions/command-board',
       query: {
         if (ward != null && ward.trim().isNotEmpty) 'ward': ward.trim(),
+        if (patientUid != null && patientUid.trim().isNotEmpty)
+          'patient_uid': patientUid.trim(),
+        if (admissionId != null && admissionId > 0)
+          'admission_id': admissionId.toString(),
         'status': status,
         if (mine != null) 'mine': mine ? 'true' : 'false',
         'limit': limit.toString(),
