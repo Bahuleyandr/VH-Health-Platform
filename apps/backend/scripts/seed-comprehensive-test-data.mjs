@@ -679,6 +679,8 @@ async function seedCoreData() {
     priority: 'normal',
   }]);
 
+  await seedCareTeam(afterAdmission);
+
   await insertIfEmpty('notifications', [{
     uid: afterAdmission.patient.uid,
     phone: afterAdmission.patient.phone,
@@ -689,6 +691,50 @@ async function seedCoreData() {
     user_id: afterAdmission.patient.id,
     updated_at: new Date(),
   }]);
+}
+
+async function seedCareTeam(refs) {
+  if (!refs.patient || !refs.staff) return;
+
+  if ((await tableCount('care_teams')) === 0) {
+    await insert('care_teams', {
+      tenant_id: refs.tenantId,
+      patient_uid: refs.patient.uid,
+      admission_id: refs.admissionId,
+      team_kind: 'ip',
+      display_name: 'Seed IP care team',
+      primary_department: 'General Medicine',
+      status: 'active',
+      metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+      created_by: refs.staff.uid,
+      updated_by: refs.staff.uid,
+      updated_at: new Date(),
+    });
+  }
+
+  if ((await tableCount('care_team_members')) > 0) return;
+
+  const team = await first('care_teams', 'id, patient_uid', 'TRUE', []);
+  if (!team) return;
+
+  await insert('care_team_members', {
+    tenant_id: refs.tenantId,
+    care_team_id: team.id,
+    patient_uid: team.patient_uid,
+    staff_uid: refs.staff.uid,
+    staff_id: refs.staff.staffId,
+    staff_role: 'NURSING_STAFF',
+    member_name: refs.staff.employeeId || 'Seed staff',
+    relationship_kind: 'nurse',
+    access_scope: JSON.stringify({ ip: true, vitals: true, notes: true }),
+    break_glass_allowed: false,
+    status: 'active',
+    notes: 'Seed care-team member for patient-access coverage',
+    metadata: JSON.stringify({ seed: true, source: 'seed-comprehensive-test-data' }),
+    created_by: refs.staff.uid,
+    updated_by: refs.staff.uid,
+    updated_at: new Date(),
+  });
 }
 
 async function getCoreRefs() {
