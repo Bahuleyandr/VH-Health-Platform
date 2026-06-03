@@ -197,6 +197,10 @@ export const formatNotificationResponse = (notification, includePrivateData = fa
     formatted.phone = notification.phone;
     formatted.data = notification.data;
     formatted.related_id = notification.related_id ?? null;
+    formatted.last_acknowledged_at = notification.last_acknowledged_at ?? null;
+    formatted.last_acknowledged_by_role = notification.last_acknowledged_by_role ?? null;
+    formatted.escalation_count = Number(notification.escalation_count || 0);
+    formatted.last_escalated_at = notification.last_escalated_at ?? null;
     
     if (notification.recipient_name) {
       formatted.recipient_name = notification.recipient_name;

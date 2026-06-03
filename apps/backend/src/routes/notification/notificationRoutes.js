@@ -27,6 +27,7 @@ router.get('/my', queryValidator, notificationController.getMine);
 router.patch('/my/mark-all-read', notificationController.markAllMineAsRead);
 
 router.get('/detail/:id', idParamValidator, notificationController.getById);
+router.get('/detail/:id/events', idParamValidator, notificationController.getEvents);
 router.get('/list', queryValidator, notificationController.getList);
 
 // DEPRECATED: Use GET /my instead. PII in URL is a security risk.
@@ -41,6 +42,7 @@ router.get('/user/:user_id', [...userIdParamValidator, ...queryValidator], notif
 
 // Mark notifications as read
 router.patch('/:id/read', idParamValidator, notificationController.markAsRead);
+router.patch('/:id/acknowledge', idParamValidator, notificationController.acknowledge);
 router.patch('/:phone/mark-all-read', phoneParamValidator, (req, res, next) => {
   logger.warn(`DEPRECATED: PATCH /notifications/${req.params.phone}/mark-all-read — migrate to PATCH /notifications/my/mark-all-read`);
   res.set('Deprecation', 'true');

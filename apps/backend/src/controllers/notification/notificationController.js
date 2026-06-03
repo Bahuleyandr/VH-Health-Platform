@@ -246,6 +246,68 @@ export const notificationController = {
     }
   },
 
+  acknowledge: async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
+    }
+
+    try {
+      const notification = await notificationService.acknowledgeNotification(
+        req.params.id,
+        req.user,
+        {
+          source: 'notifications_screen',
+          note: req.body?.note,
+        }
+      );
+
+      await logAudit(req, 'notification-acknowledged', {
+        notification_id: req.params.id,
+        priority: notification.priority,
+        type: notification.type,
+      });
+
+      success(res, {
+        notification,
+        acknowledgedBy: req.user?.uid,
+      }, 'Notification acknowledged');
+    } catch (err) {
+      logger.error('Error in acknowledge:', err.message);
+      if (err.message.includes('not found') || err.message.includes('access denied')) {
+        return error(res, 'Notification not found or access denied', HTTP_STATUS.NOT_FOUND);
+      }
+      error(res, 'Failed to acknowledge notification', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+  },
+
+  getEvents: async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
+    }
+
+    try {
+      const result = await notificationService.getNotificationEventHistory(
+        req.params.id,
+        req.user
+      );
+
+      await logAudit(req, 'notification-events-viewed', {
+        notification_id: req.params.id,
+        count: result.count,
+      });
+
+      success(res, result, 'Notification event history retrieved');
+    } catch (err) {
+      logger.error('Error in getEvents:', err.message);
+      if (err.message.includes('not found') || err.message.includes('access denied')) {
+        return error(res, 'Notification not found or access denied', HTTP_STATUS.NOT_FOUND);
+      }
+      error(res, 'Failed to retrieve notification event history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+  },
+
   /**
    * Mark all notifications as read by phone
    */

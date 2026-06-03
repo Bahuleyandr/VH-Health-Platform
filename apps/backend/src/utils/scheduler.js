@@ -41,6 +41,7 @@ import purgeLogs from '../scripts/cleanup-logs.js';
 
 // R2 Maintenance Jobs
 import { retryFailedNotifications } from '../services/notificationRetryService.js';
+import { runUnreadCriticalEscalation } from '../services/notification/notificationService.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
 // Clinical-AI workflow resume scheduler — Phase 5 of the rollout.
@@ -134,6 +135,12 @@ cron.schedule('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
 
 // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
 cron.schedule('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
+
+// 🚨 Every 10 minutes - escalate unread critical notifications so safety
+// alerts cannot remain invisible without an auditable event.
+cron.schedule('*/10 * * * *', withJobLock('unread-critical-notification-escalation', async () => {
+  await runUnreadCriticalEscalation();
+}));
 
 // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
 cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
@@ -273,6 +280,7 @@ export async function runAllScheduledTasksNow() {
     await sendTimedReminders();
     await processPendingScheduledNotifications();
     await runMissingDrugChartSweep();
+    await runUnreadCriticalEscalation();
     await purgeExpiredStaffMessages();
     await sendInvestigationNotifications();
     await runRosterDeadlineEscalation({ force: true });

@@ -28,6 +28,7 @@ router.get('/test', adminNotificationController.test);
 // Analytics and overview
 router.get('/overview', statsQueryValidator, adminNotificationController.getOverview);
 router.get('/manage', queryValidator, adminNotificationController.getManagementList);
+router.get('/events', queryValidator, adminNotificationController.getEventList);
 router.get('/templates', adminNotificationController.getTemplates);
 router.get('/delivery-stats', statsQueryValidator, adminNotificationController.getDeliveryStats);
 

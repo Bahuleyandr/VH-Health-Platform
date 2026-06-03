@@ -751,12 +751,14 @@ model appointments {
   scheme_name                          String?                      @db.VarChar(120)
   triage_acuity                        Int?                         @db.SmallInt
   tenant_id                            String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  queue_id                             Int?
   appointment_documents                appointment_documents[]
   appointment_status_history           appointment_status_history[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
   appointments                         appointments?                @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
   other_appointments                   appointments[]               @relation("appointmentsToappointments")
   users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  appointment_queues                   appointment_queues?          @relation(fields: [queue_id], references: [id], onUpdate: NoAction)
   tenants                              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
   bed_inspections                      bed_inspections[]
   clinical_notes                       clinical_notes[]
@@ -4520,9 +4522,11 @@ model facilities {
   created_by          String?              @db.Uuid
   created_at          DateTime             @default(now()) @db.Timestamptz(6)
   updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  appointment_queues  appointment_queues[]
   tenants             tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_locations  facility_locations[]
   facility_rooms      facility_rooms[]
+  lab_analyzers       lab_analyzers[]
   service_catalog     service_catalog[]
 
   @@unique([tenant_id, facility_code])
@@ -4552,6 +4556,7 @@ model facility_locations {
   other_facility_locations facility_locations[] @relation("facility_locationsTofacility_locations")
   tenants                  tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   facility_rooms           facility_rooms[]
+  lab_analyzers            lab_analyzers[]
 
   @@unique([facility_id, location_code])
   @@index([tenant_id, location_kind, status], map: "idx_facility_locations_kind")
@@ -5917,24 +5922,26 @@ model notification_templates {
 }
 
 model notifications {
-  id             Int       @id @default(autoincrement())
-  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  uid            String?   @db.Uuid
-  phone          String    @db.VarChar(15)
-  title          String    @db.VarChar(255)
-  body           String
-  type           String    @default("GENERAL") @db.VarChar(50)
-  priority       String    @default("NORMAL") @db.VarChar(20)
-  data           Json?
-  is_read        Boolean   @default(false)
-  scheduled_for  DateTime? @db.Timestamp(6)
-  sent_at        DateTime? @db.Timestamp(6)
-  read_at        DateTime? @db.Timestamp(6)
-  created_at     DateTime  @default(now()) @db.Timestamp(6)
-  updated_at     DateTime  @db.Timestamp(6)
-  user_id        Int?
-  recipient_role String?   @db.VarChar(50)
-  related_id     Int?
+  id                  Int                   @id @default(autoincrement())
+  uid                 String?               @db.Uuid
+  phone               String                @db.VarChar(15)
+  title               String                @db.VarChar(255)
+  body                String
+  type                String                @default("GENERAL") @db.VarChar(50)
+  priority            String                @default("NORMAL") @db.VarChar(20)
+  data                Json?
+  is_read             Boolean               @default(false)
+  scheduled_for       DateTime?             @db.Timestamp(6)
+  sent_at             DateTime?             @db.Timestamp(6)
+  read_at             DateTime?             @db.Timestamp(6)
+  created_at          DateTime              @default(now()) @db.Timestamp(6)
+  updated_at          DateTime              @db.Timestamp(6)
+  user_id             Int?
+  recipient_role      String?               @db.VarChar(50)
+  related_id          Int?
+  tenant_id           String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  notification_events notification_events[]
+  tenants             tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notifications_tenant")
 
   @@index([recipient_role], map: "idx_notifications_recipient_role")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_notifications_tenant_created")
@@ -5946,6 +5953,29 @@ model notifications {
   @@index([scheduled_for])
   @@index([type])
   @@index([uid])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model notification_events {
+  id                    BigInt        @id @default(autoincrement())
+  tenant_id             String        @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  notification_id       Int
+  event_type            String        @db.VarChar(40)
+  actor_uid             String?       @db.Uuid
+  actor_role            String?       @db.VarChar(80)
+  recipient_user_id     Int?
+  recipient_uid         String?       @db.Uuid
+  notification_type     String?       @db.VarChar(80)
+  notification_priority String?       @db.VarChar(40)
+  related_id            Int?
+  metadata              Json          @default("{}")
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
+  tenants               tenants       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_events_tenant")
+  notifications         notifications @relation(fields: [notification_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([notification_id, created_at(sort: Desc)], map: "idx_notification_events_notification_created")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_notification_events_tenant_created")
+  @@index([tenant_id, event_type, created_at(sort: Desc)], map: "idx_notification_events_tenant_type_created")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7737,13 +7767,15 @@ model staff_messages {
   tenant_id                 String                      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   thread_id                 String?                     @db.Uuid
   staff_message_attachments staff_message_attachments[]
-  staff_message_threads     staff_message_threads?      @relation(fields: [thread_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_staff_messages_thread")
   tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_messages_tenant")
+  staff_message_threads     staff_message_threads?      @relation(fields: [thread_id], references: [id], onUpdate: NoAction, map: "fk_staff_messages_thread")
 
   @@index([recipient_uid, created_at(sort: Desc)], map: "idx_staff_messages_recipient")
   @@index([sender_uid, created_at(sort: Desc)], map: "idx_staff_messages_sender")
   @@index([tenant_id], map: "idx_staff_messages_tenant_id")
   @@index([thread_id, created_at], map: "idx_staff_messages_thread")
+  @@index([created_at], map: "idx_staff_messages_created_at")
+  @@index([tenant_id, created_at], map: "idx_staff_messages_tenant_created")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7763,11 +7795,9 @@ model staff_message_threads {
   updated_at                        DateTime                            @default(now()) @db.Timestamptz(6)
   staff_message_attachments         staff_message_attachments[]
   staff_message_thread_participants staff_message_thread_participants[]
-  staff_messages                    staff_messages[]
   tenants                           tenants                             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_message_threads_tenant")
+  staff_messages                    staff_messages[]
 
-  @@index([admission_id], map: "idx_staff_message_threads_admission")
-  @@index([patient_uid], map: "idx_staff_message_threads_patient")
   @@index([tenant_id, last_message_at(sort: Desc)], map: "idx_staff_message_threads_tenant_last_message")
 }
 
@@ -7781,8 +7811,8 @@ model staff_message_thread_participants {
   urgent_only           Boolean               @default(false)
   created_at            DateTime              @default(now()) @db.Timestamptz(6)
   updated_at            DateTime              @default(now()) @db.Timestamptz(6)
-  staff_message_threads staff_message_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_staff_msg_participants_thread")
   tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_msg_participants_tenant")
+  staff_message_threads staff_message_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_staff_msg_participants_thread")
 
   @@id([thread_id, participant_uid])
   @@index([participant_uid, archived_at, updated_at(sort: Desc)], map: "idx_staff_message_threads_participant_lookup")
@@ -7790,24 +7820,23 @@ model staff_message_thread_participants {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model staff_message_attachments {
-  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id             String                 @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  thread_id             String                 @db.Uuid
+  id                    String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  thread_id             String                @db.Uuid
   message_id            Int?
-  uploaded_by_uid       String                 @db.Uuid
-  file_name             String                 @db.VarChar(255)
-  content_type          String                 @db.VarChar(120)
+  uploaded_by_uid       String                @db.Uuid
+  file_name             String                @db.VarChar(255)
+  content_type          String                @db.VarChar(120)
   file_size             Int
   storage_key           String
-  scan_status           String                 @default("pending") @db.VarChar(30)
-  metadata              Json                   @default("{}")
-  created_at            DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
-  staff_message_threads staff_message_threads  @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_staff_msg_attachments_thread")
-  staff_messages        staff_messages?        @relation(fields: [message_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_staff_msg_attachments_message")
-  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_msg_attachments_tenant")
+  scan_status           String                @default("pending") @db.VarChar(30)
+  metadata              Json                  @default("{}")
+  created_at            DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime              @default(now()) @db.Timestamptz(6)
+  staff_messages        staff_messages?       @relation(fields: [message_id], references: [id], onUpdate: NoAction, map: "fk_staff_msg_attachments_message")
+  tenants               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_msg_attachments_tenant")
+  staff_message_threads staff_message_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_staff_msg_attachments_thread")
 
-  @@index([message_id], map: "idx_staff_msg_attachments_message")
   @@index([thread_id, created_at(sort: Desc)], map: "idx_staff_msg_attachments_thread")
 }
 
@@ -8264,6 +8293,8 @@ model tenants {
   api_clients                                api_clients[]
   api_keys                                   api_keys[]
   appointment_documents                      appointment_documents[]
+  appointment_queue_status_history           appointment_queue_status_history[]
+  appointment_queues                         appointment_queues[]
   appointments                               appointments[]
   approvals                                  approvals[]
   automation_rules                           automation_rules[]
@@ -8274,6 +8305,10 @@ model tenants {
   care_plan_goals                            care_plan_goals[]
   care_plan_review_log                       care_plan_review_log[]
   care_plans                                 care_plans[]
+  care_team_member_status_history            care_team_member_status_history[]
+  care_team_members                          care_team_members[]
+  care_team_status_history                   care_team_status_history[]
+  care_teams                                 care_teams[]
   cds_alerts                                 cds_alerts[]
   chat_session_messages                      chat_session_messages[]
   chat_sessions                              chat_sessions[]
@@ -8406,6 +8441,11 @@ model tenants {
   knowledge_chunks                           knowledge_chunks[]
   knowledge_documents                        knowledge_documents[]
   knowledge_retrieval_logs                   knowledge_retrieval_logs[]
+  lab_analyzer_qc_runs                       lab_analyzer_qc_runs[]
+  lab_analyzer_status_history                lab_analyzer_status_history[]
+  lab_analyzers                              lab_analyzers[]
+  lab_specimen_status_history                lab_specimen_status_history[]
+  lab_specimens                              lab_specimens[]
   medical_records                            medical_records[]
   medication_administrations                 medication_administrations[]
   medication_reminders                       medication_reminders[]
@@ -8414,12 +8454,17 @@ model tenants {
   mfa_devices                                mfa_devices[]
   mlc_records                                mlc_records[]
   news2_scores                               news2_scores[]
+  notification_events                        notification_events[]
+  notifications                              notifications[]
   numbering_series                           numbering_series[]
   nurse_handovers                            nurse_handovers[]
   ot_schedules                               ot_schedules[]
   package_items                              package_items[]
   packages                                   packages[]
   pain_assessments                           pain_assessments[]
+  patient_access_audit_log                   patient_access_audit_log[]
+  patient_access_break_glass                 patient_access_break_glass[]
+  patient_access_break_glass_status_history  patient_access_break_glass_status_history[]
   patient_allergies                          patient_allergies[]
   patient_chat_conversations                 patient_chat_conversations[]
   patient_chat_messages                      patient_chat_messages[]
@@ -10039,8 +10084,14 @@ model lab_results {
   created_at           DateTime              @default(now()) @db.Timestamptz(6)
   updated_at           DateTime              @default(now()) @db.Timestamptz(6)
   investigation_id     Int?
+  specimen_id          Int?
+  analyzer_id          Int?
+  qc_run_id            Int?
   lab_critical_alerts  lab_critical_alerts[]
+  lab_analyzers        lab_analyzers?        @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
   investigations       investigations?       @relation(fields: [investigation_id], references: [id], onUpdate: NoAction)
+  lab_analyzer_qc_runs lab_analyzer_qc_runs? @relation(fields: [qc_run_id], references: [id], onUpdate: NoAction)
+  lab_specimens        lab_specimens?        @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
 
   @@index([patient_uid, received_at(sort: Desc)], map: "idx_lab_results_patient")
   @@index([panel_id], map: "idx_lab_results_panel")
@@ -12017,4 +12068,359 @@ model housekeeping_request_recipients {
   @@unique([request_id, staff_id], map: "housekeeping_request_recipients_unique")
   @@index([request_id], map: "idx_housekeeping_request_recipients_request")
   @@index([staff_id, request_id], map: "idx_housekeeping_request_recipients_staff")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model appointment_queue_status_history {
+  id                   Int                @id @default(autoincrement())
+  tenant_id            String             @db.Uuid
+  appointment_queue_id Int
+  from_status          String?            @db.VarChar(20)
+  to_status            String             @db.VarChar(20)
+  reason               String?
+  changed_by           String?            @db.Uuid
+  metadata             Json               @default("{}")
+  created_by           String?            @db.Uuid
+  updated_by           String?            @db.Uuid
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @default(now()) @db.Timestamptz(6)
+  appointment_queues   appointment_queues @relation(fields: [appointment_queue_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, appointment_queue_id, created_at(sort: Desc)], map: "idx_appointment_queue_status_history_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model appointment_queues {
+  id                               Int                                @id @default(autoincrement())
+  tenant_id                        String                             @db.Uuid
+  facility_id                      Int?
+  queue_date                       DateTime                           @db.Date
+  queue_kind                       String                             @default("op") @db.VarChar(40)
+  department_id                    Int?
+  department_name                  String?                            @db.VarChar(120)
+  doctor_id                        Int?
+  doctor_uid                       String?                            @db.Uuid
+  queue_label                      String?                            @db.VarChar(255)
+  status                           String                             @default("open") @db.VarChar(20)
+  capacity                         Int?
+  check_in_opens_at                DateTime?                          @db.Timestamptz(6)
+  check_in_closes_at               DateTime?                          @db.Timestamptz(6)
+  metadata                         Json                               @default("{}")
+  created_by                       String?                            @db.Uuid
+  updated_by                       String?                            @db.Uuid
+  created_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  appointment_queue_status_history appointment_queue_status_history[]
+  facilities                       facilities?                        @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
+  tenants                          tenants                            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  appointments                     appointments[]
+
+  @@index([tenant_id, queue_date, status, queue_kind], map: "idx_appointment_queues_date_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_team_member_status_history {
+  id                  Int               @id @default(autoincrement())
+  tenant_id           String            @db.Uuid
+  care_team_member_id Int
+  care_team_id        Int
+  from_status         String?           @db.VarChar(20)
+  to_status           String            @db.VarChar(20)
+  reason              String?
+  changed_by          String?           @db.Uuid
+  metadata            Json              @default("{}")
+  created_by          String?           @db.Uuid
+  updated_by          String?           @db.Uuid
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
+  care_teams          care_teams        @relation(fields: [care_team_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  care_team_members   care_team_members @relation(fields: [care_team_member_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, care_team_member_id, created_at(sort: Desc)], map: "idx_care_team_member_status_history_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_team_members {
+  id                              Int                               @id @default(autoincrement())
+  tenant_id                       String                            @db.Uuid
+  care_team_id                    Int
+  patient_uid                     String                            @db.Uuid
+  staff_uid                       String?                           @db.Uuid
+  staff_id                        Int?
+  staff_role                      String?                           @db.VarChar(80)
+  member_name                     String?                           @db.VarChar(255)
+  relationship_kind               String                            @default("care_team") @db.VarChar(50)
+  access_scope                    Json                              @default("{}")
+  break_glass_allowed             Boolean                           @default(false)
+  active_from                     DateTime                          @default(now()) @db.Timestamptz(6)
+  active_until                    DateTime?                         @db.Timestamptz(6)
+  status                          String                            @default("active") @db.VarChar(20)
+  notes                           String?
+  metadata                        Json                              @default("{}")
+  created_by                      String?                           @db.Uuid
+  updated_by                      String?                           @db.Uuid
+  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  care_team_member_status_history care_team_member_status_history[]
+  care_teams                      care_teams                        @relation(fields: [care_team_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, care_team_id, status, relationship_kind], map: "idx_care_team_members_team_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_team_status_history {
+  id           Int        @id @default(autoincrement())
+  tenant_id    String     @db.Uuid
+  care_team_id Int
+  from_status  String?    @db.VarChar(20)
+  to_status    String     @db.VarChar(20)
+  reason       String?
+  changed_by   String?    @db.Uuid
+  metadata     Json       @default("{}")
+  created_by   String?    @db.Uuid
+  updated_by   String?    @db.Uuid
+  created_at   DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime   @default(now()) @db.Timestamptz(6)
+  care_teams   care_teams @relation(fields: [care_team_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants      tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, care_team_id, created_at(sort: Desc)], map: "idx_care_team_status_history_team_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_teams {
+  id                              Int                               @id @default(autoincrement())
+  tenant_id                       String                            @db.Uuid
+  patient_uid                     String                            @db.Uuid
+  admission_id                    Int?
+  appointment_id                  Int?
+  team_kind                       String                            @default("longitudinal") @db.VarChar(40)
+  display_name                    String?                           @db.VarChar(255)
+  primary_department              String?                           @db.VarChar(120)
+  status                          String                            @default("active") @db.VarChar(20)
+  status_reason                   String?
+  metadata                        Json                              @default("{}")
+  created_by                      String?                           @db.Uuid
+  updated_by                      String?                           @db.Uuid
+  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  care_team_member_status_history care_team_member_status_history[]
+  care_team_members               care_team_members[]
+  care_team_status_history        care_team_status_history[]
+  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patient_access_audit_log        patient_access_audit_log[]
+
+  @@index([tenant_id, patient_uid, status, team_kind], map: "idx_care_teams_tenant_patient_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model lab_analyzer_qc_runs {
+  id              Int           @id @default(autoincrement())
+  tenant_id       String        @db.Uuid
+  analyzer_id     Int
+  qc_level        String        @default("normal") @db.VarChar(40)
+  qc_lot_number   String?       @db.VarChar(120)
+  result_status   String        @default("pending") @db.VarChar(20)
+  measured_values Json          @default("{}")
+  performed_at    DateTime      @default(now()) @db.Timestamptz(6)
+  performed_by    String?       @db.Uuid
+  reviewed_at     DateTime?     @db.Timestamptz(6)
+  reviewed_by     String?       @db.Uuid
+  notes           String?
+  raw_payload     Json          @default("{}")
+  metadata        Json          @default("{}")
+  created_by      String?       @db.Uuid
+  updated_by      String?       @db.Uuid
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
+  lab_analyzers   lab_analyzers @relation(fields: [analyzer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants         tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lab_results     lab_results[]
+
+  @@index([tenant_id, analyzer_id, performed_at(sort: Desc)], map: "idx_lab_qc_runs_analyzer_time")
+  @@index([tenant_id, result_status, performed_at(sort: Desc)], map: "idx_lab_qc_runs_result_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model lab_analyzer_status_history {
+  id            Int           @id @default(autoincrement())
+  tenant_id     String        @db.Uuid
+  analyzer_id   Int
+  from_status   String?       @db.VarChar(30)
+  to_status     String        @db.VarChar(30)
+  reason        String?
+  changed_by    String?       @db.Uuid
+  metadata      Json          @default("{}")
+  created_by    String?       @db.Uuid
+  updated_by    String?       @db.Uuid
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
+  lab_analyzers lab_analyzers @relation(fields: [analyzer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants       tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, analyzer_id, created_at(sort: Desc)], map: "idx_lab_analyzer_status_history_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model lab_analyzers {
+  id                          Int                           @id @default(autoincrement())
+  tenant_id                   String                        @db.Uuid
+  facility_id                 Int?
+  location_id                 Int?
+  analyzer_code               String                        @db.VarChar(120)
+  display_name                String                        @db.VarChar(255)
+  manufacturer                String?                       @db.VarChar(120)
+  model                       String?                       @db.VarChar(120)
+  serial_number               String?                       @db.VarChar(120)
+  interface_kind              String                        @default("manual") @db.VarChar(40)
+  status                      String                        @default("active") @db.VarChar(30)
+  last_qc_at                  DateTime?                     @db.Timestamptz(6)
+  metadata                    Json                          @default("{}")
+  created_by                  String?                       @db.Uuid
+  updated_by                  String?                       @db.Uuid
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  lab_analyzer_qc_runs        lab_analyzer_qc_runs[]
+  lab_analyzer_status_history lab_analyzer_status_history[]
+  facilities                  facilities?                   @relation(fields: [facility_id], references: [id], onUpdate: NoAction)
+  facility_locations          facility_locations?           @relation(fields: [location_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lab_results                 lab_results[]
+
+  @@unique([tenant_id, analyzer_code])
+  @@index([tenant_id, status, analyzer_code], map: "idx_lab_analyzers_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model lab_specimen_status_history {
+  id            Int           @id @default(autoincrement())
+  tenant_id     String        @db.Uuid
+  specimen_id   Int
+  from_status   String?       @db.VarChar(30)
+  to_status     String        @db.VarChar(30)
+  reason        String?
+  changed_by    String?       @db.Uuid
+  metadata      Json          @default("{}")
+  created_by    String?       @db.Uuid
+  updated_by    String?       @db.Uuid
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @default(now()) @db.Timestamptz(6)
+  lab_specimens lab_specimens @relation(fields: [specimen_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants       tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, specimen_id, created_at(sort: Desc)], map: "idx_lab_specimen_status_history_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model lab_specimens {
+  id                          Int                           @id @default(autoincrement())
+  tenant_id                   String                        @db.Uuid
+  specimen_uid                String                        @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patient_uid                 String                        @db.Uuid
+  booking_id                  Int?
+  accession_number            String                        @db.VarChar(120)
+  specimen_type               String                        @default("blood") @db.VarChar(40)
+  container_type              String?                       @db.VarChar(80)
+  collection_site             String?                       @db.VarChar(120)
+  priority                    String                        @default("routine") @db.VarChar(20)
+  status                      String                        @default("ordered") @db.VarChar(30)
+  status_reason               String?
+  collected_at                DateTime?                     @db.Timestamptz(6)
+  collected_by                String?                       @db.Uuid
+  received_at                 DateTime?                     @db.Timestamptz(6)
+  received_by                 String?                       @db.Uuid
+  rejected_at                 DateTime?                     @db.Timestamptz(6)
+  rejected_by                 String?                       @db.Uuid
+  rejection_reason            String?
+  metadata                    Json                          @default("{}")
+  created_by                  String?                       @db.Uuid
+  updated_by                  String?                       @db.Uuid
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  lab_results                 lab_results[]
+  lab_specimen_status_history lab_specimen_status_history[]
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, accession_number])
+  @@unique([tenant_id, specimen_uid])
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_lab_specimens_patient_time")
+  @@index([tenant_id, status, priority, created_at(sort: Desc)], map: "idx_lab_specimens_status_priority")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model patient_access_audit_log {
+  id                         Int                         @id @default(autoincrement())
+  tenant_id                  String                      @db.Uuid
+  patient_uid                String                      @db.Uuid
+  actor_uid                  String?                     @db.Uuid
+  actor_role                 String?                     @db.VarChar(80)
+  access_decision            String                      @db.VarChar(20)
+  access_source              String                      @db.VarChar(40)
+  reason                     String?
+  route                      String?                     @db.VarChar(255)
+  action                     String?                     @db.VarChar(120)
+  care_team_id               Int?
+  break_glass_id             Int?
+  request_id                 String?                     @db.VarChar(120)
+  metadata                   Json                        @default("{}")
+  created_by                 String?                     @db.Uuid
+  updated_by                 String?                     @db.Uuid
+  created_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  patient_access_break_glass patient_access_break_glass? @relation(fields: [break_glass_id], references: [id], onUpdate: NoAction)
+  care_teams                 care_teams?                 @relation(fields: [care_team_id], references: [id], onUpdate: NoAction)
+  tenants                    tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, access_decision, created_at(sort: Desc)], map: "idx_patient_access_audit_decision_time")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_patient_access_audit_patient_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model patient_access_break_glass {
+  id                                        Int                                         @id @default(autoincrement())
+  tenant_id                                 String                                      @db.Uuid
+  patient_uid                               String                                      @db.Uuid
+  actor_uid                                 String                                      @db.Uuid
+  actor_role                                String?                                     @db.VarChar(80)
+  reason                                    String
+  status                                    String                                      @default("active") @db.VarChar(20)
+  started_at                                DateTime                                    @default(now()) @db.Timestamptz(6)
+  expires_at                                DateTime?                                   @db.Timestamptz(6)
+  ended_at                                  DateTime?                                   @db.Timestamptz(6)
+  ended_by                                  String?                                     @db.Uuid
+  metadata                                  Json                                        @default("{}")
+  created_by                                String?                                     @db.Uuid
+  updated_by                                String?                                     @db.Uuid
+  created_at                                DateTime                                    @default(now()) @db.Timestamptz(6)
+  updated_at                                DateTime                                    @default(now()) @db.Timestamptz(6)
+  patient_access_audit_log                  patient_access_audit_log[]
+  tenants                                   tenants                                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patient_access_break_glass_status_history patient_access_break_glass_status_history[]
+
+  @@index([tenant_id, actor_uid, started_at(sort: Desc)], map: "idx_break_glass_actor_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model patient_access_break_glass_status_history {
+  id                         Int                        @id @default(autoincrement())
+  tenant_id                  String                     @db.Uuid
+  break_glass_id             Int
+  patient_uid                String                     @db.Uuid
+  actor_uid                  String                     @db.Uuid
+  from_status                String?                    @db.VarChar(20)
+  to_status                  String                     @db.VarChar(20)
+  reason                     String?
+  changed_by                 String?                    @db.Uuid
+  metadata                   Json                       @default("{}")
+  created_by                 String?                    @db.Uuid
+  updated_by                 String?                    @db.Uuid
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  patient_access_break_glass patient_access_break_glass @relation(fields: [break_glass_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, break_glass_id, created_at(sort: Desc)], map: "idx_break_glass_status_history_time")
 }

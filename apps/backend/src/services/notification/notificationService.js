@@ -7,6 +7,7 @@ import {
 } from '../../config/notificationConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { sendStaffNotifications } from './staffNotificationService.js';
 import { 
    
   buildNotificationQuery,
@@ -33,6 +34,13 @@ const query = async (sql, params = []) => {
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const ADMIN_NOTIFICATION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+const NOTIFICATION_EVENT_TYPES = new Set([
+  'delivered',
+  'read',
+  'acknowledged',
+  'escalated',
+  'auto_escalated',
+]);
 
 function normalizeTenant(tenantId) {
   return tenantId || DEFAULT_TENANT_ID;
@@ -44,6 +52,86 @@ function normalizeRole(role) {
 
 function isAdminNotificationRole(role) {
   return ADMIN_NOTIFICATION_ROLES.has(normalizeRole(role));
+}
+
+function normalizeEventType(value = 'read') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return NOTIFICATION_EVENT_TYPES.has(normalized) ? normalized : 'read';
+}
+
+function actorUid(user) {
+  const value = String(user?.uid || user?.sub || '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
+}
+
+function notificationTenant(row, user) {
+  return normalizeTenant(row?.tenant_id || user?.tenantId || user?.tenant_id);
+}
+
+function safeMetadata(metadata = {}) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {};
+  }
+  return metadata;
+}
+
+async function recordNotificationEvent({
+  notificationId,
+  eventType = 'read',
+  user = {},
+  notification = null,
+  metadata = {},
+} = {}) {
+  const id = Number.parseInt(String(notificationId || notification?.id || ''), 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('Valid notification ID required');
+  }
+
+  let row = notification;
+  if (!row) {
+    const rows = await query(
+      `SELECT id, tenant_id, uid, user_id, type, priority, related_id
+         FROM notifications
+        WHERE id = $1::int
+        LIMIT 1`,
+      [id],
+    );
+    row = rows[0];
+  }
+  if (!row) {
+    throw new Error('Notification not found');
+  }
+
+  const event = normalizeEventType(eventType);
+  const actorRole = normalizeRole(user?.role) || null;
+  const rows = await query(
+    `INSERT INTO notification_events
+       (tenant_id, notification_id, event_type, actor_uid, actor_role,
+        recipient_user_id, recipient_uid, notification_type,
+        notification_priority, related_id, metadata, created_at)
+     VALUES ($1::uuid, $2::int, $3, $4::uuid, $5,
+             $6::int, $7::uuid, $8, $9, $10::int, $11::jsonb, NOW())
+     RETURNING id, tenant_id, notification_id, event_type, actor_uid,
+               actor_role, recipient_user_id, recipient_uid,
+               notification_type, notification_priority, related_id,
+               metadata, created_at`,
+    [
+      notificationTenant(row, user),
+      id,
+      event,
+      actorUid(user),
+      actorRole,
+      row.user_id == null ? null : Number(row.user_id),
+      row.uid || null,
+      row.type || row.notification_type || null,
+      row.priority || row.notification_priority || null,
+      row.related_id == null ? null : Number(row.related_id),
+      JSON.stringify(safeMetadata(metadata)),
+    ],
+  );
+  return rows[0];
 }
 
 function offsetPlaceholders(sql, offset) {
@@ -322,7 +410,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       }
 
       const result = await query(`
-        SELECT n.id, n.phone, n.title, n.body AS message, n.type, n.is_read, n.data, n.created_at,
+        SELECT n.id, n.tenant_id, n.uid, n.phone, n.title, n.body AS message, n.type, n.is_read, n.data, n.created_at,
                n.user_id, n.read_at, n.scheduled_for, n.related_id, n.priority,
                u.name as recipient_name, u.phone as recipient_phone
                ${isAdminNotificationRole(userRole) ? ', u.email as recipient_email' : ''}
@@ -342,6 +430,13 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
             WHERE id = $1${accessQuery}`,
           params
         );
+        await recordNotificationEvent({
+          notificationId,
+          eventType: 'read',
+          user,
+          notification: result[0],
+          metadata: { source: 'detail_view' },
+        });
         result[0].is_read = true;
         result[0].read_at = new Date();
       }
@@ -398,7 +493,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       const sql = `
         SELECT n.id, n.user_id, n.phone, n.title, n.body AS message, n.type, n.priority, n.is_read,
-               n.created_at, n.read_at, n.scheduled_for,
+               n.created_at, n.read_at, n.scheduled_for, n.related_id,
                ${isAdminNotificationRole(userRole) ? 'n.data, u.name as recipient_name, u.phone as recipient_phone' : 'n.data, u.name as recipient_name'}
         FROM notifications n
         LEFT JOIN users u ON n.user_id = u.id
@@ -439,7 +534,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   /**
    * Mark notification as read
    */
-  async markNotificationAsRead(notificationId, user) {
+  async markNotificationAsRead(notificationId, user, options = {}) {
     try {
       const userRole = normalizeRole(user?.role);
       let accessCondition = '';
@@ -454,20 +549,239 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       const result = await query(`
         UPDATE notifications n SET
           is_read = true,
-          read_at = NOW()
+          read_at = COALESCE(read_at, NOW())
         WHERE n.id = $1${accessCondition}
-        RETURNING id, title, is_read, read_at
+        RETURNING id, tenant_id, uid, user_id, title, type, priority,
+                  related_id, is_read, read_at
       `, params);
 
       if (result.length === 0) {
         throw new Error('Notification not found or access denied');
       }
 
+      await recordNotificationEvent({
+        notificationId,
+        eventType: options.eventType || 'read',
+        user,
+        notification: result[0],
+        metadata: options.metadata || {},
+      });
+
       return result[0];
     } catch (error) {
       logger.error('Error marking notification as read:', error.message);
       throw error;
     }
+  },
+
+  /**
+   * Explicit acknowledgement: used by Staff Alerts and tracked separately
+   * from passive "opened/read" events.
+   */
+  async acknowledgeNotification(notificationId, user, metadata = {}) {
+    return notificationService.markNotificationAsRead(notificationId, user, {
+      eventType: 'acknowledged',
+      metadata: {
+        source: 'staff_alerts',
+        ...safeMetadata(metadata),
+      },
+    });
+  },
+
+  async getNotificationEventHistory(notificationId, user) {
+    try {
+      const userRole = normalizeRole(user?.role);
+      let accessQuery = '';
+      const params = [notificationId];
+
+      if (!isAdminNotificationRole(userRole)) {
+        const own = await buildOwnNotificationCondition(user, 'n', 2);
+        accessQuery = ` AND ${own.condition} AND n.tenant_id = $${own.nextIndex}::uuid`;
+        params.push(...own.params, own.current.tenant_id);
+      }
+
+      const rows = await query(
+        `SELECT e.id, e.tenant_id, e.notification_id, e.event_type,
+                e.actor_uid, e.actor_role, e.recipient_user_id,
+                e.recipient_uid, e.notification_type,
+                e.notification_priority, e.related_id, e.metadata,
+                e.created_at, n.title
+           FROM notification_events e
+           JOIN notifications n ON n.id = e.notification_id
+          WHERE e.notification_id = $1::int${accessQuery}
+          ORDER BY e.created_at DESC, e.id DESC
+          LIMIT 100`,
+        params,
+      );
+
+      return {
+        events: rows,
+        count: rows.length,
+        notification_id: Number(notificationId),
+      };
+    } catch (error) {
+      logger.error('Error getting notification event history:', error.message);
+      throw error;
+    }
+  },
+
+  async getNotificationEventList(filters = {}, user = {}) {
+    try {
+      if (!isAdminNotificationRole(user?.role)) {
+        throw new Error('Access denied: Admin privileges required');
+      }
+
+      const limit = Math.min(Math.max(Number.parseInt(filters.limit, 10) || 100, 1), 200);
+      const offset = Math.max(Number.parseInt(filters.offset, 10) || 0, 0);
+      const conditions = ['1=1'];
+      const params = [];
+
+      if (filters.event_type) {
+        params.push(normalizeEventType(filters.event_type));
+        conditions.push(`e.event_type = $${params.length}`);
+      }
+      if (filters.type) {
+        params.push(String(filters.type).trim().toUpperCase());
+        conditions.push(`UPPER(e.notification_type) = $${params.length}`);
+      }
+      if (filters.priority) {
+        params.push(String(filters.priority).trim().toUpperCase());
+        conditions.push(`UPPER(e.notification_priority) = $${params.length}`);
+      }
+      if (filters.search) {
+        params.push(`%${String(filters.search).trim()}%`);
+        conditions.push(`(n.title ILIKE $${params.length} OR n.body ILIKE $${params.length} OR e.event_type ILIKE $${params.length})`);
+      }
+
+      const sql = `
+        SELECT e.id, e.tenant_id, e.notification_id, e.event_type,
+               e.actor_uid, e.actor_role, e.recipient_user_id,
+               e.recipient_uid, e.notification_type,
+               e.notification_priority, e.related_id, e.metadata,
+               e.created_at, n.title, n.body AS message, n.is_read,
+               n.read_at, u.name AS recipient_name, u.role AS recipient_role
+          FROM notification_events e
+          JOIN notifications n ON n.id = e.notification_id
+          LEFT JOIN users u ON u.id = e.recipient_user_id
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY e.created_at DESC, e.id DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+
+      const rows = await query(sql, [...params, limit, offset]);
+      const countRows = await query(
+        `SELECT COUNT(*)::int AS total
+           FROM notification_events e
+           JOIN notifications n ON n.id = e.notification_id
+          WHERE ${conditions.join(' AND ')}`,
+        params,
+      );
+
+      return {
+        events: rows,
+        count: rows.length,
+        total: Number(countRows[0]?.total || 0),
+        limit,
+        offset,
+        filters,
+      };
+    } catch (error) {
+      logger.error('Error getting notification event list:', error.message);
+      throw error;
+    }
+  },
+
+  async runUnreadCriticalEscalation(options = {}) {
+    const ageMinutes = Math.max(
+      Number.parseInt(options.ageMinutes ?? process.env.CRITICAL_NOTIFICATION_ESCALATION_MINUTES, 10) || 15,
+      1,
+    );
+    const tenantFilter = options.tenantId ? 'AND n.tenant_id = $2::uuid' : '';
+    const params = options.tenantId ? [ageMinutes, options.tenantId] : [ageMinutes];
+
+    const rows = await query(
+      `WITH candidates AS (
+          SELECT n.id, n.tenant_id, n.uid, n.user_id, n.type,
+                 n.priority, n.related_id, n.title, n.created_at
+            FROM notifications n
+           WHERE n.is_read = false
+             AND n.created_at <= (NOW() - ($1::int * INTERVAL '1 minute'))
+             ${tenantFilter}
+             AND (
+               UPPER(COALESCE(n.priority, '')) IN ('HIGH', 'CRITICAL')
+               OR UPPER(COALESCE(n.type, '')) LIKE '%CRITICAL%'
+               OR UPPER(COALESCE(n.type, '')) LIKE '%EMERGENCY%'
+               OR UPPER(COALESCE(n.type, '')) LIKE '%SOS%'
+               OR UPPER(COALESCE(n.type, '')) LIKE '%CODE_BLUE%'
+               OR UPPER(COALESCE(n.type, '')) LIKE '%LAB_ALERT%'
+             )
+             AND UPPER(COALESCE(n.type, '')) <> 'CRITICAL_ALERT_ESCALATION'
+             AND NOT EXISTS (
+               SELECT 1
+                 FROM notification_events e
+                WHERE e.notification_id = n.id
+                  AND e.event_type IN ('auto_escalated', 'escalated', 'acknowledged')
+             )
+        ),
+        inserted AS (
+          INSERT INTO notification_events
+            (tenant_id, notification_id, event_type, actor_uid, actor_role,
+             recipient_user_id, recipient_uid, notification_type,
+             notification_priority, related_id, metadata, created_at)
+          SELECT c.tenant_id, c.id, 'auto_escalated', NULL::uuid, 'SYSTEM',
+                 c.user_id, c.uid, c.type, c.priority, c.related_id,
+                 jsonb_build_object(
+                   'reason', 'unread_critical_alert',
+                   'age_minutes', $1::int,
+                   'created_at', c.created_at,
+                   'title', c.title
+                 ),
+                 NOW()
+            FROM candidates c
+          RETURNING id, tenant_id, notification_id, notification_type,
+                    notification_priority, related_id, metadata, created_at
+        )
+        SELECT * FROM inserted
+        ORDER BY created_at DESC`,
+      params,
+    );
+
+    if (!rows.length || options.notifyAdmins === false) {
+      return { escalated_count: rows.length, events: rows };
+    }
+
+    const byTenant = rows.reduce((acc, row) => {
+      const key = row.tenant_id || DEFAULT_TENANT_ID;
+      if (!acc.has(key)) acc.set(key, []);
+      acc.get(key).push(row);
+      return acc;
+    }, new Map());
+
+    for (const [tenantId, tenantRows] of byTenant.entries()) {
+      await sendStaffNotifications({
+        tenantId,
+        recipientRoles: ['ADMIN', 'SUPER_ADMIN'],
+        title: 'Unread critical alert escalation',
+        body: `${tenantRows.length} critical alert${tenantRows.length === 1 ? '' : 's'} remain unread beyond ${ageMinutes} minutes.`,
+        type: 'CRITICAL_ALERT_ESCALATION',
+        priority: 'HIGH',
+        data: {
+          route: '/notifications',
+          event_type: 'critical_alert_escalation',
+          notification_ids: tenantRows.map((row) => row.notification_id),
+          escalation_event_ids: tenantRows.map((row) => row.id),
+          age_minutes: ageMinutes,
+        },
+        dedupe: false,
+      }).catch((err) => {
+        logger.warn('Critical notification admin escalation fan-out failed', {
+          tenantId,
+          error: err?.message || err,
+        });
+      });
+    }
+
+    return { escalated_count: rows.length, events: rows };
   },
 
   /**
@@ -507,16 +821,35 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
     try {
       const own = await buildOwnNotificationCondition(user, 'n', 1);
       const result = await query(`
-        UPDATE notifications n
+        WITH updated AS (
+          UPDATE notifications n
            SET is_read = true,
                read_at = COALESCE(read_at, NOW())
-         WHERE ${own.condition}
-           AND n.tenant_id = $${own.nextIndex}::uuid
-           AND n.is_read = false
-      `, [...own.params, own.current.tenant_id]);
+          WHERE ${own.condition}
+            AND n.tenant_id = $${own.nextIndex}::uuid
+            AND n.is_read = false
+          RETURNING n.id, n.tenant_id, n.uid, n.user_id, n.type,
+                    n.priority, n.related_id
+        )
+        INSERT INTO notification_events
+          (tenant_id, notification_id, event_type, actor_uid, actor_role,
+           recipient_user_id, recipient_uid, notification_type,
+           notification_priority, related_id, metadata, created_at)
+        SELECT tenant_id, id, 'read', $${own.nextIndex + 1}::uuid, $${own.nextIndex + 2},
+               user_id, uid, type, priority, related_id,
+               $${own.nextIndex + 3}::jsonb, NOW()
+          FROM updated
+        RETURNING notification_id
+      `, [
+        ...own.params,
+        own.current.tenant_id,
+        actorUid(user),
+        normalizeRole(user?.role) || null,
+        JSON.stringify({ source: 'mark_all_mine' }),
+      ]);
 
       return {
-        updated_count: result.rowCount || 0,
+        updated_count: result.length || 0,
         user_id: own.current.id,
       };
     } catch (error) {
@@ -854,6 +1187,10 @@ export class NotificationService {
   static getNotificationById = notificationService.getNotificationById;
   static getNotificationList = notificationService.getNotificationList;
   static markNotificationAsRead = notificationService.markNotificationAsRead;
+  static acknowledgeNotification = notificationService.acknowledgeNotification;
+  static getNotificationEventHistory = notificationService.getNotificationEventHistory;
+  static getNotificationEventList = notificationService.getNotificationEventList;
+  static runUnreadCriticalEscalation = notificationService.runUnreadCriticalEscalation;
   static markAllAsReadByPhone = notificationService.markAllAsReadByPhone;
   static markAllMineAsRead = notificationService.markAllMineAsRead;
   static markAllAsReadByUserId = notificationService.markAllAsReadByUserId;
@@ -873,6 +1210,10 @@ export const getNotificationsByUserId = notificationService.getNotificationsByUs
 export const getNotificationById = notificationService.getNotificationById;
 export const getNotificationList = notificationService.getNotificationList;
 export const markNotificationAsRead = notificationService.markNotificationAsRead;
+export const acknowledgeNotification = notificationService.acknowledgeNotification;
+export const getNotificationEventHistory = notificationService.getNotificationEventHistory;
+export const getNotificationEventList = notificationService.getNotificationEventList;
+export const runUnreadCriticalEscalation = notificationService.runUnreadCriticalEscalation;
 export const markAllAsReadByPhone = notificationService.markAllAsReadByPhone;
 export const markAllMineAsRead = notificationService.markAllMineAsRead;
 export const markAllAsReadByUserId = notificationService.markAllAsReadByUserId;

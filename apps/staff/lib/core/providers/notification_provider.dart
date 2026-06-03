@@ -65,12 +65,46 @@ class NotificationItem {
       normalizedType.contains('EMERGENCY') ||
       normalizedType.contains('SOS');
 
+  bool get isAppointmentAlert =>
+      _hasAny(normalizedType, const ['APPOINTMENT', 'BOOKING', 'QUEUE']);
+
+  bool get isAdmissionAlert =>
+      _hasAny(normalizedType, const ['ADMISSION', 'IPD']);
+
+  bool get isBedAlert =>
+      _hasAny(normalizedType, const ['BED', 'CLEANING']);
+
+  bool get isHousekeepingAlert => normalizedType.contains('HOUSEKEEPING');
+
+  bool get isInvestigationAlert => _hasAny(normalizedType, const [
+    'LAB',
+    'INVESTIGATION',
+    'CRITICAL_VALUE',
+    'RADIOLOGY',
+  ]);
+
   String? get actionRoute {
     final explicit = data['route']?.toString().trim();
     if (explicit != null && explicit.isNotEmpty) {
       return _normalizeStaffRoute(explicit);
     }
     return _defaultRouteForType(normalizedType);
+  }
+
+  String get actionLabel {
+    final explicit = data['action_label']?.toString().trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    if (isAppointmentAlert) return 'Open appointment';
+    if (isAdmissionAlert) return 'Open admission';
+    if (isHousekeepingAlert) return 'Open housekeeping task';
+    if (isBedAlert) return 'Open bed';
+    if (isInvestigationAlert) return 'Open investigation';
+    if (normalizedType.contains('PATIENT')) return 'Open patient';
+    if (normalizedType.contains('PHARMACY') ||
+        normalizedType.contains('MEDICATION')) {
+      return 'Open pharmacy';
+    }
+    return 'Open';
   }
 }
 
@@ -198,6 +232,21 @@ class NotificationProvider extends ChangeNotifier {
     }
   }
 
+  /// Explicitly acknowledge a workflow alert. This also marks it read locally.
+  Future<void> acknowledge(NotificationItem item) async {
+    final id = item.id;
+    item.isRead = true;
+    notifyListeners();
+
+    if (id == null || id.isEmpty) return;
+
+    try {
+      await HrApiService.acknowledgeNotification(id);
+    } catch (e) {
+      debugPrint('❌ Error acknowledging notification: $e');
+    }
+  }
+
   /// Mark all notifications as read
   Future<void> markAllRead() async {
     for (final n in _notifications) {
@@ -211,6 +260,10 @@ class NotificationProvider extends ChangeNotifier {
       debugPrint('❌ Error marking notifications as read: $e');
     }
   }
+}
+
+bool _hasAny(String source, List<String> needles) {
+  return needles.any((needle) => source.contains(needle));
 }
 
 Map<String, dynamic> _parseDataMap(dynamic raw) {
@@ -230,8 +283,8 @@ String? _defaultRouteForType(String type) {
   final t = type.toUpperCase();
   if (t.contains('APPOINTMENT') || t == 'BOOKING') return '/appointments';
   if (t.contains('ADMISSION')) return '/emr/admissions';
-  if (t.contains('BED') || t.contains('CLEANING')) return '/beds';
   if (t.contains('HOUSEKEEPING')) return '/housekeeping-tasks';
+  if (t.contains('BED') || t.contains('CLEANING')) return '/beds';
   if (t.contains('HANDOVER')) return '/handover';
   if (t.contains('LAB') ||
       t.contains('INVESTIGATION') ||

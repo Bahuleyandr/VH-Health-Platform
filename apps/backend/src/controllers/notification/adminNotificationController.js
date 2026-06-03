@@ -62,6 +62,33 @@ export const adminNotificationController = {
   },
 
   /**
+   * Get read / acknowledgement / escalation activity for notifications.
+   */
+  getEventList: async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
+    }
+
+    try {
+      const result = await adminNotificationService.getEventList(req.query, req.user);
+
+      await logAudit(req, 'notification-event-history-viewed', {
+        count: result.count,
+        filters: req.query,
+      });
+
+      success(res, result, 'Notification event history retrieved successfully');
+    } catch (err) {
+      logger.error('Error in getEventList:', err.message);
+      if (err.message.includes('Access denied')) {
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
+      }
+      error(res, 'Failed to retrieve notification event history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+  },
+
+  /**
    * Get notification templates
    */
   getTemplates: async (req, res) => {

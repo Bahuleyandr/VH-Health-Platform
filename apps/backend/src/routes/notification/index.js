@@ -51,12 +51,14 @@ wrapAutoRBAC(router, 'notificationRoutes', {
     ['/:phone', notificationRoutes],
     ['/user/:user_id', notificationRoutes],
     ['/detail/:id', notificationRoutes],
+    ['/detail/:id/events', notificationRoutes],
     ['/list', notificationRoutes]
   ],
   patch: [
     // Mark notifications as read
     ['/my/mark-all-read', notificationRoutes],
     ['/:id/read', notificationRoutes],
+    ['/:id/acknowledge', notificationRoutes],
     ['/:phone/mark-all-read', notificationRoutes],
     ['/user/:user_id/read-all', notificationRoutes]
   ]

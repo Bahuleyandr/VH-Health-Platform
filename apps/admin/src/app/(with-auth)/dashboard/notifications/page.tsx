@@ -13,7 +13,35 @@ import { AnnouncementBannerManager } from "./components/AnnouncementBannerManage
 
 const normalizeNotifications = normalizeList<Notification>("notifications");
 
-type Tab = "compose" | "history" | "scheduled" | "banner";
+type Tab = "compose" | "history" | "activity" | "scheduled" | "banner";
+
+type NotificationEvent = {
+  id: number;
+  notification_id: number;
+  event_type: string;
+  actor_uid?: string | null;
+  actor_role?: string | null;
+  notification_type?: string | null;
+  notification_priority?: string | null;
+  related_id?: number | null;
+  title?: string | null;
+  message?: string | null;
+  recipient_name?: string | null;
+  recipient_role?: string | null;
+  created_at: string;
+};
+
+function unwrap<T>(value: unknown): T {
+  return ((value as { data?: T }).data ?? value) as T;
+}
+
+function eventLabel(value: string | null | undefined) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
 
 function NotificationsContent() {
   const queryClient = useQueryClient();
@@ -34,14 +62,31 @@ function NotificationsContent() {
     },
   });
 
+  const {
+    data: notificationEvents = [],
+    isLoading: eventsLoading,
+    error: eventsError,
+  } = useQuery({
+    queryKey: ["notifications", "events"],
+    queryFn: async () => {
+      const resp = await fetchAdminAPI<unknown>(
+        "/notifications/admin/events?limit=100",
+      );
+      const data = unwrap<{ events?: NotificationEvent[] }>(resp);
+      return Array.isArray(data.events) ? data.events : [];
+    },
+  });
+
   const handleNotificationSent = () => {
     queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["notifications", "events"] });
     queryClient.invalidateQueries({ queryKey: ["scheduled-notifications"] });
   };
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "compose", label: "Compose", icon: "✏️" },
     { key: "history", label: "History", icon: "📜" },
+    { key: "activity", label: "Activity", icon: "✓" },
     { key: "scheduled", label: "Scheduled", icon: "⏰" },
     { key: "banner", label: "Banner", icon: "📢" },
   ];
@@ -88,6 +133,28 @@ function NotificationsContent() {
         </div>
       )}
 
+      {activeTab === "activity" && (
+        <div>
+          <h3 className="text-lg font-semibold mb-4">
+            Alert Read / Ack / Escalation Activity
+          </h3>
+          {eventsLoading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          ) : eventsError ? (
+            <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
+              Error:{" "}
+              {eventsError instanceof Error
+                ? eventsError.message
+                : "Failed to fetch"}
+            </div>
+          ) : (
+            <NotificationActivityTable events={notificationEvents} />
+          )}
+        </div>
+      )}
+
       {activeTab === "scheduled" && <ScheduledNotifications />}
       {activeTab === "banner" && <AnnouncementBannerManager />}
     </>
@@ -101,6 +168,89 @@ export default function NotificationsPage() {
       <Suspense fallback={<div>Loading...</div>}>
         <NotificationsContent />
       </Suspense>
+    </div>
+  );
+}
+
+function NotificationActivityTable({ events }: { events: NotificationEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+        No notification read, acknowledge, or escalation activity yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card shadow rounded-lg overflow-hidden border border-border">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] divide-y divide-border">
+          <thead className="bg-muted">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                When
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                Event
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                Alert
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                Priority
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                Actor
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                Recipient
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {events.map((event) => (
+              <tr key={event.id} className="hover:bg-muted/40">
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">
+                  {new Date(event.created_at).toLocaleString("en-GB")}
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                  {eventLabel(event.event_type)}
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  <div className="font-medium text-foreground">
+                    {event.title || `Notification #${event.notification_id}`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {eventLabel(event.notification_type)}{" "}
+                    {event.related_id ? `#${event.related_id}` : ""}
+                  </div>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm">
+                  <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold">
+                    {event.notification_priority || "—"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  {event.actor_role || "System"}
+                  {event.actor_uid && (
+                    <div className="text-xs text-muted-foreground">
+                      {event.actor_uid}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  {event.recipient_name || "—"}
+                  {event.recipient_role && (
+                    <div className="text-xs text-muted-foreground">
+                      {event.recipient_role}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

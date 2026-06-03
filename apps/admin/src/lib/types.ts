@@ -92,10 +92,17 @@ export interface Notification {
   id: number;
   title: string;
   body: string;
+  message?: string;
   type: string;
   created_at: string; // ISO date string
   recipient_id?: number;
   is_read?: boolean;
+  priority?: string;
+  related_id?: number | null;
+  last_acknowledged_at?: string | null;
+  last_acknowledged_by_role?: string | null;
+  escalation_count?: number;
+  last_escalated_at?: string | null;
 }
 
 export interface SystemSetting {

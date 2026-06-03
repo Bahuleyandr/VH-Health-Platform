@@ -17,7 +17,8 @@ enum _AlertFilter {
   appointments,
   admissions,
   beds,
-  labs,
+  housekeeping,
+  investigations,
 }
 
 class NotificationsScreen extends StatefulWidget {
@@ -69,6 +70,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     await context.read<NotificationProvider>().markRead(item);
   }
 
+  Future<void> _acknowledge(NotificationItem item) async {
+    final id = item.id;
+    if (id != null && id.isNotEmpty) {
+      setState(() => _locallyReadIds.add(id));
+    }
+    await context.read<NotificationProvider>().acknowledge(item);
+  }
+
   Future<void> _openAlert(NotificationItem item) async {
     await _markRead(item);
     if (!mounted) return;
@@ -98,28 +107,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   bool _matchesFilter(NotificationItem item) {
-    final type = item.normalizedType;
     final read = _isRead(item);
     return switch (_filter) {
       _AlertFilter.all => true,
       _AlertFilter.unread => !read,
       _AlertFilter.critical => item.isHighPriority,
-      _AlertFilter.appointments => _hasAny(type, const [
-        'APPOINTMENT',
-        'BOOKING',
-        'QUEUE',
-      ]),
-      _AlertFilter.admissions => _hasAny(type, const ['ADMISSION', 'IPD']),
-      _AlertFilter.beds => _hasAny(type, const [
-        'BED',
-        'CLEANING',
-        'HOUSEKEEPING',
-      ]),
-      _AlertFilter.labs => _hasAny(type, const [
-        'LAB',
-        'INVESTIGATION',
-        'CRITICAL_VALUE',
-      ]),
+      _AlertFilter.appointments => item.isAppointmentAlert,
+      _AlertFilter.admissions => item.isAdmissionAlert,
+      _AlertFilter.beds => item.isBedAlert,
+      _AlertFilter.housekeeping => item.isHousekeepingAlert,
+      _AlertFilter.investigations => item.isInvestigationAlert,
     };
   }
 
@@ -133,8 +130,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return Icons.calendar_month;
     }
     if (_hasAny(type, const ['ADMISSION', 'IPD'])) return Icons.local_hospital;
-    if (_hasAny(type, const ['BED', 'CLEANING'])) return Icons.bed;
     if (type.contains('HOUSEKEEPING')) return Icons.cleaning_services;
+    if (_hasAny(type, const ['BED', 'CLEANING'])) return Icons.bed;
     if (type.contains('HANDOVER')) return Icons.swap_horiz;
     if (_hasAny(type, const ['LAB', 'INVESTIGATION', 'CRITICAL_VALUE'])) {
       return Icons.biotech;
@@ -159,9 +156,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (_hasAny(type, const ['ADMISSION', 'IPD'])) {
       return const Color(0xFF1565C0);
     }
-    if (_hasAny(type, const ['BED', 'CLEANING', 'HOUSEKEEPING'])) {
-      return const Color(0xFF00796B);
-    }
+    if (type.contains('HOUSEKEEPING')) return const Color(0xFF00796B);
+    if (_hasAny(type, const ['BED', 'CLEANING'])) return const Color(0xFF00695C);
     if (type.contains('HANDOVER')) return const Color(0xFF00695C);
     if (_hasAny(type, const ['LAB', 'INVESTIGATION', 'CRITICAL_VALUE'])) {
       return const Color(0xFFC62828);
@@ -181,8 +177,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       _AlertFilter.critical => 'Critical',
       _AlertFilter.appointments => 'Appointments',
       _AlertFilter.admissions => 'Admissions',
-      _AlertFilter.beds => 'Beds & HK',
-      _AlertFilter.labs => 'Labs',
+      _AlertFilter.beds => 'Beds',
+      _AlertFilter.housekeeping => 'Housekeeping',
+      _AlertFilter.investigations => 'Investigations',
     };
   }
 
@@ -452,7 +449,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ),
                         if (!isRead)
                           TextButton.icon(
-                            onPressed: () => _markRead(item),
+                            onPressed: () => _acknowledge(item),
                             icon: const Icon(Icons.done, size: 16),
                             label: const Text('Acknowledge'),
                           ),
@@ -460,7 +457,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           FilledButton.tonalIcon(
                             onPressed: () => _openAlert(item),
                             icon: const Icon(Icons.open_in_new, size: 16),
-                            label: const Text('Open'),
+                            label: Text(item.actionLabel),
                           ),
                       ],
                     ),

@@ -14,6 +14,7 @@ import {
   processTemplate,
   formatNotificationResponse 
 } from '../../utils/notification/notificationHelpers.js';
+import { notificationService } from './notificationService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
@@ -125,10 +126,25 @@ export const adminNotificationService = {
       // the phone matches a registered user.
       let sql = `
         SELECT n.id, n.title, n.body AS message, n.type, n.priority, n.is_read,
-               n.created_at, n.read_at, n.scheduled_for, n.phone,
+               n.created_at, n.read_at, n.scheduled_for, n.phone, n.data,
+               n.related_id,
+               ack.last_acknowledged_at,
+               ack.last_acknowledged_by_role,
+               ack.escalation_count,
+               ack.last_escalated_at,
                u.name as recipient_name, u.phone as recipient_phone, u.role as recipient_role
         FROM notifications n
         LEFT JOIN users u ON n.phone = u.phone
+        LEFT JOIN LATERAL (
+          SELECT
+            MAX(e.created_at) FILTER (WHERE e.event_type = 'acknowledged') AS last_acknowledged_at,
+            (ARRAY_AGG(e.actor_role ORDER BY e.created_at DESC)
+              FILTER (WHERE e.event_type = 'acknowledged'))[1] AS last_acknowledged_by_role,
+            COUNT(*) FILTER (WHERE e.event_type IN ('auto_escalated', 'escalated'))::int AS escalation_count,
+            MAX(e.created_at) FILTER (WHERE e.event_type IN ('auto_escalated', 'escalated')) AS last_escalated_at
+          FROM notification_events e
+          WHERE e.notification_id = n.id
+        ) ack ON true
         WHERE 1=1
       `;
 
@@ -157,6 +173,10 @@ export const adminNotificationService = {
       logger.error('Error getting management list:', error.message);
       throw error;
     }
+  },
+
+  async getEventList(filters, user) {
+    return notificationService.getNotificationEventList(filters, user);
   },
 
   /**

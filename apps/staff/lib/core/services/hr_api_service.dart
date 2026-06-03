@@ -768,6 +768,11 @@ class HrApiService {
     await ApiClient.patch('/notifications/$id/read');
   }
 
+  /// PATCH /notifications/:id/acknowledge
+  static Future<void> acknowledgeNotification(String id) async {
+    await ApiClient.patch('/notifications/$id/acknowledge');
+  }
+
   // ─── Device Registration ──────────────────────────────────────────────────
 
   /// POST /devices/register — register FCM token
