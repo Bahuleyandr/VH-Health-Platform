@@ -40,7 +40,7 @@ const envSchema = Joi.object({
   GOOGLE_APPLICATION_CREDENTIALS: Joi.string().optional().label('GOOGLE_APPLICATION_CREDENTIALS'),
 
   // Monitoring — optional but warn if missing
-  SENTRY_DSN: Joi.string().optional().label('SENTRY_DSN'),
+  SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),
 
   // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
   // Each key protects a different class of data and MUST be rotated independently.
