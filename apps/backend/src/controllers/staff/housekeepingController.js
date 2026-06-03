@@ -1369,6 +1369,20 @@ export const adminCreateRequest = async (req, res) => {
 
     const slaMinutes = { urgent: 30, high: 60, normal: 120, low: 240 }[urgency] ?? 120;
     const sla_due_at = new Date(Date.now() + slaMinutes * 60 * 1000).toISOString();
+    const rosterRecipients = await resolveHousekeepingRecipientsForTarget({
+      zoneId: zone_id || null,
+    });
+    const recipients = [
+      ...(assignedUser
+        ? [{
+            id: assignedUser.id,
+            uid: assignedUser.uid,
+            recipient_kind: 'assigned_staff',
+            source: 'admin_assignment',
+          }]
+        : []),
+      ...rosterRecipients,
+    ];
 
     const result = await prisma.$queryRawUnsafe(
       `
@@ -1396,6 +1410,22 @@ export const adminCreateRequest = async (req, res) => {
       assigned_to ? admin.uid : null,
       sla_due_at
     );
+
+    await fanOutHousekeepingRequest({
+      requestId: result[0].id,
+      recipients,
+      title: 'Housekeeping request raised',
+      body: `${String(urgency).toUpperCase()} ${request_type} request for ${location_text || 'assigned area'}.`,
+      urgency,
+      data: {
+        housekeeping_request_id: result[0].id,
+        request_number: result[0].request_number,
+        zone_id: zone_id || null,
+        request_type,
+        source: 'housekeeping_admin_request',
+      },
+      updateMessage: `Request ${result[0].request_number} routed to ${recipients.length} housekeeping recipient(s).`,
+    });
 
     success(res, result[0], `Request ${result[0].request_number} created`);
   } catch (err) {

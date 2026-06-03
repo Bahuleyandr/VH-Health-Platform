@@ -32,6 +32,7 @@ import {
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
+import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
   applyInpatientAdmissionScope,
@@ -1163,6 +1164,34 @@ async function admitPatient(data) {
         logger.warn(`admitPatient: preauth auto-create failed for admission ${admission.id}: ${e.message}`);
       }
     }
+  }
+
+  try {
+    const patientLabel = admission.patient_name || admission.patient_hospital_number || 'Patient';
+    const bedLabel = [admission.ward, admission.bed_number].filter(Boolean).join(' / ');
+    await sendStaffNotifications({
+      tenantId: admission.tenant_id || tenant_id,
+      recipientUids: [admission.admitting_doctor, admission.attending_doctor].filter(Boolean),
+      recipientRoles: ['NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE', 'ICU_INCHARGE'],
+      title: 'New IP admission',
+      body: `${patientLabel} admitted${bedLabel ? ` to ${bedLabel}` : ''}.`,
+      type: 'ADMISSION_CREATED',
+      priority: ['emergency', 'urgent'].includes(String(priority || '').toLowerCase()) ? 'HIGH' : 'MEDIUM',
+      relatedId: admission.id,
+      data: {
+        admission_id: admission.id,
+        patient_uid: admission.patient_uid,
+        patient_name: admission.patient_name,
+        bed_id: admission.bed_id,
+        bed_number: admission.bed_number,
+        ward: admission.ward,
+        admission_type: admission.admission_type,
+        route: '/admissions',
+      },
+      dedupe: true,
+    });
+  } catch (e) {
+    logger.warn(`admitPatient: staff notification failed for admission ${admission.id}: ${e.message}`);
   }
 
   return admission;

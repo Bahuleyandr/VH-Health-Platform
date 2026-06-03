@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { sendAppointmentReminderSMS } from '../../services/smsService.js';
+import { sendStaffNotifications } from '../../services/notification/staffNotificationService.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
 
@@ -41,12 +42,14 @@ async function sendTimedRemindersInner() {
           AND a.reminder_24h_sent IS NOT TRUE
       `, in23h, in24h),
       prisma.$queryRawUnsafe(`
-        SELECT a.id, a.appointment_time, a.token_number,
+        SELECT a.id, a.tenant_id, a.appointment_time, a.token_number,
                u.name AS patient_name, u.phone AS patient_phone, u.device_token,
-               d.name AS doctor_name
+               d.id AS doctor_user_id, d.uid AS doctor_uid, d.name AS doctor_name,
+               doc.department
         FROM appointments a
         JOIN users u ON a.patient_id = u.id
         LEFT JOIN users d ON a.doctor_id = d.id
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
         WHERE a.status = 'CONFIRMED'
           AND a.appointment_date BETWEEN $1 AND $2
           AND a.reminder_1h_sent IS NOT TRUE
@@ -97,6 +100,30 @@ async function sendTimedRemindersInner() {
             data: { type: 'appointment_reminder_1h', appointment_id: String(appt.id) },
             userId: null,
           }).catch(e => logger.warn(`[Reminders] 1h push notification failed for appointment ${appt.id}:`, e.message));
+        }
+        if (appt.doctor_user_id) {
+          try {
+            await sendStaffNotifications({
+              tenantId: appt.tenant_id,
+              recipientUserIds: [appt.doctor_user_id],
+              title: 'Appointment due soon',
+              body: `${appt.patient_name || 'Patient'} is due at ${appt.appointment_time}. Token #${appt.token_number}.`,
+              type: 'APPOINTMENT_DUE',
+              priority: 'MEDIUM',
+              relatedId: appt.id,
+              data: {
+                appointment_id: appt.id,
+                token_number: appt.token_number,
+                patient_name: appt.patient_name,
+                doctor_uid: appt.doctor_uid,
+                department: appt.department,
+                route: '/appointments',
+              },
+              dedupe: true,
+            });
+          } catch (notifyErr) {
+            logger.warn(`[Reminders] doctor appointment notification failed for ${appt.id}: ${notifyErr.message}`);
+          }
         }
         sentIds1h.push(appt.id);
       } catch (e) {

@@ -1,9 +1,11 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 
 const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
 const SLA_MINUTES = { urgent: 30, high: 120, normal: 240, low: 1440 };
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function cleanText(value, fallback = '') {
   const text = String(value ?? '').trim();
@@ -277,6 +279,7 @@ export async function ensureHousekeepingRequestRecipients({
 }
 
 export async function notifyHousekeepingRecipients({
+  tenantId = DEFAULT_TENANT_ID,
   requestId,
   recipients = [],
   title,
@@ -287,43 +290,22 @@ export async function notifyHousekeepingRecipients({
   const ids = uniqueRecipients(recipients).map(row => row.id);
   if (!requestId || !ids.length) return { notification_count: 0 };
 
-  const notificationRows = await prisma.$queryRawUnsafe(
-    `INSERT INTO notifications
-       (uid, user_id, phone, title, body, type, priority, data, is_read,
-        created_at, updated_at, related_id, recipient_role)
-     SELECT u.uid,
-            u.id,
-            u.phone,
-            $2,
-            $3,
-            'HOUSEKEEPING',
-            $4,
-            $5::jsonb,
-            false,
-            NOW(),
-            NOW(),
-            $1::int,
-            u.role
-       FROM users u
-      WHERE u.id = ANY($6::int[])
-        AND u.is_active = true
-        AND u.phone IS NOT NULL
-        AND TRIM(u.phone) <> ''
-        AND NOT EXISTS (
-          SELECT 1
-            FROM notifications n
-           WHERE n.user_id = u.id
-             AND n.related_id = $1::int
-             AND n.type = 'HOUSEKEEPING'
-        )
-      RETURNING id`,
-    requestId,
-    title,
-    body,
-    priorityForUrgency(normalizeUrgency(urgency)),
-    JSON.stringify(data),
-    ids
+  const notificationResult = await sendStaffNotifications(
+    {
+      tenantId,
+      recipientUserIds: ids,
+      title,
+      body,
+      type: 'HOUSEKEEPING',
+      priority: priorityForUrgency(normalizeUrgency(urgency)),
+      relatedId: requestId,
+      data,
+      dedupe: true,
+    },
   );
+
+  const notifiedIds = notificationResult.recipients.map(row => row.id);
+  const idsToMark = notifiedIds.length ? notifiedIds : ids;
 
   await prisma.$executeRawUnsafe(
     `UPDATE housekeeping_request_recipients
@@ -332,10 +314,10 @@ export async function notifyHousekeepingRecipients({
       WHERE request_id = $1::int
         AND staff_id = ANY($2::int[])`,
     requestId,
-    ids
+    idsToMark
   );
 
-  return { notification_count: notificationRows.length };
+  return { notification_count: notificationResult.notification_count };
 }
 
 async function findExistingActiveBedCleaningRequest(bedId) {
@@ -357,6 +339,7 @@ async function findExistingActiveBedCleaningRequest(bedId) {
 }
 
 export async function fanOutHousekeepingRequest({
+  tenantId = DEFAULT_TENANT_ID,
   requestId,
   recipients = [],
   title,
@@ -367,6 +350,7 @@ export async function fanOutHousekeepingRequest({
 } = {}) {
   const savedRecipients = await ensureHousekeepingRequestRecipients({ requestId, recipients });
   const notifyResult = await notifyHousekeepingRecipients({
+    tenantId,
     requestId,
     recipients,
     title,

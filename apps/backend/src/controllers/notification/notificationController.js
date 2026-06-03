@@ -65,6 +65,49 @@ export const notificationController = {
   },
 
   /**
+   * Get notifications for the authenticated user.
+   */
+  getMine: async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
+    }
+
+    try {
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 20,
+        maxLimit: 100,
+        defaultSortBy: 'created_at',
+        allowOffset: true
+      });
+
+      const result = await notificationService.getMyNotifications(req.user, {
+        limit: listQuery.limit,
+        offset: listQuery.offset,
+        unread_only: req.query.unread_only,
+        type: req.query.type,
+      });
+
+      await logAudit(req, 'notifications-my-view', {
+        count: result.count,
+        unread_count: result.unread_count,
+      });
+
+      success(res, {
+        ...result,
+        requestedBy: req.user?.uid,
+        accessLevel: req.user?.role?.toUpperCase()
+      }, 'Notifications fetched successfully');
+    } catch (err) {
+      logger.error('Error in getMine:', err.message);
+      if (err.message.includes('User not found') || err.message.includes('Access denied')) {
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
+      }
+      error(res, 'Failed to retrieve notifications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+  },
+
+  /**
    * Get notifications by user ID
    */
   getByUserId: async (req, res) => {
@@ -225,6 +268,30 @@ export const notificationController = {
     } catch (err) {
       logger.error('Error in markAllAsReadByPhone:', err.message);
       if (err.message.includes('Access denied')) {
+        return error(res, err.message, HTTP_STATUS.FORBIDDEN);
+      }
+      error(res, 'Failed to mark all notifications as read', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+  },
+
+  /**
+   * Mark all authenticated-user notifications as read.
+   */
+  markAllMineAsRead: async (req, res) => {
+    try {
+      const result = await notificationService.markAllMineAsRead(req.user);
+
+      await logAudit(req, 'notifications-my-mark-all-read', {
+        updated_count: result.updated_count
+      });
+
+      success(res, {
+        ...result,
+        updatedBy: req.user?.uid
+      }, 'All notifications marked as read');
+    } catch (err) {
+      logger.error('Error in markAllMineAsRead:', err.message);
+      if (err.message.includes('User not found') || err.message.includes('Access denied')) {
         return error(res, err.message, HTTP_STATUS.FORBIDDEN);
       }
       error(res, 'Failed to mark all notifications as read', HTTP_STATUS.INTERNAL_SERVER_ERROR);

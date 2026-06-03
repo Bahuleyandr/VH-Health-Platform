@@ -55,6 +55,7 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 // Staff roster deadline escalation — next week's roster must be published
 // before the configured cutoff, otherwise HR gets an in-app alert.
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
+import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 
 // Inpatient drug-chart SLA — once a patient has reached a ward/ICU bed,
 // doctors and that ward's nurses must not silently miss first medication charting.
@@ -176,6 +177,12 @@ cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
   logger.info(`Audit log cleanup: ${Number(result) || 0} rows deleted`);
 }));
 
+// Daily at 03:32 - Purge staff messages older than the configured retention
+// window. Default is 30 days.
+cron.schedule('32 3 * * *', withJobLock('purge-staff-messages', async () => {
+  await purgeExpiredStaffMessages();
+}));
+
 // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
 cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
   logger.info('Scheduled Task: Purging expired invalidated tokens...');
@@ -266,6 +273,7 @@ export async function runAllScheduledTasksNow() {
     await sendTimedReminders();
     await processPendingScheduledNotifications();
     await runMissingDrugChartSweep();
+    await purgeExpiredStaffMessages();
     await sendInvestigationNotifications();
     await runRosterDeadlineEscalation({ force: true });
 

@@ -114,10 +114,7 @@ class NotificationProvider extends ChangeNotifier {
   /// Fetch notifications from backend
   Future<void> fetchNotifications() async {
     try {
-      final phone = await ApiConfig.getPhone();
-      if (phone == null || phone.isEmpty) return;
-
-      final data = await HrApiService.getNotifications(phone);
+      final data = await HrApiService.getNotifications();
 
       _notifications.clear();
       for (final item in data) {
@@ -146,10 +143,7 @@ class NotificationProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final phone = await ApiConfig.getPhone();
-      if (phone != null && phone.isNotEmpty) {
-        await HrApiService.markAllNotificationsRead(phone);
-      }
+      await HrApiService.markAllNotificationsRead();
     } catch (e) {
       debugPrint('❌ Error marking notifications as read: $e');
     }

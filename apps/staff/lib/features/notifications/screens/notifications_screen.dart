@@ -43,9 +43,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   IconData _iconForType(String type) {
     return switch (type.toLowerCase()) {
-      'appointment' || 'booking' => Icons.calendar_month,
+      'appointment' ||
+      'appointment_due' ||
+      'appointment-reminder' ||
+      'appointment_reminder' ||
+      'booking' => Icons.calendar_month,
+      'admission' ||
+      'admission_created' ||
+      'new_admission' => Icons.local_hospital,
+      'bed' || 'bed_cleaning' || 'cleaning' => Icons.bed,
+      'housekeeping' || 'housekeeping_request' => Icons.cleaning_services,
       'handover' || 'handover-note' => Icons.swap_horiz,
-      'investigation' || 'lab' => Icons.biotech,
+      'investigation' ||
+      'investigations' ||
+      'lab' ||
+      'lab_critical_alert' ||
+      'critical_lab' ||
+      'investigation_critical' => Icons.biotech,
       'pharmacy' || 'medication' => Icons.medication,
       'attendance' => Icons.fingerprint,
       'leave' => Icons.event_available,
@@ -56,9 +70,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Color _colorForType(String type) {
     return switch (type.toLowerCase()) {
-      'appointment' || 'booking' => const Color(0xFF6A1B9A),
+      'appointment' ||
+      'appointment_due' ||
+      'appointment-reminder' ||
+      'appointment_reminder' ||
+      'booking' => const Color(0xFF6A1B9A),
+      'admission' ||
+      'admission_created' ||
+      'new_admission' => const Color(0xFF1565C0),
+      'bed' || 'bed_cleaning' || 'cleaning' => const Color(0xFF00796B),
+      'housekeeping' || 'housekeeping_request' => const Color(0xFF00897B),
       'handover' || 'handover-note' => const Color(0xFF00695C),
-      'investigation' || 'lab' => const Color(0xFF0097A7),
+      'investigation' ||
+      'investigations' ||
+      'lab' ||
+      'lab_critical_alert' ||
+      'critical_lab' ||
+      'investigation_critical' => const Color(0xFFC62828),
       'pharmacy' || 'medication' => const Color(0xFFE65100),
       'attendance' => const Color(0xFF1565C0),
       'leave' => const Color(0xFF00796B),
@@ -69,9 +97,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   String? _routeForType(String type) {
     return switch (type.toLowerCase()) {
-      'appointment' || 'booking' => '/appointments',
+      'appointment' ||
+      'appointment_due' ||
+      'appointment-reminder' ||
+      'appointment_reminder' ||
+      'booking' => '/appointments',
+      'admission' ||
+      'admission_created' ||
+      'new_admission' => '/emr/admissions',
+      'bed' || 'bed_cleaning' || 'cleaning' => '/beds',
+      'housekeeping' || 'housekeeping_request' => '/housekeeping-tasks',
       'handover' || 'handover-note' => '/handover',
-      'investigation' || 'lab' => '/investigations',
+      'investigation' ||
+      'investigations' ||
+      'lab' ||
+      'lab_critical_alert' ||
+      'critical_lab' ||
+      'investigation_critical' => '/investigations',
       'pharmacy' || 'medication' => '/pharmacy',
       'attendance' => '/attendance',
       'leave' => '/leave',

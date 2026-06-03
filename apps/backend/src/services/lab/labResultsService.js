@@ -11,6 +11,7 @@ import { parseHL7 } from '../hl7/hl7Parser.js';
 import { AppError } from '../../utils/AppError.js';
 import { canSignOffLabResults } from '../../utils/roleHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -296,7 +297,6 @@ export async function detectCriticalsForResults({ tenantId, results }) {
                      AND attending_doctor_uid IS NOT NULL
                      AND status NOT IN ('discharged', 'left_without_being_seen')
                 )
-            AND u.phone IS NOT NULL
           LIMIT 10`,
         r.patient_uid,
       );
@@ -320,33 +320,18 @@ export async function detectCriticalsForResults({ tenantId, results }) {
           body: alertBody,
           data: alertData,
         }).catch((e) => logger.error(`Critical lab alert outbox queue failed for user ${recipient.id}: ${e.message}`));
-
-        // In-app feed row — what GET /api/v1/notifications/my reads via
-        // notificationService.getNotificationsByPhone (matches on
-        // normalizePhone(users.phone)). The outbox alone is invisible to
-        // the doctor's feed because the feed reads `notifications`, not
-        // `notification_outbox`. See finding
-        // 2026-05-13-emergency-walk-in-lab-tech-1e24f95f.
-        try {
-          await prisma.$executeRawUnsafe(
-            `INSERT INTO notifications
-               (uid, user_id, phone, title, body, type, priority,
-                data, is_read, created_at, updated_at)
-             VALUES ($1::uuid, $2::int, $3, $4, $5, 'lab_critical_alert',
-                     'HIGH', $6::jsonb, false, NOW(), NOW())`,
-            recipient.uid,
-            recipient.id,
-            normalizePhone(recipient.phone),
-            alertTitle,
-            alertBody,
-            JSON.stringify(alertData),
-          );
-        } catch (e) {
-          // logger.error (not warn) because a missing in-app row leaves a
-          // patient-safety alert invisible to the treating doctor.
-          logger.error(`Critical lab alert in-app feed insert failed for user ${recipient.id}: ${e.message}`);
-        }
       }
+      await sendStaffNotifications({
+        tenantId,
+        recipientUserIds: recipients.map(row => row.id),
+        title: alertTitle,
+        body: alertBody,
+        type: 'LAB_CRITICAL_ALERT',
+        priority: 'HIGH',
+        relatedId: alert[0].id,
+        data: alertData,
+        dedupe: true,
+      });
     } catch (e) {
       logger.error(`Critical lab alert recipient fan-out failed for result ${r.id}: ${e?.message}`);
     }

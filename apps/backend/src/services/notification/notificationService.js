@@ -31,6 +31,69 @@ const query = async (sql, params = []) => {
   return { rowCount: Number(rowCount) || 0 };
 };
 
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const ADMIN_NOTIFICATION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+function normalizeTenant(tenantId) {
+  return tenantId || DEFAULT_TENANT_ID;
+}
+
+function normalizeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function isAdminNotificationRole(role) {
+  return ADMIN_NOTIFICATION_ROLES.has(normalizeRole(role));
+}
+
+function offsetPlaceholders(sql, offset) {
+  if (!offset) return sql;
+  return sql.replace(/\$(\d+)/g, (_match, n) => `$${Number(n) + offset}`);
+}
+
+async function resolveNotificationUser(user) {
+  const uid = user?.uid || user?.sub || user?.id;
+  if (!uid) {
+    throw new Error('User not found');
+  }
+  const rows = await query(
+    `SELECT id, uid, phone, role, tenant_id
+       FROM users
+      WHERE uid = $1::uuid
+      LIMIT 1`,
+    [uid],
+  );
+  if (!rows.length) {
+    throw new Error('User not found');
+  }
+  return {
+    ...rows[0],
+    phone_normalized: rows[0].phone ? normalizePhone(rows[0].phone) : null,
+    tenant_id: normalizeTenant(rows[0].tenant_id || user?.tenantId || user?.tenant_id),
+  };
+}
+
+async function buildOwnNotificationCondition(user, alias = 'n', startParamIndex = 1) {
+  const current = await resolveNotificationUser(user);
+  const params = [current.uid, current.id];
+  const clauses = [
+    `${alias}.uid = $${startParamIndex}::uuid`,
+    `${alias}.user_id = $${startParamIndex + 1}::int`,
+  ];
+  let nextIndex = startParamIndex + 2;
+  if (current.phone_normalized) {
+    clauses.push(`${alias}.phone = $${nextIndex}`);
+    params.push(current.phone_normalized);
+    nextIndex += 1;
+  }
+  return {
+    current,
+    condition: `(${clauses.join(' OR ')})`,
+    params,
+    nextIndex,
+  };
+}
+
 
 // Keep the original service object
 const notificationService = {
@@ -124,16 +187,73 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   },
 
   /**
+   * Get notifications for the authenticated user. Matches current rows by
+   * uid/user_id and legacy rows by normalized phone.
+   */
+  async getMyNotifications(user, options = {}) {
+    try {
+      const { limit = 50, offset = 0, unread_only = false, type = null } = options;
+      const safeLimit = Math.min(parseInt(limit, 10) || 50, 100);
+      const safeOffset = parseInt(offset, 10) || 0;
+      const { current, condition, params, nextIndex } =
+        await buildOwnNotificationCondition(user, 'n', 1);
+
+      const filters = [condition, 'n.tenant_id = $' + nextIndex + '::uuid'];
+      const queryParams = [...params, current.tenant_id];
+      let paramIndex = nextIndex + 1;
+
+      if (unread_only === true || unread_only === 'true') {
+        filters.push('n.is_read = false');
+      }
+      if (type) {
+        filters.push(`UPPER(n.type) = $${paramIndex}`);
+        queryParams.push(String(type).toUpperCase());
+        paramIndex += 1;
+      }
+
+      const result = await query(
+        `SELECT n.id, n.tenant_id, n.uid, n.user_id, n.phone, n.title,
+                n.body AS message, n.type, n.priority, n.is_read, n.data,
+                n.related_id, n.created_at, n.read_at, n.scheduled_for
+           FROM notifications n
+          WHERE ${filters.join(' AND ')}
+          ORDER BY n.created_at DESC
+          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        [...queryParams, safeLimit, safeOffset],
+      );
+
+      const countRows = await query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE n.is_read = false)::int AS unread_count
+           FROM notifications n
+          WHERE ${filters.join(' AND ')}`,
+        queryParams,
+      );
+
+      return {
+        notifications: result.map(n => formatNotificationResponse(n, true)),
+        count: result.length,
+        total: Number(countRows[0]?.total || 0),
+        unread_count: Number(countRows[0]?.unread_count || 0),
+        limit: safeLimit,
+        offset: safeOffset,
+      };
+    } catch (error) {
+      logger.error('Error getting authenticated user notifications:', error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Get notifications by user ID with filtering
    */
   async getNotificationsByUserId(userId, filters, user) {
     try {
       const userRole = user?.role?.toUpperCase();
-      
-      // Check access for patients
-      if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
-        if (userResult.length === 0 || userResult[0].id !== parseInt(userId)) {
+
+      if (!isAdminNotificationRole(userRole)) {
+        const userResult = await resolveNotificationUser(user);
+        if (userResult.id !== parseInt(userId, 10)) {
           throw new Error('Access denied: Cannot view other user notifications');
         }
       }
@@ -191,24 +311,21 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async getNotificationById(notificationId, user, markAsRead = true) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
       let accessQuery = '';
       const params = [notificationId];
 
-      // Patients can only view their own notifications
-      if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
-        if (userResult.length === 0) {
-          throw new Error('User not found');
-        }
-        accessQuery = ' AND n.user_id = $2';
-        params.push(userResult[0].id);
+      if (!isAdminNotificationRole(userRole)) {
+        const own = await buildOwnNotificationCondition(user, 'n', 2);
+        accessQuery = ` AND ${own.condition} AND n.tenant_id = $${own.nextIndex}::uuid`;
+        params.push(...own.params, own.current.tenant_id);
       }
 
       const result = await query(`
         SELECT n.id, n.phone, n.title, n.body AS message, n.type, n.is_read, n.data, n.created_at,
-               u.name as recipient_name, u.phone as recipient_phone,
-               ${userRole === 'ADMIN' ? 'u.email as recipient_email' : ''}
+               n.user_id, n.read_at, n.scheduled_for, n.related_id, n.priority,
+               u.name as recipient_name, u.phone as recipient_phone
+               ${isAdminNotificationRole(userRole) ? ', u.email as recipient_email' : ''}
         FROM notifications n
         LEFT JOIN users u ON n.user_id = u.id
         WHERE n.id = $1${accessQuery}
@@ -221,14 +338,15 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       // Auto-mark as read when viewed
       if (markAsRead && !result[0].is_read) {
         await query(
-          'UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = $1',
-          [notificationId]
+          `UPDATE notifications n SET is_read = true, read_at = NOW()
+            WHERE id = $1${accessQuery}`,
+          params
         );
         result[0].is_read = true;
         result[0].read_at = new Date();
       }
 
-      return formatNotificationResponse(result[0], userRole === 'ADMIN');
+      return formatNotificationResponse(result[0], isAdminNotificationRole(userRole));
     } catch (error) {
       logger.error('Error getting notification by ID:', error.message);
       throw error;
@@ -254,19 +372,15 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         defaultSortOrder: 'DESC',
         allowedSortFields: Object.keys(allowedSortFields),
       });
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
 
       let baseConditions = '1=1';
       const params = [];
 
-      // Patients can only see their own notifications
-      if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
-        if (userResult.length === 0) {
-          throw new Error('User not found');
-        }
-        baseConditions = 'n.user_id = $1';
-        params.push(userResult[0].id);
+      if (!isAdminNotificationRole(userRole)) {
+        const own = await buildOwnNotificationCondition(user, 'n', 1);
+        baseConditions = `${own.condition} AND n.tenant_id = $${own.nextIndex}::uuid`;
+        params.push(...own.params, own.current.tenant_id);
       }
 
       // Build filter query
@@ -278,14 +392,14 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       });
 
       if (filterQuery.query) {
-        baseConditions += filterQuery.query;
+        baseConditions += offsetPlaceholders(filterQuery.query, params.length);
         params.push(...filterQuery.params);
       }
 
       const sql = `
         SELECT n.id, n.user_id, n.phone, n.title, n.body AS message, n.type, n.priority, n.is_read,
                n.created_at, n.read_at, n.scheduled_for,
-               ${userRole === 'ADMIN' ? 'n.data, u.name as recipient_name, u.phone as recipient_phone' : 'u.name as recipient_name'}
+               ${isAdminNotificationRole(userRole) ? 'n.data, u.name as recipient_name, u.phone as recipient_phone' : 'n.data, u.name as recipient_name'}
         FROM notifications n
         LEFT JOIN users u ON n.user_id = u.id
         WHERE ${baseConditions}
@@ -307,7 +421,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       const totalNotifications = parseInt(countResult[0].count);
 
       return {
-        notifications: result.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
+        notifications: result.map(n => formatNotificationResponse(n, isAdminNotificationRole(userRole))),
         pagination: buildPagination(totalNotifications, listQuery.page, listQuery.limit),
         filters: {
           ...filters,
@@ -327,25 +441,21 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async markNotificationAsRead(notificationId, user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
       let accessCondition = '';
       const params = [notificationId];
 
-      // Patients can only mark their own notifications as read
-      if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
-        if (userResult.length === 0) {
-          throw new Error('User not found');
-        }
-        accessCondition = ' AND user_id = $2';
-        params.push(userResult[0].id);
+      if (!isAdminNotificationRole(userRole)) {
+        const own = await buildOwnNotificationCondition(user, 'n', 2);
+        accessCondition = ` AND ${own.condition} AND n.tenant_id = $${own.nextIndex}::uuid`;
+        params.push(...own.params, own.current.tenant_id);
       }
 
       const result = await query(`
-        UPDATE notifications SET 
+        UPDATE notifications n SET
           is_read = true,
           read_at = NOW()
-        WHERE id = $1${accessCondition}
+        WHERE n.id = $1${accessCondition}
         RETURNING id, title, is_read, read_at
       `, params);
 
@@ -366,12 +476,11 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   async markAllAsReadByPhone(phone, user) {
     try {
       const normalizedPhone = normalizePhone(phone);
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
 
-      // Access control: patients can only mark their own notifications as read
-      if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT phone FROM users WHERE uid = $1::uuid', [user.uid]);
-        if (userResult.length === 0 || normalizePhone(userResult[0].phone) !== normalizedPhone) {
+      if (!isAdminNotificationRole(userRole)) {
+        const current = await resolveNotificationUser(user);
+        if (!current.phone_normalized || current.phone_normalized !== normalizedPhone) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
       }
@@ -392,16 +501,40 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   },
 
   /**
+   * Mark all authenticated-user notifications as read.
+   */
+  async markAllMineAsRead(user) {
+    try {
+      const own = await buildOwnNotificationCondition(user, 'n', 1);
+      const result = await query(`
+        UPDATE notifications n
+           SET is_read = true,
+               read_at = COALESCE(read_at, NOW())
+         WHERE ${own.condition}
+           AND n.tenant_id = $${own.nextIndex}::uuid
+           AND n.is_read = false
+      `, [...own.params, own.current.tenant_id]);
+
+      return {
+        updated_count: result.rowCount || 0,
+        user_id: own.current.id,
+      };
+    } catch (error) {
+      logger.error('Error marking authenticated user notifications as read:', error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Mark all user notifications as read
    */
   async markAllAsReadByUserId(userId, user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
 
-      // Access control: users can only mark their own notifications as read
-      if (userRole === 'PATIENT') {
-        const userResult = await query('SELECT id FROM users WHERE uid = $1::uuid', [user.uid]);
-        if (userResult.length === 0 || userResult[0].id !== parseInt(userId)) {
+      if (!isAdminNotificationRole(userRole)) {
+        const current = await resolveNotificationUser(user);
+        if (current.id !== parseInt(userId, 10)) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
       }
@@ -443,20 +576,22 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       } = data;
 
       // Verify recipient user exists
-      const userCheck = await query('SELECT id, uid, name, phone FROM users WHERE id = $1', [user_id]);
+      const userCheck = await query('SELECT id, uid, name, phone, role, tenant_id FROM users WHERE id = $1', [user_id]);
       if (userCheck.length === 0) {
         throw new Error('Recipient user not found');
       }
 
       const result = await query(`
         INSERT INTO notifications (
-          uid, phone, title, body, type, priority,
+          tenant_id, uid, user_id, phone, title, body, type, priority,
           scheduled_for, data, is_read, created_at, updated_at
-        ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, false, NOW(), NOW())
-        RETURNING id, phone, title, body AS message, type, priority, is_read, created_at
+        ) VALUES ($1::uuid, $2::uuid, $3::int, $4, $5, $6, $7, $8, $9, $10, false, NOW(), NOW())
+        RETURNING id, uid, user_id, phone, title, body AS message, type, priority, data, is_read, created_at
       `, [
+        normalizeTenant(userCheck[0].tenant_id || user?.tenantId || user?.tenant_id),
         userCheck[0].uid,
-        userCheck[0].phone,
+        userCheck[0].id,
+        normalizePhone(userCheck[0].phone || '') || 'unknown',
         title,
         message,
         type.toUpperCase(),
@@ -499,7 +634,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Verify all users exist
       const userCheck = await query(
-        'SELECT id, name, phone FROM users WHERE id = ANY($1)',
+        'SELECT id, uid, name, phone, tenant_id FROM users WHERE id = ANY($1)',
         [user_ids]
       );
 
@@ -511,8 +646,10 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Create notifications for all users
       const notifications = userCheck.map(recipient => [
+        normalizeTenant(recipient.tenant_id || user?.tenantId || user?.tenant_id),
+        recipient.uid,
         recipient.id,
-        recipient.phone,
+        normalizePhone(recipient.phone || '') || 'unknown',
         title,
         message,
         type.toUpperCase(),
@@ -520,16 +657,16 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       ]);
 
       const placeholders = notifications.map((_, index) => {
-        const offset = index * 6;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, false, NOW(), NOW())`;
+        const offset = index * 8;
+        return `($${offset + 1}::uuid, $${offset + 2}::uuid, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, false, NOW(), NOW())`;
       }).join(', ');
 
       const flatParams = notifications.flat();
 
       const result = await query(`
-        INSERT INTO notifications (user_id, phone, title, body, type, priority, is_read, created_at, updated_at)
+        INSERT INTO notifications (tenant_id, uid, user_id, phone, title, body, type, priority, is_read, created_at, updated_at)
         VALUES ${placeholders}
-        RETURNING id, user_id
+        RETURNING id, uid, user_id
       `, flatParams);
 
       return {
@@ -711,12 +848,14 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 // Export the NotificationService class
 export class NotificationService {
   static notifyEmergencyTeam = notificationService.notifyEmergencyTeam;
+  static getMyNotifications = notificationService.getMyNotifications;
   static getNotificationsByPhone = notificationService.getNotificationsByPhone;
   static getNotificationsByUserId = notificationService.getNotificationsByUserId;
   static getNotificationById = notificationService.getNotificationById;
   static getNotificationList = notificationService.getNotificationList;
   static markNotificationAsRead = notificationService.markNotificationAsRead;
   static markAllAsReadByPhone = notificationService.markAllAsReadByPhone;
+  static markAllMineAsRead = notificationService.markAllMineAsRead;
   static markAllAsReadByUserId = notificationService.markAllAsReadByUserId;
   static createNotification = notificationService.createNotification;
   static sendBulkNotifications = notificationService.sendBulkNotifications;
@@ -728,12 +867,14 @@ export class NotificationService {
 
 // Export individual methods directly for easier imports
 export const notifyEmergencyTeam = notificationService.notifyEmergencyTeam;
+export const getMyNotifications = notificationService.getMyNotifications;
 export const getNotificationsByPhone = notificationService.getNotificationsByPhone;
 export const getNotificationsByUserId = notificationService.getNotificationsByUserId;
 export const getNotificationById = notificationService.getNotificationById;
 export const getNotificationList = notificationService.getNotificationList;
 export const markNotificationAsRead = notificationService.markNotificationAsRead;
 export const markAllAsReadByPhone = notificationService.markAllAsReadByPhone;
+export const markAllMineAsRead = notificationService.markAllMineAsRead;
 export const markAllAsReadByUserId = notificationService.markAllAsReadByUserId;
 export const createNotification = notificationService.createNotification;
 export const sendBulkNotifications = notificationService.sendBulkNotifications;

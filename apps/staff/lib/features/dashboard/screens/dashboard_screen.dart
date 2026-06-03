@@ -33,7 +33,6 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _attendanceStatus;
   String? _staffId;
-  String? _phone;
   StaffRole _role = StaffRole.general;
   bool _loading = true;
 
@@ -103,7 +102,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _loading = true);
     try {
       _staffId = await ApiConfig.getStaffId();
-      _phone = await ApiConfig.getPhone();
       final roleStr = await AuthService.getRole();
       _role = StaffRole.fromString(roleStr);
       _opAiAssistModules = const [];
@@ -152,14 +150,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       // Notifications
-      if (_phone != null) {
-        futures.add(
-          HrApiService.getNotifications(_phone!).then(
-            (n) => _recentNotifications = n.take(5).toList(),
-            onError: (_) {},
-          ),
-        );
-      }
+      futures.add(
+        HrApiService.getNotifications().then(
+          (n) => _recentNotifications = n.take(5).toList(),
+          onError: (_) {},
+        ),
+      );
 
       // Workload counts — only relevant for clinical roles. Each is
       // best-effort: errors are swallowed so the dashboard still
