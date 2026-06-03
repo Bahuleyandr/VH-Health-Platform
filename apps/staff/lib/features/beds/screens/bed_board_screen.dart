@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
-import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/auth_service.dart';
@@ -1773,10 +1772,10 @@ class _DetailRow extends StatelessWidget {
 /// navigates to the relevant screen with the patient context
 /// pre-populated via query params:
 ///
-///   - Open EMR        → /emr/timeline/:uid?name=
-///   - Record Vitals   → /patient-command-board?patient_uid=&action=vitals
-///   - Add Note        → doctors: /emr/notes/:uid, nurses: /nursing-notes
-///   - Handover        → /handover?patient_ref=Bed%20A-101%20—%20Demo%20Patient
+///   - Open EMR        → /patient-command-board?patient_uid=&admission_id=
+///   - Record Vitals   → /patient-command-board?...&action=vitals
+///   - Add Note        → /patient-command-board?...&action=notes
+///   - Handover        → /patient-command-board?...&action=handover
 ///   - IP lab/pharmacy/dietary worklists carry patient context as query params
 ///
 /// Closes the sheet first so back-navigation lands on the bed grid,
@@ -1806,21 +1805,19 @@ class _BedQuickActions extends StatelessWidget {
     final s = AppStrings.of(context);
     final nameQ = Uri.encodeQueryComponent(patientName);
     final phoneQ = Uri.encodeQueryComponent(patientPhone);
-    final genderQ = Uri.encodeQueryComponent(patientGender);
     final pidQ = Uri.encodeQueryComponent(patientId);
-    final patientUidPath = Uri.encodeComponent(patientUid);
     final patientUidQ = Uri.encodeQueryComponent(patientUid);
-    final patientRef = Uri.encodeQueryComponent(
-      '${wardName.isNotEmpty ? "$wardName · " : ""}${s.bedNumber(bedNumber)} — $patientName',
-    );
+    final admissionQ = Uri.encodeQueryComponent(admissionId);
 
-    Future<String> noteRouteForCurrentRole() async {
-      final role = (await ApiConfig.getRole()).trim().toUpperCase();
-      final opensDoctorNotes = role == 'DOCTOR' || role.contains('DOCTOR');
-      if (opensDoctorNotes && patientUid.isNotEmpty) {
-        return '/emr/notes/$patientUidPath?name=$nameQ';
-      }
-      return '/nursing-notes?patient_uid=$patientUid&name=$nameQ&phone=$phoneQ';
+    String commandBoardRoute([String? action]) {
+      final params = <String>[
+        if (patientUid.isNotEmpty) 'patient_uid=$patientUidQ',
+        if (admissionId.isNotEmpty) 'admission_id=$admissionQ',
+        if (action != null && action.isNotEmpty)
+          'action=${Uri.encodeQueryComponent(action)}',
+        if (patientName.isNotEmpty) 'name=$nameQ',
+      ];
+      return '/patient-command-board?${params.join('&')}';
     }
 
     final actions = <_QuickAction>[
@@ -1828,40 +1825,39 @@ class _BedQuickActions extends StatelessWidget {
         icon: Icons.timeline,
         label: s.bedSheetActionOpenEmr,
         color: AppTheme.primaryBlue,
-        route: '/emr/timeline/$patientUid?name=$nameQ',
+        route: commandBoardRoute(),
       ),
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.assignment_outlined,
           label: 'Case Sheet',
           color: const Color(0xFF5D4037),
-          route: '/emr/case-sheet/$admissionId?name=$nameQ&gender=$genderQ',
+          route: commandBoardRoute('case_sheet'),
         ),
       _QuickAction(
         icon: Icons.monitor_heart_outlined,
         label: s.bedSheetActionRecordVitals,
         color: const Color(0xFFC62828),
-        route:
-            '/patient-command-board?patient_uid=$patientUidQ&action=vitals&name=$nameQ',
+        route: commandBoardRoute('vitals'),
       ),
       _QuickAction(
         icon: Icons.note_add_outlined,
         label: s.bedSheetActionAddNote,
         color: const Color(0xFF00695C),
-        resolveRoute: noteRouteForCurrentRole,
+        route: commandBoardRoute('notes'),
       ),
       if (admissionId.isNotEmpty)
         _QuickAction(
           icon: Icons.medication_liquid_outlined,
           label: 'Drug Chart',
           color: const Color(0xFFE65100),
-          route: '/drug-chart/$admissionId?name=$nameQ',
+          route: commandBoardRoute('drug_chart'),
         ),
       _QuickAction(
         icon: Icons.swap_horiz,
         label: s.bedSheetActionHandover,
         color: const Color(0xFF6A1B9A),
-        route: '/handover?patient_ref=$patientRef&phone=$phoneQ',
+        route: commandBoardRoute('handover'),
       ),
       _QuickAction(
         icon: Icons.science_outlined,
@@ -1896,7 +1892,7 @@ class _BedQuickActions extends StatelessWidget {
           icon: Icons.rule_folder_outlined,
           label: 'Discharge',
           color: const Color(0xFF3949AB),
-          route: '/emr/discharge-hub/$admissionId?name=$nameQ',
+          route: commandBoardRoute('discharge'),
         ),
     ];
 

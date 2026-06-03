@@ -667,8 +667,6 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
-        _frontOfficeWorkbench,
-        _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
         _pharmacyOrders,
@@ -696,8 +694,6 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _opNursingRoster,
-        _frontOfficeWorkbench,
-        _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
         _nursingNotes,
@@ -719,8 +715,6 @@ class RoleFeatures {
         _dutyPreference,
         _nursingRoster,
         _opNursingRoster,
-        _frontOfficeWorkbench,
-        _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
         _nursingNotes,
@@ -1037,9 +1031,49 @@ class RoleFeatures {
       ],
       StaffRole.nurse ||
       StaffRole.nursingSuperintendent ||
-      StaffRole.nursingIncharge ||
-      StaffRole.opStaffNurse ||
-      StaffRole.opIncharge => [
+      StaffRole.nursingIncharge => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.view_timeline_outlined),
+            activeIcon: Icon(Icons.view_timeline),
+            label: 'Command',
+          ),
+          route: '/patient-command-board',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+            label: 'My Roster',
+          ),
+          route: '/schedule',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.opStaffNurse || StaffRole.opIncharge => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1566,13 +1600,26 @@ class RoleFeatures {
       StaffRole.superAdmin ||
       StaffRole.medicalSuperintendent ||
       StaffRole.doctor ||
-      StaffRole.anaesthetist ||
       StaffRole.dutyDoctor ||
-      StaffRole.nurse ||
-      StaffRole.nursingIncharge ||
-      StaffRole.nursingSuperintendent ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
+      StaffRole.receptionist ||
+      StaffRole.receptionIncharge ||
+      StaffRole.billingStaff ||
+      StaffRole.billingIncharge ||
+      StaffRole.financeIncharge ||
+      StaffRole.admissionOfficer ||
+      StaffRole.insuranceCoordinator ||
+      StaffRole.ipdCounsellor => true,
+      _ => false,
+    };
+  }
+
+  static bool hasIpAdmissionAccess(StaffRole role) {
+    return switch (role) {
+      StaffRole.admin ||
+      StaffRole.superAdmin ||
+      StaffRole.medicalSuperintendent ||
       StaffRole.receptionist ||
       StaffRole.receptionIncharge ||
       StaffRole.billingStaff ||
@@ -1729,6 +1776,9 @@ class RoleFeatures {
           route: '/front-office',
         ),
       );
+    }
+
+    if (hasIpAdmissionAccess(role)) {
       items.add(
         const WorkbenchNavItem(
           label: 'IP Admissions',

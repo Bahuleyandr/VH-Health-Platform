@@ -82,6 +82,20 @@ void main() {
           ),
           isFalse,
         );
+        expect(
+          frontOfficeWorkbenchCanLoad(
+            role: StaffRole.nurse,
+            mode: AppDeviceMode.desktop,
+          ),
+          isFalse,
+        );
+        expect(
+          frontOfficeWorkbenchCanLoad(
+            role: StaffRole.doctor,
+            mode: AppDeviceMode.desktop,
+          ),
+          isTrue,
+        );
       },
     );
   });
@@ -186,6 +200,43 @@ void main() {
         5,
       );
     });
+  });
+
+  group('front office role workflow gates', () {
+    test('keeps IP admission creation to counter/governance roles', () {
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.receptionist), isTrue);
+      expect(
+        RoleFeatures.hasIpAdmissionAccess(StaffRole.admissionOfficer),
+        isTrue,
+      );
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.billingStaff), isTrue);
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.nurse), isFalse);
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.doctor), isFalse);
+      expect(
+        RoleFeatures.hasIpAdmissionAccess(StaffRole.opStaffNurse),
+        isFalse,
+      );
+    });
+
+    test(
+      'doctor OP queue remains visible but nurse ward work stays out of Front Office',
+      () {
+        expect(
+          frontOfficeQueueScopeForRole(StaffRole.doctor),
+          FrontOfficeQueueScope.mine,
+        );
+        expect(
+          frontOfficeQueueScopeForRole(StaffRole.receptionist),
+          FrontOfficeQueueScope.full,
+        );
+        expect(
+          frontOfficeQueueScopeForRole(StaffRole.nurse),
+          FrontOfficeQueueScope.none,
+        );
+        expect(frontOfficeCanBookOp(StaffRole.receptionist), isTrue);
+        expect(frontOfficeCanBookOp(StaffRole.nurse), isFalse);
+      },
+    );
   });
 
   group('front-office OPD to IPD admission advice mapping', () {

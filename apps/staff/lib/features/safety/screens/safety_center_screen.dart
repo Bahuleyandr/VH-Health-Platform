@@ -8,6 +8,72 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 
+@visibleForTesting
+String safetyOwnerForAlert(NotificationItem item) {
+  final type = item.normalizedType;
+  if (item.isInvestigationAlert) return 'Lab / treating doctor';
+  if (type.contains('APPOINTMENT') || type.contains('QUEUE')) {
+    return 'Reception / doctor';
+  }
+  if (type.contains('ADMISSION') || type.contains('IPD')) {
+    return 'Admission desk / nursing';
+  }
+  if (type.contains('HOUSEKEEPING') || type.contains('BED')) {
+    return 'Housekeeping incharge';
+  }
+  if (type.contains('PHARMACY') || type.contains('MEDICATION')) {
+    return 'Pharmacy';
+  }
+  return 'Receiving team';
+}
+
+@visibleForTesting
+String safetyEscalationLabel(NotificationItem item, {DateTime? now}) {
+  if (item.isRead) return 'Acknowledged';
+  if (!item.isHighPriority) return 'Monitor until acknowledged';
+  final age = (now ?? DateTime.now()).difference(item.timestamp.toLocal());
+  if (age.inMinutes >= 15) return 'Escalated until acknowledged';
+  final remaining = 15 - age.inMinutes;
+  return 'Escalates in ${remaining <= 0 ? 1 : remaining} min if unread';
+}
+
+@visibleForTesting
+String safetyOwnerForDischargeBlocker(Map<String, dynamic> blocker) {
+  final text = [
+    blocker['owner_role'],
+    blocker['role'],
+    blocker['department'],
+    blocker['type'],
+    blocker['code'],
+    blocker['message'],
+  ].whereType<Object>().join(' ').toLowerCase();
+  if (text.contains('pharmacy') || text.contains('drug')) return 'Pharmacy';
+  if (text.contains('billing') || text.contains('invoice')) return 'Billing';
+  if (text.contains('physio')) return 'Physiotherapy';
+  if (text.contains('diet')) return 'Dietary';
+  if (text.contains('summary') || text.contains('doctor')) return 'Doctor';
+  if (text.contains('follow')) return 'Reception';
+  return 'Discharge team';
+}
+
+@visibleForTesting
+String safetyHousekeepingSlaLabel(Map<String, dynamic> task, {DateTime? now}) {
+  final due = DateTime.tryParse('${task['sla_due_at'] ?? ''}');
+  if (due == null) return 'SLA not set';
+  final localDue = due.toLocal();
+  final current = now ?? DateTime.now();
+  if (localDue.isBefore(current)) {
+    final overdue = current.difference(localDue).inMinutes;
+    return overdue >= 60
+        ? 'Overdue ${overdue ~/ 60}h ${overdue % 60}m'
+        : 'Overdue ${overdue <= 0 ? 1 : overdue}m';
+  }
+  final remaining = localDue.difference(current).inMinutes;
+  return remaining >= 60
+      ? 'Due in ${remaining ~/ 60}h ${remaining % 60}m'
+      : 'Due in ${remaining <= 0 ? 1 : remaining}m';
+}
+
 class SafetyCenterScreen extends StatefulWidget {
   const SafetyCenterScreen({super.key});
 
@@ -247,6 +313,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           title: item.title,
           subtitle: [
             if (item.body.isNotEmpty) item.body,
+            'Owner: ${safetyOwnerForAlert(item)}',
+            safetyEscalationLabel(item),
             item.normalizedPriority.isNotEmpty
                 ? item.normalizedPriority
                 : item.normalizedType,
@@ -285,6 +353,11 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         final readiness = _asMap(hub['readiness']);
         final blockers = _asMapList(readiness['blockers']);
         final counts = _asMap(hub['work_item_counts']);
+        final owners = blockers
+            .map(safetyOwnerForDischargeBlocker)
+            .toSet()
+            .take(2)
+            .join(', ');
         final blockerText = blockers
             .take(2)
             .map((item) => _text(item['message'] ?? item['type']))
@@ -295,8 +368,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           color: AppTheme.warningOnSurface,
           title: _text(admission['patient_name'], 'Patient'),
           subtitle: blockerText.isEmpty
-              ? 'Pending work items: ${_text(counts['pending'], '0')}'
-              : blockerText,
+              ? 'Owner: ${owners.isEmpty ? 'Discharge team' : owners} - Pending work items: ${_text(counts['pending'], '0')}'
+              : 'Owner: ${owners.isEmpty ? 'Discharge team' : owners} - $blockerText',
           meta: [
             _text(admission['ward']),
             if (_text(admission['bed_number']).isNotEmpty)
@@ -335,6 +408,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           color: overdue ? AppTheme.errorOnSurface : AppTheme.primaryTeal,
           title: location.isEmpty ? 'Cleaning request' : location,
           subtitle: [
+            'Owner: Housekeeping',
+            safetyHousekeepingSlaLabel(task),
             _text(task['request_type'], 'cleaning').replaceAll('_', ' '),
             _text(task['status'], 'assigned').replaceAll('_', ' '),
             if (_text(task['description']).isNotEmpty)

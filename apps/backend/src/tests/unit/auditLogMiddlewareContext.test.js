@@ -17,7 +17,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { auditLogMiddleware, deriveAuditResourceContext } = await import(
+const { auditLogMiddleware, deriveAction, deriveAuditResourceContext } = await import(
   '../../middleware/auditLog.js'
 );
 
@@ -112,7 +112,7 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(call[1]).toBe(ACTOR_UID);
     expect(call[2]).toBe(77);
     expect(call[4]).toBe('RECEPTIONIST');
-    expect(call[9]).toBe('update');
+    expect(call[9]).toBe('update_appointment_status');
     expect(call[10]).toBe('appointment');
     expect(call[11]).toBe('123');
 
@@ -133,5 +133,30 @@ describe('auditLogMiddleware context enrichment', () => {
     expect(call[20]).toBe(ACTOR_UID);
     expect(call[21]).toBe(false);
     expect(call[22]).toBe('desktop');
+  });
+
+  it('uses workflow-specific audit action names for staff operations', () => {
+    expect(deriveAction('POST', '/api/v1/appointments/123/confirm'))
+      .toBe('confirm_appointment');
+    expect(deriveAction('POST', '/api/v1/appointments/123/no-show'))
+      .toBe('mark_appointment_no_show');
+    expect(deriveAction('POST', '/api/v1/appointments/123/reschedule'))
+      .toBe('reschedule_appointment');
+    expect(deriveAction('POST', '/api/v1/appointments/walk-in'))
+      .toBe('register_walk_in');
+    expect(deriveAction('POST', '/api/v1/emr/admissions/55/assign-bed'))
+      .toBe('assign_admission_bed');
+    expect(deriveAction('POST', '/api/v1/emr/admissions/55/mark-for-discharge'))
+      .toBe('mark_for_discharge');
+    expect(deriveAction('POST', '/api/v1/emr/admissions/55/consults/pharmacy/complete'))
+      .toBe('complete_discharge_work_item');
+    expect(deriveAction('POST', '/api/v1/emr/admissions/55/discharge'))
+      .toBe('final_discharge');
+    expect(deriveAction('POST', '/api/v1/emr/vitals')).toBe('record_vitals');
+    expect(deriveAction('PATCH', '/api/v1/emr/vitals/10')).toBe('correct_vitals');
+    expect(deriveAction('POST', '/api/v1/emr/io')).toBe('record_io');
+    expect(deriveAction('POST', '/api/v1/beds/20/ready')).toBe('mark_bed_ready');
+    expect(deriveAction('POST', '/api/v1/notifications/7/acknowledge'))
+      .toBe('acknowledge_alert');
   });
 });

@@ -128,6 +128,9 @@ void main() {
         final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
         final ids = feats.map((f) => f.id).toSet();
         final handover = feats.singleWhere((f) => f.id == 'handover');
+        expect(ids, isNot(contains('front_office_workbench')));
+        expect(ids, isNot(contains('appointments')));
+        expect(ids, isNot(contains('admissions')));
         expect(ids, contains('ward_mode'));
         expect(ids, isNot(contains('vitals')));
         expect(ids, contains('nursing_notes'));
@@ -324,6 +327,27 @@ void main() {
         containsAll(['front_office_workbench', 'billing_desk', 'admissions']),
       );
     });
+
+    test('non-counter clinical roles do not get IP admission setup tools', () {
+      for (final role in [
+        StaffRole.doctor,
+        StaffRole.dutyDoctor,
+        StaffRole.anaesthetist,
+        StaffRole.nurse,
+        StaffRole.nursingIncharge,
+        StaffRole.nursingSuperintendent,
+        StaffRole.opStaffNurse,
+      ]) {
+        final ids = RoleFeatures.getFeaturesForRole(
+          role,
+        ).map((feature) => feature.id).toSet();
+        expect(
+          ids,
+          isNot(contains('admissions')),
+          reason: '$role should use Patient Command Board, not IP setup',
+        );
+      }
+    });
   });
 
   group('RoleFeatures.getBottomNavForRole', () {
@@ -393,6 +417,18 @@ void main() {
     test('new operational roles get focused bottom navigation', () {
       expect(
         RoleFeatures.getBottomNavForRole(
+          StaffRole.nurse,
+        ).map((item) => item.route),
+        contains('/patient-command-board'),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
+          StaffRole.nurse,
+        ).map((item) => item.route),
+        isNot(contains('/appointments')),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
           StaffRole.billingStaff,
         ).map((item) => item.route),
         containsAll(['/billing-desk', '/front-office']),
@@ -412,7 +448,12 @@ void main() {
         RoleFeatures.hasFrontOfficeWorkbench(StaffRole.receptionist),
         isTrue,
       );
+      expect(RoleFeatures.hasFrontOfficeWorkbench(StaffRole.doctor), isTrue);
+      expect(RoleFeatures.hasFrontOfficeWorkbench(StaffRole.nurse), isFalse);
       expect(RoleFeatures.hasBillingDesk(StaffRole.billingStaff), isTrue);
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.receptionist), isTrue);
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.nurse), isFalse);
+      expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.doctor), isFalse);
       expect(RoleFeatures.hasClinicalEntry(StaffRole.receptionist), isFalse);
       expect(RoleFeatures.hasClinicalEntry(StaffRole.doctor), isTrue);
     });
@@ -443,6 +484,14 @@ void main() {
       expect(patientRecordsLabel, 'Patient Records');
       expect(doctorRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, isNot(contains('/billing-desk')));
+      expect(doctorRoutes, isNot(contains('/emr/admissions')));
+
+      final nurseRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.nurse,
+      ).map((item) => item.route).toSet();
+      expect(nurseRoutes, isNot(contains('/front-office')));
+      expect(nurseRoutes, isNot(contains('/emr/admissions')));
+      expect(nurseRoutes, contains('/patient-records'));
     });
 
     test('staff governance navigation consolidates rosters into the hub', () {

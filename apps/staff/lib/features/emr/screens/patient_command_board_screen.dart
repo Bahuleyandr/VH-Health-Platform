@@ -445,10 +445,24 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
   void _openAction(Map<String, dynamic> row, Map<String, dynamic> action) {
     final rawRoute = _text(action['route']);
     if (rawRoute.isEmpty) return;
-    final patientName = _text(_asMap(row['patient'])['name'], 'Patient');
+    final patient = _asMap(row['patient']);
+    final patientName = _text(patient['name'], 'Patient');
+    final patientUid = _text(patient['uid']);
+    final admissionId = _int(row['admission_id']);
+    final encodedName = Uri.encodeQueryComponent(patientName);
+    final patientRef = Uri.encodeQueryComponent(
+      [
+        _text(row['ward']),
+        if (_text(row['bed_number']).isNotEmpty)
+          'Bed ${_text(row['bed_number'])}',
+        patientName,
+      ].where((part) => part.isNotEmpty).join(' - '),
+    );
     final route = rawRoute.contains('?')
         ? rawRoute
-        : '$rawRoute?name=${Uri.encodeQueryComponent(patientName)}';
+        : rawRoute == '/handover'
+        ? '$rawRoute?patient_ref=$patientRef&patient_uid=$patientUid&admission_id=$admissionId'
+        : '$rawRoute?name=$encodedName';
     context.push(route);
   }
 
@@ -506,6 +520,12 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'i/o' => uid.isEmpty ? null : '/emr/vitals/$uid?name=$name',
       'notes' =>
         uid.isEmpty ? null : '/nursing-notes?patient_uid=$uid&name=$name',
+      'timeline' ||
+      'emr' => uid.isEmpty ? null : '/emr/timeline/$uid?name=$name',
+      'drug_chart' =>
+        admissionId <= 0 ? null : '/drug-chart/$admissionId?name=$name',
+      'handover' =>
+        '/handover?patient_ref=${Uri.encodeQueryComponent(_focusedPatientLabel)}&patient_uid=$uid&admission_id=$admissionId',
       'case_sheet' =>
         admissionId <= 0 ? null : '/emr/case-sheet/$admissionId?name=$name',
       'discharge' =>

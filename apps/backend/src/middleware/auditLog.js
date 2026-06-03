@@ -25,6 +25,7 @@ function deriveModule(path) {
   if (path.includes('/shift'))             return 'shifts';
   if (path.includes('/incident'))          return 'incidents';
   if (path.includes('/grievance'))         return 'grievances';
+  if (path.includes('/housekeeping'))      return 'housekeeping';
   if (path.includes('/overtime'))          return 'overtime';
   if (path.includes('/replacement'))       return 'replacement';
   if (path.includes('/regulariz'))         return 'regularization';
@@ -32,6 +33,9 @@ function deriveModule(path) {
   if (path.includes('/doctor'))            return 'doctors';
   if (path.includes('/patient'))           return 'patients';
   if (path.includes('/appointment'))       return 'appointments';
+  if (path.includes('/admission'))         return 'admissions';
+  if (path.includes('/emr/vitals'))        return 'vitals';
+  if (path.includes('/emr/io'))            return 'intake_output';
   if (path.includes('/pharmacy'))          return 'pharmacy';
   if (path.includes('/investigation'))     return 'investigations';
   if (path.includes('/bed'))               return 'beds';
@@ -48,7 +52,7 @@ function deriveModule(path) {
 }
 
 // ─── Method + path → human action ───────────────────────────────────────────
-function deriveAction(method, path) {
+export function deriveAction(method, path) {
   const p = path.toLowerCase();
   const m = method.toUpperCase();
 
@@ -106,10 +110,46 @@ function deriveAction(method, path) {
   if (m === 'POST' && p.includes('/patient')) return 'create_patient';
   if (m === 'PUT'  && p.includes('/patient')) return 'update_patient';
 
-  // Appointments
-  if (m === 'POST' && p.includes('/appointment'))                    return 'book_appointment';
+  // Appointments / Front Office queue
   if (p.includes('/appointment') && p.includes('/cancel'))           return 'cancel_appointment';
   if (p.includes('/appointment') && p.includes('/confirm'))          return 'confirm_appointment';
+  if (p.includes('/appointment') && p.includes('/no-show'))          return 'mark_appointment_no_show';
+  if (p.includes('/appointment') && p.includes('/reschedule'))       return 'reschedule_appointment';
+  if (p.includes('/appointment') && p.includes('/complete'))         return 'complete_appointment';
+  if (p.includes('/appointment') && p.includes('/walk-in'))          return 'register_walk_in';
+  if (p.includes('/appointment') && p.includes('/advise-admission')) return 'advise_ip_admission';
+  if (p.includes('/appointment') && p.includes('/status'))           return 'update_appointment_status';
+  if (m === 'POST' && p.includes('/appointment'))                    return 'book_appointment';
+
+  // IP admission / discharge / transfer
+  if (p.includes('/admission') && p.includes('/assign-bed'))         return 'assign_admission_bed';
+  if (p.includes('/admission') && p.includes('/mark-for-discharge')) return 'mark_for_discharge';
+  if (p.includes('/admission') && p.includes('/consults') && p.includes('/complete')) return 'complete_discharge_work_item';
+  if (p.includes('/admission') && p.includes('/mark-drugs-dispensed')) return 'mark_discharge_drugs_dispensed';
+  if (p.includes('/admission') && p.includes('/discharge-hub'))      return 'view_discharge_hub';
+  if (p.includes('/admission') && p.includes('/discharge'))          return 'final_discharge';
+  if (p.includes('/admission') && p.includes('/transfer'))           return 'transfer_inpatient';
+  if (m === 'POST' && p.includes('/admission'))                     return 'create_ip_admission';
+
+  // IP vitals and I/O
+  if (p.includes('/emr/vitals') && m === 'POST')                     return 'record_vitals';
+  if (p.includes('/emr/vitals') && (m === 'PUT' || m === 'PATCH'))   return 'correct_vitals';
+  if (p.includes('/emr/vitals') && m === 'GET')                      return 'view_vitals';
+  if (p.includes('/emr/io') && m === 'POST')                         return 'record_io';
+  if (p.includes('/emr/io') && m === 'GET')                          return 'view_io_balance';
+
+  // Beds and housekeeping
+  if (p.includes('/beds') && p.includes('/ready'))                   return 'mark_bed_ready';
+  if (p.includes('/beds') && p.includes('/clean'))                   return 'request_bed_cleaning';
+  if (p.includes('/beds') && p.includes('/transfer'))                return 'transfer_bed';
+  if (p.includes('/beds') && p.includes('/status'))                  return 'update_bed_status';
+  if (p.includes('/housekeeping') && p.includes('/assign'))          return 'assign_housekeeping_task';
+  if (p.includes('/housekeeping') && p.includes('/complete'))        return 'complete_housekeeping_task';
+  if (p.includes('/housekeeping') && p.includes('/verify'))          return 'verify_housekeeping_task';
+
+  // Notifications and safety acknowledgement
+  if (p.includes('/notifications') && p.includes('/ack'))            return 'acknowledge_alert';
+  if (p.includes('/notifications') && p.includes('/read'))           return 'mark_alert_read';
 
   // Investigations
   if (p.includes('/investigation') && p.includes('/notif'))          return 'send_investigation_notification';

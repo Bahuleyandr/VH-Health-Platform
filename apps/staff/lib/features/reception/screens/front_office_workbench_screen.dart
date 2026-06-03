@@ -498,18 +498,7 @@ class _FrontOfficeWorkbenchScreenState
   bool get _canPatientRegistryWrite =>
       RoleFeatures.hasPatientRegistryWrite(_role);
   bool get _canViewAdmissionHandoffs => _canAdmitIp;
-  bool get _canAdmitIp =>
-      _role == StaffRole.admin ||
-      _role == StaffRole.superAdmin ||
-      _role == StaffRole.medicalSuperintendent ||
-      _role == StaffRole.receptionist ||
-      _role == StaffRole.receptionIncharge ||
-      _role == StaffRole.billingStaff ||
-      _role == StaffRole.billingIncharge ||
-      _role == StaffRole.financeIncharge ||
-      _role == StaffRole.admissionOfficer ||
-      _role == StaffRole.insuranceCoordinator ||
-      _role == StaffRole.ipdCounsellor;
+  bool get _canAdmitIp => RoleFeatures.hasIpAdmissionAccess(_role);
 
   @override
   void initState() {
@@ -2906,7 +2895,9 @@ class _FrontOfficeWorkbenchScreenState
         id,
         appointmentDate: _dateParam(appointmentDate),
         appointmentTime: _formatTime(appointmentTime),
-        notes: notes.isEmpty ? 'Rescheduled from Front Office Workbench' : notes,
+        notes: notes.isEmpty
+            ? 'Rescheduled from Front Office Workbench'
+            : notes,
       ).then((_) {}),
     );
   }
@@ -3522,12 +3513,13 @@ class _FrontOfficeWorkbenchScreenState
                   enabled: hasPatient && !_admissionActionBusy,
                   onTap: () => _showIpAdmissionDialog(),
                 ),
-              _ActionTile(
-                icon: Icons.local_hospital,
-                label: 'Admissions',
-                color: AppTheme.warningAmber,
-                onTap: () => context.push('/emr/admissions'),
-              ),
+              if (_canAdmitIp)
+                _ActionTile(
+                  icon: Icons.local_hospital,
+                  label: 'Admissions',
+                  color: AppTheme.warningAmber,
+                  onTap: () => context.push('/emr/admissions'),
+                ),
               if (_canBilling)
                 _ActionTile(
                   icon: Icons.receipt_long,
