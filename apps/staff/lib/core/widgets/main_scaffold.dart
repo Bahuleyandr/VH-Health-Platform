@@ -8,6 +8,7 @@ import '../config/api_config.dart';
 import '../config/role_config.dart';
 import '../platform_info.dart';
 import '../providers/message_unread_provider.dart';
+import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
 import 'message_unread_badge.dart';
 
@@ -54,6 +55,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     setState(() => _role = StaffRole.fromString(roleStr));
     unawaited(context.read<RealtimeProvider>().ensureConnected());
     unawaited(context.read<MessageUnreadProvider>().refresh());
+    unawaited(context.read<NotificationProvider>().fetchNotifications());
   }
 
   int _currentIndex(List<BottomNavItem> navItems) {
@@ -105,6 +107,7 @@ class _MainScaffoldState extends State<MainScaffold> {
     final mode = appDeviceModeForContext(context);
     context.read<SessionTimeoutProvider>().configureForDeviceMode(mode);
     final unreadMessages = context.watch<MessageUnreadProvider>().unreadCount;
+    final unreadAlerts = context.watch<NotificationProvider>().unreadCount;
     if (mode.isWorkbench) {
       final navItems = RoleFeatures.getWorkbenchNavForRole(_role);
       final selectedIndex = _currentRailIndex(navItems);
@@ -121,15 +124,17 @@ class _MainScaffoldState extends State<MainScaffold> {
               destinations: navItems
                   .map(
                     (item) => NavigationRailDestination(
-                      icon: _messagesAwareIcon(
+                      icon: _badgeAwareIcon(
                         item.icon,
                         item.route,
                         unreadMessages,
+                        unreadAlerts,
                       ),
-                      selectedIcon: _messagesAwareIcon(
+                      selectedIcon: _badgeAwareIcon(
                         item.selectedIcon,
                         item.route,
                         unreadMessages,
+                        unreadAlerts,
                       ),
                       label: Text(item.label),
                     ),
@@ -176,30 +181,53 @@ class _MainScaffoldState extends State<MainScaffold> {
           if (currentRoute != targetRoute) context.go(targetRoute);
         },
         items: navItems
-            .map((n) => _messagesAwareBottomItem(n, unreadMessages))
+            .map((n) => _badgeAwareBottomItem(n, unreadMessages, unreadAlerts))
             .toList(),
       ),
     );
   }
 
-  Widget _messagesAwareIcon(IconData icon, String route, int unreadMessages) {
+  Widget _badgeAwareIcon(
+    IconData icon,
+    String route,
+    int unreadMessages,
+    int unreadAlerts,
+  ) {
     final child = Icon(icon);
-    if (route != '/messaging') return child;
-    return MessageUnreadBadge(unreadCount: unreadMessages, child: child);
+    if (route == '/messaging') {
+      return MessageUnreadBadge(unreadCount: unreadMessages, child: child);
+    }
+    if (route == '/notifications') {
+      return MessageUnreadBadge(
+        unreadCount: unreadAlerts,
+        semanticLabel: 'unread alerts',
+        child: child,
+      );
+    }
+    return child;
   }
 
-  BottomNavigationBarItem _messagesAwareBottomItem(
+  BottomNavigationBarItem _badgeAwareBottomItem(
     BottomNavItem navItem,
     int unreadMessages,
+    int unreadAlerts,
   ) {
-    if (navItem.route != '/messaging') return navItem.item;
+    if (navItem.route != '/messaging' && navItem.route != '/notifications') {
+      return navItem.item;
+    }
+    final count = navItem.route == '/messaging' ? unreadMessages : unreadAlerts;
+    final semanticLabel = navItem.route == '/messaging'
+        ? 'unread messages'
+        : 'unread alerts';
     return BottomNavigationBarItem(
       icon: MessageUnreadBadge(
-        unreadCount: unreadMessages,
+        unreadCount: count,
+        semanticLabel: semanticLabel,
         child: navItem.item.icon,
       ),
       activeIcon: MessageUnreadBadge(
-        unreadCount: unreadMessages,
+        unreadCount: count,
+        semanticLabel: semanticLabel,
         child: navItem.item.activeIcon,
       ),
       label: navItem.item.label,

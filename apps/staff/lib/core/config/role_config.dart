@@ -1778,6 +1778,12 @@ class RoleFeatures {
         route: '/messaging',
       ),
       WorkbenchNavItem(
+        label: 'Alerts',
+        icon: Icons.notifications_outlined,
+        selectedIcon: Icons.notifications_active,
+        route: '/notifications',
+      ),
+      WorkbenchNavItem(
         label: 'Profile',
         icon: Icons.person_outlined,
         selectedIcon: Icons.person,

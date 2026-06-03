@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class MessageUnreadBadge extends StatelessWidget {
   final Widget child;
   final int unreadCount;
+  final String semanticLabel;
 
   const MessageUnreadBadge({
     super.key,
     required this.child,
     required this.unreadCount,
+    this.semanticLabel = 'unread messages',
   });
 
   @override
@@ -16,7 +18,7 @@ class MessageUnreadBadge extends StatelessWidget {
 
     final label = unreadCount > 99 ? '99+' : '$unreadCount';
     return Semantics(
-      label: '$label unread messages',
+      label: '$label $semanticLabel',
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.center,
