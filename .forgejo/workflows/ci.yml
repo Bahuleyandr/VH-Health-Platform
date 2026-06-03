@@ -22,6 +22,16 @@ env:
   VH_K8S_TOOLS_CACHE_DIR: /cache/vh-health-platform/k8s-tools
   PUB_CACHE: /cache/vh-health-platform/pub
   npm_config_cache: /cache/vh-health-platform/npm
+  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+  SENTRY_ORG: venkataeswara-hospital
+  SENTRY_TEAM: venkataeswara-hospital
+  SENTRY_PROJECT: vh-admin-portal
+  SENTRY_UPLOAD_SOURCE_MAPS: 'false'
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN_BACKEND }}
+  NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_ADMIN }}
+  NEXT_PUBLIC_SENTRY_ENVIRONMENT: ci
+  NEXT_PUBLIC_SENTRY_RELEASE: ${{ github.sha }}
+  STAFF_WEB_SENTRY_DSN: ${{ secrets.SENTRY_DSN_STAFF }}
 
 jobs:
   ci:

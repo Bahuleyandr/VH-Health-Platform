@@ -4,6 +4,8 @@ import type { NextConfig } from 'next';
 import type { Configuration as WebpackConfig } from 'webpack';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app';
+const uploadSentrySourceMaps =
+  process.env.SENTRY_UPLOAD_SOURCE_MAPS === 'true';
 
 function toWebSocketOrigin(url: string) {
   try {
@@ -94,9 +96,11 @@ const nextConfig: NextConfig = {
 // Wrap with Sentry. telemetry:false silences the “Sending telemetry…” build log.
 // The sourcemaps block keeps uploads via the plugin and deletes local *.map after.
 export default withSentryConfig(nextConfig, {
-  org: process.env.SENTRY_ORG,
-  project: process.env.SENTRY_PROJECT,
-  authToken: process.env.SENTRY_AUTH_TOKEN,
+  org: uploadSentrySourceMaps ? process.env.SENTRY_ORG : undefined,
+  project: uploadSentrySourceMaps ? process.env.SENTRY_PROJECT : undefined,
+  authToken: uploadSentrySourceMaps
+    ? process.env.SENTRY_AUTH_TOKEN
+    : undefined,
 
   telemetry: false, // <-- disable Sentry plugin telemetry (quiet builds)
 
@@ -111,6 +115,6 @@ export default withSentryConfig(nextConfig, {
   },
 
   sourcemaps: {
-    deleteSourcemapsAfterUpload: true,
+    deleteSourcemapsAfterUpload: uploadSentrySourceMaps,
   },
 });
