@@ -545,6 +545,13 @@ class RoleFeatures {
     route: '/messaging',
     color: Color(0xFF1565C0),
   );
+  static const DashboardFeature _auditLogs = DashboardFeature(
+    id: 'audit_logs',
+    title: 'Audit Logs',
+    icon: Icons.manage_search,
+    route: '/audit-logs',
+    color: Color(0xFFC62828),
+  );
   static const DashboardFeature _bedBoard = DashboardFeature(
     id: 'bed_board',
     title: 'Bed Board',
@@ -825,6 +832,7 @@ class RoleFeatures {
         _housekeepingHub,
         _housekeepingTasks,
         _messaging,
+        _auditLogs,
         _profile,
         _settings,
       ],
@@ -1783,6 +1791,20 @@ class RoleFeatures {
         selectedIcon: Icons.notifications_active,
         route: '/notifications',
       ),
+    ]);
+
+    if (role.isAdminTier) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Audit Logs',
+          icon: Icons.manage_search_outlined,
+          selectedIcon: Icons.manage_search,
+          route: '/audit-logs',
+        ),
+      );
+    }
+
+    items.addAll(const [
       WorkbenchNavItem(
         label: 'Profile',
         icon: Icons.person_outlined,

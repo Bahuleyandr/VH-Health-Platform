@@ -62,6 +62,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 
 // Notifications
 import '../../features/notifications/screens/notifications_screen.dart';
+import '../../features/audit/screens/audit_logs_screen.dart';
 
 // Schedule
 import '../../features/schedule/screens/schedule_screen.dart';
@@ -635,6 +636,12 @@ final GoRouter appRouter = GoRouter(
           name: 'notifications',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: NotificationsScreen()),
+        ),
+        GoRoute(
+          path: '/audit-logs',
+          name: 'audit-logs',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: AuditLogsScreen()),
         ),
 
         // About

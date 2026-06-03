@@ -4,6 +4,38 @@ import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+function applyDateFilters({ query, conditions, params, column = 'created_at' }) {
+  const dateRange = String(query.dateRange || query.date_range || '').trim();
+  if (dateRange) {
+    const rangeSql = {
+      today: `${column} >= CURRENT_DATE`,
+      yesterday: `${column} >= CURRENT_DATE - INTERVAL '1 day' AND ${column} < CURRENT_DATE`,
+      last_24h: `${column} >= NOW() - INTERVAL '24 hours'`,
+      last_7d: `${column} >= NOW() - INTERVAL '7 days'`,
+      last_30d: `${column} >= NOW() - INTERVAL '30 days'`,
+    }[dateRange];
+    if (rangeSql) conditions.push(rangeSql);
+  }
+
+  const from = query.from || query.start_date;
+  const to = query.to || query.end_date;
+  if (from) {
+    params.push(from);
+    conditions.push(`${column} >= $${params.length}::timestamptz`);
+  }
+  if (to) {
+    params.push(to);
+    conditions.push(`${column} < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+}
+
+function addIlikeFilter({ query, key, column, conditions, params }) {
+  const value = typeof query[key] === 'string' ? query[key].trim() : '';
+  if (!value) return;
+  params.push(`%${value}%`);
+  conditions.push(`${column} ILIKE $${params.length}`);
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/logs/audit  — paginated audit logs
 // ────────────────────────────────────────────────────────────────────────────
@@ -41,6 +73,28 @@ export async function getAuditLogs(req, res) {
           OR ip_address ILIKE $${params.length}
         )`);
       }
+      addIlikeFilter({
+        query: req.query,
+        key: 'action',
+        column: 'action',
+        conditions,
+        params,
+      });
+      addIlikeFilter({
+        query: req.query,
+        key: 'resource',
+        column: 'resource',
+        conditions,
+        params,
+      });
+      addIlikeFilter({
+        query: req.query,
+        key: 'role',
+        column: 'role',
+        conditions,
+        params,
+      });
+      applyDateFilters({ query: req.query, conditions, params });
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const listParams = [...params, listQuery.limit, listQuery.offset];
       rows = await prisma.$queryRawUnsafe(
@@ -71,6 +125,12 @@ export async function getAuditLogs(req, res) {
       pagination,
       filters: {
         search: listQuery.search || null,
+        action: req.query.action || null,
+        resource: req.query.resource || null,
+        role: req.query.role || null,
+        dateRange: req.query.dateRange || req.query.date_range || null,
+        from: req.query.from || req.query.start_date || null,
+        to: req.query.to || req.query.end_date || null,
         sortBy: listQuery.sortBy,
         sortOrder: listQuery.sortOrder,
       },
@@ -117,6 +177,21 @@ export async function getSystemLogs(req, res) {
           OR ip_address ILIKE $${params.length}
         )`);
       }
+      addIlikeFilter({
+        query: req.query,
+        key: 'action',
+        column: 'action',
+        conditions,
+        params,
+      });
+      addIlikeFilter({
+        query: req.query,
+        key: 'admin_uid',
+        column: 'admin_uid::text',
+        conditions,
+        params,
+      });
+      applyDateFilters({ query: req.query, conditions, params });
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const listParams = [...params, listQuery.limit, listQuery.offset];
       rows = await prisma.$queryRawUnsafe(
@@ -146,6 +221,11 @@ export async function getSystemLogs(req, res) {
       pagination,
       filters: {
         search: listQuery.search || null,
+        action: req.query.action || null,
+        admin_uid: req.query.admin_uid || null,
+        dateRange: req.query.dateRange || req.query.date_range || null,
+        from: req.query.from || req.query.start_date || null,
+        to: req.query.to || req.query.end_date || null,
         sortBy: listQuery.sortBy,
         sortOrder: listQuery.sortOrder,
       },
