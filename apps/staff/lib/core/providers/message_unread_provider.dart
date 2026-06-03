@@ -46,6 +46,7 @@ class MessageUnreadProvider extends ChangeNotifier {
   int _alertSerial = 0;
   bool _started = false;
   bool _refreshing = false;
+  bool _refreshPending = false;
   StaffMessageAlert? _latestAlert;
   StreamSubscription<RealtimeEvent>? _messageSub;
   Timer? _pollTimer;
@@ -68,25 +69,53 @@ class MessageUnreadProvider extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    if (_refreshing) return;
-    _refreshing = true;
-    try {
-      final result = await MessagingApiService.unreadCount();
-      setUnreadCountFromServer(
-        _intValue(result['unread_count'] ?? result['count']),
-      );
-    } catch (e) {
-      if (kDebugMode) debugPrint('Message unread refresh failed: $e');
-    } finally {
-      _refreshing = false;
+    if (_refreshing) {
+      _refreshPending = true;
+      return;
     }
+
+    do {
+      _refreshing = true;
+      _refreshPending = false;
+      try {
+        final result = await MessagingApiService.unreadCount();
+        setUnreadCountFromServer(
+          _intValue(result['unread_count'] ?? result['count']),
+        );
+      } catch (e) {
+        if (kDebugMode) debugPrint('Message unread refresh failed: $e');
+      } finally {
+        _refreshing = false;
+      }
+    } while (_refreshPending);
   }
 
   void setUnreadCountFromServer(int count) {
     final normalized = count < 0 ? 0 : count;
-    if (_unreadCount == normalized) return;
+    if (_unreadCount == normalized) {
+      if (normalized == 0 && _latestAlert != null) {
+        _latestAlert = null;
+        notifyListeners();
+      }
+      return;
+    }
     _unreadCount = normalized;
+    if (_unreadCount == 0) _latestAlert = null;
     notifyListeners();
+  }
+
+  void markMessagesReadLocally(int count, {bool refresh = true}) {
+    if (count <= 0) return;
+    final normalized = (_unreadCount - count).clamp(0, 1 << 31).toInt();
+    if (_unreadCount != normalized) {
+      _unreadCount = normalized;
+      if (_unreadCount == 0) _latestAlert = null;
+      notifyListeners();
+    } else if (normalized == 0 && _latestAlert != null) {
+      _latestAlert = null;
+      notifyListeners();
+    }
+    if (refresh) unawaited(this.refresh());
   }
 
   void _handleRealtimeMessage(RealtimeEvent event) {

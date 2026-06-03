@@ -135,6 +135,27 @@ class ThreadMessage {
     if (!sentBy(myUid)) return false;
     return !_isReceiptSuppressedRole(recipientRole);
   }
+
+  ThreadMessage copyWith({bool? isRead}) {
+    return ThreadMessage(
+      id: id,
+      threadId: threadId,
+      senderUid: senderUid,
+      senderName: senderName,
+      senderRole: senderRole,
+      recipientUid: recipientUid,
+      recipientName: recipientName,
+      recipientRole: recipientRole,
+      recipientDepartment: recipientDepartment,
+      patientUid: patientUid,
+      subject: subject,
+      body: body,
+      priority: priority,
+      isRead: isRead ?? this.isRead,
+      createdAt: createdAt,
+      attachments: attachments,
+    );
+  }
 }
 
 class MessagingThreadScreen extends StatefulWidget {
@@ -259,9 +280,10 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         _scrollToBottom();
       }
 
-      // Mark unread messages as read (fire and forget, non-blocking)
+      // Mark unread messages as read after the thread is visible. The provider
+      // update is local-first so the Messages badge disappears immediately.
       if (unreadIds.isNotEmpty) {
-        _markMessagesRead(unreadIds);
+        unawaited(_markMessagesRead(unreadIds));
       }
     } catch (e) {
       if (mounted) {
@@ -274,14 +296,30 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   }
 
   Future<void> _markMessagesRead(List<int> ids) async {
+    final markedIds = <int>[];
     for (final id in ids) {
       try {
         await MessagingApiService.markRead(id);
+        markedIds.add(id);
       } catch (_) {
         // Non-critical — silently ignore individual failures
       }
     }
-    if (mounted) {
+    if (mounted && markedIds.isNotEmpty) {
+      final marked = markedIds.toSet();
+      setState(() {
+        _messages = _messages
+            .map(
+              (message) => marked.contains(message.id)
+                  ? message.copyWith(isRead: true)
+                  : message,
+            )
+            .toList();
+      });
+      context.read<MessageUnreadProvider>().markMessagesReadLocally(
+        markedIds.length,
+        refresh: false,
+      );
       unawaited(context.read<MessageUnreadProvider>().refresh());
     }
   }
