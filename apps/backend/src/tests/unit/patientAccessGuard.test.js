@@ -59,7 +59,6 @@ describe('patientAccessGuard', () => {
   it('allows active care-team members and writes an allow audit row', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 4, care_team_id: 5 }]);
     prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
     const next = jest.fn();
@@ -93,7 +92,6 @@ describe('patientAccessGuard', () => {
       .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
     const next = jest.fn();
@@ -118,7 +116,7 @@ describe('patientAccessGuard', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       code: 'PATIENT_ACCESS_DENIED',
-      break_glass_available: true,
+      break_glass_available: false,
     }));
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('deny');
   });

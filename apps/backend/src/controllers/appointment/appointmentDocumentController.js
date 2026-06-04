@@ -6,6 +6,11 @@ import {
   decideClinicalDocumentIntake,
   ingestClinicalDocumentUpload,
 } from '../../services/ai/documentIntelligenceService.js';
+import {
+  ACCESS_POLICY_CODES,
+  authorizePatientAccessRequest,
+  SAFE_PATIENT_ACCESS_DENIAL_MESSAGE,
+} from '../../services/security/accessDecisionService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -276,6 +281,45 @@ async function resolvePatientForRecordList(req) {
   return rows[0].id;
 }
 
+async function ensurePatientRecordAccess(req, res, {
+  patient = null,
+  patientId = null,
+  patientUid = null,
+  policyCode = ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
+  recordType = 'PATIENT_RECORD',
+  shadowMode = false,
+} = {}) {
+  const targetPatient = patient || {
+    id: patientId,
+    uid: patientUid,
+  };
+  const decision = await authorizePatientAccessRequest(req, {
+    policyCode,
+    recordType,
+    patient: targetPatient,
+    shadowMode,
+    requireResolvedPatient: true,
+  });
+
+  if (!decision.allowed) {
+    error(
+      res,
+      decision.safe_denial_message || SAFE_PATIENT_ACCESS_DENIAL_MESSAGE,
+      HTTP_STATUS.FORBIDDEN,
+      {
+        safe: true,
+        code: decision.safe_reason_code || 'PATIENT_ACCESS_DENIED',
+        break_glass_available: Boolean(decision.break_glass_available),
+        policy_code: decision.policy_code,
+        policy_version: decision.policy_version,
+        policy_hash: decision.policy_hash,
+      }
+    );
+    return false;
+  }
+  return true;
+}
+
 function normalizeOptionalIsoDate(value, fieldName) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -460,6 +504,12 @@ export const getAppointmentDocuments = async (req, res) => {
 export const getPatientAllRecords = async (req, res) => {
   try {
     const patientId = await resolvePatientForRecordList(req);
+    const hasAccess = await ensurePatientRecordAccess(req, res, {
+      patientId,
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
+      recordType: 'PATIENT_RECORD',
+    });
+    if (!hasAccess) return;
 
     // Both `appointment_documents` and `patient_records` are part of an
     // unfinished records-management feature — the migrations were never
@@ -530,6 +580,12 @@ export const getPatientAllRecords = async (req, res) => {
 export const uploadPatientRecord = async (req, res) => {
   try {
     const patientId = await resolvePatientForRecordUpload(req);
+    await ensurePatientRecordAccess(req, res, {
+      patientId,
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_UPLOAD,
+      recordType: 'PATIENT_RECORD',
+      shadowMode: true,
+    });
     const { document_type, title, source_hospital, record_date, notes } = req.body;
     const normalizedRecordDate = normalizeOptionalIsoDate(record_date, 'record_date');
 
@@ -604,6 +660,13 @@ export const getPatientRecordExtraction = async (req, res) => {
     const row = await findPatientRecordWithExtraction(req, req.params.id, {
       includeRawText: true,
     });
+    const hasAccess = await ensurePatientRecordAccess(req, res, {
+      patientId: row.patient_id,
+      patientUid: row.patient_uid,
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_EXTRACTION_VIEW,
+      recordType: 'PATIENT_RECORD_EXTRACTION',
+    });
+    if (!hasAccess) return;
     if (!row.ai_intake_id) {
       return error(res, 'Extraction draft not found for this record', HTTP_STATUS.NOT_FOUND);
     }
@@ -634,6 +697,13 @@ export const getPatientRecordExtraction = async (req, res) => {
 export const reviewPatientRecordExtraction = async (req, res) => {
   try {
     const row = await findPatientRecordWithExtraction(req, req.params.id);
+    const hasAccess = await ensurePatientRecordAccess(req, res, {
+      patientId: row.patient_id,
+      patientUid: row.patient_uid,
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_EXTRACTION_REVIEW,
+      recordType: 'PATIENT_RECORD_EXTRACTION',
+    });
+    if (!hasAccess) return;
     if (!row.ai_intake_id) {
       return error(res, 'Extraction draft not found for this record', HTTP_STATUS.NOT_FOUND);
     }
@@ -665,9 +735,16 @@ export const reviewPatientRecordExtraction = async (req, res) => {
  */
 export const deletePatientRecord = async (req, res) => {
   try {
-    const patientId = req.user?.id;
     const { id } = req.params;
-    const record = await prisma.$queryRawUnsafe('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', id, patientId);
+    const row = await findPatientRecordWithExtraction(req, id);
+    const hasAccess = await ensurePatientRecordAccess(req, res, {
+      patientId: row.patient_id,
+      patientUid: row.patient_uid,
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_DELETE,
+      recordType: 'PATIENT_RECORD',
+    });
+    if (!hasAccess) return;
+    const record = await prisma.$queryRawUnsafe('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', id, row.patient_id);
     if (!record.length) return error(res, 'Record not found', HTTP_STATUS.NOT_FOUND);
 
     const fileKey = record[0].file_key;

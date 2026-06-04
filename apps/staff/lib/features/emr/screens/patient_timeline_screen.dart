@@ -65,7 +65,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
         _loading = false;
       });
     }

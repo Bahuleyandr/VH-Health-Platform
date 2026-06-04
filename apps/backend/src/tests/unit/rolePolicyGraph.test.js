@@ -28,6 +28,11 @@ describe('rolePolicyGraph', () => {
       display_title: 'Nursing Superintendent',
       group: 'leadership',
     }));
+    expect(cno?.phi).toEqual(expect.objectContaining({
+      access_level: PHI_ACCESS_LEVELS.CLINICAL_LEADERSHIP,
+      requires_patient_relationship: true,
+      can_break_glass: false,
+    }));
     expect(nursingSuperintendent?.role_codes).toContain('CNO');
     expect(getManageableRolesFromPolicy('CNO')).toEqual(expect.arrayContaining([
       'NURSING_INCHARGE',

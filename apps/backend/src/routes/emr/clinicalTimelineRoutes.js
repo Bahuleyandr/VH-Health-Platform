@@ -8,7 +8,7 @@ import { success } from '../../utils/responseHelper.js';
 const router = express.Router();
 
 // GET /emr/timeline/:patientUid - Unified clinical timeline
-router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE'), async (req, res, next) => {
+router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'patient.timeline.view' }), async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { date_from, date_to } = req.query;
