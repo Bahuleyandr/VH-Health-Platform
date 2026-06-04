@@ -58,9 +58,10 @@ const BASE_DEPARTMENT_POLICIES = {
   ot_nursing: {
     department: 'ot_nursing',
     label: 'OT Nursing',
-    staffRoles: ['OT_NURSE', 'OT_STAFF'],
+    staffRoles: ['OT_NURSE', 'OT_STAFF', 'OT_INCHARGE'],
     workManagerRoles: [
       ...EXECUTIVE_ROSTER_ROLES,
+      'OT_INCHARGE',
       'NURSING_INCHARGE',
       'MEDICAL_SUPERINTENDENT',
       'CNO'

@@ -15,6 +15,7 @@ enum StaffRole {
   ipStaffNurse('IP_STAFF_NURSE'),
   ipIncharge('IP_INCHARGE'),
   otNurse('OT_NURSE'),
+  otIncharge('OT_INCHARGE'),
   cathLabStaff('CATH_LAB_STAFF'),
   cathLabIncharge('CATH_LAB_INCHARGE'),
   hr('HR_STAFF'),
@@ -100,6 +101,14 @@ enum StaffRole {
       return StaffRole.ipIncharge;
     }
     if (const {
+      'OT_IN_CHARGE',
+      'OT_NURSING_INCHARGE',
+      'THEATRE_INCHARGE',
+      'THEATRE_NURSING_INCHARGE',
+    }.contains(normalized)) {
+      return StaffRole.otIncharge;
+    }
+    if (const {
       'OT_NURSE',
       'OT_STAFF',
       'THEATRE_NURSE',
@@ -165,6 +174,7 @@ enum StaffRole {
     StaffRole.ipStaffNurse => 'IP Staff Nurse',
     StaffRole.ipIncharge => 'IP Incharge',
     StaffRole.otNurse => 'OT Nurse',
+    StaffRole.otIncharge => 'OT Incharge',
     StaffRole.cathLabStaff => 'Cath Lab Staff',
     StaffRole.cathLabIncharge => 'Cath Lab Incharge',
     StaffRole.hr => 'HR Staff',
@@ -203,6 +213,7 @@ enum StaffRole {
     StaffRole.ipStaffNurse => const Color(0xFF00796B),
     StaffRole.ipIncharge => const Color(0xFF004D40),
     StaffRole.otNurse => const Color(0xFF6A1B9A),
+    StaffRole.otIncharge => const Color(0xFF4A148C),
     StaffRole.cathLabStaff => const Color(0xFFAD1457),
     StaffRole.cathLabIncharge => const Color(0xFF880E4F),
     StaffRole.hr => const Color(0xFF6A1B9A),
@@ -242,7 +253,7 @@ enum StaffRole {
     StaffRole.ipStaffNurse ||
     StaffRole.ipIncharge => 'nursing',
     StaffRole.opStaffNurse || StaffRole.opIncharge => 'op_nursing',
-    StaffRole.otNurse => 'ot_nursing',
+    StaffRole.otNurse || StaffRole.otIncharge => 'ot_nursing',
     StaffRole.cathLabStaff || StaffRole.cathLabIncharge => 'cath_lab',
     StaffRole.pharmacy => 'pharmacy',
     StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
@@ -831,10 +842,11 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.otNurse => [
+      StaffRole.otNurse || StaffRole.otIncharge => [
         _attendance,
         _schedule,
         _dutyPreference,
+        _nursingRoster,
         _theatre,
         _patientRecords,
         _investigationResults,
@@ -1181,7 +1193,7 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.otNurse => [
+      StaffRole.otNurse || StaffRole.otIncharge => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1855,6 +1867,7 @@ class RoleFeatures {
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
       StaffRole.otNurse ||
+      StaffRole.otIncharge ||
       StaffRole.cathLabStaff ||
       StaffRole.cathLabIncharge => true,
       _ => false,
@@ -1886,6 +1899,7 @@ class RoleFeatures {
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
       StaffRole.otNurse ||
+      StaffRole.otIncharge ||
       StaffRole.cathLabStaff ||
       StaffRole.cathLabIncharge ||
       StaffRole.receptionist ||

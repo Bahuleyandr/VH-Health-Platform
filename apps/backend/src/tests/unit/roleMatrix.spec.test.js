@@ -73,6 +73,7 @@ const GATES = [
       'IP_STAFF_NURSE',
       'IP_INCHARGE',
       'OT_NURSE',
+      'OT_INCHARGE',
       'CATH_LAB_STAFF',
       'CATH_LAB_INCHARGE',
       'RADIOLOGIST',
@@ -164,6 +165,7 @@ const GATES = [
       'OP_STAFF_NURSE',
       'OP_INCHARGE',
       'OT_NURSE',
+      'OT_INCHARGE',
       'CATH_LAB_STAFF',
       'CATH_LAB_INCHARGE',
       'RADIOLOGIST',
@@ -199,6 +201,7 @@ const GATES = [
       'JUNIOR_DOCTOR',
       'OT_STAFF',
       'OT_NURSE',
+      'OT_INCHARGE',
       'ANESTHETIST',
       'ADMIN',
       'CMO'
@@ -231,6 +234,7 @@ const GATES = [
       'NURSING_STAFF',
       'IP_STAFF_NURSE',
       'OT_NURSE',
+      'OT_INCHARGE',
       'CATH_LAB_STAFF',
       'BLOOD_BANK_TECHNICIAN',
       'ADMIN'

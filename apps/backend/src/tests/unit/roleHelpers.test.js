@@ -61,6 +61,7 @@ describe('Phase F1 role registry', () => {
     expect(ROLES.IP_STAFF_NURSE).toBe('IP_STAFF_NURSE');
     expect(ROLES.IP_INCHARGE).toBe('IP_INCHARGE');
     expect(ROLES.OT_NURSE).toBe('OT_NURSE');
+    expect(ROLES.OT_INCHARGE).toBe('OT_INCHARGE');
     expect(ROLES.CATH_LAB_STAFF).toBe('CATH_LAB_STAFF');
     expect(ROLES.CATH_LAB_INCHARGE).toBe('CATH_LAB_INCHARGE');
   });
@@ -191,6 +192,7 @@ describe('Existing access gates respect new doctor tiers', () => {
     expect(canAccessOT('CONSULTANT')).toBe(true);
     expect(canAccessOT('JUNIOR_DOCTOR')).toBe(true);
     expect(canAccessOT('OT_NURSE')).toBe(true);
+    expect(canAccessOT('OT_INCHARGE')).toBe(true);
     expect(canAccessOT('RESIDENT')).toBe(false);
   });
   it('canAccessCathLab accepts cath lab staff and clinical doctor tiers', () => {
@@ -205,6 +207,7 @@ describe('Existing access gates respect new doctor tiers', () => {
     expect(canAccessBloodBank('NURSING_STAFF')).toBe(true);
     expect(canAccessBloodBank('IP_STAFF_NURSE')).toBe(true);
     expect(canAccessBloodBank('OT_NURSE')).toBe(true);
+    expect(canAccessBloodBank('OT_INCHARGE')).toBe(true);
     expect(canAccessBloodBank('CATH_LAB_STAFF')).toBe(true);
     expect(canAccessBloodBank('BLOOD_BANK_TECHNICIAN')).toBe(true);
     expect(canAccessBloodBank('RESIDENT')).toBe(false);
@@ -218,7 +221,7 @@ describe('isStaff / isClinical respect new specialty roles', () => {
       'INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER',
       'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'ADMISSION_OFFICER',
       'IPD_COUNSELLOR', 'INSURANCE_COORDINATOR', 'IP_STAFF_NURSE',
-      'IP_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE']) {
+      'IP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE']) {
       expect(isStaff(r)).toBe(true);
     }
   });
@@ -229,6 +232,7 @@ describe('isStaff / isClinical respect new specialty roles', () => {
     expect(isClinical('CONSULTANT')).toBe(true);
     expect(isClinical('IP_STAFF_NURSE')).toBe(true);
     expect(isClinical('OT_NURSE')).toBe(true);
+    expect(isClinical('OT_INCHARGE')).toBe(true);
     expect(isClinical('CATH_LAB_STAFF')).toBe(true);
     expect(isClinical('COUNSELLOR')).toBe(true);
     expect(isClinical('CARE_COORDINATOR')).toBe(false);

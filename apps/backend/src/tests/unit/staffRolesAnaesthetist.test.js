@@ -29,6 +29,7 @@ describe('STAFF_ROLES + getStaffHierarchy — anaesthetist + radiology coverage 
     expect(STAFF_ROLES.IP_STAFF_NURSE).toBe('IP_STAFF_NURSE');
     expect(STAFF_ROLES.IP_INCHARGE).toBe('IP_INCHARGE');
     expect(STAFF_ROLES.OT_NURSE).toBe('OT_NURSE');
+    expect(STAFF_ROLES.OT_INCHARGE).toBe('OT_INCHARGE');
     expect(STAFF_ROLES.OT_STAFF).toBe('OT_STAFF');
     expect(STAFF_ROLES.CATH_LAB_STAFF).toBe('CATH_LAB_STAFF');
     expect(STAFF_ROLES.CATH_LAB_INCHARGE).toBe('CATH_LAB_INCHARGE');
@@ -59,6 +60,7 @@ describe('STAFF_ROLES + getStaffHierarchy — anaesthetist + radiology coverage 
       'IP_STAFF_NURSE',
       'IP_INCHARGE',
       'OT_NURSE',
+      'OT_INCHARGE',
       'OT_STAFF',
       'CATH_LAB_STAFF',
       'CATH_LAB_INCHARGE',
@@ -102,6 +104,7 @@ describe('STAFF_ROLES + getStaffHierarchy — anaesthetist + radiology coverage 
   it('nursing subrole buckets separate OP, IP, OT, and Cath Lab teams', () => {
     expect(getStaffHierarchy('OP_INCHARGE')).toEqual(['OP_INCHARGE', 'OP_STAFF_NURSE']);
     expect(getStaffHierarchy('IP_INCHARGE')).toEqual(expect.arrayContaining(['IP_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE']));
+    expect(getStaffHierarchy('OT_INCHARGE')).toEqual(['OT_INCHARGE', 'OT_NURSE', 'OT_STAFF']);
     expect(getStaffHierarchy('OT_NURSE')).toEqual(['OT_NURSE', 'OT_STAFF']);
     expect(getStaffHierarchy('CATH_LAB_INCHARGE')).toEqual(['CATH_LAB_STAFF', 'CATH_LAB_INCHARGE']);
   });

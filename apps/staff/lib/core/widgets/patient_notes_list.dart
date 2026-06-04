@@ -51,7 +51,12 @@ class _PatientNotesListState extends State<PatientNotesList> {
     'NURSE',
     'NURSING_STAFF',
     'ICU_NURSE',
+    'IP_STAFF_NURSE',
+    'IP_INCHARGE',
+    'OP_STAFF_NURSE',
+    'OP_INCHARGE',
     'OT_NURSE',
+    'OT_INCHARGE',
   };
 
   @override

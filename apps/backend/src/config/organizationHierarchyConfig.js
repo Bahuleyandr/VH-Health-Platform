@@ -146,9 +146,9 @@ export const ORGANIZATION_HIERARCHY_NODES = [
   {
     id: 'nursing_incharge',
     lane: 'clinical',
-    title: 'Nursing Incharge / OP / IP / Cath Lab Incharge',
+    title: 'Nursing Incharge / OP / IP / OT / Cath Lab Incharge',
     subtitle: 'Unit nursing leads',
-    role_codes: ['NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'CATH_LAB_INCHARGE'],
+    role_codes: ['NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'OT_INCHARGE', 'CATH_LAB_INCHARGE'],
     access_level: 'Unit roster and nursing work access',
     responsibilities: [
       'Assigns nurses to wards, OP areas, Cath lab, OT coverage, and coverage blocks',
@@ -386,7 +386,7 @@ export const ORGANIZATION_ROLE_BOUNDARIES = [
   },
   {
     title: 'Nursing authority',
-    role_codes: ['CNO', 'NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'CATH_LAB_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF'],
+    role_codes: ['CNO', 'NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'OT_INCHARGE', 'CATH_LAB_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF'],
     scope: 'Nursing deployment, OP/IP/OT/Cath lab nursing documentation, ward coverage, medication administration, and nursing escalation.',
     cannot: 'Does not process payroll or final HR leave records.',
   },

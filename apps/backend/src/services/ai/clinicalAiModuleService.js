@@ -1253,7 +1253,7 @@ export const CLINICAL_AI_MODULES = [
       status: 'available',
       requiresClinicianSignoff: false,
       requiresCitations: false,
-      reviewRoles: ['OT_STAFF', 'ADMIN'],
+      reviewRoles: ['OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ADMIN'],
       outputSchema: { type: 'object', required: ['predicted_minutes', 'confidence_pct'] },
       retentionDays: 180,
     },

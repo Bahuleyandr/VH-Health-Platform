@@ -525,7 +525,7 @@ async function loadStaffPool({ tenantId, department }) {
      WHERE s.is_active = true
        AND s.tenant_id = $1::uuid
        AND (s.department = $2 OR $2 = '')
-       AND s.role IN ('DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'OT_STAFF', 'LAB_STAFF')
+       AND s.role IN ('DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'LAB_STAFF')
      ORDER BY s.name`,
     tenantId,
     department || ''

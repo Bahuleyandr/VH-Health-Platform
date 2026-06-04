@@ -400,6 +400,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     _StaffRoleOption('IP_STAFF_NURSE', 'IP Staff Nurse'),
     _StaffRoleOption('IP_INCHARGE', 'IP Incharge'),
     _StaffRoleOption('OT_NURSE', 'OT Nurse'),
+    _StaffRoleOption('OT_INCHARGE', 'OT Incharge'),
     _StaffRoleOption('CATH_LAB_STAFF', 'Cath Lab Staff'),
     _StaffRoleOption('CATH_LAB_INCHARGE', 'Cath Lab Incharge'),
     _StaffRoleOption('RECEPTIONIST', 'Receptionist'),

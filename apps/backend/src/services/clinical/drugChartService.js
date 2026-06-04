@@ -29,6 +29,7 @@ const ADMINISTRATION_ROLES = new Set([
   'CNO',
   'ICU_NURSE',
   'ICU_INCHARGE',
+  'OT_INCHARGE',
 ]);
 
 const PHARMACY_ROLES = new Set([

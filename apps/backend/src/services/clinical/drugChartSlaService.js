@@ -31,6 +31,7 @@ const NURSING_ROLES = [
   'ICU_NURSE',
   'ICU_INCHARGE',
   'OT_NURSE',
+  'OT_INCHARGE',
   'CNO',
 ];
 

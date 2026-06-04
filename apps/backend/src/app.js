@@ -231,6 +231,7 @@ const CLINICAL_STAFF_ROLES = [
   'OP_STAFF_NURSE',
   'OP_INCHARGE',
   'OT_NURSE',
+  'OT_INCHARGE',
   'OT_STAFF',
   'CATH_LAB_STAFF',
   'CATH_LAB_INCHARGE',
@@ -526,7 +527,7 @@ app.use(
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE', 'MEDICAL_RECORDS', 'PATIENT'), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
+app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE', 'MEDICAL_RECORDS', 'PATIENT'), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
 app.use('/api/v1/investigations', patientRateLimiter, requireRole(
   'ADMIN',
   'SUPER_ADMIN',
@@ -686,7 +687,7 @@ app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
-app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
@@ -719,7 +720,7 @@ app.use(
 );
 
 // Clinical assessments: pain / fall-risk / growth-chart (Phase F2)
-app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
+app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'OT_INCHARGE', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
@@ -852,9 +853,9 @@ app.use('/api/v1/radiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'DIETARY_STAFF'), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF', 'ANESTHETIST'), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ANESTHETIST'), orBoardRoutes);
+app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real
@@ -870,7 +871,7 @@ app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 app.use(
   '/api/v1/surgical',
   requireRole(
-    'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF',
+    'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF',
     'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'ANESTHETIST',
   ),
   phiAccessLogger('SURGICAL_DOCUMENTATION'),
@@ -884,7 +885,7 @@ app.use('/api/v1/death-certification', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCT
 app.use('/api/v1/dialysis', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'DIALYSIS_TECHNICIAN'), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 
 // Blood Bank
-app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
+app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use(
@@ -978,6 +979,7 @@ app.use('/api/v1/staff-messaging', requireRole(
   'IP_STAFF_NURSE',
   'IP_INCHARGE',
   'OT_NURSE',
+  'OT_INCHARGE',
   'CATH_LAB_STAFF',
   'CATH_LAB_INCHARGE',
   'BILLING_STAFF',
@@ -1008,6 +1010,7 @@ app.use('/api/v1/messaging', requireRole(
   'IP_STAFF_NURSE',
   'IP_INCHARGE',
   'OT_NURSE',
+  'OT_INCHARGE',
   'CATH_LAB_STAFF',
   'CATH_LAB_INCHARGE',
   'PHARMACY_STAFF',
@@ -1033,6 +1036,7 @@ app.use('/api/v1/messaging', requireRole(
   'ADMISSION_OFFICER',
   'IPD_COUNSELLOR',
   'MEDICAL_RECORDS',
+  'OT_INCHARGE',
   'OT_STAFF',
   'BLOOD_BANK_TECHNICIAN',
   'QUALITY_OFFICER',

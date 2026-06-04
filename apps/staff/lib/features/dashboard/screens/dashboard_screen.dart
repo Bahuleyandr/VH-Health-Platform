@@ -685,7 +685,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'lab_bookings',
         'investigation_results',
       },
-      StaffRole.otNurse => {
+      StaffRole.otNurse || StaffRole.otIncharge => {
         'theatre',
         'patient_records',
         'lab_bookings',
@@ -1054,7 +1054,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ],
-      StaffRole.otNurse => [
+      StaffRole.otNurse || StaffRole.otIncharge => [
         _ClinicalServiceGroup(
           label: 'OT Services',
           emptyLabel: 'No OT services available for this role',

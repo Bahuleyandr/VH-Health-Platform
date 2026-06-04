@@ -17,6 +17,7 @@ export function getStaffHierarchy(userRole) {
   const ipNursingRoles = ['NURSING_STAFF', 'IP_STAFF_NURSE'];
   const opNursingRoles = ['OP_STAFF_NURSE'];
   const otNursingRoles = ['OT_NURSE', 'OT_STAFF'];
+  const otInchargeRoles = ['OT_INCHARGE'];
   const cathLabRoles = ['CATH_LAB_STAFF', 'CATH_LAB_INCHARGE'];
   // Anaesthetists are clinical-doctor tier (same level as DOCTOR for the
   // theatre/ICU/PACU surfaces); RADIOLOGY_STAFF mirrors LAB_STAFF as a
@@ -41,6 +42,7 @@ export function getStaffHierarchy(userRole) {
       ...ipNursingRoles,
       'OP_INCHARGE',
       ...opNursingRoles,
+      ...otInchargeRoles,
       ...otNursingRoles,
       ...cathLabRoles
     ],
@@ -51,15 +53,17 @@ export function getStaffHierarchy(userRole) {
       ...ipNursingRoles,
       'OP_INCHARGE',
       ...opNursingRoles,
+      ...otInchargeRoles,
       ...otNursingRoles,
       ...cathLabRoles,
     ],
-    NURSING_INCHARGE: ['NURSING_INCHARGE', 'IP_INCHARGE', ...ipNursingRoles, ...opNursingRoles],
+    NURSING_INCHARGE: ['NURSING_INCHARGE', 'IP_INCHARGE', ...ipNursingRoles, ...opNursingRoles, ...otInchargeRoles, ...otNursingRoles],
     NURSING_STAFF: ['NURSING_STAFF'],
     IP_INCHARGE: ['IP_INCHARGE', ...ipNursingRoles],
     IP_STAFF_NURSE: ['IP_STAFF_NURSE'],
     OP_INCHARGE: ['OP_INCHARGE', ...opNursingRoles],
     OP_STAFF_NURSE: ['OP_STAFF_NURSE'],
+    OT_INCHARGE: ['OT_INCHARGE', ...otNursingRoles],
     OT_NURSE: ['OT_NURSE', 'OT_STAFF'],
     OT_STAFF: ['OT_STAFF', 'OT_NURSE'],
     CATH_LAB_INCHARGE: cathLabRoles,

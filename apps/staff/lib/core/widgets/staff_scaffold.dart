@@ -199,6 +199,7 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.otNurse:
+      case StaffRole.otIncharge:
         return [
           const _NavItem(
             'Home',
