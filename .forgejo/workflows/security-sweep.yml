@@ -20,7 +20,7 @@ concurrency:
 jobs:
   security:
     name: Secrets, dependencies, Semgrep, Trivy
-    runs-on: ubuntu-latest
+    runs-on: docker-builder
     timeout-minutes: 45
     env:
       VH_CI_CACHE_DIR: /cache/vh-health-platform

@@ -4,14 +4,14 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YAML from 'yamljs';
+import YAML from 'yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load the swagger file
 const swaggerPath = path.join(__dirname, '../src/docs/swagger.yaml');
-const swagger = YAML.load(swaggerPath);
+const swagger = YAML.parse(fs.readFileSync(swaggerPath, 'utf8'));
 
 console.log('🔧 Fixing Swagger validation errors...\n');
 

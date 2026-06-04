@@ -31,7 +31,7 @@ concurrency:
 jobs:
   image:
     name: ${{ matrix.app }} image
-    runs-on: ubuntu-latest
+    runs-on: docker-builder
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -74,29 +74,39 @@ jobs:
           docker image inspect local/${{ matrix.image }}:${{ github.sha }} \
             > output/container/${{ matrix.app }}/image-inspect.json
 
+      - name: Save image archive for offline scanners
+        run: |
+          set -euo pipefail
+          docker save local/${{ matrix.image }}:${{ github.sha }} \
+            -o /tmp/${{ matrix.app }}-image.tar
+
+      - name: Install image scanners
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-scanners
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /tmp/vh-scanners
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /tmp/vh-scanners v0.71.0
+
       - name: Generate SBOM
         continue-on-error: true
         run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/output/container/${{ matrix.app }}:/out" \
-            anchore/syft:latest \
-            docker:local/${{ matrix.image }}:${{ github.sha }} \
-            -o spdx-json=/out/sbom.spdx.json
+          /tmp/vh-scanners/syft \
+            docker-archive:/tmp/${{ matrix.app }}-image.tar \
+            -o spdx-json=output/container/${{ matrix.app }}/sbom.spdx.json
 
       - name: Trivy image scan
         continue-on-error: true
         run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/output/container/${{ matrix.app }}:/out" \
-            aquasec/trivy:0.70.0 image \
-            --scanners vuln,secret,config \
+          /tmp/vh-scanners/trivy image \
+            --input /tmp/${{ matrix.app }}-image.tar \
+            --scanners vuln,secret,misconfig \
+            --skip-version-check \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
             --format sarif \
-            --output /out/trivy-image.sarif \
-            local/${{ matrix.image }}:${{ github.sha }}
+            --output output/container/${{ matrix.app }}/trivy-image.sarif
 
       - name: Optional registry push and cosign signature
         env:
@@ -132,4 +142,3 @@ jobs:
           name: container-${{ matrix.app }}
           path: output/container/${{ matrix.app }}
           if-no-files-found: ignore
-

@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YAML from 'yamljs';
+import YAML from 'yaml';
 import logger from '../../logging/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,7 +17,7 @@ export const loadSwaggerDocument = () => {
     const swaggerPath = path.join(__dirname, '../../docs/swagger.yaml');
     
     if (fs.existsSync(swaggerPath)) {
-      swaggerDocument = YAML.load(swaggerPath);
+      swaggerDocument = YAML.parse(fs.readFileSync(swaggerPath, 'utf8'));
       logger.info('✅ Swagger documentation loaded successfully from swagger.yaml');
     } else {
       throw new Error('swagger.yaml file not found');

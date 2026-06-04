@@ -1,8 +1,9 @@
 // src/utils/swaggerLoader.js
 
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
-import YAML from 'yamljs';
+import YAML from 'yaml';
 import logger from '../logging/logger.js';
 
 // ESM Replacement for __dirname
@@ -17,7 +18,7 @@ const __dirname = path.dirname(__filename);
 export default function loadSwaggerDocument() {
   try {
     const filePath = path.resolve(__dirname, '../docs/swagger.yaml');
-    const swaggerDocument = YAML.load(filePath);
+    const swaggerDocument = YAML.parse(fs.readFileSync(filePath, 'utf8'));
     return swaggerDocument;
   } catch (error) {
     logger.error('Failed to load Swagger YAML file:', error.message);

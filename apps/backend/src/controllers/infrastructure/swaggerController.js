@@ -1,6 +1,6 @@
 // controllers/infrastructure/swaggerController.js
 import { validationResult } from 'express-validator';
-import YAML from 'yamljs';
+import YAML from 'yaml';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { SwaggerService } from '../../services/infrastructure/swaggerService.js';

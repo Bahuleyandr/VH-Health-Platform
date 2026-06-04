@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YAML from 'yamljs';
+import YAML from 'yaml';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);
@@ -20,7 +20,7 @@ if (!fs.existsSync(swaggerFilePath)) {
 
 try {
   // Load and parse the YAML
-  const swaggerYaml = YAML.load(swaggerFilePath);
+  const swaggerYaml = YAML.parse(fs.readFileSync(swaggerFilePath, 'utf8'));
 
   // Convert to JSON and write it to swagger.json
   fs.writeFileSync(outputJsonPath, JSON.stringify(swaggerYaml, null, 2));

@@ -34,6 +34,7 @@ COPY pubspec.yaml pubspec.lock ./
 COPY packages/vhhealth_core/pubspec.yaml packages/vhhealth_core/pubspec.yaml
 COPY apps/patient/pubspec.yaml apps/patient/pubspec.yaml
 COPY apps/staff/pubspec.yaml apps/staff/pubspec.yaml
+COPY apps/patient/local_plugins/ apps/patient/local_plugins/
 
 RUN flutter pub get
 

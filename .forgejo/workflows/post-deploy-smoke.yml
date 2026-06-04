@@ -15,7 +15,7 @@ concurrency:
 jobs:
   smoke:
     name: API/admin/Sentry smoke
-    runs-on: ubuntu-latest
+    runs-on: docker-builder
     timeout-minutes: 15
     env:
       VH_TRIAL_API_ORIGIN: ${{ secrets.VH_TRIAL_API_ORIGIN }}
@@ -44,4 +44,3 @@ jobs:
           name: post-deploy-smoke
           path: output/post-deploy-smoke
           if-no-files-found: ignore
-

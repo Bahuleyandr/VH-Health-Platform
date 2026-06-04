@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import YAML from 'yamljs';
+import YAML from 'yaml';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
@@ -351,7 +351,7 @@ export class SwaggerService {
           const swaggerPath = path.join(__dirname, '../../docs/swagger.yaml');
           
           if (fs.existsSync(swaggerPath)) {
-            const newSwaggerDocument = YAML.load(swaggerPath);
+            const newSwaggerDocument = YAML.parse(fs.readFileSync(swaggerPath, 'utf8'));
             
             // Clear cache
             this.swaggerCache = null;
