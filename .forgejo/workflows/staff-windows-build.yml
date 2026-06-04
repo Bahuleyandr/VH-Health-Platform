@@ -20,10 +20,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows-release:
-    name: Flutter Windows release
-    runs-on: windows-latest
-    timeout-minutes: 75
+  runner-readiness:
+    name: Windows runner readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       STAFF_API_KEY: ${{ secrets.VH_API_KEY }}
       SENTRY_DSN_STAFF: ${{ secrets.SENTRY_DSN_STAFF }}
@@ -36,34 +36,39 @@ jobs:
         with:
           node-version: 22
 
-      - uses: https://github.com/subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Bootstrap Flutter workspace
-        shell: pwsh
+      - name: Record Windows build readiness
         run: |
-          dart pub get
-          dart run melos bootstrap
+          mkdir -p output/staff-windows-build
+          cat > output/staff-windows-build/README.md <<'EOF'
+          # Staff Windows Build Readiness
 
-      - name: Build Staff Windows release
-        working-directory: apps/staff
-        shell: pwsh
+          Forgejo does not currently have an online Windows runner for this
+          repository. Flutter Windows desktop builds must run on Windows, so
+          this workflow records readiness instead of queueing forever on a
+          missing `windows-latest` label.
+
+          Current manual/local build path:
+
+          ```powershell
+          $env:VH_API_KEY = "<redacted>"
+          $env:VH_SENTRY_DSN = "<redacted>"
+          .\scripts\build-staff-windows-update.ps1 `
+            -BaseUrl "${{ inputs.api_base_url }}" `
+            -SentryEnvironment "${{ inputs.sentry_environment }}"
+          ```
+
+          To enable Forgejo-hosted Windows artifacts, register a self-hosted
+          Windows runner for this repo and then change this workflow's
+          `runs-on` label to that runner label.
+          EOF
+
+      - name: Show local build command
         run: |
-          flutter config --enable-windows-desktop
-          flutter build windows --release `
-            --dart-define=VH_BASE_URL="${{ inputs.api_base_url }}" `
-            --dart-define=VH_API_KEY="$env:STAFF_API_KEY" `
-            --dart-define=APP_NAME="VH Health Staff" `
-            --dart-define=SENTRY_DSN="$env:SENTRY_DSN_STAFF" `
-            --dart-define=SENTRY_ENVIRONMENT="${{ inputs.sentry_environment }}" `
-            --dart-define=SENTRY_RELEASE="$env:GITHUB_SHA"
+          cat output/staff-windows-build/README.md
 
-      - name: Upload Staff Windows artifact
+      - name: Upload readiness artifact
         uses: https://data.forgejo.org/actions/upload-artifact@v3
         with:
-          name: vhhealth-staff-windows-${{ github.sha }}
-          path: apps/staff/build/windows/x64/runner/Release
+          name: staff-windows-build-readiness-${{ github.sha }}
+          path: output/staff-windows-build
           if-no-files-found: error
-
