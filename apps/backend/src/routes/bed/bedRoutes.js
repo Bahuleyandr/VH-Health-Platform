@@ -3,6 +3,11 @@ import express from 'express';
 import * as bedController from '../../controllers/bed/bedController.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import {
+  ADMIN_ROUTE_ROLES,
+  BED_ALLOCATION_ROUTE_ROLES,
+  BED_CLINICAL_ROUTE_ROLES,
+} from '../../config/routeRolePolicy.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import {
   createWardValidation, updateWardValidation, deleteWardValidation,
@@ -18,20 +23,9 @@ export const wardRouter = express.Router();
 // close the cleaning loop via the management router's POST /:id/ready.
 // Re-narrow patient-movement + bed-master endpoints here so housekeeping
 // cannot create/delete beds or admit/discharge patients.
-const requireClinical = requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF');
-const requireBedAllocation = requireRole(
-  'ADMIN',
-  'SUPER_ADMIN',
-  'DOCTOR',
-  'NURSING_STAFF',
-  'IP_STAFF_NURSE',
-  'IP_INCHARGE',
-  'RECEPTIONIST',
-  'RECEPTION_INCHARGE',
-  'ADMISSION_OFFICER',
-  'IPD_COUNSELLOR',
-);
-const requireBedAdmin = requireRole('ADMIN', 'SUPER_ADMIN');
+const requireClinical = requireRole(...BED_CLINICAL_ROUTE_ROLES);
+const requireBedAllocation = requireRole(...BED_ALLOCATION_ROUTE_ROLES);
+const requireBedAdmin = requireRole(...ADMIN_ROUTE_ROLES);
 const guardBedWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
   resourceType: 'bed',

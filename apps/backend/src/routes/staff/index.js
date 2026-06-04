@@ -10,6 +10,7 @@ import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
+import { OP_FLOW_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
@@ -25,7 +26,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-const walkInRoles = requireRole('ADMIN', 'DOCTOR', 'PATIENT', 'NURSE', 'RECEPTIONIST');
+const walkInRoles = requireRole(...OP_FLOW_ROUTE_ROLES, 'PATIENT');
 
 function canUseStaffMedical(role) {
   const normalizedRole = String(role || '').toUpperCase();

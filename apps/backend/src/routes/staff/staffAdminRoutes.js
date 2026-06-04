@@ -15,12 +15,13 @@ import * as reportAuditController from '../../controllers/staff/reportAuditContr
 import * as salaryRevisionController from '../../controllers/staff/salaryRevisionController.js';
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
+import { PEOPLE_OPERATIONS_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { staffAccessGuard } from '../../middleware/staffAccessMiddleware.js';
 import { STAFF_ACCESS_POLICY_CODES } from '../../services/security/staffAccessDecisionService.js';
 
 const router = express.Router();
-const reportReviewRoles = requireRole('HR_STAFF', 'ADMIN', 'SUPER_ADMIN');
+const reportReviewRoles = requireRole(...PEOPLE_OPERATIONS_ROUTE_ROLES);
 const guardStaffReportView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_REPORT_VIEW, {
   allowNoTarget: true,
 });

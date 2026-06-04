@@ -8,6 +8,11 @@ import admissionService from '../../services/emr/admissionService.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import {
+  BED_ALLOCATION_ROUTE_ROLES,
+  BED_CLINICAL_ROUTE_ROLES,
+  HOUSEKEEPING_ROUTE_ROLES,
+} from '../../config/routeRolePolicy.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 
 const router = express.Router();
@@ -17,24 +22,9 @@ const router = express.Router();
 // GENERAL_STAFF/HOUSEKEEPING_STAFF so they can close the cleaning loop
 // via POST /:id/ready. This guard re-narrows the patient-movement
 // endpoints (admit / transfer / discharge) back to clinical roles.
-const requireClinicalForBedMovement = requireRole(
-  'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
-);
-const requireBedAllocation = requireRole(
-  'ADMIN',
-  'SUPER_ADMIN',
-  'DOCTOR',
-  'NURSING_STAFF',
-  'IP_STAFF_NURSE',
-  'IP_INCHARGE',
-  'RECEPTIONIST',
-  'RECEPTION_INCHARGE',
-  'ADMISSION_OFFICER',
-  'IPD_COUNSELLOR',
-);
-const requireHousekeepingForBedReady = requireRole(
-  'ADMIN', 'SUPER_ADMIN', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
-);
+const requireClinicalForBedMovement = requireRole(...BED_CLINICAL_ROUTE_ROLES);
+const requireBedAllocation = requireRole(...BED_ALLOCATION_ROUTE_ROLES);
+const requireHousekeepingForBedReady = requireRole(...HOUSEKEEPING_ROUTE_ROLES);
 const guardBedResourceWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
   resourceType: 'bed',

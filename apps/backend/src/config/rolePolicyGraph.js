@@ -74,12 +74,16 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
       'DOCTOR',
       'DUTY_DOCTOR',
       'CONSULTANT',
+      'SENIOR_DOCTOR',
       'JUNIOR_DOCTOR',
       'RESIDENT',
       'NURSING_STAFF',
       'NURSING_INCHARGE',
       'IP_STAFF_NURSE',
       'IP_INCHARGE',
+      'ICU_NURSE',
+      'ICU_INCHARGE',
+      'ICU_STAFF',
       'ADMISSION_OFFICER',
       'IPD_COUNSELLOR',
     ],
@@ -101,12 +105,22 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
   diagnostics: {
     title: 'Diagnostics',
     description: 'Lab, radiology, investigations, and result-processing workflows.',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'LAB_STAFF', 'RADIOLOGIST', 'RADIOLOGY_STAFF', 'PATHOLOGIST'],
+    roles: [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'LAB_STAFF',
+      'RADIOLOGIST',
+      'RADIOLOGY_STAFF',
+      'PATHOLOGIST',
+      'LAB_INCHARGE',
+      'BLOOD_BANK_STAFF',
+      'BLOOD_BANK_TECHNICIAN',
+    ],
   },
   pharmacy: {
     title: 'Pharmacy',
     description: 'Prescription review, ward dispensing, inventory, and medication handover.',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+    roles: ['SUPER_ADMIN', 'ADMIN', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHARMACIST'],
   },
   theatre: {
     title: 'Operating theatre',
@@ -122,6 +136,27 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
     title: 'Housekeeping',
     description: 'Cleaning worklist, task assignment, bed turnover, and SLA tracking.',
     roles: ['SUPER_ADMIN', 'ADMIN', 'HOUSEKEEPING_INCHARGE', 'HOUSEKEEPING_STAFF'],
+  },
+  dietary: {
+    title: 'Dietary and nutrition',
+    description: 'Dietary orders, nutrition consults, and inpatient meal planning.',
+    roles: ['SUPER_ADMIN', 'ADMIN', 'DIETITIAN', 'DIETARY_STAFF'],
+  },
+  emergency: {
+    title: 'Emergency and ICU',
+    description: 'Emergency triage, ICU admission support, and urgent patient movement.',
+    roles: ['SUPER_ADMIN', 'ADMIN', 'ER_STAFF', 'ICU_NURSE', 'ICU_INCHARGE', 'ICU_STAFF'],
+  },
+  specialty_services: {
+    title: 'Specialty services',
+    description: 'Dialysis, blood bank, and other procedural support surfaces.',
+    roles: [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'DIALYSIS_TECHNICIAN',
+      'BLOOD_BANK_STAFF',
+      'BLOOD_BANK_TECHNICIAN',
+    ],
   },
   billing: {
     title: 'Billing and insurance',
@@ -139,19 +174,51 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
   notifications_audit: {
     title: 'Notifications and audit',
     description: 'Alerts, acknowledgements, audit explorer, and operational traceability.',
-    roles: ['SUPER_ADMIN', 'ADMIN', 'HR_STAFF', 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'DATA_PROTECTION_OFFICER'],
+    roles: [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'HR_STAFF',
+      'QUALITY_OFFICER',
+      'INFECTION_CONTROL_OFFICER',
+      'DATA_PROTECTION_OFFICER',
+      'COMPLIANCE_OFFICER',
+    ],
+  },
+  technical_admin: {
+    title: 'Technical administration',
+    description: 'Technical control-plane access for IT and integration operators.',
+    roles: [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'IT',
+      'IT_STAFF',
+      'IT_ADMIN',
+      'SYSTEM_ADMIN',
+      'INTEGRATION_ADMIN',
+      'AI_GOVERNANCE_ADMIN',
+      'DATA_PROTECTION_OFFICER',
+    ],
   },
 };
 
 const FUTURE_OR_RECOMMENDED_ROLES = [
   'HR_MANAGER',
   'NURSING_SUPERINTENDENT',
+  'SENIOR_DOCTOR',
   'ICU_NURSE',
+  'ICU_INCHARGE',
+  'ICU_STAFF',
+  'ER_STAFF',
   'OPERATIONS_INCHARGE',
   'MAINTENANCE_INCHARGE',
   'PHARMACY_INCHARGE',
+  'PHARMACIST',
   'PATHOLOGIST',
   'LAB_INCHARGE',
+  'DIETARY_STAFF',
+  'COMPLIANCE_OFFICER',
+  'DIALYSIS_TECHNICIAN',
+  'BLOOD_BANK_STAFF',
 ];
 
 const ROLE_CODES = unique([
@@ -168,19 +235,33 @@ const ROLE_CODES = unique([
 
 const CLINICAL_ROLE_SET = new Set([
   ...CLINICAL_ROLES,
+  'SENIOR_DOCTOR',
   'ANAESTHETIST',
   'ANESTHETIST',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+  'ICU_STAFF',
+  'ER_STAFF',
+  'DIALYSIS_TECHNICIAN',
   'RADIOLOGY_STAFF',
   'PATHOLOGIST',
   'LAB_INCHARGE',
-  'ICU_NURSE',
+  'BLOOD_BANK_STAFF',
   'BLOOD_BANK_TECHNICIAN',
 ]);
 const LEADERSHIP_ROLE_SET = new Set(['SUPER_ADMIN', 'ADMIN', ...LEADERSHIP_ROLES]);
-const SUPPORT_ROLE_SET = new Set([...SUPPORT_ROLES, 'RECEPTIONIST', 'PHARMACY_INCHARGE', 'LAB_INCHARGE']);
+const SUPPORT_ROLE_SET = new Set([
+  ...SUPPORT_ROLES,
+  'RECEPTIONIST',
+  'PHARMACY_INCHARGE',
+  'PHARMACIST',
+  'LAB_INCHARGE',
+  'DIETARY_STAFF',
+  'COMPLIANCE_OFFICER',
+]);
 const PLATFORM_ROLE_SET = new Set(PLATFORM_ROLES);
 const MACHINE_ROLE_SET = new Set(MACHINE_ROLES);
-const DOCTOR_TIER_SET = new Set([...DOCTOR_TIERS, 'ANAESTHETIST', 'ANESTHETIST']);
+const DOCTOR_TIER_SET = new Set([...DOCTOR_TIERS, 'SENIOR_DOCTOR', 'ANAESTHETIST', 'ANESTHETIST']);
 
 const NON_ASSIGNABLE_HUMAN_ROLES = new Set([
   'SUPER_ADMIN',
@@ -188,12 +269,21 @@ const NON_ASSIGNABLE_HUMAN_ROLES = new Set([
   'PATIENT',
   'HR_MANAGER',
   'NURSING_SUPERINTENDENT',
+  'SENIOR_DOCTOR',
   'ICU_NURSE',
+  'ICU_INCHARGE',
+  'ICU_STAFF',
+  'ER_STAFF',
   'OPERATIONS_INCHARGE',
   'MAINTENANCE_INCHARGE',
   'PHARMACY_INCHARGE',
+  'PHARMACIST',
   'PATHOLOGIST',
   'LAB_INCHARGE',
+  'DIETARY_STAFF',
+  'COMPLIANCE_OFFICER',
+  'DIALYSIS_TECHNICIAN',
+  'BLOOD_BANK_STAFF',
 ]);
 
 const DISPLAY_TITLE_OVERRIDES = {
@@ -201,8 +291,13 @@ const DISPLAY_TITLE_OVERRIDES = {
   CNO: 'Nursing Superintendent',
   DOCTOR: 'Doctor',
   DUTY_DOCTOR: 'Duty Doctor',
+  SENIOR_DOCTOR: 'Senior Doctor',
   IP_STAFF_NURSE: 'IP Staff Nurse',
   IP_INCHARGE: 'IP Nursing Incharge',
+  ICU_NURSE: 'ICU Nurse',
+  ICU_INCHARGE: 'ICU Incharge',
+  ICU_STAFF: 'ICU Staff',
+  ER_STAFF: 'Emergency Staff',
   OP_STAFF_NURSE: 'OP Staff Nurse',
   OP_INCHARGE: 'OP Nursing Incharge',
   OT_NURSE: 'OT Nurse',
@@ -253,10 +348,19 @@ const DEPARTMENT_OVERRIDES = {
   RADIOLOGY_STAFF: 'Radiology',
   PHARMACY_STAFF: 'Pharmacy',
   PHARMACY_INCHARGE: 'Pharmacy',
+  PHARMACIST: 'Pharmacy',
   RECEPTIONIST: 'Front Office',
   RECEPTION_INCHARGE: 'Front Office',
   ADMISSION_OFFICER: 'Admissions',
   IPD_COUNSELLOR: 'Admissions',
+  ICU_NURSE: 'ICU',
+  ICU_INCHARGE: 'ICU',
+  ICU_STAFF: 'ICU',
+  ER_STAFF: 'Emergency',
+  DIETARY_STAFF: 'Dietary',
+  COMPLIANCE_OFFICER: 'Compliance',
+  DIALYSIS_TECHNICIAN: 'Dialysis',
+  BLOOD_BANK_STAFF: 'Blood Bank',
   BILLING_STAFF: 'Billing',
   BILLING_INCHARGE: 'Billing',
   FINANCE_INCHARGE: 'Finance',
@@ -888,6 +992,44 @@ export function getStaffRosterRoleCodes({ includeAdmin = true } = {}) {
     .map((role) => role.role_code);
 }
 
+export function getRolesForCapabilityGroups(capabilityGroups, {
+  include = [],
+  exclude = [],
+  includeAdmin = true,
+} = {}) {
+  const groups = unique(Array.isArray(capabilityGroups) ? capabilityGroups : [capabilityGroups])
+    .map((group) => group.toLowerCase());
+  const knownGroups = new Set(Object.keys(ROLE_POLICY_CAPABILITY_GROUPS));
+  const unknownGroups = groups.filter((group) => !knownGroups.has(group));
+  if (unknownGroups.length > 0) {
+    throw new Error(`Unknown role policy capability group(s): ${unknownGroups.join(', ')}`);
+  }
+
+  const roles = new Set();
+  for (const group of groups) {
+    for (const roleCode of ROLE_POLICY_CAPABILITY_GROUPS[group].roles || []) {
+      assertKnownPolicyRole(roleCode, `capability group ${group}`);
+      roles.add(normalizeRoleCode(roleCode));
+    }
+  }
+
+  for (const roleCode of include) {
+    assertKnownPolicyRole(roleCode, 'route policy include');
+    roles.add(normalizeRoleCode(roleCode));
+  }
+
+  if (!includeAdmin) {
+    roles.delete('SUPER_ADMIN');
+    roles.delete('ADMIN');
+  }
+  for (const roleCode of exclude) {
+    assertKnownPolicyRole(roleCode, 'route policy exclude');
+    roles.delete(normalizeRoleCode(roleCode));
+  }
+
+  return sortPolicyRoles([...roles]);
+}
+
 export function getRolePickerOptions({ includeAdmin = false, includeMachine = false, includePatient = false } = {}) {
   return ROLE_POLICY_ROLES
     .filter((role) => {
@@ -1156,6 +1298,23 @@ function normalizeRoleCode(roleCode) {
 
 function unique(values) {
   return [...new Set(values.filter(Boolean).map((value) => String(value).trim().toUpperCase()))];
+}
+
+function assertKnownPolicyRole(roleCode, context) {
+  const normalized = normalizeRoleCode(roleCode);
+  if (!ROLE_POLICY_ROLES.some((role) => role.role_code === normalized)) {
+    throw new Error(`Unknown role policy role '${roleCode}' in ${context}`);
+  }
+}
+
+function sortPolicyRoles(values) {
+  const order = new Map(ROLE_POLICY_ROLES.map((role, index) => [role.role_code, index]));
+  return unique(values).sort((a, b) => {
+    const ai = order.get(a) ?? Number.MAX_SAFE_INTEGER;
+    const bi = order.get(b) ?? Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.localeCompare(b);
+  });
 }
 
 function stableStringify(value) {

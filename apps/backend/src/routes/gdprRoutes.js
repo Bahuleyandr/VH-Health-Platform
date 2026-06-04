@@ -3,6 +3,7 @@
 
 import { Router } from 'express';
 import { HTTP_STATUS } from '../config/responseCodes.js';
+import { ADMIN_ROUTE_ROLES } from '../config/routeRolePolicy.js';
 import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
@@ -16,7 +17,7 @@ const router = Router();
  * Admin only — requires uid and/or phone.
  * Body: { uid, phone, reason }
  */
-router.post('/erase', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const { uid, phone, reason } = req.body;
     const requestedBy = req.user?.uid || 'unknown';
@@ -58,7 +59,7 @@ router.post('/erase', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
  * View GDPR erasure audit trail.
  * Admin only.
  */
-router.get('/erasure-log', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const { default: prisma } = await import('../lib/prisma.js');
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);

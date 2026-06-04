@@ -1,6 +1,7 @@
 // src/routes/notification/index.js
 
 import express from 'express';
+import { ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
@@ -89,7 +90,7 @@ wrapAutoRBAC(router, 'ALL', {
 // `/api/v1/notifications/admin/*` was 404'ing. Using `router.use('/admin',
 // subRouter)` strips the prefix so GET `/admin/manage` correctly hits
 // GET `/manage` in adminNotificationRoutes.
-router.use('/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminNotificationRoutes);
+router.use('/admin', requireRole(...ADMIN_ROUTE_ROLES), adminNotificationRoutes);
 
 // Export the configured router
 export default router;

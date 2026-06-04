@@ -4,6 +4,7 @@
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -20,7 +21,7 @@ const router = Router();
  * Begin TOTP setup — returns QR code and backup codes.
  * Requires admin to be authenticated.
  */
-router.post('/setup', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+router.post('/setup', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const adminId = String(req.user?.uid ?? "");
     const admin = await prisma.admins.findUnique({
@@ -66,7 +67,7 @@ router.post('/setup', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
  * Confirm TOTP setup by verifying a code from the authenticator app.
  * Body: { code: "123456" }
  */
-router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+router.post('/setup/verify', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const adminId = String(req.user?.uid ?? "");
     const { code } = req.body;
@@ -119,7 +120,7 @@ router.post('/setup/verify', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, re
  * Disable TOTP. Requires current password for security.
  * Body: { password: "current_password" }
  */
-router.post('/disable', requireRole('ADMIN', 'SUPER_ADMIN'), async (req, res) => {
+router.post('/disable', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const adminId = String(req.user?.uid ?? "");
     const { password } = req.body;

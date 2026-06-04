@@ -1,0 +1,234 @@
+import {
+  getRolesForCapabilityGroups,
+  getStaffRosterRoleCodes,
+} from './rolePolicyGraph.js';
+
+const rolesFrom = (roles) => getRolesForCapabilityGroups([], { include: roles });
+const mergeRoles = (...groups) => [...new Set(groups.flat().filter(Boolean))];
+
+export const ADMIN_ROUTE_ROLES = getRolesForCapabilityGroups('platform_admin');
+export const TECHNICAL_ADMIN_ROUTE_ROLES = getRolesForCapabilityGroups([
+  'platform_admin',
+  'technical_admin',
+]);
+export const PEOPLE_OPERATIONS_ROUTE_ROLES = getRolesForCapabilityGroups('people_operations');
+export const STAFF_GOVERNANCE_ROUTE_ROLES = getRolesForCapabilityGroups('staff_governance');
+
+export const OP_FLOW_ROUTE_ROLES = getRolesForCapabilityGroups('op_flow');
+export const IP_FLOW_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow', 'emergency']);
+export const BILLING_ROUTE_ROLES = getRolesForCapabilityGroups('billing');
+export const DIAGNOSTICS_ROUTE_ROLES = getRolesForCapabilityGroups('diagnostics');
+export const PHARMACY_ROUTE_ROLES = getRolesForCapabilityGroups('pharmacy');
+export const THEATRE_ROUTE_ROLES = getRolesForCapabilityGroups('theatre', {
+  include: ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_STAFF'],
+});
+export const CATH_LAB_ROUTE_ROLES = getRolesForCapabilityGroups('cath_lab', {
+  include: ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_STAFF'],
+});
+export const HOUSEKEEPING_ROUTE_ROLES = getRolesForCapabilityGroups('housekeeping');
+export const NOTIFICATION_AUDIT_ROUTE_ROLES = getRolesForCapabilityGroups('notifications_audit');
+
+export const CLINICAL_STAFF_ROUTE_ROLES = getRolesForCapabilityGroups([
+  'op_flow',
+  'ip_flow',
+  'nursing_governance',
+  'theatre',
+  'cath_lab',
+  'pharmacy',
+  'emergency',
+], {
+  include: ['CMO', 'MEDICAL_SUPERINTENDENT', 'MEDICAL_RECORDS'],
+  exclude: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
+});
+
+export const EMR_TIMELINE_READ_ROUTE_ROLES = mergeRoles(
+  CLINICAL_STAFF_ROUTE_ROLES,
+  rolesFrom(['RECEPTIONIST', 'RECEPTION_INCHARGE']),
+);
+
+export const ADMISSION_SURFACE_ROUTE_ROLES = mergeRoles(
+  CLINICAL_STAFF_ROUTE_ROLES,
+  OP_FLOW_ROUTE_ROLES,
+  BILLING_ROUTE_ROLES,
+  getRolesForCapabilityGroups('dietary'),
+  rolesFrom(['PHYSIOTHERAPIST', 'COUNSELLOR', 'SOCIAL_WORKER', 'CARE_COORDINATOR']),
+);
+
+export const ADMISSION_OCCUPANCY_ROUTE_ROLES = mergeRoles(
+  ADMISSION_SURFACE_ROUTE_ROLES,
+  HOUSEKEEPING_ROUTE_ROLES,
+);
+
+export const BED_PARENT_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'nursing_governance', 'emergency']),
+  PHARMACY_ROUTE_ROLES,
+  HOUSEKEEPING_ROUTE_ROLES,
+  rolesFrom([
+    'DOCTOR',
+    'DUTY_DOCTOR',
+    'ANAESTHETIST',
+    'ANESTHETIST',
+    'CMO',
+    'MEDICAL_SUPERINTENDENT',
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IPD_COUNSELLOR',
+  ]),
+);
+
+export const BED_CLINICAL_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow', 'emergency'], {
+  include: ['CMO', 'MEDICAL_SUPERINTENDENT', 'CNO'],
+  exclude: ['ADMISSION_OFFICER', 'IPD_COUNSELLOR'],
+});
+
+export const BED_ALLOCATION_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow', 'emergency'], {
+  include: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
+});
+
+export const BED_INSPECTION_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow'], {
+  include: ['RECEPTIONIST'],
+});
+
+export const INVESTIGATION_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['diagnostics', 'ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab']),
+  rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT', 'MEDICAL_RECORDS', 'PATIENT']),
+);
+
+export const PATIENT_LOOKUP_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab', 'billing']),
+  rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT', 'MEDICAL_RECORDS']),
+);
+
+export const PATIENT_REGISTRY_WRITE_ROUTE_ROLES = mergeRoles(
+  ADMIN_ROUTE_ROLES,
+  BILLING_ROUTE_ROLES,
+  rolesFrom([
+    'MEDICAL_RECORDS',
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IPD_COUNSELLOR',
+  ]),
+);
+
+export const PHARMACY_ORDER_ROUTE_ROLES = mergeRoles(
+  PHARMACY_ROUTE_ROLES,
+  getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
+  rolesFrom(['PATIENT']),
+);
+
+export const DELIVERY_ROUTE_ROLES = mergeRoles(
+  PHARMACY_ROUTE_ROLES,
+  rolesFrom(['DELIVERY_STAFF', 'PATIENT']),
+);
+
+export const CONSENT_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
+  rolesFrom(['PATIENT']),
+);
+
+export const RECORD_ROUTE_ROLES = mergeRoles(
+  CONSENT_ROUTE_ROLES,
+  rolesFrom(['MEDICAL_RECORDS']),
+);
+
+export const VIRTUAL_WARD_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'nursing_governance']),
+  rolesFrom(['PATIENT']),
+);
+
+export const CLINICAL_ASSESSMENT_ROUTE_ROLES = getRolesForCapabilityGroups([
+  'ip_flow',
+  'op_flow',
+  'theatre',
+  'cath_lab',
+], {
+  exclude: [
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IPD_COUNSELLOR',
+  ],
+});
+
+export const FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow'], {
+  include: ['MEDICAL_RECORDS'],
+  exclude: ['ADMISSION_OFFICER', 'IPD_COUNSELLOR', 'ICU_NURSE', 'ICU_INCHARGE', 'ICU_STAFF'],
+});
+
+export const STAFF_PATIENT_MESSAGING_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab', 'billing']),
+  rolesFrom(['CMO', 'MEDICAL_SUPERINTENDENT']),
+);
+
+export const ALL_STAFF_MESSAGING_ROUTE_ROLES = getStaffRosterRoleCodes({ includeAdmin: true });
+
+export const HOUSEKEEPING_VISIBILITY_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'pharmacy', 'diagnostics', 'people_operations', 'housekeeping']),
+  rolesFrom(['DOCTOR']),
+);
+
+export const ED_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'emergency']),
+  rolesFrom(['MEDICAL_RECORDS']),
+);
+
+export const IPD_SUPPORT_ROUTE_ROLES = mergeRoles(
+  BILLING_ROUTE_ROLES,
+  getRolesForCapabilityGroups(['ip_flow', 'pharmacy']),
+  rolesFrom(['RECEPTIONIST', 'ADMISSION_OFFICER']),
+);
+
+export const NURSING_ASSESSMENT_ROUTE_ROLES = getRolesForCapabilityGroups([
+  'ip_flow',
+  'op_flow',
+  'theatre',
+], {
+  exclude: [
+    'RECEPTIONIST',
+    'RECEPTION_INCHARGE',
+    'ADMISSION_OFFICER',
+    'IPD_COUNSELLOR',
+  ],
+});
+
+export const DIETARY_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['dietary', 'ip_flow']),
+  rolesFrom(['DOCTOR']),
+);
+
+export const ICU_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow', 'emergency'], {
+  exclude: ['ADMISSION_OFFICER', 'IPD_COUNSELLOR'],
+});
+
+export const COMPLIANCE_ROUTE_ROLES = mergeRoles(
+  NOTIFICATION_AUDIT_ROUTE_ROLES,
+  PHARMACY_ROUTE_ROLES,
+  rolesFrom(['NURSING_STAFF', 'COMPLIANCE_OFFICER']),
+);
+
+export const DIALYSIS_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'specialty_services']),
+  rolesFrom(['DOCTOR']),
+);
+
+export const BLOOD_BANK_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'theatre', 'cath_lab', 'specialty_services']),
+  rolesFrom(['DOCTOR']),
+);
+
+export const BILLING_V2_ROUTE_ROLES = mergeRoles(
+  BILLING_ROUTE_ROLES,
+  getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
+);
+
+export const PAEDIATRIC_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow', 'op_flow']),
+  rolesFrom(['RECEPTIONIST']),
+);
+
+export const MATERNITY_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups(['ip_flow']),
+  rolesFrom(['PATIENT']),
+);

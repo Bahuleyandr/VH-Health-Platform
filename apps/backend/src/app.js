@@ -38,6 +38,41 @@ import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache } from './middleware/cacheControlMiddleware.js';
 import { success, error } from './utils/responseHelper.js';
 import { PATIENT_LOOKUP_ROLES } from './config/patientAccessRoles.js';
+import {
+  ADMIN_ROUTE_ROLES,
+  ADMISSION_OCCUPANCY_ROUTE_ROLES,
+  ADMISSION_SURFACE_ROUTE_ROLES,
+  ALL_STAFF_MESSAGING_ROUTE_ROLES,
+  BED_INSPECTION_ROUTE_ROLES,
+  BED_PARENT_ROUTE_ROLES,
+  BILLING_ROUTE_ROLES,
+  BILLING_V2_ROUTE_ROLES,
+  BLOOD_BANK_ROUTE_ROLES,
+  CLINICAL_ASSESSMENT_ROUTE_ROLES,
+  CLINICAL_STAFF_ROUTE_ROLES,
+  COMPLIANCE_ROUTE_ROLES,
+  CONSENT_ROUTE_ROLES,
+  DELIVERY_ROUTE_ROLES,
+  DIAGNOSTICS_ROUTE_ROLES,
+  DIETARY_ROUTE_ROLES,
+  DIALYSIS_ROUTE_ROLES,
+  ED_ROUTE_ROLES,
+  EMR_TIMELINE_READ_ROUTE_ROLES,
+  FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES,
+  HOUSEKEEPING_VISIBILITY_ROUTE_ROLES,
+  ICU_ROUTE_ROLES,
+  INVESTIGATION_ROUTE_ROLES,
+  IPD_SUPPORT_ROUTE_ROLES,
+  MATERNITY_ROUTE_ROLES,
+  NURSING_ASSESSMENT_ROUTE_ROLES,
+  PAEDIATRIC_ROUTE_ROLES,
+  PHARMACY_ORDER_ROUTE_ROLES,
+  RECORD_ROUTE_ROLES,
+  STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
+  TECHNICAL_ADMIN_ROUTE_ROLES,
+  THEATRE_ROUTE_ROLES,
+  VIRTUAL_WARD_ROUTE_ROLES,
+} from './config/routeRolePolicy.js';
 
 // ====================================
 // ROUTE IMPORTS - Organized by category
@@ -213,79 +248,11 @@ import './utils/validateEnv.js';
 const app = express();
 app.set('trust proxy', 1); // Required for Render or Cloudflare
 
-const CLINICAL_STAFF_ROLES = [
-  'ADMIN',
-  'SUPER_ADMIN',
-  'DOCTOR',
-  'DUTY_DOCTOR',
-  'CONSULTANT',
-  'JUNIOR_DOCTOR',
-  'RESIDENT',
-  'CMO',
-  'MEDICAL_SUPERINTENDENT',
-  'CNO',
-  'NURSING_STAFF',
-  'NURSING_INCHARGE',
-  'IP_STAFF_NURSE',
-  'IP_INCHARGE',
-  'OP_STAFF_NURSE',
-  'OP_INCHARGE',
-  'OT_NURSE',
-  'OT_INCHARGE',
-  'OT_STAFF',
-  'CATH_LAB_STAFF',
-  'CATH_LAB_INCHARGE',
-  'MEDICAL_RECORDS',
-  // E-4 — pharmacy needs read access on /emr/orders (medication orders
-  // they're about to dispense) + verify/complete on the same. Per
-  // route-level controllers further-gate by order_type when needed.
-  // Finding: 2026-05-08-inpatient-admission-pharmacy-rbac-emr-orders-blocked.
-  'PHARMACY_STAFF',
-  'PHARMACY_INCHARGE',
-  // Wave-4B-1 — ICU/admission-desk roles must reach /emr/admit before
-  // the per-allocation ICU tier check fires (admissionService runs the
-  // ICU_ALLOCATE_ROLES gate downstream). Without these, the seeded
-  // ICU_NURSE/ADMISSION_OFFICER tokens get a generic 403 from this
-  // top-level gate and never reach the tier check. Finding:
-  // 2026-05-10-emergency-walk-in-admission-icu-nurse-emr-gate-blocks-ccu-admit.
-  'ICU_NURSE',
-  'ICU_INCHARGE',
-  'ADMISSION_OFFICER',
-  'IPD_COUNSELLOR',
-];
-const EMR_TIMELINE_READ_ROLES = [
-  ...CLINICAL_STAFF_ROLES,
-  'RECEPTIONIST',
-  'RECEPTION_INCHARGE',
-];
-const ADMISSION_SURFACE_ROLES = [
-  ...CLINICAL_STAFF_ROLES,
-  'RECEPTIONIST',
-  'RECEPTION_INCHARGE',
-  'BILLING_STAFF',
-  'BILLING_INCHARGE',
-  'FINANCE_INCHARGE',
-  'INSURANCE_COORDINATOR',
-  'DIETITIAN',
-  'DIETARY_STAFF',
-  'PHYSIOTHERAPIST',
-  'COUNSELLOR',
-  'SOCIAL_WORKER',
-  'CARE_COORDINATOR',
-];
-const ADMISSION_OCCUPANCY_ROLES = [
-  ...ADMISSION_SURFACE_ROLES,
-  'HOUSEKEEPING_STAFF',
-  'HOUSEKEEPING_INCHARGE',
-];
-const CLINICAL_AI_CONTROL_ROLES = [
-  'ADMIN',
-  'SUPER_ADMIN',
-  'IT',
-  'IT_ADMIN',
-  'IT_STAFF',
-  'SYSTEM_ADMIN',
-];
+const CLINICAL_STAFF_ROLES = CLINICAL_STAFF_ROUTE_ROLES;
+const EMR_TIMELINE_READ_ROLES = EMR_TIMELINE_READ_ROUTE_ROLES;
+const ADMISSION_SURFACE_ROLES = ADMISSION_SURFACE_ROUTE_ROLES;
+const ADMISSION_OCCUPANCY_ROLES = ADMISSION_OCCUPANCY_ROUTE_ROLES;
+const CLINICAL_AI_CONTROL_ROLES = TECHNICAL_ADMIN_ROUTE_ROLES;
 
 function rewriteAdmissionSurface(req, _res, next) {
   const [pathPart, queryPart] = req.url.split('?');
@@ -520,42 +487,23 @@ app.use(
 app.use(
   '/api/v1/patient/virtual-ward',
   patientRateLimiter,
-  requireRole('PATIENT', 'ADMIN', 'SUPER_ADMIN', 'NURSING_STAFF'),
+  requireRole(...VIRTUAL_WARD_ROUTE_ROLES),
   phiAccessLogger('VIRTUAL_WARD_CHECK_IN'),
   patientVirtualWardRoutes
 );
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE', 'MEDICAL_RECORDS', 'PATIENT'), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, requireRole(
-  'ADMIN',
-  'SUPER_ADMIN',
-  'DOCTOR',
-  'DUTY_DOCTOR',
-  'ANAESTHETIST',
-  'ANESTHETIST',
-  'MEDICAL_SUPERINTENDENT',
-  'CMO',
-  'CNO',
-  'NURSING_STAFF',
-  'NURSING_INCHARGE',
-  'OP_STAFF_NURSE',
-  'OP_INCHARGE',
-  'RECEPTIONIST',
-  'RECEPTION_INCHARGE',
-  'LAB_STAFF',
-  'MEDICAL_RECORDS',
-  'PATIENT',
-), phiAccessLogger('INVESTIGATION'), investigationRoutes);
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/records', patientRateLimiter, requireRole(...RECORD_ROUTE_ROLES), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
+app.use('/api/v1/investigations', patientRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 // Alias mount: /api/v1/pharmacy/* → same sub-routes as /api/v1/pharmacy-orders/*.
 // The admin /dashboard/pharmacy/inventory page calls /pharmacy/inventory/*
 // (summary/low-stock/expiring-soon/expired); the canonical mount at
 // /pharmacy-orders/inventory/* still serves existing clients.
-app.use('/api/v1/pharmacy', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
-app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF', 'PATIENT'), deliveryRoutes);
+app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
+app.use('/api/v1/delivery', patientRateLimiter, requireRole(...DELIVERY_ROUTE_ROLES), deliveryRoutes);
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
@@ -594,7 +542,7 @@ app.use('/api/v1/sessions', sessionRoutes);
 app.use('/api/v1/auth/admin/totp', totpRoutes);
 
 // HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
-app.use('/api/v1/consent', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PATIENT'), consentRoutes);
+app.use('/api/v1/consent', requireRole(...CONSENT_ROUTE_ROLES), consentRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management)
 app.use('/api/v1/abdm', abdmPatientRoutes);
@@ -613,7 +561,7 @@ app.use('/api/v1/staff', staffRoutes);
 // 2026-05-09-inpatient-admission-housekeeping-api-routes-absent.
 app.use(
   '/api/v1/housekeeping',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'),
+  requireRole(...HOUSEKEEPING_VISIBILITY_ROUTE_ROLES),
   housekeepingRoutes,
 );
 
@@ -625,23 +573,13 @@ app.use(
 // / discharge) re-narrow to clinical roles via per-route requireRole
 // guards inside bedManagementRoutes itself. Finding:
 //   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
-const BED_PARENT_ROLES = [
-  'ADMIN', 'SUPER_ADMIN',
-  'DOCTOR', 'DUTY_DOCTOR', 'ANAESTHETIST', 'ANESTHETIST',
-  'MEDICAL_SUPERINTENDENT', 'CMO',
-  'NURSING_STAFF', 'NURSING_INCHARGE', 'CNO',
-  'IP_STAFF_NURSE', 'IP_INCHARGE',
-  'RECEPTIONIST', 'RECEPTION_INCHARGE',
-  'ADMISSION_OFFICER', 'IPD_COUNSELLOR',
-  'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
-  'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
-];
+const BED_PARENT_ROLES = BED_PARENT_ROUTE_ROLES;
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_BOARD'), bedRouter);
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_MANAGEMENT'), bedManagementRoutes);
 app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), phiAccessLogger('WARD_BOARD'), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
-app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);
+app.use('/api/v1/bed-inspections', requireRole(...BED_INSPECTION_ROUTE_ROLES), bedInspectionRoutes);
 
 // Emergency department triage — parallel mount at /api/v1/ed for clinical
 // staff (NURSING_STAFF in particular). The legacy /api/v1/admin/ed/*
@@ -651,7 +589,7 @@ app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR',
 // 2026-05-08-emergency-walk-in-nurse-triage-rbac-blocks-nurses.
 app.use(
   '/api/v1/ed',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'ER_STAFF', 'MEDICAL_RECORDS'),
+  requireRole(...ED_ROUTE_ROLES),
   phiAccessLogger('ER_TRIAGE'),
   edRoutesForClinicalStaff,
 );
@@ -664,26 +602,21 @@ app.use(
 // service layer.
 app.use(
   '/api/v1/ipd',
-  requireRole(
-    'ADMIN', 'SUPER_ADMIN',
-    'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE',
-    'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
-    'RECEPTIONIST', 'ADMISSION_OFFICER',
-  ),
+  requireRole(...IPD_SUPPORT_ROUTE_ROLES),
   phiAccessLogger('IPD_SUPPORT'),
   ipdSupportRoutes,
 );
 
 // FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
-app.use('/api/v1/fhir', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
+app.use('/api/v1/fhir', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
 
 // CDS Hooks (https://cds-hooks.org/) — standards-compliant decision-support
 // endpoints consumed by external EHR systems. Same RBAC as FHIR since the
 // invoke handlers may surface PHI in card detail.
-app.use('/api/v1/cds-services', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CDS_HOOKS'), cdsHooksRoutes);
+app.use('/api/v1/cds-services', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('CDS_HOOKS'), cdsHooksRoutes);
 
 // Clinical Document Export & Import
-app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
+app.use('/api/v1/documents', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
 function clinicalParentPatientAccessGuard(req, res, next) {
@@ -698,7 +631,7 @@ function clinicalParentPatientAccessGuard(req, res, next) {
 }
 
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
-app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
@@ -733,7 +666,7 @@ app.use(
 );
 
 // Clinical assessments: pain / fall-risk / growth-chart (Phase F2)
-app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'OT_INCHARGE', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
+app.use('/api/v1/clinical/assessments', requireRole(...CLINICAL_ASSESSMENT_ROUTE_ROLES), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
@@ -849,25 +782,25 @@ app.use('/api/v1/admin/surgical', (req, res) => {
   const target = req.originalUrl.replace('/api/v1/admin/surgical', '/api/v1/surgical');
   res.redirect(308, target);
 });
-app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
-app.use('/api/v1/admin/gamification', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
+app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
+app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 
 // System settings + status
-app.use('/api/v1/system', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, systemRoutes);
+app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, systemRoutes);
 
 // Audit + system logs
-app.use('/api/v1/logs', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
+app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, logRoutes);
 
 // Radiology
-app.use('/api/v1/radiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'RADIOLOGY_STAFF'), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
+app.use('/api/v1/radiology', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE'), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
 // Dietary / Nutrition
-app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'DIETARY_STAFF'), phiAccessLogger('DIETARY'), dietaryRoutes);
+app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ANESTHETIST'), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
+app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real
@@ -882,57 +815,39 @@ app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 //   2026-05-15-surgical-day-care-ot-staff-fabb6cdc (legacy path → redirect)
 app.use(
   '/api/v1/surgical',
-  requireRole(
-    'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_INCHARGE', 'OT_STAFF',
-    'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'ANESTHETIST',
-  ),
+  requireRole(...THEATRE_ROUTE_ROLES),
   phiAccessLogger('SURGICAL_DOCUMENTATION'),
   surgicalDocumentationRoutes,
 );
-app.use('/api/v1/microbiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'LAB_STAFF'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
-app.use('/api/v1/pcpndt', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGIST'), phiAccessLogger('PCPNDT'), pcpndtRoutes);
-app.use('/api/v1/icu', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'ICU_STAFF'), phiAccessLogger('ICU'), icuRoutes);
-app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACIST', 'NURSING_STAFF', 'COMPLIANCE_OFFICER'), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
-app.use('/api/v1/death-certification', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
-app.use('/api/v1/dialysis', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'DIALYSIS_TECHNICIAN'), phiAccessLogger('DIALYSIS'), dialysisRoutes);
+app.use('/api/v1/microbiology', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
+app.use('/api/v1/pcpndt', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('PCPNDT'), pcpndtRoutes);
+app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
+app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
+app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 
 // Blood Bank
-app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OT_NURSE', 'OT_INCHARGE', 'CATH_LAB_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
+app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use(
   '/api/v1/billing/v2',
-  requireRole(
-    'ADMIN',
-    'SUPER_ADMIN',
-    'BILLING_STAFF',
-    'BILLING_INCHARGE',
-    'FINANCE_INCHARGE',
-    'NURSING_STAFF',
-    'IP_STAFF_NURSE',
-    'IP_INCHARGE',
-    'DOCTOR',
-    'RECEPTIONIST',
-    'RECEPTION_INCHARGE',
-    'ADMISSION_OFFICER',
-    'INSURANCE_COORDINATOR',
-    'IPD_COUNSELLOR',
-  ),
+  requireRole(...BILLING_V2_ROUTE_ROLES),
   billingPhiAccessLogger(),
   billingV2Routes,
 );
-app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
-app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
+app.use('/api/v1/billing', requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'), billingRoutes);
+app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for
 // /lab/pathologist/signoff (route-level requirePathologistTier enforces
 // the inner gate). Including them at the mount-level requireRole keeps
 // the seeded pathologist account from hitting a generic 403 before the
 // tier-specific message ever reaches the client. Finding:
 // 2026-05-10-emergency-walk-in-lab-tech-pathologist-signoff-rbac-blocked.
-app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labRoutes);
+app.use('/api/v1/lab', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
-app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
-app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
+app.use('/api/v1/lab', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
+app.use('/api/v1/insurance', requireRole(...BILLING_ROUTE_ROLES), insuranceClaimsRoutes);
 // Chart-shaped TPA enhancement surface — keyed off admission_id, open
 // to clinicians so a treating consultant can initiate an enhancement
 // from the patient chart instead of being routed through billing.
@@ -940,12 +855,7 @@ app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF'
 // 2026-05-10-...-doctor-enhancement-rbac.
 app.use(
   '/api/v1/admissions/:admissionId/tpa-enhancement',
-  requireRole(
-    'ADMIN', 'SUPER_ADMIN',
-    'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
-    'NURSING_STAFF',
-    'BILLING_STAFF', 'INSURANCE_COORDINATOR',
-  ),
+  requireRole(...BILLING_V2_ROUTE_ROLES),
   phiAccessLogger('INSURANCE_PREAUTH'),
   admissionEnhancementRoutes,
 );
@@ -968,35 +878,17 @@ app.use(
   phiAccessLogger('ADMISSION'),
   admissionAliasRouter,
 );
-app.use('/api/v1/pmjay', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), pmjayRoutes);
-app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+app.use('/api/v1/pmjay', requireRole(...BILLING_ROUTE_ROLES), pmjayRoutes);
+app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 // A10 — paediatric immunisation tracking. Receptionists need write access
 // to seed a returning child's schedule; doctors + nurses to record doses.
-app.use('/api/v1/paediatric', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST'), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
-app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), productivityRoutes);
-app.use('/api/v1/dashboards', requireRole('ADMIN', 'SUPER_ADMIN'), dashboardsRoutes);
+app.use('/api/v1/paediatric', requireRole(...PAEDIATRIC_ROUTE_ROLES), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
+app.use('/api/v1/productivity', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), productivityRoutes);
+app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
-app.use('/api/v1/staff-messaging', requireRole(
-  'ADMIN',
-  'SUPER_ADMIN',
-  'DOCTOR',
-  'DUTY_DOCTOR',
-  'MEDICAL_SUPERINTENDENT',
-  'CNO',
-  'NURSING_STAFF',
-  'NURSING_INCHARGE',
-  'OP_STAFF_NURSE',
-  'OP_INCHARGE',
-  'IP_STAFF_NURSE',
-  'IP_INCHARGE',
-  'OT_NURSE',
-  'OT_INCHARGE',
-  'CATH_LAB_STAFF',
-  'CATH_LAB_INCHARGE',
-  'BILLING_STAFF',
-), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
-app.use('/api/v1/discharge-summaries', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE'), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
+app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
+app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);
@@ -1008,67 +900,15 @@ app.use('/api/v1/referrals', phiAccessLogger('REFERRAL'), referralRoutes);
 // billing / TPA / admission-counter desk roles; the role-workflow sweep
 // caught all four 403ing here because this hand-maintained allowlist was
 // never updated for them.
-app.use('/api/v1/messaging', requireRole(
-  'ADMIN',
-  'SUPER_ADMIN',
-  'DOCTOR',
-  'DUTY_DOCTOR',
-  'MEDICAL_SUPERINTENDENT',
-  'CNO',
-  'NURSING_STAFF',
-  'NURSING_INCHARGE',
-  'OP_STAFF_NURSE',
-  'OP_INCHARGE',
-  'IP_STAFF_NURSE',
-  'IP_INCHARGE',
-  'OT_NURSE',
-  'OT_INCHARGE',
-  'CATH_LAB_STAFF',
-  'CATH_LAB_INCHARGE',
-  'PHARMACY_STAFF',
-  'PHARMACY_INCHARGE',
-  'LAB_STAFF',
-  'RADIOLOGY_STAFF',
-  'RADIOLOGIST',
-  'HR_STAFF',
-  'GENERAL_STAFF',
-  'HOUSEKEEPING_STAFF',
-  'HOUSEKEEPING_INCHARGE',
-  'MAINTENANCE',
-  'DELIVERY_STAFF',
-  'DRIVER',
-  'SECURITY',
-  'EMERGENCY_RESPONDER',
-  'RECEPTIONIST',
-  'RECEPTION_INCHARGE',
-  'BILLING_STAFF',
-  'BILLING_INCHARGE',
-  'FINANCE_INCHARGE',
-  'INSURANCE_COORDINATOR',
-  'ADMISSION_OFFICER',
-  'IPD_COUNSELLOR',
-  'MEDICAL_RECORDS',
-  'OT_INCHARGE',
-  'OT_STAFF',
-  'BLOOD_BANK_TECHNICIAN',
-  'QUALITY_OFFICER',
-  'INFECTION_CONTROL_OFFICER',
-  'DEPARTMENT_HEAD',
-  'SOCIAL_WORKER',
-  'DIETITIAN',
-  'PHYSIOTHERAPIST',
-  'CARE_COORDINATOR',
-  'CLAIMS_MANAGER',
-  'AMBULANCE_COORDINATOR',
-), messagingRoutes);
+app.use('/api/v1/messaging', requireRole(...ALL_STAFF_MESSAGING_ROUTE_ROLES), messagingRoutes);
 
 // Compliance: Breach Notification + Audit Search (admin only)
-app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
-app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, auditSearchRoutes);
-app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, complianceIndicatorsRoutes);
+app.use('/api/v1/compliance', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, breachRoutes);
+app.use('/api/v1/compliance', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, auditSearchRoutes);
+app.use('/api/v1/compliance', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, complianceIndicatorsRoutes);
 
 // Serve report exports — protected behind JWT + admin role to prevent unauthorized access
-app.use('/exports', requireRole('ADMIN', 'SUPER_ADMIN'), express.static('exports'));
+app.use('/exports', requireRole(...ADMIN_ROUTE_ROLES), express.static('exports'));
 
 // ====================================
 // ERROR HANDLING
