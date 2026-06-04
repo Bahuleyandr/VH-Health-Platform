@@ -1,6 +1,10 @@
 // src/config/userConfig.js
 
 import { ROLES as CANONICAL_ROLES } from '../utils/roleHelpers.js';
+import {
+  getAccessMatrixFromPolicy,
+  getLegacyRoleHierarchyFromPolicy,
+} from './rolePolicyGraph.js';
 
 export const USER_CONFIG = {
   // Pagination
@@ -58,176 +62,7 @@ export const USER_CONFIG = {
   ]
 };
 
-export const ACCESS_MATRIX = {
-  ADMIN: {
-    users: ['create', 'read', 'update', 'delete'],
-    appointments: ['create', 'read', 'update', 'delete'],
-    records: ['create', 'read', 'update', 'delete'],
-    pharmacy: ['create', 'read', 'update', 'delete'],
-    investigations: ['create', 'read', 'update', 'delete']
-  },
-  DOCTOR: {
-    users: ['read'],
-    appointments: ['create', 'read', 'update'],
-    records: ['create', 'read', 'update'],
-    pharmacy: ['create', 'read'],
-    investigations: ['create', 'read', 'update']
-  },
-  CNO: {
-    users: ['read', 'update'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['read', 'update']
-  },
-  NURSING_STAFF: {
-    users: ['read'],
-    appointments: ['read', 'update'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['read', 'update']
-  },
-  NURSING_INCHARGE: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['read', 'update']
-  },
-  OP_STAFF_NURSE: {
-    users: ['read'],
-    appointments: ['create', 'read', 'update'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['create', 'read', 'update']
-  },
-  OP_INCHARGE: {
-    users: ['read'],
-    appointments: ['create', 'read', 'update'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['create', 'read', 'update']
-  },
-  IP_STAFF_NURSE: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['read', 'update']
-  },
-  IP_INCHARGE: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['read', 'update']
-  },
-  OT_NURSE: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: [],
-    investigations: ['read', 'update']
-  },
-  OT_INCHARGE: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: [],
-    investigations: ['read', 'update']
-  },
-  CATH_LAB_STAFF: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: [],
-    investigations: ['read', 'update']
-  },
-  CATH_LAB_INCHARGE: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read', 'update'],
-    pharmacy: [],
-    investigations: ['read', 'update']
-  },
-  PHARMACY_STAFF: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read'],
-    pharmacy: ['create', 'read', 'update'],
-    investigations: []
-  },
-  LAB_STAFF: {
-    users: ['read'],
-    appointments: ['read'],
-    records: ['read'],
-    pharmacy: [],
-    investigations: ['create', 'read', 'update']
-  },
-  RECEPTIONIST: {
-    users: ['create', 'read'],
-    appointments: ['create', 'read', 'update'],
-    records: ['read'],
-    pharmacy: [],
-    investigations: ['read']
-  },
-  PATIENT: {
-    users: ['read'], // only own profile
-    appointments: ['read'], // only own appointments
-    records: ['read'], // only own records
-    pharmacy: ['read'], // only own prescriptions
-    investigations: ['read'] // only own results
-  },
-  HR_STAFF: {
-    users: ['create', 'read', 'update'],
-    appointments: [],
-    records: [],
-    pharmacy: [],
-    investigations: []
-  },
-  GENERAL_STAFF: {
-    users: ['read'],
-    appointments: ['read'],
-    records: [],
-    pharmacy: [],
-    investigations: []
-  },
-  HOUSEKEEPING_STAFF: {
-    users: ['read'],
-    appointments: [],
-    records: [],
-    pharmacy: [],
-    investigations: []
-  },
-  HOUSEKEEPING_INCHARGE: {
-    users: ['read'],
-    appointments: [],
-    records: [],
-    pharmacy: [],
-    investigations: []
-  },
-  MAINTENANCE: {
-    users: ['read'],
-    appointments: [],
-    records: [],
-    pharmacy: [],
-    investigations: []
-  },
-  SECURITY: {
-    users: ['read'],
-    appointments: [],
-    records: [],
-    pharmacy: [],
-    investigations: []
-  },
-  EMERGENCY_RESPONDER: {
-    users: ['read'],
-    appointments: ['read', 'update'],
-    records: ['read', 'update'],
-    pharmacy: ['read'],
-    investigations: ['read', 'update']
-  }
-};
+export const ACCESS_MATRIX = getAccessMatrixFromPolicy();
 
 // Gender options
 export const GENDER_OPTIONS = {
@@ -441,78 +276,7 @@ export const MEDICAL_SPECIALTIES = {
 export const HOSPITAL_ROLES = CANONICAL_ROLES;
 
 // Role hierarchy for permission inheritance
-export const ROLE_HIERARCHY = {
-  ADMIN: [
-    'DOCTOR',
-    'DUTY_DOCTOR',
-    'MEDICAL_SUPERINTENDENT',
-    'CNO',
-    'NURSING_STAFF',
-    'NURSING_INCHARGE',
-    'OP_STAFF_NURSE',
-    'OP_INCHARGE',
-    'IP_STAFF_NURSE',
-    'IP_INCHARGE',
-    'OT_NURSE',
-    'OT_INCHARGE',
-    'CATH_LAB_STAFF',
-    'CATH_LAB_INCHARGE',
-    'PHARMACY_STAFF',
-    'LAB_STAFF',
-    'HR_STAFF',
-    'RECEPTIONIST',
-    'RECEPTION_INCHARGE',
-    'GENERAL_STAFF',
-    'DRIVER',
-    'HOUSEKEEPING_STAFF',
-    'HOUSEKEEPING_INCHARGE',
-    'MAINTENANCE',
-    'SECURITY',
-    'EMERGENCY_RESPONDER'
-  ],
-  DOCTOR: ['NURSING_STAFF', 'IP_STAFF_NURSE', 'OT_NURSE'],
-  MEDICAL_SUPERINTENDENT: ['DOCTOR', 'DUTY_DOCTOR', 'NURSING_INCHARGE', 'NURSING_STAFF', 'IP_INCHARGE', 'IP_STAFF_NURSE', 'OT_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF'],
-  CNO: [
-    'NURSING_INCHARGE',
-    'IP_INCHARGE',
-    'NURSING_STAFF',
-    'IP_STAFF_NURSE',
-    'OP_INCHARGE',
-    'OP_STAFF_NURSE',
-    'OT_INCHARGE',
-    'OT_NURSE',
-    'OT_STAFF',
-    'CATH_LAB_INCHARGE',
-    'CATH_LAB_STAFF'
-  ],
-  NURSING_INCHARGE: ['IP_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE'],
-  OP_INCHARGE: ['OP_STAFF_NURSE'],
-  IP_INCHARGE: ['NURSING_STAFF', 'IP_STAFF_NURSE'],
-  OT_INCHARGE: ['OT_NURSE', 'OT_STAFF'],
-  CATH_LAB_INCHARGE: ['CATH_LAB_STAFF'],
-  HR_STAFF: [
-    'GENERAL_STAFF',
-    'HOUSEKEEPING_STAFF',
-    'HOUSEKEEPING_INCHARGE',
-    'MAINTENANCE',
-    'DRIVER',
-    'RECEPTIONIST',
-    'RECEPTION_INCHARGE',
-    'NURSING_STAFF',
-    'NURSING_INCHARGE',
-    'OP_STAFF_NURSE',
-    'OP_INCHARGE',
-    'IP_STAFF_NURSE',
-    'IP_INCHARGE',
-    'OT_NURSE',
-    'OT_INCHARGE',
-    'CATH_LAB_STAFF',
-    'CATH_LAB_INCHARGE'
-  ],
-  HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF'],
-  RECEPTION_INCHARGE: ['RECEPTIONIST', 'ADMISSION_OFFICER'],
-  RECEPTIONIST: ['GENERAL_STAFF']
-};
+export const ROLE_HIERARCHY = getLegacyRoleHierarchyFromPolicy();
 
 // Default role assignments
 export const DEFAULT_ROLE = 'PATIENT';

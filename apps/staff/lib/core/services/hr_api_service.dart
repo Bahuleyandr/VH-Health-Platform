@@ -57,6 +57,11 @@ class HrApiService {
     return _get('/staff/admin/hierarchy');
   }
 
+  /// GET /rbac/policy — canonical role policy graph for HR/Admin screens.
+  static Future<Map<String, dynamic>> getRolePolicy() async {
+    return _get('/rbac/policy');
+  }
+
   /// GET /staff/list — list of all staff (for replacement picker).
   /// Path was `/staff` historically; that hits `/api/v1/staff` which
   /// the backend's staffRoutes router does not register (no GET `/`),

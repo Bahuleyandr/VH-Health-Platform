@@ -40,6 +40,9 @@ wrapAutoRBAC(
     get: [
       // 📋 Get All Available Roles with Details
       ['/roles', rbacController.getRoles],
+
+      // Canonical role policy graph for Staff/Admin consumers
+      ['/policy', rbacController.getPolicy],
       
       // 👥 Get Users Grouped by Role
       ['/users', usersQueryValidator, rbacController.getUsersByRole],

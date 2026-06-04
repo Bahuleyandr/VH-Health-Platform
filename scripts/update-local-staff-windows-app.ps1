@@ -48,7 +48,7 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
-  if ($BaseUrl -notmatch '^https?://(127\.0\.0\.1|localhost)(:\d+)?/') {
+  if ($BaseUrl -notmatch '^https?://(127\.0\.0\.1|localhost)(:\d+)?(/|$)') {
     throw "ApiKey is required for the remote VH Health backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to build a remote app with the local dev key."
   }
   $ApiKey = "vhhealth-local-api-key"
@@ -74,7 +74,7 @@ function Test-RemoteApiKeyPreflight {
     [Parameter(Mandatory = $true)][string]$ApiKey
   )
 
-  if ($BaseUrl -match '^https?://(127\.0\.0\.1|localhost)(:\d+)?/') {
+  if ($BaseUrl -match '^https?://(127\.0\.0\.1|localhost)(:\d+)?(/|$)') {
     return
   }
 
@@ -98,7 +98,10 @@ function Test-RemoteApiKeyPreflight {
     $statusCode = [int]$response.StatusCode
     $body = [string]$response.Content
   } catch {
-    $response = $_.Exception.Response
+    $response = $null
+    if ($_.Exception.PSObject.Properties.Match('Response').Count -gt 0) {
+      $response = $_.Exception.Response
+    }
     if (-not $response) {
       throw "Remote API key preflight failed before build: $($_.Exception.Message)"
     }

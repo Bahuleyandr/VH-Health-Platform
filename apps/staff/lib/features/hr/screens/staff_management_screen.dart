@@ -69,6 +69,30 @@ List<String> staffOnboardingRoleValues() {
       .toList(growable: false);
 }
 
+List<_StaffRoleOption> _roleOptionsFromPolicy(Map<String, dynamic> policy) {
+  final roles = policy['roles'];
+  if (roles is! List) return const [];
+  final parsed = roles
+      .whereType<Map>()
+      .map((raw) => Map<String, dynamic>.from(raw))
+      .where((role) => role['assignable_staff'] == true)
+      .where((role) => role['human'] != false && role['machine'] != true)
+      .map((role) {
+        final value = (role['role_code'] ?? role['role']).toString();
+        final label = (role['display_title'] ?? role['label'] ?? value)
+            .toString();
+        final group = role['group']?.toString() ?? '';
+        return _StaffRoleOption(
+          value,
+          group.isEmpty ? label : '$label - $group',
+        );
+      })
+      .where((option) => option.value.isNotEmpty)
+      .toList();
+  parsed.sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+  return parsed;
+}
+
 /// Staff Management screen — HR/Admin can view and edit staff members.
 class StaffManagementScreen extends StatefulWidget {
   const StaffManagementScreen({super.key});
@@ -84,6 +108,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   String? _error;
   String _searchQuery = '';
   String? _selectedDept;
+  String? _policyVersion;
+  String? _policyHash;
+  List<_StaffRoleOption> _roleOptions = _StaffFormDialogState._roleOptions;
   final _searchCtrl = TextEditingController();
 
   List<String> get _departmentOptions => buildStaffDepartmentOptions(
@@ -109,7 +136,25 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     });
     try {
       final list = await HrApiService.getStaffList(suppressErrors: false);
-      if (mounted) setState(() => _staff = list);
+      Map<String, dynamic>? policy;
+      try {
+        policy = await HrApiService.getRolePolicy();
+      } catch (_) {
+        policy = null;
+      }
+      final policyRoleOptions = policy == null
+          ? const <_StaffRoleOption>[]
+          : _roleOptionsFromPolicy(policy);
+      if (mounted) {
+        setState(() {
+          _staff = list;
+          _policyVersion = policy?['policy_version']?.toString();
+          _policyHash = policy?['policy_hash']?.toString();
+          if (policyRoleOptions.isNotEmpty) {
+            _roleOptions = policyRoleOptions;
+          }
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -168,6 +213,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               onChanged: (v) => setState(() => _searchQuery = v),
             ),
           ),
+
+          if (_policyVersion != null || _policyHash != null)
+            _PolicyRuntimeStrip(version: _policyVersion, hash: _policyHash),
 
           // Department summary bar
           if (_deptSummary != null)
@@ -248,9 +296,57 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   void _showEditDialog(BuildContext context, dynamic staff) {
     showDialog(
       context: context,
-      builder: (_) =>
-          _StaffFormDialog(staff: staff, departmentOptions: _departmentOptions),
+      builder: (_) => _StaffFormDialog(
+        staff: staff,
+        departmentOptions: _departmentOptions,
+        roleOptions: _roleOptions,
+      ),
     ).then((_) => _load());
+  }
+}
+
+class _PolicyRuntimeStrip extends StatelessWidget {
+  final String? version;
+  final String? hash;
+
+  const _PolicyRuntimeStrip({required this.version, required this.hash});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final shortHash = hash == null || hash!.length < 12
+        ? hash
+        : hash!.substring(0, 12);
+    final text = [
+      if (version != null) version,
+      if (shortHash != null) 'policy $shortHash',
+    ].join(' - ');
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      color: scheme.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Icon(
+            Icons.verified_outlined,
+            size: 14,
+            color: scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -363,9 +459,11 @@ class _StaffCard extends StatelessWidget {
 class _StaffFormDialog extends StatefulWidget {
   final dynamic staff;
   final List<String> departmentOptions;
+  final List<_StaffRoleOption> roleOptions;
   const _StaffFormDialog({
     required this.staff,
     required this.departmentOptions,
+    required this.roleOptions,
   });
 
   @override
@@ -455,7 +553,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     );
     _passwordCtrl = TextEditingController();
     final role = widget.staff?['role']?.toString().toUpperCase();
-    if (role != null && _roleOptions.any((option) => option.value == role)) {
+    if (role != null &&
+        widget.roleOptions.any((option) => option.value == role)) {
       _role = role;
     }
     final shift = widget.staff?['shift']?.toString().toUpperCase();
@@ -586,7 +685,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
                     initialValue: _role,
                     decoration: const InputDecoration(labelText: 'Role'),
                     items: [
-                      for (final option in _roleOptions)
+                      for (final option in widget.roleOptions)
                         DropdownMenuItem(
                           value: option.value,
                           child: Text(option.label),

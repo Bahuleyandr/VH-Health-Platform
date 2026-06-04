@@ -1,20 +1,18 @@
 import prisma from '../../lib/prisma.js';
 import {
-  ORGANIZATION_GUARDRAILS,
-  ORGANIZATION_HIERARCHY_EDGES,
-  ORGANIZATION_HIERARCHY_LANES,
-  ORGANIZATION_HIERARCHY_NODES,
-  ORGANIZATION_HIERARCHY_VERSION,
-  ORGANIZATION_ROLE_BOUNDARIES,
-} from '../../config/organizationHierarchyConfig.js';
+  getOrgHierarchyFromPolicy,
+  getRolePolicyHash,
+  getRolePolicyVersion,
+} from '../../config/rolePolicyGraph.js';
 
 function uniqueRoleCodes() {
+  const { nodes, role_boundaries: roleBoundaries } = getOrgHierarchyFromPolicy();
   const codes = new Set();
-  for (const node of ORGANIZATION_HIERARCHY_NODES) {
+  for (const node of nodes) {
     for (const role of node.role_codes || []) codes.add(role);
     for (const role of node.recommended_role_codes || []) codes.add(role);
   }
-  for (const boundary of ORGANIZATION_ROLE_BOUNDARIES) {
+  for (const boundary of roleBoundaries) {
     for (const role of boundary.role_codes || []) codes.add(role);
   }
   return [...codes];
@@ -59,24 +57,28 @@ function membersForNode(node, staffByRole) {
 }
 
 export function buildOrganizationHierarchy({ roleCounts = {}, staffByRole = {}, tenantScoped = false } = {}) {
-  const nodes = ORGANIZATION_HIERARCHY_NODES.map((node) => ({
+  const policyHierarchy = getOrgHierarchyFromPolicy();
+  const nodes = policyHierarchy.nodes.map((node) => ({
     ...node,
     active_staff_count: countForNode(node, roleCounts),
     staff_members: membersForNode(node, staffByRole),
   }));
 
   return {
-    version: ORGANIZATION_HIERARCHY_VERSION,
+    version: policyHierarchy.version,
+    policy_version: getRolePolicyVersion(),
+    policy_hash: getRolePolicyHash(),
+    git_commit: process.env.GIT_COMMIT || process.env.SOURCE_VERSION || process.env.COMMIT_SHA || null,
     generated_at: new Date().toISOString(),
     tenant_scoped: tenantScoped,
     counts_status: tenantScoped ? 'live' : 'tenant-unavailable',
     design_note:
       'This chart separates platform access, work supervision, and leave approval so no role silently oversteps another.',
-    lanes: ORGANIZATION_HIERARCHY_LANES,
+    lanes: policyHierarchy.lanes,
     nodes,
-    edges: ORGANIZATION_HIERARCHY_EDGES,
-    role_boundaries: ORGANIZATION_ROLE_BOUNDARIES,
-    guardrails: ORGANIZATION_GUARDRAILS,
+    edges: policyHierarchy.edges,
+    role_boundaries: policyHierarchy.role_boundaries,
+    guardrails: policyHierarchy.guardrails,
     recommendations: [
       {
         title: 'Use Operations Incharge / Facilities Manager as the daily work line',

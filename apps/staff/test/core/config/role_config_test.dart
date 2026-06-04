@@ -123,14 +123,15 @@ void main() {
     });
 
     test(
-      'nurse gets OP appointments + ward tools, NOT front office or generic vitals',
+      'generic/IP nurses get ward tools, not OP appointment or front-office access',
       () {
         final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
         final ids = feats.map((f) => f.id).toSet();
         final handover = feats.singleWhere((f) => f.id == 'handover');
         expect(ids, isNot(contains('front_office_workbench')));
-        expect(ids, contains('appointments'));
+        expect(ids, isNot(contains('appointments')));
         expect(ids, isNot(contains('admissions')));
+        expect(ids, contains('patient_command_board'));
         expect(ids, contains('ward_mode'));
         expect(ids, isNot(contains('vitals')));
         expect(ids, contains('nursing_notes'));
@@ -139,6 +140,26 @@ void main() {
         expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
       },
     );
+
+    test('OP nursing roles get OP appointment workflow access', () {
+      final opStaffIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.opStaffNurse,
+      ).map((f) => f.id).toSet();
+      final opInchargeIds = RoleFeatures.getFeaturesForRole(
+        StaffRole.opIncharge,
+      ).map((f) => f.id).toSet();
+
+      expect(
+        opStaffIds,
+        containsAll(['front_office_workbench', 'appointments']),
+      );
+      expect(
+        opInchargeIds,
+        containsAll(['front_office_workbench', 'appointments']),
+      );
+      expect(opStaffIds, isNot(contains('admissions')));
+      expect(opInchargeIds, isNot(contains('admissions')));
+    });
 
     test('HR gets HR-specific features only, no clinical', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.hr);

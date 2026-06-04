@@ -13,10 +13,15 @@ describe('buildRoleRegistry', () => {
   });
 
   it('lists every role in ROLES with grouping flags', () => {
-    expect(payload.count).toBeGreaterThanOrEqual(38);
+    expect(payload.policy_version).toBe('vh-role-policy-2026-06-v1');
+    expect(payload.policy_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(payload.count).toBeGreaterThanOrEqual(60);
     expect(payload.roles.length).toBe(payload.count);
     for (const entry of payload.roles) {
       expect(entry).toHaveProperty('role');
+      expect(entry).toHaveProperty('label');
+      expect(entry).toHaveProperty('assignable_staff');
+      expect(entry).toHaveProperty('phi_access_level');
       expect(entry).toHaveProperty('is_clinical');
       expect(entry).toHaveProperty('is_leadership');
       expect(entry).toHaveProperty('is_support');
@@ -67,5 +72,20 @@ describe('buildRoleRegistry', () => {
     const entry = payload.roles.find((r) => r.role === 'PATIENT');
     expect(entry.is_patient).toBe(true);
     expect(entry.is_clinical).toBe(false);
+  });
+
+  it('builds role picker options from assignable human policy roles', () => {
+    const pickerRoles = payload.role_picker_options.map((entry) => entry.role);
+
+    expect(pickerRoles).toEqual(expect.arrayContaining([
+      'IP_STAFF_NURSE',
+      'IP_INCHARGE',
+      'OT_NURSE',
+      'OT_INCHARGE',
+      'CATH_LAB_STAFF',
+      'CATH_LAB_INCHARGE',
+    ]));
+    expect(pickerRoles).not.toContain('WEBHOOK_CLIENT');
+    expect(pickerRoles).not.toContain('PATIENT');
   });
 });

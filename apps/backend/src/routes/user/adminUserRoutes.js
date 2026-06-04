@@ -2,7 +2,6 @@
 import express from 'express';
 import { AdminUserController } from '../../controllers/user/adminUserController.js';
 import {
-  ROLES,
   CLINICAL_ROLES,
   DOCTOR_TIERS,
   LEADERSHIP_ROLES,
@@ -10,6 +9,7 @@ import {
   PLATFORM_ROLES,
   SUPPORT_ROLES,
 } from '../../utils/roleHelpers.js';
+import { getRolePickerOptions, getRolePolicy } from '../../config/rolePolicyGraph.js';
 import { success } from '../../utils/responseHelper.js';
 import {
   analyticsValidation,
@@ -29,7 +29,7 @@ router.get('/dashboard', AdminUserController.getDashboard);
  * can exercise it without standing up the full admin route stack.
  */
 export function buildRoleRegistry() {
-  const allRoles = Object.values(ROLES);
+  const policy = getRolePolicy();
   const inSet = (set) => (role) => set.includes(role);
   const isClinical = inSet(CLINICAL_ROLES);
   const isLeadership = inSet(LEADERSHIP_ROLES);
@@ -37,20 +37,36 @@ export function buildRoleRegistry() {
   const isPlatform = inSet(PLATFORM_ROLES);
   const isMachine = inSet(MACHINE_ROLES);
   const isDoctorTier = inSet(DOCTOR_TIERS);
-  const groups = allRoles.map((r) => ({
-    role: r,
-    is_clinical: isClinical(r),
-    is_leadership: isLeadership(r),
-    is_support: isSupport(r),
-    is_platform: isPlatform(r),
-    is_machine: isMachine(r),
-    is_doctor_tier: isDoctorTier(r),
-    is_admin: r === 'ADMIN',
-    is_patient: r === 'PATIENT',
+  const groups = policy.roles.map((rolePolicy) => ({
+    role: rolePolicy.role_code,
+    label: rolePolicy.display_title,
+    group: rolePolicy.group,
+    department: rolePolicy.department,
+    unit: rolePolicy.unit,
+    assignable_staff: rolePolicy.assignable_staff,
+    human: rolePolicy.human,
+    machine: rolePolicy.machine,
+    phi_access_level: rolePolicy.phi?.access_level,
+    reports_to_role: rolePolicy.reporting?.reports_to_role,
+    supervises_roles: rolePolicy.reporting?.supervises_roles || [],
+    route_capability_groups: rolePolicy.access?.route_capability_groups || [],
+    ui_feature_ids: rolePolicy.ui?.feature_ids || [],
+    is_clinical: isClinical(rolePolicy.role_code) || rolePolicy.group === 'clinical',
+    is_leadership: isLeadership(rolePolicy.role_code) || rolePolicy.group === 'leadership',
+    is_support: isSupport(rolePolicy.role_code) || rolePolicy.group === 'support',
+    is_platform: isPlatform(rolePolicy.role_code) || rolePolicy.group === 'platform',
+    is_machine: isMachine(rolePolicy.role_code) || rolePolicy.machine,
+    is_doctor_tier: isDoctorTier(rolePolicy.role_code),
+    is_admin: rolePolicy.role_code === 'ADMIN' || rolePolicy.role_code === 'SUPER_ADMIN',
+    is_patient: rolePolicy.role_code === 'PATIENT',
   }));
   return {
-    count: allRoles.length,
+    policy_version: policy.policy_version,
+    policy_hash: policy.policy_hash,
+    generated_at: policy.generated_at,
+    count: groups.length,
     roles: groups,
+    role_picker_options: getRolePickerOptions(),
     doctor_tiers: DOCTOR_TIERS,
     clinical_roles: CLINICAL_ROLES,
     leadership_roles: LEADERSHIP_ROLES,

@@ -11,8 +11,8 @@ import {
   validateRoleTransition
 } from '../../utils/infrastructure/rbacUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { getRolePolicy, getRolePolicyRoleCodes } from '../../config/rolePolicyGraph.js';
 import {
-  ALL_ROLES,
   ADMIN,
   PATIENT,
   NURSING_STAFF,
@@ -25,9 +25,14 @@ import {
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 export class RBACService {
+  static getPolicy() {
+    return getRolePolicy();
+  }
+
   // Get all available roles with details
   static async getAvailableRoles(userInfo) {
     try {
+      const allRoles = getRolePolicyRoleCodes();
       const roleStats = await prisma.$queryRawUnsafe(`
         SELECT role,
                COUNT(*)                                   AS user_count,
@@ -35,9 +40,10 @@ export class RBACService {
         FROM users
         GROUP BY role
       `).catch(() => ({ rows: [] }));
+      const roleStatRows = Array.isArray(roleStats) ? roleStats : roleStats.rows || [];
 
-      const rolesWithDetails = ALL_ROLES.map(role => {
-        const stats = roleStats.find(r => r.role === role) || { user_count: 0, active_count: 0 };
+      const rolesWithDetails = allRoles.map(role => {
+        const stats = roleStatRows.find(r => r.role === role) || { user_count: 0, active_count: 0 };
         const roleData = ROLE_HIERARCHY[role] || {};
         const activeCount = parseInt(stats.active_count) || 0;
 
@@ -53,7 +59,7 @@ export class RBACService {
 
       return {
         roles: rolesWithDetails,
-        totalRoles: ALL_ROLES.length,
+        totalRoles: allRoles.length,
         roleHierarchy: ROLE_HIERARCHY,
         requestedBy: userInfo.uid
       };
@@ -80,7 +86,8 @@ export class RBACService {
         conds.push('u.is_active = true');
       }
 
-      if (role && ALL_ROLES.includes(role.toUpperCase())) {
+      const allRoles = getRolePolicyRoleCodes();
+      if (role && allRoles.includes(role.toUpperCase())) {
         params.push(role.toUpperCase());
         conds.push(`u.role = $${params.length}`);
       }
@@ -167,8 +174,9 @@ export class RBACService {
         }
       });
 
+      const allRoles = getRolePolicyRoleCodes();
       const permissionsMatrix = {};
-      ALL_ROLES.forEach(role => {
+      allRoles.forEach(role => {
         const roleData = ROLE_HIERARCHY[role] || {};
         permissionsMatrix[role] = {
           permissions: roleData.permissions || [],
@@ -182,7 +190,7 @@ export class RBACService {
       });
 
       const myRole = ROLE_HIERARCHY[userInfo.role] || {};
-      const roleComparison = ALL_ROLES.map(role => ({
+      const roleComparison = allRoles.map(role => ({
         role,
         canManage: canUserManageRole(userInfo.role, role),
         hasHigherLevel: (ROLE_HIERARCHY[role]?.level ?? 0) > (myRole.level ?? 0),
@@ -404,7 +412,8 @@ export class RBACService {
       };
 
       if (phone) add('ura.phone = $X', normalizePhone(phone));
-      if (role && ALL_ROLES.includes(role.toUpperCase())) {
+      const allRoles = getRolePolicyRoleCodes();
+      if (role && allRoles.includes(role.toUpperCase())) {
         // same value twice for old/new
         add('(ura.old_role = $X OR ura.new_role = $X)', role.toUpperCase(), [role.toUpperCase()]);
       }

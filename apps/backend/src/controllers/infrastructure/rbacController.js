@@ -44,6 +44,15 @@ export const getRoles = async (req, res) => {
   }
 };
 
+export const getPolicy = async (_req, res) => {
+  try {
+    success(res, RBACService.getPolicy(), 'Role policy retrieved');
+  } catch (err) {
+    logger.error('[GetRolePolicy]:', err);
+    error(res, 'Failed to fetch role policy', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // Get users grouped by role
 export const getUsersByRole = async (req, res) => {
   try {

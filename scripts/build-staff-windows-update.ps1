@@ -37,7 +37,7 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
-  if ($BaseUrl -notmatch '^https?://(127\.0\.0\.1|localhost)(:\d+)?/') {
+  if ($BaseUrl -notmatch '^https?://(127\.0\.0\.1|localhost)(:\d+)?(/|$)') {
     throw "ApiKey is required for the remote VH Health backend. Set `$env:VH_API_KEY or pass -ApiKey. Refusing to package a remote app with the local dev key."
   }
   $ApiKey = "vhhealth-local-api-key"

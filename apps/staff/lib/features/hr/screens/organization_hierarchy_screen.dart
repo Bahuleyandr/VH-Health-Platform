@@ -135,6 +135,15 @@ class _OverviewCard extends StatelessWidget {
     final tenantScoped = data['tenant_scoped'] == true;
     final countsStatus = data['counts_status']?.toString() ?? 'unknown';
     final version = data['version']?.toString() ?? 'v1';
+    final policyVersion = data['policy_version']?.toString();
+    final policyHash = data['policy_hash']?.toString();
+    final gitCommit = data['git_commit']?.toString();
+    final shortPolicyHash = policyHash == null || policyHash.length < 12
+        ? policyHash
+        : policyHash.substring(0, 12);
+    final shortCommit = gitCommit == null || gitCommit.length < 12
+        ? gitCommit
+        : gitCommit.substring(0, 12);
 
     return Card(
       child: Padding(
@@ -205,6 +214,24 @@ class _OverviewCard extends StatelessWidget {
                   label: 'Counts: $countsStatus',
                   color: AppTheme.primaryTeal,
                 ),
+                if (policyVersion != null)
+                  _InfoPill(
+                    icon: Icons.verified_outlined,
+                    label: policyVersion,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                if (shortPolicyHash != null)
+                  _InfoPill(
+                    icon: Icons.tag,
+                    label: 'Policy $shortPolicyHash',
+                    color: scheme.onSurfaceVariant,
+                  ),
+                if (shortCommit != null)
+                  _InfoPill(
+                    icon: Icons.commit,
+                    label: 'Commit $shortCommit',
+                    color: scheme.onSurfaceVariant,
+                  ),
               ],
             ),
           ],

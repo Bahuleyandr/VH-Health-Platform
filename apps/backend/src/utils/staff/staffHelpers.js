@@ -1,4 +1,4 @@
-import { STAFF_ROLES } from '../../config/staffConfig.js';
+import { getStaffVisibilityRoles } from '../../config/rolePolicyGraph.js';
 
 // Get staff role hierarchy for access control.
 //
@@ -9,88 +9,7 @@ import { STAFF_ROLES } from '../../config/staffConfig.js';
 // admin had a staff row. Treat SUPER_ADMIN as a strict superset of ADMIN
 // (everything ADMIN can see plus other admins).
 export function getStaffHierarchy(userRole) {
-  const allStaffRoles = Object.values(STAFF_ROLES);
-  const onboardableStaffRoles = allStaffRoles.filter(
-    (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
-  );
-  const anaesthesiaRoles = ['ANAESTHETIST', 'ANESTHETIST'];
-  const ipNursingRoles = ['NURSING_STAFF', 'IP_STAFF_NURSE'];
-  const opNursingRoles = ['OP_STAFF_NURSE'];
-  const otNursingRoles = ['OT_NURSE', 'OT_STAFF'];
-  const otInchargeRoles = ['OT_INCHARGE'];
-  const cathLabInchargeRoles = ['CATH_LAB_INCHARGE'];
-  const cathLabStaffRoles = ['CATH_LAB_STAFF'];
-  const cathLabRoles = [...cathLabInchargeRoles, ...cathLabStaffRoles];
-  // Anaesthetists are clinical-doctor tier (same level as DOCTOR for the
-  // theatre/ICU/PACU surfaces); RADIOLOGY_STAFF mirrors LAB_STAFF as a
-  // self-contained role bucket. HR_STAFF now lists every modality role
-  // so HR can see/manage the full clinical roster, not just the
-  // legacy DOCTOR / NURSING_STAFF / PHARMACY_STAFF / LAB_STAFF subset.
-  // Finding H' D30.
-  const hierarchy = {
-    SUPER_ADMIN: [...allStaffRoles, 'SUPER_ADMIN'],
-    ADMIN: allStaffRoles,
-    HR_STAFF: onboardableStaffRoles,
-    DOCTOR: ['DOCTOR', ...anaesthesiaRoles, ...ipNursingRoles, ...otNursingRoles],
-    ANAESTHETIST: ['ANAESTHETIST', 'ANESTHETIST', ...ipNursingRoles, ...otNursingRoles],
-    ANESTHETIST: ['ANESTHETIST', 'ANAESTHETIST', ...ipNursingRoles, ...otNursingRoles],
-    MEDICAL_SUPERINTENDENT: [
-      'MEDICAL_SUPERINTENDENT',
-      'DOCTOR',
-      'DUTY_DOCTOR',
-      ...anaesthesiaRoles,
-      'NURSING_INCHARGE',
-      'IP_INCHARGE',
-      ...ipNursingRoles,
-      'OP_INCHARGE',
-      ...opNursingRoles,
-      ...otInchargeRoles,
-      ...otNursingRoles,
-      ...cathLabRoles
-    ],
-    CNO: [
-      'CNO',
-      'NURSING_INCHARGE',
-      'IP_INCHARGE',
-      ...ipNursingRoles,
-      'OP_INCHARGE',
-      ...opNursingRoles,
-      ...otInchargeRoles,
-      ...otNursingRoles,
-      ...cathLabRoles,
-    ],
-    NURSING_INCHARGE: ['NURSING_INCHARGE', 'IP_INCHARGE', ...ipNursingRoles],
-    NURSING_STAFF: ['NURSING_STAFF'],
-    IP_INCHARGE: ['IP_INCHARGE', ...ipNursingRoles],
-    IP_STAFF_NURSE: ['IP_STAFF_NURSE'],
-    OP_INCHARGE: ['OP_INCHARGE', ...opNursingRoles],
-    OP_STAFF_NURSE: ['OP_STAFF_NURSE'],
-    OT_INCHARGE: ['OT_INCHARGE', ...otNursingRoles],
-    OT_NURSE: ['OT_NURSE', 'OT_STAFF'],
-    OT_STAFF: ['OT_STAFF', 'OT_NURSE'],
-    CATH_LAB_INCHARGE: cathLabRoles,
-    CATH_LAB_STAFF: ['CATH_LAB_STAFF'],
-    PHARMACY_STAFF: ['PHARMACY_STAFF'],
-    LAB_STAFF: ['LAB_STAFF'],
-    RADIOLOGY_STAFF: ['RADIOLOGY_STAFF'],
-    GENERAL_STAFF: ['GENERAL_STAFF'],
-    HOUSEKEEPING_STAFF: ['HOUSEKEEPING_STAFF'],
-    HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'],
-    RECEPTIONIST: ['RECEPTIONIST'],
-    RECEPTION_INCHARGE: ['RECEPTIONIST', 'RECEPTION_INCHARGE'],
-    BILLING_STAFF: ['BILLING_STAFF'],
-    BILLING_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE'],
-    FINANCE_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE'],
-    ADMISSION_OFFICER: ['ADMISSION_OFFICER'],
-    INSURANCE_COORDINATOR: ['INSURANCE_COORDINATOR'],
-    IPD_COUNSELLOR: ['IPD_COUNSELLOR'],
-    DRIVER: ['DRIVER'],
-    SECURITY: ['SECURITY'],
-    MAINTENANCE: ['MAINTENANCE'],
-    EMERGENCY_RESPONDER: ['EMERGENCY_RESPONDER']
-  };
-
-  return hierarchy[userRole] || [userRole];
+  return getStaffVisibilityRoles(userRole);
 }
 
 // Calculate working hours

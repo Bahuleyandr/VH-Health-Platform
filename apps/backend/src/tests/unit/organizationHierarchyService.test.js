@@ -73,6 +73,9 @@ describe('organization hierarchy service', () => {
 
     const nursingSuperintendent = chart.nodes.find((node) => node.id === 'nursing_superintendent');
     expect(nursingSuperintendent).toEqual(expect.objectContaining({ active_staff_count: 1 }));
+    expect(chart.policy_version).toBe('vh-role-policy-2026-06-v1');
+    expect(chart.policy_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(chart).toHaveProperty('git_commit');
 
     for (const [incharge, staff] of [
       ['ip_nursing_incharge', 'ip_nursing_staff'],

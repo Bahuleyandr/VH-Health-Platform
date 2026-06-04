@@ -1,7 +1,14 @@
 // src/app/(with-auth)/dashboard/staff-roster/page.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import toast from "react-hot-toast";
 import {
   AlertTriangle,
@@ -19,43 +26,144 @@ import { ManagedTableToolbar } from "@/components/table";
 import { Spinner } from "@/components/ui/spinner";
 import {
   createStaffProfile,
+  getRolePolicy,
   getStaffList,
   updateStaffProfile,
   type CreateStaffPayload,
+  type RolePolicyResponse,
   type StaffListResponse,
   type StaffMember,
-  type StaffRole,
   type StaffShift,
 } from "@/lib/api/staff";
 
 type RoleOption = {
-  value: StaffRole;
+  value: string;
   label: string;
   group: string;
   permissions: string[];
 };
 
 const STAFF_ROLE_OPTIONS: RoleOption[] = [
-  { value: "DOCTOR", label: "Doctor", group: "Clinical", permissions: ["Clinical records", "Orders", "Appointments"] },
-  { value: "DUTY_DOCTOR", label: "Duty Doctor", group: "Clinical", permissions: ["Clinical records", "Emergency queue", "Orders"] },
-  { value: "ANAESTHETIST", label: "Anaesthetist", group: "Clinical", permissions: ["OT records", "Anesthesia chart", "Clinical notes"] },
-  { value: "NURSING_STAFF", label: "Nursing Staff", group: "Nursing", permissions: ["MAR", "Nursing assessments", "Ward tasks"] },
-  { value: "NURSING_INCHARGE", label: "Nursing Incharge", group: "Nursing", permissions: ["Nursing roster", "Ward oversight", "Escalations"] },
-  { value: "OP_STAFF_NURSE", label: "OP Staff Nurse", group: "Nursing", permissions: ["OPD queue", "Vitals", "Nursing notes"] },
-  { value: "OP_INCHARGE", label: "OP Incharge", group: "Nursing", permissions: ["OPD roster", "Queue oversight", "Escalations"] },
-  { value: "PHARMACY_STAFF", label: "Pharmacy Staff", group: "Support", permissions: ["Medication orders", "Inventory", "Dispensing"] },
-  { value: "LAB_STAFF", label: "Lab Staff", group: "Support", permissions: ["Lab bookings", "Results", "Sample workflow"] },
-  { value: "RADIOLOGY_STAFF", label: "Radiology Staff", group: "Support", permissions: ["Radiology worklist", "Reports", "Acquisition"] },
-  { value: "HR_STAFF", label: "HR Staff", group: "Administration", permissions: ["Staff roster", "Leave approvals", "Onboarding"] },
-  { value: "GENERAL_STAFF", label: "General Staff", group: "Operations", permissions: ["My work", "Attendance", "Leave"] },
-  { value: "HOUSEKEEPING_STAFF", label: "Housekeeping Staff", group: "Operations", permissions: ["Housekeeping tasks", "Zone logs", "Requests"] },
-  { value: "HOUSEKEEPING_INCHARGE", label: "Housekeeping Incharge", group: "Operations", permissions: ["Housekeeping roster", "Zone oversight", "Requests"] },
-  { value: "RECEPTIONIST", label: "Receptionist", group: "Front Office", permissions: ["Appointments", "Walk-ins", "Patient search"] },
-  { value: "RECEPTION_INCHARGE", label: "Reception Incharge", group: "Front Office", permissions: ["Front desk roster", "Appointments", "Escalations"] },
-  { value: "DRIVER", label: "Driver", group: "Operations", permissions: ["Ambulance tasks", "Attendance", "Leave"] },
-  { value: "SECURITY", label: "Security", group: "Operations", permissions: ["Security tasks", "Attendance", "Leave"] },
-  { value: "MAINTENANCE", label: "Maintenance", group: "Operations", permissions: ["Maintenance tasks", "Attendance", "Leave"] },
-  { value: "EMERGENCY_RESPONDER", label: "Emergency Responder", group: "Emergency", permissions: ["SOS queue", "Emergency response", "Attendance"] },
+  {
+    value: "DOCTOR",
+    label: "Doctor",
+    group: "Clinical",
+    permissions: ["Clinical records", "Orders", "Appointments"],
+  },
+  {
+    value: "DUTY_DOCTOR",
+    label: "Duty Doctor",
+    group: "Clinical",
+    permissions: ["Clinical records", "Emergency queue", "Orders"],
+  },
+  {
+    value: "ANAESTHETIST",
+    label: "Anaesthetist",
+    group: "Clinical",
+    permissions: ["OT records", "Anesthesia chart", "Clinical notes"],
+  },
+  {
+    value: "NURSING_STAFF",
+    label: "Nursing Staff",
+    group: "Nursing",
+    permissions: ["MAR", "Nursing assessments", "Ward tasks"],
+  },
+  {
+    value: "NURSING_INCHARGE",
+    label: "Nursing Incharge",
+    group: "Nursing",
+    permissions: ["Nursing roster", "Ward oversight", "Escalations"],
+  },
+  {
+    value: "OP_STAFF_NURSE",
+    label: "OP Staff Nurse",
+    group: "Nursing",
+    permissions: ["OPD queue", "Vitals", "Nursing notes"],
+  },
+  {
+    value: "OP_INCHARGE",
+    label: "OP Incharge",
+    group: "Nursing",
+    permissions: ["OPD roster", "Queue oversight", "Escalations"],
+  },
+  {
+    value: "PHARMACY_STAFF",
+    label: "Pharmacy Staff",
+    group: "Support",
+    permissions: ["Medication orders", "Inventory", "Dispensing"],
+  },
+  {
+    value: "LAB_STAFF",
+    label: "Lab Staff",
+    group: "Support",
+    permissions: ["Lab bookings", "Results", "Sample workflow"],
+  },
+  {
+    value: "RADIOLOGY_STAFF",
+    label: "Radiology Staff",
+    group: "Support",
+    permissions: ["Radiology worklist", "Reports", "Acquisition"],
+  },
+  {
+    value: "HR_STAFF",
+    label: "HR Staff",
+    group: "Administration",
+    permissions: ["Staff roster", "Leave approvals", "Onboarding"],
+  },
+  {
+    value: "GENERAL_STAFF",
+    label: "General Staff",
+    group: "Operations",
+    permissions: ["My work", "Attendance", "Leave"],
+  },
+  {
+    value: "HOUSEKEEPING_STAFF",
+    label: "Housekeeping Staff",
+    group: "Operations",
+    permissions: ["Housekeeping tasks", "Zone logs", "Requests"],
+  },
+  {
+    value: "HOUSEKEEPING_INCHARGE",
+    label: "Housekeeping Incharge",
+    group: "Operations",
+    permissions: ["Housekeeping roster", "Zone oversight", "Requests"],
+  },
+  {
+    value: "RECEPTIONIST",
+    label: "Receptionist",
+    group: "Front Office",
+    permissions: ["Appointments", "Walk-ins", "Patient search"],
+  },
+  {
+    value: "RECEPTION_INCHARGE",
+    label: "Reception Incharge",
+    group: "Front Office",
+    permissions: ["Front desk roster", "Appointments", "Escalations"],
+  },
+  {
+    value: "DRIVER",
+    label: "Driver",
+    group: "Operations",
+    permissions: ["Ambulance tasks", "Attendance", "Leave"],
+  },
+  {
+    value: "SECURITY",
+    label: "Security",
+    group: "Operations",
+    permissions: ["Security tasks", "Attendance", "Leave"],
+  },
+  {
+    value: "MAINTENANCE",
+    label: "Maintenance",
+    group: "Operations",
+    permissions: ["Maintenance tasks", "Attendance", "Leave"],
+  },
+  {
+    value: "EMERGENCY_RESPONDER",
+    label: "Emergency Responder",
+    group: "Emergency",
+    permissions: ["SOS queue", "Emergency response", "Attendance"],
+  },
 ];
 
 const SHIFT_OPTIONS: Array<{ value: StaffShift; label: string }> = [
@@ -113,7 +221,10 @@ function formatRole(role: string | null | undefined) {
 
 function formatShift(shift: string | null | undefined) {
   if (!shift) return "Unassigned";
-  return shift.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  return shift
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function staffKey(staff: StaffMember) {
@@ -135,7 +246,10 @@ function uniqueSortedDepartments(values: Array<string | null | undefined>) {
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
-function groupCount<T extends string>(rows: StaffMember[], getKey: (row: StaffMember) => T | "") {
+function groupCount<T extends string>(
+  rows: StaffMember[],
+  getKey: (row: StaffMember) => T | "",
+) {
   const counts = new Map<string, number>();
   for (const row of rows) {
     const key = getKey(row) || "Unassigned";
@@ -144,6 +258,39 @@ function groupCount<T extends string>(rows: StaffMember[], getKey: (row: StaffMe
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function roleOptionsFromPolicy(
+  policy: RolePolicyResponse | null,
+): RoleOption[] {
+  if (!policy?.roles?.length) return [];
+  const options = policy.roles
+    .filter((role) => role.assignable_staff === true)
+    .filter((role) => role.human !== false && role.machine !== true)
+    .map((role) => ({
+      value: role.role_code,
+      label: role.display_title ?? formatRole(role.role_code),
+      group: role.group ? formatRole(role.group) : (role.department ?? "Staff"),
+      permissions: role.access?.route_capability_groups?.length
+        ? role.access.route_capability_groups.map((capability) =>
+            formatRole(capability),
+          )
+        : [
+            role.phi?.access_level
+              ? formatRole(role.phi.access_level)
+              : "Role policy",
+          ],
+    }))
+    .sort(
+      (a, b) =>
+        a.group.localeCompare(b.group) || a.label.localeCompare(b.label),
+    );
+  return options;
+}
+
+function shortHash(value: string | null) {
+  if (!value) return null;
+  return value.length <= 12 ? value : value.slice(0, 12);
 }
 
 export default function StaffRosterPage() {
@@ -158,6 +305,10 @@ export default function StaffRosterPage() {
   const [showOnboardModal, setShowOnboardModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<CreateStaffPayload>(DEFAULT_FORM);
+  const [roleOptions, setRoleOptions] =
+    useState<RoleOption[]>(STAFF_ROLE_OPTIONS);
+  const [policyVersion, setPolicyVersion] = useState<string | null>(null);
+  const [policyHash, setPolicyHash] = useState<string | null>(null);
   const [departmentMenuOpen, setDepartmentMenuOpen] = useState(false);
   const [departmentMenuShowsAll, setDepartmentMenuShowsAll] = useState(false);
   const [shiftStaff, setShiftStaff] = useState<StaffMember | null>(null);
@@ -165,22 +316,36 @@ export default function StaffRosterPage() {
   const [savingShift, setSavingShift] = useState(false);
   const departmentPickerRef = useRef<HTMLDivElement | null>(null);
 
-  const fetchData = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
-    try {
-      if (quiet) setRefreshing(true);
-      else setLoading(true);
-      setError(null);
-      const response = await getStaffList<StaffListResponse>({ limit: 200, active: true });
-      const rows = response.staff ?? [];
-      const profiled = rows.filter(hasStaffProfile);
-      setStaff(profiled.length > 0 ? profiled : rows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load staff roster");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const fetchData = useCallback(
+    async ({ quiet = false }: { quiet?: boolean } = {}) => {
+      try {
+        if (quiet) setRefreshing(true);
+        else setLoading(true);
+        setError(null);
+        const [response, policy] = await Promise.all([
+          getStaffList<StaffListResponse>({ limit: 200, active: true }),
+          getRolePolicy<RolePolicyResponse>().catch(() => null),
+        ]);
+        const rows = response.staff ?? [];
+        const profiled = rows.filter(hasStaffProfile);
+        setStaff(profiled.length > 0 ? profiled : rows);
+        if (policy) {
+          const policyOptions = roleOptionsFromPolicy(policy);
+          if (policyOptions.length > 0) setRoleOptions(policyOptions);
+          setPolicyVersion(policy.policy_version);
+          setPolicyHash(policy.policy_hash);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to load staff roster",
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     void fetchData();
@@ -194,7 +359,8 @@ export default function StaffRosterPage() {
 
     function handlePointerDown(event: PointerEvent) {
       const picker = departmentPickerRef.current;
-      if (!picker || !event.target || picker.contains(event.target as Node)) return;
+      if (!picker || !event.target || picker.contains(event.target as Node))
+        return;
       setDepartmentMenuOpen(false);
       setDepartmentMenuShowsAll(false);
     }
@@ -204,23 +370,36 @@ export default function StaffRosterPage() {
   }, [showOnboardModal]);
 
   const departments = useMemo(
-    () => Array.from(new Set(staff.map((row) => row.department).filter(Boolean) as string[])).sort(),
+    () =>
+      Array.from(
+        new Set(staff.map((row) => row.department).filter(Boolean) as string[]),
+      ).sort(),
     [staff],
   );
 
   const onboardingDepartmentOptions = useMemo(
-    () => uniqueSortedDepartments([...DEFAULT_DEPARTMENT_OPTIONS, ...departments, form.department]),
+    () =>
+      uniqueSortedDepartments([
+        ...DEFAULT_DEPARTMENT_OPTIONS,
+        ...departments,
+        form.department,
+      ]),
     [departments, form.department],
   );
 
   const departmentSuggestions = useMemo(() => {
     const query = form.department.trim().toLowerCase();
     if (departmentMenuShowsAll || !query) return onboardingDepartmentOptions;
-    return onboardingDepartmentOptions.filter((department) => department.toLowerCase().includes(query));
+    return onboardingDepartmentOptions.filter((department) =>
+      department.toLowerCase().includes(query),
+    );
   }, [departmentMenuShowsAll, form.department, onboardingDepartmentOptions]);
 
   const roles = useMemo(
-    () => Array.from(new Set(staff.map((row) => row.role).filter(Boolean) as string[])).sort(),
+    () =>
+      Array.from(
+        new Set(staff.map((row) => row.role).filter(Boolean) as string[]),
+      ).sort(),
     [staff],
   );
 
@@ -229,10 +408,18 @@ export default function StaffRosterPage() {
     return staff.filter((row) => {
       const matchesSearch =
         !term ||
-        [row.employee_id, row.name, row.role, row.department, row.position, row.phone]
+        [
+          row.employee_id,
+          row.name,
+          row.role,
+          row.department,
+          row.position,
+          row.phone,
+        ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(term));
-      const matchesDepartment = !departmentFilter || row.department === departmentFilter;
+      const matchesDepartment =
+        !departmentFilter || row.department === departmentFilter;
       const matchesRole = !roleFilter || row.role === roleFilter;
       const matchesShift = !shiftFilter || row.shift === shiftFilter;
       return matchesSearch && matchesDepartment && matchesRole && matchesShift;
@@ -249,11 +436,17 @@ export default function StaffRosterPage() {
     [visibleStaff],
   );
 
-  const selectedRole = STAFF_ROLE_OPTIONS.find((role) => role.value === form.role) ?? STAFF_ROLE_OPTIONS[0];
+  const selectedRole =
+    roleOptions.find((role) => role.value === form.role) ??
+    roleOptions[0] ??
+    STAFF_ROLE_OPTIONS[0];
   const unassignedShiftCount = staff.filter((row) => !row.shift).length;
   const activeCount = staff.filter((row) => row.is_active !== false).length;
 
-  function updateForm<K extends keyof CreateStaffPayload>(key: K, value: CreateStaffPayload[K]) {
+  function updateForm<K extends keyof CreateStaffPayload>(
+    key: K,
+    value: CreateStaffPayload[K],
+  ) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
@@ -277,7 +470,9 @@ export default function StaffRosterPage() {
       setForm(DEFAULT_FORM);
       await fetchData({ quiet: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create staff profile");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create staff profile",
+      );
     } finally {
       setCreating(false);
     }
@@ -290,7 +485,8 @@ export default function StaffRosterPage() {
 
   async function handleShiftUpdate() {
     if (!shiftStaff) return;
-    const identifier = shiftStaff.employee_id ?? shiftStaff.uid ?? shiftStaff.id;
+    const identifier =
+      shiftStaff.employee_id ?? shiftStaff.uid ?? shiftStaff.id;
     try {
       setSavingShift(true);
       await updateStaffProfile(identifier, { shift: shiftValue });
@@ -298,7 +494,9 @@ export default function StaffRosterPage() {
       setShiftStaff(null);
       await fetchData({ quiet: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update shift");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update shift",
+      );
     } finally {
       setSavingShift(false);
     }
@@ -345,7 +543,15 @@ export default function StaffRosterPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold">Staff Roster</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Workforce governance</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Workforce governance
+          </p>
+          {(policyVersion || policyHash) && (
+            <p className="mt-1 text-xs font-medium text-muted-foreground">
+              {policyVersion ?? "Role policy"}{" "}
+              {shortHash(policyHash) ? `- policy ${shortHash(policyHash)}` : ""}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -371,11 +577,18 @@ export default function StaffRosterPage() {
           { label: "Rostered Staff", value: staff.length, icon: Users },
           { label: "Active Staff", value: activeCount, icon: CheckCircle2 },
           { label: "Departments", value: departments.length, icon: Filter },
-          { label: "Unassigned Shift", value: unassignedShiftCount, icon: CalendarDays },
+          {
+            label: "Unassigned Shift",
+            value: unassignedShiftCount,
+            icon: CalendarDays,
+          },
         ].map((stat) => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="rounded-lg border border-border bg-card p-4">
+            <div
+              key={stat.label}
+              className="rounded-lg border border-border bg-card p-4"
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm text-muted-foreground">{stat.label}</p>
                 <Icon className="text-indigo-300" size={17} />
@@ -393,9 +606,14 @@ export default function StaffRosterPage() {
           </div>
           <div className="grid grid-cols-1 gap-0 sm:grid-cols-2">
             {departmentSummary.slice(0, 8).map((dept) => (
-              <div key={dept.name} className="flex items-center justify-between border-b border-border px-4 py-3 text-sm sm:odd:border-r">
+              <div
+                key={dept.name}
+                className="flex items-center justify-between border-b border-border px-4 py-3 text-sm sm:odd:border-r"
+              >
                 <span className="font-medium">{dept.name}</span>
-                <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{dept.count} staff</span>
+                <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                  {dept.count} staff
+                </span>
               </div>
             ))}
           </div>
@@ -407,7 +625,10 @@ export default function StaffRosterPage() {
           </div>
           <div className="divide-y divide-border">
             {shiftSummary.map((shift) => (
-              <div key={shift.name} className="flex items-center justify-between px-4 py-3 text-sm">
+              <div
+                key={shift.name}
+                className="flex items-center justify-between px-4 py-3 text-sm"
+              >
                 <span>{formatShift(shift.name)}</span>
                 <span className="font-medium">{shift.count}</span>
               </div>
@@ -438,7 +659,9 @@ export default function StaffRosterPage() {
         >
           <option value="">All departments</option>
           {departments.map((department) => (
-            <option key={department} value={department}>{department}</option>
+            <option key={department} value={department}>
+              {department}
+            </option>
           ))}
         </select>
         <select
@@ -449,7 +672,9 @@ export default function StaffRosterPage() {
         >
           <option value="">All roles</option>
           {roles.map((role) => (
-            <option key={role} value={role}>{formatRole(role)}</option>
+            <option key={role} value={role}>
+              {formatRole(role)}
+            </option>
           ))}
         </select>
         <select
@@ -460,7 +685,9 @@ export default function StaffRosterPage() {
         >
           <option value="">All shifts</option>
           {SHIFT_OPTIONS.map((shift) => (
-            <option key={shift.value} value={shift.value}>{shift.label}</option>
+            <option key={shift.value} value={shift.value}>
+              {shift.label}
+            </option>
           ))}
         </select>
         <button
@@ -489,19 +716,28 @@ export default function StaffRosterPage() {
             <tbody>
               {visibleStaff.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                  <td
+                    className="px-4 py-8 text-center text-muted-foreground"
+                    colSpan={7}
+                  >
                     No staff match the current filters
                   </td>
                 </tr>
               ) : (
                 visibleStaff.map((row) => (
                   <tr key={staffKey(row)} className="border-t border-border">
-                    <td className="px-4 py-3 font-medium">{row.employee_id || "-"}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {row.employee_id || "-"}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="font-medium">{row.name}</div>
-                      <div className="text-xs text-muted-foreground">{row.phone || row.email || "-"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.phone || row.email || "-"}
+                      </div>
                     </td>
-                    <td className="px-4 py-3">{row.department || "Unassigned"}</td>
+                    <td className="px-4 py-3">
+                      {row.department || "Unassigned"}
+                    </td>
                     <td className="px-4 py-3">{formatRole(row.role)}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
@@ -509,11 +745,13 @@ export default function StaffRosterPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full px-2.5 py-1 text-xs ${
-                        row.is_active === false
-                          ? "bg-rose-500/10 text-rose-300"
-                          : "bg-emerald-500/10 text-emerald-300"
-                      }`}>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs ${
+                          row.is_active === false
+                            ? "bg-rose-500/10 text-rose-300"
+                            : "bg-emerald-500/10 text-emerald-300"
+                        }`}
+                      >
                         {row.is_active === false ? "Inactive" : "Active"}
                       </span>
                     </td>
@@ -540,7 +778,9 @@ export default function StaffRosterPage() {
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold">Onboard Staff</h2>
-                <p className="mt-0.5 text-sm text-muted-foreground">New staff profile</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  New staff profile
+                </p>
               </div>
               <button
                 onClick={() => setShowOnboardModal(false)}
@@ -567,7 +807,9 @@ export default function StaffRosterPage() {
                   <input
                     required
                     value={form.phone}
-                    onChange={(event) => updateForm("phone", event.target.value)}
+                    onChange={(event) =>
+                      updateForm("phone", event.target.value)
+                    }
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                     placeholder="9876543210"
                   />
@@ -577,7 +819,9 @@ export default function StaffRosterPage() {
                   <input
                     type="email"
                     value={form.email ?? ""}
-                    onChange={(event) => updateForm("email", event.target.value)}
+                    onChange={(event) =>
+                      updateForm("email", event.target.value)
+                    }
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                   />
                 </label>
@@ -585,7 +829,9 @@ export default function StaffRosterPage() {
                   <span className="font-medium">Employee ID</span>
                   <input
                     value={form.employee_id ?? ""}
-                    onChange={(event) => updateForm("employee_id", event.target.value)}
+                    onChange={(event) =>
+                      updateForm("employee_id", event.target.value)
+                    }
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                     placeholder="Auto-generated when blank"
                   />
@@ -647,11 +893,18 @@ export default function StaffRosterPage() {
                               className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                             >
                               <span>{department}</span>
-                              {form.department === department && <CheckCircle2 size={15} className="text-primary" />}
+                              {form.department === department && (
+                                <CheckCircle2
+                                  size={15}
+                                  className="text-primary"
+                                />
+                              )}
                             </button>
                           ))
                         ) : (
-                          <div className="px-3 py-2 text-sm text-muted-foreground">No matching department</div>
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No matching department
+                          </div>
                         )}
                       </div>
                     )}
@@ -662,7 +915,9 @@ export default function StaffRosterPage() {
                   <input
                     required
                     value={form.position}
-                    onChange={(event) => updateForm("position", event.target.value)}
+                    onChange={(event) =>
+                      updateForm("position", event.target.value)
+                    }
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                   />
                 </label>
@@ -671,11 +926,13 @@ export default function StaffRosterPage() {
                   <select
                     required
                     value={form.role}
-                    onChange={(event) => updateForm("role", event.target.value as StaffRole)}
+                    onChange={(event) => updateForm("role", event.target.value)}
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                   >
-                    {STAFF_ROLE_OPTIONS.map((role) => (
-                      <option key={role.value} value={role.value}>{role.label}</option>
+                    {roleOptions.map((role) => (
+                      <option key={role.value} value={role.value}>
+                        {role.label}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -683,11 +940,15 @@ export default function StaffRosterPage() {
                   <span className="font-medium">Shift</span>
                   <select
                     value={form.shift}
-                    onChange={(event) => updateForm("shift", event.target.value as StaffShift)}
+                    onChange={(event) =>
+                      updateForm("shift", event.target.value as StaffShift)
+                    }
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                   >
                     {SHIFT_OPTIONS.map((shift) => (
-                      <option key={shift.value} value={shift.value}>{shift.label}</option>
+                      <option key={shift.value} value={shift.value}>
+                        {shift.label}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -697,7 +958,9 @@ export default function StaffRosterPage() {
                     required
                     type="password"
                     value={form.temporary_password}
-                    onChange={(event) => updateForm("temporary_password", event.target.value)}
+                    onChange={(event) =>
+                      updateForm("temporary_password", event.target.value)
+                    }
                     minLength={6}
                     className="w-full rounded-md border border-input bg-background px-3 py-2"
                   />
@@ -709,10 +972,15 @@ export default function StaffRosterPage() {
                   <ShieldCheck size={16} className="text-indigo-300" />
                   Role Permissions
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedRole.group} - {selectedRole.label}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedRole.group} - {selectedRole.label}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedRole.permissions.map((permission) => (
-                    <span key={permission} className="rounded-full bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-200">
+                    <span
+                      key={permission}
+                      className="rounded-full bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-200"
+                    >
                       {permission}
                     </span>
                   ))}
@@ -748,7 +1016,8 @@ export default function StaffRosterPage() {
               <div>
                 <h2 className="text-lg font-semibold">Set Shift</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {shiftStaff.name} - {shiftStaff.employee_id || "No employee ID"}
+                  {shiftStaff.name} -{" "}
+                  {shiftStaff.employee_id || "No employee ID"}
                 </p>
               </div>
               <button
@@ -763,11 +1032,15 @@ export default function StaffRosterPage() {
               <span className="font-medium">Shift</span>
               <select
                 value={shiftValue}
-                onChange={(event) => setShiftValue(event.target.value as StaffShift)}
+                onChange={(event) =>
+                  setShiftValue(event.target.value as StaffShift)
+                }
                 className="w-full rounded-md border border-input bg-background px-3 py-2"
               >
                 {SHIFT_OPTIONS.map((shift) => (
-                  <option key={shift.value} value={shift.value}>{shift.label}</option>
+                  <option key={shift.value} value={shift.value}>
+                    {shift.label}
+                  </option>
                 ))}
               </select>
             </label>

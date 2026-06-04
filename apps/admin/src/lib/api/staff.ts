@@ -20,15 +20,34 @@ export type StaffRole =
   | "SUPER_ADMIN"
   | "DOCTOR"
   | "ANAESTHETIST"
+  | "ANESTHETIST"
   | "DUTY_DOCTOR"
+  | "CONSULTANT"
+  | "JUNIOR_DOCTOR"
+  | "RESIDENT"
+  | "CMO"
   | "MEDICAL_SUPERINTENDENT"
   | "CNO"
   | "NURSING_STAFF"
   | "NURSING_INCHARGE"
   | "OP_STAFF_NURSE"
   | "OP_INCHARGE"
+  | "IP_STAFF_NURSE"
+  | "IP_INCHARGE"
+  | "OT_NURSE"
+  | "OT_INCHARGE"
+  | "OT_STAFF"
+  | "CATH_LAB_STAFF"
+  | "CATH_LAB_INCHARGE"
+  | "BILLING_STAFF"
+  | "BILLING_INCHARGE"
+  | "FINANCE_INCHARGE"
+  | "ADMISSION_OFFICER"
+  | "INSURANCE_COORDINATOR"
+  | "IPD_COUNSELLOR"
   | "PHARMACY_STAFF"
   | "LAB_STAFF"
+  | "RADIOLOGIST"
   | "RADIOLOGY_STAFF"
   | "HR_STAFF"
   | "GENERAL_STAFF"
@@ -39,7 +58,46 @@ export type StaffRole =
   | "DRIVER"
   | "SECURITY"
   | "MAINTENANCE"
-  | "EMERGENCY_RESPONDER";
+  | "EMERGENCY_RESPONDER"
+  | "DIETITIAN"
+  | "PHYSIOTHERAPIST"
+  | "SOCIAL_WORKER"
+  | "QUALITY_OFFICER"
+  | "INFECTION_CONTROL_OFFICER"
+  | "BLOOD_BANK_TECHNICIAN"
+  | "CARE_COORDINATOR"
+  | "COUNSELLOR"
+  | "CLAIMS_MANAGER"
+  | "AMBULANCE_COORDINATOR"
+  | "INTEGRATION_ADMIN"
+  | "AI_GOVERNANCE_ADMIN"
+  | "DATA_PROTECTION_OFFICER";
+
+export interface RolePolicyRole {
+  role_code: string;
+  display_title?: string;
+  group?: string;
+  department?: string | null;
+  unit?: string | null;
+  assignable_staff?: boolean;
+  human?: boolean;
+  machine?: boolean;
+  access?: {
+    route_capability_groups?: string[];
+  };
+  phi?: {
+    access_level?: string;
+  };
+}
+
+export interface RolePolicyResponse {
+  policy_version: string;
+  policy_hash: string;
+  generated_at?: string;
+  roles: RolePolicyRole[];
+  capability_groups?: Record<string, { title?: string; description?: string }>;
+  phi_levels?: Record<string, string>;
+}
 
 export interface StaffMember {
   id: number;
@@ -136,7 +194,13 @@ export function getStaffList<T = StaffListResponse>(params?: QueryParams) {
   return getJSON<T>("/api/v1/staff/list", params);
 }
 
-export function getHRDashboard<T = HRDashboardResponse>(timeframe = "current_month") {
+export function getRolePolicy<T = RolePolicyResponse>() {
+  return getJSON<T>("/api/v1/rbac/policy");
+}
+
+export function getHRDashboard<T = HRDashboardResponse>(
+  timeframe = "current_month",
+) {
   return getJSON<T>("/api/v1/staff/hr/dashboard", { timeframe });
 }
 
@@ -155,15 +219,20 @@ export function updateStaffProfile<T = unknown>(
   identifier: string | number,
   payload: Partial<CreateStaffPayload> & { is_active?: boolean },
 ) {
-  return putJSON<T>(`/api/v1/staff/${encodeURIComponent(String(identifier))}`, payload);
+  return putJSON<T>(
+    `/api/v1/staff/${encodeURIComponent(String(identifier))}`,
+    payload,
+  );
 }
 
 export function bulkShiftAssignment<T = unknown>(
-  assignments: ShiftAssignment[]
+  assignments: ShiftAssignment[],
 ) {
   const normalized = assignments.map((assignment) => ({
     staff_id: assignment.staff_id ?? assignment.staffId,
     shift: assignment.shift.toUpperCase(),
   }));
-  return postJSON<T>("/api/v1/staff/admin/bulk/shift-assignment", { assignments: normalized });
+  return postJSON<T>("/api/v1/staff/admin/bulk/shift-assignment", {
+    assignments: normalized,
+  });
 }
