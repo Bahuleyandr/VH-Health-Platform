@@ -91,13 +91,14 @@ jobs:
       - name: Smoke shared Dart OpenAPI client generation in temp workspace
         run: |
           tmp="$(mktemp -d)"
-          rsync -a \
-            --exclude .git \
-            --exclude apps/backend/node_modules \
-            --exclude apps/admin/node_modules \
-            --exclude '**/.dart_tool' \
-            --exclude '**/build' \
-            ./ "$tmp/repo/"
+          mkdir -p "$tmp/repo"
+          tar \
+            --exclude='./.git' \
+            --exclude='./apps/backend/node_modules' \
+            --exclude='./apps/admin/node_modules' \
+            --exclude='*/.dart_tool' \
+            --exclude='*/build' \
+            -cf - . | tar -xf - -C "$tmp/repo"
           cd "$tmp/repo"
           dart pub get
           dart run melos bootstrap
