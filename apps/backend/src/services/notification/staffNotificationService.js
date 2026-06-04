@@ -207,8 +207,8 @@ export async function sendStaffNotifications({
             COALESCE(rp.phone, NULLIF(TRIM(u.phone), ''), 'unknown'),
             $2,
             $3,
-            $4,
-            $5,
+            $4::varchar,
+            $5::varchar,
             $6::jsonb,
             false,
             NOW(),
@@ -227,7 +227,7 @@ export async function sendStaffNotifications({
               FROM notifications n
              WHERE n.tenant_id = $1::uuid
                AND n.user_id = u.id
-            AND n.type = $4
+            AND n.type = $4::varchar
             AND n.related_id = $7::int
           )
         )

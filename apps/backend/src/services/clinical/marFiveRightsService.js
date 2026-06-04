@@ -43,7 +43,15 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, medication_name, dose, dosage, route,
-            scheduled_time, status
+            scheduled_time, status,
+            CASE
+              WHEN scheduled_time IS NULL THEN NULL
+              ELSE ROUND(
+                EXTRACT(EPOCH FROM (
+                  (CURRENT_TIMESTAMP AT TIME ZONE current_setting('TimeZone')) - scheduled_time
+                )) / 60
+              )::int
+            END AS minutes_from_scheduled
        FROM medication_administrations
       WHERE id = $1`,
     ma_id,
@@ -69,8 +77,7 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
   let rightTime = true;
   let minutesFromScheduled = null;
   if (ma.scheduled_time) {
-    const deltaMs = Date.now() - new Date(ma.scheduled_time).getTime();
-    minutesFromScheduled = Math.round(deltaMs / 60_000);
+    minutesFromScheduled = Number(ma.minutes_from_scheduled ?? 0);
     rightTime = Math.abs(minutesFromScheduled) <= windowMinutes;
   }
 

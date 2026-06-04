@@ -620,8 +620,8 @@ export async function createPostopNote({
          $10::jsonb, $11, $12,
          $13, $14, $15,
          $16, $17::jsonb, $18::jsonb,
-         $19, $20, $21, $22::uuid,
-         CASE WHEN $21 = 'finalized' THEN NOW() ELSE NULL END,
+         $19, $20, $21::varchar, $22::uuid,
+         CASE WHEN $21::varchar = 'finalized' THEN NOW() ELSE NULL END,
          $23, $24::jsonb)
        RETURNING ${POSTOP_RETURNING}`,
       tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
@@ -786,8 +786,8 @@ export async function upsertAnesthesiaRecord({
          $10, $11, $12, $13::jsonb,
          $14, $15::jsonb, $16, $17,
          $18::jsonb, $19, $20, $21, $22,
-         $23, $24::uuid,
-         CASE WHEN $23 = 'finalized' THEN NOW() ELSE NULL END,
+         $23::varchar, $24::uuid,
+         CASE WHEN $23::varchar = 'finalized' THEN NOW() ELSE NULL END,
          $25, $26::jsonb)
        ON CONFLICT (tenant_id, ot_schedule_id) DO UPDATE SET
          patient_uid = EXCLUDED.patient_uid,

@@ -26,6 +26,7 @@ type UseWebSocketOptions<T = unknown> = {
 };
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
+type WebSocketSendData = string | Blob | BufferSource;
 
 function hasStringMessage(x: unknown): x is { message: string } {
   return (
@@ -58,7 +59,7 @@ export function useWebSocket<T = unknown>(
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const messageQueueRef = useRef<Array<string | ArrayBufferLike | Blob | ArrayBufferView>>([]);
+  const messageQueueRef = useRef<WebSocketSendData[]>([]);
   const isManualCloseRef = useRef(false);
 
   // Keep callback options in refs so the main effect's deps stay simple
@@ -257,7 +258,7 @@ export function useWebSocket<T = unknown>(
     processMessageQueue,
   ]);
 
-  const send = useCallback((data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
+  const send = useCallback((data: WebSocketSendData) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       try {
         wsRef.current.send(data);

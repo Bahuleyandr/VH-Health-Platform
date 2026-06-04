@@ -86,13 +86,13 @@ function recordTenantOverride({ actorUid, originalTenant, targetTenant, reason, 
     try {
       await prisma.$executeRawUnsafe(
         `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, created_at)
-         VALUES ($1::uuid, 'TENANT_OVERRIDE_USED', 'tenants', $2,
+         VALUES ($1::uuid, 'TENANT_OVERRIDE_USED', 'tenants', $2::text,
                  jsonb_build_object(
-                   'original_tenant_id', $3,
-                   'target_tenant_id', $2,
-                   'reason', $4,
-                   'request_id', $5,
-                   'ip', $6
+                   'original_tenant_id', $3::text,
+                   'target_tenant_id', $2::text,
+                   'reason', $4::text,
+                   'request_id', $5::text,
+                   'ip', $6::text
                  ),
                  NOW())`,
         actorUid,

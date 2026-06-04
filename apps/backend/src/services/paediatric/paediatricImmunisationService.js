@@ -50,7 +50,7 @@ async function latestSignedUpToDateReview({ patientUid, tenantId }) {
         AND note_type = 'immunisation_review'
         AND COALESCE(is_signed, false) = true
         AND COALESCE(content->>'status', '') = 'up_to_date'
-        AND (tenant_id = $2::uuid OR content->>'tenant_id' = $2)
+        AND (tenant_id = $2::uuid OR content->>'tenant_id' = $2::text)
       ORDER BY COALESCE(signed_at, created_at) DESC, created_at DESC
       LIMIT 1`,
     patientUid, tid,

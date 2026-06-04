@@ -7,8 +7,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, '..');
 const jestBin = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js');
-const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 45);
+const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 8);
 const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 3072);
+const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);
+const endChunk = process.env.JEST_CI_END_CHUNK
+  ? Number(process.env.JEST_CI_END_CHUNK)
+  : null;
 const passthroughArgs = process.argv.slice(2);
 const maxBuffer = 64 * 1024 * 1024;
 
@@ -24,6 +28,16 @@ if (!Number.isInteger(chunkSize) || chunkSize < 1) {
 
 if (!Number.isInteger(oldSpaceMb) || oldSpaceMb < 512) {
   console.error(`JEST_OLD_SPACE_MB must be an integer >= 512; received ${process.env.JEST_OLD_SPACE_MB}`);
+  process.exit(1);
+}
+
+if (!Number.isInteger(startChunk) || startChunk < 1) {
+  console.error(`JEST_CI_START_CHUNK must be a positive integer; received ${process.env.JEST_CI_START_CHUNK}`);
+  process.exit(1);
+}
+
+if (endChunk !== null && (!Number.isInteger(endChunk) || endChunk < startChunk)) {
+  console.error(`JEST_CI_END_CHUNK must be an integer >= JEST_CI_START_CHUNK; received ${process.env.JEST_CI_END_CHUNK}`);
   process.exit(1);
 }
 
@@ -63,12 +77,23 @@ if (testFiles.length === 0) {
 }
 
 const chunkCount = Math.ceil(testFiles.length / chunkSize);
+const firstIndex = (startChunk - 1) * chunkSize;
+const lastIndexExclusive = endChunk === null
+  ? testFiles.length
+  : Math.min(endChunk * chunkSize, testFiles.length);
+if (firstIndex >= testFiles.length) {
+  console.error(`JEST_CI_START_CHUNK ${startChunk} is beyond discovered chunk count ${chunkCount}.`);
+  process.exit(1);
+}
 console.log(
   `Running ${testFiles.length} Jest files in ${chunkCount} chunk(s) ` +
   `of up to ${chunkSize} with ${oldSpaceMb} MB old-space each.`
 );
+if (startChunk > 1 || endChunk !== null) {
+  console.log(`Running chunk window ${startChunk}-${endChunk ?? chunkCount} for local triage.`);
+}
 
-for (let index = 0; index < testFiles.length; index += chunkSize) {
+for (let index = firstIndex; index < lastIndexExclusive; index += chunkSize) {
   const chunkNumber = Math.floor(index / chunkSize) + 1;
   const chunk = testFiles.slice(index, index + chunkSize);
   console.log(`\n[Jest CI] Chunk ${chunkNumber}/${chunkCount}: ${chunk.length} file(s)`);

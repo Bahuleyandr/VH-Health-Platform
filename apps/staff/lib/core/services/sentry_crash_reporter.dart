@@ -72,7 +72,10 @@ class SentryCrashReporter implements CrashReporter {
     return _scrubEvent(event);
   }
 
-  static SentryTransaction? scrubTransaction(SentryTransaction transaction) {
+  static SentryTransaction? scrubTransaction(
+    SentryTransaction transaction,
+    Hint hint,
+  ) {
     return _scrubTransaction(transaction);
   }
 

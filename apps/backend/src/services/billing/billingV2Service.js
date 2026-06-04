@@ -1500,7 +1500,9 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   if (!admission) throw AppError.notFound('Admission not found');
 
   const startTs = admission.admitted_at || admission.created_at;
-  const endTs = admission.discharged_at || new Date();
+  const endTs = admission.discharged_at || null;
+  const startDate = new Date(startTs).toISOString().slice(0, 10);
+  const endDate = endTs ? new Date(endTs).toISOString().slice(0, 10) : null;
   const existingKeys = await fetchExistingSourceKeys(invId);
 
   const summary = {
@@ -1582,7 +1584,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
           AND uid = $1::uuid
           AND status = 'DELIVERED'
           AND dispensed_at >= $2::timestamptz
-          AND dispensed_at <= $3::timestamptz
+          AND dispensed_at <= COALESCE($3::timestamptz, NOW())
         ORDER BY dispensed_at`,
       String(admission.patient_uid),
       startTs, endTs,
@@ -1629,7 +1631,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
          LEFT JOIN pharmacy_catalog pc ON pc.id = wii.pharmacy_catalog_id
         WHERE wi.status IN ('issued', 'received')
           AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) >= $2::timestamptz
-          AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) <= $3::timestamptz
+          AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) <= COALESCE($3::timestamptz, NOW())
           AND (
             wi.admission_id = $1::int
             OR (
@@ -1670,7 +1672,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         WHERE patient_uid = $1::uuid
           AND status = 'COMPLETED'
           AND COALESCE(completed_at, requested_at) >= $2::timestamptz
-          AND COALESCE(completed_at, requested_at) <= $3::timestamptz
+          AND COALESCE(completed_at, requested_at) <= COALESCE($3::timestamptz, NOW())
         ORDER BY completed_at NULLS LAST, id`,
       String(admission.patient_uid),
       startTs, endTs,
@@ -1729,11 +1731,11 @@ export async function itemizeAdmissionInvoice(invoiceId, {
         WHERE patient_uid = $1::uuid
           AND status = 'completed'
           AND scheduled_date >= $2::date
-          AND scheduled_date <= $3::date
+          AND scheduled_date <= COALESCE($3::date, CURRENT_DATE)
         ORDER BY scheduled_date, id`,
       String(admission.patient_uid),
-      new Date(startTs).toISOString().slice(0, 10),
-      new Date(endTs).toISOString().slice(0, 10),
+      startDate,
+      endDate,
     );
     for (const cs of cases) {
       const created = await addLine({

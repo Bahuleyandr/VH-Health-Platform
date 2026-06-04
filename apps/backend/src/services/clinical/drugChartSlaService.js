@@ -345,7 +345,7 @@ async function insertDrugChartNotifications({
             u.phone,
             $2,
             $3,
-            $4,
+            $4::varchar,
             'HIGH',
             $5::jsonb,
             false,
@@ -362,7 +362,7 @@ async function insertDrugChartNotifications({
           SELECT 1
             FROM notifications n
            WHERE n.user_id = u.id
-             AND n.type = $4
+             AND n.type = $4::varchar
              AND n.related_id = $1::int
         )
       RETURNING id, user_id`,

@@ -52,7 +52,7 @@ describe('User dependents — deep integration', () => {
     ];
     for (const uid of allUids) {
       await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1`, uid,
+        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1::text`, uid,
       );
     }
     // Reset any prior guardian_user_id pointers before we delete the row
@@ -122,7 +122,7 @@ describe('User dependents — deep integration', () => {
     ];
     for (const uid of allUids) {
       await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1`, uid,
+        `DELETE FROM audit_logs WHERE uid = $1::uuid OR resource_id = $1::text`, uid,
       );
     }
     await prisma.$executeRawUnsafe(

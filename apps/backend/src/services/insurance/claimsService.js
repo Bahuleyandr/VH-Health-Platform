@@ -832,12 +832,12 @@ export async function recordPreauthResponse({
 
   await prisma.$executeRawUnsafe(
     `UPDATE insurance_preauth
-        SET status = $1,
+        SET status = $1::varchar,
             sanctioned_amount = COALESCE($2::numeric, sanctioned_amount),
-            sanctioned_at = CASE WHEN $1 IN ('approved','partially_approved') THEN NOW() ELSE sanctioned_at END,
+            sanctioned_at = CASE WHEN $1::varchar IN ('approved','partially_approved') THEN NOW() ELSE sanctioned_at END,
             validity_until = COALESCE($3::timestamptz, validity_until),
-            query_text = CASE WHEN $1 = 'queried' THEN $4 ELSE query_text END,
-            denial_reason = CASE WHEN $1 = 'denied' THEN $5 ELSE denial_reason END,
+            query_text = CASE WHEN $1::varchar = 'queried' THEN $4::text ELSE query_text END,
+            denial_reason = CASE WHEN $1::varchar = 'denied' THEN $5::text ELSE denial_reason END,
             updated_at = NOW()
       WHERE id = $6::int`,
     newStatus,
@@ -1842,9 +1842,9 @@ export async function recordClaimDecision({
 
   await prisma.$executeRawUnsafe(
     `UPDATE tpa_claims
-        SET status = $1,
+        SET status = $1::varchar,
             approved_amount = COALESCE($2::numeric, approved_amount),
-            denial_reason = CASE WHEN $1 = 'denied' THEN $3 ELSE denial_reason END,
+            denial_reason = CASE WHEN $1::varchar = 'denied' THEN $3::text ELSE denial_reason END,
             updated_at = NOW()
       WHERE id = $4::int`,
     decision,

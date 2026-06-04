@@ -1407,13 +1407,13 @@ export async function decideApproval(approvalId, decision, actorUid, reason = nu
 
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE clinical_ai_approvals
-     SET status = $2,
-         approved_by = CASE WHEN $2 = 'approved' THEN $3::uuid ELSE approved_by END,
-         rejected_by = CASE WHEN $2 = 'rejected' THEN $3::uuid ELSE rejected_by END,
-         reason = COALESCE($4, reason),
+     SET status = $2::text,
+         approved_by = CASE WHEN $2::text = 'approved' THEN $3::uuid ELSE approved_by END,
+         rejected_by = CASE WHEN $2::text = 'rejected' THEN $3::uuid ELSE rejected_by END,
+         reason = COALESCE($4::text, reason),
          decided_at = NOW(),
          updated_at = NOW()
-     WHERE id = $1
+     WHERE id = $1::int
        AND tenant_id = $5::uuid
      RETURNING id, approval_type, module_key, status, requested_by, approved_by,
                rejected_by, reason, payload, expires_at, decided_at, created_at`,

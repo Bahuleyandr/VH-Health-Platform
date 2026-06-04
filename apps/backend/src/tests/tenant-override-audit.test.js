@@ -39,6 +39,14 @@ async function cleanup() {
     SUPER_ADMIN_UID, DOCTOR_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM hipaa_access_log
+      WHERE tenant_id = $1::uuid
+         OR actor_uid IN ($2::uuid, $3::uuid)
+         OR subject_uid IN ($2::uuid, $3::uuid)
+         OR accessed_by IN ($2::uuid, $3::uuid)`,
+    TENANT_B, SUPER_ADMIN_UID, DOCTOR_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
     SUPER_ADMIN_UID, DOCTOR_UID,
   ).catch(() => {});

@@ -20,17 +20,17 @@ dependencies:
   vhhealth_core: any
   http: ^1.4.0
   http_parser: ^4.1.2
-  flutter_secure_storage: ^10.0.0
-  go_router: ^17.2.2
+  flutter_secure_storage: ^10.3.1
+  go_router: ^17.3.0
   provider: ^6.1.0
   shared_preferences: ^2.3.2
   lucide_icons: ^0.257.0
   intl: ^0.20.2
   local_auth: ^3.0.1
   # Aligned with patient app to allow a unified Melos/pub workspace.
-  firebase_core: ^4.0.0
-  firebase_messaging: ^16.0.0
-  firebase_crashlytics: ^5.0.0
+  firebase_core: ^4.10.0
+  firebase_messaging: ^16.3.0
+  firebase_crashlytics: ^5.2.3
   flutter_local_notifications: ^21.0.0
   mobile_scanner: ^7.2.0
   geolocator: ^14.0.0
@@ -47,14 +47,14 @@ dependencies:
   # Factory not initialized" on every desktop launch and the
   # connectivity sync silently breaks. main.dart wires it via
   # databaseFactory = databaseFactoryFfi on the desktop platforms.
-  sqflite_common_ffi: ^2.3.4
+  sqflite_common_ffi: ^2.4.0+3
   connectivity_plus: ^7.1.1
   path: ^1.9.0
   # Voice dictation on notes textareas. `record` works on Android/iOS/
   # macOS/Windows/Linux; `path_provider` is needed to drop the recorded
   # WAV into a temp dir before upload. Wired through
   # `lib/core/widgets/voice_dictate_button.dart`.
-  record: ^6.0.0
+  record: ^6.2.1
   path_provider: ^2.1.5
   # PDF generation + system print dialog. Used by the bed-board's
   # printer button to render a clean A4 occupancy sheet (still common
@@ -62,7 +62,7 @@ dependencies:
   # document; `printing` shows the platform print dialog.
   printing: ^5.13.0
   pdf: ^3.11.0
-  sentry_flutter: ^8.14.2
+  sentry_flutter: ^9.21.0
 
 dev_dependencies:
   flutter_test:

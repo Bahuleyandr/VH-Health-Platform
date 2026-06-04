@@ -156,6 +156,30 @@ describe('src/lib/prisma.js hardening', () => {
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
 
+    it('ignores Prisma 7 driver adapter SQLSTATE metadata', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const schemaErr = Object.assign(new Error('relation "clinical_ai_runs" does not exist'), {
+        meta: {
+          driverAdapterError: {
+            cause: {
+              originalCode: '42P01',
+              originalMessage: 'relation "clinical_ai_runs" does not exist',
+            },
+          },
+        },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(schemaErr));
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(prisma.$queryRawUnsafe('SELECT 1 FROM clinical_ai_runs')).rejects.toBe(schemaErr);
+      }
+
+      expect(prismaModule.circuitBreakerStatus().open).toBe(false);
+      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
+    });
+
     it('mixed ignored and infra failures: only infra failures count', async () => {
       const prisma = prismaModule.default;
       const primaryStub = await getPrimaryStub(prismaModule);

@@ -36,6 +36,7 @@
 //   await setTenant(null, (tx) => tx.$queryRaw`...`, { superAdmin: true });
 
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { isTenantRlsEnforcementEnabled } from '../config/tenantRlsConfig.js';
 import logger from '../logging/logger.js';
 import { getCurrentTenantContext, runInTenantContext } from './tenantContext.js';
@@ -107,11 +108,14 @@ const BREAKER_IGNORED_PG_ERROR_CODES = new Set([
  * circuit breaker should ignore (re-thrown to the caller, but not counted
  * as a failure). Pulls the SQLSTATE from the two places Prisma surfaces it:
  *   - PrismaClientKnownRequestError → err.meta.code (e.g. '42P01')
+ *   - Prisma 7 driver adapter       → err.meta.driverAdapterError.cause.originalCode
  *   - Wrapped-error fallback        → err.code (raw pg error)
  */
 function isIgnoredBreakerError(err) {
   if (!err || typeof err !== 'object') return false;
-  const code = err?.meta?.code || err?.code;
+  const code = err?.meta?.code ||
+    err?.meta?.driverAdapterError?.cause?.originalCode ||
+    err?.code;
   return typeof code === 'string' && BREAKER_IGNORED_PG_ERROR_CODES.has(code);
 }
 
@@ -120,8 +124,12 @@ let circuitOpen = false;
 let circuitOpenedAt = null;
 
 function makeClient(url, tag) {
+  if (!url) {
+    throw new Error(`DATABASE_URL is required to create Prisma[${tag}] client`);
+  }
+  const adapter = new PrismaPg({ connectionString: url });
   const client = new PrismaClient({
-    datasources: { db: { url } },
+    adapter,
     log: [
       { level: 'warn', emit: 'event' },
       { level: 'error', emit: 'event' },

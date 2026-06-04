@@ -62,7 +62,7 @@ describe('Acting-as delegation — deep integration', () => {
         uid,
       );
       await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1`,
+        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1::text`,
         uid,
       );
     }
@@ -163,7 +163,7 @@ describe('Acting-as delegation — deep integration', () => {
         uid,
       );
       await prisma.$executeRawUnsafe(
-        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1`,
+        `DELETE FROM audit_logs WHERE uid = $1::uuid OR actor_uid = $1::uuid OR subject_uid = $1::uuid OR resource_id = $1::text`,
         uid,
       );
     }
