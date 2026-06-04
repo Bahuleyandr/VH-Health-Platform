@@ -19,6 +19,7 @@ param(
   [string]$InstallDir = "D:\Dev\Tools\VH Health Staff",
   [switch]$SkipBuild,
   [switch]$SkipAnalyze,
+  [switch]$SkipApiKeyPreflight,
   [switch]$NoLaunch,
   [switch]$CreateShortcuts,
   [switch]$NoDesktopShortcut,
@@ -65,6 +66,81 @@ if ([string]::IsNullOrWhiteSpace($SentryEnvironment)) {
 }
 if ([string]::IsNullOrWhiteSpace($SentryRelease)) {
   $SentryRelease = $env:SENTRY_RELEASE
+}
+
+function Test-RemoteApiKeyPreflight {
+  param(
+    [Parameter(Mandatory = $true)][string]$BaseUrl,
+    [Parameter(Mandatory = $true)][string]$ApiKey
+  )
+
+  if ($BaseUrl -match '^https?://(127\.0\.0\.1|localhost)(:\d+)?/') {
+    return
+  }
+
+  $preflightUrl = "$($BaseUrl.TrimEnd('/'))/departments"
+  $statusCode = $null
+  $body = ''
+
+  try {
+    $requestArgs = @{
+      Uri = $preflightUrl
+      Headers = @{ 'x-api-key' = $ApiKey }
+      UseBasicParsing = $true
+      TimeoutSec = 20
+      ErrorAction = 'Stop'
+    }
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+      $requestArgs['SkipHttpErrorCheck'] = $true
+    }
+
+    $response = Invoke-WebRequest @requestArgs
+    $statusCode = [int]$response.StatusCode
+    $body = [string]$response.Content
+  } catch {
+    $response = $_.Exception.Response
+    if (-not $response) {
+      throw "Remote API key preflight failed before build: $($_.Exception.Message)"
+    }
+
+    $statusCode = [int]$response.StatusCode
+    if ($response.PSObject.TypeNames -contains 'System.Net.Http.HttpResponseMessage') {
+      $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    } elseif ($response.GetResponseStream) {
+      $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+      try {
+        $body = $reader.ReadToEnd()
+      } finally {
+        $reader.Dispose()
+      }
+    } elseif ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+      $body = $_.ErrorDetails.Message
+    }
+  }
+
+  if ($body -match 'Invalid API Key') {
+    throw "Remote API key preflight failed for ${BaseUrl}: backend rejected the supplied key as Invalid API Key. Use the live deployment secret before rebuilding Staff."
+  }
+
+  if ($body -match 'Missing API Key') {
+    throw "Remote API key preflight failed for ${BaseUrl}: no API key reached the backend."
+  }
+
+  if ($statusCode -eq 401 -and $body -match 'Authorization header missing or invalid') {
+    Write-Host "Remote API key preflight passed for $BaseUrl (API key accepted; JWT required)."
+    return
+  }
+
+  if ($statusCode -ge 200 -and $statusCode -lt 500) {
+    Write-Host "Remote API key preflight passed for $BaseUrl (HTTP $statusCode)."
+    return
+  }
+
+  throw "Remote API key preflight failed for $BaseUrl with HTTP $statusCode."
+}
+
+if (-not $SkipApiKeyPreflight.IsPresent) {
+  Test-RemoteApiKeyPreflight -BaseUrl $BaseUrl -ApiKey $ApiKey
 }
 
 $flutterCommand = Resolve-DevTool `
