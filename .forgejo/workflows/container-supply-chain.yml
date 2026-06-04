@@ -1,0 +1,135 @@
+name: Container Supply Chain
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'apps/admin/**'
+      - 'apps/staff/**'
+      - 'packages/vhhealth_core/**'
+      - 'pubspec.*'
+      - '.forgejo/workflows/container-supply-chain.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'apps/admin/**'
+      - 'apps/staff/**'
+      - 'packages/vhhealth_core/**'
+      - 'pubspec.*'
+      - '.forgejo/workflows/container-supply-chain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: ${{ matrix.app }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: backend
+            image: vhhealth-backend
+            context: apps/backend
+            dockerfile: apps/backend/Dockerfile
+            build_args: ''
+          - app: admin
+            image: vhhealth-admin
+            context: apps/admin
+            dockerfile: apps/admin/Dockerfile
+            build_args: '--build-arg NEXT_PUBLIC_API_URL=https://api.vhhealth.app --build-arg NEXT_PUBLIC_APP_NAME=VHHealthAdmin --build-arg NEXT_PUBLIC_ALLOWED_ORIGIN=https://admin.vhhealth.app --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=ci --build-arg NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }} --build-arg SENTRY_UPLOAD_SOURCE_MAPS=false'
+          - app: staff-web
+            image: vhhealth-staff-web
+            context: .
+            dockerfile: apps/staff/Dockerfile.web
+            build_args: '--build-arg VH_BASE_URL=https://api.vhhealth.app/api/v1 --build-arg APP_NAME=VHHealthStaff --build-arg SENTRY_ENVIRONMENT=ci --build-arg SENTRY_RELEASE=${{ github.sha }}'
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare output
+        run: mkdir -p output/container/${{ matrix.app }}
+
+      - name: Build image
+        run: >
+          docker build
+          --pull
+          -t local/${{ matrix.image }}:${{ github.sha }}
+          -f ${{ matrix.dockerfile }}
+          ${{ matrix.build_args }}
+          ${{ matrix.context }}
+
+      - name: Record local image metadata
+        run: |
+          docker image inspect local/${{ matrix.image }}:${{ github.sha }} \
+            > output/container/${{ matrix.app }}/image-inspect.json
+
+      - name: Generate SBOM
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/output/container/${{ matrix.app }}:/out" \
+            anchore/syft:latest \
+            docker:local/${{ matrix.image }}:${{ github.sha }} \
+            -o spdx-json=/out/sbom.spdx.json
+
+      - name: Trivy image scan
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/output/container/${{ matrix.app }}:/out" \
+            aquasec/trivy:0.70.0 image \
+            --scanners vuln,secret,config \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --format sarif \
+            --output /out/trivy-image.sarif \
+            local/${{ matrix.image }}:${{ github.sha }}
+
+      - name: Optional registry push and cosign signature
+        env:
+          CONTAINER_REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
+          CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+          CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          summary="output/container/${{ matrix.app }}/signing-summary.txt"
+          if [ -z "${CONTAINER_REGISTRY:-}" ] || [ -z "${CONTAINER_REGISTRY_USERNAME:-}" ] || [ -z "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
+            echo "Registry secrets are not configured; kept build local and skipped signing." | tee "$summary"
+            exit 0
+          fi
+          target="${CONTAINER_REGISTRY%/}/${{ matrix.image }}:${{ github.sha }}"
+          printf '%s' "$CONTAINER_REGISTRY_PASSWORD" | docker login "$CONTAINER_REGISTRY" -u "$CONTAINER_REGISTRY_USERNAME" --password-stdin
+          docker tag local/${{ matrix.image }}:${{ github.sha }} "$target"
+          docker push "$target"
+          if [ -z "${COSIGN_PRIVATE_KEY:-}" ] || [ -z "${COSIGN_PASSWORD:-}" ]; then
+            echo "Image pushed to $target; cosign key secrets are not configured, signing skipped." | tee "$summary"
+            exit 0
+          fi
+          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /tmp/cosign
+          chmod +x /tmp/cosign
+          /tmp/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$target"
+          echo "Image pushed and signed: $target" | tee "$summary"
+
+      - name: Upload image reports
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: container-${{ matrix.app }}
+          path: output/container/${{ matrix.app }}
+          if-no-files-found: ignore
+

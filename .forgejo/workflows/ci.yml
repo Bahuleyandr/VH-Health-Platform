@@ -34,10 +34,20 @@ env:
   STAFF_WEB_SENTRY_DSN: ${{ secrets.SENTRY_DSN_STAFF }}
 
 jobs:
-  ci:
-    name: Repo-owned CI runner
+  stage:
+    name: ${{ matrix.stage }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        stage:
+          - security
+          - backend
+          - fhir
+          - admin
+          - flutter
+          - infra
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
         with:
@@ -62,9 +72,13 @@ jobs:
             apps/admin/package-lock.json
 
       - uses: https://github.com/subosito/flutter-action@v2
+        if: matrix.stage == 'flutter'
         with:
           channel: stable
           cache: true
 
-      - name: Run canonical CI
-        run: node scripts/ci/run.mjs --install --changed-on-branch-push
+      - name: Run ${{ matrix.stage }} CI stage
+        env:
+          JEST_CI_CHUNK_SIZE: '30'
+          JEST_OLD_SPACE_MB: '4096'
+        run: node scripts/ci/run.mjs --install --only=${{ matrix.stage }}

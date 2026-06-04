@@ -1,0 +1,96 @@
+name: Security Sweep
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '15 2 * * 2'
+      timezone: Asia/Kolkata
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Secrets, dependencies, Semgrep, Trivy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VH_CI_CACHE_DIR: /cache/vh-health-platform
+      GITLEAKS_CACHE_DIR: /cache/vh-health-platform/gitleaks
+      npm_config_cache: /cache/vh-health-platform/npm
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/admin/package-lock.json
+
+      - name: Run blocking repo-owned secret checks
+        run: node scripts/ci/run.mjs --install --only=security
+
+      - name: npm audit backend/admin
+        run: |
+          npm --prefix apps/backend audit --audit-level=high
+          npm --prefix apps/admin audit --audit-level=high
+
+      - name: Prepare security output
+        run: mkdir -p output/security
+
+      - name: OSV lockfile scan
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            ghcr.io/google/osv-scanner:latest \
+            --lockfile=/src/apps/backend/package-lock.json \
+            --lockfile=/src/apps/admin/package-lock.json \
+            --lockfile=/src/pubspec.lock \
+            --format=json \
+            --output=/src/output/security/osv-lockfiles.json
+
+      - name: Semgrep healthcare/web baseline
+        continue-on-error: true
+        run: |
+          python -m pip install --user semgrep
+          "$HOME/.local/bin/semgrep" scan \
+            --config p/owasp-top-ten \
+            --config p/secrets \
+            --config p/javascript \
+            --config p/typescript \
+            --sarif \
+            --output output/security/semgrep.sarif
+
+      - name: Trivy filesystem scan
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            aquasec/trivy:0.70.0 fs \
+            --scanners vuln,secret,config \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --format sarif \
+            --output /work/output/security/trivy-fs.sarif \
+            /work
+
+      - name: Upload security reports
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: security-sweep
+          path: output/security
+          if-no-files-found: ignore

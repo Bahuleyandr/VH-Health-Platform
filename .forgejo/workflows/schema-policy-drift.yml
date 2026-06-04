@@ -1,0 +1,110 @@
+name: Schema and Policy Drift
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'apps/admin/src/**'
+      - 'apps/staff/lib/**'
+      - 'scripts/**'
+      - '.forgejo/workflows/schema-policy-drift.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'apps/admin/src/**'
+      - 'apps/staff/lib/**'
+      - 'scripts/**'
+      - '.forgejo/workflows/schema-policy-drift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-policy-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-schema-policy:
+    name: DB schema + role policy graph
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vhhealth
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: vhhealth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vhhealth"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@127.0.0.1:5432/vhhealth
+      API_KEY: vhhealth-local-api-key
+      BACKEND_API_KEY: vhhealth-local-api-key
+      JWT_SECRET: vhhealth-local-admin-smoke-secret-123456789
+      FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
+      BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
+      REQUIRE_MFA_FOR_SUPER_ADMIN: 'false'
+      VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+      NODE_ENV: test
+
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install backend dependencies
+        working-directory: apps/backend
+        run: npm ci
+
+      - name: Apply migrations and schema guardrails
+        working-directory: apps/backend
+        run: |
+          npx prisma generate
+          npm run db:ensure-pgvector
+          node scripts/ci-setup-db.mjs
+          node scripts/check-schema-drift.mjs
+          node scripts/ci-schema-drift.mjs
+          node scripts/scan-code-drift.mjs
+          npm run check:phi-tenant-id
+
+      - name: Role policy drift guard tests
+        working-directory: apps/backend
+        run: >
+          npm run test:suite --
+          src/tests/unit/rolePolicyGraph.test.js
+          src/tests/unit/organizationHierarchyService.test.js
+          src/tests/unit/roleRegistryEndpoint.test.js
+          src/tests/unit/staffAccessDecisionService.test.js
+          src/tests/unit/patientAccessGuard.test.js
+
+      - name: Emit policy version/hash
+        run: |
+          node --input-type=module - <<'NODE'
+          import { getRolePolicyHash, getRolePolicyVersion } from './apps/backend/src/config/rolePolicyGraph.js';
+          console.log(`policy_version=${getRolePolicyVersion()}`);
+          console.log(`policy_hash=${getRolePolicyHash()}`);
+          NODE
+

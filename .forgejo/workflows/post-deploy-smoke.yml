@@ -1,0 +1,47 @@
+name: Post Deploy Smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-deploy-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: API/admin/Sentry smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VH_TRIAL_API_ORIGIN: ${{ secrets.VH_TRIAL_API_ORIGIN }}
+      VH_TRIAL_ADMIN_ORIGIN: ${{ secrets.VH_TRIAL_ADMIN_ORIGIN }}
+      VH_REQUIRE_VERSION_MATCH: ${{ secrets.VH_REQUIRE_VERSION_MATCH }}
+      SENTRY_DSN_BACKEND: ${{ secrets.SENTRY_DSN_BACKEND }}
+      SENTRY_DSN_ADMIN: ${{ secrets.SENTRY_DSN_ADMIN }}
+      SENTRY_DSN_STAFF: ${{ secrets.SENTRY_DSN_STAFF }}
+      SENTRY_SMOKE_REQUIRED: ${{ secrets.SENTRY_SMOKE_REQUIRED }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run post-deploy smoke
+        run: node scripts/ci/post-deploy-smoke.mjs
+
+      - name: Upload post-deploy smoke report
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: post-deploy-smoke
+          path: output/post-deploy-smoke
+          if-no-files-found: ignore
+
