@@ -16,57 +16,136 @@ import * as salaryRevisionController from '../../controllers/staff/salaryRevisio
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { staffAccessGuard } from '../../middleware/staffAccessMiddleware.js';
+import { STAFF_ACCESS_POLICY_CODES } from '../../services/security/staffAccessDecisionService.js';
 
 const router = express.Router();
 const reportReviewRoles = requireRole('HR_STAFF', 'ADMIN', 'SUPER_ADMIN');
+const guardStaffReportView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_REPORT_VIEW, {
+  allowNoTarget: true,
+});
+const guardDirectoryView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_DIRECTORY_VIEW, {
+  allowNoTarget: true,
+});
+const guardProfileWriteCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROFILE_WRITE, {
+  allowNoTarget: true,
+});
+const guardProfileWriteByStaffId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROFILE_WRITE, {
+  resourceType: 'staff_row',
+  resourceIdParam: 'staffId',
+  requireTarget: true,
+});
+const guardAttendanceViewCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_ATTENDANCE_VIEW, {
+  allowNoTarget: true,
+});
+const guardAttendanceWriteCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_ATTENDANCE_WRITE, {
+  allowNoTarget: true,
+});
+const guardAttendanceWriteByBodyStaffId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_ATTENDANCE_WRITE, {
+  targetSelector: (req) => req.body?.staff_id || req.body?.staffId,
+  requireTarget: true,
+});
+const guardAttendanceDisputeWrite = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_ATTENDANCE_WRITE, {
+  resourceType: 'attendance_dispute',
+  resourceIdParam: 'id',
+  requireTarget: true,
+});
+const guardLeaveViewCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_VIEW, {
+  allowNoTarget: true,
+});
+const guardLeaveWriteCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_WRITE, {
+  allowNoTarget: true,
+});
+const guardLeaveWriteByBodyStaffId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_WRITE, {
+  targetSelector: (req) => req.body?.staff_id || req.body?.staffId,
+  requireTarget: true,
+});
+const guardLeaveWriteByLeaveId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_WRITE, {
+  resourceType: 'leave_application',
+  resourceIdParam: 'leaveId',
+  requireTarget: true,
+});
+const guardPayrollViewCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_VIEW, {
+  allowNoTarget: true,
+});
+const guardPayrollWriteCollection = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_WRITE, {
+  allowNoTarget: true,
+});
+const guardPayrollViewByStaffUid = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_VIEW, {
+  targetParam: 'staffUid',
+  requireTarget: true,
+});
+const guardPayrollWriteByStaffUid = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_WRITE, {
+  targetParam: 'staffUid',
+  requireTarget: true,
+});
+const guardPayrollWriteByPayslipId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_WRITE, {
+  resourceType: 'payslip',
+  resourceIdParam: 'id',
+  requireTarget: true,
+});
+const guardPayrollWriteBySalaryRevisionId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_WRITE, {
+  resourceType: 'salary_revision',
+  resourceIdSelector: (req) => req.params?.revisionId || req.params?.id,
+  requireTarget: true,
+});
+const guardPayrollViewBySalaryRevisionId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_VIEW, {
+  resourceType: 'salary_revision',
+  resourceIdSelector: (req) => req.params?.revisionId || req.params?.id,
+  requireTarget: true,
+});
+const guardPayrollWriteByBodyStaffUid = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_WRITE, {
+  targetSelector: (req) => req.body?.staff_uid,
+  requireTarget: true,
+});
 
 wrapAutoRBAC(router, 'staffAdminRoutes', {
   get: [
     // Staff Admin Dashboard
-    ['/dashboard', staffAdminController.getStaffAdminDashboard],
+    ['/dashboard', guardStaffReportView, staffAdminController.getStaffAdminDashboard],
     
     // Analytics & Reports
-    ['/analytics/attendance', staffAdminController.getAttendanceAnalytics],
-    ['/analytics/performance', staffAdminController.getPerformanceAnalytics],
-    ['/analytics/department-wise', staffAdminController.getDepartmentAnalytics],
-    ['/analytics/leave-patterns', staffAdminController.getLeavePatterns],
+    ['/analytics/attendance', guardAttendanceViewCollection, staffAdminController.getAttendanceAnalytics],
+    ['/analytics/performance', guardStaffReportView, staffAdminController.getPerformanceAnalytics],
+    ['/analytics/department-wise', guardStaffReportView, staffAdminController.getDepartmentAnalytics],
+    ['/analytics/leave-patterns', guardLeaveViewCollection, staffAdminController.getLeavePatterns],
     
     // Attendance Management
-    ['/attendance/anomalies', staffAdminController.getAttendanceAnomalies],
-    ['/attendance/late-arrivals', staffAdminController.getLateArrivals],
-    ['/attendance/early-departures', staffAdminController.getEarlyDepartures],
-    ['/attendance/absent-report', staffAdminController.getAbsentReport],
-    ['/attendance/disputes/pending', attendanceController.getPendingDisputes],
-    ['/attendance/geofence-breaches', attendanceController.getGeofenceBreaches],
-    ['/attendance/bulk-template', bulkController.getBulkTemplate],
+    ['/attendance/anomalies', guardAttendanceViewCollection, staffAdminController.getAttendanceAnomalies],
+    ['/attendance/late-arrivals', guardAttendanceViewCollection, staffAdminController.getLateArrivals],
+    ['/attendance/early-departures', guardAttendanceViewCollection, staffAdminController.getEarlyDepartures],
+    ['/attendance/absent-report', guardAttendanceViewCollection, staffAdminController.getAbsentReport],
+    ['/attendance/disputes/pending', guardAttendanceViewCollection, attendanceController.getPendingDisputes],
+    ['/attendance/geofence-breaches', guardAttendanceViewCollection, attendanceController.getGeofenceBreaches],
+    ['/attendance/bulk-template', guardAttendanceWriteCollection, bulkController.getBulkTemplate],
     
     // HR Oversight
-    ['/hr/pending-reviews', staffAdminController.getPendingReviews],
-    ['/hr/leave-requests', staffAdminController.getAllLeaveRequests],
-    ['/hr/onboarding-status', staffAdminController.getOnboardingStatus],
-    ['/hierarchy', organizationHierarchyController.getOrganizationHierarchy],
+    ['/hr/pending-reviews', guardStaffReportView, staffAdminController.getPendingReviews],
+    ['/hr/leave-requests', guardLeaveViewCollection, staffAdminController.getAllLeaveRequests],
+    ['/hr/onboarding-status', guardStaffReportView, staffAdminController.getOnboardingStatus],
+    ['/hierarchy', guardStaffReportView, organizationHierarchyController.getOrganizationHierarchy],
 
     // Leave Approvals (portal-facing)
-    ['/leave/pending', staffAdminController.getAllLeaveRequests],
-    ['/replacement/pending-hr', replacementController.getPendingReplacements],
+    ['/leave/pending', guardLeaveViewCollection, staffAdminController.getAllLeaveRequests],
+    ['/replacement/pending-hr', guardLeaveViewCollection, replacementController.getPendingReplacements],
     
     // Shifts
     ['/shifts', shiftController.getAllShifts],
     ['/shifts/presets', shiftController.getAllShifts],  // same — presets returned first
 
     // Overtime
-    ['/overtime/pending', overtimeController.getPendingOvertimeRequests],
+    ['/overtime/pending', guardLeaveViewCollection, overtimeController.getPendingOvertimeRequests],
     
     // Staff Reports
-    ['/reports/efficiency', staffAdminController.getEfficiencyReport],
-    ['/reports/overtime', staffAdminController.getOvertimeReport],
-    ['/reports/turnover', staffAdminController.getTurnoverReport],
+    ['/reports/efficiency', guardStaffReportView, staffAdminController.getEfficiencyReport],
+    ['/reports/overtime', guardStaffReportView, staffAdminController.getOvertimeReport],
+    ['/reports/turnover', guardStaffReportView, staffAdminController.getTurnoverReport],
     
     // Search & Filter
-    ['/search', staffAdminController.advancedStaffSearch],
+    ['/search', guardDirectoryView, staffAdminController.advancedStaffSearch],
     
     // Export
-    ['/export/:type', staffAdminController.exportStaffData],
+    ['/export/:type', guardStaffReportView, staffAdminController.exportStaffData],
 
     // Incident Reports (admin)
     ['/incidents', reportReviewRoles, incidentController.getAllIncidents],
@@ -79,11 +158,11 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/audit/trail/:type/:id', reportReviewRoles, reportAuditController.getReportAuditTrail],
 
     // Audit routes — attendance
-    ['/audit/attendance/dashboard', attendanceAuditController.getAttendanceAuditDashboard],
-    ['/audit/attendance/hr-activity', attendanceAuditController.getAttendanceHRActivity],
-    ['/audit/attendance/sla', attendanceAuditController.getAttendanceSLAReport],
-    ['/audit/attendance/geofence', attendanceAuditController.getGeofenceBreachLog],
-    ['/audit/attendance/leave/:id', attendanceAuditController.getLeaveAuditTrail],
+    ['/audit/attendance/dashboard', guardAttendanceViewCollection, attendanceAuditController.getAttendanceAuditDashboard],
+    ['/audit/attendance/hr-activity', guardAttendanceViewCollection, attendanceAuditController.getAttendanceHRActivity],
+    ['/audit/attendance/sla', guardAttendanceViewCollection, attendanceAuditController.getAttendanceSLAReport],
+    ['/audit/attendance/geofence', guardAttendanceViewCollection, attendanceAuditController.getGeofenceBreachLog],
+    ['/audit/attendance/leave/:id', guardLeaveViewCollection, attendanceAuditController.getLeaveAuditTrail],
     ['/incidents/:id', reportReviewRoles, incidentController.getAdminIncidentDetail],
 
     // Grievances (admin/HR)
@@ -98,57 +177,57 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/zones', housekeepingController.getAdminZones],
 
     // Payroll (admin)
-    ['/payroll/runs', payrollController.getPayrollRuns],
-    ['/payroll/runs/:runId', payrollController.getPayrollRunDetail],
-    ['/payroll/staff', payrollController.getStaffForPayroll],
-    ['/payroll/salary/:staffUid', payrollController.getStaffSalaryConfig],
-    ['/payroll/revisions', salaryRevisionController.getRevisions],
-    ['/payroll/revisions/:id', salaryRevisionController.getRevisionDetail],
-    ['/payroll/annual-review', salaryRevisionController.getAnnualReviewStatus],
+    ['/payroll/runs', guardPayrollViewCollection, payrollController.getPayrollRuns],
+    ['/payroll/runs/:runId', guardPayrollViewCollection, payrollController.getPayrollRunDetail],
+    ['/payroll/staff', guardPayrollViewCollection, payrollController.getStaffForPayroll],
+    ['/payroll/salary/:staffUid', guardPayrollViewByStaffUid, payrollController.getStaffSalaryConfig],
+    ['/payroll/revisions', guardPayrollViewCollection, salaryRevisionController.getRevisions],
+    ['/payroll/revisions/:id', guardPayrollViewBySalaryRevisionId, salaryRevisionController.getRevisionDetail],
+    ['/payroll/annual-review', guardPayrollViewCollection, salaryRevisionController.getAnnualReviewStatus],
     // New payroll features
-    ['/payroll/export/summary', payrollController.exportPayrollSummary],
-    ['/payroll/export/pf', payrollController.exportPFRegister],
-    ['/payroll/export/esi', payrollController.exportESIRegister],
-    ['/payroll/comparison', payrollController.getPayrollComparison],
-    ['/payroll/advances', payrollController.getAllAdvances],
+    ['/payroll/export/summary', guardPayrollViewCollection, payrollController.exportPayrollSummary],
+    ['/payroll/export/pf', guardPayrollViewCollection, payrollController.exportPFRegister],
+    ['/payroll/export/esi', guardPayrollViewCollection, payrollController.exportESIRegister],
+    ['/payroll/comparison', guardPayrollViewCollection, payrollController.getPayrollComparison],
+    ['/payroll/advances', guardPayrollViewCollection, payrollController.getAllAdvances],
     // Compliance features — GET
-    ['/payroll/fnf', payrollController.getFnFList],
-    ['/payroll/gratuity', payrollController.getAllGratuityStatus],
-    ['/payroll/declarations', payrollController.getAllDeclarations],
-    ['/payroll/leave-encashment', payrollController.getLeaveEncashments],
-    ['/payroll/queries', payrollController.getAllPayslipQueries],
-    ['/payroll/compliance-calendar', payrollController.getComplianceCalendar],
-    ['/payroll/bulk-revisions', payrollController.getBulkRevisions],
+    ['/payroll/fnf', guardPayrollViewCollection, payrollController.getFnFList],
+    ['/payroll/gratuity', guardPayrollViewCollection, payrollController.getAllGratuityStatus],
+    ['/payroll/declarations', guardPayrollViewCollection, payrollController.getAllDeclarations],
+    ['/payroll/leave-encashment', guardPayrollViewCollection, payrollController.getLeaveEncashments],
+    ['/payroll/queries', guardPayrollViewCollection, payrollController.getAllPayslipQueries],
+    ['/payroll/compliance-calendar', guardPayrollViewCollection, payrollController.getComplianceCalendar],
+    ['/payroll/bulk-revisions', guardPayrollViewCollection, payrollController.getBulkRevisions],
   ],
   
   post: [
     // Bulk Operations
-    ['/bulk/attendance-correction', bulkController.bulkCorrectAttendance],
-    ['/bulk/shift-assignment', staffAdminController.bulkShiftAssignment],
-    ['/bulk/leave-approval', staffAdminController.bulkLeaveApproval],
+    ['/bulk/attendance-correction', guardAttendanceWriteCollection, bulkController.bulkCorrectAttendance],
+    ['/bulk/shift-assignment', guardProfileWriteCollection, staffAdminController.bulkShiftAssignment],
+    ['/bulk/leave-approval', guardLeaveWriteCollection, staffAdminController.bulkLeaveApproval],
 
     // Attendance disputes
-    ['/attendance/disputes/:id/resolve', attendanceController.resolveDispute],
+    ['/attendance/disputes/:id/resolve', guardAttendanceDisputeWrite, attendanceController.resolveDispute],
 
     // Leave approval actions (portal-facing)
-    ['/leave/:leaveId/approve', staffAdminController.approveLeaveRequest],
-    ['/leave/:leaveId/reject', staffAdminController.approveLeaveRequest],
-    ['/replacement/:id/hr-approve', replacementController.hrApproveReplacement],
+    ['/leave/:leaveId/approve', guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
+    ['/leave/:leaveId/reject', guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
+    ['/replacement/:id/hr-approve', guardLeaveWriteCollection, replacementController.hrApproveReplacement],
     
     // Shift operations
     ['/shifts/assign', shiftController.assignShift],
     ['/shifts/custom', shiftController.createCustomShift],
 
     // Overtime operations
-    ['/overtime/:id/approve', overtimeController.approveOvertime],
+    ['/overtime/:id/approve', guardLeaveWriteCollection, overtimeController.approveOvertime],
     
     // Override Operations
-    ['/override/attendance', staffAdminController.overrideAttendance],
-    ['/override/leave-balance', staffAdminController.overrideLeaveBalance],
+    ['/override/attendance', guardAttendanceWriteByBodyStaffId, staffAdminController.overrideAttendance],
+    ['/override/leave-balance', guardLeaveWriteByBodyStaffId, staffAdminController.overrideLeaveBalance],
     
     // System Operations
-    ['/generate-payroll-data', staffAdminController.generatePayrollData],
-    ['/sync-biometric', staffAdminController.syncBiometricData],
+    ['/generate-payroll-data', guardPayrollWriteCollection, staffAdminController.generatePayrollData],
+    ['/sync-biometric', guardAttendanceWriteCollection, staffAdminController.syncBiometricData],
 
     // Incident update (admin)
     ['/incidents/:id/update', reportReviewRoles, incidentController.updateIncident],
@@ -164,40 +243,40 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/housekeeping/requests/create', housekeepingController.adminCreateRequest],
 
     // Payroll (admin actions)
-    ['/payroll/run', payrollController.runPayroll],
-    ['/payroll/issue', payrollController.issuePayslips],
-    ['/payroll/salary/:staffUid', payrollController.upsertStaffSalaryConfig],
+    ['/payroll/run', guardPayrollWriteCollection, payrollController.runPayroll],
+    ['/payroll/issue', guardPayrollWriteCollection, payrollController.issuePayslips],
+    ['/payroll/salary/:staffUid', guardPayrollWriteByStaffUid, payrollController.upsertStaffSalaryConfig],
     // New payroll features — POST
-    ['/payroll/tax-summary/all', payrollController.generateAllTaxSummaries],
-    ['/payroll/advances/create', payrollController.createAdvance],
-    ['/payroll/revisions/:revisionId/arrears', payrollController.calculateRevisionArrears],
+    ['/payroll/tax-summary/all', guardPayrollWriteCollection, payrollController.generateAllTaxSummaries],
+    ['/payroll/advances/create', guardPayrollWriteByBodyStaffUid, payrollController.createAdvance],
+    ['/payroll/revisions/:revisionId/arrears', guardPayrollWriteBySalaryRevisionId, payrollController.calculateRevisionArrears],
     // Manual edit + dual sign
-    ['/payroll/payslips/:id/edit', payrollController.manualEditPayslip],
-    ['/payroll/runs/:runId/hr-sign', payrollController.hrSignPayrollRun],
-    ['/payroll/runs/:runId/admin-sign', payrollController.adminSignPayrollRun],
-    ['/payroll/revisions/propose', salaryRevisionController.proposeRevision],
-    ['/payroll/revisions/:id/hr-sign', salaryRevisionController.hrSignRevision],
-    ['/payroll/revisions/:id/admin-sign', salaryRevisionController.adminSignRevision],
-    ['/payroll/revisions/:id/apply', salaryRevisionController.applyRevision],
-    ['/payroll/revisions/:id/reject', salaryRevisionController.rejectRevision],
+    ['/payroll/payslips/:id/edit', guardPayrollWriteByPayslipId, payrollController.manualEditPayslip],
+    ['/payroll/runs/:runId/hr-sign', guardPayrollWriteCollection, payrollController.hrSignPayrollRun],
+    ['/payroll/runs/:runId/admin-sign', guardPayrollWriteCollection, payrollController.adminSignPayrollRun],
+    ['/payroll/revisions/propose', guardPayrollWriteByBodyStaffUid, salaryRevisionController.proposeRevision],
+    ['/payroll/revisions/:id/hr-sign', guardPayrollWriteBySalaryRevisionId, salaryRevisionController.hrSignRevision],
+    ['/payroll/revisions/:id/admin-sign', guardPayrollWriteBySalaryRevisionId, salaryRevisionController.adminSignRevision],
+    ['/payroll/revisions/:id/apply', guardPayrollWriteBySalaryRevisionId, salaryRevisionController.applyRevision],
+    ['/payroll/revisions/:id/reject', guardPayrollWriteBySalaryRevisionId, salaryRevisionController.rejectRevision],
     // Compliance features — POST
-    ['/payroll/fnf/create', payrollController.createFnF],
-    ['/payroll/fnf/:id/approve', payrollController.approveFnF],
-    ['/payroll/fnf/:id/mark-paid', payrollController.markFnFPaid],
-    ['/payroll/declarations/:id/approve', payrollController.approveDeclaration],
-    ['/payroll/leave-encashment/create', payrollController.calculateLeaveEncashment],
-    ['/payroll/queries/:id/reply', payrollController.replyToPayslipQuery],
-    ['/payroll/bulk-revisions/create', payrollController.createBulkRevision],
-    ['/payroll/bulk-revisions/:id/approve', payrollController.approveBulkRevision],
+    ['/payroll/fnf/create', guardPayrollWriteByBodyStaffUid, payrollController.createFnF],
+    ['/payroll/fnf/:id/approve', guardPayrollWriteCollection, payrollController.approveFnF],
+    ['/payroll/fnf/:id/mark-paid', guardPayrollWriteCollection, payrollController.markFnFPaid],
+    ['/payroll/declarations/:id/approve', guardPayrollWriteCollection, payrollController.approveDeclaration],
+    ['/payroll/leave-encashment/create', guardPayrollWriteByBodyStaffUid, payrollController.calculateLeaveEncashment],
+    ['/payroll/queries/:id/reply', guardPayrollWriteCollection, payrollController.replyToPayslipQuery],
+    ['/payroll/bulk-revisions/create', guardPayrollWriteCollection, payrollController.createBulkRevision],
+    ['/payroll/bulk-revisions/:id/approve', guardPayrollWriteCollection, payrollController.approveBulkRevision],
   ],
   
   put: [
     // Update Staff Status
-    ['/status/:staffId', staffAdminController.updateStaffStatus],
+    ['/status/:staffId', guardProfileWriteByStaffId, staffAdminController.updateStaffStatus],
     
     // Approve/Reject Operations
-    ['/approve/performance-review/:reviewId', staffAdminController.approvePerformanceReview],
-    ['/approve/leave/:leaveId', staffAdminController.approveLeaveRequest],
+    ['/approve/performance-review/:reviewId', guardProfileWriteCollection, staffAdminController.approvePerformanceReview],
+    ['/approve/leave/:leaveId', guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
 
     // Custom shift update
     ['/shifts/custom/:id', shiftController.updateCustomShift],
@@ -208,8 +287,8 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
   
   delete: [
     // Archive/Delete Operations
-    ['/archive/:staffId', staffAdminController.archiveStaffMember],
-    ['/purge/old-records', staffAdminController.purgeOldRecords],
+    ['/archive/:staffId', guardProfileWriteByStaffId, staffAdminController.archiveStaffMember],
+    ['/purge/old-records', guardProfileWriteCollection, staffAdminController.purgeOldRecords],
 
     // Deactivate custom shift
     ['/shifts/custom/:id', shiftController.deactivateShift],

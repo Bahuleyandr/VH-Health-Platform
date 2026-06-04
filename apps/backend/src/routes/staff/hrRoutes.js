@@ -8,6 +8,8 @@ import * as overtimeController from '../../controllers/staff/overtimeController.
 import * as payrollController from '../../controllers/staff/payrollController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as shiftController from '../../controllers/staff/shiftController.js';
+import { staffAccessGuard } from '../../middleware/staffAccessMiddleware.js';
+import { STAFF_ACCESS_POLICY_CODES } from '../../services/security/staffAccessDecisionService.js';
 import {
   performanceReviewValidation,
   leaveApplicationValidation,
@@ -16,31 +18,71 @@ import {
 } from '../../validators/staff/hrValidators.js';
 
 const router = express.Router();
+const guardHrReportView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_REPORT_VIEW, {
+  allowNoTarget: true,
+});
+const guardProfileViewByStaffId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROFILE_VIEW, {
+  targetParam: 'staff_id',
+  requireTarget: true,
+});
+const guardProfileWriteByStaffId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROFILE_WRITE, {
+  targetParam: 'staff_id',
+  requireTarget: true,
+});
+const guardPerformanceReviewWrite = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PROFILE_WRITE, {
+  targetSelector: (req) => req.body?.staff_id,
+  requireTarget: true,
+});
+const guardLeaveSelfView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_VIEW, {
+  selfIfNoTarget: true,
+  requireTarget: true,
+});
+const guardLeaveViewByStaffId = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_VIEW, {
+  targetParam: 'staff_id',
+  requireTarget: true,
+});
+const guardLeaveApply = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_LEAVE_WRITE, {
+  targetSelector: (req) => req.body?.staff_id || req.user?.uid,
+  requireTarget: true,
+});
+const guardPayrollSelfView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_VIEW, {
+  selfIfNoTarget: true,
+  requireTarget: true,
+});
+const guardPayrollSelfWrite = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_SELF_WRITE, {
+  selfIfNoTarget: true,
+  requireTarget: true,
+});
+const guardPayslipView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_PAYROLL_VIEW, {
+  resourceType: 'payslip',
+  resourceIdParam: 'id',
+  requireTarget: true,
+});
 
 wrapAutoRBAC(router, 'staffHRRoutes', {
   get: [
     // HR Dashboard
-    ['/dashboard', hrController.getHRDashboard],
+    ['/dashboard', guardHrReportView, hrController.getHRDashboard],
     
     // Performance Management
-    ['/performance-report', hrController.getPerformanceReport],
+    ['/performance-report', guardHrReportView, hrController.getPerformanceReport],
     
     // Onboarding
-    ['/onboarding/:staff_id', hrController.getOnboardingChecklist],
+    ['/onboarding/:staff_id', guardProfileViewByStaffId, hrController.getOnboardingChecklist],
     
     // Leave Management
-    ['/leave/my', hrController.getMyLeaveApplications],
-    ['/leave/balance', hrController.getMyLeaveBalance],
-    ['/leave-balance/:staff_id', hrController.getStaffLeaveBalance],
+    ['/leave/my', guardLeaveSelfView, hrController.getMyLeaveApplications],
+    ['/leave/balance', guardLeaveSelfView, hrController.getMyLeaveBalance],
+    ['/leave-balance/:staff_id', guardLeaveViewByStaffId, hrController.getStaffLeaveBalance],
     
     // Department Analytics
-    ['/department/:department/summary', hrController.getDepartmentStaffSummary],
+    ['/department/:department/summary', guardHrReportView, hrController.getDepartmentStaffSummary],
     
     // Attendance Analytics
-    ['/attendance-analytics', hrController.getAttendanceAnalytics],
+    ['/attendance-analytics', guardHrReportView, hrController.getAttendanceAnalytics],
     
     // Export Reports
-    ['/export-report', exportReportValidation, hrController.exportStaffReport],
+    ['/export-report', guardHrReportView, exportReportValidation, hrController.exportStaffReport],
 
     // Replacement requests
     ['/replacement/pending', replacementController.getPendingReplacements],
@@ -71,27 +113,27 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/housekeeping/requests/:id', housekeepingController.getRequestDetail],
 
     // Payroll (staff: view own payslips)
-    ['/payslips', payrollController.getMyPayslips],
-    ['/payslips/:id', payrollController.getPayslipDetail],
+    ['/payslips', guardPayrollSelfView, payrollController.getMyPayslips],
+    ['/payslips/:id', guardPayslipView, payrollController.getPayslipDetail],
     // Aliases matching the admin /dashboard/my-payslips page's API config
     // (apps/admin/src/lib/api-config.ts → myWork.payslips.*). Controllers are
     // the same; only the URL shape differs.
-    ['/payroll/my-payslips', payrollController.getMyPayslips],
-    ['/payroll/my-payslips/:id', payrollController.getPayslipDetail],
-    ['/payroll/my-payslips/:id/download', payrollController.downloadPayslip],
-    ['/payroll/tax-summary', payrollController.getMyTaxSummary],
-    ['/payroll/advances', payrollController.getMyAdvances],
+    ['/payroll/my-payslips', guardPayrollSelfView, payrollController.getMyPayslips],
+    ['/payroll/my-payslips/:id', guardPayslipView, payrollController.getPayslipDetail],
+    ['/payroll/my-payslips/:id/download', guardPayslipView, payrollController.downloadPayslip],
+    ['/payroll/tax-summary', guardPayrollSelfView, payrollController.getMyTaxSummary],
+    ['/payroll/advances', guardPayrollSelfView, payrollController.getMyAdvances],
     // Compliance: staff self-service
-    ['/payroll/declarations', payrollController.getMyDeclarations],
-    ['/payroll/queries', payrollController.getMyPayslipQueries],
+    ['/payroll/declarations', guardPayrollSelfView, payrollController.getMyDeclarations],
+    ['/payroll/queries', guardPayrollSelfView, payrollController.getMyPayslipQueries],
   ],
   
   post: [
     // Create Performance Review
-    ['/performance-review', performanceReviewValidation, hrController.createPerformanceReview],
+    ['/performance-review', performanceReviewValidation, guardPerformanceReviewWrite, hrController.createPerformanceReview],
     
     // Apply for Leave
-    ['/leave/apply', hrController.normalizeLeaveApplicationRequest, leaveApplicationValidation, hrController.applyForLeave],
+    ['/leave/apply', hrController.normalizeLeaveApplicationRequest, guardLeaveApply, leaveApplicationValidation, hrController.applyForLeave],
 
     // Replacement requests
     ['/replacement/request', replacementController.requestReplacement],
@@ -114,13 +156,13 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/housekeeping/requests/:id/start', housekeepingController.startRequest],
     ['/housekeeping/requests/:id/complete', housekeepingController.completeRequest],
     // Compliance: staff self-service POST
-    ['/payroll/declarations/submit', payrollController.upsertDeclaration],
-    ['/payroll/queries/raise', payrollController.raisePayslipQuery],
+    ['/payroll/declarations/submit', guardPayrollSelfWrite, payrollController.upsertDeclaration],
+    ['/payroll/queries/raise', guardPayrollSelfWrite, payrollController.raisePayslipQuery],
   ],
   
   put: [
     // Update Onboarding Task
-    ['/onboarding/:staff_id/task', updateOnboardingTaskValidation, hrController.updateOnboardingTask]
+    ['/onboarding/:staff_id/task', updateOnboardingTaskValidation, guardProfileWriteByStaffId, hrController.updateOnboardingTask]
   ]
 });
 
