@@ -726,6 +726,27 @@ async function findAdmissionRelationship(req, patient, role) {
   return rows[0] || null;
 }
 
+async function findGuardianRelationship(req, patient) {
+  const actorId = cleanInt(req?.user?.id);
+  const patientUid = cleanUuid(patient?.uid);
+  if (!actorId || !patientUid) return null;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, guardian_user_id
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+        AND is_active IS NOT FALSE
+        AND guardian_user_id = $3::int
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    patientUid,
+    actorId,
+  );
+  return rows[0] || null;
+}
+
 async function writePatientAccessAudit(req, decision) {
   if (!decision?.patient_uid) return;
   try {
@@ -828,24 +849,33 @@ export async function authorizePatientAccessRequest(req, {
     decision = allowDecision(args, 'guardian', 'patient self access');
   } else if (req?.acting && cleanUuid(req?.user?.uid) === cleanUuid(resolvedPatient.uid)) {
     decision = allowDecision(args, 'guardian', 'guardian acting-as dependent');
-  } else if (policy.required_phi_level === PHI_ACCESS_LEVELS.OWN_RECORD) {
+  } else if (role === 'PATIENT' && policy.relationship_checks.includes('guardian')) {
+    const guardian = await findGuardianRelationship(req, resolvedPatient);
+    if (guardian?.id) {
+      decision = allowDecision(args, 'guardian', 'linked guardian-dependent relationship', {
+        guardianUserId: guardian.guardian_user_id,
+      });
+    }
+  }
+
+  if (!decision && policy.required_phi_level === PHI_ACCESS_LEVELS.OWN_RECORD) {
     decision = denyDecision(args, 'Only the patient or an authorised guardian can perform this action');
-  } else if (MEDICAL_RECORDS_ROLES.has(role) && [
+  } else if (!decision && MEDICAL_RECORDS_ROLES.has(role) && [
     ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
     ACCESS_POLICY_CODES.PATIENT_RECORD_UPLOAD,
     ACCESS_POLICY_CODES.PATIENT_RECORD_EXTRACTION_VIEW,
     ACCESS_POLICY_CODES.PATIENT_TIMELINE_VIEW,
   ].includes(policy.code)) {
     decision = allowDecision(args, 'role', 'medical records office role');
-  } else if ([PHI_ACCESS_LEVELS.NONE, PHI_ACCESS_LEVELS.STAFF_ONLY, PHI_ACCESS_LEVELS.OPERATIONAL_ONLY].includes(rolePolicy.phi?.access_level)) {
+  } else if (!decision && [PHI_ACCESS_LEVELS.NONE, PHI_ACCESS_LEVELS.STAFF_ONLY, PHI_ACCESS_LEVELS.OPERATIONAL_ONLY].includes(rolePolicy.phi?.access_level)) {
     decision = denyDecision(args, `${role} does not have a patient PHI access scope`);
-  } else if (
+  } else if (!decision && (
     rankPhiLevel(rolePolicy.phi?.access_level) >= policyMinimumRank(policy)
     && hasRequiredCapability(rolePolicy, policy)
     && canUseRoleOwnedOperationalAccess(role, policy)
-  ) {
+  )) {
     decision = allowDecision(args, 'role', `${role} has role-owned operational workflow access for ${policy.code}`);
-  } else {
+  } else if (!decision) {
     const breakGlass = await findActiveBreakGlass(req, resolvedPatient, policy, rolePolicy);
     if (breakGlass?.id) {
       decision = allowDecision(args, 'break_glass', 'active break-glass session', { breakGlassId: breakGlass.id });
