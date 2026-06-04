@@ -125,10 +125,7 @@ enum StaffRole {
     }.contains(normalized)) {
       return StaffRole.cathLabStaff;
     }
-    if (const {
-      'CATHLAB_INCHARGE',
-      'CATH_LAB_IN_CHARGE',
-    }.contains(normalized)) {
+    if (const {'CATHLAB_INCHARGE', 'CATH_LAB_IN_CHARGE'}.contains(normalized)) {
       return StaffRole.cathLabIncharge;
     }
     if (const {
