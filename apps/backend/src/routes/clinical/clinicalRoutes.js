@@ -47,6 +47,12 @@ const guardClinicalPatientView = patientAccessGuard('CLINICAL_WORKFLOW', {
 const guardClinicalPatientWrite = patientAccessGuard('CLINICAL_WORKFLOW', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
 });
+const guardClinicalAppointmentWrite = patientAccessGuardForResource('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'appointment',
+  idSelector: (req) => req.body?.appointment_id || req.body?.appointmentId || null,
+  allowNoPatientResource: true,
+});
 const guardClinicalAdmissionView = patientAccessGuardForResource('CLINICAL_WORKFLOW', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
   resourceType: 'admission',
@@ -213,7 +219,7 @@ function buildProgressNoteContent(rawContent, summaryHint) {
   };
 }
 
-router.post('/progress-notes', guardClinicalPatientWrite, async (req, res, next) => {
+router.post('/progress-notes', guardClinicalAppointmentWrite, async (req, res, next) => {
   try {
     const { default: clinicalNotesService } = await import('../../services/emr/clinicalNotesService.js');
     const rawType = req.body.note_type || req.body.type;

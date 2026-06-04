@@ -686,7 +686,18 @@ app.use('/api/v1/cds-services', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'N
 app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
-app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('CLINICAL_WORKFLOW'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
+function clinicalParentPatientAccessGuard(req, res, next) {
+  if (
+    req.method === 'POST'
+    && req.path === '/progress-notes'
+    && (req.body?.appointment_id || req.body?.appointmentId)
+  ) {
+    return next();
+  }
+  return patientAccessGuard('CLINICAL_WORKFLOW')(req, res, next);
+}
+
+app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at

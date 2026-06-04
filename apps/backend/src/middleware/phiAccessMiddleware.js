@@ -132,6 +132,7 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
         policyCode: policyCode || policyCodeForRecordType(recordType),
         recordType,
         patient,
+        resourceContext: { resourceType, resourceId },
         requireResolvedPatient: true,
       });
 

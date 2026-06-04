@@ -644,7 +644,7 @@ async function findClinicalAuthorshipRelationship(req, patient, policy) {
   return rows[0] || null;
 }
 
-async function findAppointmentRelationship(req, patient, role) {
+async function findAppointmentRelationship(req, patient, role, policy = null, resourceContext = null) {
   const actorUid = cleanUuid(actorUidOf(req));
   const actorId = cleanInt(req?.user?.id);
   const patientUid = cleanUuid(patient?.uid);
@@ -653,6 +653,16 @@ async function findAppointmentRelationship(req, patient, role) {
   const doctorScoped = DOCTOR_RELATIONSHIP_ROLES.has(role);
   const operationalScoped = OP_RELATIONSHIP_ROLES.has(role);
   if (!doctorScoped && !operationalScoped) return null;
+  const resourceAppointmentId = String(resourceContext?.resourceType || '').toLowerCase() === 'appointment'
+    ? cleanInt(resourceContext?.resourceId)
+    : null;
+  const allowUnassignedDoctorAppointment =
+    doctorScoped
+    && resourceAppointmentId != null
+    && [
+      ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+    ].includes(policy?.code);
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT a.id
@@ -664,6 +674,7 @@ async function findAppointmentRelationship(req, patient, role) {
         AND COALESCE(a.status, '') NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
         AND a.appointment_date >= (CURRENT_DATE - INTERVAL '30 days')
         AND a.appointment_date <= (CURRENT_DATE + INTERVAL '30 days')
+        AND ($7::int IS NULL OR a.id = $7::int)
         AND (
           $5::boolean = TRUE
           OR (
@@ -671,6 +682,7 @@ async function findAppointmentRelationship(req, patient, role) {
             AND (
               ($3::int IS NOT NULL AND a.doctor_id = $3::int)
               OR ($4::uuid IS NOT NULL AND d.uid = $4::uuid)
+              OR ($8::boolean = TRUE AND a.doctor_id IS NULL)
             )
           )
         )
@@ -682,6 +694,8 @@ async function findAppointmentRelationship(req, patient, role) {
     actorUid,
     operationalScoped,
     doctorScoped,
+    resourceAppointmentId,
+    allowUnassignedDoctorAppointment,
   );
   return rows[0] || null;
 }
@@ -800,6 +814,7 @@ export async function authorizePatientAccessRequest(req, {
   policyCode = null,
   recordType = 'PHI',
   patient = null,
+  resourceContext = null,
   audit = true,
   shadowMode = false,
   requireResolvedPatient = false,
@@ -914,7 +929,7 @@ export async function authorizePatientAccessRequest(req, {
   }
 
   if (!decision && policy.relationship_checks.includes('appointment')) {
-    const appointment = await findAppointmentRelationship(req, resolvedPatient, role);
+    const appointment = await findAppointmentRelationship(req, resolvedPatient, role, policy, resourceContext);
     if (appointment?.id) {
       decision = allowDecision(args, 'appointment', 'active appointment relationship', { appointmentId: appointment.id });
     }

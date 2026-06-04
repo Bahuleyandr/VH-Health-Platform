@@ -102,6 +102,19 @@ function isSelf(actor, target) {
   return false;
 }
 
+function actorSelfTargetFromRequest(req) {
+  const actorUid = cleanText(actorUidOf(req));
+  const actorRole = actorRoleOf(req);
+  if (!actorUid || !actorRole || actorRole === 'PATIENT') return null;
+  return normalizeTargetRow({
+    user_id: cleanInt(req?.user?.id),
+    user_uid: actorUid,
+    role: actorRole,
+    name: req?.user?.name || null,
+    tenant_id: deriveTenantIdFromStaffRequest(req),
+  });
+}
+
 function hasAnyLeadershipScope(actorRole, rolePolicy) {
   if (!rolePolicy || actorRole === 'PATIENT') return false;
   const visibility = getStaffVisibilityRoles(actorRole).filter((role) => role !== actorRole);
@@ -375,7 +388,7 @@ async function resolveStaffTarget(req, options = {}) {
   }
 
   if (selfIfNoTarget && actorUidOf(req)) {
-    return resolveStaffIdentity(req, actorUidOf(req));
+    return actorSelfTargetFromRequest(req);
   }
 
   return null;

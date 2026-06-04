@@ -22,7 +22,7 @@ const guardAttendanceSelfView = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF
   requireTarget: true,
 });
 const guardAttendanceSelfWrite = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_ATTENDANCE_WRITE, {
-  targetSelector: (req) => req.body?.staff_id || req.body?.staffId || req.user?.uid,
+  selfIfNoTarget: true,
   requireTarget: true,
 });
 const guardAttendanceViewById = staffAccessGuard(STAFF_ACCESS_POLICY_CODES.STAFF_ATTENDANCE_VIEW, {
