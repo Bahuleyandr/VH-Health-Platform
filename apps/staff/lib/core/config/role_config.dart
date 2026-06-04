@@ -667,6 +667,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
         _pharmacyOrders,
@@ -735,9 +736,12 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
-        _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
+        _pharmacyOrders,
+        _nursingNotes,
+        _investigationResults,
+        _labBookings,
         _leave,
         _organizationHierarchy,
         _staffDirectory,
@@ -1603,7 +1607,6 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent ||
       StaffRole.doctor ||
       StaffRole.dutyDoctor ||
-      StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
       StaffRole.receptionist ||
       StaffRole.receptionIncharge ||

@@ -123,13 +123,13 @@ void main() {
     });
 
     test(
-      'nurse gets ward mode + nursing notes + shift handover, NOT generic vitals',
+      'nurse gets OP appointments + ward tools, NOT front office or generic vitals',
       () {
         final feats = RoleFeatures.getFeaturesForRole(StaffRole.nurse);
         final ids = feats.map((f) => f.id).toSet();
         final handover = feats.singleWhere((f) => f.id == 'handover');
         expect(ids, isNot(contains('front_office_workbench')));
-        expect(ids, isNot(contains('appointments')));
+        expect(ids, contains('appointments'));
         expect(ids, isNot(contains('admissions')));
         expect(ids, contains('ward_mode'));
         expect(ids, isNot(contains('vitals')));

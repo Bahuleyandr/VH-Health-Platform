@@ -16,7 +16,8 @@ param(
   [string]$SentryRelease = $env:VH_SENTRY_RELEASE,
   [string]$Device = "windows",
   [string]$StaffDir = (Join-Path $PSScriptRoot "..\apps\staff"),
-  [bool]$DisableCrashlytics = $true
+  [bool]$DisableCrashlytics = $true,
+  [switch]$SendSentryEvents
 )
 
 Set-StrictMode -Version Latest
@@ -33,9 +34,6 @@ if ([string]::IsNullOrWhiteSpace($ApiKey)) {
   throw "ApiKey is required. Pass -ApiKey or set VH_API_KEY."
 }
 
-if ([string]::IsNullOrWhiteSpace($SentryDsn)) {
-  $SentryDsn = $env:SENTRY_DSN
-}
 if ([string]::IsNullOrWhiteSpace($SentryEnvironment)) {
   $SentryEnvironment = if ([string]::IsNullOrWhiteSpace($env:SENTRY_ENVIRONMENT)) {
     "staff-desktop-smoke"
@@ -54,6 +52,12 @@ $flutterCommand = Resolve-DevTool `
 Push-Location $StaffDir
 try {
   $disableCrashlyticsValue = if ($DisableCrashlytics) { "true" } else { "false" }
+  $disableSentryValue = if ($SendSentryEvents) { "false" } else { "true" }
+  if (-not $SendSentryEvents) {
+    $SentryDsn = ""
+  } elseif ([string]::IsNullOrWhiteSpace($SentryDsn)) {
+    $SentryDsn = $env:SENTRY_DSN
+  }
   & $flutterCommand test integration_test/staff_desktop_smoke_test.dart `
     -d $Device `
     --dart-define=VH_BASE_URL=$BaseUrl `
@@ -61,6 +65,7 @@ try {
     --dart-define=SENTRY_DSN=$SentryDsn `
     --dart-define=SENTRY_ENVIRONMENT=$SentryEnvironment `
     --dart-define=SENTRY_RELEASE=$SentryRelease `
+    --dart-define=VH_DISABLE_SENTRY=$disableSentryValue `
     --dart-define=VH_DISABLE_CRASHLYTICS=$disableCrashlyticsValue
   if ($LASTEXITCODE -ne 0) {
     throw "Staff desktop smoke failed with exit code $LASTEXITCODE"

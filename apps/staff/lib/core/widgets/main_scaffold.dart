@@ -118,6 +118,7 @@ class _MainScaffoldState extends State<MainScaffold> {
               selectedIndex: selectedIndex,
               minWidth: 76,
               groupAlignment: -0.92,
+              scrollable: true,
               labelType: NavigationRailLabelType.all,
               onDestinationSelected: (index) =>
                   _navigateWorkbench(navItems, index),

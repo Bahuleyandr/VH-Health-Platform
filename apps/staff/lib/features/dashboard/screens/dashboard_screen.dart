@@ -652,9 +652,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.nurse ||
       StaffRole.nursingSuperintendent ||
       StaffRole.nursingIncharge ||
-      StaffRole.opStaffNurse ||
-      StaffRole.opIncharge => {
-        'front_office_workbench',
+      StaffRole.opStaffNurse => {
         'appointments',
         'clinical_ai_review_queue',
         'patient_records',
@@ -667,6 +665,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'bed_board',
         'ward_mode',
         'dietary',
+      },
+      StaffRole.opIncharge => {
+        'front_office_workbench',
+        'appointments',
+        'patient_records',
       },
       StaffRole.hr => {
         'hr_dashboard',
@@ -799,7 +802,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Set<String> _clinicalServiceFeatureIdsForRole() {
     return switch (_role) {
       StaffRole.nurse => {
-        'front_office_workbench',
         'appointments',
         'clinical_ai_review_queue',
         'lab_bookings',
@@ -813,6 +815,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'discharge_hub',
         'dietary',
         'handover',
+      },
+      StaffRole.opStaffNurse => {
+        'appointments',
+        'lab_bookings',
+        'nursing_notes',
+        'pharmacy_orders',
+        'investigation_results',
+        'patient_records',
       },
       StaffRole.doctor => {
         'front_office_workbench',
@@ -940,7 +950,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
-              'front_office_workbench',
               'appointments',
               'clinical_ai_review_queue',
               'lab_bookings',
@@ -985,6 +994,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records': s.dashboardIpPatientRecords,
             },
             routeOverrides: _serviceContextRoutes('ip'),
+          ),
+        ),
+      ],
+      StaffRole.opStaffNurse => [
+        _ClinicalServiceGroup(
+          label: s.dashboardOpServices,
+          emptyLabel: s.dashboardNoOpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'appointments',
+              'nursing_notes',
+              'lab_bookings',
+              'investigation_results',
+              'pharmacy_orders',
+              'patient_records',
+            ],
+            titleOverrides: {
+              'nursing_notes': s.dashboardOpNursingNotes,
+              'lab_bookings': s.dashboardOpLabBookings,
+              'investigation_results': s.dashboardOpLabResults,
+              'pharmacy_orders': s.dashboardOpPharmacy,
+              'patient_records': s.dashboardOpPatientRecords,
+            },
+            routeOverrides: _serviceContextRoutes('op'),
           ),
         ),
       ],
@@ -1416,41 +1450,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (stats.isEmpty) return const SizedBox.shrink();
 
-    return Row(
-      children: stats.map((s) {
-        return Expanded(
-          child: Card(
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: s.route != null ? () => context.push(s.route!) : null,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    Icon(s.icon, color: s.color, size: 22),
-                    const SizedBox(height: 6),
-                    Text(
-                      s.value,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: s.color,
-                      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 900
+            ? stats.length.clamp(1, 4)
+            : width >= 560
+            ? 2
+            : 1;
+        final tileWidth = (width - (columns - 1) * 8) / columns;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: stats.map((s) {
+            return SizedBox(
+              width: tileWidth,
+              child: Card(
+                margin: EdgeInsets.zero,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: s.route != null ? () => context.push(s.route!) : null,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(s.icon, color: s.color, size: 22),
+                        const SizedBox(height: 6),
+                        Text(
+                          s.value,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: s.color,
+                          ),
+                        ),
+                        Text(
+                          s.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      s.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 

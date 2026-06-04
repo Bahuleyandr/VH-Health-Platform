@@ -1986,32 +1986,35 @@ class _FloatingAppointmentRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasFloating = days.any((day) => appointmentsFor(day).isNotEmpty);
     if (!hasFloating) return const SizedBox.shrink();
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: _calendarTimeGutterWidth,
-          child: Center(
-            child: Text(
-              'Flex',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
+    return SizedBox(
+      height: 132,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: _calendarTimeGutterWidth,
+            child: Center(
+              child: Text(
+                'Flex',
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
-        ),
-        for (final day in days)
-          _CalendarCell(
-            width: dayWidth,
-            minHeight: 80,
-            selected: _dateOnly(day) == selectedDate,
-            onTap: () => onDateSelected(day),
-            appointments: appointmentsFor(day),
-            onAppointmentTap: onAppointmentTap,
-          ),
-      ],
+          for (final day in days)
+            _CalendarCell(
+              width: dayWidth,
+              minHeight: 80,
+              selected: _dateOnly(day) == selectedDate,
+              onTap: () => onDateSelected(day),
+              appointments: appointmentsFor(day),
+              onAppointmentTap: onAppointmentTap,
+            ),
+        ],
+      ),
     );
   }
 }
