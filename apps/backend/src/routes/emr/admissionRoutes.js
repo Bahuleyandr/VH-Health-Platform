@@ -46,10 +46,12 @@ const guardAdmissionPatientWrite = patientAccessGuard('ADMISSION', {
 const guardAdmissionResourceView = patientAccessGuardForResource('ADMISSION', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
   resourceType: 'admission',
+  allowNoPatientResource: true,
 });
 const guardAdmissionResourceWrite = patientAccessGuardForResource('ADMISSION', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_WRITE,
   resourceType: 'admission',
+  allowNoPatientResource: true,
 });
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ const idParamValidator = param('id').isInt({ min: 1 }).withMessage('Valid appoin
 const guardAppointmentWrite = patientAccessGuardForResource('APPOINTMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
   resourceType: 'appointment',
+  allowNoPatientResource: true,
 });
 
 // Create appointment

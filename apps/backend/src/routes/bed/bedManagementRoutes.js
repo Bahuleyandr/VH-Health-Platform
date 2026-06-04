@@ -38,6 +38,7 @@ const requireHousekeepingForBedReady = requireRole(
 const guardBedResourceWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
   resourceType: 'bed',
+  allowNoPatientResource: true,
 });
 const guardBedResourceView = patientAccessGuardForResource('BED_BOARD', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_BED_VIEW,

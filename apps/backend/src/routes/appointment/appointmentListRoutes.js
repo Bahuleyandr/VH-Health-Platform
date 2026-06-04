@@ -8,6 +8,7 @@ const router = express.Router();
 const guardAppointmentView = patientAccessGuardForResource('APPOINTMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
   resourceType: 'appointment',
+  allowNoPatientResource: true,
 });
 
 // Test route

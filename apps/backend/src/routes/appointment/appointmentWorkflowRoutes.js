@@ -20,15 +20,18 @@ const router = express.Router();
 const guardAppointmentView = patientAccessGuardForResource('APPOINTMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
   resourceType: 'appointment',
+  allowNoPatientResource: true,
 });
 const guardAppointmentWrite = patientAccessGuardForResource('APPOINTMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
   resourceType: 'appointment',
+  allowNoPatientResource: true,
 });
 const guardAppointmentDocumentView = patientAccessGuardForResource('APPOINTMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
   resourceType: 'appointment',
   idParam: 'appointment_id',
+  allowNoPatientResource: true,
 });
 const guardAppointmentDocumentUpload = patientAccessGuardForResource('APPOINTMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
