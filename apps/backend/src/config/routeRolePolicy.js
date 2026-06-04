@@ -18,6 +18,22 @@ export const OP_FLOW_ROUTE_ROLES = getRolesForCapabilityGroups('op_flow');
 export const IP_FLOW_ROUTE_ROLES = getRolesForCapabilityGroups(['ip_flow', 'emergency']);
 export const BILLING_ROUTE_ROLES = getRolesForCapabilityGroups('billing');
 export const DIAGNOSTICS_ROUTE_ROLES = getRolesForCapabilityGroups('diagnostics');
+export const RADIOLOGY_ROUTE_ROLES = mergeRoles(
+  DIAGNOSTICS_ROUTE_ROLES,
+  rolesFrom(['DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE']),
+);
+export const MICROBIOLOGY_ROUTE_ROLES = mergeRoles(
+  DIAGNOSTICS_ROUTE_ROLES,
+  rolesFrom(['DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE']),
+);
+export const PCPNDT_ROUTE_ROLES = mergeRoles(
+  DIAGNOSTICS_ROUTE_ROLES,
+  rolesFrom(['DOCTOR', 'NURSING_STAFF']),
+);
+export const LAB_ROUTE_ROLES = mergeRoles(
+  DIAGNOSTICS_ROUTE_ROLES,
+  rolesFrom(['DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF']),
+);
 export const PHARMACY_ROUTE_ROLES = getRolesForCapabilityGroups('pharmacy');
 export const THEATRE_ROUTE_ROLES = getRolesForCapabilityGroups('theatre', {
   include: ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_STAFF'],

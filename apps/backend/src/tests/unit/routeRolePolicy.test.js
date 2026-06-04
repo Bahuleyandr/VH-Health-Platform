@@ -123,6 +123,29 @@ describe('routeRolePolicy', () => {
     ]));
   });
 
+  it('keeps diagnostic clinical surfaces represented by named route policies', () => {
+    expect(routePolicy.RADIOLOGY_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'RADIOLOGY_STAFF',
+      'DOCTOR',
+      'NURSING_STAFF',
+    ]));
+    expect(routePolicy.MICROBIOLOGY_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'LAB_STAFF',
+      'PATHOLOGIST',
+      'DOCTOR',
+    ]));
+    expect(routePolicy.PCPNDT_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'RADIOLOGY_STAFF',
+      'DOCTOR',
+      'NURSING_STAFF',
+    ]));
+    expect(routePolicy.LAB_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'LAB_STAFF',
+      'PATHOLOGIST',
+      'CATH_LAB_STAFF',
+    ]));
+  });
+
   it('keeps Staff app fallback role enum values registered in backend policy', () => {
     const staffRolePath = path.resolve(process.cwd(), '../staff/lib/core/config/role_config.dart');
     const source = fs.readFileSync(staffRolePath, 'utf8');

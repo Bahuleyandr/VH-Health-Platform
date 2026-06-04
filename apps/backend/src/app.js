@@ -53,7 +53,6 @@ import {
   COMPLIANCE_ROUTE_ROLES,
   CONSENT_ROUTE_ROLES,
   DELIVERY_ROUTE_ROLES,
-  DIAGNOSTICS_ROUTE_ROLES,
   DIETARY_ROUTE_ROLES,
   DIALYSIS_ROUTE_ROLES,
   ED_ROUTE_ROLES,
@@ -63,10 +62,14 @@ import {
   ICU_ROUTE_ROLES,
   INVESTIGATION_ROUTE_ROLES,
   IPD_SUPPORT_ROUTE_ROLES,
+  LAB_ROUTE_ROLES,
   MATERNITY_ROUTE_ROLES,
+  MICROBIOLOGY_ROUTE_ROLES,
   NURSING_ASSESSMENT_ROUTE_ROLES,
   PAEDIATRIC_ROUTE_ROLES,
+  PCPNDT_ROUTE_ROLES,
   PHARMACY_ORDER_ROUTE_ROLES,
+  RADIOLOGY_ROUTE_ROLES,
   RECORD_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
   TECHNICAL_ADMIN_ROUTE_ROLES,
@@ -792,7 +795,7 @@ app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, s
 app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, logRoutes);
 
 // Radiology
-app.use('/api/v1/radiology', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE'), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
+app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
 // Dietary / Nutrition
 app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), phiAccessLogger('DIETARY'), dietaryRoutes);
@@ -819,8 +822,8 @@ app.use(
   phiAccessLogger('SURGICAL_DOCUMENTATION'),
   surgicalDocumentationRoutes,
 );
-app.use('/api/v1/microbiology', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
-app.use('/api/v1/pcpndt', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('PCPNDT'), pcpndtRoutes);
+app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
+app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
@@ -844,9 +847,9 @@ app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRout
 // the seeded pathologist account from hitting a generic 403 before the
 // tier-specific message ever reaches the client. Finding:
 // 2026-05-10-emergency-walk-in-lab-tech-pathologist-signoff-rbac-blocked.
-app.use('/api/v1/lab', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labRoutes);
+app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
-app.use('/api/v1/lab', requireRole(...DIAGNOSTICS_ROUTE_ROLES, 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
+app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 app.use('/api/v1/insurance', requireRole(...BILLING_ROUTE_ROLES), insuranceClaimsRoutes);
 // Chart-shaped TPA enhancement surface — keyed off admission_id, open
 // to clinicians so a treating consultant can initiate an enhancement
