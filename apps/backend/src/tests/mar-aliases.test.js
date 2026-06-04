@@ -17,7 +17,15 @@ let staffToken;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
+    `DELETE FROM patient_access_audit_log WHERE patient_uid = $1::uuid`,
+    PATIENT_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM medication_administrations WHERE patient_uid = $1::uuid`,
+    PATIENT_UID,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM admissions WHERE patient_uid = $1::uuid`,
     PATIENT_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -38,6 +46,12 @@ describe('MAR discoverability aliases', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, $2, $3, 'PATIENT', true, NOW())`,
       PATIENT_UID, `+9199998${RUN_SUFFIX}`, `MAR Alias Patient ${RUN_SUFFIX}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (patient_uid, status, admitted_at, ward, bed_number, created_by, created_at, updated_at)
+       VALUES ($1::uuid, 'admitted', NOW(), 'MAR Alias Ward', $2, $3::uuid, NOW(), NOW())`,
+      PATIENT_UID, `MAR-${RUN_SUFFIX}`, STAFF_UID,
     );
     staffToken = generateTestToken('NURSING_STAFF', { uid: STAFF_UID });
   });
