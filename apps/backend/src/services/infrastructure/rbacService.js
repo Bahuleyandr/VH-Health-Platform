@@ -12,15 +12,17 @@ import {
 } from '../../utils/infrastructure/rbacUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import {
-  ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF,
-  LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF
+  ALL_ROLES,
+  ADMIN,
+  PATIENT,
+  NURSING_STAFF,
+  PHARMACY_STAFF,
+  LAB_STAFF,
+  DOCTOR,
+  GENERAL_STAFF,
+  HR_STAFF
 } from '../../utils/roles.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
-
-const ALL_ROLES = [
-  ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF,
-  LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF
-];
 
 export class RBACService {
   // Get all available roles with details

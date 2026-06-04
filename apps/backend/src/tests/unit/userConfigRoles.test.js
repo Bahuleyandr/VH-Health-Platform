@@ -6,7 +6,7 @@
  * Object.values(USER_CONFIG.ROLES).
  */
 
-import { USER_CONFIG, HOSPITAL_ROLES } from '../../config/userConfig.js';
+import { ACCESS_MATRIX, USER_CONFIG, HOSPITAL_ROLES, ROLE_HIERARCHY } from '../../config/userConfig.js';
 import { ROLES } from '../../utils/roleHelpers.js';
 
 describe('USER_CONFIG.ROLES is the canonical registry', () => {
@@ -54,5 +54,45 @@ describe('USER_CONFIG.ROLES is the canonical registry', () => {
 describe('HOSPITAL_ROLES is also the canonical registry', () => {
   it('matches USER_CONFIG.ROLES exactly', () => {
     expect(HOSPITAL_ROLES).toBe(USER_CONFIG.ROLES);
+  });
+});
+
+describe('USER_CONFIG role inheritance mirrors nursing reporting lines', () => {
+  it('puts CNO over every nursing incharge and staff branch', () => {
+    expect(ROLE_HIERARCHY.CNO).toEqual(expect.arrayContaining([
+      'NURSING_INCHARGE',
+      'IP_INCHARGE',
+      'NURSING_STAFF',
+      'IP_STAFF_NURSE',
+      'OP_INCHARGE',
+      'OP_STAFF_NURSE',
+      'OT_INCHARGE',
+      'OT_NURSE',
+      'OT_STAFF',
+      'CATH_LAB_INCHARGE',
+      'CATH_LAB_STAFF',
+    ]));
+  });
+
+  it('keeps generic Nursing Incharge scoped to IP / ward nursing', () => {
+    expect(ROLE_HIERARCHY.NURSING_INCHARGE).toEqual(['IP_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE']);
+    expect(ROLE_HIERARCHY.NURSING_INCHARGE).not.toEqual(expect.arrayContaining([
+      'OP_STAFF_NURSE',
+      'OT_NURSE',
+      'CATH_LAB_STAFF',
+    ]));
+  });
+});
+
+describe('ACCESS_MATRIX includes nursing leadership roles', () => {
+  it('grants CNO and IP / ward Nursing Incharge their nursing resource permissions', () => {
+    expect(ACCESS_MATRIX.CNO).toEqual(expect.objectContaining({
+      users: ['read', 'update'],
+      appointments: ['read'],
+      records: ['read', 'update'],
+      pharmacy: ['read'],
+      investigations: ['read', 'update'],
+    }));
+    expect(ACCESS_MATRIX.NURSING_INCHARGE).toEqual(ACCESS_MATRIX.IP_INCHARGE);
   });
 });

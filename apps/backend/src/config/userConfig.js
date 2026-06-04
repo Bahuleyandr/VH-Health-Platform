@@ -73,9 +73,23 @@ export const ACCESS_MATRIX = {
     pharmacy: ['create', 'read'],
     investigations: ['create', 'read', 'update']
   },
+  CNO: {
+    users: ['read', 'update'],
+    appointments: ['read'],
+    records: ['read', 'update'],
+    pharmacy: ['read'],
+    investigations: ['read', 'update']
+  },
   NURSING_STAFF: {
     users: ['read'],
     appointments: ['read', 'update'],
+    records: ['read', 'update'],
+    pharmacy: ['read'],
+    investigations: ['read', 'update']
+  },
+  NURSING_INCHARGE: {
+    users: ['read'],
+    appointments: ['read'],
     records: ['read', 'update'],
     pharmacy: ['read'],
     investigations: ['read', 'update']
@@ -432,6 +446,7 @@ export const ROLE_HIERARCHY = {
     'DOCTOR',
     'DUTY_DOCTOR',
     'MEDICAL_SUPERINTENDENT',
+    'CNO',
     'NURSING_STAFF',
     'NURSING_INCHARGE',
     'OP_STAFF_NURSE',
@@ -457,7 +472,20 @@ export const ROLE_HIERARCHY = {
   ],
   DOCTOR: ['NURSING_STAFF', 'IP_STAFF_NURSE', 'OT_NURSE'],
   MEDICAL_SUPERINTENDENT: ['DOCTOR', 'DUTY_DOCTOR', 'NURSING_INCHARGE', 'NURSING_STAFF', 'IP_INCHARGE', 'IP_STAFF_NURSE', 'OT_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF'],
-  NURSING_INCHARGE: ['NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF'],
+  CNO: [
+    'NURSING_INCHARGE',
+    'IP_INCHARGE',
+    'NURSING_STAFF',
+    'IP_STAFF_NURSE',
+    'OP_INCHARGE',
+    'OP_STAFF_NURSE',
+    'OT_INCHARGE',
+    'OT_NURSE',
+    'OT_STAFF',
+    'CATH_LAB_INCHARGE',
+    'CATH_LAB_STAFF'
+  ],
+  NURSING_INCHARGE: ['IP_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE'],
   OP_INCHARGE: ['OP_STAFF_NURSE'],
   IP_INCHARGE: ['NURSING_STAFF', 'IP_STAFF_NURSE'],
   OT_INCHARGE: ['OT_NURSE', 'OT_STAFF'],

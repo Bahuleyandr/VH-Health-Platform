@@ -1,37 +1,72 @@
 // utils/infrastructure/rbacUtils.js
 import prisma from '../../lib/prisma.js';
 import {
+  ALL_ROLES,
+  SUPER_ADMIN,
   ADMIN,
   PATIENT,
+  CNO,
   NURSING_STAFF,
+  NURSING_INCHARGE,
+  OP_STAFF_NURSE,
+  OP_INCHARGE,
+  IP_STAFF_NURSE,
+  IP_INCHARGE,
+  OT_NURSE,
+  OT_INCHARGE,
+  OT_STAFF,
+  CATH_LAB_STAFF,
+  CATH_LAB_INCHARGE,
   PHARMACY_STAFF,
   LAB_STAFF,
   DOCTOR,
+  DUTY_DOCTOR,
+  MEDICAL_SUPERINTENDENT,
   GENERAL_STAFF,
   HOUSEKEEPING_STAFF,
   HOUSEKEEPING_INCHARGE,
   MAINTENANCE,
-  HR_STAFF
+  HR_STAFF,
+  RECEPTIONIST,
+  RECEPTION_INCHARGE,
+  BILLING_STAFF,
+  BILLING_INCHARGE,
+  FINANCE_INCHARGE,
+  ADMISSION_OFFICER,
+  IPD_COUNSELLOR,
+  DRIVER,
+  SECURITY,
+  EMERGENCY_RESPONDER
 } from '../../utils/roles.js';
+
+const ALL_ASSIGNABLE_ROLES = ALL_ROLES.filter(role => role !== SUPER_ADMIN);
+const IP_NURSING_ROLES = [NURSING_INCHARGE, IP_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE];
+const OP_NURSING_ROLES = [OP_INCHARGE, OP_STAFF_NURSE];
+const OT_NURSING_ROLES = [OT_INCHARGE, OT_NURSE, OT_STAFF];
+const CATH_LAB_ROLES = [CATH_LAB_INCHARGE, CATH_LAB_STAFF];
+const ALL_NURSING_SUPERVISION_ROLES = [
+  ...IP_NURSING_ROLES,
+  ...OP_NURSING_ROLES,
+  ...OT_NURSING_ROLES,
+  ...CATH_LAB_ROLES
+];
 
 // Role hierarchy configuration
 export const ROLE_HIERARCHY = {
+  [SUPER_ADMIN]: {
+    level: 110,
+    permissions: ['*'],
+    canManageRoles: ALL_ASSIGNABLE_ROLES,
+    canViewData: 'all',
+    description: 'Super Administrator - Full Platform Access',
+    color: '#991b1b',
+    maxUsers: null,
+    requiresApproval: false
+  },
   [ADMIN]: {
     level: 100,
     permissions: ['*'], // All permissions
-    canManageRoles: [
-      ADMIN,
-      DOCTOR,
-      NURSING_STAFF,
-      PHARMACY_STAFF,
-      LAB_STAFF,
-      HR_STAFF,
-      GENERAL_STAFF,
-      HOUSEKEEPING_STAFF,
-      HOUSEKEEPING_INCHARGE,
-      MAINTENANCE,
-      PATIENT
-    ],
+    canManageRoles: ALL_ASSIGNABLE_ROLES,
     canViewData: 'all',
     description: 'System Administrator - Full Access',
     color: '#dc2626',
@@ -57,6 +92,58 @@ export const ROLE_HIERARCHY = {
     maxUsers: null,
     requiresApproval: true
   },
+  [DUTY_DOCTOR]: {
+    level: 78,
+    permissions: [
+      'view_patients',
+      'access_records',
+      'view_investigations',
+      'create_consultations',
+      'access_medical_records'
+    ],
+    canManageRoles: [],
+    canViewData: 'assigned_clinical',
+    description: 'Duty Doctor - Assigned Clinical Access',
+    color: '#1d4ed8',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [MEDICAL_SUPERINTENDENT]: {
+    level: 90,
+    permissions: [
+      'view_patients',
+      'access_records',
+      'view_investigations',
+      'view_staff',
+      'view_clinical_rosters',
+      'manage_clinical_escalations'
+    ],
+    canManageRoles: [DOCTOR, DUTY_DOCTOR],
+    canViewData: 'clinical_leadership',
+    description: 'Medical Superintendent - Medical Leadership',
+    color: '#1e40af',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [CNO]: {
+    level: 85,
+    permissions: [
+      'view_staff',
+      'manage_nursing_roster',
+      'view_nursing_workload',
+      'assign_nursing_incharges',
+      'approve_nursing_coverage',
+      'view_patients',
+      'access_basic_records',
+      'update_patient_vitals'
+    ],
+    canManageRoles: ALL_NURSING_SUPERVISION_ROLES,
+    canViewData: 'nursing_leadership',
+    description: 'Nursing Superintendent - OP/IP/OT/Cath Lab Nursing Leadership',
+    color: '#0f766e',
+    maxUsers: 3,
+    requiresApproval: true
+  },
   [NURSING_STAFF]: {
     level: 70,
     permissions: [
@@ -72,6 +159,164 @@ export const ROLE_HIERARCHY = {
     canViewData: 'ward_based',
     description: 'Nursing Staff - Patient Care',
     color: '#059669',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [NURSING_INCHARGE]: {
+    level: 74,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'update_patient_vitals',
+      'view_staff',
+      'manage_ip_nursing_roster',
+      'view_ip_nursing_workload'
+    ],
+    canManageRoles: [IP_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE],
+    canViewData: 'ip_nursing_department',
+    description: 'IP / Ward Nursing Incharge - Inpatient Nursing Supervision',
+    color: '#047857',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [IP_INCHARGE]: {
+    level: 73,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'update_patient_vitals',
+      'view_staff',
+      'manage_ip_nursing_roster'
+    ],
+    canManageRoles: [NURSING_STAFF, IP_STAFF_NURSE],
+    canViewData: 'ip_nursing_department',
+    description: 'IP Nursing Incharge - Ward Nursing Work Allocation',
+    color: '#047857',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [IP_STAFF_NURSE]: {
+    level: 70,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'update_patient_vitals',
+      'assist_consultations',
+      'manage_investigations'
+    ],
+    canManageRoles: [PATIENT],
+    canViewData: 'ward_based',
+    description: 'IP Staff Nurse - Inpatient Care',
+    color: '#059669',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [OP_INCHARGE]: {
+    level: 72,
+    permissions: [
+      'view_patients',
+      'manage_appointments',
+      'access_basic_records',
+      'view_staff',
+      'manage_op_nursing_roster',
+      'view_op_queue'
+    ],
+    canManageRoles: [OP_STAFF_NURSE],
+    canViewData: 'op_nursing_department',
+    description: 'OP Nursing Incharge - OP Nursing Work Allocation',
+    color: '#0891b2',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [OP_STAFF_NURSE]: {
+    level: 68,
+    permissions: [
+      'view_patients',
+      'manage_appointments',
+      'access_basic_records',
+      'assist_consultations',
+      'manage_investigations'
+    ],
+    canManageRoles: [PATIENT],
+    canViewData: 'op_nursing_department',
+    description: 'OP Staff Nurse - OP Flow Support',
+    color: '#0d9488',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [OT_INCHARGE]: {
+    level: 72,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'view_staff',
+      'manage_ot_nursing_roster',
+      'view_theatre_workload'
+    ],
+    canManageRoles: [OT_NURSE, OT_STAFF],
+    canViewData: 'ot_nursing_department',
+    description: 'OT Nursing Incharge - Theatre Nursing Work Allocation',
+    color: '#7c3aed',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [OT_NURSE]: {
+    level: 68,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'assist_theatre_workflow',
+      'view_theatre_workload'
+    ],
+    canManageRoles: [],
+    canViewData: 'ot_nursing_department',
+    description: 'OT Nurse - Theatre Nursing Support',
+    color: '#8b5cf6',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [OT_STAFF]: {
+    level: 66,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'assist_theatre_workflow'
+    ],
+    canManageRoles: [],
+    canViewData: 'ot_nursing_department',
+    description: 'OT Staff - Theatre Support',
+    color: '#a855f7',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [CATH_LAB_INCHARGE]: {
+    level: 72,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'view_staff',
+      'manage_cath_lab_roster',
+      'view_cath_lab_workload'
+    ],
+    canManageRoles: [CATH_LAB_STAFF],
+    canViewData: 'cath_lab_department',
+    description: 'Cath Lab Incharge - Cath Lab Work Allocation',
+    color: '#0284c7',
+    maxUsers: null,
+    requiresApproval: true
+  },
+  [CATH_LAB_STAFF]: {
+    level: 66,
+    permissions: [
+      'view_patients',
+      'access_basic_records',
+      'assist_cath_lab_workflow',
+      'view_cath_lab_workload'
+    ],
+    canManageRoles: [],
+    canViewData: 'cath_lab_department',
+    description: 'Cath Lab Staff - Cath Lab Support',
+    color: '#0ea5e9',
     maxUsers: null,
     requiresApproval: true
   },
@@ -120,7 +365,23 @@ export const ROLE_HIERARCHY = {
       'process_payroll',
       'handle_grievances'
     ],
-    canManageRoles: [GENERAL_STAFF, HOUSEKEEPING_STAFF, HOUSEKEEPING_INCHARGE, MAINTENANCE],
+    canManageRoles: [
+      ...ALL_NURSING_SUPERVISION_ROLES,
+      GENERAL_STAFF,
+      HOUSEKEEPING_STAFF,
+      HOUSEKEEPING_INCHARGE,
+      MAINTENANCE,
+      RECEPTIONIST,
+      RECEPTION_INCHARGE,
+      BILLING_STAFF,
+      BILLING_INCHARGE,
+      FINANCE_INCHARGE,
+      ADMISSION_OFFICER,
+      IPD_COUNSELLOR,
+      DRIVER,
+      SECURITY,
+      EMERGENCY_RESPONDER
+    ],
     canViewData: 'hr_only',
     description: 'Human Resources - Staff Management',
     color: '#0891b2',
@@ -206,7 +467,7 @@ export const ROLE_HIERARCHY = {
 
 // Check if user can manage role
 export const canUserManageRole = (userRole, targetRole) => {
-  if (userRole === ADMIN) {
+  if ([SUPER_ADMIN, ADMIN].includes(userRole)) {
     return true;
   }
   const roleData = ROLE_HIERARCHY[userRole];
@@ -236,7 +497,7 @@ export const checkRoleCapacity = async (role, _db) => {
 
 // Get manageable roles for user
 export const getManageableRoles = userRole => {
-  if (userRole === ADMIN) {
+  if ([SUPER_ADMIN, ADMIN].includes(userRole)) {
     return Object.keys(ROLE_HIERARCHY);
   }
   return ROLE_HIERARCHY[userRole]?.canManageRoles || [];

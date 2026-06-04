@@ -18,7 +18,9 @@ export function getStaffHierarchy(userRole) {
   const opNursingRoles = ['OP_STAFF_NURSE'];
   const otNursingRoles = ['OT_NURSE', 'OT_STAFF'];
   const otInchargeRoles = ['OT_INCHARGE'];
-  const cathLabRoles = ['CATH_LAB_STAFF', 'CATH_LAB_INCHARGE'];
+  const cathLabInchargeRoles = ['CATH_LAB_INCHARGE'];
+  const cathLabStaffRoles = ['CATH_LAB_STAFF'];
+  const cathLabRoles = [...cathLabInchargeRoles, ...cathLabStaffRoles];
   // Anaesthetists are clinical-doctor tier (same level as DOCTOR for the
   // theatre/ICU/PACU surfaces); RADIOLOGY_STAFF mirrors LAB_STAFF as a
   // self-contained role bucket. HR_STAFF now lists every modality role
@@ -57,7 +59,7 @@ export function getStaffHierarchy(userRole) {
       ...otNursingRoles,
       ...cathLabRoles,
     ],
-    NURSING_INCHARGE: ['NURSING_INCHARGE', 'IP_INCHARGE', ...ipNursingRoles, ...opNursingRoles, ...otInchargeRoles, ...otNursingRoles],
+    NURSING_INCHARGE: ['NURSING_INCHARGE', 'IP_INCHARGE', ...ipNursingRoles],
     NURSING_STAFF: ['NURSING_STAFF'],
     IP_INCHARGE: ['IP_INCHARGE', ...ipNursingRoles],
     IP_STAFF_NURSE: ['IP_STAFF_NURSE'],
