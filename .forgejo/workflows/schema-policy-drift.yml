@@ -48,7 +48,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@127.0.0.1:5432/vhhealth
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@postgres:5432/vhhealth
       API_KEY: vhhealth-local-api-key
       BACKEND_API_KEY: vhhealth-local-api-key
       JWT_SECRET: vhhealth-local-admin-smoke-secret-123456789
@@ -107,4 +107,3 @@ jobs:
           console.log(`policy_version=${getRolePolicyVersion()}`);
           console.log(`policy_hash=${getRolePolicyHash()}`);
           NODE
-
