@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../utils/drug_chart_utils.dart';
 
 const _routeOptions = <String, String>{
   'oral': 'Oral',
@@ -131,8 +132,9 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
 
   Future<void> _saveDraftRow(_DrugChartDraftRow row) async {
     final drug = row.drugCtrl.text.trim();
-    final dose = row.doseCtrl.text.trim();
-    final durationDays = int.tryParse(row.durationCtrl.text.trim());
+    final dose = row.doseCtrl.text.trim().isNotEmpty
+        ? row.doseCtrl.text.trim()
+        : deriveDoseFromDrug(drug);
     final doseTimes = row.selectedTimes.toList()
       ..sort((a, b) => _slotIndex(a).compareTo(_slotIndex(b)));
 
@@ -140,11 +142,9 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     if (drug.isEmpty) {
       error = 'Drug is required';
     } else if (dose.isEmpty) {
-      error = 'Dose is required';
+      error = 'Dose is required; select a drug with strength or enter dose';
     } else if (doseTimes.isEmpty) {
       error = 'Select at least one administration time';
-    } else if (durationDays == null || durationDays < 1) {
-      error = 'Duration must be at least 1 day';
     }
     if (error != null) {
       _showSnack(error, isError: true);
@@ -162,7 +162,6 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
         dose: dose,
         route: row.route,
         frequency: _frequencyForTimes(doseTimes),
-        durationDays: durationDays,
         doseTimes: doseTimes,
         foodTiming: row.foodTiming.isEmpty ? null : row.foodTiming,
         instructions: row.notesCtrl.text.trim().isEmpty
@@ -585,9 +584,9 @@ class _DrugChartHeaderRow extends StatelessWidget {
       child: Row(
         children: [
           _tableHeaderCell('Drug', width: _drugCol),
-          _tableHeaderCell('Dosage', width: _doseCol),
+          _tableHeaderCell('Dose', width: _doseCol),
           _tableHeaderCell('Route', width: _routeCol),
-          _tableHeaderCell('Days', width: _daysCol),
+          _tableHeaderCell('Started', width: _startedCol),
           ..._doseSlots.map(
             (slot) => _tableHeaderCell(
               '${slot.label}\n${slot.time}',
@@ -632,6 +631,12 @@ class _DrugChartOrderRow extends StatelessWidget {
     final blockers = (safety['blockers'] as List? ?? const [])
         .whereType<Map>()
         .toList();
+    final medicationName = _text(details['name'], fallback: 'Medication');
+    final dose = _displayDose(details, medicationName);
+    final startedAt =
+        _dateTime(order['start_date']) ?? _dateTime(order['created_at']);
+    final startedBy = _text(order['ordered_by_name'], fallback: 'Doctor');
+    final antibiotic = isAntibioticMedication(medicationName, details: details);
 
     return Container(
       width: _chartWidth,
@@ -649,16 +654,11 @@ class _DrugChartOrderRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _text(details['name'], fallback: 'Medication'),
+                  medicationName,
                   style: TextStyle(
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.w800,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _text(order['ordered_by_name'], fallback: 'Doctor'),
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
                 Wrap(
@@ -683,14 +683,16 @@ class _DrugChartOrderRow extends StatelessWidget {
               ],
             ),
           ),
-          _tableTextCell(_text(details['dose']), width: _doseCol),
+          _tableTextCell(dose, width: _doseCol),
           _tableTextCell(
             _routeLabel(_text(details['route'])),
             width: _routeCol,
           ),
-          _tableTextCell(
-            _text(details['duration_days'] ?? details['duration']),
-            width: _daysCol,
+          _StartedCell(
+            startedAt: startedAt,
+            startedBy: startedBy,
+            showAntibioticDay: antibiotic,
+            width: _startedCol,
           ),
           ..._doseSlots.map(
             (slot) => _DoseTimeCell(
@@ -740,6 +742,16 @@ class _DrugChartDraftTableRow extends StatefulWidget {
 }
 
 class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
+  void _applyDerivedDose(String drug, {bool overwrite = false}) {
+    final derived = deriveDoseFromDrug(drug);
+    if (derived.isEmpty) return;
+    final current = widget.row.doseCtrl.text.trim();
+    if (overwrite || current.isEmpty || current == widget.row.lastAutoDose) {
+      widget.row.doseCtrl.text = derived;
+      widget.row.lastAutoDose = derived;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final row = widget.row;
@@ -757,7 +769,10 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             height: _draftRowHeight,
             child: _DrugAutocompleteField(
               controller: row.drugCtrl,
-              onSelected: (_) => setState(() {}),
+              onTextChanged: (value) =>
+                  setState(() => _applyDerivedDose(value)),
+              onSelected: (value) =>
+                  setState(() => _applyDerivedDose(value, overwrite: true)),
             ),
           ),
           _tableCell(
@@ -768,8 +783,8 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
               minLines: 1,
               maxLines: 2,
               decoration: const InputDecoration(
-                labelText: 'Dose',
-                hintText: '500 mg',
+                labelText: 'Dose (auto)',
+                hintText: 'auto from drug',
                 isDense: true,
               ),
             ),
@@ -796,16 +811,25 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
             ),
           ),
           _tableCell(
-            width: _daysCol,
+            width: _startedCol,
             height: _draftRowHeight,
-            child: TextField(
-              controller: row.durationCtrl,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(
-                labelText: 'Days',
-                isDense: true,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Starts today',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Active until stopped',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+              ],
             ),
           ),
           ..._doseSlots.map(
@@ -903,10 +927,12 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
 
 class _DrugAutocompleteField extends StatefulWidget {
   final TextEditingController controller;
+  final ValueChanged<String>? onTextChanged;
   final ValueChanged<String> onSelected;
 
   const _DrugAutocompleteField({
     required this.controller,
+    this.onTextChanged,
     required this.onSelected,
   });
 
@@ -947,6 +973,7 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
   }
 
   void _onChanged(String value) {
+    widget.onTextChanged?.call(value);
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), () => _search(value));
   }
@@ -1034,6 +1061,55 @@ class _DrugAutocompleteFieldState extends State<_DrugAutocompleteField> {
           ),
         );
       },
+    );
+  }
+}
+
+class _StartedCell extends StatelessWidget {
+  final DateTime? startedAt;
+  final String startedBy;
+  final bool showAntibioticDay;
+  final double width;
+
+  const _StartedCell({
+    required this.startedAt,
+    required this.startedBy,
+    required this.showAntibioticDay,
+    required this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _tableCell(
+      width: width,
+      height: _orderRowHeight,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Started ${formatDrugChartDate(startedAt)}',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'By $startedBy',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+          ),
+          if (showAntibioticDay && startedAt != null) ...[
+            const SizedBox(height: 8),
+            _MiniPill(
+              label: 'Antibiotic day ${antibioticDay(startedAt!)}',
+              color: AppTheme.warningOnSurface,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -1273,9 +1349,9 @@ class _MiniPill extends StatelessWidget {
 class _DrugChartDraftRow {
   final drugCtrl = TextEditingController();
   final doseCtrl = TextEditingController();
-  final durationCtrl = TextEditingController(text: '3');
   final notesCtrl = TextEditingController();
   final selectedTimes = <String>{'08:00', '20:00'};
+  String? lastAutoDose;
   String route = 'oral';
   String foodTiming = '';
   bool saving = false;
@@ -1283,7 +1359,6 @@ class _DrugChartDraftRow {
   void dispose() {
     drugCtrl.dispose();
     doseCtrl.dispose();
-    durationCtrl.dispose();
     notesCtrl.dispose();
   }
 }
@@ -1296,21 +1371,21 @@ class _DoseSlot {
   const _DoseSlot(this.key, this.label, this.time);
 }
 
-const double _drugCol = 260;
-const double _doseCol = 150;
-const double _routeCol = 130;
-const double _daysCol = 78;
+const double _drugCol = 280;
+const double _doseCol = 130;
+const double _routeCol = 120;
+const double _startedCol = 180;
 const double _timeCol = 86;
 const double _foodCol = 150;
 const double _actionCol = 240;
 const double _headerRowHeight = 54;
-const double _orderRowHeight = 132;
+const double _orderRowHeight = 142;
 const double _draftRowHeight = 144;
 const double _chartWidth =
     _drugCol +
     _doseCol +
     _routeCol +
-    _daysCol +
+    _startedCol +
     (_timeCol * 4) +
     _foodCol +
     _actionCol;
@@ -1486,4 +1561,10 @@ String _routeLabel(String route) {
 
 String _foodLabel(String value) {
   return _foodOptions[value] ?? _foodOptions[value.toLowerCase()] ?? '-';
+}
+
+String _displayDose(Map<String, dynamic> details, String medicationName) {
+  final explicit = _text(details['dose'], fallback: _text(details['dosage']));
+  if (explicit.isNotEmpty) return explicit;
+  return deriveDoseFromDrug(medicationName);
 }

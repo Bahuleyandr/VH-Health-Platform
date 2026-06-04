@@ -10,6 +10,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 
 // Wave-4B-1 — 'deferred' is the IRDAI/MCI emergency-care payment mode for
 // unidentified patients and brought-in-dead RTA victims. The hospital must
@@ -49,6 +50,7 @@ const VALID_INDENT_TRANSITIONS = {
   rejected:  new Set([]),
 };
 const CLINICAL_ORDER_REF_RE = /clinical_order_id:(\d+)/g;
+const PHARMACY_WARD_INDENT_ROLES = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'];
 
 const ATTENDANT_PASS_COUNT_PER_ADMISSION = 2;
 // Default safety expiry for auto-issued attendant passes. The pass is
@@ -785,7 +787,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
   const searchTerms = catalogSearchTerms(medicationName, details);
   const wildcardTerms = searchTerms.map((term) => `%${term}%`);
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.$queryRawUnsafe(
       `SELECT wi.id
          FROM ward_indents wi
@@ -796,14 +798,15 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
       `%clinical_order_id:${order.id}%`,
     );
     if (existing.length) {
-      return tx.ward_indents.findUnique({
+      const indent = await tx.ward_indents.findUnique({
         where: { id: existing[0].id },
         include: { items: true },
       });
+      return { indent, created: false, admission: null };
     }
 
     const admissions = await tx.$queryRawUnsafe(
-      `SELECT a.id, a.ward AS admission_ward, a.encounter_id, a.patient_uid, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+      `SELECT a.id, a.tenant_id, a.ward AS admission_ward, a.encounter_id, a.patient_uid, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
          FROM admissions a
          LEFT JOIN beds b ON b.id = a.bed_id
          LEFT JOIN wards w ON w.id = b.ward_id
@@ -871,7 +874,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
     const catalog = catalogMatches[0] ?? null;
     const indentNumber = await nextIndentNumber(tx);
 
-    return tx.ward_indents.create({
+    const indent = await tx.ward_indents.create({
       data: {
         indent_number: indentNumber,
         ward_id: admission.ward_id ?? null,
@@ -896,6 +899,48 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
       },
       include: { items: true },
     });
+    return { indent, created: true, admission };
+  });
+
+  if (result?.created && result.indent) {
+    await notifyPharmacyStaffOfWardIndent({
+      indent: result.indent,
+      order,
+      medicationName,
+      admission: result.admission,
+    }).catch((err) => {
+      logger.warn(`Failed to notify pharmacy for ward indent ${result.indent?.indent_number || result.indent?.id}: ${err.message}`);
+    });
+  }
+
+  return result?.indent ?? null;
+}
+
+async function notifyPharmacyStaffOfWardIndent({ indent, order, medicationName, admission }) {
+  if (!indent?.id) return null;
+  const wardName = indent.ward_name || admission?.ward_name || admission?.admission_ward || 'ward';
+  return sendStaffNotifications({
+    tenantId: order.tenant_id || indent.tenant_id || admission?.tenant_id || undefined,
+    recipientRoles: PHARMACY_WARD_INDENT_ROLES,
+    title: 'Ward drug indent requested',
+    body: `${medicationName} requested from ${wardName} drug chart. Please review the pharmacy ward indent for dispensing.`,
+    type: 'WARD_PHARMACY_INDENT',
+    priority: 'HIGH',
+    relatedId: indent.id,
+    dedupe: true,
+    data: {
+      source: 'ip_drug_chart',
+      indent_id: indent.id,
+      indent_number: indent.indent_number || null,
+      admission_id: indent.admission_id || admission?.id || null,
+      encounter_id: indent.encounter_id || order.encounter_id || null,
+      patient_uid: indent.patient_uid || order.patient_uid || null,
+      ward_id: indent.ward_id || admission?.ward_id || null,
+      ward_name: wardName,
+      clinical_order_id: order.id || null,
+      order_number: order.order_number || null,
+      medication_name: medicationName,
+    },
   });
 }
 

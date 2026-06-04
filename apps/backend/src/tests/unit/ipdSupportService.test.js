@@ -17,6 +17,7 @@ const txQueryRawUnsafeMock = jest.fn();
 const txWardIndentFindFirstMock = jest.fn();
 const txWardIndentFindUniqueMock = jest.fn();
 const txWardIndentCreateMock = jest.fn();
+const sendStaffNotificationsMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -36,6 +37,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
+jest.unstable_mockModule('../../services/notification/staffNotificationService.js', () => ({
+  sendStaffNotifications: sendStaffNotificationsMock,
+}));
+
 const ipdSupportService = (await import('../../services/ipd/ipdSupportService.js')).default;
 
 beforeEach(() => {
@@ -48,6 +53,8 @@ beforeEach(() => {
   txWardIndentFindFirstMock.mockReset();
   txWardIndentFindUniqueMock.mockReset();
   txWardIndentCreateMock.mockReset();
+  sendStaffNotificationsMock.mockReset();
+  sendStaffNotificationsMock.mockResolvedValue({ notification_count: 1 });
   transactionMock.mockImplementation(async (callback) => callback({
     $queryRawUnsafe: txQueryRawUnsafeMock,
     ward_indents: {
@@ -139,6 +146,7 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
   };
   const ADMISSION_ROW = {
     id: 42,
+    tenant_id: '00000000-0000-4000-8000-000000000001',
     admission_ward: 'Ward A',
     encounter_id: ORDER_BASE.encounter_id,
     patient_uid: ORDER_BASE.patient_uid,
@@ -184,6 +192,17 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
       item_name: 'Pantoprazole 40mg Injection',
       unit_price: 45,
     });
+    expect(sendStaffNotificationsMock).toHaveBeenCalledWith(expect.objectContaining({
+      recipientRoles: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'],
+      type: 'WARD_PHARMACY_INDENT',
+      relatedId: 9001,
+      data: expect.objectContaining({
+        source: 'ip_drug_chart',
+        clinical_order_id: 501,
+        order_number: 'ORD-IPD-501',
+        medication_name: 'Pantoprazole',
+      }),
+    }));
   });
 
   it('maps NS/normal-saline IV fluid orders to the stocked IV-fluid catalog item', async () => {
@@ -219,5 +238,33 @@ describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catal
       item_name: 'Normal Saline 0.9% 500ml',
       unit_price: 35,
     });
+  });
+
+  it('does not resend pharmacy notifications for an existing linked ward indent', async () => {
+    txQueryRawUnsafeMock.mockResolvedValueOnce([{ id: 777 }]);
+    txWardIndentFindUniqueMock.mockResolvedValueOnce({
+      id: 777,
+      indent_number: 'WI-EXISTING',
+      items: [{ item_name: 'Ceftriaxone 1g Injection' }],
+    });
+
+    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder({
+      ...ORDER_BASE,
+      id: 503,
+      order_number: 'ORD-IPD-503',
+      route: 'iv',
+      details: {
+        medication_name: 'Ceftriaxone 1 g',
+        route: 'IV',
+        dose: '1 g',
+      },
+    });
+
+    expect(indent.id).toBe(777);
+    expect(txWardIndentFindUniqueMock).toHaveBeenCalledWith({
+      where: { id: 777 },
+      include: { items: true },
+    });
+    expect(sendStaffNotificationsMock).not.toHaveBeenCalled();
   });
 });
