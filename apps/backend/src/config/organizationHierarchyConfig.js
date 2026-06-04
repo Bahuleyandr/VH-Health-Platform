@@ -1,4 +1,4 @@
-export const ORGANIZATION_HIERARCHY_VERSION = 'vh-org-hierarchy-2026-05-v1';
+export const ORGANIZATION_HIERARCHY_VERSION = 'vh-org-hierarchy-2026-06-v2';
 
 export const HIERARCHY_RELATIONSHIP_TYPES = {
   GOVERNANCE: 'governance',
@@ -144,32 +144,119 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     ],
   },
   {
-    id: 'nursing_incharge',
+    id: 'ip_nursing_incharge',
     lane: 'clinical',
-    title: 'Nursing Incharge / OP / IP / OT / Cath Lab Incharge',
-    subtitle: 'Unit nursing leads',
-    role_codes: ['NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'OT_INCHARGE', 'CATH_LAB_INCHARGE'],
-    access_level: 'Unit roster and nursing work access',
+    title: 'IP / Ward Nursing Incharge',
+    subtitle: 'Ward and inpatient nursing lead',
+    role_codes: ['NURSING_INCHARGE', 'IP_INCHARGE'],
+    access_level: 'IP nursing roster and ward work access',
     responsibilities: [
-      'Assigns nurses to wards, OP areas, Cath lab, OT coverage, and coverage blocks',
-      'Recommends leave approval or alternate arrangements based on coverage',
+      'Assigns nurses to wards, ICU-linked coverage blocks, IP medication administration, and patient handover',
+      'Recommends leave approval or alternate arrangements based on inpatient coverage',
     ],
     boundaries: [
       'Does not replace HR approval records or payroll processing',
     ],
   },
   {
-    id: 'nursing_staff',
+    id: 'ip_nursing_staff',
     lane: 'clinical',
-    title: 'Nursing Staff / OP / IP / OT / Cath Lab Staff',
-    subtitle: 'Nursing team',
-    role_codes: ['NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF', 'ICU_NURSE'],
-    access_level: 'Nursing workflow access',
+    title: 'IP Nursing Staff',
+    subtitle: 'Ward and inpatient nursing team',
+    role_codes: ['NURSING_STAFF', 'IP_STAFF_NURSE', 'ICU_NURSE'],
+    access_level: 'IP nursing workflow access',
     responsibilities: [
-      'OP, IP, OT, Cath lab, vitals, medication administration, nursing notes, and patient handover',
+      'IP vitals, I/O, medication administration, nursing notes, ward handover, and discharge readiness support',
     ],
     boundaries: [
-      'Leave preferences go through HR process and nursing coverage review',
+      'Leave preferences go through HR process and IP nursing coverage review',
+    ],
+  },
+  {
+    id: 'op_nursing_incharge',
+    lane: 'clinical',
+    title: 'OP Nursing Incharge',
+    subtitle: 'OP nursing lead',
+    role_codes: ['OP_INCHARGE'],
+    access_level: 'OP nursing roster and OP flow access',
+    responsibilities: [
+      'Assigns OP nurses to appointment, front-office, triage, and OP flow coverage blocks',
+      'Recommends leave approval or alternate arrangements based on OP coverage',
+    ],
+    boundaries: [
+      'Does not replace HR approval records or payroll processing',
+    ],
+  },
+  {
+    id: 'op_nursing_staff',
+    lane: 'clinical',
+    title: 'OP Nursing Staff',
+    subtitle: 'OP nursing team',
+    role_codes: ['OP_STAFF_NURSE'],
+    access_level: 'OP nursing workflow access',
+    responsibilities: [
+      'OP appointment flow support, patient lookup, OP nursing notes, lab booking support, and OP queue coordination',
+    ],
+    boundaries: [
+      'Leave preferences go through HR process and OP nursing coverage review',
+    ],
+  },
+  {
+    id: 'ot_nursing_incharge',
+    lane: 'clinical',
+    title: 'OT Nursing Incharge',
+    subtitle: 'Theatre nursing lead',
+    role_codes: ['OT_INCHARGE'],
+    access_level: 'OT nursing roster and theatre access',
+    responsibilities: [
+      'Assigns OT nurses to theatre cases, readiness checks, and perioperative coverage blocks',
+      'Recommends leave approval or alternate arrangements based on theatre coverage',
+    ],
+    boundaries: [
+      'Does not replace HR approval records or payroll processing',
+    ],
+  },
+  {
+    id: 'ot_nursing_staff',
+    lane: 'clinical',
+    title: 'OT Nursing Staff',
+    subtitle: 'Theatre nursing team',
+    role_codes: ['OT_NURSE', 'OT_STAFF'],
+    access_level: 'OT nursing workflow access',
+    responsibilities: [
+      'Theatre readiness, perioperative nursing support, procedure flow support, and OT handover',
+    ],
+    boundaries: [
+      'Leave preferences go through HR process and OT nursing coverage review',
+    ],
+  },
+  {
+    id: 'cath_lab_incharge',
+    lane: 'clinical',
+    title: 'Cath Lab Incharge',
+    subtitle: 'Cath lab nursing lead',
+    role_codes: ['CATH_LAB_INCHARGE'],
+    access_level: 'Cath lab roster and workflow access',
+    responsibilities: [
+      'Assigns Cath Lab staff to cases, readiness checks, equipment coordination, and coverage blocks',
+      'Recommends leave approval or alternate arrangements based on Cath Lab coverage',
+    ],
+    boundaries: [
+      'Does not replace HR approval records or payroll processing',
+    ],
+  },
+  {
+    id: 'cath_lab_staff',
+    lane: 'clinical',
+    title: 'Cath Lab Staff',
+    subtitle: 'Cath lab nursing and technical team',
+    role_codes: ['CATH_LAB_STAFF'],
+    access_level: 'Cath lab workflow access',
+    responsibilities: [
+      'Cath Lab readiness, case support, equipment checks, lab/blood-bank coordination, and procedure handover',
+    ],
+    boundaries: [
+      'Leave preferences go through HR process and Cath Lab coverage review',
     ],
   },
   {
@@ -341,8 +428,14 @@ export const ORGANIZATION_HIERARCHY_EDGES = [
   { from: 'medical_superintendent', to: 'doctors', type: 'work', label: 'Medical work supervision' },
   { from: 'medical_superintendent', to: 'diagnostics_services', type: 'work', label: 'Diagnostic service governance' },
   { from: 'ceo_coo', to: 'nursing_superintendent', type: 'governance', label: 'Nursing leadership accountability' },
-  { from: 'nursing_superintendent', to: 'nursing_incharge', type: 'work', label: 'Nursing work supervision' },
-  { from: 'nursing_incharge', to: 'nursing_staff', type: 'work', label: 'Ward and OP nursing deployment' },
+  { from: 'nursing_superintendent', to: 'ip_nursing_incharge', type: 'work', label: 'IP nursing supervision' },
+  { from: 'ip_nursing_incharge', to: 'ip_nursing_staff', type: 'work', label: 'IP nursing deployment' },
+  { from: 'nursing_superintendent', to: 'op_nursing_incharge', type: 'work', label: 'OP nursing supervision' },
+  { from: 'op_nursing_incharge', to: 'op_nursing_staff', type: 'work', label: 'OP nursing deployment' },
+  { from: 'nursing_superintendent', to: 'ot_nursing_incharge', type: 'work', label: 'OT nursing supervision' },
+  { from: 'ot_nursing_incharge', to: 'ot_nursing_staff', type: 'work', label: 'OT nursing deployment' },
+  { from: 'nursing_superintendent', to: 'cath_lab_incharge', type: 'work', label: 'Cath Lab supervision' },
+  { from: 'cath_lab_incharge', to: 'cath_lab_staff', type: 'work', label: 'Cath Lab deployment' },
   { from: 'ceo_coo', to: 'operations_incharge', type: 'governance', label: 'Operational accountability' },
   { from: 'operations_incharge', to: 'reception_incharge', type: 'work', label: 'Front office supervision' },
   { from: 'reception_incharge', to: 'reception_team', type: 'work', label: 'Front office work allocation' },
@@ -359,7 +452,10 @@ export const ORGANIZATION_HIERARCHY_EDGES = [
   { from: 'hr_manager', to: 'operations_incharge', type: 'leave', label: 'Leave records and HR policy process' },
   { from: 'hr_manager', to: 'housekeeping_incharge', type: 'leave', label: 'Leave records only; work line stays operational' },
   { from: 'hr_manager', to: 'maintenance_incharge', type: 'leave', label: 'Leave records only; work line stays operational' },
-  { from: 'nursing_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for nursing leave' },
+  { from: 'ip_nursing_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for IP nursing leave' },
+  { from: 'op_nursing_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for OP nursing leave' },
+  { from: 'ot_nursing_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for OT nursing leave' },
+  { from: 'cath_lab_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for Cath Lab leave' },
   { from: 'housekeeping_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for housekeeping leave' },
   { from: 'maintenance_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for maintenance leave' },
   { from: 'reception_incharge', to: 'hr_manager', type: 'leave_recommendation', label: 'Coverage recommendation for reception leave' },
