@@ -686,7 +686,7 @@ app.use('/api/v1/cds-services', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'N
 app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
-app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
+app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('CLINICAL_WORKFLOW'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'OT_INCHARGE'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
@@ -707,6 +707,7 @@ function rewriteToMarPrefix(req, _res, next) {
 app.use(
   '/api/v1/emr/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
+  patientAccessGuard('CLINICAL_WORKFLOW'),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
   clinicalRoutes,
@@ -714,6 +715,7 @@ app.use(
 app.use(
   '/api/v1/nursing/mar',
   requireRole(...CLINICAL_STAFF_ROLES),
+  patientAccessGuard('CLINICAL_WORKFLOW'),
   phiAccessLogger('CLINICAL_WORKFLOW'),
   rewriteToMarPrefix,
   clinicalRoutes,
@@ -725,7 +727,6 @@ app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOC
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
 app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
-app.use('/api/v1/emr', patientAccessGuard('EMR'));
 app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
   '/api/v1/emr/notes',
   '/api/v1/emr/timeline',

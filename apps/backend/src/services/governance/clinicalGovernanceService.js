@@ -479,6 +479,14 @@ export async function listPatientAccessAudit({
   tenantId: tid = null,
   patientUid = null,
   actorUid = null,
+  decision = null,
+  source = null,
+  action = null,
+  recordType = null,
+  resourceType = null,
+  route = null,
+  dateFrom = null,
+  dateTo = null,
   take = DEFAULT_LIMIT,
 } = {}) {
   const params = [tenantId(tid)];
@@ -493,6 +501,46 @@ export async function listPatientAccessAudit({
     params.push(actor);
     filters.push(`actor_uid = $${params.length}::uuid`);
   }
+  const cleanDecision = text(decision, 40);
+  if (cleanDecision) {
+    params.push(cleanDecision.toLowerCase());
+    filters.push(`LOWER(access_decision) = $${params.length}`);
+  }
+  const cleanSource = text(source, 40);
+  if (cleanSource) {
+    params.push(cleanSource.toLowerCase());
+    filters.push(`LOWER(access_source) = $${params.length}`);
+  }
+  const cleanAction = text(action, 40);
+  if (cleanAction) {
+    params.push(cleanAction.toUpperCase());
+    filters.push(`UPPER(action) = $${params.length}`);
+  }
+  const cleanRecordType = text(recordType, 120);
+  if (cleanRecordType) {
+    params.push(cleanRecordType.toLowerCase());
+    filters.push(`LOWER(metadata->>'record_type') = $${params.length}`);
+  }
+  const cleanResourceType = text(resourceType, 120);
+  if (cleanResourceType) {
+    params.push(cleanResourceType.toLowerCase());
+    filters.push(`LOWER(metadata->>'resource_type') = $${params.length}`);
+  }
+  const cleanRoute = text(route, 120);
+  if (cleanRoute) {
+    params.push(`%${cleanRoute}%`);
+    filters.push(`route ILIKE $${params.length}`);
+  }
+  const from = optionalDate(dateFrom, 'date_from');
+  if (from) {
+    params.push(from);
+    filters.push(`created_at >= $${params.length}::timestamptz`);
+  }
+  const to = optionalDate(dateTo, 'date_to');
+  if (to) {
+    params.push(to);
+    filters.push(`created_at <= $${params.length}::timestamptz`);
+  }
   params.push(limit(take));
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -500,7 +548,11 @@ export async function listPatientAccessAudit({
          id, tenant_id, patient_uid, actor_uid, actor_role,
          access_decision, access_source, reason AS access_reason,
          route, action, care_team_id, break_glass_id, request_id,
-         metadata, metadata->>'record_type' AS record_type, created_at
+         metadata,
+         metadata->>'record_type' AS record_type,
+         metadata->>'resource_type' AS resource_type,
+         metadata->>'policy_code' AS policy_code,
+         created_at
        FROM patient_access_audit_log
        WHERE ${filters.join(' AND ')}
        ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,

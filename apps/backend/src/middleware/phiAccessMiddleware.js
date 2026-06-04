@@ -14,6 +14,7 @@ import logger from '../logging/logger.js';
 import {
   authorizePatientAccessRequest,
   patientAccessErrorPayload,
+  resolvePatientForResourceAccess,
   shouldSkipAccessCheckError,
 } from '../services/security/accessDecisionService.js';
 import { policyCodeForRecordType } from '../services/security/accessPolicyRegistry.js';
@@ -92,6 +93,62 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
         return next();
       }
       logger.error('Patient access guard failed:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Patient access check failed',
+        code: 'PATIENT_ACCESS_CHECK_FAILED',
+      });
+    }
+  };
+}
+
+export function patientAccessGuardForResource(recordType = 'PHI', options = {}) {
+  const {
+    policyCode,
+    resourceType,
+    idParam = 'id',
+    idSelector = null,
+    allowNoPatientResource = false,
+  } = options;
+
+  return async function patientAccessGuardForResourceMiddleware(req, res, next) {
+    try {
+      const resourceId = typeof idSelector === 'function'
+        ? idSelector(req)
+        : req.params?.[idParam] ?? req.query?.[idParam] ?? req.body?.[idParam] ?? null;
+
+      if (!resourceId) {
+        return patientAccessGuard(recordType, { policyCode })(req, res, next);
+      }
+
+      const patient = await resolvePatientForResourceAccess(req, {
+        resourceType,
+        resourceId,
+      });
+
+      if (!patient?.uid && allowNoPatientResource) return next();
+
+      const decision = await authorizePatientAccessRequest(req, {
+        policyCode: policyCode || policyCodeForRecordType(recordType),
+        recordType,
+        patient,
+        requireResolvedPatient: true,
+      });
+
+      if (!decision.allowed) {
+        return res.status(403).json(patientAccessErrorPayload(decision));
+      }
+
+      return next();
+    } catch (err) {
+      if (shouldSkipAccessCheckError(err)) {
+        logger.warn('Patient resource access guard skipped because governance tables are not migrated', {
+          path: req.originalUrl || req.url,
+          resourceType,
+        });
+        return next();
+      }
+      logger.error('Patient resource access guard failed:', err);
       return res.status(500).json({
         success: false,
         message: 'Patient access check failed',

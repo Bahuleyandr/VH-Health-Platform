@@ -1,12 +1,34 @@
 // src/routes/emr/orderRoutes.js
 import express from 'express';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import * as orderEntryService from '../../services/emr/orderEntryService.js';
+import {
+  ACCESS_POLICY_CODES,
+  authorizePatientAccessRequest,
+  patientAccessErrorPayload,
+} from '../../services/security/accessDecisionService.js';
 import prisma from '../../lib/prisma.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+
+const guardClinicalOrderView = patientAccessGuard('CLINICAL_ORDER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardClinicalOrderWrite = patientAccessGuard('CLINICAL_ORDER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardClinicalOrderResourceWrite = patientAccessGuardForResource('CLINICAL_ORDER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'clinical_order',
+});
+const guardClinicalOrderEncounterView = patientAccessGuardForResource('CLINICAL_ORDER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'encounter',
+  idParam: 'encounterId',
+});
 
 const MEDICATION_ORDER_WRITE_ROLES = new Set([
   'ADMIN',
@@ -30,6 +52,30 @@ function isMedicationOrderType(orderType) {
 
 function rejectMedicationWrite(res) {
   return error(res, 'Only doctors can prescribe or edit inpatient medication orders', 403);
+}
+
+async function guardBulkOrderPatients(req, res, next) {
+  try {
+    const patientUids = [...new Set(
+      (Array.isArray(req.body?.orders) ? req.body.orders : [])
+        .map((order) => order?.patient_uid)
+        .filter(Boolean),
+    )];
+    for (const patientUid of patientUids) {
+      const decision = await authorizePatientAccessRequest(req, {
+        policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+        recordType: 'CLINICAL_ORDER',
+        patient: { uid: patientUid },
+        requireResolvedPatient: true,
+      });
+      if (!decision.allowed) {
+        return res.status(403).json(patientAccessErrorPayload(decision));
+      }
+    }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
 
 async function ensureExistingMedicationWriteAllowed(req, res, orderId) {
@@ -102,7 +148,7 @@ function resolveOrderDetails(body) {
 // POST /emr/orders — Create a clinical order
 // ===================================================================
 
-router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical_order' }), async (req, res, next) => {
+router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical_order' }), guardClinicalOrderWrite, async (req, res, next) => {
   try {
     const {
       encounter_id, er_visit_id, patient_uid, order_type, priority,
@@ -154,7 +200,7 @@ router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical
 // POST /emr/orders/apply-set — Apply an order set
 // ===================================================================
 
-router.post('/orders/apply-set', async (req, res, next) => {
+router.post('/orders/apply-set', guardClinicalOrderWrite, async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, order_set_id } = req.body;
 
@@ -199,7 +245,7 @@ router.post('/orders/apply-set', async (req, res, next) => {
 // front, then inserts all rows in one transaction.
 // Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
 
-router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), async (req, res, next) => {
+router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), guardBulkOrderPatients, async (req, res, next) => {
   try {
     const { encounter_id, orders } = req.body;
 
@@ -262,7 +308,7 @@ router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'cli
 // PUT /emr/orders/:id/verify — Verify an order
 // ===================================================================
 
-router.put('/orders/:id/verify', async (req, res, next) => {
+router.put('/orders/:id/verify', guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
 
@@ -281,7 +327,7 @@ router.put('/orders/:id/verify', async (req, res, next) => {
 // PUT /emr/orders/:id/complete — Complete an order
 // ===================================================================
 
-router.put('/orders/:id/complete', async (req, res, next) => {
+router.put('/orders/:id/complete', guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
 
@@ -301,7 +347,7 @@ router.put('/orders/:id/complete', async (req, res, next) => {
 // PUT /emr/orders/:id/cancel — Cancel an order
 // ===================================================================
 
-router.put('/orders/:id/cancel', async (req, res, next) => {
+router.put('/orders/:id/cancel', guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
     const { reason } = req.body;
@@ -326,7 +372,7 @@ router.put('/orders/:id/cancel', async (req, res, next) => {
 // PUT /emr/orders/:id/discontinue — Discontinue an order
 // ===================================================================
 
-router.put('/orders/:id/discontinue', async (req, res, next) => {
+router.put('/orders/:id/discontinue', guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
     const { reason } = req.body;
@@ -351,7 +397,7 @@ router.put('/orders/:id/discontinue', async (req, res, next) => {
 // GET /emr/orders/patient/:uid — Patient orders
 // ===================================================================
 
-router.get('/orders/patient/:uid', async (req, res, next) => {
+router.get('/orders/patient/:uid', guardClinicalOrderView, async (req, res, next) => {
   try {
     const { uid } = req.params;
     const { order_type, status, date_from, date_to, page, limit } = req.query;
@@ -385,7 +431,7 @@ router.get('/orders/patient/:uid', async (req, res, next) => {
 // GET /emr/orders/encounter/:encounterId — Encounter orders
 // ===================================================================
 
-router.get('/orders/encounter/:encounterId', async (req, res, next) => {
+router.get('/orders/encounter/:encounterId', guardClinicalOrderEncounterView, async (req, res, next) => {
   try {
     const { encounterId } = req.params;
     const result = await orderEntryService.getEncounterOrders(encounterId);

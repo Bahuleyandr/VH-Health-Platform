@@ -1,16 +1,30 @@
 // src/routes/emr/vitalsRoutes.js
 import express from 'express';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
+const guardClinicalView = patientAccessGuard('VITAL_SIGN', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardClinicalWrite = patientAccessGuard('VITAL_SIGN', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardVitalsResourceWrite = patientAccessGuardForResource('VITAL_SIGN', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'vitals',
+  idParam: 'vitalsId',
+});
+
 // ===================================================================
 // POST /emr/vitals — Record vitals
 // ===================================================================
 
-router.post('/vitals', async (req, res, next) => {
+router.post('/vitals', guardClinicalWrite, async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
@@ -115,14 +129,14 @@ async function handleVitalsCorrection(req, res, next) {
   }
 }
 
-router.put('/vitals/:vitalsId', handleVitalsCorrection);
-router.patch('/vitals/:vitalsId', handleVitalsCorrection);
+router.put('/vitals/:vitalsId', guardVitalsResourceWrite, handleVitalsCorrection);
+router.patch('/vitals/:vitalsId', guardVitalsResourceWrite, handleVitalsCorrection);
 
 // ===================================================================
 // GET /emr/vitals/:patientUid/latest — Latest vitals
 // ===================================================================
 
-router.get('/vitals/:patientUid/latest', async (req, res, next) => {
+router.get('/vitals/:patientUid/latest', guardClinicalView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const result = await vitalsChartService.getLatestVitals(patientUid);
@@ -151,7 +165,7 @@ router.get('/vitals/:patientUid/latest', async (req, res, next) => {
 // GET /emr/vitals/:patientUid/trend — Vitals trend
 // ===================================================================
 
-router.get('/vitals/:patientUid/trend', async (req, res, next) => {
+router.get('/vitals/:patientUid/trend', guardClinicalView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { vital, from, to } = req.query;
@@ -182,7 +196,7 @@ router.get('/vitals/:patientUid/trend', async (req, res, next) => {
 // GET /emr/vitals/:patientUid/chart — Full vitals chart
 // ===================================================================
 
-router.get('/vitals/:patientUid/chart', async (req, res, next) => {
+router.get('/vitals/:patientUid/chart', guardClinicalView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { encounterId, page, limit } = req.query;
@@ -213,7 +227,7 @@ router.get('/vitals/:patientUid/chart', async (req, res, next) => {
 // POST /emr/io — Record intake/output
 // ===================================================================
 
-router.post('/io', async (req, res, next) => {
+router.post('/io', guardClinicalWrite, async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description } = req.body;
 
@@ -256,7 +270,7 @@ router.post('/io', async (req, res, next) => {
 // GET /emr/io/:patientUid/balance — I/O balance
 // ===================================================================
 
-router.get('/io/:patientUid/balance', async (req, res, next) => {
+router.get('/io/:patientUid/balance', guardClinicalView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { encounterId, date } = req.query;
@@ -291,7 +305,7 @@ router.get('/io/:patientUid/balance', async (req, res, next) => {
 // GET /emr/io/:patientUid/chart — I/O chart data
 // ===================================================================
 
-router.get('/io/:patientUid/chart', async (req, res, next) => {
+router.get('/io/:patientUid/chart', guardClinicalView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { encounterId, from, to } = req.query;

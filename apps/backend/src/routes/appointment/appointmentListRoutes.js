@@ -1,8 +1,14 @@
 import express from 'express';
 import * as listController from '../../controllers/appointment/appointmentListController.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import * as validators from '../../validators/appointment/appointmentQueryValidators.js';
 
 const router = express.Router();
+const guardAppointmentView = patientAccessGuardForResource('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
+  resourceType: 'appointment',
+});
 
 // Test route
 router.get('/test', listController.testRoute);
@@ -25,9 +31,11 @@ router.get('/today/list', listController.getTodayAppointments);
 router.get('/doctor/:doctor_id', validators.getDoctorAppointmentsValidators, listController.getDoctorAppointments);
 
 // Get patient appointments  
-router.get('/patient/:patient_id', validators.getPatientAppointmentsValidators, listController.getPatientAppointments);
+router.get('/patient/:patient_id', validators.getPatientAppointmentsValidators, patientAccessGuard('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
+}), listController.getPatientAppointments);
 
 // Get appointment by ID
-router.get('/:id', validators.getAppointmentByIdValidators, listController.getAppointmentById);
+router.get('/:id', validators.getAppointmentByIdValidators, guardAppointmentView, listController.getAppointmentById);
 
 export default router;

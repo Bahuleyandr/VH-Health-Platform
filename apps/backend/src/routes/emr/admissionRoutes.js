@@ -32,8 +32,25 @@ import {
 } from '../../utils/roleHelpers.js';
 import { adviseForAdmission } from '../../controllers/appointment/appointmentWorkflowController.js';
 import prisma from '../../lib/prisma.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 
 const router = express.Router();
+
+const guardAdmissionPatientView = patientAccessGuard('ADMISSION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
+});
+const guardAdmissionPatientWrite = patientAccessGuard('ADMISSION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_WRITE,
+});
+const guardAdmissionResourceView = patientAccessGuardForResource('ADMISSION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
+  resourceType: 'admission',
+});
+const guardAdmissionResourceWrite = patientAccessGuardForResource('ADMISSION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_WRITE,
+  resourceType: 'admission',
+});
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -147,6 +164,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.post(
   '/admit',
+  guardAdmissionPatientWrite,
   wrapAsync(async (req, res) => {
     const body = req.body || {};
     const resolved = { ...body };
@@ -257,6 +275,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/admissions/advise',
+  guardAdmissionPatientWrite,
   wrapAsync(async (req, res) => {
     let appointmentId = Number.parseInt(req.body?.appointment_id, 10);
     if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
@@ -306,6 +325,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/assign-bed',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -330,6 +350,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/mark-for-discharge',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -348,6 +369,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/consults/:consultType/complete',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -377,6 +399,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/mark-drugs-dispensed',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     if (!admissionService.canCompleteDischargeWorkItem('pharmacy', req.user?.role)) {
       return error(res, 'Only pharmacy can mark discharge drugs dispensed', HTTP_STATUS.FORBIDDEN);
@@ -411,6 +434,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/:id/discharge-hub',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -429,6 +453,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -448,6 +473,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/transfer',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -514,6 +540,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/admissions/patient/:uid',
+  guardAdmissionPatientView,
   wrapAsync(async (req, res) => {
     const { uid } = req.params;
     const history = await admissionService.getPatientAdmissionHistory(uid);
@@ -526,6 +553,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/admission/:id',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -549,6 +577,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.put(
   '/:id/code-status',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -571,6 +600,7 @@ router.put(
 // ---------------------------------------------------------------------------
 router.put(
   '/:id/attending-doctor',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -595,6 +625,7 @@ router.put(
 // ---------------------------------------------------------------------------
 router.put(
   '/:id/next-review',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -616,6 +647,7 @@ router.put(
 // ---------------------------------------------------------------------------
 router.get(
   '/:id/case-sheet',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -636,6 +668,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.put(
   '/:id/case-sheet',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
@@ -658,6 +691,7 @@ router.put(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge-summary/generate',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const role = req.user?.role?.toUpperCase();
     if (!canEditDischargeSummary(role) && role !== 'SUPER_ADMIN') {
@@ -685,6 +719,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.get(
   '/:id/discharge-summary',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const role = req.user?.role?.toUpperCase();
     if (!canViewDischargeSummary(role) && role !== 'SUPER_ADMIN') {
@@ -707,6 +742,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.put(
   '/:id/discharge-summary',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const role = req.user?.role?.toUpperCase();
     if (!canEditDischargeSummary(role) && role !== 'SUPER_ADMIN') {
@@ -741,6 +777,7 @@ router.put(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge-summary/sign',
+  guardAdmissionResourceWrite,
   wrapAsync(async (req, res) => {
     const role = req.user?.role?.toUpperCase();
     if (!canSignDischargeSummary(role) && role !== 'SUPER_ADMIN') {
@@ -885,6 +922,7 @@ async function respondWithDischargeReadiness(req, res) {
 
 router.post(
   '/:id/ai/patient-record-summary',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'patient_record_summary', 'Patient record summary draft generated')
   )
@@ -892,6 +930,7 @@ router.post(
 
 router.post(
   '/:id/aftercare-instructions',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'patient_aftercare_instructions', 'Aftercare instructions draft generated')
   )
@@ -899,6 +938,7 @@ router.post(
 
 router.post(
   '/:id/medication-reconciliation',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'medication_reconciliation', 'Medication reconciliation draft generated')
   )
@@ -906,11 +946,13 @@ router.post(
 
 router.get(
   '/:id/discharge-readiness',
+  guardAdmissionResourceView,
   wrapAsync((req, res) => respondWithDischargeReadiness(req, res))
 );
 
 router.post(
   '/:id/referral-letter',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'referral_letter', 'Referral letter draft generated')
   )
@@ -918,6 +960,7 @@ router.post(
 
 router.post(
   '/:id/abnormal-result-triage',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'abnormal_result_triage', 'Abnormal result triage draft generated')
   )
@@ -925,6 +968,7 @@ router.post(
 
 router.post(
   '/:id/clinical-coding-assist',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'clinical_coding_assist', 'Clinical coding assist draft generated')
   )
@@ -932,6 +976,7 @@ router.post(
 
 router.post(
   '/:id/quality-case-review',
+  guardAdmissionResourceView,
   wrapAsync((req, res) =>
     respondWithAdmissionAiDraft(req, res, 'quality_case_review', 'Quality case review draft generated')
   )
@@ -940,6 +985,7 @@ router.post(
 // POST /:id/ai/teach-back — generate a patient teach-back session for an admission.
 router.post(
   '/:id/ai/teach-back',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
@@ -957,6 +1003,7 @@ router.post(
 // POST /:id/ai/family-update — draft a consent-scoped family/caregiver update.
 router.post(
   '/:id/ai/family-update',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
@@ -980,6 +1027,7 @@ router.post(
 // POST /:id/ai/nursing-ambient — generate a nursing ambient documentation session.
 router.post(
   '/:id/ai/nursing-ambient',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
@@ -1068,6 +1116,7 @@ router.get(
 // never auto-actions; clinicians read the card and decide.
 router.post(
   '/:id/longitudinal-risk',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
@@ -1078,6 +1127,7 @@ router.post(
 
 router.get(
   '/:id/longitudinal-risk',
+  guardAdmissionResourceView,
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;

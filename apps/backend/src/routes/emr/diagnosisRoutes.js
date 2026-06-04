@@ -1,16 +1,35 @@
 // src/routes/emr/diagnosisRoutes.js
 import express from 'express';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import * as diagnosisService from '../../services/emr/diagnosisService.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
+const guardDiagnosisView = patientAccessGuard('DIAGNOSIS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardDiagnosisWrite = patientAccessGuard('DIAGNOSIS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardDiagnosisResourceWrite = patientAccessGuardForResource('DIAGNOSIS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'diagnosis',
+  allowNoPatientResource: true,
+});
+const guardDiagnosisEncounterView = patientAccessGuardForResource('DIAGNOSIS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'encounter',
+  idParam: 'encounterId',
+});
+
 // ===================================================================
 // POST /emr/diagnosis — Add diagnosis
 // ===================================================================
 
-router.post('/diagnosis', async (req, res, next) => {
+router.post('/diagnosis', guardDiagnosisWrite, async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, icd10_code, description,
@@ -54,17 +73,20 @@ router.post('/diagnosis', async (req, res, next) => {
 // PUT /emr/diagnosis/:id/status — Update diagnosis status
 // ===================================================================
 
-router.put('/diagnosis/:id/status', async (req, res, next) => {
+function requireDiagnosisStatus(req, res, next) {
+  if (!req.body?.status) {
+    return error(res, 'status is required', 400);
+  }
+  return next();
+}
+
+router.put('/diagnosis/:id/status', requireDiagnosisStatus, guardDiagnosisResourceWrite, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { status, resolved_date } = req.body;
 
     if (isNaN(id)) {
       return error(res, 'Valid diagnosis ID is required', 400);
-    }
-
-    if (!status) {
-      return error(res, 'status is required', 400);
     }
 
     const updated = await diagnosisService.updateDiagnosisStatus(
@@ -94,7 +116,7 @@ router.put('/diagnosis/:id/status', async (req, res, next) => {
 // GET /emr/diagnosis/patient/:uid — Problem list (active + chronic)
 // ===================================================================
 
-router.get('/diagnosis/patient/:uid', async (req, res, next) => {
+router.get('/diagnosis/patient/:uid', guardDiagnosisView, async (req, res, next) => {
   try {
     const { uid } = req.params;
 
@@ -120,7 +142,7 @@ router.get('/diagnosis/patient/:uid', async (req, res, next) => {
 // GET /emr/diagnosis/encounter/:encounterId — Encounter diagnoses
 // ===================================================================
 
-router.get('/diagnosis/encounter/:encounterId', async (req, res, next) => {
+router.get('/diagnosis/encounter/:encounterId', guardDiagnosisEncounterView, async (req, res, next) => {
   try {
     const { encounterId } = req.params;
 
@@ -148,7 +170,7 @@ router.get('/diagnosis/encounter/:encounterId', async (req, res, next) => {
 // GET /emr/diagnosis/patient/:uid/history — Full diagnosis history
 // ===================================================================
 
-router.get('/diagnosis/patient/:uid/history', async (req, res, next) => {
+router.get('/diagnosis/patient/:uid/history', guardDiagnosisView, async (req, res, next) => {
   try {
     const { uid } = req.params;
 

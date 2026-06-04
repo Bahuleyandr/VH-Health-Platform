@@ -22,7 +22,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { patientAccessGuard } = await import('../../middleware/phiAccessMiddleware.js');
+const {
+  patientAccessGuard,
+  patientAccessGuardForResource,
+} = await import('../../middleware/phiAccessMiddleware.js');
+const { ACCESS_POLICY_CODES } = await import('../../services/security/accessDecisionService.js');
 
 afterEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
@@ -119,5 +123,37 @@ describe('patientAccessGuard', () => {
       break_glass_available: false,
     }));
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('deny');
+  });
+
+  it('guards row-id resources by resolving the patient before evaluating access', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])
+      .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuardForResource('APPOINTMENT', {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
+      resourceType: 'appointment',
+    })({
+      id: 'req-resource-1',
+      method: 'POST',
+      originalUrl: '/api/v1/appointments/42/confirm',
+      params: { id: '42' },
+      query: {},
+      body: {},
+      user: {
+        id: 9,
+        uid: '22222222-2222-4222-8222-222222222222',
+        role: 'RECEPTIONIST',
+        tenant_id: '00000000-0000-4000-8000-000000000001',
+      },
+    }, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FROM appointments/i);
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('role');
   });
 });

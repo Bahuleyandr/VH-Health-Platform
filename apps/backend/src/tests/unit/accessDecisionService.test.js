@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 const {
   ACCESS_POLICY_CODES,
   authorizePatientAccessRequest,
+  resolvePatientForResourceAccess,
 } = await import('../../services/security/accessDecisionService.js');
 
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
@@ -168,5 +169,60 @@ describe('accessDecisionService', () => {
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toMatch(/could not be resolved/i);
     expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('allows receptionist admission writes through role-owned operational workflow access', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('RECEPTIONIST', {
+      method: 'POST',
+      originalUrl: '/api/v1/admissions',
+      query: {},
+      body: { patient_uid: PATIENT_UID },
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_WRITE,
+      recordType: 'ADMISSION',
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.accessSource).toBe('role');
+    expect(decision.reason).toMatch(/operational workflow access/i);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('allow');
+  });
+
+  it('allows pharmacy to view admitted-patient clinical workflow through an active admission relationship', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 27 }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('PHARMACY_STAFF', {
+      originalUrl: '/api/v1/clinical/drug-chart/admission/27',
+      query: { patient_id: '15' },
+    }), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+      recordType: 'CLINICAL_WORKFLOW',
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.accessSource).toBe('admission');
+    expect(decision.admissionId).toBe(27);
+  });
+
+  it('resolves encounter UUID resources back to the patient context', async () => {
+    const encounterId = '33333333-3333-4333-8333-333333333333';
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
+
+    const patient = await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'encounter',
+      resourceId: encounterId,
+    });
+
+    expect(patient).toEqual({ id: 15, uid: PATIENT_UID });
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(encounterId);
   });
 });

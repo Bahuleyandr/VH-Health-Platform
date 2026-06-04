@@ -1058,6 +1058,9 @@ function phiAccessLevelForRole(roleCode) {
   if (roleCode === 'CNO' || roleCode === 'CMO' || roleCode === 'MEDICAL_SUPERINTENDENT') {
     return PHI_ACCESS_LEVELS.CLINICAL_LEADERSHIP;
   }
+  if (['PHARMACY_STAFF', 'PHARMACY_INCHARGE'].includes(roleCode)) {
+    return PHI_ACCESS_LEVELS.PATIENT_RELATIONSHIP;
+  }
   if (CLINICAL_ROLE_SET.has(roleCode) || DOCTOR_TIER_SET.has(roleCode)) return PHI_ACCESS_LEVELS.PATIENT_RELATIONSHIP;
   return PHI_ACCESS_LEVELS.NONE;
 }

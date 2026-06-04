@@ -1,7 +1,9 @@
 // src/routes/bed/bedRoutes.js
 import express from 'express';
 import * as bedController from '../../controllers/bed/bedController.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import {
   createWardValidation, updateWardValidation, deleteWardValidation,
   createBedValidation, updateBedValidation, deleteBedValidation,
@@ -17,20 +19,40 @@ export const wardRouter = express.Router();
 // Re-narrow patient-movement + bed-master endpoints here so housekeeping
 // cannot create/delete beds or admit/discharge patients.
 const requireClinical = requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF');
+const requireBedAllocation = requireRole(
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'NURSING_STAFF',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
+  'ADMISSION_OFFICER',
+  'IPD_COUNSELLOR',
+);
 const requireBedAdmin = requireRole('ADMIN', 'SUPER_ADMIN');
+const guardBedWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+  resourceType: 'bed',
+  allowNoPatientResource: true,
+});
+const guardBedAdmitPatient = patientAccessGuard('BED_MANAGEMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+});
 
 // ===== BED ROUTES =====
 bedRouter.get('/', bedController.listBeds);
 bedRouter.get('/summary', bedController.getBedSummary);
 bedRouter.get('/ward/:wardId', wardIdValidation, bedController.getBedsByWard);
 bedRouter.post('/', requireBedAdmin, createBedValidation, bedController.createBed);
-bedRouter.put('/:id', requireClinical, updateBedValidation, bedController.updateBed);
+bedRouter.put('/:id', requireClinical, guardBedWrite, updateBedValidation, bedController.updateBed);
 // PATCH /:id/notes — quick-note save from the staff bed-board sheet.
 // Separate from PUT /:id because that handler's body contract requires
 // patient fields and would null them out when the sheet only sends notes.
-bedRouter.patch('/:id/notes', requireClinical, bedController.updateBedNotes);
+bedRouter.patch('/:id/notes', requireClinical, guardBedWrite, bedController.updateBedNotes);
 bedRouter.delete('/:id', requireBedAdmin, deleteBedValidation, bedController.deleteBed);
-bedRouter.post('/:id/admit', requireClinical, admitValidation, bedController.admitPatient);
+bedRouter.post('/:id/admit', requireBedAllocation, guardBedAdmitPatient, admitValidation, bedController.admitPatient);
 // /:id/discharge intentionally omitted — handled exclusively by bedManagementRoutes
 // (mounted after this router at /api/v1/beds). Defining it here shadowed the new
 // handler and bypassed the cleaning-status transition and housekeeping ticket.

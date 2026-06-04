@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS patient_access_audit_log (
     CHECK (access_decision IN ('allow', 'deny', 'break_glass')),
   access_source         VARCHAR(40) NOT NULL
     CHECK (access_source IN (
-      'role', 'care_team', 'appointment', 'admission',
+      'role', 'care_team', 'clinical_authorship', 'appointment', 'admission',
       'guardian', 'break_glass', 'system', 'unknown'
     )),
   reason                TEXT,
@@ -309,6 +309,15 @@ CREATE TABLE IF NOT EXISTS patient_access_audit_log (
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE patient_access_audit_log
+  DROP CONSTRAINT IF EXISTS patient_access_audit_log_access_source_check;
+ALTER TABLE patient_access_audit_log
+  ADD CONSTRAINT patient_access_audit_log_access_source_check
+  CHECK (access_source IN (
+    'role', 'care_team', 'clinical_authorship', 'appointment', 'admission',
+    'guardian', 'break_glass', 'system', 'unknown'
+  ));
 
 CREATE INDEX IF NOT EXISTS idx_patient_access_audit_patient_time
   ON patient_access_audit_log (tenant_id, patient_uid, created_at DESC);

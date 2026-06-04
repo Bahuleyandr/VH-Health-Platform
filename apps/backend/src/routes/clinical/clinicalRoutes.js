@@ -12,6 +12,8 @@ import { describeSttConfig } from '../../services/ai/sttService.js';
 import { reviewPolypharmacy } from '../../services/ai/polypharmacyAiService.js';
 import { scoreDeterioration } from '../../services/ai/deteriorationEarlyWarningService.js';
 import { createAmbientEncounter, listAmbientEncounters } from '../../services/ai/ambientDocumentationService.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
   requiredUUID, requiredString, requiredNumber, optionalString, paramId,
@@ -39,11 +41,37 @@ const audioUpload = multer({
 
 const router = express.Router();
 
+const guardClinicalPatientView = patientAccessGuard('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardClinicalPatientWrite = patientAccessGuard('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardClinicalAdmissionView = patientAccessGuardForResource('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'admission',
+});
+const guardMarResourceView = patientAccessGuardForResource('MAR', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'mar',
+  idSelector: (req) => req.params?.id || req.body?.ma_id || null,
+});
+const guardMarResourceWrite = patientAccessGuardForResource('MAR', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'mar',
+});
+const guardHandoverResourceWrite = patientAccessGuardForResource('NURSE_HANDOVER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'handover',
+});
+
 const MEDICATION_ADMINISTRATION_ROLES = new Set([
   'ADMIN',
   'SUPER_ADMIN',
   'NURSING_STAFF',
   'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
   'CNO',
   'ICU_NURSE',
   'ICU_INCHARGE',
@@ -71,7 +99,7 @@ function requireMedicationAdministrationRole(req, res, next) {
  * POST /clinical/news2/record
  * Record a NEWS2 assessment for a patient.
  */
-router.post('/news2/record', requiredUUID('patient_uid'), validate, async (req, res, next) => {
+router.post('/news2/record', requiredUUID('patient_uid'), validate, guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const { patient_uid, vitals } = req.body;
 
@@ -96,7 +124,11 @@ router.post('/news2/record', requiredUUID('patient_uid'), validate, async (req, 
  * GET /clinical/news2/patient/:patientUid
  * Get NEWS2 history for a patient.
  */
-router.get('/news2/patient/:patientUid', async (req, res, next) => {
+router.get('/news2/patient/:patientUid',
+  param('patientUid').isUUID().withMessage('patientUid must be a valid UUID'),
+  validate,
+  guardClinicalPatientView,
+  async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const limit = parseInt(req.query.limit, 10) || 50;
@@ -117,7 +149,7 @@ router.get('/news2/patient/:patientUid', async (req, res, next) => {
  * Unified inpatient drug chart for the current admission. Doctors prescribe
  * via /emr/orders; nurses administer via MAR; pharmacy receives ward indents.
  */
-router.get('/drug-chart/admission/:id', paramId(), validate, async (req, res, next) => {
+router.get('/drug-chart/admission/:id', paramId(), validate, guardClinicalAdmissionView, async (req, res, next) => {
   try {
     const chart = await drugChartService.getAdmissionDrugChart({
       admissionId: parseInt(req.params.id, 10),
@@ -181,7 +213,7 @@ function buildProgressNoteContent(rawContent, summaryHint) {
   };
 }
 
-router.post('/progress-notes', async (req, res, next) => {
+router.post('/progress-notes', guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const { default: clinicalNotesService } = await import('../../services/emr/clinicalNotesService.js');
     const rawType = req.body.note_type || req.body.type;
@@ -214,7 +246,7 @@ router.post('/progress-notes', async (req, res, next) => {
   }
 });
 
-router.post('/mar/schedule', requiredUUID('patient_uid'), validate, async (req, res, next) => {
+router.post('/mar/schedule', requiredUUID('patient_uid'), validate, guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const { patient_uid, prescription_id, medications } = req.body;
 
@@ -244,7 +276,7 @@ router.post('/mar/schedule', requiredUUID('patient_uid'), validate, async (req, 
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), validate, requireMedicationAdministrationRole, async (req, res, next) => {
+router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { notes, witness_uid } = req.body;
@@ -272,6 +304,7 @@ router.post('/mar/verify',
   requiredUUID('scanned_patient_uid'),
   requiredString('scanned_barcode', 100),
   validate,
+  guardMarResourceView,
   async (req, res, next) => {
     try {
       const { ma_id, scanned_patient_uid, scanned_barcode } = req.body;
@@ -301,6 +334,7 @@ router.post('/mar/:id/administer-with-scan',
   optionalString('override_reason', 500),
   validate,
   requireMedicationAdministrationRole,
+  guardMarResourceWrite,
   async (req, res, next) => {
     try {
       const { id } = req.params;
@@ -323,7 +357,7 @@ router.post('/mar/:id/administer-with-scan',
  * POST /clinical/mar/:id/miss
  * Record a missed medication dose.
  */
-router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, async (req, res, next) => {
+router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -343,7 +377,7 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
  * POST /clinical/mar/:id/hold
  * Hold a medication with reason.
  */
-router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, async (req, res, next) => {
+router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -363,7 +397,11 @@ router.post('/mar/:id/hold', paramId(), requiredString('reason', 500), validate,
  * GET /clinical/mar/patient/:patientUid
  * Get patient's MAR for a specific date.
  */
-router.get('/mar/patient/:patientUid', async (req, res, next) => {
+router.get('/mar/patient/:patientUid',
+  param('patientUid').isUUID().withMessage('patientUid must be a valid UUID'),
+  validate,
+  guardClinicalPatientView,
+  async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { date } = req.query;
@@ -423,7 +461,7 @@ router.get('/mar/due', async (req, res, next) => {
  * POST /clinical/handover/generate
  * Generate a draft handover summary from the patient timeline.
  */
-router.post('/handover/generate', requiredUUID('patient_uid'), validate, async (req, res, next) => {
+router.post('/handover/generate', requiredUUID('patient_uid'), validate, guardClinicalPatientView, async (req, res, next) => {
   try {
     const draft = await handoverService.generateHandoverDraft(req.body.patient_uid, req.user.uid, req.tenantId);
     return success(res, draft, 'Handover draft generated');
@@ -436,7 +474,7 @@ router.post('/handover/generate', requiredUUID('patient_uid'), validate, async (
  * POST /clinical/handover
  * Create a nurse handover note.
  */
-router.post('/handover', requiredUUID('patient_uid'), requiredString('summary', 2000), requiredString('incoming_nurse'), validate, async (req, res, next) => {
+router.post('/handover', requiredUUID('patient_uid'), requiredString('summary', 2000), requiredString('incoming_nurse'), validate, guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const data = {
       ...req.body,
@@ -454,7 +492,7 @@ router.post('/handover', requiredUUID('patient_uid'), requiredString('summary', 
  * POST /clinical/handover/:id/acknowledge
  * Acknowledge a handover as the incoming nurse.
  */
-router.post('/handover/:id/acknowledge', paramId(), validate, async (req, res, next) => {
+router.post('/handover/:id/acknowledge', paramId(), validate, guardHandoverResourceWrite, async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -487,6 +525,7 @@ router.get(
   param('patientUid').isUUID().withMessage('patientUid must be a valid UUID'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('limit must be between 1 and 100').toInt(),
   validate,
+  guardClinicalPatientView,
   async (req, res, next) => {
     try {
       const { patientUid } = req.params;
@@ -523,7 +562,7 @@ router.get('/voice-note/config', async (req, res, next) => {
  * POST /clinical/voice-note/transcribe (multipart)
  * Field: audio (file). Optional query/body: patient_uid, admission_id, language.
  */
-router.post('/voice-note/transcribe', audioUpload.single('audio'), async (req, res, next) => {
+router.post('/voice-note/transcribe', audioUpload.single('audio'), guardClinicalPatientWrite, async (req, res, next) => {
   try {
     if (!req.file) return error(res, 'audio file required', 400);
 
@@ -584,7 +623,11 @@ router.get('/voice-note/my', async (req, res, next) => {
  * Score an admitted patient's deterioration risk from the last 4h of
  * vitals + recent labs. Returns the NEWS2-like composite with band.
  */
-router.post('/safety/deterioration/:patientUid', async (req, res, next) => {
+router.post('/safety/deterioration/:patientUid',
+  param('patientUid').isUUID().withMessage('patientUid must be a valid UUID'),
+  validate,
+  guardClinicalPatientView,
+  async (req, res, next) => {
   try {
     const result = await scoreDeterioration({
       patientUid: req.params.patientUid,
@@ -604,7 +647,7 @@ router.post('/safety/deterioration/:patientUid', async (req, res, next) => {
  * Runs rules + AI drug-interaction review. Returns combined_severity with
  * rule + AI findings. Persists row for reviewer decisioning.
  */
-router.post('/safety/polypharmacy', async (req, res, next) => {
+router.post('/safety/polypharmacy', guardClinicalPatientView, async (req, res, next) => {
   try {
     if (!Array.isArray(req.body?.medications) || req.body.medications.length === 0) {
       return error(res, 'medications array is required', 400);
@@ -640,7 +683,7 @@ router.post('/safety/polypharmacy', async (req, res, next) => {
  * Returns the generated structured visit note with citations back to
  * transcript segments. Enters the review queue.
  */
-router.post('/ambient/encounters', async (req, res, next) => {
+router.post('/ambient/encounters', guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const result = await createAmbientEncounter({
       req,
@@ -668,7 +711,7 @@ router.post('/ambient/encounters', async (req, res, next) => {
   }
 });
 
-router.get('/ambient/encounters', async (req, res, next) => {
+router.get('/ambient/encounters', guardClinicalPatientView, async (req, res, next) => {
   try {
     const result = await listAmbientEncounters({
       tenantId: req.tenantId,

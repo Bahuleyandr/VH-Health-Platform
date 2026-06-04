@@ -165,6 +165,14 @@ router.get('/patient-access/audit', async (req, res, next) => {
       tenantId: req.tenantId,
       patientUid: req.query.patient_uid || null,
       actorUid: req.query.actor_uid || null,
+      decision: req.query.decision || null,
+      source: req.query.source || null,
+      action: req.query.action || null,
+      recordType: req.query.record_type || null,
+      resourceType: req.query.resource_type || null,
+      route: req.query.route || null,
+      dateFrom: req.query.date_from || null,
+      dateTo: req.query.date_to || null,
       take: req.query.limit,
     });
     return success(res, result, 'Patient access audit retrieved');

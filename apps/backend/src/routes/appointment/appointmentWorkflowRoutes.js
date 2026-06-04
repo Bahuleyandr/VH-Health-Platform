@@ -4,7 +4,9 @@ import { validationResult } from 'express-validator';
 import * as adminController from '../../controllers/appointment/appointmentAdminController.js';
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { upload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
@@ -14,6 +16,26 @@ const validate = (req, res, next) => {
 };
 
 const router = express.Router();
+
+const guardAppointmentView = patientAccessGuardForResource('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
+  resourceType: 'appointment',
+});
+const guardAppointmentWrite = patientAccessGuardForResource('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
+  resourceType: 'appointment',
+});
+const guardAppointmentDocumentView = patientAccessGuardForResource('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
+  resourceType: 'appointment',
+  idParam: 'appointment_id',
+});
+const guardAppointmentDocumentUpload = patientAccessGuardForResource('APPOINTMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
+  resourceType: 'appointment',
+  idSelector: (req) => req.body?.appointment_id || req.body?.appointmentId || req.query?.appointment_id || null,
+  allowNoPatientResource: true,
+});
 
 // ── Staff workflow ────────────────────────────────────────────────────────────
 // IMPORTANT: Static paths must come BEFORE /:id param routes
@@ -40,14 +62,14 @@ router.get('/slots', workflowController.getAvailableSlots);
 router.post('/walk-in', validate, workflowController.registerWalkIn);
 
 // Patient records
-router.get('/patient/records/all', docController.getPatientAllRecords);
-router.post('/patient/records/upload', upload.single('file'), validateFileContent, validatePatientUpload, docController.uploadPatientRecord);
+router.get('/patient/records/all', patientAccessGuard('MEDICAL_RECORD'), docController.getPatientAllRecords);
+router.post('/patient/records/upload', upload.single('file'), patientAccessGuard('MEDICAL_RECORD', { policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_UPLOAD }), validateFileContent, validatePatientUpload, docController.uploadPatientRecord);
 router.get('/patient/records/:id/extraction', docController.getPatientRecordExtraction);
 router.patch('/patient/records/:id/extraction-review', docController.reviewPatientRecordExtraction);
 router.delete('/patient/records/:id', docController.deletePatientRecord);
 
 // Document upload (staff)
-router.post('/documents/upload', upload.single('file'), validateFileContent, docController.uploadAppointmentDocument);
+router.post('/documents/upload', upload.single('file'), guardAppointmentDocumentUpload, validateFileContent, docController.uploadAppointmentDocument);
 
 // Admin SLA dashboard and audit trail
 router.get('/admin/sla-dashboard', adminController.getAppointmentSLADashboard);
@@ -55,14 +77,14 @@ router.get('/admin/audit-trail', adminController.getStatusAuditTrail);
 router.get('/admin/documents', docController.getAllDocumentsAdmin);
 
 // ── Per-appointment actions (parameterized) ──────────────────────────────────
-router.post('/:id/confirm', paramId(), validate, workflowController.confirmAppointment);
-router.post('/:id/no-show', paramId(), validate, workflowController.markNoShow);
-router.post('/:id/reschedule', paramId(), validate, workflowController.rescheduleAppointment);
-router.post('/:id/complete', paramId(), validate, workflowController.completeAppointment);
-router.post('/:id/cancel', paramId(), validate, workflowController.cancelAppointment);
+router.post('/:id/confirm', paramId(), validate, guardAppointmentWrite, workflowController.confirmAppointment);
+router.post('/:id/no-show', paramId(), validate, guardAppointmentWrite, workflowController.markNoShow);
+router.post('/:id/reschedule', paramId(), validate, guardAppointmentWrite, workflowController.rescheduleAppointment);
+router.post('/:id/complete', paramId(), validate, guardAppointmentWrite, workflowController.completeAppointment);
+router.post('/:id/cancel', paramId(), validate, guardAppointmentWrite, workflowController.cancelAppointment);
 // OPD→IPD bridge: doctor flips this on a visit; admission counter sees it.
-router.post('/:id/advise-admission', paramId(), validate, workflowController.adviseForAdmission);
-router.get('/:id/history', workflowController.getAppointmentHistory);
-router.get('/:appointment_id/documents', docController.getAppointmentDocuments);
+router.post('/:id/advise-admission', paramId(), validate, guardAppointmentWrite, workflowController.adviseForAdmission);
+router.get('/:id/history', guardAppointmentView, workflowController.getAppointmentHistory);
+router.get('/:appointment_id/documents', guardAppointmentDocumentView, docController.getAppointmentDocuments);
 
 export default router;

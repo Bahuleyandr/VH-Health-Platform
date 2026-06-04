@@ -1,16 +1,26 @@
 // src/routes/emr/cdsRoutes.js
 import express from 'express';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import * as cdsEngine from '../../services/emr/cdsEngine.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
+const guardClinicalDecisionView = patientAccessGuard('CLINICAL_DECISION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardClinicalDecisionResourceWrite = patientAccessGuardForResource('CLINICAL_DECISION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'cds_alert',
+});
+
 // ===================================================================
 // POST /emr/cds/check-order — Validate an order (returns alerts)
 // ===================================================================
 
-router.post('/cds/check-order', async (req, res, next) => {
+router.post('/cds/check-order', guardClinicalDecisionView, async (req, res, next) => {
   try {
     const { type, medication_name, test_name, details, patient_uid, encounter_id } = req.body;
 
@@ -49,7 +59,7 @@ router.post('/cds/check-order', async (req, res, next) => {
 // GET /emr/cds/alerts/:patientUid — Active alerts for patient
 // ===================================================================
 
-router.get('/cds/alerts/:patientUid', async (req, res, next) => {
+router.get('/cds/alerts/:patientUid', guardClinicalDecisionView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
 
@@ -75,7 +85,7 @@ router.get('/cds/alerts/:patientUid', async (req, res, next) => {
 // POST /emr/cds/alerts/:id/acknowledge — Acknowledge/override alert
 // ===================================================================
 
-router.post('/cds/alerts/:id/acknowledge', async (req, res, next) => {
+router.post('/cds/alerts/:id/acknowledge', guardClinicalDecisionResourceWrite, async (req, res, next) => {
   try {
     const alertId = parseInt(req.params.id, 10);
     const { override_reason } = req.body;
@@ -149,7 +159,7 @@ router.post('/cds/protocols', async (req, res, next) => {
 // GET /emr/cds/protocols/check/:patientUid — Check applicable protocols
 // ===================================================================
 
-router.get('/cds/protocols/check/:patientUid', async (req, res, next) => {
+router.get('/cds/protocols/check/:patientUid', guardClinicalDecisionView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { encounter_id } = req.query;

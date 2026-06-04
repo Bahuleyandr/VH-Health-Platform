@@ -1402,19 +1402,38 @@ function QcPanel({
 
 function AccessAuditTab() {
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState({ patient_uid: "", actor_uid: "" });
+  const [filter, setFilter] = useState({
+    patient_uid: "",
+    actor_uid: "",
+    decision: "",
+    source: "",
+    action: "",
+    record_type: "",
+    resource_type: "",
+    route: "",
+    date_from: "",
+    date_to: "",
+  });
   const auditQuery = useQuery({
     queryKey: ["clinical-governance", "patient-access-audit", filter],
     queryFn: () =>
       listPatientAccessAudit({
         patient_uid: filter.patient_uid.trim() || undefined,
         actor_uid: filter.actor_uid.trim() || undefined,
+        decision: filter.decision || undefined,
+        source: filter.source || undefined,
+        action: filter.action.trim() || undefined,
+        record_type: filter.record_type.trim() || undefined,
+        resource_type: filter.resource_type.trim() || undefined,
+        route: filter.route.trim() || undefined,
+        date_from: filter.date_from || undefined,
+        date_to: filter.date_to || undefined,
         limit: 150,
       }),
   });
   const rows = auditQuery.data?.access_events ?? [];
   const allowed = rows.filter((row) => String(row.access_decision ?? "").toLowerCase() === "allow").length;
-  const denied = rows.filter((row) => String(row.access_decision ?? "").toLowerCase() === "denied").length;
+  const denied = rows.filter((row) => String(row.access_decision ?? "").toLowerCase() === "deny").length;
 
   return (
     <SectionCard
@@ -1432,7 +1451,7 @@ function AccessAuditTab() {
       }
     >
       <div className="space-y-3">
-        <div className="grid gap-2 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_160px_160px]">
+        <div className="grid gap-2 lg:grid-cols-4">
           <input
             value={filter.patient_uid}
             onChange={(event) => setFilter((current) => ({ ...current, patient_uid: event.target.value }))}
@@ -1444,6 +1463,66 @@ function AccessAuditTab() {
             onChange={(event) => setFilter((current) => ({ ...current, actor_uid: event.target.value }))}
             placeholder="actor_uid"
             className="rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+          />
+          <select
+            value={filter.decision}
+            onChange={(event) => setFilter((current) => ({ ...current, decision: event.target.value }))}
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Any decision</option>
+            <option value="allow">Allow</option>
+            <option value="deny">Deny</option>
+            <option value="break_glass">Break-glass</option>
+          </select>
+          <select
+            value={filter.source}
+            onChange={(event) => setFilter((current) => ({ ...current, source: event.target.value }))}
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Any source</option>
+            <option value="role">Role</option>
+            <option value="care_team">Care team</option>
+            <option value="appointment">Appointment</option>
+            <option value="admission">Admission</option>
+            <option value="guardian">Guardian</option>
+            <option value="break_glass">Break-glass</option>
+            <option value="unknown">Unknown</option>
+          </select>
+          <input
+            value={filter.action}
+            onChange={(event) => setFilter((current) => ({ ...current, action: event.target.value }))}
+            placeholder="action"
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          />
+          <input
+            value={filter.record_type}
+            onChange={(event) => setFilter((current) => ({ ...current, record_type: event.target.value }))}
+            placeholder="record type"
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          />
+          <input
+            value={filter.resource_type}
+            onChange={(event) => setFilter((current) => ({ ...current, resource_type: event.target.value }))}
+            placeholder="resource type"
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          />
+          <input
+            value={filter.route}
+            onChange={(event) => setFilter((current) => ({ ...current, route: event.target.value }))}
+            placeholder="route contains"
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            value={filter.date_from}
+            onChange={(event) => setFilter((current) => ({ ...current, date_from: event.target.value }))}
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            value={filter.date_to}
+            onChange={(event) => setFilter((current) => ({ ...current, date_to: event.target.value }))}
+            className="rounded-md border border-border bg-background px-3 py-2 text-sm"
           />
           <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
             {allowed} allowed
@@ -1489,13 +1568,19 @@ function AuditTable({ rows }: { rows: PatientAccessAuditEvent[] }) {
           {rows.map((row) => (
             <tr key={row.id}>
               <td className="px-3 py-2 text-muted-foreground">{fmt(row.created_at)}</td>
-              <td className="px-3 py-2"><Pill value={row.access_decision ?? "unknown"} /></td>
+              <td className="px-3 py-2">
+                <Pill value={row.access_decision ?? "unknown"} />
+                <p className="mt-1 text-muted-foreground">{row.access_source ?? "-"}</p>
+              </td>
               <td className="px-3 py-2 font-mono">{shortUid(row.patient_uid)}</td>
               <td className="px-3 py-2">
                 <p className="font-mono">{shortUid(row.actor_uid)}</p>
                 <p className="text-muted-foreground">{row.actor_role ?? "-"}</p>
               </td>
-              <td className="px-3 py-2">{row.record_type ?? "-"}</td>
+              <td className="px-3 py-2">
+                <p>{row.record_type ?? "-"}</p>
+                <p className="text-muted-foreground">{row.resource_type ?? row.policy_code ?? "-"}</p>
+              </td>
               <td className="px-3 py-2 font-mono">
                 {row.action ?? "VIEW"} {row.route ?? "-"}
               </td>

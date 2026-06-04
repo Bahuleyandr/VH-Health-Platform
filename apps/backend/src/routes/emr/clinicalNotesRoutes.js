@@ -1,14 +1,36 @@
 // src/routes/emr/clinicalNotesRoutes.js
 import express from 'express';
 import prisma from '../../lib/prisma.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+
+const guardClinicalNoteView = patientAccessGuard('CLINICAL_NOTE', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardClinicalNoteWrite = patientAccessGuard('CLINICAL_NOTE', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardClinicalNoteResourceView = patientAccessGuardForResource('CLINICAL_NOTE', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'clinical_note',
+});
+const guardClinicalNoteResourceWrite = patientAccessGuardForResource('CLINICAL_NOTE', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'clinical_note',
+});
+const guardClinicalNoteEncounterView = patientAccessGuardForResource('CLINICAL_NOTE', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'encounter',
+  idParam: 'encounterId',
+});
 
 const NURSING_NOTE_CODES = new Set([
   'observation',
@@ -88,7 +110,7 @@ function normalizeNotePayload(body) {
 // POST /emr/notes — Create clinical note
 // ===================================================================
 
-router.post('/notes', async (req, res, next) => {
+router.post('/notes', guardClinicalNoteWrite, async (req, res, next) => {
   try {
     const { encounter_id, appointment_id, author_role } = req.body;
     const patient_uid = await resolvePatientUidFromBody(req.body);
@@ -132,7 +154,7 @@ router.post('/notes', async (req, res, next) => {
 // POST /emr/notes/:id/addendum — Add addendum to existing note
 // ===================================================================
 
-router.post('/notes/:id/addendum', async (req, res, next) => {
+router.post('/notes/:id/addendum', guardClinicalNoteResourceWrite, async (req, res, next) => {
   try {
     const noteId = parseInt(req.params.id, 10);
     const { content, author_role } = req.body;
@@ -208,14 +230,14 @@ async function adminUpdateNote(req, res, next) {
   }
 }
 
-router.put('/notes/:id', adminUpdateNote);
-router.patch('/notes/:id', adminUpdateNote);
+router.put('/notes/:id', guardClinicalNoteResourceWrite, adminUpdateNote);
+router.patch('/notes/:id', guardClinicalNoteResourceWrite, adminUpdateNote);
 
 // ===================================================================
 // POST /emr/notes/:id/sign — Sign a clinical note
 // ===================================================================
 
-router.post('/notes/:id/sign', async (req, res, next) => {
+router.post('/notes/:id/sign', guardClinicalNoteResourceWrite, async (req, res, next) => {
   try {
     const noteId = parseInt(req.params.id, 10);
 
@@ -246,7 +268,7 @@ router.post('/notes/:id/sign', async (req, res, next) => {
 // GET /emr/notes/patient/:uid — Patient's notes (filtered, paginated)
 // ===================================================================
 
-router.get('/notes/patient/:uid', async (req, res, next) => {
+router.get('/notes/patient/:uid', guardClinicalNoteView, async (req, res, next) => {
   try {
     const { uid } = req.params;
     const { note_type, date_from, date_to, author_uid, page, limit } = req.query;
@@ -281,7 +303,7 @@ router.get('/notes/patient/:uid', async (req, res, next) => {
 // GET /emr/notes/encounter/:encounterId — Encounter notes
 // ===================================================================
 
-router.get('/notes/encounter/:encounterId', async (req, res, next) => {
+router.get('/notes/encounter/:encounterId', guardClinicalNoteEncounterView, async (req, res, next) => {
   try {
     const { encounterId } = req.params;
 
@@ -310,7 +332,7 @@ router.get('/notes/encounter/:encounterId', async (req, res, next) => {
 // GET /emr/notes/:id — Note detail with version history
 // ===================================================================
 
-router.get('/notes/:id', async (req, res, next) => {
+router.get('/notes/:id', guardClinicalNoteResourceView, async (req, res, next) => {
   try {
     const noteId = parseInt(req.params.id, 10);
 
@@ -337,7 +359,7 @@ router.get('/notes/:id', async (req, res, next) => {
 // GET /emr/timeline/:patientUid — Unified clinical timeline
 // ===================================================================
 
-router.get('/timeline/:patientUid', async (req, res, next) => {
+router.get('/timeline/:patientUid', guardClinicalNoteView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const { date_from, date_to } = req.query;
@@ -369,7 +391,7 @@ router.get('/timeline/:patientUid', async (req, res, next) => {
 // POST /emr/downtime-snapshot/:patientUid - Create offline chart packet
 // ===================================================================
 
-router.post('/downtime-snapshot/:patientUid', async (req, res, next) => {
+router.post('/downtime-snapshot/:patientUid', guardClinicalNoteView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
     const hoursToLive = Math.min(Math.max(parseInt(req.body?.hours_to_live, 10) || 12, 1), 72);

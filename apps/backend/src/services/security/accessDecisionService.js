@@ -65,9 +65,22 @@ const ADMISSION_OPERATIONS_ROLES = new Set([
   'BILLING_INCHARGE',
   'FINANCE_INCHARGE',
   'INSURANCE_COORDINATOR',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
 ]);
 
 const MEDICAL_RECORDS_ROLES = new Set(['MEDICAL_RECORDS']);
+
+const OPERATIONAL_ADMIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+const OPERATIONAL_ROLE_POLICIES = new Set([
+  ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW,
+  ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE,
+  ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
+  ACCESS_POLICY_CODES.PATIENT_ADMISSION_WRITE,
+  ACCESS_POLICY_CODES.PATIENT_BED_VIEW,
+  ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+]);
 
 export { ACCESS_POLICY_CODES, SAFE_PATIENT_ACCESS_DENIAL_MESSAGE };
 
@@ -167,6 +180,22 @@ function hasRequiredCapability(rolePolicy, policy) {
   return required.some((group) => groups.includes(group));
 }
 
+function canUseRoleOwnedOperationalAccess(role, policy) {
+  if (!OPERATIONAL_ROLE_POLICIES.has(policy?.code)) return false;
+  if (OPERATIONAL_ADMIN_ROLES.has(role)) return true;
+  if (policy.code === ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_VIEW
+    || policy.code === ACCESS_POLICY_CODES.PATIENT_APPOINTMENT_WRITE) {
+    return OP_RELATIONSHIP_ROLES.has(role) || DOCTOR_RELATIONSHIP_ROLES.has(role);
+  }
+  if (policy.code === ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW
+    || policy.code === ACCESS_POLICY_CODES.PATIENT_ADMISSION_WRITE
+    || policy.code === ACCESS_POLICY_CODES.PATIENT_BED_VIEW
+    || policy.code === ACCESS_POLICY_CODES.PATIENT_BED_WRITE) {
+    return ADMISSION_OPERATIONS_ROLES.has(role) || IP_RELATIONSHIP_ROLES.has(role) || DOCTOR_RELATIONSHIP_ROLES.has(role);
+  }
+  return false;
+}
+
 function isSchemaMissing(err) {
   return err?.code === '42P01'
     || err?.meta?.code === '42P01'
@@ -190,6 +219,213 @@ async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
     cleanUuid(uid),
   );
   return rows[0] || null;
+}
+
+async function patientFromResourceQuery(req, sql, idValue) {
+  const resourceId = cleanInt(idValue);
+  if (!resourceId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    deriveTenantIdFromRequest(req),
+    resourceId,
+  );
+  const row = rows[0] || null;
+  return row?.uid ? { id: row.id ?? null, uid: row.uid } : null;
+}
+
+async function patientFromUuidResourceQuery(req, sql, uuidValue) {
+  const resourceUid = cleanUuid(uuidValue);
+  if (!resourceUid) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    sql,
+    deriveTenantIdFromRequest(req),
+    resourceUid,
+  );
+  const row = rows[0] || null;
+  return row?.uid ? { id: row.id ?? null, uid: row.uid } : null;
+}
+
+export async function resolvePatientForResourceAccess(req, {
+  resourceType,
+  resourceId,
+} = {}) {
+  const type = String(resourceType || '').trim().toLowerCase();
+  if (!type) return null;
+
+  switch (type) {
+    case 'appointment':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM appointments a
+           JOIN users p ON p.id = a.patient_id
+          WHERE a.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND a.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'admission':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM admissions a
+           JOIN users p ON p.uid = a.patient_uid
+          WHERE a.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND a.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'encounter':
+      return patientFromUuidResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM admissions a
+           JOIN users p ON p.uid = a.patient_uid
+          WHERE a.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND a.encounter_id = $2::uuid
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'bed':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM beds b
+           LEFT JOIN admissions a
+             ON a.tenant_id = b.tenant_id
+            AND (
+              (b.admission_id IS NOT NULL AND a.id = b.admission_id)
+              OR (a.bed_id = b.id AND a.discharged_at IS NULL)
+            )
+           JOIN users p
+             ON p.tenant_id = b.tenant_id
+            AND p.role = 'PATIENT'
+            AND (
+              (b.patient_uid IS NOT NULL AND p.uid = b.patient_uid)
+              OR (a.patient_uid IS NOT NULL AND p.uid = a.patient_uid)
+              OR (b.patient_id IS NOT NULL AND p.id = b.patient_id)
+            )
+          WHERE b.tenant_id = $1::uuid
+            AND b.id = $2::int
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'clinical_order':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM clinical_orders co
+           JOIN users p ON p.uid = co.patient_uid
+          WHERE co.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND co.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'clinical_note':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM clinical_notes cn
+           JOIN users p ON p.uid = cn.patient_uid
+          WHERE cn.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND cn.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'diagnosis':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM diagnoses d
+           JOIN users p ON p.uid = d.patient_uid
+          WHERE d.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND d.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'cds_alert':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM cds_alerts ca
+           JOIN users p ON p.uid = ca.patient_uid
+          WHERE ca.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND ca.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'medication_administration':
+    case 'mar':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM medication_administrations ma
+           JOIN users p ON p.uid = ma.patient_uid
+          WHERE ma.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND ma.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'nurse_handover':
+    case 'handover':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM nurse_handovers nh
+           JOIN users p ON p.uid = nh.patient_uid
+          WHERE nh.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND nh.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'vitals':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM vitals_chart vc
+           JOIN users p ON p.uid = vc.patient_uid
+          WHERE vc.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND vc.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'intake_output':
+    case 'io':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM intake_output io
+           JOIN users p ON p.uid = io.patient_uid
+          WHERE io.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND io.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    default:
+      return null;
+  }
 }
 
 export async function resolvePatientForAccess(req, providedPatient = null) {
@@ -356,6 +592,54 @@ async function findCareTeamRelationship(req, patient, role) {
     actorUid,
     actorId,
     role || null,
+  );
+  return rows[0] || null;
+}
+
+async function findClinicalAuthorshipRelationship(req, patient, policy) {
+  if (![ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS, ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE].includes(policy?.code)) {
+    return null;
+  }
+  const actorUid = cleanUuid(actorUidOf(req));
+  const patientUid = cleanUuid(patient?.uid);
+  if (!actorUid || !patientUid) return null;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT source, id
+       FROM (
+         SELECT 'clinical_order' AS source, id, created_at
+           FROM clinical_orders
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND ordered_by = $3::uuid
+         UNION ALL
+         SELECT 'clinical_note' AS source, id, created_at
+           FROM clinical_notes
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND (
+              author_uid = $3::uuid
+              OR author_id = $3::uuid
+              OR created_by = $3::uuid
+            )
+         UNION ALL
+         SELECT 'diagnosis' AS source, id, created_at
+           FROM diagnoses
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND diagnosed_by = $3::uuid
+         UNION ALL
+         SELECT 'vitals' AS source, id, recorded_at AS created_at
+           FROM vitals_chart
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND recorded_by = $3::uuid
+       ) authored
+      ORDER BY created_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    patientUid,
+    actorUid,
   );
   return rows[0] || null;
 }
@@ -555,6 +839,12 @@ export async function authorizePatientAccessRequest(req, {
     decision = allowDecision(args, 'role', 'medical records office role');
   } else if ([PHI_ACCESS_LEVELS.NONE, PHI_ACCESS_LEVELS.STAFF_ONLY, PHI_ACCESS_LEVELS.OPERATIONAL_ONLY].includes(rolePolicy.phi?.access_level)) {
     decision = denyDecision(args, `${role} does not have a patient PHI access scope`);
+  } else if (
+    rankPhiLevel(rolePolicy.phi?.access_level) >= policyMinimumRank(policy)
+    && hasRequiredCapability(rolePolicy, policy)
+    && canUseRoleOwnedOperationalAccess(role, policy)
+  ) {
+    decision = allowDecision(args, 'role', `${role} has role-owned operational workflow access for ${policy.code}`);
   } else {
     const breakGlass = await findActiveBreakGlass(req, resolvedPatient, policy, rolePolicy);
     if (breakGlass?.id) {
@@ -578,6 +868,18 @@ export async function authorizePatientAccessRequest(req, {
     const careTeam = await findCareTeamRelationship(req, resolvedPatient, role);
     if (careTeam?.care_team_id) {
       decision = allowDecision(args, 'care_team', 'active care-team relationship', { careTeamId: careTeam.care_team_id });
+    }
+  }
+
+  if (!decision && policy.relationship_checks.includes('clinical_authorship')) {
+    const authored = await findClinicalAuthorshipRelationship(req, resolvedPatient, policy);
+    if (authored?.id) {
+      decision = allowDecision(args, 'clinical_authorship', 'actor authored patient clinical workflow material', {
+        clinicalAuthorship: {
+          source: authored.source,
+          id: authored.id,
+        },
+      });
     }
   }
 

@@ -64,8 +64,11 @@ export interface PatientAccessAuditEvent {
   record_type: string | null;
   access_reason: string | null;
   access_decision: string | null;
+  access_source: string | null;
   route: string | null;
   action: string | null;
+  resource_type: string | null;
+  policy_code: string | null;
   created_at: string;
 }
 
@@ -198,6 +201,14 @@ export function transitionCareTeamMember(careTeamId: number, memberId: number, p
 export function listPatientAccessAudit(params: {
   patient_uid?: string;
   actor_uid?: string;
+  decision?: string;
+  source?: string;
+  action?: string;
+  record_type?: string;
+  resource_type?: string;
+  route?: string;
+  date_from?: string;
+  date_to?: string;
   limit?: number;
 } = {}) {
   return getJSON<{ access_events: PatientAccessAuditEvent[]; count: number }>(

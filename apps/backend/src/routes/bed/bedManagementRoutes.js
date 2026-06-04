@@ -5,8 +5,10 @@ import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import bedManagementService from '../../services/bed/bedManagementService.js';
 import admissionService from '../../services/emr/admissionService.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 
 const router = express.Router();
 
@@ -18,9 +20,33 @@ const router = express.Router();
 const requireClinicalForBedMovement = requireRole(
   'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
 );
+const requireBedAllocation = requireRole(
+  'ADMIN',
+  'SUPER_ADMIN',
+  'DOCTOR',
+  'NURSING_STAFF',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
+  'ADMISSION_OFFICER',
+  'IPD_COUNSELLOR',
+);
 const requireHousekeepingForBedReady = requireRole(
   'ADMIN', 'SUPER_ADMIN', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE',
 );
+const guardBedResourceWrite = patientAccessGuardForResource('BED_MANAGEMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+  resourceType: 'bed',
+});
+const guardBedResourceView = patientAccessGuardForResource('BED_BOARD', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_BED_VIEW,
+  resourceType: 'bed',
+  allowNoPatientResource: true,
+});
+const guardBedPatientWrite = patientAccessGuard('BED_MANAGEMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_BED_WRITE,
+});
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -60,7 +86,8 @@ router.get(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/admit',
-  requireClinicalForBedMovement,
+  requireBedAllocation,
+  guardBedPatientWrite,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
     const { patient_uid, expected_discharge } = req.body;
@@ -90,6 +117,7 @@ router.post(
 router.post(
   '/:id/discharge',
   requireClinicalForBedMovement,
+  guardBedResourceWrite,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
     const requestedBy = req.user?.uid || null;
@@ -121,6 +149,7 @@ router.post(
 router.post(
   '/transfer',
   requireClinicalForBedMovement,
+  guardBedPatientWrite,
   wrapAsync(async (req, res) => {
     const {
       patient_uid, to_bed_id, reason,
@@ -182,6 +211,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.get(
   '/:id/history',
+  guardBedResourceView,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
     const history = await bedManagementService.getBedHistory(bedId);
