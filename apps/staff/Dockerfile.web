@@ -3,8 +3,7 @@
 # docs/CLINICAL_AI_ROLLOUT_PLAN.md).
 #
 # Three stages:
-#   1. flutter-build  — compile the web bundle (CanvasKit renderer)
-#                       with the LAN backend URL baked in via
+#   1. flutter-build  — compile the web bundle with the LAN backend URL baked in via
 #                       --dart-define=VH_BASE_URL=<...>
 #   2. asset-prep     — copy the build/web output into a fresh layer
 #                       so the runner stage doesn't carry the SDK
@@ -58,11 +57,10 @@ ARG SENTRY_RELEASE=
 
 WORKDIR /workspace/apps/staff
 
-# Use CanvasKit renderer for crisp Material 3 + offline asset bundling.
+# Build the optimized Flutter web bundle.
 # Tree-shake icons (default in flutter build web 3.41+).
 RUN flutter build web \
       --release \
-      --web-renderer canvaskit \
       --dart-define=VH_BASE_URL=${VH_BASE_URL:-$API_URL} \
       --dart-define=VH_API_KEY=${VH_API_KEY:-$API_KEY} \
       --dart-define=APP_NAME="$APP_NAME" \
