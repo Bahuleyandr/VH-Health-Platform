@@ -33,7 +33,8 @@ const NURSING_BOARD_ACTION_ROLES = new Set([
   'ICU_INCHARGE',
   'NURSING_STAFF',
   'NURSING_INCHARGE',
-  'OP_STAFF_NURSE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
 ]);
 
 const PHARMACY_BOARD_ACTION_ROLES = new Set([
@@ -58,8 +59,16 @@ const ROLE_VIEW = {
     label: 'Nursing board',
     visible_sections: ['summary', 'alerts', 'tasks', 'discharge', 'actions'],
   },
+  IP_STAFF_NURSE: {
+    label: 'IP nursing board',
+    visible_sections: ['summary', 'alerts', 'tasks', 'discharge', 'actions'],
+  },
   NURSING_INCHARGE: {
     label: 'Nursing command',
+    visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
+  },
+  IP_INCHARGE: {
+    label: 'IP nursing command',
     visible_sections: ['summary', 'diagnosis', 'alerts', 'tasks', 'discharge', 'actions'],
   },
   CNO: {

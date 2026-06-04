@@ -9,7 +9,7 @@ describe('role alias normalization', () => {
     ['NURSING_IN_CHARGE', 'NURSING_INCHARGE'],
     ['NURSING_SUPERINTENDENT', 'CNO'],
     ['STAFF_NURSE', 'NURSING_STAFF'],
-    ['WARD_NURSE', 'NURSING_STAFF'],
+    ['WARD_NURSE', 'IP_STAFF_NURSE'],
     ['REGISTERED_NURSE', 'NURSING_STAFF'],
     ['HOUSEKEEPING_ATTENDANT', 'HOUSEKEEPING_STAFF'],
   ])('normalizes %s to %s', (input, expected) => {
@@ -21,6 +21,7 @@ describe('role alias normalization', () => {
     expect(hasRole('MEDICAL_SUPERINTENDANT', ['MEDICAL_SUPERINTENDENT'])).toBe(true);
     expect(hasRole('NURSING_IN_CHARGE', ['NURSING_INCHARGE'])).toBe(true);
     expect(hasRole('STAFF_NURSE', ['NURSING_STAFF'])).toBe(true);
+    expect(hasRole('WARD_NURSE', ['IP_STAFF_NURSE'])).toBe(true);
     expect(hasRole('HOUSEKEEPING_ATTENDANT', ['HOUSEKEEPING_STAFF'])).toBe(true);
   });
 });

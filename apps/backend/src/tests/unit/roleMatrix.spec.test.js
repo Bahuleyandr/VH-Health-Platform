@@ -12,6 +12,7 @@
 import {
   ROLES,
   canAccessBloodBank,
+  canAccessCathLab,
   canAccessOT,
   canAccessRadiology,
   canDispatchAmbulance,
@@ -69,6 +70,11 @@ const GATES = [
       'NURSING_INCHARGE',
       'OP_STAFF_NURSE',
       'OP_INCHARGE',
+      'IP_STAFF_NURSE',
+      'IP_INCHARGE',
+      'OT_NURSE',
+      'CATH_LAB_STAFF',
+      'CATH_LAB_INCHARGE',
       'RADIOLOGIST',
       'ANESTHETIST',
       'PHYSIOTHERAPIST',
@@ -136,8 +142,8 @@ const GATES = [
       'RESIDENT',
       'NURSING_STAFF',
       'NURSING_INCHARGE',
-      'OP_STAFF_NURSE',
-      'OP_INCHARGE',
+      'IP_STAFF_NURSE',
+      'IP_INCHARGE',
       'MEDICAL_RECORDS',
       'ADMIN'
     ])
@@ -153,8 +159,13 @@ const GATES = [
       'RESIDENT',
       'NURSING_STAFF',
       'NURSING_INCHARGE',
+      'IP_STAFF_NURSE',
+      'IP_INCHARGE',
       'OP_STAFF_NURSE',
       'OP_INCHARGE',
+      'OT_NURSE',
+      'CATH_LAB_STAFF',
+      'CATH_LAB_INCHARGE',
       'RADIOLOGIST',
       'ANESTHETIST',
       'PHYSIOTHERAPIST',
@@ -187,8 +198,25 @@ const GATES = [
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'OT_STAFF',
+      'OT_NURSE',
       'ANESTHETIST',
       'ADMIN',
+      'CMO'
+    ])
+  },
+  {
+    name: 'canAccessCathLab',
+    fn: canAccessCathLab,
+    allow: new Set([
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'CATH_LAB_STAFF',
+      'CATH_LAB_INCHARGE',
+      'ADMIN',
+      'SUPER_ADMIN',
       'CMO'
     ])
   },
@@ -201,6 +229,9 @@ const GATES = [
       'CONSULTANT',
       'JUNIOR_DOCTOR',
       'NURSING_STAFF',
+      'IP_STAFF_NURSE',
+      'OT_NURSE',
+      'CATH_LAB_STAFF',
       'BLOOD_BANK_TECHNICIAN',
       'ADMIN'
     ])

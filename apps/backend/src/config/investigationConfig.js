@@ -69,5 +69,21 @@ export const PAGINATION = {
 // orphaned name only this file used; keep it for forward-compat in case
 // any caller still passes it. See finding
 // 2026-05-08-lab-walk-in-lab-tech-rbac-lab-staff-blocked.
-export const MEDICAL_STAFF_ROLES = ['DOCTOR', 'NURSE', 'NURSING_STAFF', 'LAB_STAFF', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN', 'SUPER_ADMIN'];
+export const MEDICAL_STAFF_ROLES = [
+  'DOCTOR',
+  'NURSE',
+  'NURSING_STAFF',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'OT_NURSE',
+  'CATH_LAB_STAFF',
+  'CATH_LAB_INCHARGE',
+  'LAB_STAFF',
+  'LAB_TECHNICIAN',
+  'RADIOLOGIST',
+  'ADMIN',
+  'SUPER_ADMIN'
+];
 export const LAB_STAFF_ROLES = ['LAB_STAFF', 'LAB_TECHNICIAN', 'DOCTOR', 'RADIOLOGIST', 'ADMIN', 'SUPER_ADMIN'];

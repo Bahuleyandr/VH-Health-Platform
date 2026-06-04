@@ -146,12 +146,12 @@ export const ORGANIZATION_HIERARCHY_NODES = [
   {
     id: 'nursing_incharge',
     lane: 'clinical',
-    title: 'Nursing Incharge / OP Incharge',
+    title: 'Nursing Incharge / OP / IP / Cath Lab Incharge',
     subtitle: 'Unit nursing leads',
-    role_codes: ['NURSING_INCHARGE', 'OP_INCHARGE'],
+    role_codes: ['NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'CATH_LAB_INCHARGE'],
     access_level: 'Unit roster and nursing work access',
     responsibilities: [
-      'Assigns nurses to wards, OP areas, and coverage blocks',
+      'Assigns nurses to wards, OP areas, Cath lab, OT coverage, and coverage blocks',
       'Recommends leave approval or alternate arrangements based on coverage',
     ],
     boundaries: [
@@ -161,12 +161,12 @@ export const ORGANIZATION_HIERARCHY_NODES = [
   {
     id: 'nursing_staff',
     lane: 'clinical',
-    title: 'Nursing Staff / OP Staff Nurse',
+    title: 'Nursing Staff / OP / IP / OT / Cath Lab Staff',
     subtitle: 'Nursing team',
-    role_codes: ['NURSING_STAFF', 'OP_STAFF_NURSE', 'ICU_NURSE'],
+    role_codes: ['NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF', 'ICU_NURSE'],
     access_level: 'Nursing workflow access',
     responsibilities: [
-      'Ward and OP nursing tasks, vitals, medication administration, nursing notes, and patient handover',
+      'OP, IP, OT, Cath lab, vitals, medication administration, nursing notes, and patient handover',
     ],
     boundaries: [
       'Leave preferences go through HR process and nursing coverage review',
@@ -386,8 +386,8 @@ export const ORGANIZATION_ROLE_BOUNDARIES = [
   },
   {
     title: 'Nursing authority',
-    role_codes: ['CNO', 'NURSING_INCHARGE', 'OP_INCHARGE', 'NURSING_STAFF', 'OP_STAFF_NURSE'],
-    scope: 'Nursing deployment, nursing documentation, ward coverage, medication administration, and nursing escalation.',
+    role_codes: ['CNO', 'NURSING_INCHARGE', 'OP_INCHARGE', 'IP_INCHARGE', 'CATH_LAB_INCHARGE', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF'],
+    scope: 'Nursing deployment, OP/IP/OT/Cath lab nursing documentation, ward coverage, medication administration, and nursing escalation.',
     cannot: 'Does not process payroll or final HR leave records.',
   },
   {

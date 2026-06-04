@@ -26,11 +26,12 @@ const BASE_DEPARTMENT_POLICIES = {
   },
   nursing: {
     department: 'nursing',
-    label: 'Nursing',
-    staffRoles: ['NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE', 'OT_NURSE'],
+    label: 'IP Nursing',
+    staffRoles: ['NURSING_STAFF', 'NURSING_INCHARGE', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'ICU_NURSE'],
     workManagerRoles: [
       ...EXECUTIVE_ROSTER_ROLES,
       'NURSING_INCHARGE',
+      'IP_INCHARGE',
       'DUTY_DOCTOR',
       'MEDICAL_SUPERINTENDENT',
       'CNO'
@@ -42,7 +43,7 @@ const BASE_DEPARTMENT_POLICIES = {
   op_nursing: {
     department: 'op_nursing',
     label: 'OP Staff Nursing',
-    staffRoles: ['OP_STAFF_NURSE', 'NURSING_STAFF', 'OP_INCHARGE'],
+    staffRoles: ['OP_STAFF_NURSE', 'OP_INCHARGE'],
     workManagerRoles: [
       ...EXECUTIVE_ROSTER_ROLES,
       'OP_INCHARGE',
@@ -53,6 +54,34 @@ const BASE_DEPARTMENT_POLICIES = {
     hrProcessRoles: HR_PROCESS_ROLES,
     targetType: 'op_area',
     governanceNote: 'OP nursing is assigned by OP/Nursing leadership with HR leave-process support.'
+  },
+  ot_nursing: {
+    department: 'ot_nursing',
+    label: 'OT Nursing',
+    staffRoles: ['OT_NURSE', 'OT_STAFF'],
+    workManagerRoles: [
+      ...EXECUTIVE_ROSTER_ROLES,
+      'NURSING_INCHARGE',
+      'MEDICAL_SUPERINTENDENT',
+      'CNO'
+    ],
+    hrProcessRoles: HR_PROCESS_ROLES,
+    targetType: 'operating_theatre',
+    governanceNote: 'OT nursing is assigned by theatre/nursing leadership with HR leave-process support.'
+  },
+  cath_lab: {
+    department: 'cath_lab',
+    label: 'Cath Lab',
+    staffRoles: ['CATH_LAB_STAFF', 'CATH_LAB_INCHARGE'],
+    workManagerRoles: [
+      ...EXECUTIVE_ROSTER_ROLES,
+      'CATH_LAB_INCHARGE',
+      'MEDICAL_SUPERINTENDENT',
+      'CNO'
+    ],
+    hrProcessRoles: HR_PROCESS_ROLES,
+    targetType: 'cath_lab_suite',
+    governanceNote: 'Cath Lab deployment is owned by Cath Lab/Nursing leadership with HR leave-process support.'
   },
   reception: {
     department: 'reception',

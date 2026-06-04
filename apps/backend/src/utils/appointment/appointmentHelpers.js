@@ -2,19 +2,23 @@ import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import { AppError } from '../AppError.js';
 import { isDoctor, isAdmin, isLeadership, isMedicalRecords } from '../roleHelpers.js';
 
+const APPOINTMENT_OPERATIONS_ROLES = new Set([
+  'ADMIN',
+  'NURSE',
+  'NURSING_STAFF',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
+]);
+
 export const hasPermission = (userRole, action) => {
   const allowedRoles = APPOINTMENT_CONFIG.PERMISSIONS[action];
   return allowedRoles && allowedRoles.includes(userRole);
 };
 
 export const canAccessAppointment = (user, appointment) => {
-  if (
-    user.role === 'ADMIN'
-    || user.role === 'NURSE'
-    || user.role === 'NURSING_STAFF'
-    || user.role === 'RECEPTIONIST'
-    || user.role === 'RECEPTION_INCHARGE'
-  ) {
+  if (APPOINTMENT_OPERATIONS_ROLES.has(user.role)) {
     return true;
   }
   if (user.role === 'DOCTOR' && String(appointment.doctor_id) === String(user.id)) {
@@ -44,7 +48,7 @@ export const normalizeStatus = (status) => {
 
 export const checkAppointmentPermission = (user, appointment, action) => {
   // Admin and Nurse have full access
-  if (['ADMIN', 'NURSE', 'NURSING_STAFF', 'RECEPTIONIST', 'RECEPTION_INCHARGE'].includes(user.role)) {
+  if (APPOINTMENT_OPERATIONS_ROLES.has(user.role)) {
     return true;
   }
 

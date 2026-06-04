@@ -10,6 +10,7 @@ export const FULL_INPATIENT_SCOPE_ROLES = new Set([
   'MEDICAL_SUPERINTENDENT',
   'CNO',
   'NURSING_INCHARGE',
+  'IP_INCHARGE',
   'ICU_INCHARGE',
   'IPD_COUNSELLOR',
   'INSURANCE_COORDINATOR',
@@ -45,12 +46,14 @@ const ROSTER_INPATIENT_SCOPE_BY_ROLE = {
     admissionFallback: 'all_locations',
     locationFallback: 'all_locations',
   },
-  ICU_NURSE: {
+  IP_STAFF_NURSE: {
     department: 'nursing',
     type: 'ward_nursing',
     fallback: 'none',
+    admissionFallback: 'all_locations',
+    locationFallback: 'all_locations',
   },
-  OT_NURSE: {
+  ICU_NURSE: {
     department: 'nursing',
     type: 'ward_nursing',
     fallback: 'none',

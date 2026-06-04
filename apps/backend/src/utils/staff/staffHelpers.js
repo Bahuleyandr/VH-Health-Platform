@@ -14,6 +14,10 @@ export function getStaffHierarchy(userRole) {
     (role) => !['SUPER_ADMIN', 'ADMIN'].includes(role),
   );
   const anaesthesiaRoles = ['ANAESTHETIST', 'ANESTHETIST'];
+  const ipNursingRoles = ['NURSING_STAFF', 'IP_STAFF_NURSE'];
+  const opNursingRoles = ['OP_STAFF_NURSE'];
+  const otNursingRoles = ['OT_NURSE', 'OT_STAFF'];
+  const cathLabRoles = ['CATH_LAB_STAFF', 'CATH_LAB_INCHARGE'];
   // Anaesthetists are clinical-doctor tier (same level as DOCTOR for the
   // theatre/ICU/PACU surfaces); RADIOLOGY_STAFF mirrors LAB_STAFF as a
   // self-contained role bucket. HR_STAFF now lists every modality role
@@ -24,22 +28,42 @@ export function getStaffHierarchy(userRole) {
     SUPER_ADMIN: [...allStaffRoles, 'SUPER_ADMIN'],
     ADMIN: allStaffRoles,
     HR_STAFF: onboardableStaffRoles,
-    DOCTOR: ['DOCTOR', ...anaesthesiaRoles, 'NURSING_STAFF'],
-    ANAESTHETIST: ['ANAESTHETIST', 'ANESTHETIST', 'NURSING_STAFF'],
-    ANESTHETIST: ['ANESTHETIST', 'ANAESTHETIST', 'NURSING_STAFF'],
+    DOCTOR: ['DOCTOR', ...anaesthesiaRoles, ...ipNursingRoles, ...otNursingRoles],
+    ANAESTHETIST: ['ANAESTHETIST', 'ANESTHETIST', ...ipNursingRoles, ...otNursingRoles],
+    ANESTHETIST: ['ANESTHETIST', 'ANAESTHETIST', ...ipNursingRoles, ...otNursingRoles],
     MEDICAL_SUPERINTENDENT: [
       'MEDICAL_SUPERINTENDENT',
       'DOCTOR',
       'DUTY_DOCTOR',
       ...anaesthesiaRoles,
       'NURSING_INCHARGE',
-      'NURSING_STAFF',
+      'IP_INCHARGE',
+      ...ipNursingRoles,
       'OP_INCHARGE',
-      'OP_STAFF_NURSE'
+      ...opNursingRoles,
+      ...otNursingRoles,
+      ...cathLabRoles
     ],
-    CNO: ['CNO', 'NURSING_INCHARGE', 'NURSING_STAFF', 'OP_INCHARGE', 'OP_STAFF_NURSE'],
-    NURSING_INCHARGE: ['NURSING_INCHARGE', 'NURSING_STAFF', 'OP_STAFF_NURSE'],
+    CNO: [
+      'CNO',
+      'NURSING_INCHARGE',
+      'IP_INCHARGE',
+      ...ipNursingRoles,
+      'OP_INCHARGE',
+      ...opNursingRoles,
+      ...otNursingRoles,
+      ...cathLabRoles,
+    ],
+    NURSING_INCHARGE: ['NURSING_INCHARGE', 'IP_INCHARGE', ...ipNursingRoles, ...opNursingRoles],
     NURSING_STAFF: ['NURSING_STAFF'],
+    IP_INCHARGE: ['IP_INCHARGE', ...ipNursingRoles],
+    IP_STAFF_NURSE: ['IP_STAFF_NURSE'],
+    OP_INCHARGE: ['OP_INCHARGE', ...opNursingRoles],
+    OP_STAFF_NURSE: ['OP_STAFF_NURSE'],
+    OT_NURSE: ['OT_NURSE', 'OT_STAFF'],
+    OT_STAFF: ['OT_STAFF', 'OT_NURSE'],
+    CATH_LAB_INCHARGE: cathLabRoles,
+    CATH_LAB_STAFF: ['CATH_LAB_STAFF'],
     PHARMACY_STAFF: ['PHARMACY_STAFF'],
     LAB_STAFF: ['LAB_STAFF'],
     RADIOLOGY_STAFF: ['RADIOLOGY_STAFF'],

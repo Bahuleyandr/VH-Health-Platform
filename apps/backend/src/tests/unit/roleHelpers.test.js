@@ -14,6 +14,7 @@ import {
   PLATFORM_ROLES,
   SUPPORT_ROLES,
   canAccessBloodBank,
+  canAccessCathLab,
   canAccessOT,
   canAccessRadiology,
   canDispatchAmbulance,
@@ -52,6 +53,16 @@ describe('Phase F1 role registry', () => {
     expect(ROLES.WEBHOOK_CLIENT).toBe('WEBHOOK_CLIENT');
     expect(ROLES.AI_GOVERNANCE_ADMIN).toBe('AI_GOVERNANCE_ADMIN');
     expect(ROLES.DATA_PROTECTION_OFFICER).toBe('DATA_PROTECTION_OFFICER');
+  });
+
+  it('exposes nursing subroles for OP, IP, OT, and Cath lab', () => {
+    expect(ROLES.OP_STAFF_NURSE).toBe('OP_STAFF_NURSE');
+    expect(ROLES.OP_INCHARGE).toBe('OP_INCHARGE');
+    expect(ROLES.IP_STAFF_NURSE).toBe('IP_STAFF_NURSE');
+    expect(ROLES.IP_INCHARGE).toBe('IP_INCHARGE');
+    expect(ROLES.OT_NURSE).toBe('OT_NURSE');
+    expect(ROLES.CATH_LAB_STAFF).toBe('CATH_LAB_STAFF');
+    expect(ROLES.CATH_LAB_INCHARGE).toBe('CATH_LAB_INCHARGE');
   });
 
   it('puts doctor seniority tiers in CLINICAL_ROLES + DOCTOR_TIERS', () => {
@@ -179,12 +190,22 @@ describe('Existing access gates respect new doctor tiers', () => {
   it('canAccessOT accepts CONSULTANT / JUNIOR_DOCTOR but not RESIDENT', () => {
     expect(canAccessOT('CONSULTANT')).toBe(true);
     expect(canAccessOT('JUNIOR_DOCTOR')).toBe(true);
+    expect(canAccessOT('OT_NURSE')).toBe(true);
     expect(canAccessOT('RESIDENT')).toBe(false);
+  });
+  it('canAccessCathLab accepts cath lab staff and clinical doctor tiers', () => {
+    expect(canAccessCathLab('CATH_LAB_STAFF')).toBe(true);
+    expect(canAccessCathLab('CATH_LAB_INCHARGE')).toBe(true);
+    expect(canAccessCathLab('CONSULTANT')).toBe(true);
+    expect(canAccessCathLab('OP_STAFF_NURSE')).toBe(false);
   });
   it('canAccessBloodBank accepts senior tiers + nursing + technician', () => {
     expect(canAccessBloodBank('CONSULTANT')).toBe(true);
     expect(canAccessBloodBank('JUNIOR_DOCTOR')).toBe(true);
     expect(canAccessBloodBank('NURSING_STAFF')).toBe(true);
+    expect(canAccessBloodBank('IP_STAFF_NURSE')).toBe(true);
+    expect(canAccessBloodBank('OT_NURSE')).toBe(true);
+    expect(canAccessBloodBank('CATH_LAB_STAFF')).toBe(true);
     expect(canAccessBloodBank('BLOOD_BANK_TECHNICIAN')).toBe(true);
     expect(canAccessBloodBank('RESIDENT')).toBe(false);
   });
@@ -196,7 +217,8 @@ describe('isStaff / isClinical respect new specialty roles', () => {
       'CARE_COORDINATOR', 'CLAIMS_MANAGER', 'AMBULANCE_COORDINATOR',
       'INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER',
       'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'ADMISSION_OFFICER',
-      'IPD_COUNSELLOR', 'INSURANCE_COORDINATOR']) {
+      'IPD_COUNSELLOR', 'INSURANCE_COORDINATOR', 'IP_STAFF_NURSE',
+      'IP_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE']) {
       expect(isStaff(r)).toBe(true);
     }
   });
@@ -205,6 +227,9 @@ describe('isStaff / isClinical respect new specialty roles', () => {
   });
   it('isClinical is true for clinical-grouped new roles', () => {
     expect(isClinical('CONSULTANT')).toBe(true);
+    expect(isClinical('IP_STAFF_NURSE')).toBe(true);
+    expect(isClinical('OT_NURSE')).toBe(true);
+    expect(isClinical('CATH_LAB_STAFF')).toBe(true);
     expect(isClinical('COUNSELLOR')).toBe(true);
     expect(isClinical('CARE_COORDINATOR')).toBe(false);
   });

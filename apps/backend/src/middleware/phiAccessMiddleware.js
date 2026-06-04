@@ -286,7 +286,16 @@ async function evaluatePatientAccess(req, patient) {
     }
   }
 
-  if (['NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE', 'DUTY_DOCTOR', 'DOCTOR'].includes(role)) {
+  const inpatientRelationshipRoles = [
+    'NURSING_STAFF',
+    'NURSING_INCHARGE',
+    'IP_STAFF_NURSE',
+    'IP_INCHARGE',
+    'ICU_NURSE',
+    'DUTY_DOCTOR',
+    'DOCTOR',
+  ];
+  if (inpatientRelationshipRoles.includes(role)) {
     const admission = await prisma.$queryRawUnsafe(
       `SELECT id
          FROM admissions
@@ -294,7 +303,7 @@ async function evaluatePatientAccess(req, patient) {
           AND patient_uid = $2::uuid
           AND COALESCE(status, '') NOT IN ('DISCHARGED', 'CANCELLED')
           AND (
-            $4::text IN ('NURSING_STAFF', 'NURSING_INCHARGE', 'ICU_NURSE')
+            $4::text IN ('NURSING_STAFF', 'NURSING_INCHARGE', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'ICU_NURSE')
             OR (
               $3::uuid IS NOT NULL
               AND (

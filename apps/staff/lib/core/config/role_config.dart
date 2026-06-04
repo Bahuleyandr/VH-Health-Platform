@@ -12,6 +12,11 @@ enum StaffRole {
   nursingIncharge('NURSING_INCHARGE'),
   opStaffNurse('OP_STAFF_NURSE'),
   opIncharge('OP_INCHARGE'),
+  ipStaffNurse('IP_STAFF_NURSE'),
+  ipIncharge('IP_INCHARGE'),
+  otNurse('OT_NURSE'),
+  cathLabStaff('CATH_LAB_STAFF'),
+  cathLabIncharge('CATH_LAB_INCHARGE'),
   hr('HR_STAFF'),
   admin('ADMIN'),
   superAdmin('SUPER_ADMIN'),
@@ -71,14 +76,51 @@ enum StaffRole {
       return StaffRole.dutyDoctor;
     }
     if (const {
-      'ICU_NURSE',
       'NURSE',
-      'OT_NURSE',
       'REGISTERED_NURSE',
       'STAFF_NURSE',
-      'WARD_NURSE',
     }.contains(normalized)) {
       return StaffRole.nurse;
+    }
+    if (const {
+      'ICU_NURSE',
+      'IP_NURSE',
+      'IP_STAFF',
+      'IPD_NURSE',
+      'IPD_STAFF_NURSE',
+      'WARD_NURSE',
+    }.contains(normalized)) {
+      return StaffRole.ipStaffNurse;
+    }
+    if (const {
+      'IPD_INCHARGE',
+      'IP_NURSING_INCHARGE',
+      'WARD_NURSING_INCHARGE',
+    }.contains(normalized)) {
+      return StaffRole.ipIncharge;
+    }
+    if (const {
+      'OT_NURSE',
+      'OT_STAFF',
+      'THEATRE_NURSE',
+      'THEATRE_STAFF',
+    }.contains(normalized)) {
+      return StaffRole.otNurse;
+    }
+    if (const {
+      'CATHLAB_NURSE',
+      'CATHLAB_STAFF',
+      'CATH_LAB_NURSE',
+      'CATH_LAB_TECH',
+      'CATH_LAB_TECHNICIAN',
+    }.contains(normalized)) {
+      return StaffRole.cathLabStaff;
+    }
+    if (const {
+      'CATHLAB_INCHARGE',
+      'CATH_LAB_IN_CHARGE',
+    }.contains(normalized)) {
+      return StaffRole.cathLabIncharge;
     }
     if (const {
       'CHIEF_NURSING_OFFICER',
@@ -98,7 +140,6 @@ enum StaffRole {
       'NURSING_IN_CHARGE',
       'NURSING_INCHARGE_ROLE',
       'NURSING_SUPERVISOR',
-      'WARD_NURSING_INCHARGE',
     }.contains(normalized)) {
       return StaffRole.nursingIncharge;
     }
@@ -121,6 +162,11 @@ enum StaffRole {
     StaffRole.nursingIncharge => 'Nursing Incharge',
     StaffRole.opStaffNurse => 'OP Staff Nurse',
     StaffRole.opIncharge => 'OP Incharge',
+    StaffRole.ipStaffNurse => 'IP Staff Nurse',
+    StaffRole.ipIncharge => 'IP Incharge',
+    StaffRole.otNurse => 'OT Nurse',
+    StaffRole.cathLabStaff => 'Cath Lab Staff',
+    StaffRole.cathLabIncharge => 'Cath Lab Incharge',
     StaffRole.hr => 'HR Staff',
     StaffRole.admin => 'Admin',
     StaffRole.superAdmin => 'Super Admin',
@@ -154,6 +200,11 @@ enum StaffRole {
     StaffRole.nursingIncharge => const Color(0xFF00695C),
     StaffRole.opStaffNurse => const Color(0xFF00838F),
     StaffRole.opIncharge => const Color(0xFF006064),
+    StaffRole.ipStaffNurse => const Color(0xFF00796B),
+    StaffRole.ipIncharge => const Color(0xFF004D40),
+    StaffRole.otNurse => const Color(0xFF6A1B9A),
+    StaffRole.cathLabStaff => const Color(0xFFAD1457),
+    StaffRole.cathLabIncharge => const Color(0xFF880E4F),
     StaffRole.hr => const Color(0xFF6A1B9A),
     StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
     StaffRole.pharmacy => const Color(0xFFE65100),
@@ -187,8 +238,12 @@ enum StaffRole {
     StaffRole.medicalSuperintendent => 'medical',
     StaffRole.nurse ||
     StaffRole.nursingIncharge ||
-    StaffRole.nursingSuperintendent => 'nursing',
+    StaffRole.nursingSuperintendent ||
+    StaffRole.ipStaffNurse ||
+    StaffRole.ipIncharge => 'nursing',
     StaffRole.opStaffNurse || StaffRole.opIncharge => 'op_nursing',
+    StaffRole.otNurse => 'ot_nursing',
+    StaffRole.cathLabStaff || StaffRole.cathLabIncharge => 'cath_lab',
     StaffRole.pharmacy => 'pharmacy',
     StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
     StaffRole.receptionist ||
@@ -215,6 +270,8 @@ enum StaffRole {
     'medical' => 'Duty Doctors',
     'nursing' => 'Nursing',
     'op_nursing' => 'OP Staff Nursing',
+    'ot_nursing' => 'OT Nursing',
+    'cath_lab' => 'Cath Lab',
     'pharmacy' => 'Pharmacy',
     'housekeeping' => 'Housekeeping',
     'reception' => 'Reception',
@@ -608,6 +665,13 @@ class RoleFeatures {
     route: '/theatre',
     color: Color(0xFF6A1B9A),
   );
+  static const DashboardFeature _cathLab = DashboardFeature(
+    id: 'cath_lab',
+    title: 'Cath Lab',
+    icon: Icons.monitor_heart_outlined,
+    route: '/cath-lab',
+    color: Color(0xFFAD1457),
+  );
   static const DashboardFeature _radiology = DashboardFeature(
     id: 'radiology',
     title: 'Radiology',
@@ -632,6 +696,7 @@ class RoleFeatures {
         _patientRecords,
         _prescriptions,
         _investigationResults,
+        _cathLab,
         _theatre,
         _radiology,
         _patientCommandBoard,
@@ -663,11 +728,10 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.nurse => [
+      StaffRole.nurse || StaffRole.ipStaffNurse => [
         _attendance,
         _schedule,
         _dutyPreference,
-        _appointments,
         _clinicalAiReviewQueue,
         _patientRecords,
         _pharmacyOrders,
@@ -675,7 +739,6 @@ class RoleFeatures {
         _handover,
         _investigationResults,
         _labBookings,
-        _theatre,
         _radiology,
         _patientCommandBoard,
         _bedBoard,
@@ -689,7 +752,7 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.nursingIncharge => [
+      StaffRole.nursingIncharge || StaffRole.ipIncharge => [
         _attendance,
         _schedule,
         _dutyPreference,
@@ -736,6 +799,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
         _pharmacyOrders,
@@ -757,6 +821,40 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
+        _pharmacyOrders,
+        _nursingNotes,
+        _investigationResults,
+        _labBookings,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.otNurse => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _theatre,
+        _patientRecords,
+        _investigationResults,
+        _labBookings,
+        _bloodBank,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.cathLabStaff || StaffRole.cathLabIncharge => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _cathLab,
+        _patientRecords,
+        _investigationResults,
+        _labBookings,
+        _bloodBank,
         _leave,
         _staffDirectory,
         _messaging,
@@ -790,6 +888,7 @@ class RoleFeatures {
         _prescriptions,
         _investigationResults,
         _labBookings,
+        _cathLab,
         _theatre,
         _radiology,
         _patientCommandBoard,
@@ -821,6 +920,7 @@ class RoleFeatures {
         _investigationsUpload,
         _investigationResults,
         _labBookings,
+        _cathLab,
         _theatre,
         _radiology,
         _patientCommandBoard,
@@ -1037,7 +1137,9 @@ class RoleFeatures {
       ],
       StaffRole.nurse ||
       StaffRole.nursingSuperintendent ||
-      StaffRole.nursingIncharge => [
+      StaffRole.nursingIncharge ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1053,6 +1155,90 @@ class RoleFeatures {
             label: 'Command',
           ),
           route: '/patient-command-board',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+            label: 'My Roster',
+          ),
+          route: '/schedule',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.otNurse => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.local_hospital_outlined),
+            activeIcon: Icon(Icons.local_hospital),
+            label: 'Theatre',
+          ),
+          route: '/theatre',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.schedule_outlined),
+            activeIcon: Icon(Icons.schedule),
+            label: 'My Roster',
+          ),
+          route: '/schedule',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.cathLabStaff || StaffRole.cathLabIncharge => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.monitor_heart_outlined),
+            activeIcon: Icon(Icons.monitor_heart),
+            label: 'Cath Lab',
+          ),
+          route: '/cath-lab',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -1607,6 +1793,7 @@ class RoleFeatures {
       StaffRole.medicalSuperintendent ||
       StaffRole.doctor ||
       StaffRole.dutyDoctor ||
+      StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
       StaffRole.receptionist ||
       StaffRole.receptionIncharge ||
@@ -1663,8 +1850,13 @@ class RoleFeatures {
       StaffRole.nurse ||
       StaffRole.nursingIncharge ||
       StaffRole.nursingSuperintendent ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge ||
       StaffRole.opStaffNurse ||
-      StaffRole.opIncharge => true,
+      StaffRole.opIncharge ||
+      StaffRole.otNurse ||
+      StaffRole.cathLabStaff ||
+      StaffRole.cathLabIncharge => true,
       _ => false,
     };
   }
@@ -1689,8 +1881,13 @@ class RoleFeatures {
       StaffRole.dutyDoctor ||
       StaffRole.nurse ||
       StaffRole.nursingIncharge ||
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
+      StaffRole.otNurse ||
+      StaffRole.cathLabStaff ||
+      StaffRole.cathLabIncharge ||
       StaffRole.receptionist ||
       StaffRole.receptionIncharge ||
       StaffRole.billingStaff ||

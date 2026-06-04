@@ -136,8 +136,8 @@ class StaffScaffold extends StatelessWidget {
       case StaffRole.nurse:
       case StaffRole.nursingSuperintendent:
       case StaffRole.nursingIncharge:
-      case StaffRole.opStaffNurse:
-      case StaffRole.opIncharge:
+      case StaffRole.ipStaffNurse:
+      case StaffRole.ipIncharge:
         return [
           const _NavItem(
             'Home',
@@ -156,6 +156,95 @@ class StaffScaffold extends StatelessWidget {
             Icons.note_alt_outlined,
             Icons.note_alt,
             '/nursing-notes',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.opStaffNurse:
+      case StaffRole.opIncharge:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Front Desk',
+            Icons.space_dashboard_outlined,
+            Icons.space_dashboard,
+            '/front-office',
+          ),
+          const _NavItem(
+            'Appointments',
+            Icons.calendar_month_outlined,
+            Icons.calendar_month,
+            '/appointments',
+          ),
+          const _NavItem(
+            'Records',
+            Icons.folder_shared_outlined,
+            Icons.folder_shared,
+            '/patient-records',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.otNurse:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Theatre',
+            Icons.meeting_room_outlined,
+            Icons.meeting_room,
+            '/theatre',
+          ),
+          const _NavItem(
+            'Records',
+            Icons.folder_shared_outlined,
+            Icons.folder_shared,
+            '/patient-records',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.cathLabStaff:
+      case StaffRole.cathLabIncharge:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Cath Lab',
+            Icons.monitor_heart_outlined,
+            Icons.monitor_heart,
+            '/cath-lab',
+          ),
+          const _NavItem(
+            'Records',
+            Icons.folder_shared_outlined,
+            Icons.folder_shared,
+            '/patient-records',
           ),
           const _NavItem(
             'Profile',

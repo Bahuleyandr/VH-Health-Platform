@@ -642,6 +642,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'patient_records',
         'prescriptions',
         'investigation_results',
+        'cath_lab',
         'theatre',
         'radiology',
         'patient_command_board',
@@ -652,8 +653,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.nurse ||
       StaffRole.nursingSuperintendent ||
       StaffRole.nursingIncharge ||
-      StaffRole.opStaffNurse => {
-        'appointments',
+      StaffRole.ipStaffNurse ||
+      StaffRole.ipIncharge => {
         'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
@@ -666,10 +667,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'ward_mode',
         'dietary',
       },
+      StaffRole.opStaffNurse => {
+        'front_office_workbench',
+        'appointments',
+        'patient_records',
+        'pharmacy_orders',
+        'nursing_notes',
+        'lab_bookings',
+        'investigation_results',
+      },
       StaffRole.opIncharge => {
         'front_office_workbench',
         'appointments',
         'patient_records',
+        'pharmacy_orders',
+        'nursing_notes',
+        'lab_bookings',
+        'investigation_results',
+      },
+      StaffRole.otNurse => {
+        'theatre',
+        'patient_records',
+        'lab_bookings',
+        'investigation_results',
+        'blood_bank',
+      },
+      StaffRole.cathLabStaff || StaffRole.cathLabIncharge => {
+        'cath_lab',
+        'patient_records',
+        'lab_bookings',
+        'investigation_results',
+        'blood_bank',
       },
       StaffRole.hr => {
         'hr_dashboard',
@@ -686,6 +714,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'patient_command_board',
         'bed_board',
         'ward_mode',
+        'cath_lab',
         'theatre',
         'radiology',
         'blood_bank',
@@ -704,6 +733,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'patient_command_board',
         'bed_board',
         'ward_mode',
+        'cath_lab',
         'theatre',
         'radiology',
         'blood_bank',
@@ -943,7 +973,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final s = AppStrings.of(context);
 
     return switch (_role) {
-      StaffRole.nurse => [
+      StaffRole.nurse || StaffRole.ipStaffNurse || StaffRole.ipIncharge => [
         _ClinicalServiceGroup(
           label: s.dashboardOpServices,
           emptyLabel: s.dashboardNoOpServices,
@@ -997,13 +1027,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ],
-      StaffRole.opStaffNurse => [
+      StaffRole.opStaffNurse || StaffRole.opIncharge => [
         _ClinicalServiceGroup(
           label: s.dashboardOpServices,
           emptyLabel: s.dashboardNoOpServices,
           tiles: _serviceTilesForIds(
             features,
             [
+              'front_office_workbench',
               'appointments',
               'nursing_notes',
               'lab_bookings',
@@ -1012,6 +1043,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records',
             ],
             titleOverrides: {
+              'front_office_workbench': 'OP Workbench',
               'nursing_notes': s.dashboardOpNursingNotes,
               'lab_bookings': s.dashboardOpLabBookings,
               'investigation_results': s.dashboardOpLabResults,
@@ -1019,6 +1051,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records': s.dashboardOpPatientRecords,
             },
             routeOverrides: _serviceContextRoutes('op'),
+          ),
+        ),
+      ],
+      StaffRole.otNurse => [
+        _ClinicalServiceGroup(
+          label: 'OT Services',
+          emptyLabel: 'No OT services available for this role',
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'theatre',
+              'patient_records',
+              'lab_bookings',
+              'investigation_results',
+              'blood_bank',
+            ],
+            titleOverrides: {
+              'patient_records': 'OT Patient Records',
+              'lab_bookings': 'OT Lab Bookings',
+              'investigation_results': 'OT Lab Results',
+            },
+            routeOverrides: _serviceContextRoutes('ot'),
+          ),
+        ),
+      ],
+      StaffRole.cathLabStaff || StaffRole.cathLabIncharge => [
+        _ClinicalServiceGroup(
+          label: 'Cath Lab',
+          emptyLabel: 'No Cath Lab services available for this role',
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'cath_lab',
+              'patient_records',
+              'lab_bookings',
+              'investigation_results',
+              'blood_bank',
+            ],
+            titleOverrides: {
+              'patient_records': 'Cath Lab Patient Records',
+              'lab_bookings': 'Cath Lab Lab Bookings',
+              'investigation_results': 'Cath Lab Results',
+            },
+            routeOverrides: _serviceContextRoutes('cath_lab'),
           ),
         ),
       ],
@@ -1037,6 +1113,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records',
               'prescriptions',
               'investigation_results',
+              'cath_lab',
             ],
             titleOverrides: {
               'patient_records': s.dashboardOpPatientRecords,
@@ -1060,6 +1137,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'investigation_results',
               'radiology',
               'theatre',
+              'cath_lab',
               'blood_bank',
             ],
             titleOverrides: {
@@ -1085,6 +1163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'investigations_upload',
               'investigation_results',
               'lab_bookings',
+              'cath_lab',
             ],
             titleOverrides: {
               'patient_records': s.dashboardOpPatientRecords,
@@ -1112,6 +1191,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'lab_bookings',
               'dietary',
               'theatre',
+              'cath_lab',
               'radiology',
               'blood_bank',
             ],
@@ -1163,6 +1243,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     'vitals': '/vitals?context=$context',
     'handover': '/handover?context=$context',
     'dietary': '/dietary?context=$context',
+    'theatre': '/theatre?context=$context',
+    'cath_lab': '/cath-lab?context=$context',
+    'blood_bank': '/blood-bank?context=$context',
   };
 
   Widget _buildFeatureGrid(List<DashboardFeature> features) {

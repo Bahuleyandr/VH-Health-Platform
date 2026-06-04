@@ -85,6 +85,7 @@ import '../../features/bloodbank/screens/blood_bank_screen.dart';
 import '../../features/dietary/screens/dietary_screen.dart';
 
 // Theatre
+import '../../features/cath_lab/screens/cath_lab_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
 import '../../features/productivity/screens/calculators_screen.dart';
 import '../../features/productivity/screens/order_sets_screen.dart';
@@ -720,6 +721,12 @@ final GoRouter appRouter = GoRouter(
           name: 'theatre',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: TheatreScreen()),
+        ),
+        GoRoute(
+          path: '/cath-lab',
+          name: 'cath-lab',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: CathLabScreen()),
         ),
 
         // Doctor productivity (Sprint 8)

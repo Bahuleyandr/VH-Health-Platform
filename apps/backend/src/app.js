@@ -226,8 +226,14 @@ const CLINICAL_STAFF_ROLES = [
   'CNO',
   'NURSING_STAFF',
   'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
   'OP_STAFF_NURSE',
   'OP_INCHARGE',
+  'OT_NURSE',
+  'OT_STAFF',
+  'CATH_LAB_STAFF',
+  'CATH_LAB_INCHARGE',
   'MEDICAL_RECORDS',
   // E-4 — pharmacy needs read access on /emr/orders (medication orders
   // they're about to dispense) + verify/complete on the same. Per
@@ -520,7 +526,7 @@ app.use(
 
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
-app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'PATIENT'), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
+app.use('/api/v1/records', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE', 'CATH_LAB_STAFF', 'CATH_LAB_INCHARGE', 'MEDICAL_RECORDS', 'PATIENT'), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
 app.use('/api/v1/investigations', patientRateLimiter, requireRole(
   'ADMIN',
   'SUPER_ADMIN',
@@ -541,13 +547,13 @@ app.use('/api/v1/investigations', patientRateLimiter, requireRole(
   'MEDICAL_RECORDS',
   'PATIENT',
 ), phiAccessLogger('INVESTIGATION'), investigationRoutes);
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 // Alias mount: /api/v1/pharmacy/* → same sub-routes as /api/v1/pharmacy-orders/*.
 // The admin /dashboard/pharmacy/inventory page calls /pharmacy/inventory/*
 // (summary/low-stock/expiring-soon/expired); the canonical mount at
 // /pharmacy-orders/inventory/* still serves existing clients.
-app.use('/api/v1/pharmacy', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
+app.use('/api/v1/pharmacy', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/prescriptions', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PHARMACY_STAFF', 'PATIENT'), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
 app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACY_STAFF', 'DELIVERY_STAFF', 'PATIENT'), deliveryRoutes);
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
@@ -587,7 +593,7 @@ app.use('/api/v1/sessions', sessionRoutes);
 app.use('/api/v1/auth/admin/totp', totpRoutes);
 
 // HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
-app.use('/api/v1/consent', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'), consentRoutes);
+app.use('/api/v1/consent', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'PATIENT'), consentRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management)
 app.use('/api/v1/abdm', abdmPatientRoutes);
@@ -606,7 +612,7 @@ app.use('/api/v1/staff', staffRoutes);
 // 2026-05-09-inpatient-admission-housekeeping-api-routes-absent.
 app.use(
   '/api/v1/housekeeping',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'),
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'),
   housekeepingRoutes,
 );
 
@@ -623,6 +629,7 @@ const BED_PARENT_ROLES = [
   'DOCTOR', 'DUTY_DOCTOR', 'ANAESTHETIST', 'ANESTHETIST',
   'MEDICAL_SUPERINTENDENT', 'CMO',
   'NURSING_STAFF', 'NURSING_INCHARGE', 'CNO',
+  'IP_STAFF_NURSE', 'IP_INCHARGE',
   'RECEPTIONIST', 'RECEPTION_INCHARGE',
   'ADMISSION_OFFICER', 'IPD_COUNSELLOR',
   'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
@@ -633,7 +640,7 @@ app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_M
 app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), phiAccessLogger('WARD_BOARD'), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
-app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);
+app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);
 
 // Emergency department triage — parallel mount at /api/v1/ed for clinical
 // staff (NURSING_STAFF in particular). The legacy /api/v1/admin/ed/*
@@ -643,7 +650,7 @@ app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR',
 // 2026-05-08-emergency-walk-in-nurse-triage-rbac-blocks-nurses.
 app.use(
   '/api/v1/ed',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ER_STAFF', 'MEDICAL_RECORDS'),
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'ER_STAFF', 'MEDICAL_RECORDS'),
   phiAccessLogger('ER_TRIAGE'),
   edRoutesForClinicalStaff,
 );
@@ -659,7 +666,7 @@ app.use(
   requireRole(
     'ADMIN', 'SUPER_ADMIN',
     'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE',
-    'NURSING_STAFF', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
+    'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
     'RECEPTIONIST', 'ADMISSION_OFFICER',
   ),
   phiAccessLogger('IPD_SUPPORT'),
@@ -679,7 +686,7 @@ app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
-app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'OP_STAFF_NURSE', 'OP_INCHARGE', 'OT_NURSE'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
@@ -712,7 +719,7 @@ app.use(
 );
 
 // Clinical assessments: pain / fall-risk / growth-chart (Phase F2)
-app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
+app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'OT_NURSE', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
@@ -839,15 +846,15 @@ app.use('/api/v1/system', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter,
 app.use('/api/v1/logs', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, logRoutes);
 
 // Radiology
-app.use('/api/v1/radiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGY_STAFF'), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
+app.use('/api/v1/radiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'RADIOLOGY_STAFF'), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
 // Dietary / Nutrition
-app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIETARY_STAFF'), phiAccessLogger('DIETARY'), dietaryRoutes);
+app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'DIETARY_STAFF'), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF', 'ANESTHETIST'), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF', 'ANESTHETIST'), orBoardRoutes);
+app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real
@@ -863,21 +870,21 @@ app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 app.use(
   '/api/v1/surgical',
   requireRole(
-    'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF',
+    'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_NURSE', 'OT_STAFF',
     'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'ANESTHETIST',
   ),
   phiAccessLogger('SURGICAL_DOCUMENTATION'),
   surgicalDocumentationRoutes,
 );
-app.use('/api/v1/microbiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
+app.use('/api/v1/microbiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'LAB_STAFF'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
 app.use('/api/v1/pcpndt', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGIST'), phiAccessLogger('PCPNDT'), pcpndtRoutes);
-app.use('/api/v1/icu', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ICU_STAFF'), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/icu', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'ICU_STAFF'), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACIST', 'NURSING_STAFF', 'COMPLIANCE_OFFICER'), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
-app.use('/api/v1/dialysis', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIALYSIS_TECHNICIAN'), phiAccessLogger('DIALYSIS'), dialysisRoutes);
+app.use('/api/v1/dialysis', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE', 'DIALYSIS_TECHNICIAN'), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 
 // Blood Bank
-app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
+app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OT_NURSE', 'CATH_LAB_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use(
@@ -889,6 +896,8 @@ app.use(
     'BILLING_INCHARGE',
     'FINANCE_INCHARGE',
     'NURSING_STAFF',
+    'IP_STAFF_NURSE',
+    'IP_INCHARGE',
     'DOCTOR',
     'RECEPTIONIST',
     'RECEPTION_INCHARGE',
@@ -899,7 +908,7 @@ app.use(
   billingPhiAccessLogger(),
   billingV2Routes,
 );
-app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
+app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for
 // /lab/pathologist/signoff (route-level requirePathologistTier enforces
@@ -907,9 +916,9 @@ app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 
 // the seeded pathologist account from hitting a generic 403 before the
 // tier-specific message ever reaches the client. Finding:
 // 2026-05-10-emergency-walk-in-lab-tech-pathologist-signoff-rbac-blocked.
-app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labRoutes);
+app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
-app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
+app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
 // Chart-shaped TPA enhancement surface — keyed off admission_id, open
 // to clinicians so a treating consultant can initiate an enhancement
@@ -966,9 +975,14 @@ app.use('/api/v1/staff-messaging', requireRole(
   'NURSING_INCHARGE',
   'OP_STAFF_NURSE',
   'OP_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'OT_NURSE',
+  'CATH_LAB_STAFF',
+  'CATH_LAB_INCHARGE',
   'BILLING_STAFF',
 ), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
-app.use('/api/v1/discharge-summaries', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
+app.use('/api/v1/discharge-summaries', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'IP_INCHARGE'), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);
@@ -991,6 +1005,11 @@ app.use('/api/v1/messaging', requireRole(
   'NURSING_INCHARGE',
   'OP_STAFF_NURSE',
   'OP_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'OT_NURSE',
+  'CATH_LAB_STAFF',
+  'CATH_LAB_INCHARGE',
   'PHARMACY_STAFF',
   'PHARMACY_INCHARGE',
   'LAB_STAFF',
