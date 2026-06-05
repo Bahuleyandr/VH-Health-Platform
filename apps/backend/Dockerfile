@@ -1,5 +1,6 @@
 # ---- Builder Stage ----
-FROM node:22-alpine AS builder
+ARG NODE_IMAGE=node:22-alpine
+FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -10,7 +11,7 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 # ---- Production Stage ----
-FROM node:22-alpine AS production
+FROM ${NODE_IMAGE} AS production
 
 RUN apk add --no-cache curl
 

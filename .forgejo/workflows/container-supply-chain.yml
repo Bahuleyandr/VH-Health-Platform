@@ -41,7 +41,7 @@ jobs:
             image: vhhealth-backend
             context: apps/backend
             dockerfile: apps/backend/Dockerfile
-            build_args: ''
+            build_args: '--build-arg NODE_IMAGE=mirror.gcr.io/library/node:22-alpine'
           - app: admin
             image: vhhealth-admin
             context: apps/admin
