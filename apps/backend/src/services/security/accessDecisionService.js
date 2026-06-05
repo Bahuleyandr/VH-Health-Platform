@@ -173,6 +173,10 @@ function policyMinimumRank(policy) {
   return rankPhiLevel(policy.required_phi_level);
 }
 
+function firstRow(rows) {
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
 function hasRequiredCapability(rolePolicy, policy) {
   const required = Array.isArray(policy?.capability_groups) ? policy.capability_groups : [];
   if (!required.length) return true;
@@ -218,7 +222,7 @@ async function patientByIdOrUid({ tenantId, id = null, uid = null }) {
     cleanInt(id),
     cleanUuid(uid),
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function patientFromResourceQuery(req, sql, idValue) {
@@ -560,7 +564,7 @@ async function findActiveBreakGlass(req, patient, policy, rolePolicy) {
     patientUid,
     actorUid,
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function findCareTeamRelationship(req, patient, role) {
@@ -593,7 +597,7 @@ async function findCareTeamRelationship(req, patient, role) {
     actorId,
     role || null,
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function findReferralRelationship(req, patient, role) {
@@ -651,7 +655,7 @@ async function findReferralRelationship(req, patient, role) {
     actorUid,
     ['pending', 'accepted', 'in_progress'],
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function findClinicalAuthorshipRelationship(req, patient, policy) {
@@ -699,7 +703,7 @@ async function findClinicalAuthorshipRelationship(req, patient, policy) {
     patientUid,
     actorUid,
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function findAppointmentRelationship(req, patient, role, policy = null, resourceContext = null) {
@@ -755,7 +759,7 @@ async function findAppointmentRelationship(req, patient, role, policy = null, re
     resourceAppointmentId,
     allowUnassignedDoctorAppointment,
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function findAdmissionRelationship(req, patient, role) {
@@ -795,7 +799,7 @@ async function findAdmissionRelationship(req, patient, role) {
     operationalScoped,
     doctorScoped,
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function findGuardianRelationship(req, patient) {
@@ -816,7 +820,7 @@ async function findGuardianRelationship(req, patient) {
     patientUid,
     actorId,
   );
-  return rows[0] || null;
+  return firstRow(rows);
 }
 
 async function writePatientAccessAudit(req, decision) {

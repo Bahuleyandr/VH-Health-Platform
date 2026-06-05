@@ -96,6 +96,7 @@ describe('patientAccessGuard', () => {
       .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
     const next = jest.fn();
