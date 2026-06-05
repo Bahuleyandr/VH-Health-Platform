@@ -56,6 +56,32 @@ function stringifySummary(value, fallback = 'No details recorded') {
   return String(value);
 }
 
+function parseJsonObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function medicationSummaryFromOrder(row) {
+  const details = parseJsonObject(row.details);
+  const name = details.medication_name || details.name || details.medication || details.drug_name || 'Medication';
+  const dose = details.dose || details.dosage || '';
+  const route = details.route || row.route || '';
+  const frequency = details.frequency || details.dosage_frequency || details.freq || '';
+  return [name, dose, route, frequency]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
 function normalizeTime(value) {
   if (!value) return null;
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -453,11 +479,13 @@ async function getTimelineOrders(patientUid, dateFrom, dateTo) {
   }));
 
   return rows.map((row) => ({
-    event_type: 'clinical_order',
+    event_type: row.order_type === 'medication' ? 'drug_chart' : 'clinical_order',
     sub_type: row.order_type,
     id: row.id,
     encounter_id: row.encounter_id,
-    summary: `${row.priority || 'routine'} ${row.order_type} order ${row.order_number || ''} - ${row.status}`,
+    summary: row.order_type === 'medication'
+      ? `Drug chart: ${medicationSummaryFromOrder(row)} - ${row.status}`
+      : `${row.priority || 'routine'} ${row.order_type} order ${row.order_number || ''} - ${row.status}`,
     timestamp: normalizeTime(row.created_at),
     payload: row,
   }));

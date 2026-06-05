@@ -10,7 +10,6 @@ import { sendStaffNotifications } from '../notification/staffNotificationService
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
 const ACTIVE_REFERRAL_STATUSES = ['pending', 'accepted', 'in_progress'];
-const REFERRAL_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 const DOCTOR_ROLES = [
   'DOCTOR',
   'DUTY_DOCTOR',
@@ -45,10 +44,6 @@ function priorityForUrgency(urgency) {
 function notificationPriorityForUrgency(urgency) {
   const normalized = cleanText(urgency || 'routine').toLowerCase();
   return normalized === 'routine' ? 'MEDIUM' : 'HIGH';
-}
-
-function isReferralAdminRole(role) {
-  return REFERRAL_ADMIN_ROLES.includes(normalizeRole(role));
 }
 
 // Shared `select` for state-transition returns (accept / complete / decline).
@@ -412,7 +407,6 @@ class ReferralService {
   }
 
   async _assertCanActOnReferral(referral, actorUid, actorRole, actionLabel = 'update') {
-    if (isReferralAdminRole(actorRole)) return;
     const normalizedRole = normalizeRole(actorRole);
     if (!actorUid || !DOCTOR_ROLES.includes(normalizedRole)) {
       throw AppError.forbidden(`Only the referred specialist can ${actionLabel} this referral`);
@@ -431,6 +425,22 @@ class ReferralService {
     }
 
     throw AppError.forbidden(`Only the referred specialist can ${actionLabel} this referral`);
+  }
+
+  async _assertCanDeclineReferral(referral, actorUid, actorRole) {
+    const actor = String(actorUid || '');
+    const senderUids = [
+      referral.referring_doctor,
+      referral.requester_id,
+    ].filter(Boolean).map(String);
+    if (actor && senderUids.includes(actor)) return;
+
+    try {
+      await this._assertCanActOnReferral(referral, actorUid, actorRole, 'decline');
+    } catch (err) {
+      if (err?.statusCode !== 403) throw err;
+      throw AppError.forbidden('Only the referred specialist or requesting doctor can decline this referral');
+    }
   }
 
   /**
@@ -535,10 +545,12 @@ class ReferralService {
         id: true,
         status: true,
         tenant_id: true,
+        referring_doctor: true,
         referred_to_doctor: true,
         referred_to_department: true,
         accepted_by: true,
         performer_id: true,
+        requester_id: true,
       },
     });
     if (!existing) {
@@ -595,7 +607,7 @@ class ReferralService {
     if (existing.status !== 'pending') {
       throw AppError.badRequest(`Cannot decline referral with status: ${existing.status}`);
     }
-    await this._assertCanActOnReferral(existing, options.actorUid, options.actorRole, 'decline');
+    await this._assertCanDeclineReferral(existing, options.actorUid, options.actorRole);
 
     const referral = await prisma.referrals.update({
       where: { id: referralId },

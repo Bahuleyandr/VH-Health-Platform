@@ -134,4 +134,84 @@ describe('referralService specialist referral authorization', () => {
     expect(result.referrals[0].referral_number).toBe('REF-202606-0001');
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('referred_to_doctor IS NULL');
   });
+
+  it('blocks the requesting doctor from completing their own outgoing referral', async () => {
+    referralsFindUniqueMock.mockResolvedValueOnce({
+      id: 15,
+      status: 'accepted',
+      tenant_id: TENANT_ID,
+      referred_to_doctor: OTHER_DOCTOR_UID,
+      referred_to_department: 'Cardiology',
+      accepted_by: OTHER_DOCTOR_UID,
+      performer_id: OTHER_DOCTOR_UID,
+    });
+
+    await expect(referralService.completeReferral(15, 'Reviewed', {
+      actorUid: DOCTOR_UID,
+      actorRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'FORBIDDEN',
+    });
+
+    expect(referralsUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('allows the requesting doctor to decline a still-pending outgoing referral', async () => {
+    referralsFindUniqueMock.mockResolvedValueOnce({
+      id: 16,
+      status: 'pending',
+      tenant_id: TENANT_ID,
+      referring_doctor: DOCTOR_UID,
+      requester_id: DOCTOR_UID,
+      referred_to_doctor: OTHER_DOCTOR_UID,
+      referred_to_department: 'Cardiology',
+      accepted_by: null,
+      performer_id: null,
+    });
+    referralsUpdateMock.mockResolvedValueOnce({
+      id: 16,
+      status: 'declined',
+      response_notes: 'Recalled by primary doctor',
+    });
+
+    const referral = await referralService.declineReferral(
+      16,
+      'Recalled by primary doctor',
+      { actorUid: DOCTOR_UID, actorRole: 'DOCTOR' },
+    );
+
+    expect(referral.status).toBe('declined');
+    expect(referralsUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 16 },
+      data: expect.objectContaining({
+        status: 'declined',
+        response_notes: 'Recalled by primary doctor',
+      }),
+    }));
+  });
+
+  it('blocks an unrelated doctor from declining another referral', async () => {
+    referralsFindUniqueMock.mockResolvedValueOnce({
+      id: 17,
+      status: 'pending',
+      tenant_id: TENANT_ID,
+      referring_doctor: OTHER_DOCTOR_UID,
+      requester_id: OTHER_DOCTOR_UID,
+      referred_to_doctor: OTHER_DOCTOR_UID,
+      referred_to_department: 'Cardiology',
+      accepted_by: null,
+      performer_id: null,
+    });
+
+    await expect(referralService.declineReferral(17, 'No', {
+      actorUid: DOCTOR_UID,
+      actorRole: 'DOCTOR',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'FORBIDDEN',
+    });
+
+    expect(referralsUpdateMock).not.toHaveBeenCalled();
+  });
 });

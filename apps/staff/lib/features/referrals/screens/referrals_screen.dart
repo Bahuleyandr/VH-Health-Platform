@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/desktop_scroll_controls.dart';
@@ -30,6 +31,7 @@ class _ReferralsScreenState extends State<ReferralsScreen>
 
   bool _loading = true;
   bool _saving = false;
+  bool _draftingSummary = false;
   String? _error;
   String _urgency = 'routine';
   Map<String, dynamic>? _admissionChart;
@@ -198,74 +200,113 @@ class _ReferralsScreenState extends State<ReferralsScreen>
     }
   }
 
-  void _showReferralSheet(Map<String, dynamic> referral) {
+  void _showReferralSheet(
+    Map<String, dynamic> referral, {
+    String actionContext = 'incoming',
+  }) {
+    final status = _text(referral['status'], 'pending').toLowerCase();
+    final isIncoming = actionContext == 'incoming';
+    final isOutgoing = actionContext == 'outgoing';
+    final canAccept = isIncoming && status == 'pending';
+    final canComplete =
+        isIncoming && const {'accepted', 'in_progress'}.contains(status);
+    final canDecline = status == 'pending' && (isIncoming || isOutgoing);
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _text(referral['referral_number'], 'Referral'),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _pill(_text(referral['urgency'], 'routine')),
-                  _pill(_text(referral['status'], 'pending')),
-                  _pill(
-                    _text(referral['referred_to_department'], 'Department'),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: AppTheme.cardSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: Border(top: BorderSide(color: AppTheme.divider)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _text(referral['referral_number'], 'Referral'),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
                   ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _labelValue('Reason', _text(referral['reason'])),
-              _labelValue('Summary', _text(referral['clinical_summary'], '-')),
-              _labelValue('Requested', _formatDateTime(referral['created_at'])),
-              _labelValue(
-                'First seen',
-                _formatDateTime(referral['first_seen_at']),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  FilledButton.icon(
-                    onPressed: () => _transitionReferral(referral, 'accept'),
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('Accept'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _transitionReferral(referral, 'complete'),
-                    icon: const Icon(Icons.done_all),
-                    label: const Text('Complete'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => _transitionReferral(referral, 'decline'),
-                    icon: const Icon(Icons.block),
-                    label: const Text('Decline'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      final uid = _text(referral['patient_uid']);
-                      if (uid.isEmpty) return;
-                      context.push('/emr/timeline/$uid');
-                    },
-                    icon: const Icon(Icons.timeline),
-                    label: const Text('Open patient'),
-                  ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _pill(_text(referral['urgency'], 'routine')),
+                    _pill(_text(referral['status'], 'pending')),
+                    _pill(
+                      _text(referral['referred_to_department'], 'Department'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _labelValue('Reason', _text(referral['reason'])),
+                _labelValue(
+                  'Summary',
+                  _text(referral['clinical_summary'], '-'),
+                ),
+                _labelValue(
+                  'Requested',
+                  _formatDateTime(referral['created_at']),
+                ),
+                _labelValue(
+                  'First seen',
+                  _formatDateTime(referral['first_seen_at']),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    if (canAccept)
+                      FilledButton.icon(
+                        onPressed: () =>
+                            _transitionReferral(referral, 'accept'),
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Accept'),
+                      ),
+                    if (canComplete)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _transitionReferral(referral, 'complete'),
+                        icon: const Icon(Icons.done_all),
+                        label: const Text('Complete'),
+                      ),
+                    if (canDecline)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _transitionReferral(referral, 'decline'),
+                        icon: const Icon(Icons.block),
+                        label: Text(isOutgoing ? 'Decline request' : 'Decline'),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final uid = _text(referral['patient_uid']);
+                        if (uid.isEmpty) return;
+                        context.push('/emr/timeline/$uid');
+                      },
+                      icon: const Icon(Icons.timeline),
+                      label: const Text('Open patient'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isIncoming
+                      ? 'Accept and Complete are limited to the referred specialist or matching department doctor.'
+                      : 'Outgoing requests can be declined by the requesting or primary doctor while pending.',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -318,7 +359,8 @@ class _ReferralsScreenState extends State<ReferralsScreen>
               _ReferralList(
                 rows: _outgoing,
                 empty: 'No outgoing referrals',
-                onTap: _showReferralSheet,
+                onTap: (row) =>
+                    _showReferralSheet(row, actionContext: 'outgoing'),
               ),
               _auditAllowed
                   ? _AuditList(rows: _audit)
@@ -434,6 +476,22 @@ class _ReferralsScreenState extends State<ReferralsScreen>
                 prefixIcon: Icon(Icons.notes_outlined),
               ),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _draftingSummary ? null : _draftClinicalSummary,
+              icon: _draftingSummary
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.auto_awesome_outlined),
+              label: Text(
+                _draftingSummary
+                    ? 'Drafting clinical summary'
+                    : 'AI assist clinical summary',
+              ),
+            ),
             const SizedBox(height: 18),
             FilledButton.icon(
               onPressed: _saving ? null : _submitReferral,
@@ -450,6 +508,142 @@ class _ReferralsScreenState extends State<ReferralsScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _draftClinicalSummary() async {
+    final admissionId = widget.requestAdmissionId;
+    if (admissionId == null) return;
+    final reason = _reasonCtrl.text.trim();
+    if (reason.isEmpty) {
+      _showSnack(
+        'Enter the reason for referral before asking AI to draft a summary',
+        isError: true,
+      );
+      return;
+    }
+
+    setState(() => _draftingSummary = true);
+    try {
+      final result = await ClinicalAiApiService.generateAdmissionDraft(
+        admissionId: admissionId,
+        moduleKey: 'referral_letter',
+      );
+      final draft =
+          (result['draft'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final summary = _formatAiReferralSummary(draft, reason);
+      if (!mounted) return;
+      final confirmed = await _showAiSummaryEditor(summary);
+      if (confirmed == null || confirmed.trim().isEmpty) return;
+      setState(() => _summaryCtrl.text = confirmed.trim());
+      _showSnack('AI draft added. Review it before requesting referral.');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+    } finally {
+      if (mounted) setState(() => _draftingSummary = false);
+    }
+  }
+
+  Future<String?> _showAiSummaryEditor(String initialText) async {
+    final ctrl = TextEditingController(text: initialText);
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: AppTheme.cardSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          border: Border(top: BorderSide(color: AppTheme.divider)),
+        ),
+        padding: EdgeInsets.only(
+          left: 18,
+          right: 18,
+          top: 18,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'AI assisted clinical summary',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Edit and confirm this draft. It is not sent until you press Request referral.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                minLines: 8,
+                maxLines: 14,
+                decoration: const InputDecoration(
+                  labelText: 'Referral clinical summary',
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          Navigator.of(context).pop(ctrl.text.trim()),
+                      icon: const Icon(Icons.check),
+                      label: const Text('Use summary'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    ctrl.dispose();
+    return result;
+  }
+
+  String _formatAiReferralSummary(
+    Map<String, dynamic> draft,
+    String fallbackReason,
+  ) {
+    final lines = <String>[];
+    final reason = _text(draft['reason_for_referral'], fallbackReason);
+    if (reason.isNotEmpty) lines.add('Reason: $reason');
+    final summary = _text(draft['clinical_summary']);
+    if (summary.isNotEmpty) lines.add(summary);
+
+    void addList(String label, dynamic value) {
+      if (value is! List || value.isEmpty) return;
+      lines.add('$label:');
+      for (final item in value.take(8)) {
+        final text = _text(item);
+        if (text.isNotEmpty) lines.add('- $text');
+      }
+    }
+
+    addList('Active diagnoses', draft['active_diagnoses']);
+    addList('Current treatment', draft['current_treatment']);
+    addList('Investigations', draft['investigations']);
+    addList('Pending items', draft['pending_items']);
+    return lines.where((line) => line.trim().isNotEmpty).join('\n');
   }
 }
 
@@ -628,9 +822,18 @@ Widget _labelValue(String label, String value) {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+        Text(
+          label,
+          style: TextStyle(
+            color: AppTheme.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         const SizedBox(height: 3),
-        Text(value.isEmpty ? '-' : value),
+        Text(
+          value.isEmpty ? '-' : value,
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
       ],
     ),
   );

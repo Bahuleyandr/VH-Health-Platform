@@ -194,9 +194,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: AppTheme.cardSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: AppTheme.divider)),
         ),
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -271,8 +272,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
           backgroundColor: color.withValues(alpha: 0.15),
           child: Icon(icon, color: color),
         ),
-        title: Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+        title: Text(
+          label,
+          style: TextStyle(
+            color: AppTheme.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: AppTheme.textSecondary,
+        ),
         onTap: onTap,
       ),
     );
@@ -548,9 +559,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom,
           ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border(top: BorderSide(color: AppTheme.divider)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(20),

@@ -322,7 +322,7 @@ router.put('/:id/decline', paramId(), requiredString('reason', 500), validate, a
 
     const referral = await referralService.declineReferral(
       req.params.id,
-      req.body.response_notes,
+      req.body.response_notes || req.body.reason,
       {
         actorUid: req.user?.uid,
         actorRole: req.user?.role,

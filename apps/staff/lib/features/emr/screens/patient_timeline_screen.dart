@@ -32,6 +32,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     'vitals',
     'note',
     'order',
+    'drug_chart',
     'medication',
     'investigation',
     'discharge',
@@ -74,16 +75,31 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   List<Map<String, dynamic>> get _filteredEvents {
     if (_filterType == null || _filterType == 'all') return _events;
     return _events
-        .where(
-          (e) => (e['event_type'] as String?)?.toLowerCase() == _filterType,
-        )
+        .where((e) => _normalizedEventType(e['event_type']) == _filterType)
         .toList();
   }
 
   // ── Event type visual config ──
 
+  String _normalizedEventType(dynamic type) {
+    final value = (type ?? '').toString().trim().toLowerCase();
+    switch (value) {
+      case 'clinical_note':
+      case 'doctor_note':
+      case 'nursing_note':
+        return 'note';
+      case 'clinical_order':
+        return 'order';
+      case 'drug_chart':
+      case 'medication_order':
+        return 'drug_chart';
+      default:
+        return value.isEmpty ? 'event' : value;
+    }
+  }
+
   IconData _eventIcon(String? type) {
-    switch (type?.toLowerCase()) {
+    switch (_normalizedEventType(type)) {
       case 'admission':
         return Icons.local_hospital;
       case 'vitals':
@@ -92,6 +108,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         return Icons.note_alt;
       case 'order':
         return Icons.receipt_long;
+      case 'drug_chart':
+        return Icons.medication_liquid_outlined;
       case 'medication':
         return Icons.medication;
       case 'investigation':
@@ -104,7 +122,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   }
 
   Color _eventColor(String? type) {
-    switch (type?.toLowerCase()) {
+    switch (_normalizedEventType(type)) {
       case 'admission':
         return AppTheme.primaryBlue;
       case 'vitals':
@@ -113,6 +131,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         return const Color(0xFF7B1FA2); // Purple
       case 'order':
         return AppTheme.accentCyan;
+      case 'drug_chart':
+        return AppTheme.warningOnSurface;
       case 'medication':
         return const Color(0xFFE65100); // Deep orange
       case 'investigation':
@@ -122,6 +142,98 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       default:
         return AppTheme.textSecondary;
     }
+  }
+
+  String _eventTitle(Map<String, dynamic> event) {
+    final type = _normalizedEventType(event['event_type']);
+    final rawTitle = (event['title'] ?? '').toString().trim();
+    if (rawTitle.isNotEmpty) return rawTitle;
+
+    final payload = _eventPayload(event);
+    if (type == 'note') {
+      final noteType = (payload['note_type'] ?? event['sub_type'] ?? 'Note')
+          .toString()
+          .trim();
+      final author = (payload['author_name'] ?? payload['author_uid'] ?? '')
+          .toString()
+          .trim();
+      return author.isEmpty
+          ? '${_formatKey(noteType)} note'
+          : '${_formatKey(noteType)} note - $author';
+    }
+    if (type == 'drug_chart') {
+      final details = _asMap(payload['details']);
+      final med =
+          (details['medication_name'] ??
+                  details['name'] ??
+                  details['medication'] ??
+                  payload['medication_name'] ??
+                  'Medication order')
+              .toString()
+              .trim();
+      return 'Drug chart - $med';
+    }
+    return AppStrings.of(context).timelineEventTitle(type);
+  }
+
+  String _eventDescription(Map<String, dynamic> event) {
+    final explicit = (event['description'] ?? '').toString().trim();
+    if (explicit.isNotEmpty) return explicit;
+    final summary = (event['summary'] ?? '').toString().trim();
+    if (summary.isNotEmpty) return summary;
+
+    final payload = _eventPayload(event);
+    final content = payload['content'];
+    if (content is Map) {
+      final parts =
+          [
+                content['subjective'],
+                content['objective'],
+                content['assessment'],
+                content['plan'],
+                content['notes'],
+              ]
+              .whereType<Object>()
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toList();
+      if (parts.isNotEmpty) return parts.join(' ');
+    }
+    if (content != null && content.toString().trim().isNotEmpty) {
+      return content.toString().trim();
+    }
+    return '';
+  }
+
+  Map<String, dynamic> _eventPayload(Map<String, dynamic> event) {
+    return _asMap(event['payload']);
+  }
+
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return value.cast<String, dynamic>();
+    return const {};
+  }
+
+  Map<String, dynamic> _eventDetails(Map<String, dynamic> event) {
+    final details = _asMap(event['details']);
+    if (details.isNotEmpty) return details;
+    final payload = _eventPayload(event);
+    if (payload.isNotEmpty) return payload;
+    return event;
+  }
+
+  String _displayValue(dynamic value) {
+    if (value == null) return '-';
+    if (value is Map) {
+      return value.entries
+          .map((entry) => '${_formatKey(entry.key.toString())}: ${entry.value}')
+          .join('\n');
+    }
+    if (value is Iterable) {
+      return value.map((item) => item.toString()).join(', ');
+    }
+    return value.toString();
   }
 
   String _formatTimestamp(String? ts) {
@@ -148,13 +260,17 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       builder: (ctx) {
         final type = event['event_type'] as String?;
         final color = _eventColor(type);
+        final title = _eventTitle(event);
+        final description = _eventDescription(event);
+        final details = _eventDetails(event);
         return Container(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(ctx).size.height * 0.75,
           ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border(top: BorderSide(color: AppTheme.divider)),
           ),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -184,10 +300,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            event['title'] as String? ??
-                                AppStrings.of(
-                                  context,
-                                ).timelineEventTitle(type ?? 'event'),
+                            title,
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -207,24 +320,29 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   ],
                 ),
                 const Divider(height: 24),
-                if (event['description'] != null) ...[
+                if (description.isNotEmpty) ...[
                   Text(
-                    event['description'] as String,
-                    style: const TextStyle(fontSize: 14, height: 1.5),
+                    description,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
                   ),
                   const SizedBox(height: 12),
                 ],
-                if (event['author'] != null)
+                if (event['author'] != null || details['author_name'] != null)
                   _detailRow(
                     AppStrings.of(context).timelineByPrefix,
-                    event['author'] as String,
+                    (event['author'] ?? details['author_name']).toString(),
                   ),
-                if (event['department'] != null)
+                if (event['department'] != null ||
+                    details['department'] != null)
                   _detailRow(
                     AppStrings.of(context).timelineDepartment,
-                    event['department'] as String,
+                    (event['department'] ?? details['department']).toString(),
                   ),
-                if (event['details'] is Map) ...[
+                if (details.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(
                     AppStrings.of(context).timelineDetails,
@@ -235,10 +353,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  ...(event['details'] as Map).entries.map(
+                  ...details.entries.map(
                     (e) => _detailRow(
                       _formatKey(e.key.toString()),
-                      e.value?.toString() ?? '-',
+                      _displayValue(e.value),
                     ),
                   ),
                 ],
@@ -267,7 +385,11 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
@@ -298,6 +420,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         return s.timelineFilterNote;
       case 'order':
         return s.timelineFilterOrder;
+      case 'drug_chart':
+        return 'Drug chart';
       case 'medication':
         return s.timelineFilterMedication;
       case 'investigation':
@@ -345,6 +469,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   Widget _buildTimelineItem(Map<String, dynamic> event, bool isLast) {
     final type = event['event_type'] as String?;
     final color = _eventColor(type);
+    final normalizedType = _normalizedEventType(type);
+    final description = _eventDescription(event);
 
     return InkWell(
       onTap: () => _showEventDetail(event),
@@ -396,7 +522,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                (type ?? 'event').toUpperCase(),
+                                normalizedType.toUpperCase(),
                                 style: TextStyle(
                                   color: color,
                                   fontSize: 10,
@@ -416,17 +542,17 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          event['title'] as String? ??
-                              AppStrings.of(context).timelineEventFallback,
-                          style: const TextStyle(
+                          _eventTitle(event),
+                          style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
+                            color: AppTheme.textPrimary,
                           ),
                         ),
-                        if (event['description'] != null) ...[
+                        if (description.isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(
-                            event['description'] as String,
+                            description,
                             style: TextStyle(
                               fontSize: 13,
                               color: AppTheme.textSecondary,
@@ -435,7 +561,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
-                        if (event['author'] != null) ...[
+                        if (event['author'] != null ||
+                            _eventPayload(event)['author_name'] != null) ...[
                           const SizedBox(height: 6),
                           Row(
                             children: [
@@ -446,13 +573,26 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                event['author'] as String,
+                                (event['author'] ??
+                                        _eventPayload(event)['author_name'])
+                                    .toString(),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: AppTheme.textSecondary,
                                 ),
                               ),
                             ],
+                          ),
+                        ],
+                        if (normalizedType == 'drug_chart') ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Current IP medication order',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.warningOnSurface,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ],
                       ],
