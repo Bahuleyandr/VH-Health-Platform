@@ -7407,11 +7407,11 @@ model referrals {
   performer_id                              String?   @db.Uuid
   clinical_notes                            String?
   notes                                     String?
+  tenant_id                                 String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   first_seen_at                             DateTime? @db.Timestamptz(6)
   first_seen_by                             String?   @db.Uuid
   request_context                           Json      @default("{}")
   source                                    String?   @default("ward") @db.VarChar(50)
-  tenant_id                                 String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   tenants                                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
   users_referrals_accepted_byTousers        users?    @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
   users_referrals_patient_uidTousers        users     @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
@@ -7425,6 +7425,8 @@ model referrals {
   @@index([status], map: "idx_referrals_status")
   @@index([urgency], map: "idx_referrals_urgency")
   @@index([tenant_id], map: "idx_referrals_tenant_id")
+  @@index([tenant_id, first_seen_at(sort: Desc)], map: "idx_referrals_tenant_first_seen", where: raw("(first_seen_at IS NOT NULL)"))
+  @@index([tenant_id, status, referred_to_department, created_at(sort: Desc)], map: "idx_referrals_tenant_status_department_created")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
