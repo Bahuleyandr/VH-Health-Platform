@@ -870,9 +870,24 @@ final GoRouter appRouter = GoRouter(
           name: 'emr-notes',
           pageBuilder: (context, state) {
             final uid = state.pathParameters['uid']!;
-            final name = state.uri.queryParameters['name'];
+            final q = state.uri.queryParameters;
+            final name = q['name'];
+            int? intParam(String key) => int.tryParse(q[key] ?? '');
             return NoTransitionPage(
-              child: ClinicalNotesScreen(patientUid: uid, patientName: name),
+              child: ClinicalNotesScreen(
+                patientUid: uid,
+                patientName: name,
+                opConsultation:
+                    q['context'] == 'op' || intParam('appointment_id') != null,
+                appointmentId: intParam('appointment_id'),
+                patientId: intParam('patient_id'),
+                doctorId: intParam('doctor_id'),
+                doctorName: q['doctor_name'],
+                department: q['department'],
+                reason: q['reason'],
+                appointmentDate: q['appointment_date'],
+                appointmentTime: q['appointment_time'],
+              ),
             );
           },
         ),

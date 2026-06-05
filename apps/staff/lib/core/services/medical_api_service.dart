@@ -1037,9 +1037,10 @@ class MedicalApiService {
     return _post('/emr/notes/$id/sign', {});
   }
 
-  /// PUT /emr/notes/:id — ADMIN-only overwrite of a prior note's content.
-  /// Returns 403 ADMIN_ONLY_NOTE_EDIT if the caller is not ADMIN/SUPER_ADMIN.
-  /// Clinical roles must use the addendum endpoint instead.
+  /// PUT /emr/notes/:id — edit note content.
+  /// Admin/SuperAdmin can correct prior notes. The original assigned doctor
+  /// can revise their own unsigned OP appointment note while that appointment
+  /// is still active; signed/terminal notes require an addendum.
   static Future<Map<String, dynamic>> updateClinicalNote(
     int id,
     Map<String, dynamic> content,

@@ -199,6 +199,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _doctorId = a['doctor_id'] as int?;
       _patientName = a['patient_name']?.toString();
       _doctorName = a['doctor_name']?.toString();
+      _setControllerIfEmpty(_diagnosisCtrl, a['diagnosis']);
+      _setControllerIfEmpty(
+        _clinicalNotesCtrl,
+        a['clinical_notes'] ?? a['clinicalNotes'],
+      );
       _prefillLatestVitals();
     }
   }

@@ -112,7 +112,7 @@ function normalizeNotePayload(body) {
 
 router.post('/notes', guardClinicalNoteWrite, async (req, res, next) => {
   try {
-    const { encounter_id, appointment_id, author_role } = req.body;
+    const { encounter_id, appointment_id, author_role, title } = req.body;
     const patient_uid = await resolvePatientUidFromBody(req.body);
     const { note_type, content } = normalizeNotePayload(req.body);
 
@@ -127,6 +127,7 @@ router.post('/notes', guardClinicalNoteWrite, async (req, res, next) => {
       author_uid: req.user.uid,
       author_role: author_role || req.user.role,
       note_type,
+      title: title || null,
       content,
       // Authenticated caller identity for the assigned-doctor ownership guard
       // (H2). author_role can be spoofed via the body; req.user is trusted.
@@ -187,12 +188,12 @@ router.post('/notes/:id/addendum', guardClinicalNoteResourceWrite, async (req, r
   }
 });
 
-// PUT / PATCH /emr/notes/:id — ADMIN-ONLY overwrite of prior note content.
-// Clinical roles must use POST /notes/:id/addendum instead. The admin
-// override exists for explicit corrections that must replace the original
-// row (e.g. PHI mis-attribution, transcription replacement) — every other
-// "edit" should be an addendum. Author_uid / author_role / note_type /
-// created_at are preserved; only content + updated_at + version change.
+// PUT / PATCH /emr/notes/:id — edit note content.
+// Allowed by service policy for ADMIN/SUPER_ADMIN corrections, and for the
+// original assigned doctor revising an unsigned OP appointment note while the
+// appointment is still open. Other clinical corrections remain addenda.
+// Author_uid / author_role / note_type / created_at are preserved; only
+// content + updated_at + version change.
 async function adminUpdateNote(req, res, next) {
   try {
     const noteId = parseInt(req.params.id, 10);
@@ -209,6 +210,7 @@ async function adminUpdateNote(req, res, next) {
       content,
       req.user.uid,
       req.user.role,
+      { id: req.user.id, uid: req.user.uid, role: req.user.role },
     );
 
     // HIPAA audit — log admin overwrite (action=UPDATE) so the legal trail

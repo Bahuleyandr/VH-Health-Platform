@@ -4,6 +4,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertCanWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { isDoctor } from '../../utils/roleHelpers.js';
 import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimelineService.js';
 
 
@@ -17,7 +18,7 @@ import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimel
 // progress SOAP note, and coding/discharge-summary generation keys off
 // the typed note rather than inspecting SOAP content. Finding:
 // 2026-05-09-emergency-walk-in-doctor-no-admission-note-type.
-const VALID_NOTE_TYPES = ['soap', 'progress', 'procedure', 'discharge', 'nursing_assessment', 'consultation_note', 'admission_note', 'er_note', 'transfer_note'];
+const VALID_NOTE_TYPES = ['soap', 'progress', 'procedure', 'discharge', 'nursing_assessment', 'consultation_note', 'op_consultation', 'admission_note', 'er_note', 'transfer_note'];
 
 /**
  * Required content fields per note type.
@@ -30,10 +31,20 @@ const REQUIRED_CONTENT_FIELDS = {
   discharge: ['hospital_course', 'discharge_diagnosis', 'discharge_condition', 'medications_on_discharge', 'follow_up_instructions'],
   nursing_assessment: ['pain_level', 'mobility', 'plan_of_care'],
   consultation_note: ['summary', 'assessment', 'plan'],
+  op_consultation: ['chief_complaint', 'history', 'examination', 'diagnosis', 'plan'],
   admission_note: ['chief_complaint', 'history_of_present_illness', 'assessment', 'plan'],
   er_note: ['chief_complaint', 'assessment', 'plan'],
   transfer_note: ['reason_for_transfer', 'clinical_summary', 'plan'],
 };
+
+const ADMIN_NOTE_EDIT_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+const TERMINAL_APPOINTMENT_STATUSES = new Set([
+  'COMPLETED',
+  'CANCELLED',
+  'CANCELED',
+  'NO_SHOW',
+  'RESCHEDULED',
+]);
 
 // Column projection used by every read/write that returns a full note row.
 // Mirrors the pre-ORM RETURNING / SELECT lists exactly so the public API
@@ -46,6 +57,7 @@ const NOTE_SELECT = {
   author_uid: true,
   author_role: true,
   note_type: true,
+  title: true,
   content: true,
   version: true,
   parent_note_id: true,
@@ -129,7 +141,7 @@ function validateNoteContent(noteType, content) {
  * @returns {Object} Created note row
  */
 export async function createNote(data) {
-  const { encounter_id, appointment_id, patient_uid, author_uid, author_role, note_type, content } = data;
+  const { encounter_id, appointment_id, patient_uid, author_uid, author_role, note_type, title, content } = data;
   const actingUser = data.acting_user || { uid: author_uid, role: author_role };
 
   if (!patient_uid || !author_uid || !author_role || !note_type || !content) {
@@ -202,6 +214,7 @@ export async function createNote(data) {
       author_uid,
       author_role,
       note_type,
+      title: title || null,
       content,
       version: 1,
       is_addendum: false,
@@ -288,15 +301,20 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
 }
 
 // ===================================================================
-// updateNote (admin override)
+// updateNote (admin override / unsigned OP session edit)
 // ===================================================================
 
 /**
- * Overwrite the content of an existing clinical note. Restricted to admin
- * roles — every other path is append-only via createNote / addAddendum.
- * The original author_uid / author_role / note_type / created_at are
- * preserved; only `content` and `updated_at` change, plus the row's
- * `version` is bumped so downstream readers can detect the rewrite.
+ * Overwrite the content of an existing clinical note.
+ *
+ * Allowed paths:
+ *   - ADMIN / SUPER_ADMIN correction override.
+ *   - Original assigned doctor revising their own unsigned OP appointment note
+ *     before the appointment reaches a terminal state.
+ *
+ * The original author_uid / author_role / note_type / created_at are preserved;
+ * only `content` and `updated_at` change, plus the row's `version` is bumped so
+ * downstream readers can detect the rewrite.
  *
  * Callers MUST audit the action separately (logPhiAccess with
  * action='UPDATE') so the legal record of "who rewrote what when" is
@@ -304,20 +322,14 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
  *
  * @param {number} noteId
  * @param {Object} content - New note content (validated against note_type)
- * @param {string} editorUid - UID of the admin performing the rewrite
- * @param {string} editorRole - Role of the editor (must be ADMIN)
+ * @param {string} editorUid - UID of the user performing the rewrite
+ * @param {string} editorRole - Role of the editor
+ * @param {{ id?: number|string, uid?: string, role: string }} [actingUser]
  * @returns {Object} Updated note row
  */
-export async function updateNote(noteId, content, editorUid, editorRole) {
+export async function updateNote(noteId, content, editorUid, editorRole, actingUser = null) {
   if (!editorUid || !editorRole) {
     throw AppError.badRequest('editorUid and editorRole are required');
-  }
-
-  if (editorRole !== 'ADMIN') {
-    throw AppError.forbidden(
-      'Only ADMIN may overwrite a prior clinical note; clinical roles must use the addendum path',
-      'ADMIN_ONLY_NOTE_EDIT',
-    );
   }
 
   if (!content || typeof content !== 'object' || Object.keys(content).length === 0) {
@@ -326,7 +338,16 @@ export async function updateNote(noteId, content, editorUid, editorRole) {
 
   const existing = await prisma.clinical_notes.findUnique({
     where: { id: Number(noteId) },
-    select: { id: true, note_type: true, version: true, content: true, author_uid: true, author_role: true },
+    select: {
+      id: true,
+      note_type: true,
+      version: true,
+      content: true,
+      author_uid: true,
+      author_role: true,
+      is_signed: true,
+      appointment_id: true,
+    },
   });
 
   if (!existing) {
@@ -336,6 +357,65 @@ export async function updateNote(noteId, content, editorUid, editorRole) {
   // Re-validate the new content against the same note_type the note was
   // created with. Admin can rewrite the prose, not flip the type.
   validateNoteContent(existing.note_type, content);
+
+  const adminOverride = ADMIN_NOTE_EDIT_ROLES.has(editorRole);
+  if (!adminOverride) {
+    if (existing.is_signed) {
+      throw AppError.conflict(
+        'Signed clinical notes are immutable; add an addendum for corrections',
+        'SIGNED_NOTE_IMMUTABLE',
+      );
+    }
+
+    if (!existing.appointment_id) {
+      throw AppError.forbidden(
+        'Only unsigned OP appointment notes may be revised by their original doctor; use addendum for other notes',
+        'CLINICAL_NOTE_ADDENDUM_REQUIRED',
+      );
+    }
+
+    if (String(existing.author_uid) !== String(editorUid)) {
+      throw AppError.forbidden(
+        'Only the original note author may revise an unsigned OP consultation note',
+        'NOTE_AUTHOR_ONLY_EDIT',
+      );
+    }
+
+    if (!isDoctor(editorRole)) {
+      throw AppError.forbidden(
+        'Only the original doctor may revise an unsigned OP consultation note',
+        'DOCTOR_ONLY_OP_NOTE_EDIT',
+      );
+    }
+
+    const appt = await prisma.appointments.findUnique({
+      where: { id: Number(existing.appointment_id) },
+      select: { id: true, doctor_id: true, status: true },
+    });
+    if (!appt) {
+      throw AppError.notFound('Appointment not found');
+    }
+
+    if (TERMINAL_APPOINTMENT_STATUSES.has(String(appt.status || '').toUpperCase())) {
+      throw AppError.conflict(
+        'OP consultation note can no longer be edited after the appointment is terminal',
+        'OP_NOTE_SESSION_CLOSED',
+      );
+    }
+
+    let assignedDoctorUid = null;
+    if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
+      const doctor = await prisma.users.findUnique({
+        where: { id: appt.doctor_id },
+        select: { uid: true },
+      });
+      assignedDoctorUid = doctor?.uid ?? null;
+    }
+    assertCanWriteAppointmentClinical(actingUser || { uid: editorUid, role: editorRole }, {
+      doctor_id: appt.doctor_id,
+      assigned_doctor_uid: assignedDoctorUid,
+    });
+  }
 
   const now = new Date();
   const updated = await prisma.clinical_notes.update({
@@ -349,7 +429,7 @@ export async function updateNote(noteId, content, editorUid, editorRole) {
   });
 
   logger.info(
-    `Clinical note admin-edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}`,
+    `Clinical note edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}, admin_override=${adminOverride}`,
   );
   return attachAuthorNames(updated);
 }

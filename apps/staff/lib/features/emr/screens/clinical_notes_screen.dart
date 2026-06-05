@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -12,11 +13,29 @@ import '../../productivity/widgets/smart_phrase_field.dart';
 class ClinicalNotesScreen extends StatefulWidget {
   final String patientUid;
   final String? patientName;
+  final bool opConsultation;
+  final int? appointmentId;
+  final int? patientId;
+  final int? doctorId;
+  final String? doctorName;
+  final String? department;
+  final String? reason;
+  final String? appointmentDate;
+  final String? appointmentTime;
 
   const ClinicalNotesScreen({
     super.key,
     required this.patientUid,
     this.patientName,
+    this.opConsultation = false,
+    this.appointmentId,
+    this.patientId,
+    this.doctorId,
+    this.doctorName,
+    this.department,
+    this.reason,
+    this.appointmentDate,
+    this.appointmentTime,
   });
 
   @override
@@ -37,10 +56,18 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // admin-only edit pencil.
   static const _noteTypes = ['progress', 'procedure'];
 
+  bool get _isOpConsultation =>
+      widget.opConsultation || widget.appointmentId != null;
+
+  String get _patientTitle {
+    final name = widget.patientName?.trim() ?? '';
+    return name.isEmpty ? 'Patient' : name;
+  }
+
   List<String> _tabLabels(BuildContext context) {
     final s = AppStrings.of(context);
     return [
-      s.clinicalNotesTabProgress,
+      _isOpConsultation ? 'OP Consultation' : s.clinicalNotesTabProgress,
       s.clinicalNotesTabProcedure,
       'All Notes',
     ];
@@ -105,6 +132,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
   Future<List<Map<String, dynamic>>> _loadProgressNoteList() async {
     final responses = await Future.wait([
+      MedicalApiService.getPatientNotes(
+        widget.patientUid,
+        noteType: 'op_consultation',
+      ),
       MedicalApiService.getPatientNotes(widget.patientUid, noteType: 'soap'),
       MedicalApiService.getPatientNotes(
         widget.patientUid,
@@ -169,6 +200,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   String? _noteSummary(Map<String, dynamic> note) {
     for (final key in const [
       'summary',
+      'chief_complaint',
+      'diagnosis',
       'current_status',
       'assessment',
       'subjective',
@@ -181,6 +214,61 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final content = note['content'];
     if (content is String && content.trim().isNotEmpty) return content;
     return null;
+  }
+
+  int? _intFrom(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  bool _isNoteSigned(Map<String, dynamic> note) =>
+      note['signed'] == true || note['is_signed'] == true;
+
+  int? _noteAppointmentId(Map<String, dynamic> note) {
+    final direct = _intFrom(note['appointment_id'] ?? note['appointmentId']);
+    if (direct != null) return direct;
+    final content = _contentMap(note);
+    return _intFrom(content['appointment_id'] ?? content['appointmentId']);
+  }
+
+  bool _canEditOpNote(Map<String, dynamic> note) {
+    final noteId = _intFrom(note['id']);
+    final appointmentId = widget.appointmentId;
+    if (!_isOpConsultation || noteId == null || appointmentId == null) {
+      return false;
+    }
+    if (_isNoteSigned(note)) return false;
+    return _noteAppointmentId(note) == appointmentId;
+  }
+
+  String _firstNoteText(Map<String, dynamic> note, List<String> keys) {
+    for (final key in keys) {
+      final text = _noteText(note, key)?.trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  Map<String, String> _opConsultationContent(Map<String, dynamic> note) {
+    return {
+      'chief_complaint': _firstNoteText(note, [
+        'chief_complaint',
+        'chief_complaints',
+        'reason',
+        'subjective',
+        'summary',
+      ]),
+      'history': _firstNoteText(note, [
+        'history',
+        'history_of_present_illness',
+        'subjective',
+      ]),
+      'examination': _firstNoteText(note, ['examination', 'objective']),
+      'diagnosis': _firstNoteText(note, ['diagnosis', 'assessment']),
+      'plan': _firstNoteText(note, ['plan']),
+    };
   }
 
   String? _plainContentText(Map<String, dynamic> note) {
@@ -321,9 +409,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         itemCount: notes.length,
         itemBuilder: (ctx, i) {
           final note = notes[i];
-          final signed = note['signed'] == true || note['is_signed'] == true;
-          final noteId = note['id'];
+          final signed = _isNoteSigned(note);
+          final noteId = _intFrom(note['id']);
           final summary = _noteSummary(note);
+          final canEdit = _canEditOpNote(note);
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: InkWell(
@@ -390,20 +479,36 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                    if (!signed && noteId is int) ...[
+                    if (!signed && noteId != null) ...[
                       const SizedBox(height: 10),
                       Align(
                         alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: () => _signNoteAction(noteId),
-                          icon: const Icon(
-                            Icons.check_circle_outline,
-                            size: 18,
-                          ),
-                          label: Text(AppStrings.of(ctx).clinicalNotesSignNote),
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppTheme.successGreen,
-                          ),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            if (canEdit)
+                              TextButton.icon(
+                                onPressed: () =>
+                                    _showProgressNoteForm(existingNote: note),
+                                icon: const Icon(Icons.edit_outlined, size: 18),
+                                label: const Text('Edit'),
+                              ),
+                            TextButton.icon(
+                              onPressed: () => _signNoteAction(noteId),
+                              icon: const Icon(
+                                Icons.check_circle_outline,
+                                size: 18,
+                              ),
+                              label: Text(
+                                AppStrings.of(ctx).clinicalNotesSignNote,
+                              ),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppTheme.successGreen,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -448,6 +553,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── Note Detail ──
 
   void _showNoteDetail(Map<String, dynamic> note) {
+    final opFields = _opConsultationContent(note);
+    final chiefComplaint = opFields['chief_complaint']?.trim();
+    final history = opFields['history']?.trim();
+    final examination = opFields['examination']?.trim();
+    final diagnosis = opFields['diagnosis']?.trim();
     final subjective = _noteText(note, 'subjective');
     final objective = _noteText(note, 'objective');
     final assessment = _noteText(note, 'assessment');
@@ -462,6 +572,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final complications = _noteText(note, 'complications');
     final plainContent = _plainContentText(note);
     final vitals = _noteVitals(note);
+    final canEdit = _canEditOpNote(note);
+    final showLegacySoapFields = !_isOpConsultation;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -517,18 +629,28 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                   style: TextStyle(color: _sheetTextSecondary, fontSize: 13),
                 ),
                 const Divider(height: 24, color: Color(0xFFD0D5DD)),
-                // SOAP fields
-                if (subjective != null)
+                if (_isOpConsultation) ...[
+                  if (chiefComplaint != null && chiefComplaint.isNotEmpty)
+                    _noteSection('Chief complaints', chiefComplaint),
+                  if (history != null && history.isNotEmpty)
+                    _noteSection('History', history),
+                  if (examination != null && examination.isNotEmpty)
+                    _noteSection('Examination', examination),
+                  if (diagnosis != null && diagnosis.isNotEmpty)
+                    _noteSection('Diagnosis', diagnosis),
+                ],
+                // Problem-oriented OP fields and legacy SOAP fields.
+                if (showLegacySoapFields && subjective != null)
                   _noteSection(
                     AppStrings.of(ctx).clinicalNotesSubjective,
                     subjective,
                   ),
-                if (objective != null)
+                if (showLegacySoapFields && objective != null)
                   _noteSection(
                     AppStrings.of(ctx).clinicalNotesObjective,
                     objective,
                   ),
-                if (assessment != null)
+                if (showLegacySoapFields && assessment != null)
                   _noteSection(
                     AppStrings.of(ctx).clinicalNotesAssessment,
                     assessment,
@@ -569,6 +691,33 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     AppStrings.of(ctx).clinicalNotesComplications,
                     complications,
                   ),
+                if (canEdit || _isOpConsultation) ...[
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      if (canEdit)
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            _showProgressNoteForm(existingNote: note);
+                          },
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('Edit consultation note'),
+                        ),
+                      if (_isOpConsultation)
+                        FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            _openPrescriptionFromNote(note);
+                          },
+                          icon: const Icon(Icons.medication_outlined),
+                          label: const Text('Prescription'),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 // ── AI Assist — generate patient-friendly explainer ──
                 // The button is enabled regardless of signed status so a doctor
@@ -646,8 +795,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── AI Assist: generate + sign-off ──
 
   /// Build a single free-text report from whichever fields the note has.
-  /// SOAP notes get S/O/A/P concatenated; progress + procedure notes use
-  /// their content/findings/details fields.
+  /// OP consultation notes use the problem-oriented fields first; older SOAP,
+  /// progress, and procedure notes fall back to their legacy content.
   String _composeReportText(Map<String, dynamic> note) {
     final parts = <String>[];
     void add(String label, String? value) {
@@ -655,10 +804,19 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       if (v.isNotEmpty) parts.add('$label: $v');
     }
 
-    add('Subjective', _noteText(note, 'subjective'));
-    add('Objective', _noteText(note, 'objective'));
-    add('Assessment', _noteText(note, 'assessment'));
-    add('Plan', _noteText(note, 'plan'));
+    if (_isOpConsultation) {
+      final opFields = _opConsultationContent(note);
+      add('Chief complaints', opFields['chief_complaint']);
+      add('History', opFields['history']);
+      add('Examination', opFields['examination']);
+      add('Diagnosis', opFields['diagnosis']);
+      add('Plan', opFields['plan']);
+    } else {
+      add('Subjective', _noteText(note, 'subjective'));
+      add('Objective', _noteText(note, 'objective'));
+      add('Assessment', _noteText(note, 'assessment'));
+      add('Plan', _noteText(note, 'plan'));
+    }
     final vitals = _noteVitals(note);
     if (vitals.isNotEmpty) {
       parts.add(
@@ -684,6 +842,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       case 'soap':
         return 'consultation';
       case 'progress':
+        return 'consultation';
+      case 'op_consultation':
         return 'consultation';
       case 'procedure':
         return 'procedure';
@@ -850,13 +1010,85 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     };
   }
 
-  void _showProgressNoteForm() {
+  void _prefillOptionalProgressVitals(
+    Map<String, dynamic> note, {
+    required TextEditingController pulse,
+    required TextEditingController bpSystolic,
+    required TextEditingController bpDiastolic,
+    required TextEditingController spo2,
+    required TextEditingController cbg,
+    required TextEditingController weight,
+    required TextEditingController temperature,
+  }) {
+    final content = _contentMap(note);
+    final rawVitals = content['vitals'];
+    final vitals = rawVitals is Map
+        ? Map<String, dynamic>.from(rawVitals)
+        : content;
+    String pick(List<String> keys) {
+      for (final key in keys) {
+        final value = vitals[key]?.toString().trim() ?? '';
+        if (value.isNotEmpty && value.toLowerCase() != 'null') return value;
+      }
+      return '';
+    }
+
+    pulse.text = pick(['pulse_rate', 'pulse', 'heart_rate']);
+    spo2.text = pick(['spo2', 'sp_o2']);
+    cbg.text = pick(['cbg', 'blood_glucose']);
+    weight.text = pick(['weight_kg', 'weight']);
+    temperature.text = pick(['temperature', 'temp']);
+    final bp = pick(['blood_pressure', 'bp']);
+    final parts = bp.split('/');
+    if (parts.isNotEmpty) bpSystolic.text = parts[0].trim();
+    if (parts.length > 1) bpDiastolic.text = parts[1].trim();
+  }
+
+  String _joinNonEmpty(Iterable<String> values, {String separator = '\n\n'}) {
+    return values
+        .map((v) => v.trim())
+        .where((v) => v.isNotEmpty)
+        .join(separator);
+  }
+
+  String _summaryFromOpFields({
+    required String chiefComplaint,
+    required String diagnosis,
+    required String plan,
+  }) {
+    for (final value in [chiefComplaint, diagnosis, plan]) {
+      final text = value.trim();
+      if (text.isNotEmpty) return text;
+    }
+    return 'OP consultation';
+  }
+
+  void _showProgressNoteForm({Map<String, dynamic>? existingNote}) {
     final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
+    final editing = existingNote != null;
+    final isOpForm = _isOpConsultation;
+    final opContent = editing
+        ? _opConsultationContent(existingNote)
+        : <String, String>{
+            'chief_complaint': widget.reason?.trim() ?? '',
+            'history': '',
+            'examination': '',
+            'diagnosis': '',
+            'plan': '',
+          };
+    final chiefComplaint = TextEditingController(
+      text: opContent['chief_complaint'] ?? '',
+    );
+    final history = TextEditingController(text: opContent['history'] ?? '');
+    final examination = TextEditingController(
+      text: opContent['examination'] ?? '',
+    );
+    final diagnosis = TextEditingController(text: opContent['diagnosis'] ?? '');
     final subjective = TextEditingController();
     final objective = TextEditingController();
     final assessment = TextEditingController();
-    final plan = TextEditingController();
+    final plan = TextEditingController(text: opContent['plan'] ?? '');
     final pulse = TextEditingController();
     final bpSystolic = TextEditingController();
     final bpDiastolic = TextEditingController();
@@ -865,8 +1097,26 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final weight = TextEditingController();
     final temperature = TextEditingController();
 
+    if (editing) {
+      subjective.text = _noteText(existingNote, 'subjective') ?? '';
+      objective.text = _noteText(existingNote, 'objective') ?? '';
+      assessment.text = _noteText(existingNote, 'assessment') ?? '';
+      _prefillOptionalProgressVitals(
+        existingNote,
+        pulse: pulse,
+        bpSystolic: bpSystolic,
+        bpDiastolic: bpDiastolic,
+        spo2: spo2,
+        cbg: cbg,
+        weight: weight,
+        temperature: temperature,
+      );
+    }
+
     _showNoteFormSheet(
-      title: s.clinicalNotesNewProgress,
+      title: isOpForm
+          ? (editing ? 'Edit OP consultation note' : 'New OP consultation note')
+          : s.clinicalNotesNewProgress,
       formKey: formKey,
       fields: [
         Text(
@@ -907,24 +1157,53 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           VitalUnit.temperature,
         ),
         const Divider(height: 28),
-        _buildTextArea(
-          subjective,
-          s.clinicalNotesSubjective,
-          s.clinicalNotesSubjectiveHint,
-        ),
-        _buildTextArea(
-          objective,
-          s.clinicalNotesObjective,
-          s.clinicalNotesObjectiveHint,
-        ),
-        _buildTextArea(
-          assessment,
-          s.clinicalNotesAssessment,
-          s.clinicalNotesAssessmentHint,
-        ),
-        _buildTextArea(plan, s.clinicalNotesPlan, s.clinicalNotesPlanHint),
+        if (isOpForm) ...[
+          _buildTextArea(
+            chiefComplaint,
+            'Chief complaints',
+            'Symptoms, duration, and main concern for this visit',
+          ),
+          _buildTextArea(
+            history,
+            'History',
+            'Relevant illness history, comorbidities, medications, allergies',
+          ),
+          _buildTextArea(
+            examination,
+            'Examination',
+            'General and system examination findings',
+          ),
+          _buildTextArea(
+            diagnosis,
+            'Diagnosis',
+            'Working diagnosis or differential diagnosis',
+          ),
+          _buildTextArea(
+            plan,
+            'Plan',
+            'Treatment plan, advice, investigations, follow-up',
+          ),
+        ] else ...[
+          _buildTextArea(
+            subjective,
+            s.clinicalNotesSubjective,
+            s.clinicalNotesSubjectiveHint,
+          ),
+          _buildTextArea(
+            objective,
+            s.clinicalNotesObjective,
+            s.clinicalNotesObjectiveHint,
+          ),
+          _buildTextArea(
+            assessment,
+            s.clinicalNotesAssessment,
+            s.clinicalNotesAssessmentHint,
+          ),
+          _buildTextArea(plan, s.clinicalNotesPlan, s.clinicalNotesPlanHint),
+        ],
       ],
-      onSubmit: () {
+      showPrescriptionAction: isOpForm,
+      onSubmit: ({required bool openPrescription}) async {
         final vitals = _optionalProgressVitals(
           pulse: pulse,
           bpSystolic: bpSystolic,
@@ -934,18 +1213,96 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           weight: weight,
           temperature: temperature,
         );
-        _submitNote(
+        final existingType = '${existingNote?['note_type'] ?? ''}'
+            .trim()
+            .toLowerCase();
+        final noteType = existingType.isNotEmpty
+            ? existingType
+            : (isOpForm ? 'op_consultation' : 'soap');
+        final chiefText = chiefComplaint.text.trim();
+        final historyText = history.text.trim();
+        final examinationText = examination.text.trim();
+        final diagnosisText = diagnosis.text.trim();
+        final planText = plan.text.trim();
+        final opBaseContent = <String, dynamic>{
+          'chief_complaint': chiefText,
+          'history': historyText,
+          'examination': examinationText,
+          'diagnosis': diagnosisText,
+          'plan': planText,
+          'summary': _summaryFromOpFields(
+            chiefComplaint: chiefText,
+            diagnosis: diagnosisText,
+            plan: planText,
+          ),
+          if (widget.appointmentId != null)
+            'appointment_id': widget.appointmentId,
+          if (vitals.isNotEmpty) 'vitals': vitals,
+        };
+        Map<String, dynamic> content;
+        if (isOpForm) {
+          switch (noteType) {
+            case 'soap':
+              content = {
+                ...opBaseContent,
+                'subjective': _joinNonEmpty([chiefText, historyText]),
+                'objective': examinationText,
+                'assessment': diagnosisText,
+                'plan': planText,
+              };
+              break;
+            case 'progress':
+              content = {
+                ...opBaseContent,
+                'summary': _summaryFromOpFields(
+                  chiefComplaint: chiefText,
+                  diagnosis: diagnosisText,
+                  plan: planText,
+                ),
+                'current_status': _joinNonEmpty([
+                  historyText,
+                  examinationText,
+                  diagnosisText,
+                ]),
+                'plan': planText,
+              };
+              break;
+            case 'consultation_note':
+              content = {
+                ...opBaseContent,
+                'summary': _summaryFromOpFields(
+                  chiefComplaint: chiefText,
+                  diagnosis: diagnosisText,
+                  plan: planText,
+                ),
+                'assessment': diagnosisText,
+                'plan': planText,
+              };
+              break;
+            default:
+              content = opBaseContent;
+              break;
+          }
+        } else {
+          content = {
+            'subjective': subjective.text,
+            'objective': objective.text,
+            'assessment': assessment.text,
+            'plan': plan.text,
+            if (vitals.isNotEmpty) 'vitals': vitals,
+          };
+        }
+        await _submitNote(
           formKey: formKey,
+          existingNoteId: _intFrom(existingNote?['id']),
+          openPrescriptionAfterSave: openPrescription,
           data: {
             'patient_uid': widget.patientUid,
-            'note_type': 'soap',
-            'content': {
-              'subjective': subjective.text,
-              'objective': objective.text,
-              'assessment': assessment.text,
-              'plan': plan.text,
-              if (vitals.isNotEmpty) 'vitals': vitals,
-            },
+            'note_type': noteType,
+            if (widget.appointmentId != null)
+              'appointment_id': widget.appointmentId,
+            'title': isOpForm ? 'OP consultation - $_patientTitle' : null,
+            'content': content,
           },
         );
       },
@@ -1002,7 +1359,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           s.clinicalNotesComplicationsHint,
         ),
       ],
-      onSubmit: () => _submitNote(
+      onSubmit: ({required bool openPrescription}) => _submitNote(
         formKey: formKey,
         data: {
           'patient_uid': widget.patientUid,
@@ -1106,7 +1463,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     required String title,
     required GlobalKey<FormState> formKey,
     required List<Widget> fields,
-    required VoidCallback onSubmit,
+    required Future<void> Function({required bool openPrescription}) onSubmit,
+    bool showPrescriptionAction = false,
   }) {
     showModalBottomSheet(
       context: context,
@@ -1157,13 +1515,25 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       const SizedBox(height: 20),
                       ...fields,
                       const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: onSubmit,
-                          icon: const Icon(Icons.save),
-                          label: Text(AppStrings.of(ctx).clinicalNotesSaveNote),
-                        ),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.end,
+                        children: [
+                          if (showPrescriptionAction)
+                            OutlinedButton.icon(
+                              onPressed: () => onSubmit(openPrescription: true),
+                              icon: const Icon(Icons.medication_outlined),
+                              label: const Text('Save & prescribe'),
+                            ),
+                          FilledButton.icon(
+                            onPressed: () => onSubmit(openPrescription: false),
+                            icon: const Icon(Icons.save),
+                            label: Text(
+                              AppStrings.of(ctx).clinicalNotesSaveNote,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -1177,9 +1547,62 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     );
   }
 
+  String _prescriptionClinicalNotes(Map<String, dynamic> content) {
+    final parts = <String>[];
+    void add(String label, Object? value) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') {
+        parts.add('$label: $text');
+      }
+    }
+
+    add('Chief complaints', content['chief_complaint']);
+    add('History', content['history']);
+    add('Examination', content['examination']);
+    add('Diagnosis', content['diagnosis'] ?? content['assessment']);
+    add('Plan', content['plan']);
+    if (parts.isEmpty) {
+      add('Subjective', content['subjective']);
+      add('Objective', content['objective']);
+      add('Assessment', content['assessment']);
+      add('Plan', content['plan']);
+    }
+    return parts.join('\n\n');
+  }
+
+  void _openPrescriptionFromNote(Map<String, dynamic> note) {
+    _openPrescriptionFromContent(_contentMap(note));
+  }
+
+  void _openPrescriptionFromContent(Map<String, dynamic> content) {
+    final extra = <String, dynamic>{
+      if (widget.appointmentId != null) 'id': widget.appointmentId,
+      if (widget.patientId != null) 'patient_id': widget.patientId,
+      if (widget.doctorId != null) 'doctor_id': widget.doctorId,
+      'patient_uid': widget.patientUid,
+      'patient_name': _patientTitle,
+      if ((widget.doctorName ?? '').trim().isNotEmpty)
+        'doctor_name': widget.doctorName!.trim(),
+      if ((widget.department ?? '').trim().isNotEmpty)
+        'department': widget.department!.trim(),
+      if ((widget.reason ?? '').trim().isNotEmpty)
+        'reason': widget.reason!.trim(),
+      if ((widget.appointmentDate ?? '').trim().isNotEmpty)
+        'appointment_date': widget.appointmentDate!.trim(),
+      if ((widget.appointmentTime ?? '').trim().isNotEmpty)
+        'appointment_time': widget.appointmentTime!.trim(),
+      'diagnosis': (content['diagnosis'] ?? content['assessment'] ?? '')
+          .toString(),
+      'clinical_notes': _prescriptionClinicalNotes(content),
+    };
+    context.push('/prescriptions', extra: extra);
+  }
+
   Future<void> _submitNote({
     required GlobalKey<FormState> formKey,
     required Map<String, dynamic> data,
+    int? existingNoteId,
+    bool openPrescriptionAfterSave = false,
   }) async {
     if (!formKey.currentState!.validate()) return;
     Navigator.of(context).pop();
@@ -1187,11 +1610,23 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     try {
       final payload = Map<String, dynamic>.from(data);
       payload['patient_uid'] = payload['patient_uid'] ?? widget.patientUid;
-      await MedicalApiService.createClinicalNote(payload);
+      final rawContent = payload['content'];
+      final content = rawContent is Map
+          ? Map<String, dynamic>.from(rawContent)
+          : <String, dynamic>{};
+      if (existingNoteId != null) {
+        await MedicalApiService.updateClinicalNote(existingNoteId, content);
+      } else {
+        await MedicalApiService.createClinicalNote(payload);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context).clinicalNotesCreatedSuccess),
+            content: Text(
+              existingNoteId != null
+                  ? 'Consultation note updated'
+                  : AppStrings.of(context).clinicalNotesCreatedSuccess,
+            ),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -1205,6 +1640,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           } else if (_tabController.index >= _noteTypes.length) {
             _tabController.animateTo(tabIndex);
           }
+        }
+        if (openPrescriptionAfterSave) {
+          _openPrescriptionFromContent(content);
         }
       }
     } catch (e) {
@@ -1225,7 +1663,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
   String _tabTypeForNoteType(String noteType) {
     final normalized = noteType.toLowerCase();
-    if (normalized == 'soap' || normalized == 'progress') return 'progress';
+    if (normalized == 'soap' ||
+        normalized == 'progress' ||
+        normalized == 'op_consultation') {
+      return 'progress';
+    }
     return normalized;
   }
 

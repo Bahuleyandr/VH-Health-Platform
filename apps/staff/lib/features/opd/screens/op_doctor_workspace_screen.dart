@@ -103,6 +103,17 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
       if (widget.patientId != null) 'patient_id=${widget.patientId}',
       if (widget.appointmentId != null)
         'appointment_id=${widget.appointmentId}',
+      if (widget.doctorId != null) 'doctor_id=${widget.doctorId}',
+      if (_clean(widget.doctorName).isNotEmpty)
+        'doctor_name=${Uri.encodeQueryComponent(_clean(widget.doctorName))}',
+      if (_clean(widget.department).isNotEmpty)
+        'department=${Uri.encodeQueryComponent(_clean(widget.department))}',
+      if (_clean(widget.reason).isNotEmpty)
+        'reason=${Uri.encodeQueryComponent(_clean(widget.reason))}',
+      if (_clean(widget.appointmentDate).isNotEmpty)
+        'appointment_date=${Uri.encodeQueryComponent(_clean(widget.appointmentDate))}',
+      if (_clean(widget.appointmentTime).isNotEmpty)
+        'appointment_time=${Uri.encodeQueryComponent(_clean(widget.appointmentTime))}',
       'context=op',
     ];
     return params.isEmpty ? '' : '?${params.join('&')}';

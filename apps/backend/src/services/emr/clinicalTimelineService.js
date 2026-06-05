@@ -49,7 +49,13 @@ function stringifySummary(value, fallback = 'No details recorded') {
   if (!value) return fallback;
   if (typeof value === 'string') return value;
   if (typeof value === 'object') {
-    const preferred = value.summary || value.assessment || value.plan || value.hospital_course || value.notes;
+    const preferred = value.summary
+      || value.chief_complaint
+      || value.diagnosis
+      || value.assessment
+      || value.plan
+      || value.hospital_course
+      || value.notes;
     if (preferred) return String(preferred);
     return JSON.stringify(value).slice(0, 240);
   }

@@ -428,6 +428,7 @@ export async function createSelfPaymentLink({
 const PATIENT_VISIBLE_NOTE_TYPES = [
   'progress',
   'soap',
+  'op_consultation',
   'discharge',
   'procedure',
   'consultation',

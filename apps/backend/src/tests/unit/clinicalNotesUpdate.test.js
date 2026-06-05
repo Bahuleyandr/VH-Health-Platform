@@ -1,17 +1,15 @@
-// Unit test — clinicalNotesService.updateNote (admin override path).
-// Confirms: clinical roles get a 403; ADMIN overwrites content + bumps
-// version; missing note → 404; content failing the per-type required-
-// fields validator → 400.
-//
-// Append-only is still the rule for everyone else — addAddendum + signNote
-// remain the only state-mutating paths for DOCTOR / NURSE / etc. updateNote
-// exists for explicit corrections that must replace the original row.
+// Unit test — clinicalNotesService.updateNote.
+// Confirms: ADMIN overwrites content + bumps version; the original assigned
+// doctor may revise an unsigned OP note while the appointment is open; signed,
+// terminal, peer-authored, and non-OP notes remain protected.
 
 import { jest } from '@jest/globals';
 
 const findUniqueMock = jest.fn();
+const appointmentFindUniqueMock = jest.fn();
 const updateMock = jest.fn();
 const usersFindManyMock = jest.fn();
+const userFindUniqueMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -19,7 +17,11 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
       findUnique: findUniqueMock,
       update: updateMock,
     },
+    appointments: {
+      findUnique: appointmentFindUniqueMock,
+    },
     users: {
+      findUnique: userFindUniqueMock,
       findMany: usersFindManyMock,
     },
   },
@@ -38,28 +40,106 @@ const VALID_SOAP_CONTENT = {
 
 beforeEach(() => {
   findUniqueMock.mockReset();
+  appointmentFindUniqueMock.mockReset();
   updateMock.mockReset();
+  userFindUniqueMock.mockReset();
   usersFindManyMock.mockReset();
 });
 
-describe('updateNote — admin gate', () => {
-  it('throws 403 ADMIN_ONLY_NOTE_EDIT when editor is a DOCTOR', async () => {
+describe('updateNote — edit gate', () => {
+  it('throws 403 when a peer doctor edits another doctor authored OP note', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 1,
+      note_type: 'soap',
+      version: 1,
+      content: VALID_SOAP_CONTENT,
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'DOCTOR',
+      is_signed: false,
+      appointment_id: 101,
+    });
+
     await expect(
-      updateNote(1, VALID_SOAP_CONTENT, EDITOR_UID, 'DOCTOR'),
+      updateNote(1, VALID_SOAP_CONTENT, EDITOR_UID, 'DOCTOR', {
+        id: 990902,
+        uid: EDITOR_UID,
+        role: 'DOCTOR',
+      }),
     ).rejects.toMatchObject({
       statusCode: 403,
-      code: 'ADMIN_ONLY_NOTE_EDIT',
+      code: 'NOTE_AUTHOR_ONLY_EDIT',
     });
-    expect(findUniqueMock).not.toHaveBeenCalled();
     expect(updateMock).not.toHaveBeenCalled();
   });
 
   it('throws 403 when editor is a NURSE (even on a note the nurse authored)', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 1,
+      note_type: 'soap',
+      version: 1,
+      content: VALID_SOAP_CONTENT,
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'NURSE',
+      is_signed: false,
+      appointment_id: 101,
+    });
+
     await expect(
       updateNote(1, VALID_SOAP_CONTENT, ORIGINAL_AUTHOR_UID, 'NURSE'),
     ).rejects.toMatchObject({
       statusCode: 403,
-      code: 'ADMIN_ONLY_NOTE_EDIT',
+      code: 'DOCTOR_ONLY_OP_NOTE_EDIT',
+    });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('throws 409 when original doctor edits after the OP appointment is completed', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 1,
+      note_type: 'soap',
+      version: 1,
+      content: VALID_SOAP_CONTENT,
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'DOCTOR',
+      is_signed: false,
+      appointment_id: 101,
+    });
+    appointmentFindUniqueMock.mockResolvedValueOnce({
+      id: 101,
+      doctor_id: 990902,
+      status: 'COMPLETED',
+    });
+
+    await expect(
+      updateNote(1, VALID_SOAP_CONTENT, ORIGINAL_AUTHOR_UID, 'DOCTOR', {
+        id: 990902,
+        uid: ORIGINAL_AUTHOR_UID,
+        role: 'DOCTOR',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'OP_NOTE_SESSION_CLOSED',
+    });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('throws 409 when a signed note is edited by a clinical author', async () => {
+    findUniqueMock.mockResolvedValueOnce({
+      id: 1,
+      note_type: 'soap',
+      version: 1,
+      content: VALID_SOAP_CONTENT,
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'DOCTOR',
+      is_signed: true,
+      appointment_id: 101,
+    });
+
+    await expect(
+      updateNote(1, VALID_SOAP_CONTENT, ORIGINAL_AUTHOR_UID, 'DOCTOR'),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'SIGNED_NOTE_IMMUTABLE',
     });
     expect(updateMock).not.toHaveBeenCalled();
   });
@@ -96,6 +176,8 @@ describe('updateNote — admin overwrite path', () => {
       content: VALID_SOAP_CONTENT,
       author_uid: ORIGINAL_AUTHOR_UID,
       author_role: 'DOCTOR',
+      is_signed: false,
+      appointment_id: null,
     });
 
     await expect(
@@ -115,6 +197,8 @@ describe('updateNote — admin overwrite path', () => {
       content: { subjective: 'old', objective: 'old', assessment: 'old', plan: 'old' },
       author_uid: ORIGINAL_AUTHOR_UID,
       author_role: 'DOCTOR',
+      is_signed: true,
+      appointment_id: 101,
     });
 
     updateMock.mockImplementationOnce(async ({ where, data, select }) => ({
@@ -159,5 +243,69 @@ describe('updateNote — admin overwrite path', () => {
     expect(result.version).toBe(2);
     expect(result.author_name).toBe('Original Doctor');
     expect(result.content).toEqual(VALID_SOAP_CONTENT);
+  });
+});
+
+describe('updateNote — original doctor OP session edit path', () => {
+  it('allows the original assigned doctor to revise an unsigned OP consultation note', async () => {
+    const opContent = {
+      chief_complaint: 'Fever and cough for 2 days.',
+      history: 'No breathlessness. No chest pain.',
+      examination: 'Afebrile now, throat congestion present.',
+      diagnosis: 'Viral upper respiratory infection.',
+      plan: 'Symptomatic treatment and review if worsening.',
+    };
+    findUniqueMock.mockResolvedValueOnce({
+      id: 55,
+      note_type: 'op_consultation',
+      version: 1,
+      content: { ...opContent, diagnosis: 'Old diagnosis' },
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'DOCTOR',
+      is_signed: false,
+      appointment_id: 101,
+    });
+    appointmentFindUniqueMock.mockResolvedValueOnce({
+      id: 101,
+      doctor_id: 990902,
+      status: 'CONFIRMED',
+    });
+    userFindUniqueMock.mockResolvedValueOnce({ uid: ORIGINAL_AUTHOR_UID });
+    updateMock.mockImplementationOnce(async ({ where, data }) => ({
+      id: where.id,
+      encounter_id: null,
+      appointment_id: 101,
+      patient_uid: 'patient-uid',
+      author_uid: ORIGINAL_AUTHOR_UID,
+      author_role: 'DOCTOR',
+      note_type: 'op_consultation',
+      content: data.content,
+      version: data.version,
+      parent_note_id: null,
+      is_addendum: false,
+      is_signed: false,
+      signed_at: null,
+      signed_by: null,
+      created_at: new Date('2026-06-05T10:00:00Z'),
+      updated_at: data.updated_at,
+    }));
+    usersFindManyMock.mockResolvedValueOnce([
+      { uid: ORIGINAL_AUTHOR_UID, name: 'Original Doctor' },
+    ]);
+
+    const result = await updateNote(
+      55,
+      opContent,
+      ORIGINAL_AUTHOR_UID,
+      'DOCTOR',
+      { id: 990902, uid: ORIGINAL_AUTHOR_UID, role: 'DOCTOR' },
+    );
+
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(updateMock.mock.calls[0][0].data.content).toEqual(opContent);
+    expect(updateMock.mock.calls[0][0].data.version).toBe(2);
+    expect(result.content).toEqual(opContent);
+    expect(result.version).toBe(2);
+    expect(result.author_name).toBe('Original Doctor');
   });
 });
