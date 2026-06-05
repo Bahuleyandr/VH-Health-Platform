@@ -89,36 +89,89 @@ class _MedicationEntry {
   String name;
   String? genericName;
   int? catalogId;
+  String strength;
   String dosage;
   String frequency;
   String duration;
   String route;
   String instructions;
   int quantity;
+  int days;
+  int refills;
+  bool prn;
+  bool nte;
+  bool daw;
+  String type;
+  String category;
+  String pharmacy;
 
   _MedicationEntry({
     this.name = '',
     this.genericName,
     this.catalogId,
+    this.strength = '',
     this.dosage = '',
-    this.frequency = '',
+    this.frequency = 'BD',
     this.duration = '',
-    this.route = '',
+    this.route = 'Oral',
     this.instructions = '',
     this.quantity = 1,
+    this.days = 5,
+    this.refills = 0,
+    this.prn = false,
+    this.nte = false,
+    this.daw = false,
+    this.type = '',
+    this.category = '',
+    this.pharmacy = '',
   });
 
   Map<String, dynamic> toJson() => {
     'name': name,
     if (genericName != null) 'generic_name': genericName,
     if (catalogId != null) 'catalog_id': catalogId,
-    'dosage': dosage,
+    if (strength.trim().isNotEmpty) 'strength': strength.trim(),
+    'dosage': dosage.trim().isNotEmpty ? dosage.trim() : strength.trim(),
     'frequency': frequency,
-    'duration': duration,
+    'duration': duration.trim().isNotEmpty ? duration.trim() : '$days days',
+    'days': days,
     'route': route,
     'instructions': instructions,
     'quantity': quantity,
+    'refills': refills,
+    if (prn) 'prn': true,
+    if (nte) 'nte': true,
+    if (daw) 'do_not_substitute': true,
+    if (type.trim().isNotEmpty) 'type': type.trim(),
+    if (category.trim().isNotEmpty) 'category': category.trim(),
+    if (pharmacy.trim().isNotEmpty) 'pharmacy': pharmacy.trim(),
   };
+}
+
+class _OpDrugTemplate {
+  final String category;
+  final String name;
+  final String strength;
+  final String frequency;
+  final int days;
+  final int quantity;
+  final String route;
+  final String instructions;
+  final bool prn;
+  final String type;
+
+  const _OpDrugTemplate({
+    required this.category,
+    required this.name,
+    required this.strength,
+    required this.frequency,
+    required this.days,
+    required this.quantity,
+    this.route = 'Oral',
+    this.instructions = '',
+    this.prn = false,
+    this.type = 'Tablet',
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -161,6 +214,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
 
   // Medications
   final List<_MedicationEntry> _medications = [_MedicationEntry()];
+  final _catalogSearchCtrl = TextEditingController();
+  String _selectedCategory = 'Common OPD';
+  String _preferredPharmacy = 'In House Dispensary';
+  List<Map<String, dynamic>> _catalogResults = [];
+  final Set<int> _selectedCatalogRows = {};
+  bool _catalogLoading = false;
 
   // Follow-up
   DateTime? _followUpDate;
@@ -188,6 +247,179 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     'Inhalation',
     'Sublingual',
   ];
+  static const _medicineTypes = [
+    'Tablet',
+    'Capsule',
+    'Syrup',
+    'Injection',
+    'Drops',
+    'Inhaler',
+    'Cream',
+    'Sachet',
+  ];
+  static const _pharmacyOptions = [
+    'In House Dispensary',
+    'Patient choice',
+    'External pharmacy',
+  ];
+  static const _templateCategories = [
+    'Common OPD',
+    'Pain meds - non narcotic',
+    'Antibiotics/antiviral/antifungal',
+    'Gastrointestinal meds',
+    'Diabetes',
+    'Cardiac',
+    'Cough/cold',
+    'Allergy',
+    'ENT / Eye drops',
+    'Dermatology',
+  ];
+  static const _drugTemplates = [
+    _OpDrugTemplate(
+      category: 'Common OPD',
+      name: 'Paracetamol',
+      strength: '650 mg',
+      frequency: 'TDS',
+      days: 3,
+      quantity: 10,
+      instructions: 'After food. Use for fever or pain.',
+    ),
+    _OpDrugTemplate(
+      category: 'Common OPD',
+      name: 'Pantoprazole',
+      strength: '40 mg',
+      frequency: 'OD',
+      days: 5,
+      quantity: 5,
+      instructions: 'Before food, morning.',
+    ),
+    _OpDrugTemplate(
+      category: 'Common OPD',
+      name: 'Ondansetron',
+      strength: '4 mg',
+      frequency: 'SOS',
+      days: 2,
+      quantity: 6,
+      instructions: 'For vomiting.',
+      prn: true,
+    ),
+    _OpDrugTemplate(
+      category: 'Pain meds - non narcotic',
+      name: 'Ibuprofen',
+      strength: '400 mg',
+      frequency: 'BD',
+      days: 3,
+      quantity: 6,
+      instructions: 'After food. Avoid in gastritis or renal disease.',
+    ),
+    _OpDrugTemplate(
+      category: 'Pain meds - non narcotic',
+      name: 'Diclofenac gel',
+      strength: '1%',
+      frequency: 'BD',
+      days: 5,
+      quantity: 1,
+      route: 'Topical',
+      type: 'Cream',
+      instructions: 'Apply thin layer locally.',
+    ),
+    _OpDrugTemplate(
+      category: 'Antibiotics/antiviral/antifungal',
+      name: 'Amoxicillin-Clavulanate',
+      strength: '625 mg',
+      frequency: 'BD',
+      days: 5,
+      quantity: 10,
+      instructions: 'After food. Complete course.',
+    ),
+    _OpDrugTemplate(
+      category: 'Antibiotics/antiviral/antifungal',
+      name: 'Azithromycin',
+      strength: '500 mg',
+      frequency: 'OD',
+      days: 3,
+      quantity: 3,
+      instructions: 'Once daily after food.',
+    ),
+    _OpDrugTemplate(
+      category: 'Gastrointestinal meds',
+      name: 'Domperidone',
+      strength: '10 mg',
+      frequency: 'TDS',
+      days: 3,
+      quantity: 9,
+      instructions: 'Before food.',
+    ),
+    _OpDrugTemplate(
+      category: 'Gastrointestinal meds',
+      name: 'ORS',
+      strength: '1 sachet',
+      frequency: 'SOS',
+      days: 3,
+      quantity: 5,
+      type: 'Sachet',
+      instructions: 'Mix one sachet in 1 litre clean water.',
+      prn: true,
+    ),
+    _OpDrugTemplate(
+      category: 'Diabetes',
+      name: 'Metformin',
+      strength: '500 mg',
+      frequency: 'BD',
+      days: 30,
+      quantity: 60,
+      instructions: 'After food.',
+    ),
+    _OpDrugTemplate(
+      category: 'Cardiac',
+      name: 'Amlodipine',
+      strength: '5 mg',
+      frequency: 'OD',
+      days: 30,
+      quantity: 30,
+      instructions: 'Once daily.',
+    ),
+    _OpDrugTemplate(
+      category: 'Cough/cold',
+      name: 'Levocetirizine',
+      strength: '5 mg',
+      frequency: 'HS',
+      days: 5,
+      quantity: 5,
+      instructions: 'Night dose. May cause drowsiness.',
+    ),
+    _OpDrugTemplate(
+      category: 'Allergy',
+      name: 'Cetirizine',
+      strength: '10 mg',
+      frequency: 'OD',
+      days: 5,
+      quantity: 5,
+      instructions: 'Night dose if drowsy.',
+    ),
+    _OpDrugTemplate(
+      category: 'ENT / Eye drops',
+      name: 'Carboxymethylcellulose eye drops',
+      strength: '0.5%',
+      frequency: 'QID',
+      days: 7,
+      quantity: 1,
+      route: 'Topical',
+      type: 'Drops',
+      instructions: 'One drop in affected eye.',
+    ),
+    _OpDrugTemplate(
+      category: 'Dermatology',
+      name: 'Clotrimazole cream',
+      strength: '1%',
+      frequency: 'BD',
+      days: 14,
+      quantity: 1,
+      route: 'Topical',
+      type: 'Cream',
+      instructions: 'Apply locally after cleaning.',
+    ),
+  ];
 
   @override
   void initState() {
@@ -213,6 +445,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     _diagnosisCtrl.dispose();
     _clinicalNotesCtrl.dispose();
     _followUpNotesCtrl.dispose();
+    _catalogSearchCtrl.dispose();
     _bpSysCtrl.dispose();
     _bpDiaCtrl.dispose();
     _pulseCtrl.dispose();
@@ -333,6 +566,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       );
       return;
     }
+    for (final med in _medications) {
+      _syncMedicationDerivedFields(med);
+    }
     if (_medications.any((m) => m.name.trim().isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -342,6 +578,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           backgroundColor: AppTheme.errorRed,
         ),
       );
+      return;
+    }
+    if (_medications.any((m) => m.days < 1 || m.quantity < 1)) {
+      ErrorToast.show(context, 'Days and quantity must be at least 1');
       return;
     }
 
@@ -474,317 +714,1063 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     }
   }
 
+  List<_OpDrugTemplate> get _visibleTemplates => _drugTemplates
+      .where((template) => template.category == _selectedCategory)
+      .toList();
+
+  String _defaultSig(_MedicationEntry med) {
+    final freq = med.frequency.trim();
+    final freqText = _freqLabels[freq] ?? freq;
+    final route = med.route.trim().isEmpty ? 'Oral' : med.route.trim();
+    final dose = med.dosage.trim().isEmpty
+        ? med.strength.trim()
+        : med.dosage.trim();
+    final parts = <String>[
+      if (dose.isNotEmpty) 'Take $dose',
+      if (route.isNotEmpty) route.toLowerCase(),
+      if (freqText.isNotEmpty) freqText.toLowerCase(),
+      if (med.prn) 'as needed',
+    ];
+    return parts.where((part) => part.trim().isNotEmpty).join(' ');
+  }
+
+  String _durationForDays(int days) => days <= 1 ? '$days day' : '$days days';
+
+  void _syncMedicationDerivedFields(_MedicationEntry med) {
+    if (med.dosage.trim().isEmpty && med.strength.trim().isNotEmpty) {
+      med.dosage = med.strength.trim();
+    }
+    med.duration = _durationForDays(med.days);
+    final hasDrugContext =
+        med.name.trim().isNotEmpty ||
+        med.strength.trim().isNotEmpty ||
+        med.dosage.trim().isNotEmpty;
+    if (hasDrugContext && med.instructions.trim().isEmpty) {
+      med.instructions = _defaultSig(med);
+    }
+    if (med.pharmacy.trim().isEmpty) {
+      med.pharmacy = _preferredPharmacy;
+    }
+  }
+
+  void _addBlankMedication() {
+    setState(() {
+      final med = _MedicationEntry(pharmacy: _preferredPharmacy);
+      _syncMedicationDerivedFields(med);
+      _medications.add(med);
+    });
+  }
+
+  void _removeMedicationAt(int index) {
+    if (_medications.length <= 1) return;
+    setState(() => _medications.removeAt(index));
+  }
+
+  _MedicationEntry _medicationFromTemplate(_OpDrugTemplate template) {
+    final med = _MedicationEntry(
+      name: template.name,
+      strength: template.strength,
+      dosage: template.strength,
+      frequency: template.frequency,
+      days: template.days,
+      duration: _durationForDays(template.days),
+      route: template.route,
+      instructions: template.instructions,
+      quantity: template.quantity,
+      prn: template.prn,
+      type: template.type,
+      category: template.category,
+      pharmacy: _preferredPharmacy,
+    );
+    _syncMedicationDerivedFields(med);
+    return med;
+  }
+
+  void _addTemplateDrug(_OpDrugTemplate template) {
+    setState(() => _medications.add(_medicationFromTemplate(template)));
+  }
+
+  String _rowText(Map<String, dynamic> row, List<String> keys) {
+    for (final key in keys) {
+      final value = row[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty && value.toLowerCase() != 'null') return value;
+    }
+    return '';
+  }
+
+  String _extractStrengthFromCatalog(Map<String, dynamic> row) {
+    final explicit = _rowText(row, const [
+      'strength',
+      'dosage',
+      'dose',
+      'pack_size',
+    ]);
+    if (explicit.isNotEmpty) return explicit;
+    final name = _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    final match = RegExp(
+      r'(\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu|%))',
+      caseSensitive: false,
+    ).firstMatch(name);
+    return match?.group(1) ?? '';
+  }
+
+  int? _rowInt(Map<String, dynamic> row, String key) {
+    final value = row[key];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  _MedicationEntry _medicationFromCatalogRow(Map<String, dynamic> row) {
+    final name = _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    final strength = _extractStrengthFromCatalog(row);
+    final type = _rowText(row, const ['form', 'dosage_form', 'type']);
+    final category = _rowText(row, const ['category', 'drug_class']);
+    final med = _MedicationEntry(
+      name: name,
+      genericName: _rowText(row, const ['generic_name', 'generic']).isEmpty
+          ? null
+          : _rowText(row, const ['generic_name', 'generic']),
+      catalogId: _rowInt(row, 'id'),
+      strength: strength,
+      dosage: strength,
+      frequency: 'BD',
+      days: 5,
+      duration: _durationForDays(5),
+      route: 'Oral',
+      quantity: 10,
+      type: type.isEmpty ? 'Tablet' : type,
+      category: category.isEmpty ? _selectedCategory : category,
+      pharmacy: _preferredPharmacy,
+    );
+    _syncMedicationDerivedFields(med);
+    return med;
+  }
+
+  void _addCatalogDrug(Map<String, dynamic> row) {
+    setState(() => _medications.add(_medicationFromCatalogRow(row)));
+  }
+
+  Future<void> _searchCatalog(String query) async {
+    final q = query.trim();
+    if (q.length < 2) {
+      setState(() {
+        _catalogResults = [];
+        _selectedCatalogRows.clear();
+        _catalogLoading = false;
+      });
+      return;
+    }
+    setState(() => _catalogLoading = true);
+    try {
+      final rows = await MedicalApiService.searchMedicationCatalog(q);
+      if (!mounted) return;
+      setState(() {
+        _catalogResults = rows;
+        _selectedCatalogRows.clear();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _catalogLoading = false);
+    }
+  }
+
+  void _addSelectedCatalogDrugs() {
+    if (_selectedCatalogRows.isEmpty) {
+      ErrorToast.show(context, 'Select at least one drug first');
+      return;
+    }
+    setState(() {
+      final indexes = _selectedCatalogRows.toList()..sort();
+      for (final index in indexes) {
+        if (index >= 0 && index < _catalogResults.length) {
+          _medications.add(_medicationFromCatalogRow(_catalogResults[index]));
+        }
+      }
+      _selectedCatalogRows.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Form(
-        key: _formKey,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 1050;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildPatientDoctorSelectors(s),
+                const SizedBox(height: 12),
+                _buildClinicalContextCard(s, desktop: desktop),
+                const SizedBox(height: 12),
+                _buildRxWorkspace(s, desktop: desktop),
+                const SizedBox(height: 12),
+                _buildFollowupAndSubmit(s, desktop: desktop),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPatientDoctorSelectors(AppStrings s) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        if (_patientName != null)
+          SizedBox(
+            width: 320,
+            child: _infoCard(
+              s.prescriptionsPatientLabel,
+              _patientName!,
+              Icons.person,
+            ),
+          ),
+        if (_doctorName != null)
+          SizedBox(
+            width: 320,
+            child: _infoCard(
+              s.prescriptionsDoctorLabel,
+              _doctorName!,
+              Icons.medical_services,
+            ),
+          ),
+        if (_patientId == null)
+          SizedBox(
+            width: 360,
+            child: _PatientSearchField(
+              onSelected: (id, name) {
+                setState(() {
+                  _patientId = id;
+                  _patientName = name;
+                });
+              },
+            ),
+          ),
+        if (_doctorId == null)
+          SizedBox(
+            width: 360,
+            child: _DoctorSearchField(
+              onSelected: (id, name) {
+                setState(() {
+                  _doctorId = id;
+                  _doctorName = name;
+                });
+              },
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildClinicalContextCard(AppStrings s, {required bool desktop}) {
+    final fields = <Widget>[
+      Expanded(
+        flex: 3,
+        child: TextFormField(
+          controller: _diagnosisCtrl,
+          decoration: InputDecoration(
+            labelText: s.prescriptionsDiagnosisLabel,
+            prefixIcon: const ExcludeSemantics(
+              child: Icon(Icons.local_hospital_outlined),
+            ),
+            alignLabelWithHint: true,
+          ),
+          maxLines: desktop ? 2 : 3,
+          validator: (v) => (v == null || v.trim().isEmpty)
+              ? s.prescriptionsDiagnosisRequired
+              : null,
+        ),
+      ),
+      Expanded(
+        flex: 4,
+        child: TextFormField(
+          controller: _clinicalNotesCtrl,
+          decoration: InputDecoration(
+            labelText: s.prescriptionsClinicalNotes,
+            hintText: s.prescriptionsClinicalNotesHint,
+            prefixIcon: const ExcludeSemantics(
+              child: Icon(Icons.notes_outlined),
+            ),
+            alignLabelWithHint: true,
+          ),
+          maxLines: desktop ? 2 : 3,
+        ),
+      ),
+    ];
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ─── Patient & Doctor Info ─────────────────────────────────
-            if (_patientName != null)
-              _infoCard(
-                s.prescriptionsPatientLabel,
-                _patientName!,
-                Icons.person,
-              ),
-            if (_doctorName != null)
-              _infoCard(
-                s.prescriptionsDoctorLabel,
-                _doctorName!,
-                Icons.medical_services,
-              ),
-            if (_patientId == null) ...[
-              _PatientSearchField(
-                onSelected: (id, name) {
-                  setState(() {
-                    _patientId = id;
-                    _patientName = name;
-                  });
-                },
-              ),
-              const SizedBox(height: 10),
-            ],
-            if (_doctorId == null) ...[
-              _DoctorSearchField(
-                onSelected: (id, name) {
-                  setState(() {
-                    _doctorId = id;
-                    _doctorName = name;
-                  });
-                },
-              ),
-              const SizedBox(height: 10),
-            ],
-
-            // ─── Vitals (collapsible) ──────────────────────────────────
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: () => setState(() => _showVitals = !_showVitals),
-              child: Row(
-                children: [
-                  Icon(
-                    _showVitals
-                        ? Icons.keyboard_arrow_down
-                        : Icons.keyboard_arrow_right,
-                    color: const Color(0xFF00838F),
-                  ),
-                  Text(
-                    s.prescriptionsVitalsCollapse,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF00838F),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_showVitals) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _miniField(
-                      _bpSysCtrl,
-                      s.prescriptionsBpSystolic,
-                      VitalUnit.bp,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _miniField(
-                      _bpDiaCtrl,
-                      s.prescriptionsBpDiastolic,
-                      VitalUnit.bp,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _miniField(
-                      _pulseCtrl,
-                      s.prescriptionsPulse,
-                      VitalUnit.pulse,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _miniField(
-                      _tempCtrl,
-                      s.prescriptionsTemp,
-                      VitalUnit.temperature,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _miniField(
-                      _spo2Ctrl,
-                      s.prescriptionsSpo2,
-                      VitalUnit.spo2,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _miniField(
-                      _weightCtrl,
-                      s.prescriptionsWeight,
-                      VitalUnit.weight,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(child: _miniField(_heightCtrl, 'Height', 'cm')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: _miniField(
-                      _respRateCtrl,
-                      'Resp. rate',
-                      VitalUnit.respiratoryRate,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _temperatureRoute,
-                      decoration: const InputDecoration(
-                        labelText: 'Temp route',
-                        isDense: true,
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'oral', child: Text('Oral')),
-                        DropdownMenuItem(
-                          value: 'axillary',
-                          child: Text('Axillary'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'rectal',
-                          child: Text('Rectal'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'tympanic',
-                          child: Text('Tympanic'),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _temperatureRoute = v),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _miniField(
-                      _bsCtrl,
-                      s.prescriptionsBloodSugar,
-                      VitalUnit.cbg,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-
-            // ─── Diagnosis ─────────────────────────────────────────────
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _diagnosisCtrl,
-              decoration: InputDecoration(
-                labelText: s.prescriptionsDiagnosisLabel,
-                prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.local_hospital_outlined),
-                ),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 2,
-              validator: (v) => (v == null || v.trim().isEmpty)
-                  ? s.prescriptionsDiagnosisRequired
-                  : null,
-            ),
-
-            // ─── Medications ───────────────────────────────────────────
-            const SizedBox(height: 20),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                const Icon(Icons.assignment_outlined, color: Color(0xFF00838F)),
+                const SizedBox(width: 8),
                 Text(
-                  s.prescriptionsMedicationsHeader,
+                  'OP consultation context',
                   style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
                     color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => setState(() => _showVitals = !_showVitals),
+                  icon: Icon(
+                    _showVitals
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                  ),
+                  label: Text(s.prescriptionsVitalsCollapse),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (desktop)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [fields[0], const SizedBox(width: 12), fields[1]],
+              )
+            else
+              Column(
+                children: [fields[0], const SizedBox(height: 10), fields[1]],
+              ),
+            if (_showVitals) ...[
+              const SizedBox(height: 12),
+              _buildVitalsPanel(s),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVitalsPanel(AppStrings s) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _miniField(
+                _bpSysCtrl,
+                s.prescriptionsBpSystolic,
+                VitalUnit.bp,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniField(
+                _bpDiaCtrl,
+                s.prescriptionsBpDiastolic,
+                VitalUnit.bp,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniField(
+                _pulseCtrl,
+                s.prescriptionsPulse,
+                VitalUnit.pulse,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniField(
+                _tempCtrl,
+                s.prescriptionsTemp,
+                VitalUnit.temperature,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _miniField(_spo2Ctrl, s.prescriptionsSpo2, VitalUnit.spo2),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniField(
+                _weightCtrl,
+                s.prescriptionsWeight,
+                VitalUnit.weight,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: _miniField(_heightCtrl, 'Height', 'cm')),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniField(
+                _respRateCtrl,
+                'Resp. rate',
+                VitalUnit.respiratoryRate,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniField(
+                _bsCtrl,
+                s.prescriptionsBloodSugar,
+                VitalUnit.cbg,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRxWorkspace(AppStrings s, {required bool desktop}) {
+    final picker = _buildTemplateRail();
+    final body = Column(
+      children: [
+        _buildCatalogPanel(),
+        const SizedBox(height: 12),
+        _buildSelectedMedicationPanel(s),
+      ],
+    );
+    if (!desktop) {
+      return Column(children: [picker, const SizedBox(height: 12), body]);
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 245, child: picker),
+        const SizedBox(width: 12),
+        Expanded(child: body),
+      ],
+    );
+  }
+
+  Widget _buildTemplateRail() {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Select template',
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 320,
+              child: ListView.separated(
+                itemCount: _templateCategories.length,
+                separatorBuilder: (context, index) => Divider(
+                  height: 1,
+                  color: AppTheme.divider.withValues(alpha: 0.7),
+                ),
+                itemBuilder: (context, index) {
+                  final category = _templateCategories[index];
+                  final selected = category == _selectedCategory;
+                  return ListTile(
+                    dense: true,
+                    selected: selected,
+                    selectedTileColor: const Color(
+                      0xFF00838F,
+                    ).withValues(alpha: 0.12),
+                    title: Text(
+                      category,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w500,
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _selectedCategory = category;
+                        _catalogSearchCtrl.clear();
+                        _catalogResults = [];
+                        _selectedCatalogRows.clear();
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCatalogPanel() {
+    final templates = _visibleTemplates;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.manage_search, color: Color(0xFF00838F)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Select Template & Drug',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 245,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _preferredPharmacy,
+                    decoration: const InputDecoration(
+                      labelText: 'Pharmacy',
+                      isDense: true,
+                    ),
+                    items: _pharmacyOptions
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _preferredPharmacy = value;
+                        for (final med in _medications) {
+                          if (med.pharmacy.isEmpty ||
+                              _pharmacyOptions.contains(med.pharmacy)) {
+                            med.pharmacy = value;
+                          }
+                        }
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _catalogSearchCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Search drug catalog',
+                      hintText: 'Drug / generic / strength',
+                      prefixIcon: Icon(Icons.search),
+                      isDense: true,
+                    ),
+                    onChanged: _searchCatalog,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                FilledButton.icon(
+                  onPressed: _catalogResults.isEmpty
+                      ? null
+                      : _addSelectedCatalogDrugs,
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: const Text('Add selected'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_catalogLoading)
+              const LinearProgressIndicator(minHeight: 2)
+            else if (_catalogResults.isNotEmpty)
+              _buildCatalogResultsTable()
+            else
+              _buildTemplateDrugTable(templates),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCatalogResultsTable() {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 230),
+      child: Scrollbar(
+        child: SingleChildScrollView(
+          child: DataTable(
+            headingRowHeight: 36,
+            dataRowMinHeight: 42,
+            dataRowMaxHeight: 48,
+            columnSpacing: 16,
+            columns: const [
+              DataColumn(label: Text('')),
+              DataColumn(label: Text('Drug')),
+              DataColumn(label: Text('Generic')),
+              DataColumn(label: Text('Strength / pack')),
+              DataColumn(label: Text('Add')),
+            ],
+            rows: _catalogResults.asMap().entries.map((entry) {
+              final index = entry.key;
+              final row = entry.value;
+              final selected = _selectedCatalogRows.contains(index);
+              return DataRow(
+                selected: selected,
+                cells: [
+                  DataCell(
+                    Checkbox(
+                      value: selected,
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            _selectedCatalogRows.add(index);
+                          } else {
+                            _selectedCatalogRows.remove(index);
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                  DataCell(Text(_rowText(row, const ['name', 'drug_name']))),
+                  DataCell(
+                    Text(_rowText(row, const ['generic_name', 'generic'])),
+                  ),
+                  DataCell(Text(_extractStrengthFromCatalog(row))),
+                  DataCell(
+                    IconButton(
+                      tooltip: 'Add drug',
+                      icon: const Icon(Icons.add_circle_outline),
+                      onPressed: () => _addCatalogDrug(row),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTemplateDrugTable(List<_OpDrugTemplate> templates) {
+    if (templates.isEmpty) {
+      return Text(
+        'No templates in this category yet. Search the catalog above.',
+        style: TextStyle(color: AppTheme.textSecondary),
+      );
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 230),
+      child: Scrollbar(
+        child: SingleChildScrollView(
+          child: DataTable(
+            headingRowHeight: 36,
+            dataRowMinHeight: 42,
+            dataRowMaxHeight: 48,
+            columnSpacing: 16,
+            columns: const [
+              DataColumn(label: Text('Drug')),
+              DataColumn(label: Text('Strength')),
+              DataColumn(label: Text('SIG')),
+              DataColumn(label: Text('Days')),
+              DataColumn(label: Text('Qty')),
+              DataColumn(label: Text('Add')),
+            ],
+            rows: templates
+                .map(
+                  (template) => DataRow(
+                    cells: [
+                      DataCell(Text(template.name)),
+                      DataCell(Text(template.strength)),
+                      DataCell(Text(template.frequency)),
+                      DataCell(Text('${template.days}')),
+                      DataCell(Text('${template.quantity}')),
+                      DataCell(
+                        IconButton(
+                          tooltip: 'Add drug',
+                          icon: const Icon(Icons.add_circle_outline),
+                          onPressed: () => _addTemplateDrug(template),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedMedicationPanel(AppStrings s) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.medication_liquid, color: Color(0xFF00838F)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Add Drug',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () =>
-                      setState(() => _medications.add(_MedicationEntry())),
-                  icon: const Icon(Icons.add, size: 18),
+                  onPressed: _addBlankMedication,
+                  icon: const Icon(Icons.add),
                   label: Text(s.prescriptionsAddButton),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            ..._medications.asMap().entries.map((entry) {
-              final i = entry.key;
-              final med = entry.value;
-              return _MedicationCard(
-                index: i,
-                medication: med,
-                frequencies: _frequencies,
-                freqLabels: _freqLabels,
-                routes: _routes,
-                onRemove: _medications.length > 1
-                    ? () => setState(() => _medications.removeAt(i))
-                    : null,
-                onChanged: () => setState(() {}),
-              );
-            }),
+            _buildMedicationTable(),
+          ],
+        ),
+      ),
+    );
+  }
 
-            // ─── Follow-up ─────────────────────────────────────────────
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now().add(
-                          const Duration(days: 7),
-                        ),
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (picked != null) {
-                        setState(() => _followUpDate = picked);
-                      }
-                    },
-                    icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Text(
-                      _followUpDate != null
-                          ? s.prescriptionsFollowUpPrefix(
-                              DateFormat('dd MMM yyyy').format(_followUpDate!),
-                            )
-                          : s.prescriptionsSetFollowUp,
-                    ),
+  Widget _buildMedicationTable() {
+    return Scrollbar(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingRowHeight: 38,
+          dataRowMinHeight: 62,
+          dataRowMaxHeight: 76,
+          columnSpacing: 10,
+          columns: const [
+            DataColumn(label: Text('Drug*')),
+            DataColumn(label: Text('Strength')),
+            DataColumn(label: Text('SIG')),
+            DataColumn(label: Text('Freq')),
+            DataColumn(label: Text('Days')),
+            DataColumn(label: Text('Qty')),
+            DataColumn(label: Text('Refill')),
+            DataColumn(label: Text('Route')),
+            DataColumn(label: Text('Type')),
+            DataColumn(label: Text('Flags')),
+            DataColumn(label: Text('Note')),
+            DataColumn(label: Text('')),
+          ],
+          rows: _medications.asMap().entries.map((entry) {
+            final index = entry.key;
+            final med = entry.value;
+            return DataRow(
+              cells: [
+                DataCell(
+                  _tableTextField(
+                    width: 210,
+                    value: med.name,
+                    hint: 'Drug name',
+                    isRequired: true,
+                    onChanged: (value) => med.name = value,
                   ),
                 ),
+                DataCell(
+                  _tableTextField(
+                    width: 120,
+                    value: med.strength,
+                    hint: '650 mg',
+                    onChanged: (value) {
+                      med.strength = value;
+                      if (med.dosage.trim().isEmpty) med.dosage = value;
+                    },
+                  ),
+                ),
+                DataCell(
+                  _tableTextField(
+                    width: 260,
+                    value: med.instructions,
+                    hint: _defaultSig(med),
+                    onChanged: (value) => med.instructions = value,
+                  ),
+                ),
+                DataCell(
+                  _tableDropdown(
+                    width: 100,
+                    value: _frequencies.contains(med.frequency)
+                        ? med.frequency
+                        : _frequencies.first,
+                    options: _frequencies,
+                    onChanged: (value) {
+                      med.frequency = value;
+                      if (med.instructions.trim().isEmpty) {
+                        med.instructions = _defaultSig(med);
+                      }
+                    },
+                  ),
+                ),
+                DataCell(
+                  _tableNumberField(
+                    width: 70,
+                    value: med.days,
+                    onChanged: (value) {
+                      med.days = value;
+                      med.duration = _durationForDays(value);
+                    },
+                  ),
+                ),
+                DataCell(
+                  _tableNumberField(
+                    width: 78,
+                    value: med.quantity,
+                    onChanged: (value) => med.quantity = value,
+                  ),
+                ),
+                DataCell(
+                  _tableNumberField(
+                    width: 70,
+                    value: med.refills,
+                    min: 0,
+                    onChanged: (value) => med.refills = value,
+                  ),
+                ),
+                DataCell(
+                  _tableDropdown(
+                    width: 120,
+                    value: med.route.isEmpty ? 'Oral' : med.route,
+                    options: _routes,
+                    onChanged: (value) => med.route = value,
+                  ),
+                ),
+                DataCell(
+                  _tableDropdown(
+                    width: 130,
+                    value: _medicineTypes.contains(med.type)
+                        ? med.type
+                        : 'Tablet',
+                    options: _medicineTypes,
+                    onChanged: (value) => med.type = value,
+                  ),
+                ),
+                DataCell(
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      _flagChip('PRN', med.prn, (value) {
+                        setState(() => med.prn = value);
+                      }),
+                      _flagChip('NTE', med.nte, (value) {
+                        setState(() => med.nte = value);
+                      }),
+                      _flagChip('DAW', med.daw, (value) {
+                        setState(() => med.daw = value);
+                      }),
+                    ],
+                  ),
+                ),
+                DataCell(
+                  _tableTextField(
+                    width: 180,
+                    value: med.dosage,
+                    hint: 'Dose override',
+                    onChanged: (value) => med.dosage = value,
+                  ),
+                ),
+                DataCell(
+                  IconButton(
+                    tooltip: 'Delete row',
+                    onPressed: _medications.length <= 1
+                        ? null
+                        : () => _removeMedicationAt(index),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _tableTextField({
+    required double width,
+    required String value,
+    required ValueChanged<String> onChanged,
+    String? hint,
+    bool isRequired = false,
+  }) {
+    return SizedBox(
+      width: width,
+      child: TextFormField(
+        key: ValueKey('$width-$value-$hint'),
+        initialValue: value,
+        decoration: InputDecoration(hintText: hint, isDense: true),
+        validator: isRequired
+            ? (value) =>
+                  value == null || value.trim().isEmpty ? 'Required' : null
+            : null,
+        onChanged: onChanged,
+      ),
+    );
+  }
+
+  Widget _tableNumberField({
+    required double width,
+    required int value,
+    required ValueChanged<int> onChanged,
+    int min = 1,
+  }) {
+    return SizedBox(
+      width: width,
+      child: TextFormField(
+        key: ValueKey('$width-$value-$min'),
+        initialValue: '$value',
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(isDense: true),
+        onChanged: (text) => onChanged(int.tryParse(text) ?? min),
+      ),
+    );
+  }
+
+  Widget _tableDropdown({
+    required double width,
+    required String value,
+    required List<String> options,
+    required ValueChanged<String> onChanged,
+  }) {
+    final safeValue = options.contains(value) ? value : options.first;
+    return SizedBox(
+      width: width,
+      child: DropdownButtonFormField<String>(
+        initialValue: safeValue,
+        decoration: const InputDecoration(isDense: true),
+        items: options
+            .map(
+              (option) => DropdownMenuItem(value: option, child: Text(option)),
+            )
+            .toList(),
+        onChanged: (value) {
+          if (value != null) onChanged(value);
+        },
+      ),
+    );
+  }
+
+  Widget _flagChip(String label, bool selected, ValueChanged<bool> onSelected) {
+    return FilterChip(
+      label: Text(label, style: const TextStyle(fontSize: 11)),
+      selected: selected,
+      onSelected: onSelected,
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  Widget _buildFollowupAndSubmit(AppStrings s, {required bool desktop}) {
+    final followUpButton = OutlinedButton.icon(
+      onPressed: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: DateTime.now().add(const Duration(days: 7)),
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 365)),
+        );
+        if (picked != null) setState(() => _followUpDate = picked);
+      },
+      icon: const Icon(Icons.calendar_today, size: 18),
+      label: Text(
+        _followUpDate != null
+            ? s.prescriptionsFollowUpPrefix(
+                DateFormat('dd MMM yyyy').format(_followUpDate!),
+              )
+            : s.prescriptionsSetFollowUp,
+      ),
+    );
+    final photoButton = OutlinedButton.icon(
+      onPressed: _pickPhoto,
+      icon: const Icon(Icons.camera_alt, size: 18),
+      label: Text(
+        _handwrittenPhoto != null
+            ? s.prescriptionsPhotoAttached
+            : s.prescriptionsAttachHandwritten,
+      ),
+    );
+    final submitButton = ElevatedButton.icon(
+      onPressed: _submitting ? null : _submit,
+      icon: _submitting
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            )
+          : const Icon(Icons.save, color: Colors.white),
+      label: Text(
+        _submitting ? s.prescriptionsCreating : s.prescriptionsCreate,
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF00838F),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      ),
+    );
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                followUpButton,
                 if (_followUpDate != null)
                   IconButton(
                     icon: const Icon(Icons.clear, size: 18),
                     tooltip: s.prescriptionsClearFollowUp,
                     onPressed: () => setState(() => _followUpDate = null),
                   ),
+                photoButton,
+                submitButton,
               ],
             ),
             if (_followUpDate != null) ...[
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _followUpNotesCtrl,
-                decoration: InputDecoration(
-                  labelText: s.prescriptionsFollowUpNotes,
-                  hintText: s.prescriptionsFollowUpNotesHint,
-                  isDense: true,
+              const SizedBox(height: 10),
+              SizedBox(
+                width: desktop ? 520 : double.infinity,
+                child: TextFormField(
+                  controller: _followUpNotesCtrl,
+                  decoration: InputDecoration(
+                    labelText: s.prescriptionsFollowUpNotes,
+                    hintText: s.prescriptionsFollowUpNotesHint,
+                    isDense: true,
+                  ),
                 ),
               ),
             ],
-
-            // ─── Clinical Notes ────────────────────────────────────────
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _clinicalNotesCtrl,
-              decoration: InputDecoration(
-                labelText: s.prescriptionsClinicalNotes,
-                hintText: s.prescriptionsClinicalNotesHint,
-                prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.notes_outlined),
-                ),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 3,
-            ),
-
-            // ─── Handwritten Photo ─────────────────────────────────────
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: _pickPhoto,
-              icon: const Icon(Icons.camera_alt, size: 18),
-              label: Text(
-                _handwrittenPhoto != null
-                    ? s.prescriptionsPhotoAttached
-                    : s.prescriptionsAttachHandwritten,
-              ),
-            ),
             if (_handwrittenPhoto != null) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.file(
@@ -794,33 +1780,6 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 ),
               ),
             ],
-
-            // ─── Submit ────────────────────────────────────────────────
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _submitting ? null : _submit,
-                icon: _submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Icon(Icons.save, color: Colors.white),
-                label: Text(
-                  _submitting ? s.prescriptionsCreating : s.prescriptionsCreate,
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00838F),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 40),
           ],
         ),
       ),
