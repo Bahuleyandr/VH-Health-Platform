@@ -34,6 +34,13 @@ jobs:
     env:
       PUB_CACHE: /cache/vh-health-platform/pub
       npm_config_cache: /cache/vh-health-platform/npm
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
+      npm_config_prefer_offline: 'true'
+      npm_config_progress: 'false'
+      npm_config_production: 'false'
+      NODE_ENV: development
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
         with:
@@ -52,10 +59,18 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install backend/admin dependencies
+      - name: Install backend dependencies
+        timeout-minutes: 20
         run: |
-          npm --prefix apps/backend ci
-          npm --prefix apps/admin ci
+          npm --prefix apps/backend ci --include=dev --no-audit --no-fund --prefer-offline --progress=false
+
+      - name: Install admin dependencies
+        timeout-minutes: 20
+        run: |
+          npm --prefix apps/admin ci --include=dev --no-audit --no-fund --prefer-offline --progress=false
+
+      - name: Prepare OpenAPI output directory
+        run: |
           mkdir -p output/openapi
 
       - name: Regenerate backend OpenAPI
