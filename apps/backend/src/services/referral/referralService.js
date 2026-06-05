@@ -4,9 +4,52 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
+const ACTIVE_REFERRAL_STATUSES = ['pending', 'accepted', 'in_progress'];
+const REFERRAL_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
+const DOCTOR_ROLES = [
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'SENIOR_DOCTOR',
+  'RESIDENT',
+  'ANAESTHETIST',
+  'ANESTHETIST',
+  'MEDICAL_SUPERINTENDENT',
+];
+
+function cleanText(value) {
+  return String(value ?? '').trim();
+}
+
+function normalizeRole(value) {
+  return cleanText(value).toUpperCase();
+}
+
+function normalizeTenantId(value) {
+  return cleanText(value) || DEFAULT_TENANT_ID;
+}
+
+function priorityForUrgency(urgency) {
+  const normalized = cleanText(urgency || 'routine').toLowerCase();
+  if (normalized === 'emergency') return 'EMERGENCY';
+  if (normalized === 'urgent') return 'URGENT';
+  return 'ROUTINE';
+}
+
+function notificationPriorityForUrgency(urgency) {
+  const normalized = cleanText(urgency || 'routine').toLowerCase();
+  return normalized === 'routine' ? 'MEDIUM' : 'HIGH';
+}
+
+function isReferralAdminRole(role) {
+  return REFERRAL_ADMIN_ROLES.includes(normalizeRole(role));
+}
 
 // Shared `select` for state-transition returns (accept / complete / decline).
 // Keeping the shape consistent means callers don't need to branch on which
@@ -19,6 +62,7 @@ const REFERRAL_STATE_SELECT = {
   referred_to_doctor: true,
   referred_to_department: true,
   referral_type: true,
+  tenant_id: true,
   reason: true,
   urgency: true,
   clinical_summary: true,
@@ -27,6 +71,11 @@ const REFERRAL_STATE_SELECT = {
   accepted_at: true,
   completed_at: true,
   response_notes: true,
+  first_seen_at: true,
+  first_seen_by: true,
+  requester_id: true,
+  performer_id: true,
+  source: true,
   created_at: true,
 };
 
@@ -68,6 +117,109 @@ class ReferralService {
     return `${prefix}${String(sequence).padStart(4, '0')}`;
   }
 
+  async _resolveReferringDoctor({ tenantId, patientUid, proposedDoctorUid, requesterUid, actorRole }) {
+    const normalizedRole = normalizeRole(actorRole);
+    if (proposedDoctorUid && DOCTOR_ROLES.includes(normalizedRole)) {
+      return proposedDoctorUid;
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT admitting_doctor, attending_doctor
+         FROM admissions
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND COALESCE(status, '') NOT IN ('DISCHARGED', 'CANCELLED')
+        ORDER BY admitted_at DESC NULLS LAST, id DESC
+        LIMIT 1`,
+      normalizeTenantId(tenantId),
+      patientUid,
+    );
+    const admission = rows[0] || {};
+    return admission.attending_doctor || admission.admitting_doctor || proposedDoctorUid || requesterUid;
+  }
+
+  async searchConsultants({ tenantId = DEFAULT_TENANT_ID, q = '', department = '', limit = 25 } = {}) {
+    const query = cleanText(q).toLowerCase();
+    const dept = cleanText(department).toLowerCase();
+    const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 25, 100));
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT u.uid,
+              u.id AS user_id,
+              COALESCE(NULLIF(TRIM(d.name), ''), u.name) AS name,
+              u.role,
+              COALESCE(NULLIF(TRIM(dept.name), ''), NULLIF(TRIM(d.department), ''), NULLIF(TRIM(s.department), '')) AS department,
+              NULLIF(TRIM(d.specialty), '') AS specialty
+         FROM users u
+         JOIN doctors d ON d.user_id = u.id
+         LEFT JOIN departments dept ON dept.id = d.department_id
+         LEFT JOIN staff s ON s.user_id = u.uid
+        WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+          AND COALESCE(u.is_active, true) = true
+          AND COALESCE(d.is_active, true) = true
+          AND UPPER(u.role) = ANY($2::text[])
+          AND (
+            $3::text = ''
+            OR LOWER(COALESCE(d.name, u.name, '')) LIKE '%' || $3::text || '%'
+            OR LOWER(COALESCE(d.specialty, '')) LIKE '%' || $3::text || '%'
+            OR LOWER(COALESCE(d.department, dept.name, s.department, '')) LIKE '%' || $3::text || '%'
+          )
+          AND (
+            $4::text = ''
+            OR LOWER(COALESCE(d.department, dept.name, s.department, '')) LIKE '%' || $4::text || '%'
+            OR LOWER(COALESCE(d.specialty, '')) LIKE '%' || $4::text || '%'
+          )
+        ORDER BY COALESCE(dept.name, d.department, s.department, ''), COALESCE(d.name, u.name)
+        LIMIT $5::int`,
+      normalizeTenantId(tenantId),
+      DOCTOR_ROLES,
+      query,
+      dept,
+      safeLimit,
+    );
+
+    return rows;
+  }
+
+  async _notifyReferralRecipients(referral) {
+    try {
+      const recipientUids = referral.referred_to_doctor
+        ? [referral.referred_to_doctor]
+        : (await this.searchConsultants({
+          tenantId: referral.tenant_id,
+          department: referral.referred_to_department,
+          limit: 50,
+        })).map((row) => row.uid);
+
+      if (!recipientUids.length) return { notification_count: 0, recipients: [] };
+
+      return sendStaffNotifications({
+        tenantId: referral.tenant_id,
+        recipientUids,
+        excludeUids: [referral.requester_id, referral.referring_doctor].filter(Boolean),
+        title: 'New ward referral',
+        body: `${referral.referred_to_department} referral requested: ${referral.reason}`,
+        type: 'REFERRAL',
+        priority: notificationPriorityForUrgency(referral.urgency),
+        relatedId: referral.id,
+        data: {
+          event_type: 'ward_referral_requested',
+          referral_id: referral.id,
+          referral_number: referral.referral_number,
+          patient_uid: referral.patient_uid,
+          urgency: referral.urgency,
+          route: '/referrals',
+        },
+      });
+    } catch (err) {
+      logger.warn('Referral notification dispatch failed', {
+        referralId: referral?.id,
+        error: err?.message || err,
+      });
+      return { notification_count: 0, recipients: [] };
+    }
+  }
+
   /**
    * Create a new referral
    */
@@ -75,14 +227,18 @@ class ReferralService {
     const {
       patient_uid, encounter_id, referring_doctor,
       referred_to_doctor, referred_to_department,
-      referral_type, reason, urgency, clinical_summary
+      referral_type, reason, urgency, clinical_summary,
+      requester_id, performer_id, tenant_id, actor_role,
+      source, request_context
     } = data;
+    const tenantId = normalizeTenantId(tenant_id);
+    const requesterUid = requester_id || referring_doctor;
 
     if (!patient_uid) {
       throw AppError.badRequest('patient_uid is required');
     }
-    if (!referring_doctor) {
-      throw AppError.badRequest('referring_doctor is required');
+    if (!requesterUid) {
+      throw AppError.badRequest('requester_id is required');
     }
     if (!referred_to_department) {
       throw AppError.badRequest('referred_to_department is required');
@@ -98,6 +254,16 @@ class ReferralService {
     }
 
     const referralNumber = await this._generateReferralNumber();
+    const resolvedReferringDoctor = await this._resolveReferringDoctor({
+      tenantId,
+      patientUid: patient_uid,
+      proposedDoctorUid: referring_doctor,
+      requesterUid,
+      actorRole: actor_role,
+    });
+    if (!resolvedReferringDoctor) {
+      throw AppError.badRequest('An active admission doctor is required for ward referrals');
+    }
 
     // Prisma ORM — column names validated at runtime against schema.prisma.
     // Defaults for status ('pending') come from the schema itself, so we
@@ -105,19 +271,26 @@ class ReferralService {
     const referral = await prisma.referrals.create({
       data: {
         referral_number: referralNumber,
+        tenant_id: tenantId,
         patient_uid,
         encounter_id: encounter_id || null,
-        referring_doctor,
+        referring_doctor: resolvedReferringDoctor,
         referred_to_doctor: referred_to_doctor || null,
         referred_to_department,
         referral_type: referral_type || 'internal',
         reason,
         urgency: urgency || 'routine',
+        priority: priorityForUrgency(urgency),
         clinical_summary: clinical_summary || null,
+        requester_id: requesterUid || null,
+        performer_id: performer_id || referred_to_doctor || null,
+        source: source || 'ward',
+        request_context: request_context || {},
       },
       select: {
         id: true,
         referral_number: true,
+        tenant_id: true,
         patient_uid: true,
         encounter_id: true,
         referring_doctor: true,
@@ -128,56 +301,76 @@ class ReferralService {
         urgency: true,
         clinical_summary: true,
         status: true,
+        priority: true,
+        requester_id: true,
+        performer_id: true,
+        first_seen_at: true,
+        first_seen_by: true,
+        source: true,
         created_at: true,
       },
     });
 
+    const notifications = await this._notifyReferralRecipients(referral);
     logger.info(`Referral created: ${referralNumber} from ${referring_doctor} to ${referred_to_department}`);
-    return referral;
+    return { ...referral, notifications };
   }
 
   /**
    * Get incoming referrals (referred to a specific doctor)
    */
   async getIncomingReferrals(doctorUid, filters = {}) {
-    const { status, urgency } = filters;
+    const { status, urgency, tenantId = DEFAULT_TENANT_ID } = filters;
     const listQuery = parseListQuery(filters, {
       defaultLimit: 20,
       maxLimit: 100,
       defaultSortBy: 'created_at'
     });
 
-    const where = {};
-    if (doctorUid) where.referred_to_doctor = doctorUid;
-    if (status) where.status = status;
-    if (urgency) where.urgency = urgency;
+    const actorDepartments = doctorUid
+      ? await this._doctorDepartmentTokens(doctorUid, tenantId)
+      : [];
 
-    // Count uses ORM so column-name drift (e.g. referred_to_doctor rename)
-    // fails fast. The list itself keeps the raw query because its
-    // `ORDER BY CASE urgency ...` expression has no first-class Prisma
-    // equivalent — pulling the unordered page and sorting in JS would
-    // break pagination (a page-2 emergency referral could never reach
-    // page 1). This is the only remaining raw read in this service.
-    const total = await prisma.referrals.count({ where });
-
-    const conditions = [];
-    const params = [];
-    let paramIndex = 1;
-    if (doctorUid) { conditions.push(`referred_to_doctor = $${paramIndex++}`); params.push(doctorUid); }
+    const conditions = ['tenant_id = $1::uuid'];
+    const params = [normalizeTenantId(tenantId)];
+    let paramIndex = 2;
+    if (doctorUid) {
+      conditions.push(`(
+        referred_to_doctor = $${paramIndex}::uuid
+        OR accepted_by = $${paramIndex}::uuid
+        OR performer_id = $${paramIndex}::uuid
+        OR (
+          referred_to_doctor IS NULL
+          AND COALESCE(status, 'pending') = 'pending'
+          AND cardinality($${paramIndex + 1}::text[]) > 0
+          AND LOWER(TRIM(referred_to_department)) = ANY($${paramIndex + 1}::text[])
+        )
+      )`);
+      params.push(doctorUid, actorDepartments);
+      paramIndex += 2;
+    }
     if (status) { conditions.push(`status = $${paramIndex++}`); params.push(status); }
     if (urgency) { conditions.push(`urgency = $${paramIndex++}`); params.push(urgency); }
-    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    const countRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM referrals ${whereClause}`,
+      ...params,
+    );
+    const total = Number.parseInt(countRows[0]?.count ?? 0, 10);
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, referral_number, patient_uid, encounter_id,
-        referring_doctor, referred_to_doctor, referred_to_department,
-        referral_type, reason, urgency, clinical_summary, status,
-        accepted_by, accepted_at, completed_at, response_notes, created_at
-       FROM referrals ${whereClause}
-       ORDER BY
-         CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
-         created_at DESC
-       LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
+      `SELECT id, referral_number, tenant_id, patient_uid, encounter_id,
+              referring_doctor, referred_to_doctor, referred_to_department,
+              referral_type, reason, urgency, clinical_summary, status,
+              accepted_by, accepted_at, completed_at, response_notes,
+              requester_id, performer_id, first_seen_at, first_seen_by,
+              source, created_at
+         FROM referrals ${whereClause}
+        ORDER BY
+          CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
+          created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
       ...params, listQuery.limit, listQuery.offset
     );
 
@@ -187,19 +380,77 @@ class ReferralService {
     };
   }
 
+  async _doctorDepartmentTokens(doctorUid, tenantId = DEFAULT_TENANT_ID) {
+    if (!doctorUid) return [];
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT DISTINCT LOWER(TRIM(token)) AS token
+         FROM (
+           SELECT d.department AS token
+             FROM users u
+             JOIN doctors d ON d.user_id = u.id
+            WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+              AND u.uid = $2::uuid
+           UNION ALL
+           SELECT d.specialty AS token
+             FROM users u
+             JOIN doctors d ON d.user_id = u.id
+            WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+              AND u.uid = $2::uuid
+           UNION ALL
+           SELECT dept.name AS token
+             FROM users u
+             JOIN doctors d ON d.user_id = u.id
+             JOIN departments dept ON dept.id = d.department_id
+            WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+              AND u.uid = $2::uuid
+         ) tokens
+        WHERE NULLIF(TRIM(token), '') IS NOT NULL`,
+      normalizeTenantId(tenantId),
+      doctorUid,
+    );
+    return rows.map((row) => cleanText(row.token).toLowerCase()).filter(Boolean);
+  }
+
+  async _assertCanActOnReferral(referral, actorUid, actorRole, actionLabel = 'update') {
+    if (isReferralAdminRole(actorRole)) return;
+    const normalizedRole = normalizeRole(actorRole);
+    if (!actorUid || !DOCTOR_ROLES.includes(normalizedRole)) {
+      throw AppError.forbidden(`Only the referred specialist can ${actionLabel} this referral`);
+    }
+
+    const directUids = [
+      referral.referred_to_doctor,
+      referral.accepted_by,
+      referral.performer_id,
+    ].filter(Boolean).map(String);
+    if (directUids.includes(String(actorUid))) return;
+
+    if (!referral.referred_to_doctor && referral.referred_to_department) {
+      const tokens = await this._doctorDepartmentTokens(actorUid, referral.tenant_id);
+      if (tokens.includes(cleanText(referral.referred_to_department).toLowerCase())) return;
+    }
+
+    throw AppError.forbidden(`Only the referred specialist can ${actionLabel} this referral`);
+  }
+
   /**
    * Get outgoing referrals (referred by a specific doctor)
    */
   async getOutgoingReferrals(doctorUid, filters = {}) {
-    const { status, urgency } = filters;
+    const { status, urgency, tenantId = DEFAULT_TENANT_ID } = filters;
     const listQuery = parseListQuery(filters, {
       defaultLimit: 20,
       maxLimit: 100,
       defaultSortBy: 'created_at'
     });
 
-    const where = {};
-    if (doctorUid) where.referring_doctor = doctorUid;
+    const where = { tenant_id: normalizeTenantId(tenantId) };
+    if (doctorUid) {
+      where.OR = [
+        { referring_doctor: doctorUid },
+        { requester_id: doctorUid },
+      ];
+    }
     if (status) where.status = status;
     if (urgency) where.urgency = urgency;
 
@@ -223,7 +474,7 @@ class ReferralService {
   /**
    * Accept a referral
    */
-  async acceptReferral(id, acceptedBy) {
+  async acceptReferral(id, acceptedBy, options = {}) {
     const referralId = parseInt(id, 10);
     if (isNaN(referralId)) {
       throw AppError.badRequest('Invalid referral ID');
@@ -231,7 +482,16 @@ class ReferralService {
 
     const existing = await prisma.referrals.findUnique({
       where: { id: referralId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        tenant_id: true,
+        referred_to_doctor: true,
+        referred_to_department: true,
+        accepted_by: true,
+        performer_id: true,
+        first_seen_at: true,
+      },
     });
     if (!existing) {
       throw AppError.notFound('Referral not found');
@@ -239,13 +499,18 @@ class ReferralService {
     if (existing.status !== 'pending') {
       throw AppError.badRequest(`Cannot accept referral with status: ${existing.status}`);
     }
+    await this._assertCanActOnReferral(existing, acceptedBy, options.actorRole, 'accept');
 
     const referral = await prisma.referrals.update({
       where: { id: referralId },
       data: {
         status: 'accepted',
         accepted_by: acceptedBy,
+        referred_to_doctor: existing.referred_to_doctor || acceptedBy,
+        performer_id: acceptedBy,
         accepted_at: new Date(),
+        first_seen_at: existing.first_seen_at || new Date(),
+        first_seen_by: existing.first_seen_at ? undefined : acceptedBy,
         updated_at: new Date(),
       },
       select: REFERRAL_STATE_SELECT,
@@ -258,7 +523,7 @@ class ReferralService {
   /**
    * Complete a referral
    */
-  async completeReferral(id, responseNotes) {
+  async completeReferral(id, responseNotes, options = {}) {
     const referralId = parseInt(id, 10);
     if (isNaN(referralId)) {
       throw AppError.badRequest('Invalid referral ID');
@@ -266,7 +531,15 @@ class ReferralService {
 
     const existing = await prisma.referrals.findUnique({
       where: { id: referralId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        tenant_id: true,
+        referred_to_doctor: true,
+        referred_to_department: true,
+        accepted_by: true,
+        performer_id: true,
+      },
     });
     if (!existing) {
       throw AppError.notFound('Referral not found');
@@ -274,6 +547,7 @@ class ReferralService {
     if (!['accepted', 'in_progress'].includes(existing.status)) {
       throw AppError.badRequest(`Cannot complete referral with status: ${existing.status}`);
     }
+    await this._assertCanActOnReferral(existing, options.actorUid, options.actorRole, 'complete');
 
     // Matches the old COALESCE semantics: only overwrite response_notes
     // when the caller supplied a non-null value.
@@ -297,7 +571,7 @@ class ReferralService {
   /**
    * Decline a referral
    */
-  async declineReferral(id, responseNotes) {
+  async declineReferral(id, responseNotes, options = {}) {
     const referralId = parseInt(id, 10);
     if (isNaN(referralId)) {
       throw AppError.badRequest('Invalid referral ID');
@@ -305,7 +579,15 @@ class ReferralService {
 
     const existing = await prisma.referrals.findUnique({
       where: { id: referralId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        tenant_id: true,
+        referred_to_doctor: true,
+        referred_to_department: true,
+        accepted_by: true,
+        performer_id: true,
+      },
     });
     if (!existing) {
       throw AppError.notFound('Referral not found');
@@ -313,6 +595,7 @@ class ReferralService {
     if (existing.status !== 'pending') {
       throw AppError.badRequest(`Cannot decline referral with status: ${existing.status}`);
     }
+    await this._assertCanActOnReferral(existing, options.actorUid, options.actorRole, 'decline');
 
     const referral = await prisma.referrals.update({
       where: { id: referralId },
@@ -331,6 +614,126 @@ class ReferralService {
   /**
    * Get all referrals for a specific patient
    */
+  async markReferralSeen(id, actorUid, options = {}) {
+    const referralId = parseInt(id, 10);
+    if (isNaN(referralId)) {
+      throw AppError.badRequest('Invalid referral ID');
+    }
+    if (!actorUid) {
+      throw AppError.badRequest('actor uid is required');
+    }
+
+    const existing = await prisma.referrals.findUnique({
+      where: { id: referralId },
+      select: {
+        id: true,
+        status: true,
+        tenant_id: true,
+        referred_to_doctor: true,
+        referred_to_department: true,
+        accepted_by: true,
+        performer_id: true,
+        first_seen_at: true,
+      },
+    });
+    if (!existing) {
+      throw AppError.notFound('Referral not found');
+    }
+    await this._assertCanActOnReferral(existing, actorUid, options.actorRole, 'mark as seen');
+
+    const data = {
+      updated_at: new Date(),
+    };
+    if (!existing.first_seen_at) {
+      data.first_seen_at = new Date();
+      data.first_seen_by = actorUid;
+    }
+    if (!existing.referred_to_doctor && ACTIVE_REFERRAL_STATUSES.includes(existing.status)) {
+      data.performer_id = actorUid;
+    }
+
+    return prisma.referrals.update({
+      where: { id: referralId },
+      data,
+      select: REFERRAL_STATE_SELECT,
+    });
+  }
+
+  async getReferralAudit(filters = {}) {
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 200,
+      defaultSortBy: 'created_at',
+    });
+    const tenantId = normalizeTenantId(filters.tenantId);
+    const conditions = ['r.tenant_id = $1::uuid'];
+    const params = [tenantId];
+    let paramIndex = 2;
+    if (filters.status) { conditions.push(`r.status = $${paramIndex++}`); params.push(filters.status); }
+    if (filters.urgency) { conditions.push(`r.urgency = $${paramIndex++}`); params.push(filters.urgency); }
+    if (filters.department) {
+      conditions.push(`LOWER(r.referred_to_department) LIKE '%' || LOWER($${paramIndex++}) || '%'`);
+      params.push(filters.department);
+    }
+    if (filters.doctor_uid) {
+      conditions.push(`(r.referred_to_doctor = $${paramIndex}::uuid OR r.accepted_by = $${paramIndex}::uuid OR r.performer_id = $${paramIndex}::uuid)`);
+      params.push(filters.doctor_uid);
+      paramIndex += 1;
+    }
+    if (filters.patient_uid) { conditions.push(`r.patient_uid = $${paramIndex++}::uuid`); params.push(filters.patient_uid); }
+    if (filters.date_from) { conditions.push(`r.created_at >= $${paramIndex++}::timestamptz`); params.push(filters.date_from); }
+    if (filters.date_to) { conditions.push(`r.created_at < $${paramIndex++}::timestamptz`); params.push(filters.date_to); }
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    const countRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS count FROM referrals r ${whereClause}`,
+      ...params,
+    );
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT r.id,
+              r.referral_number,
+              r.patient_uid,
+              p.name AS patient_name,
+              r.referred_to_department,
+              r.referred_to_doctor,
+              target.name AS referred_to_doctor_name,
+              r.referring_doctor,
+              referrer.name AS referring_doctor_name,
+              r.requester_id,
+              requester.name AS requester_name,
+              r.urgency,
+              r.status,
+              r.reason,
+              r.created_at AS requested_at,
+              r.first_seen_at,
+              r.first_seen_by,
+              seen_by.name AS first_seen_by_name,
+              CASE
+                WHEN r.first_seen_at IS NULL THEN NULL
+                ELSE ROUND(EXTRACT(EPOCH FROM (r.first_seen_at - r.created_at)) / 60.0)::int
+              END AS minutes_to_first_seen,
+              r.accepted_at,
+              r.completed_at
+         FROM referrals r
+         LEFT JOIN users p ON p.uid = r.patient_uid
+         LEFT JOIN users target ON target.uid = r.referred_to_doctor
+         LEFT JOIN users referrer ON referrer.uid = r.referring_doctor
+         LEFT JOIN users requester ON requester.uid = r.requester_id
+         LEFT JOIN users seen_by ON seen_by.uid = r.first_seen_by
+        ${whereClause}
+        ORDER BY r.created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
+      ...params,
+      listQuery.limit,
+      listQuery.offset,
+    );
+
+    return {
+      referrals: rows,
+      pagination: buildPagination(Number.parseInt(countRows[0]?.count ?? 0, 10), listQuery.page, listQuery.limit),
+    };
+  }
+
   async getPatientReferrals(patientUid, filters = {}) {
     const listQuery = parseListQuery(filters, {
       defaultLimit: 20,
@@ -338,7 +741,10 @@ class ReferralService {
       defaultSortBy: 'created_at'
     });
 
-    const where = { patient_uid: patientUid };
+    const where = {
+      patient_uid: patientUid,
+      tenant_id: normalizeTenantId(filters.tenantId),
+    };
 
     const [total, referrals] = await Promise.all([
       prisma.referrals.count({ where }),

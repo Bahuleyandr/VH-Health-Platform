@@ -21,6 +21,19 @@ function canManageReferrals(role) {
   return role === 'SUPER_ADMIN' || isDoctor(role) || isAdmin(role);
 }
 
+function canRequestWardReferral(role) {
+  const normalized = String(role || '').trim().toUpperCase();
+  return canManageReferrals(normalized) || [
+    'CNO',
+    'NURSING_STAFF',
+    'NURSING_INCHARGE',
+    'IP_STAFF_NURSE',
+    'IP_INCHARGE',
+    'ICU_NURSE',
+    'ICU_INCHARGE',
+  ].includes(normalized);
+}
+
 function canViewReferrals(role) {
   return role === 'SUPER_ADMIN' || isAdmin(role) || isClinical(role);
 }
@@ -41,8 +54,8 @@ function isReferralAdmin(role) {
  */
 router.post('/', requiredUUID('patient_uid'), requiredString('reason', 1000), validate, async (req, res, next) => {
   try {
-    if (!canManageReferrals(req.user?.role)) {
-      return error(res, 'Only doctors can create referrals', 403);
+    if (!canRequestWardReferral(req.user?.role)) {
+      return error(res, 'Only doctors and ward nursing roles can request referrals', 403);
     }
 
     const department = req.body.referred_to_department || req.body.to_department;
@@ -50,16 +63,27 @@ router.post('/', requiredUUID('patient_uid'), requiredString('reason', 1000), va
       return error(res, 'referred_to_department (or to_department) is required', 400);
     }
 
+    const actorRole = req.user?.role;
     const referralData = {
       patient_uid: req.body.patient_uid,
       encounter_id: req.body.encounter_id,
-      referring_doctor: req.user?.uid,
+      referring_doctor: isReferralAdmin(actorRole)
+        ? (req.body.referring_doctor || req.user?.uid)
+        : req.user?.uid,
       referred_to_doctor: req.body.referred_to_doctor,
       referred_to_department: department,
       referral_type: req.body.referral_type,
       reason: req.body.reason,
       urgency: req.body.urgency,
       clinical_summary: req.body.clinical_summary,
+      requester_id: req.user?.uid,
+      tenant_id: req.tenantId || req.user?.tenant_id,
+      actor_role: actorRole,
+      source: req.body.source || 'ward',
+      request_context: req.body.request_context || {
+        admission_id: req.body.admission_id || null,
+        requested_from: 'staff_app',
+      },
     };
 
     const referral = await referralService.createReferral(referralData);
@@ -89,6 +113,7 @@ router.get('/incoming', async (req, res, next) => {
       urgency: req.query.urgency,
       page: req.query.page,
       limit: req.query.limit,
+      tenantId: req.tenantId || req.user?.tenant_id,
     };
 
     const result = await referralService.getIncomingReferrals(
@@ -123,6 +148,7 @@ router.get('/outgoing', async (req, res, next) => {
       urgency: req.query.urgency,
       page: req.query.page,
       limit: req.query.limit,
+      tenantId: req.tenantId || req.user?.tenant_id,
     };
 
     const result = await referralService.getOutgoingReferrals(
@@ -143,6 +169,93 @@ router.get('/outgoing', async (req, res, next) => {
 });
 
 /**
+ * GET /referrals/consultants
+ * Search eligible specialist consultants by department / specialty / name.
+ */
+router.get('/consultants', async (req, res, next) => {
+  try {
+    if (!canViewReferrals(req.user?.role)) {
+      return error(res, 'Only clinical staff can search referral consultants', 403);
+    }
+
+    const consultants = await referralService.searchConsultants({
+      tenantId: req.tenantId || req.user?.tenant_id,
+      q: req.query.q,
+      department: req.query.department || req.query.specialty,
+      limit: req.query.limit,
+    });
+
+    return success(res, consultants, 'Consultants retrieved');
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to search referral consultants:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /referrals/audit
+ * Admin/SuperAdmin audit of referral request-to-first-seen turnaround.
+ */
+router.get('/audit', async (req, res, next) => {
+  try {
+    if (!isReferralAdmin(req.user?.role)) {
+      return error(res, 'Only admin roles can view referral audit', 403);
+    }
+
+    const result = await referralService.getReferralAudit({
+      tenantId: req.tenantId || req.user?.tenant_id,
+      status: req.query.status,
+      urgency: req.query.urgency,
+      department: req.query.department,
+      doctor_uid: req.query.doctor_uid,
+      patient_uid: req.query.patient_uid,
+      date_from: req.query.date_from,
+      date_to: req.query.date_to,
+      page: req.query.page,
+      limit: req.query.limit,
+    });
+
+    return success(res, result.referrals, 'Referral audit retrieved', 200, {
+      pagination: result.pagination,
+    });
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to get referral audit:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * PUT /referrals/:id/seen
+ * Marks the first time the referred consultant opened the referral.
+ */
+router.put('/:id/seen', paramId(), validate, async (req, res, next) => {
+  try {
+    if (!canManageReferrals(req.user?.role)) {
+      return error(res, 'Only doctors can mark referrals as seen', 403);
+    }
+
+    const referral = await referralService.markReferralSeen(req.params.id, req.user?.uid, {
+      actorRole: req.user?.role,
+      tenantId: req.tenantId || req.user?.tenant_id,
+    });
+
+    return success(res, referral, 'Referral marked as seen');
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to mark referral as seen:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
  * PUT /referrals/:id/accept
  * Accept a referral — DOCTOR
  */
@@ -152,7 +265,10 @@ router.put('/:id/accept', paramId(), validate, async (req, res, next) => {
       return error(res, 'Only doctors can accept referrals', 403);
     }
 
-    const referral = await referralService.acceptReferral(req.params.id, req.user?.uid);
+    const referral = await referralService.acceptReferral(req.params.id, req.user?.uid, {
+      actorRole: req.user?.role,
+      tenantId: req.tenantId || req.user?.tenant_id,
+    });
 
     return success(res, referral, 'Referral accepted successfully');
   } catch (err) {
@@ -176,7 +292,12 @@ router.put('/:id/complete', paramId(), validate, async (req, res, next) => {
 
     const referral = await referralService.completeReferral(
       req.params.id,
-      req.body.response_notes
+      req.body.response_notes,
+      {
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        tenantId: req.tenantId || req.user?.tenant_id,
+      }
     );
 
     return success(res, referral, 'Referral completed successfully');
@@ -201,7 +322,12 @@ router.put('/:id/decline', paramId(), requiredString('reason', 500), validate, a
 
     const referral = await referralService.declineReferral(
       req.params.id,
-      req.body.response_notes
+      req.body.response_notes,
+      {
+        actorUid: req.user?.uid,
+        actorRole: req.user?.role,
+        tenantId: req.tenantId || req.user?.tenant_id,
+      }
     );
 
     return success(res, referral, 'Referral declined');
@@ -228,6 +354,7 @@ router.get('/patient/:uid', async (req, res, next) => {
     const filters = {
       page: req.query.page,
       limit: req.query.limit,
+      tenantId: req.tenantId || req.user?.tenant_id,
     };
 
     const result = await referralService.getPatientReferrals(req.params.uid, filters);

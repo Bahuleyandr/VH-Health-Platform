@@ -108,6 +108,7 @@ import '../../features/emr/screens/discharge_hub_list_screen.dart';
 import '../../features/emr/screens/discharge_hub_screen.dart';
 import '../../features/emr/screens/discharge_summary_screen.dart';
 import '../../features/ipd/screens/drug_chart_screen.dart';
+import '../../features/referrals/screens/referrals_screen.dart';
 
 // Messaging
 import '../../features/messaging/screens/messaging_inbox_screen.dart';
@@ -488,6 +489,23 @@ final GoRouter appRouter = GoRouter(
                 admissionId: admissionId,
                 patientName: state.uri.queryParameters['name'],
               ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/referrals',
+          name: 'referrals',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ReferralsScreen()),
+        ),
+        GoRoute(
+          path: '/referrals/request/:admissionId',
+          name: 'referral-request',
+          pageBuilder: (context, state) {
+            final admissionId =
+                int.tryParse(state.pathParameters['admissionId'] ?? '') ?? 0;
+            return NoTransitionPage(
+              child: ReferralsScreen(requestAdmissionId: admissionId),
             );
           },
         ),

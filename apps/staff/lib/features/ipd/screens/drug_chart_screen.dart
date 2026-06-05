@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -439,8 +440,8 @@ class _DrugChartTable extends StatelessWidget {
                   draftCount: draftRows.length,
                   onAddRow: onAddRow,
                 ),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                DesktopScrollControls(
+                  axis: Axis.horizontal,
                   child: SizedBox(
                     width: sheetWidth,
                     child: Column(
@@ -783,8 +784,9 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
               minLines: 1,
               maxLines: 2,
               decoration: const InputDecoration(
-                labelText: 'Dose (auto)',
-                hintText: 'auto from drug',
+                labelText: 'Dose',
+                hintText: 'auto-filled from drug strength',
+                helperText: 'Edit only if dose differs',
                 isDense: true,
               ),
             ),

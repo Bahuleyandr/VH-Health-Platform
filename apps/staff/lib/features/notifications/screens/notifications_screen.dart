@@ -136,6 +136,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (_hasAny(type, const ['LAB', 'INVESTIGATION', 'CRITICAL_VALUE'])) {
       return Icons.biotech;
     }
+    if (type.contains('REFERRAL')) return Icons.medical_services_outlined;
     if (_hasAny(type, const ['PHARMACY', 'MEDICATION'])) {
       return Icons.medication;
     }
@@ -164,6 +165,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (_hasAny(type, const ['LAB', 'INVESTIGATION', 'CRITICAL_VALUE'])) {
       return const Color(0xFFC62828);
     }
+    if (type.contains('REFERRAL')) return const Color(0xFF00838F);
     if (_hasAny(type, const ['PHARMACY', 'MEDICATION'])) {
       return const Color(0xFFE65100);
     }

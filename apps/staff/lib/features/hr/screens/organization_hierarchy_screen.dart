@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
 class OrganizationHierarchyScreen extends StatefulWidget {
@@ -332,8 +333,8 @@ class _HierarchyFlowChart extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child: DesktopScrollControls(
+        axis: Axis.horizontal,
         child: SizedBox(
           width: contentWidth,
           child: Padding(

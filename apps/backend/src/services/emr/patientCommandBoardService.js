@@ -307,6 +307,7 @@ function actionsForRole(role, admission) {
     base.push(
       { key: 'notes', label: 'Progress notes', route: `/emr/notes/${patient}` },
       { key: 'orders', label: 'Orders', route: `/emr/orders/${patient}` },
+      { key: 'referral', label: 'Cross referral', route: `/referrals/request/${id}` },
       { key: 'drug_chart', label: 'MAR / drug chart', route: `/drug-chart/${id}` },
       { key: 'case_sheet', label: 'Case sheet', route: `/emr/case-sheet/${id}` },
       { key: 'discharge', label: 'Discharge', route: `/emr/discharge-hub/${id}` },
@@ -315,6 +316,7 @@ function actionsForRole(role, admission) {
     base.push(
       { key: 'vitals', label: 'Vitals & I/O', route: `/emr/vitals/${patient}` },
       { key: 'notes', label: 'Nursing notes', route: `/nursing-notes?patient_uid=${patient}` },
+      { key: 'referral', label: 'Cross referral', route: `/referrals/request/${id}` },
       { key: 'drug_chart', label: 'MAR / drug chart', route: `/drug-chart/${id}` },
       { key: 'handover', label: 'Shift handover', route: '/handover' },
       { key: 'discharge', label: 'Discharge', route: `/emr/discharge-hub/${id}` },

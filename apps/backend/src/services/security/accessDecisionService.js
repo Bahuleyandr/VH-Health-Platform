@@ -596,6 +596,64 @@ async function findCareTeamRelationship(req, patient, role) {
   return rows[0] || null;
 }
 
+async function findReferralRelationship(req, patient, role) {
+  const actorUid = cleanUuid(actorUidOf(req));
+  const patientUid = cleanUuid(patient?.uid);
+  if (!actorUid || !patientUid || !DOCTOR_RELATIONSHIP_ROLES.has(role)) return null;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH actor_departments AS (
+       SELECT LOWER(TRIM(token)) AS token
+         FROM (
+           SELECT doc.department AS token
+             FROM users u
+             JOIN doctors doc ON doc.user_id = u.id
+            WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+              AND u.uid = $3::uuid
+           UNION ALL
+           SELECT doc.specialty AS token
+             FROM users u
+             JOIN doctors doc ON doc.user_id = u.id
+            WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+              AND u.uid = $3::uuid
+           UNION ALL
+           SELECT dept.name AS token
+             FROM users u
+             JOIN doctors doc ON doc.user_id = u.id
+             JOIN departments dept ON dept.id = doc.department_id
+            WHERE COALESCE(u.tenant_id, $1::uuid) = $1::uuid
+              AND u.uid = $3::uuid
+         ) tokens
+        WHERE NULLIF(TRIM(token), '') IS NOT NULL
+     )
+     SELECT r.id, r.status, r.referred_to_department
+       FROM referrals r
+      WHERE r.tenant_id = $1::uuid
+        AND r.patient_uid = $2::uuid
+        AND COALESCE(r.status, '') = ANY($4::text[])
+        AND (
+          r.referred_to_doctor = $3::uuid
+          OR r.accepted_by = $3::uuid
+          OR r.performer_id = $3::uuid
+          OR (
+            r.referred_to_doctor IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM actor_departments ad
+               WHERE ad.token = LOWER(TRIM(r.referred_to_department))
+            )
+          )
+        )
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 1`,
+    deriveTenantIdFromRequest(req),
+    patientUid,
+    actorUid,
+    ['pending', 'accepted', 'in_progress'],
+  );
+  return rows[0] || null;
+}
+
 async function findClinicalAuthorshipRelationship(req, patient, policy) {
   if (![ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS, ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE].includes(policy?.code)) {
     return null;
@@ -796,6 +854,7 @@ async function writePatientAccessAudit(req, decision) {
         record_type: decision.recordType ?? null,
         resource_type: decision.resource_type ?? null,
         phi_access_level: decision.phi_access_level ?? null,
+        referral_id: decision.referralId ?? null,
         actor_id: req?.user?.id ?? null,
         subject_uid: req?.user?.uid ?? null,
         acting_as_dependent: req?.acting != null,
@@ -916,6 +975,13 @@ export async function authorizePatientAccessRequest(req, {
     }
   }
 
+  if (!decision && policy.relationship_checks.includes('referral')) {
+    const referral = await findReferralRelationship(req, resolvedPatient, role);
+    if (referral?.id) {
+      decision = allowDecision(args, 'referral', 'active specialist referral relationship', { referralId: referral.id });
+    }
+  }
+
   if (!decision && policy.relationship_checks.includes('clinical_authorship')) {
     const authored = await findClinicalAuthorshipRelationship(req, resolvedPatient, policy);
     if (authored?.id) {
@@ -943,7 +1009,7 @@ export async function authorizePatientAccessRequest(req, {
   }
 
   if (!decision) {
-    decision = denyDecision(args, 'No active care-team, appointment, admission, guardian, or break-glass relationship');
+    decision = denyDecision(args, 'No active care-team, referral, appointment, admission, guardian, or break-glass relationship');
   }
 
   decision = {

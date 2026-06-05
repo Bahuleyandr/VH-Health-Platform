@@ -98,6 +98,7 @@ class NotificationItem {
     if (isHousekeepingAlert) return 'Open housekeeping task';
     if (isBedAlert) return 'Open bed';
     if (isInvestigationAlert) return 'Open investigation';
+    if (normalizedType.contains('REFERRAL')) return 'Open referral';
     if (normalizedType.contains('PATIENT')) return 'Open patient';
     if (normalizedType.contains('PHARMACY') ||
         normalizedType.contains('MEDICATION')) {
@@ -285,6 +286,7 @@ String? _defaultRouteForType(String type) {
   if (t.contains('HOUSEKEEPING')) return '/housekeeping-tasks';
   if (t.contains('BED') || t.contains('CLEANING')) return '/beds';
   if (t.contains('HANDOVER')) return '/handover';
+  if (t.contains('REFERRAL')) return '/referrals';
   if (t.contains('LAB') ||
       t.contains('INVESTIGATION') ||
       t.contains('CRITICAL_VALUE')) {

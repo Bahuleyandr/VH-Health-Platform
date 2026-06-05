@@ -1,5 +1,5 @@
 export const SAFE_PATIENT_ACCESS_DENIAL_MESSAGE =
-  'Patient record access denied: no active care-team, appointment, admission, guardian, or break-glass relationship';
+  'Patient record access denied: no active care-team, referral, appointment, admission, guardian, or break-glass relationship';
 
 export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_RECORD_VIEW: 'patient.record.view',
@@ -22,6 +22,7 @@ const RELATIONSHIP_CHECKS = Object.freeze([
   'self',
   'guardian',
   'care_team',
+  'referral',
   'clinical_authorship',
   'appointment',
   'admission',

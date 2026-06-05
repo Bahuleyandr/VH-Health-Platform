@@ -570,6 +570,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'emr' => uid.isEmpty ? null : '/emr/timeline/$uid?name=$name',
       'drug_chart' =>
         admissionId <= 0 ? null : '/drug-chart/$admissionId?name=$name',
+      'referral' => admissionId <= 0 ? null : '/referrals/request/$admissionId',
       'handover' =>
         '/handover?patient_ref=${Uri.encodeQueryComponent(_focusedPatientLabel)}&patient_uid=$uid&admission_id=$admissionId',
       'case_sheet' =>
@@ -1042,6 +1043,7 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
       'notes' => Icons.edit_note,
       'orders' => Icons.receipt_long,
       'drug_chart' => Icons.medication,
+      'referral' => Icons.medical_services_outlined,
       'case_sheet' => Icons.assignment,
       'discharge' => Icons.rule_folder,
       'vitals' => Icons.monitor_heart,

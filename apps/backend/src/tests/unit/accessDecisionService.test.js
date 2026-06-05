@@ -171,6 +171,26 @@ describe('accessDecisionService', () => {
     expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 
+  it('allows a referred consultant to view patient records through an active referral relationship', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 88, status: 'pending', referred_to_department: 'Cardiology' }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const decision = await authorizePatientAccessRequest(reqFor('DOCTOR'), {
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
+      recordType: 'MEDICAL_RECORD',
+      patient: { uid: PATIENT_UID },
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.accessSource).toBe('referral');
+    expect(decision.referralId).toBe(88);
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('allow');
+    expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('referral');
+  });
+
   it('allows receptionist admission writes through role-owned operational workflow access', async () => {
     prismaMock.$queryRawUnsafe.mockResolvedValueOnce(patientLookup());
     prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);

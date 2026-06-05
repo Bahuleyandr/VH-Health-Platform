@@ -529,6 +529,133 @@ class MedicalApiService {
         .toList();
   }
 
+  // ─── Ward Referrals ─────────────────────────────────────────────────────
+
+  static Future<List<Map<String, dynamic>>> searchReferralConsultants({
+    String query = '',
+    String department = '',
+  }) async {
+    final data = await _get(
+      '/referrals/consultants',
+      query: {
+        if (query.trim().isNotEmpty) 'q': query.trim(),
+        if (department.trim().isNotEmpty) 'department': department.trim(),
+        'limit': '50',
+      },
+    );
+    final rows = data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getIncomingReferrals({
+    String? status,
+  }) async {
+    final data = await _get(
+      '/referrals/incoming',
+      query: {if (status != null && status.isNotEmpty) 'status': status},
+    );
+    final rows = data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getOutgoingReferrals({
+    String? status,
+  }) async {
+    final data = await _get(
+      '/referrals/outgoing',
+      query: {if (status != null && status.isNotEmpty) 'status': status},
+    );
+    final rows = data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getReferralAudit({
+    String? status,
+    String? department,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final data = await _get(
+      '/referrals/audit',
+      query: {
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (department != null && department.isNotEmpty)
+          'department': department,
+        if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+        if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+        'limit': '100',
+      },
+    );
+    final rows = data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  static Future<Map<String, dynamic>> createWardReferral({
+    required String patientUid,
+    required String department,
+    required String reason,
+    String? encounterId,
+    String? referredToDoctor,
+    int? admissionId,
+    String urgency = 'routine',
+    String? clinicalSummary,
+  }) async {
+    return _post('/referrals', {
+      'patient_uid': patientUid,
+      'encounter_id': ?encounterId,
+      'admission_id': ?admissionId,
+      'referred_to_department': department,
+      'referred_to_doctor': ?referredToDoctor,
+      'reason': reason,
+      'urgency': urgency,
+      'clinical_summary': ?clinicalSummary,
+      'source': 'ward',
+    });
+  }
+
+  static Future<Map<String, dynamic>> markReferralSeen(int referralId) async {
+    return _put('/referrals/$referralId/seen', {});
+  }
+
+  static Future<Map<String, dynamic>> acceptReferral(int referralId) async {
+    return _put('/referrals/$referralId/accept', {});
+  }
+
+  static Future<Map<String, dynamic>> completeReferral(
+    int referralId, {
+    String? responseNotes,
+  }) async {
+    return _put('/referrals/$referralId/complete', {
+      'response_notes': ?responseNotes,
+    });
+  }
+
+  static Future<Map<String, dynamic>> declineReferral(
+    int referralId, {
+    String? reason,
+  }) async {
+    return _put('/referrals/$referralId/decline', {
+      'reason': reason ?? 'Not appropriate for this service',
+      'response_notes': ?reason,
+    });
+  }
+
   /// PUT /emr/orders/:id/discontinue — doctor-only stop order.
   static Future<Map<String, dynamic>> discontinueClinicalOrder({
     required int orderId,
