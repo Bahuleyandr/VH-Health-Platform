@@ -75,7 +75,7 @@ export function ServerTableToolbar({
   return (
     <form
       onSubmit={onSubmit}
-      className="mb-4 flex flex-col gap-3 rounded-lg bg-white p-3 shadow dark:bg-card lg:flex-row lg:items-center"
+      className="mb-4 flex flex-col gap-3 rounded-lg bg-card p-3 shadow dark:bg-card lg:flex-row lg:items-center"
     >
       <label className="relative min-w-0 flex-1">
         <span className="sr-only">{placeholder}</span>
@@ -122,7 +122,8 @@ export function ServerSortableTableHeader<TSort extends string>({
   const normalizedDirection =
     String(direction || "desc").toLowerCase() === "asc" ? "asc" : "desc";
   const active = activeSort === sortKey;
-  const nextDirection = active && normalizedDirection === "asc" ? "desc" : "asc";
+  const nextDirection =
+    active && normalizedDirection === "asc" ? "desc" : "asc";
   const Icon = active
     ? normalizedDirection === "asc"
       ? ArrowUp
@@ -173,10 +174,19 @@ export function ServerTablePagination({
   pageSizeOptions?: number[];
 }) {
   const updateQuery = useTableQueryUpdater();
-  const page = Math.max(1, Number(pagination?.page ?? pagination?.currentPage ?? 1));
-  const limit = Math.max(1, Number(pagination?.limit ?? pageSizeOptions[0] ?? 10));
+  const page = Math.max(
+    1,
+    Number(pagination?.page ?? pagination?.currentPage ?? 1),
+  );
+  const limit = Math.max(
+    1,
+    Number(pagination?.limit ?? pageSizeOptions[0] ?? 10),
+  );
   const total = Math.max(0, Number(pagination?.total ?? 0));
-  const totalPages = Math.max(1, Number(pagination?.totalPages ?? Math.ceil(total / limit)));
+  const totalPages = Math.max(
+    1,
+    Number(pagination?.totalPages ?? Math.ceil(total / limit)),
+  );
   const start = total === 0 ? 0 : (page - 1) * limit + 1;
   const end = Math.min(page * limit, total);
 
@@ -203,7 +213,7 @@ export function ServerTablePagination({
   );
 
   return (
-    <div className="mt-4 flex flex-col gap-3 rounded-lg bg-white p-3 text-sm shadow dark:bg-card sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-4 flex flex-col gap-3 rounded-lg bg-card p-3 text-sm shadow dark:bg-card sm:flex-row sm:items-center sm:justify-between">
       <div className="text-muted-foreground">
         Showing {start}-{end} of {total} {itemLabel}
       </div>

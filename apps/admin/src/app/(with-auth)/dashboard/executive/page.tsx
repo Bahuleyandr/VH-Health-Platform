@@ -14,10 +14,21 @@ import { usePermissions } from "@/hooks/usePermissions";
 
 type Kpi = {
   windowDays: number;
-  revenue: { total: number; collected: number; invoiceCount: number; paid: number; pending: number };
+  revenue: {
+    total: number;
+    collected: number;
+    invoiceCount: number;
+    paid: number;
+    pending: number;
+  };
   occupancy: { total: number; occupied: number; pct: number };
   satisfaction: { avgRating: number; responses: number };
-  doctorUtilisation: { activeDoctors: number; appointments: number; completed: number; completionPct: number };
+  doctorUtilisation: {
+    activeDoctors: number;
+    appointments: number;
+    completed: number;
+    completionPct: number;
+  };
 };
 
 function fmtCurrency(n: number) {
@@ -33,7 +44,9 @@ export default function ExecutiveKpiPage() {
     if (!isAdmin) return;
     (async () => {
       try {
-        const resp = (await fetchAdminAPI("/admin/executive-kpi/summary")) as { data?: Kpi };
+        const resp = (await fetchAdminAPI("/admin/executive-kpi/summary")) as {
+          data?: Kpi;
+        };
         setData(resp.data ?? null);
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Failed to load executive KPI");
@@ -41,8 +54,14 @@ export default function ExecutiveKpiPage() {
     })();
   }, [isAdmin]);
 
-  if (permLoading) return <div className="p-8 text-muted-foreground">Loading…</div>;
-  if (!isAdmin) return <div className="p-8 text-red-400">Executive KPI is restricted to admins.</div>;
+  if (permLoading)
+    return <div className="p-8 text-muted-foreground">Loading…</div>;
+  if (!isAdmin)
+    return (
+      <div className="p-8 text-red-400">
+        Executive KPI is restricted to admins.
+      </div>
+    );
   if (err) return <div className="p-8 text-red-500">{err}</div>;
   if (!data) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
@@ -61,10 +80,19 @@ export default function ExecutiveKpiPage() {
                 title: "Executive KPI",
                 subtitle: `Trailing ${data.windowDays} days`,
                 kpis: [
-                  { label: "Revenue billed", value: fmtCurrency(data.revenue.total) },
-                  { label: "Revenue collected", value: fmtCurrency(data.revenue.collected) },
+                  {
+                    label: "Revenue billed",
+                    value: fmtCurrency(data.revenue.total),
+                  },
+                  {
+                    label: "Revenue collected",
+                    value: fmtCurrency(data.revenue.collected),
+                  },
                   { label: "Bed occupancy", value: `${data.occupancy.pct}%` },
-                  { label: "Satisfaction", value: `${data.satisfaction.avgRating.toFixed(2)}/5` },
+                  {
+                    label: "Satisfaction",
+                    value: `${data.satisfaction.avgRating.toFixed(2)}/5`,
+                  },
                 ],
                 tables: [
                   {
@@ -82,7 +110,10 @@ export default function ExecutiveKpiPage() {
                     title: "Operations",
                     head: ["Metric", "Value"],
                     rows: [
-                      ["Beds occupied", `${data.occupancy.occupied} / ${data.occupancy.total}`],
+                      [
+                        "Beds occupied",
+                        `${data.occupancy.occupied} / ${data.occupancy.total}`,
+                      ],
                       ["Occupancy", `${data.occupancy.pct}%`],
                       ["Active doctors", data.doctorUtilisation.activeDoctors],
                       [
@@ -90,13 +121,16 @@ export default function ExecutiveKpiPage() {
                         `${data.doctorUtilisation.completed} / ${data.doctorUtilisation.appointments} (${data.doctorUtilisation.completionPct}%)`,
                       ],
                       ["Feedback responses", data.satisfaction.responses],
-                      ["Avg rating", `${data.satisfaction.avgRating.toFixed(2)}/5`],
+                      [
+                        "Avg rating",
+                        `${data.satisfaction.avgRating.toFixed(2)}/5`,
+                      ],
                     ],
                   },
                 ],
               });
             }}
-            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-white hover:border-indigo-500"
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:border-indigo-500"
           >
             Export PDF
           </button>
@@ -104,17 +138,42 @@ export default function ExecutiveKpiPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile title="Revenue billed" primary={fmtCurrency(data.revenue.total)}
-              sub={`Collected ${fmtCurrency(data.revenue.collected)}`} tone="emerald" />
-        <Tile title="Bed occupancy" primary={`${data.occupancy.pct}%`}
-              sub={`${data.occupancy.occupied} of ${data.occupancy.total}`}
-              tone={data.occupancy.pct >= 90 ? "red" : data.occupancy.pct >= 75 ? "amber" : "emerald"} />
-        <Tile title="Patient satisfaction" primary={`${data.satisfaction.avgRating.toFixed(2)} / 5`}
-              sub={`${data.satisfaction.responses} responses`}
-              tone={data.satisfaction.avgRating >= 4 ? "emerald" : data.satisfaction.avgRating >= 3 ? "amber" : "red"} />
-        <Tile title="Doctor utilisation" primary={`${data.doctorUtilisation.completionPct}%`}
-              sub={`${data.doctorUtilisation.completed} of ${data.doctorUtilisation.appointments} appts`}
-              tone="white" />
+        <Tile
+          title="Revenue billed"
+          primary={fmtCurrency(data.revenue.total)}
+          sub={`Collected ${fmtCurrency(data.revenue.collected)}`}
+          tone="emerald"
+        />
+        <Tile
+          title="Bed occupancy"
+          primary={`${data.occupancy.pct}%`}
+          sub={`${data.occupancy.occupied} of ${data.occupancy.total}`}
+          tone={
+            data.occupancy.pct >= 90
+              ? "red"
+              : data.occupancy.pct >= 75
+                ? "amber"
+                : "emerald"
+          }
+        />
+        <Tile
+          title="Patient satisfaction"
+          primary={`${data.satisfaction.avgRating.toFixed(2)} / 5`}
+          sub={`${data.satisfaction.responses} responses`}
+          tone={
+            data.satisfaction.avgRating >= 4
+              ? "emerald"
+              : data.satisfaction.avgRating >= 3
+                ? "amber"
+                : "red"
+          }
+        />
+        <Tile
+          title="Doctor utilisation"
+          primary={`${data.doctorUtilisation.completionPct}%`}
+          sub={`${data.doctorUtilisation.completed} of ${data.doctorUtilisation.appointments} appts`}
+          tone="white"
+        />
       </div>
 
       <div className="rounded-xl border border-border bg-card p-4">
@@ -141,21 +200,39 @@ function Tile({
   tone: "emerald" | "amber" | "red" | "white";
 }) {
   const colour =
-    tone === "emerald" ? "text-emerald-400"
-    : tone === "amber" ? "text-amber-400"
-    : tone === "red" ? "text-red-400"
-    : "text-white";
+    tone === "emerald"
+      ? "text-emerald-400"
+      : tone === "amber"
+        ? "text-amber-400"
+        : tone === "red"
+          ? "text-red-400"
+          : "text-white";
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
       <p className={`mt-1 text-2xl font-bold ${colour}`}>{primary}</p>
       <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
     </div>
   );
 }
 
-function MiniStat({ label, value, tone }: { label: string; value: number; tone?: "emerald" | "amber" }) {
-  const colour = tone === "emerald" ? "text-emerald-400" : tone === "amber" ? "text-amber-400" : "text-white";
+function MiniStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "emerald" | "amber";
+}) {
+  const colour =
+    tone === "emerald"
+      ? "text-emerald-400"
+      : tone === "amber"
+        ? "text-amber-400"
+        : "text-white";
   return (
     <div>
       <p className={`text-xl font-bold ${colour}`}>{value}</p>

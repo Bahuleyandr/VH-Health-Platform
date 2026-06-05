@@ -59,12 +59,18 @@ function statusColour(code: number | null, success: boolean | null): string {
 
 function methodColour(method: string | null): string {
   switch (method) {
-    case "GET": return "bg-slate-100 text-slate-700";
-    case "POST": return "bg-emerald-100 text-emerald-800";
-    case "PUT": return "bg-blue-100 text-blue-800";
-    case "PATCH": return "bg-amber-100 text-amber-800";
-    case "DELETE": return "bg-rose-100 text-rose-800";
-    default: return "bg-slate-100 text-slate-600";
+    case "GET":
+      return "bg-slate-100 text-slate-700";
+    case "POST":
+      return "bg-emerald-100 text-emerald-800";
+    case "PUT":
+      return "bg-blue-100 text-blue-800";
+    case "PATCH":
+      return "bg-amber-100 text-amber-800";
+    case "DELETE":
+      return "bg-rose-100 text-rose-800";
+    default:
+      return "bg-slate-100 text-slate-600";
   }
 }
 
@@ -154,7 +160,9 @@ export default function AuditExplorerPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Audit Log Explorer</h1>
+        <h1 className="text-3xl font-bold text-foreground">
+          Audit Log Explorer
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Browse the audit trail across every authenticated request. Backed by{" "}
           <code>audit_log</code> + the audit middleware.
@@ -167,7 +175,7 @@ export default function AuditExplorerPage() {
           e.preventDefault();
           applyFilters();
         }}
-        className="bg-white rounded-lg border shadow-sm p-4 space-y-3"
+        className="bg-card rounded-lg border shadow-sm p-4 space-y-3"
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
@@ -176,16 +184,22 @@ export default function AuditExplorerPage() {
             </label>
             <input
               value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              onChange={(e) =>
+                setFilters({ ...filters, search: e.target.value })
+              }
               placeholder="users / login / patient name"
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Module</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Module
+            </label>
             <select
               value={filters.module}
-              onChange={(e) => setFilters({ ...filters, module: e.target.value })}
+              onChange={(e) =>
+                setFilters({ ...filters, module: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             >
               <option value="">All modules</option>
@@ -197,10 +211,14 @@ export default function AuditExplorerPage() {
             </select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Method</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Method
+            </label>
             <select
               value={filters.method}
-              onChange={(e) => setFilters({ ...filters, method: e.target.value })}
+              onChange={(e) =>
+                setFilters({ ...filters, method: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             >
               <option value="">Any</option>
@@ -217,7 +235,9 @@ export default function AuditExplorerPage() {
             </label>
             <select
               value={filters.success}
-              onChange={(e) => setFilters({ ...filters, success: e.target.value })}
+              onChange={(e) =>
+                setFilters({ ...filters, success: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             >
               <option value="">Any</option>
@@ -232,21 +252,29 @@ export default function AuditExplorerPage() {
             <input
               type="number"
               value={filters.status_code}
-              onChange={(e) => setFilters({ ...filters, status_code: e.target.value })}
+              onChange={(e) =>
+                setFilters({ ...filters, status_code: e.target.value })
+              }
               placeholder="200 / 401 / 500"
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">User ID</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              User ID
+            </label>
             <input
               value={filters.user_id}
-              onChange={(e) => setFilters({ ...filters, user_id: e.target.value })}
+              onChange={(e) =>
+                setFilters({ ...filters, user_id: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">From</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              From
+            </label>
             <input
               type="date"
               value={filters.from}
@@ -255,7 +283,9 @@ export default function AuditExplorerPage() {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">To</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              To
+            </label>
             <input
               type="date"
               value={filters.to}
@@ -269,9 +299,16 @@ export default function AuditExplorerPage() {
             type="button"
             onClick={() =>
               setFilters({
-                search: "", module: "", method: "", status_code: "",
-                success: "", from: weekAgoIso(), to: todayIso(),
-                user_id: "", limit: 100, offset: 0,
+                search: "",
+                module: "",
+                method: "",
+                status_code: "",
+                success: "",
+                from: weekAgoIso(),
+                to: todayIso(),
+                user_id: "",
+                limit: 100,
+                offset: 0,
               })
             }
             className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
@@ -286,7 +323,9 @@ export default function AuditExplorerPage() {
           </button>
           <button
             type="button"
-            onClick={() => qc.invalidateQueries({ queryKey: ["audit", "logs"] })}
+            onClick={() =>
+              qc.invalidateQueries({ queryKey: ["audit", "logs"] })
+            }
             className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
           >
             Refresh
@@ -304,10 +343,13 @@ export default function AuditExplorerPage() {
       {isLoading ? (
         <LoadingSpinner />
       ) : logs.length === 0 ? (
-        <EmptyState title="No matches" description="No audit entries match these filters." />
+        <EmptyState
+          title="No matches"
+          description="No audit entries match these filters."
+        />
       ) : (
         <>
-          <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+          <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="text-xs text-muted-foreground border-b">
                 <tr className="text-left">
@@ -326,14 +368,19 @@ export default function AuditExplorerPage() {
                   <tr
                     key={l.id}
                     className={`border-b last:border-0 ${
-                      l.success === false ? "bg-rose-50/50" : "hover:bg-muted/30"
+                      l.success === false
+                        ? "bg-rose-50/50"
+                        : "hover:bg-muted/30"
                     }`}
                   >
                     <td className="px-3 py-2 text-xs">{fmtTs(l.created_at)}</td>
                     <td className="px-3 py-2 text-xs">
-                      {l.user_name ?? (l.user_id != null ? `#${l.user_id}` : "—")}
+                      {l.user_name ??
+                        (l.user_id != null ? `#${l.user_id}` : "—")}
                       {l.user_role && (
-                        <div className="text-muted-foreground">{l.user_role}</div>
+                        <div className="text-muted-foreground">
+                          {l.user_role}
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-2">
@@ -350,14 +397,20 @@ export default function AuditExplorerPage() {
                     </td>
                     <td className="px-3 py-2 text-xs">
                       <div className="font-medium">{l.module ?? "—"}</div>
-                      <div className="text-muted-foreground">{l.action ?? ""}</div>
+                      <div className="text-muted-foreground">
+                        {l.action ?? ""}
+                      </div>
                     </td>
-                    <td className={`px-3 py-2 font-mono text-xs ${statusColour(l.status_code, l.success)}`}>
+                    <td
+                      className={`px-3 py-2 font-mono text-xs ${statusColour(l.status_code, l.success)}`}
+                    >
                       {l.status_code ?? "—"}
                       {l.success === false && " ✗"}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-right">
-                      {l.response_time_ms != null ? `${l.response_time_ms}ms` : "—"}
+                      {l.response_time_ms != null
+                        ? `${l.response_time_ms}ms`
+                        : "—"}
                     </td>
                     <td className="px-3 py-2">
                       <button
@@ -402,7 +455,7 @@ export default function AuditExplorerPage() {
       {/* Detail modal */}
       {openLog && (
         <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl">
+          <div className="bg-card rounded-lg shadow-lg w-full max-w-3xl">
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">
                 Audit entry #{openLog.id}
@@ -463,7 +516,9 @@ export default function AuditExplorerPage() {
 }
 
 function DetailRow({
-  label, value, pre = false,
+  label,
+  value,
+  pre = false,
 }: {
   label: string;
   value: string;

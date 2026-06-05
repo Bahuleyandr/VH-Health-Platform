@@ -16,7 +16,7 @@ export function PermissionAuditLog({
   onClose,
 }: PermissionAuditLogProps) {
   return (
-    <div className="bg-white rounded-lg shadow p-5">
+    <div className="bg-card rounded-lg shadow p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold">Permission Audit Log</h3>
         <button

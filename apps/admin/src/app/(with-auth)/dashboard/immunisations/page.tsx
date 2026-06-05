@@ -8,11 +8,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -107,7 +103,7 @@ export default function ImmunisationsPage() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -123,7 +119,11 @@ export default function ImmunisationsPage() {
 }
 
 function CatalogueTab() {
-  const { data: rows = [], isLoading, error } = useQuery<CatalogueEntry[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<CatalogueEntry[]>({
     queryKey: ["immunisations", "catalogue"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -144,7 +144,7 @@ function CatalogueTab() {
     );
 
   return (
-    <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+    <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead className="text-xs text-muted-foreground border-b">
           <tr className="text-left">
@@ -166,7 +166,10 @@ function CatalogueTab() {
               </td>
               <td className="px-3 py-2 text-xs">
                 {ageWeeks(r.recommended_age_days)}
-                <span className="text-muted-foreground"> ({r.recommended_age_days}d)</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({r.recommended_age_days}d)
+                </span>
               </td>
               <td className="px-3 py-2 text-xs">{r.window_days}d</td>
               <td className="px-3 py-2 text-xs text-muted-foreground">
@@ -186,7 +189,11 @@ function NewbornTab() {
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [recording, setRecording] = useState<NewbornDose | null>(null);
 
-  const { data: doses = [], isLoading, error } = useQuery<NewbornDose[]>({
+  const {
+    data: doses = [],
+    isLoading,
+    error,
+  } = useQuery<NewbornDose[]>({
     queryKey: ["immunisations", "newborn", submittedId],
     queryFn: async () => {
       if (!submittedId) return [];
@@ -205,7 +212,9 @@ function NewbornTab() {
         method: "POST",
       }),
     onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["immunisations", "newborn", submittedId] }),
+      qc.invalidateQueries({
+        queryKey: ["immunisations", "newborn", submittedId],
+      }),
   });
 
   const errMsg = (error ?? seedMut.error)?.toString();
@@ -269,7 +278,7 @@ function NewbornTab() {
           description="Click 'Seed schedule' to materialise the full Indian NIS + IAP schedule for this newborn."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -284,7 +293,10 @@ function NewbornTab() {
             </thead>
             <tbody>
               {doses.map((d) => (
-                <tr key={d.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr
+                  key={d.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-3 py-2">
                     <div>{d.display_name}</div>
                     <div className="text-xs text-muted-foreground font-mono">
@@ -342,7 +354,9 @@ function NewbornTab() {
           onClose={() => setRecording(null)}
           onSaved={() => {
             setRecording(null);
-            qc.invalidateQueries({ queryKey: ["immunisations", "newborn", submittedId] });
+            qc.invalidateQueries({
+              queryKey: ["immunisations", "newborn", submittedId],
+            });
             qc.invalidateQueries({ queryKey: ["immunisations", "due"] });
           }}
         />
@@ -352,7 +366,9 @@ function NewbornTab() {
 }
 
 function RecordDoseModal({
-  dose, onClose, onSaved,
+  dose,
+  onClose,
+  onSaved,
 }: {
   dose: NewbornDose;
   onClose: () => void;
@@ -374,10 +390,12 @@ function RecordDoseModal({
         method: "PATCH",
         body: {
           status: form.status,
-          given_by_name: form.status === "given" ? form.given_by_name : undefined,
+          given_by_name:
+            form.status === "given" ? form.given_by_name : undefined,
           batch_number: form.batch_number || undefined,
           manufacturer: form.manufacturer || undefined,
-          site_of_injection: form.status === "given" ? form.site_of_injection : undefined,
+          site_of_injection:
+            form.status === "given" ? form.site_of_injection : undefined,
           adverse_event: form.adverse_event || undefined,
           notes: form.notes || undefined,
         },
@@ -390,7 +408,7 @@ function RecordDoseModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-lg">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             Record dose · {dose.display_name}
@@ -410,7 +428,10 @@ function RecordDoseModal({
             <select
               value={form.status}
               onChange={(e) =>
-                setForm({ ...form, status: e.target.value as NewbornDose["status"] })
+                setForm({
+                  ...form,
+                  status: e.target.value as NewbornDose["status"],
+                })
               }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             >
@@ -506,9 +527,7 @@ function RecordDoseModal({
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
-          {errMsg && (
-            <div className="text-xs text-destructive">{errMsg}</div>
-          )}
+          {errMsg && <div className="text-xs text-destructive">{errMsg}</div>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
           <button
@@ -543,7 +562,11 @@ function DueTab() {
     new Date(Date.now() + 14 * 86400 * 1000).toISOString().split("T")[0]!,
   );
 
-  const { data: rows = [], isLoading, error } = useQuery<DueRow[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<DueRow[]>({
     queryKey: ["immunisations", "due", { from, to }],
     queryFn: async () => {
       const params = new URLSearchParams({ from, to, limit: "200" });
@@ -564,7 +587,9 @@ function DueTab() {
     <div className="space-y-4">
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">From</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            From
+          </label>
           <input
             type="date"
             value={from}
@@ -584,17 +609,21 @@ function DueTab() {
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Overdue</p>
           <p className="text-xl font-semibold mt-1 text-rose-700">{overdue}</p>
         </div>
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Due today</p>
-          <p className="text-xl font-semibold mt-1 text-amber-700">{dueToday}</p>
+          <p className="text-xl font-semibold mt-1 text-amber-700">
+            {dueToday}
+          </p>
         </div>
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Upcoming</p>
-          <p className="text-xl font-semibold mt-1 text-slate-700">{upcoming}</p>
+          <p className="text-xl font-semibold mt-1 text-slate-700">
+            {upcoming}
+          </p>
         </div>
       </div>
 
@@ -612,7 +641,7 @@ function DueTab() {
           description="No immunisations scheduled in this window."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">

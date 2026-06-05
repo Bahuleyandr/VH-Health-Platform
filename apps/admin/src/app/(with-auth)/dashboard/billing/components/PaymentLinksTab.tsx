@@ -3,11 +3,7 @@
 // Sprint 4 — UPI payment links list, send + mark-paid + cancel actions.
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -61,7 +57,11 @@ export function PaymentLinksTab() {
   const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
 
-  const { data: rows = [], error, isLoading } = useQuery<PaymentLink[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<PaymentLink[]>({
     queryKey: ["billing", "payment-links", { statusFilter }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -83,7 +83,8 @@ export function PaymentLinksTab() {
           patient_phone: vars.phone,
         },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
   });
 
   const paidMut = useMutation({
@@ -95,7 +96,8 @@ export function PaymentLinksTab() {
           body: { paid_via: "upi", paid_reference: vars.ref },
         },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
   });
 
   const cancelMut = useMutation({
@@ -107,11 +109,15 @@ export function PaymentLinksTab() {
           body: { reason: vars.reason },
         },
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
   });
 
   function send(link: PaymentLink) {
-    const phone = window.prompt("Patient WhatsApp phone (with country code):", "");
+    const phone = window.prompt(
+      "Patient WhatsApp phone (with country code):",
+      "",
+    );
     if (!phone) return;
     sendMut.mutate({ link, phone });
   }
@@ -129,16 +135,19 @@ export function PaymentLinksTab() {
     if (link.upi_deep_link) navigator.clipboard?.writeText(link.upi_deep_link);
   }
 
-  const errMsg = (error ?? sendMut.error ?? paidMut.error ?? cancelMut.error)
-    ? (error ?? sendMut.error ?? paidMut.error ?? cancelMut.error)!.toString()
-    : null;
+  const errMsg =
+    (error ?? sendMut.error ?? paidMut.error ?? cancelMut.error)
+      ? (error ?? sendMut.error ?? paidMut.error ?? cancelMut.error)!.toString()
+      : null;
   const busy = sendMut.isPending || paidMut.isPending || cancelMut.isPending;
 
   return (
     <div className="space-y-4">
       <div className="flex items-end gap-3 flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -154,7 +163,9 @@ export function PaymentLinksTab() {
         </div>
         <div className="flex-1" />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["billing", "payment-links"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -175,7 +186,7 @@ export function PaymentLinksTab() {
           description="Create one from the invoice screen to bill a patient by UPI."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -191,7 +202,10 @@ export function PaymentLinksTab() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr
+                  key={r.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-3 py-2 font-mono text-xs">
                     {r.link_token.slice(0, 12)}…
                   </td>

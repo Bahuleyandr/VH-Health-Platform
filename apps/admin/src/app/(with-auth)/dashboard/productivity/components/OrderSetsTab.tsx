@@ -50,7 +50,11 @@ export function OrderSetsTab() {
   const [specialty, setSpecialty] = useState("");
   const [open, setOpen] = useState<number | null>(null);
 
-  const { data: rows = [], error, isLoading } = useQuery<OrderSetSummary[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<OrderSetSummary[]>({
     queryKey: ["productivity", "order-sets", { q, specialty }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -64,27 +68,32 @@ export function OrderSetsTab() {
     },
   });
 
-  const { data: detail, isLoading: detailLoading } = useQuery<OrderSetDetail | null>({
-    queryKey: ["productivity", "order-sets", "detail", open],
-    queryFn: async () => {
-      if (open === null) return null;
-      const r = await fetchAdminAPI<unknown>(`/productivity/order-sets/${open}`);
-      return unwrap<OrderSetDetail>(r);
-    },
-    enabled: open !== null,
-  });
+  const { data: detail, isLoading: detailLoading } =
+    useQuery<OrderSetDetail | null>({
+      queryKey: ["productivity", "order-sets", "detail", open],
+      queryFn: async () => {
+        if (open === null) return null;
+        const r = await fetchAdminAPI<unknown>(
+          `/productivity/order-sets/${open}`,
+        );
+        return unwrap<OrderSetDetail>(r);
+      },
+      enabled: open !== null,
+    });
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Bundle templates. Doctor picks a set, edits/applies the items, the
-        chosen ones become orders. Each item carries its own JSONB payload
-        based on kind (med / lab / radiology / etc.).
+        chosen ones become orders. Each item carries its own JSONB payload based
+        on kind (med / lab / radiology / etc.).
       </p>
 
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Search</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Search
+          </label>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -104,7 +113,9 @@ export function OrderSetsTab() {
           />
         </div>
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["productivity", "order-sets"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["productivity", "order-sets"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -120,14 +131,17 @@ export function OrderSetsTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No order sets" description="Try clearing the filter." />
+        <EmptyState
+          title="No order sets"
+          description="Try clearing the filter."
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {rows.map((s) => (
             <button
               key={s.id}
               onClick={() => setOpen(s.id)}
-              className="text-left bg-white rounded-lg border shadow-sm p-4 hover:bg-muted/30"
+              className="text-left bg-card rounded-lg border shadow-sm p-4 hover:bg-muted/30"
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -141,11 +155,11 @@ export function OrderSetsTab() {
                 </span>
               </div>
               {s.specialty && (
-                <p className="text-xs text-muted-foreground mt-2">{s.specialty}</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {s.specialty}
+                </p>
               )}
-              {s.description && (
-                <p className="text-sm mt-2">{s.description}</p>
-              )}
+              {s.description && <p className="text-sm mt-2">{s.description}</p>}
               {s.condition_codes && s.condition_codes.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {s.condition_codes.map((c) => (
@@ -165,7 +179,7 @@ export function OrderSetsTab() {
 
       {open !== null && (
         <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl">
+          <div className="bg-card rounded-lg shadow-lg w-full max-w-3xl">
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">
                 {detail?.title ?? "Loading…"}

@@ -67,7 +67,10 @@ function fmtDate(iso?: string) {
   if (!iso) return "—";
   try {
     return new Date(iso).toLocaleString("en-IN", {
-      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
     return iso;
@@ -100,24 +103,32 @@ export default function SosPage() {
       ]);
       setAnalytics(unwrap<Analytics>(a) ?? {});
       setPerf(unwrap<Performance>(p) ?? {});
-      const servicesPayload = unwrap<EmergencyService[] | { items?: EmergencyService[] }>(s);
+      const servicesPayload = unwrap<
+        EmergencyService[] | { items?: EmergencyService[] }
+      >(s);
       setServices(
         Array.isArray(servicesPayload)
           ? servicesPayload
-          : (servicesPayload && "items" in servicesPayload ? servicesPayload.items ?? [] : []),
+          : servicesPayload && "items" in servicesPayload
+            ? (servicesPayload.items ?? [])
+            : [],
       );
       const alertsPayload = unwrap<Alert[] | { items?: Alert[] }>(al);
       setAlerts(
         Array.isArray(alertsPayload)
           ? alertsPayload
-          : (alertsPayload && "items" in alertsPayload ? alertsPayload.items ?? [] : []),
+          : alertsPayload && "items" in alertsPayload
+            ? (alertsPayload.items ?? [])
+            : [],
       );
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const broadcast = useCallback(async () => {
     if (!msg.trim()) return;
@@ -128,7 +139,11 @@ export default function SosPage() {
       setMsg("");
       await refresh();
     } catch (e) {
-      setBroadcastMsg(e instanceof Error ? `Broadcast failed: ${e.message}` : "Broadcast failed");
+      setBroadcastMsg(
+        e instanceof Error
+          ? `Broadcast failed: ${e.message}`
+          : "Broadcast failed",
+      );
     } finally {
       setBroadcasting(false);
     }
@@ -143,7 +158,7 @@ export default function SosPage() {
         <button
           onClick={() => void refresh()}
           disabled={loading}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-white hover:border-indigo-500 disabled:opacity-50"
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:border-indigo-500 disabled:opacity-50"
         >
           {loading ? "Refreshing…" : "Refresh"}
         </button>
@@ -151,18 +166,38 @@ export default function SosPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Total alerts" value={analytics?.totalAlerts ?? 0} />
-        <StatTile label="Active" value={analytics?.activeAlerts ?? 0} tone={(analytics?.activeAlerts ?? 0) > 0 ? "red" : "emerald"} />
-        <StatTile label="Resolved" value={analytics?.resolvedAlerts ?? 0} tone="emerald" />
-        <StatTile label="Last 24h" value={analytics?.last24Hours ?? 0} tone={(analytics?.last24Hours ?? 0) > 0 ? "amber" : "white"} />
+        <StatTile
+          label="Active"
+          value={analytics?.activeAlerts ?? 0}
+          tone={(analytics?.activeAlerts ?? 0) > 0 ? "red" : "emerald"}
+        />
+        <StatTile
+          label="Resolved"
+          value={analytics?.resolvedAlerts ?? 0}
+          tone="emerald"
+        />
+        <StatTile
+          label="Last 24h"
+          value={analytics?.last24Hours ?? 0}
+          tone={(analytics?.last24Hours ?? 0) > 0 ? "amber" : "white"}
+        />
       </div>
 
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="mb-3 font-semibold text-white">Severity breakdown</h2>
         <div className="flex gap-2 text-xs">
           <SeverityPill label="High" value={severity.high ?? 0} tone="red" />
-          <SeverityPill label="Medium" value={severity.medium ?? 0} tone="amber" />
+          <SeverityPill
+            label="Medium"
+            value={severity.medium ?? 0}
+            tone="amber"
+          />
           <SeverityPill label="Low" value={severity.low ?? 0} tone="emerald" />
-          <SeverityPill label="Test alerts" value={analytics?.testAlerts ?? 0} tone="muted" />
+          <SeverityPill
+            label="Test alerts"
+            value={analytics?.testAlerts ?? 0}
+            tone="muted"
+          />
         </div>
       </div>
 
@@ -179,11 +214,16 @@ export default function SosPage() {
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="mb-3 font-semibold text-white">Trailing 7 days</h2>
         {(analytics?.last7Days ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No alerts in the last 7 days.</p>
+          <p className="text-sm text-muted-foreground">
+            No alerts in the last 7 days.
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead className="text-muted-foreground">
-              <tr><Th>Date</Th><Th>Alerts</Th></tr>
+              <tr>
+                <Th>Date</Th>
+                <Th>Alerts</Th>
+              </tr>
             </thead>
             <tbody>
               {(analytics?.last7Days ?? []).map((d) => (
@@ -200,15 +240,25 @@ export default function SosPage() {
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="mb-3 font-semibold text-white">Emergency services</h2>
         {services.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No services configured.</p>
+          <p className="text-sm text-muted-foreground">
+            No services configured.
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead className="text-muted-foreground">
-              <tr><Th>Name</Th><Th>Kind</Th><Th>Phone</Th><Th>Enabled</Th></tr>
+              <tr>
+                <Th>Name</Th>
+                <Th>Kind</Th>
+                <Th>Phone</Th>
+                <Th>Enabled</Th>
+              </tr>
             </thead>
             <tbody>
               {services.map((s, index) => (
-                <tr key={stableRowKey("service", s.id ?? s.name, index)} className="border-t border-border">
+                <tr
+                  key={stableRowKey("service", s.id ?? s.name, index)}
+                  className="border-t border-border"
+                >
                   <Td>{s.name ?? "—"}</Td>
                   <Td>{s.kind ?? "—"}</Td>
                   <Td>{s.phone ?? "—"}</Td>
@@ -227,11 +277,24 @@ export default function SosPage() {
         ) : (
           <table className="w-full text-sm">
             <thead className="text-muted-foreground">
-              <tr><Th>When</Th><Th>Severity</Th><Th>Status</Th><Th>Patient</Th><Th>Message</Th></tr>
+              <tr>
+                <Th>When</Th>
+                <Th>Severity</Th>
+                <Th>Status</Th>
+                <Th>Patient</Th>
+                <Th>Message</Th>
+              </tr>
             </thead>
             <tbody>
               {alerts.map((a, index) => (
-                <tr key={stableRowKey("alert", a.id ?? a.created_at ?? a.message, index)} className="border-t border-border">
+                <tr
+                  key={stableRowKey(
+                    "alert",
+                    a.id ?? a.created_at ?? a.message,
+                    index,
+                  )}
+                  className="border-t border-border"
+                >
                   <Td>{fmtDate(a.created_at)}</Td>
                   <Td>{a.severity ?? "—"}</Td>
                   <Td>{a.status ?? "—"}</Td>
@@ -248,7 +311,7 @@ export default function SosPage() {
         <h2 className="font-semibold text-white">Broadcast emergency alert</h2>
         <div className="flex gap-2">
           <input
-            className="flex-1 rounded border border-border bg-background px-3 py-2 text-sm text-white"
+            className="flex-1 rounded border border-border bg-background px-3 py-2 text-sm text-foreground"
             placeholder="Broadcast message…"
             value={msg}
             onChange={(e) => setMsg(e.target.value)}
@@ -261,32 +324,58 @@ export default function SosPage() {
             {broadcasting ? "Sending…" : "Broadcast"}
           </button>
         </div>
-        {broadcastMsg && <p className="text-xs text-muted-foreground">{broadcastMsg}</p>}
+        {broadcastMsg && (
+          <p className="text-xs text-muted-foreground">{broadcastMsg}</p>
+        )}
       </div>
     </div>
   );
 }
 
-function StatTile({ label, value, tone }: { label: string; value: string | number; tone?: "amber" | "red" | "emerald" | "white" }) {
+function StatTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "amber" | "red" | "emerald" | "white";
+}) {
   const colour =
-    tone === "red" ? "text-red-400"
-    : tone === "amber" ? "text-amber-400"
-    : tone === "emerald" ? "text-emerald-400"
-    : "text-white";
+    tone === "red"
+      ? "text-red-400"
+      : tone === "amber"
+        ? "text-amber-400"
+        : tone === "emerald"
+          ? "text-emerald-400"
+          : "text-white";
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
       <p className={`mt-1 text-2xl font-bold ${colour}`}>{value}</p>
     </div>
   );
 }
 
-function SeverityPill({ label, value, tone }: { label: string; value: number; tone: "red" | "amber" | "emerald" | "muted" }) {
+function SeverityPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "red" | "amber" | "emerald" | "muted";
+}) {
   const bg =
-    tone === "red" ? "bg-red-500/15 text-red-400 border-red-500/30"
-    : tone === "amber" ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-    : tone === "emerald" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-    : "bg-muted text-muted-foreground border-border";
+    tone === "red"
+      ? "bg-red-500/15 text-red-400 border-red-500/30"
+      : tone === "amber"
+        ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+        : tone === "emerald"
+          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+          : "bg-muted text-muted-foreground border-border";
   return (
     <span className={`rounded-full border px-3 py-1 font-medium ${bg}`}>
       {label}: {value}

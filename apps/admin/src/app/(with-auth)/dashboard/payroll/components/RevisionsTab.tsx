@@ -65,13 +65,17 @@ function RevisionRow({
         ) : rev.proposed_basic ? (
           <span>
             {fmtCurrency(rev.current_basic)} → {fmtCurrency(rev.proposed_basic)}
-            {rev.increment_pct ? <span className="text-green-600 ml-1">+{rev.increment_pct}%</span> : null}
+            {rev.increment_pct ? (
+              <span className="text-green-600 ml-1">+{rev.increment_pct}%</span>
+            ) : null}
           </span>
         ) : (
           <span className="text-gray-400">Component change</span>
         )}
       </td>
-      <td className="px-3 py-3 text-sm text-gray-500">{fmtDate(rev.effective_from)}</td>
+      <td className="px-3 py-3 text-sm text-gray-500">
+        {fmtDate(rev.effective_from)}
+      </td>
       <td className="px-3 py-3">{statusBadge(rev.status)}</td>
       <td className="px-3 py-3">
         <div className="flex items-center gap-1 flex-wrap">
@@ -156,19 +160,34 @@ function RevisionTable({
   arrearsPending: boolean;
 }) {
   if (revisions.length === 0) {
-    return <div className="text-center py-10 text-gray-400">No revisions found</div>;
+    return (
+      <div className="text-center py-10 text-gray-400">No revisions found</div>
+    );
   }
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200">
       <table className="min-w-full divide-y divide-gray-200 text-sm">
         <thead className="bg-gray-50">
           <tr>
-            {["Ref #", "Staff", "Type", "Change", "Effective", "Status", "Actions"].map((h) => (
-              <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+            {[
+              "Ref #",
+              "Staff",
+              "Type",
+              "Change",
+              "Effective",
+              "Status",
+              "Actions",
+            ].map((h) => (
+              <th
+                key={h}
+                className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide"
+              >
+                {h}
+              </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100 bg-white">
+        <tbody className="divide-y divide-gray-100 bg-card">
           {revisions.map((rev) => (
             <RevisionRow
               key={rev.id}
@@ -193,10 +212,16 @@ function RevisionTable({
 
 export function RevisionsTab() {
   const qc = useQueryClient();
-  const [subTab, setSubTab] = useState<"pending_hr" | "pending_admin" | "annual_review" | "history">("pending_hr");
+  const [subTab, setSubTab] = useState<
+    "pending_hr" | "pending_admin" | "annual_review" | "history"
+  >("pending_hr");
   const [showProposeModal, setShowProposeModal] = useState(false);
-  const [prefilledStaff, setPrefilledStaff] = useState<AnnualReviewStaff | null>(null);
-  const [signModal, setSignModal] = useState<{ id: number; type: SignModalType } | null>(null);
+  const [prefilledStaff, setPrefilledStaff] =
+    useState<AnnualReviewStaff | null>(null);
+  const [signModal, setSignModal] = useState<{
+    id: number;
+    type: SignModalType;
+  } | null>(null);
 
   const { data: pendingHRRaw } = useQuery({
     queryKey: ["revisions", "pending_hr"],
@@ -217,7 +242,9 @@ export function RevisionsTab() {
     queryFn: () => getAnnualReviewStatus(),
     enabled: subTab === "annual_review",
   });
-  const annualData = unwrap<{ year: number; staff: AnnualReviewStaff[] }>(annualRaw);
+  const annualData = unwrap<{ year: number; staff: AnnualReviewStaff[] }>(
+    annualRaw,
+  );
 
   const { data: historyRaw } = useQuery({
     queryKey: ["revisions", "history"],
@@ -234,7 +261,8 @@ export function RevisionsTab() {
   const staffList = unwrap<StaffForPayroll[]>(staffRaw) ?? [];
 
   const proposeMut = useMutation({
-    mutationFn: (data: ProposePayload) => proposeRevision(data as unknown as Record<string, unknown>),
+    mutationFn: (data: ProposePayload) =>
+      proposeRevision(data as unknown as Record<string, unknown>),
     onSuccess: () => {
       toast.success("Revision proposed — awaiting HR signature");
       qc.invalidateQueries({ queryKey: ["revisions"] });
@@ -245,7 +273,8 @@ export function RevisionsTab() {
   });
 
   const hrSignMut = useMutation({
-    mutationFn: ({ id, comment }: { id: number; comment: string }) => hrSignRevision(id, { comment }),
+    mutationFn: ({ id, comment }: { id: number; comment: string }) =>
+      hrSignRevision(id, { comment }),
     onSuccess: () => {
       toast.success("HR signature applied");
       qc.invalidateQueries({ queryKey: ["revisions"] });
@@ -255,7 +284,8 @@ export function RevisionsTab() {
   });
 
   const adminSignMut = useMutation({
-    mutationFn: ({ id, comment }: { id: number; comment: string }) => adminSignRevision(id, { comment }),
+    mutationFn: ({ id, comment }: { id: number; comment: string }) =>
+      adminSignRevision(id, { comment }),
     onSuccess: () => {
       toast.success("Admin countersign complete — revision approved");
       qc.invalidateQueries({ queryKey: ["revisions"] });
@@ -267,9 +297,15 @@ export function RevisionsTab() {
   const arrearsMut = useMutation({
     mutationFn: (id: number) => calculateArrears(id),
     onSuccess: (res) => {
-      const d = (res as { data?: { arrears_amount?: number; months?: number; message?: string } }).data;
+      const d = (
+        res as {
+          data?: { arrears_amount?: number; months?: number; message?: string };
+        }
+      ).data;
       if (d?.arrears_amount && d.arrears_amount > 0) {
-        toast.success(`Arrears calculated: ₹${d.arrears_amount.toLocaleString("en-IN")} over ${d.months} months`);
+        toast.success(
+          `Arrears calculated: ₹${d.arrears_amount.toLocaleString("en-IN")} over ${d.months} months`,
+        );
       } else {
         toast.success(d?.message ?? "No arrears found");
       }
@@ -299,13 +335,17 @@ export function RevisionsTab() {
 
   const subTabs = [
     { key: "pending_hr", label: `Pending HR Sign (${pendingHR.length})` },
-    { key: "pending_admin", label: `Pending Admin Sign (${pendingAdmin.length})` },
+    {
+      key: "pending_admin",
+      label: `Pending Admin Sign (${pendingAdmin.length})`,
+    },
     { key: "annual_review", label: "Annual Review Due" },
     { key: "history", label: "History" },
   ] as const;
 
   // Shared row handlers
-  const handleSign = (id: number, type: "hr" | "admin") => setSignModal({ id, type });
+  const handleSign = (id: number, type: "hr" | "admin") =>
+    setSignModal({ id, type });
   const handleReject = (id: number) => setSignModal({ id, type: "reject" });
   const handleApply = (id: number) => applyMut.mutate(id);
   const handleArrears = (id: number) => arrearsMut.mutate(id);
@@ -323,7 +363,10 @@ export function RevisionsTab() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-bold text-lg text-gray-800">Salary Revisions</h2>
         <button
-          onClick={() => { setPrefilledStaff(null); setShowProposeModal(true); }}
+          onClick={() => {
+            setPrefilledStaff(null);
+            setShowProposeModal(true);
+          }}
           className="bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-teal-800 transition-colors"
         >
           + Propose Revision
@@ -354,7 +397,8 @@ export function RevisionsTab() {
       {subTab === "pending_admin" && (
         <div>
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-            ⚠ <strong>Note:</strong> The Admin countersignatory cannot be the same person who applied the HR signature.
+            ⚠ <strong>Note:</strong> The Admin countersignatory cannot be the
+            same person who applied the HR signature.
           </div>
           <RevisionTable revisions={pendingAdmin} showAdminSign {...rowProps} />
         </div>
@@ -362,31 +406,57 @@ export function RevisionsTab() {
       {subTab === "annual_review" && (
         <div>
           <div className="text-sm text-gray-600 mb-4">
-            Staff who have been employed for 11+ months and have not received a salary revision this year.
+            Staff who have been employed for 11+ months and have not received a
+            salary revision this year.
           </div>
           {!annualData?.staff?.length ? (
-            <div className="text-center py-10 text-gray-400">All staff reviewed for {annualData?.year ?? "this year"}</div>
+            <div className="text-center py-10 text-gray-400">
+              All staff reviewed for {annualData?.year ?? "this year"}
+            </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    {["Staff", "Dept", "Joined", "Years", "Basic", "Revision This Year", "Action"].map((h) => (
-                      <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
+                    {[
+                      "Staff",
+                      "Dept",
+                      "Joined",
+                      "Years",
+                      "Basic",
+                      "Revision This Year",
+                      "Action",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase"
+                      >
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
+                <tbody className="divide-y divide-gray-100 bg-card">
                   {annualData.staff.map((s) => (
                     <tr key={s.uid} className="hover:bg-gray-50">
                       <td className="px-3 py-3 font-medium">{s.name}</td>
-                      <td className="px-3 py-3 text-gray-500">{s.department}</td>
-                      <td className="px-3 py-3 text-gray-500">{fmtDate(s.date_of_joining)}</td>
-                      <td className="px-3 py-3">{Number(s.years_of_service).toFixed(0)} yrs</td>
-                      <td className="px-3 py-3">{fmtCurrency(s.basic_salary)}</td>
+                      <td className="px-3 py-3 text-gray-500">
+                        {s.department}
+                      </td>
+                      <td className="px-3 py-3 text-gray-500">
+                        {fmtDate(s.date_of_joining)}
+                      </td>
+                      <td className="px-3 py-3">
+                        {Number(s.years_of_service).toFixed(0)} yrs
+                      </td>
+                      <td className="px-3 py-3">
+                        {fmtCurrency(s.basic_salary)}
+                      </td>
                       <td className="px-3 py-3">
                         {s.revision_this_year ? (
-                          <span className="text-green-600 text-xs font-semibold">{s.revision_this_year}</span>
+                          <span className="text-green-600 text-xs font-semibold">
+                            {s.revision_this_year}
+                          </span>
                         ) : (
                           <span className="text-orange-500 text-xs">None</span>
                         )}
@@ -440,7 +510,10 @@ export function RevisionsTab() {
       {/* Propose revision modal */}
       <RevisionFormModal
         open={showProposeModal}
-        onClose={() => { setShowProposeModal(false); setPrefilledStaff(null); }}
+        onClose={() => {
+          setShowProposeModal(false);
+          setPrefilledStaff(null);
+        }}
         prefilledStaff={prefilledStaff}
         staffList={staffList}
         onSubmit={(payload) => proposeMut.mutate(payload)}

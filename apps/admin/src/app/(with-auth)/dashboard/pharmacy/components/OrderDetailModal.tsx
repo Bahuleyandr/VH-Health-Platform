@@ -15,7 +15,7 @@ export function OrderDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6">
+      <div className="bg-card rounded-xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6">
         <div className="flex justify-between items-start mb-4">
           <div>
             <h3 className="text-lg font-bold">{order.order_number}</h3>
@@ -23,7 +23,10 @@ export function OrderDetailModal({
               {new Date(order.created_at).toLocaleString()}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl"
+          >
             ✕
           </button>
         </div>
@@ -44,12 +47,14 @@ export function OrderDetailModal({
           </div>
           {order.delivery_address && (
             <div>
-              <span className="text-sm text-gray-500">Address:</span> {order.delivery_address}
+              <span className="text-sm text-gray-500">Address:</span>{" "}
+              {order.delivery_address}
             </div>
           )}
           {order.order_note && (
             <div>
-              <span className="text-sm text-gray-500">Note:</span> {order.order_note}
+              <span className="text-sm text-gray-500">Note:</span>{" "}
+              {order.order_note}
             </div>
           )}
         </div>
@@ -95,20 +100,25 @@ export function OrderDetailModal({
         )}
 
         {order.total_cost && (
-          <div className="mt-3 text-right font-bold">Total: ₹{order.total_cost}</div>
+          <div className="mt-3 text-right font-bold">
+            Total: ₹{order.total_cost}
+          </div>
         )}
 
         {order.delivery_person && (
           <div className="mt-3 p-3 bg-teal-50 rounded-lg">
             <p className="text-sm text-teal-700">
               🚗 {order.delivery_person}
-              {order.delivery_person_phone && ` • ${order.delivery_person_phone}`}
+              {order.delivery_person_phone &&
+                ` • ${order.delivery_person_phone}`}
             </p>
             {order.status === "DISPATCHED" && order.estimated_delivery_mins && (
               <p className="text-sm text-teal-600 mt-1">
                 {order.delivery_tracking_active && "📍 Live • "}
                 ETA: ~{order.estimated_delivery_mins} min
-                {order.delivery_distance_km ? ` • ${order.delivery_distance_km} km away` : ""}
+                {order.delivery_distance_km
+                  ? ` • ${order.delivery_distance_km} km away`
+                  : ""}
               </p>
             )}
           </div>

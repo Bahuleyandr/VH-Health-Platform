@@ -26,7 +26,9 @@ function PharmacyContent() {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-foreground mb-6">Pharmacy Management</h1>
+      <h1 className="text-3xl font-bold text-foreground mb-6">
+        Pharmacy Management
+      </h1>
 
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 overflow-x-auto">
         {[
@@ -40,7 +42,9 @@ function PharmacyContent() {
             key={key}
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
-              tab === key ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              tab === key
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {label}

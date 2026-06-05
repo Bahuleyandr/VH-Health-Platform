@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Clock, Lock, Plus, Pencil, Trash2, Save, X } from 'lucide-react';
-import { getJSON, postJSON, putJSON, deleteJSON } from '@/lib/api/core';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { toast } from 'sonner';
+import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Clock, Lock, Plus, Pencil, Trash2, Save, X } from "lucide-react";
+import { getJSON, postJSON, putJSON, deleteJSON } from "@/lib/api/core";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "sonner";
 
 interface Shift {
   id: number;
@@ -31,13 +31,13 @@ interface ShiftFormData {
 }
 
 const emptyForm: ShiftFormData = {
-  name: '',
-  start_time: '09:00',
-  end_time: '18:00',
+  name: "",
+  start_time: "09:00",
+  end_time: "18:00",
   grace_period_minutes: 15,
   late_threshold_minutes: 30,
   absent_threshold_minutes: 60,
-  department: '',
+  department: "",
 };
 
 function formatTime(t: string) {
@@ -48,10 +48,10 @@ function formatTime(t: string) {
 function shiftDuration(start: string, end: string): string {
   // Guard against a non-HH:MM:SS value (e.g. an ISO timestamp slipping
   // through) — without this, a bad input renders as "NaNh NaNm".
-  const [sh, sm] = (start ?? '').split(':').map(Number);
-  const [eh, em] = (end ?? '').split(':').map(Number);
-  if ([sh, sm, eh, em].some(Number.isNaN)) return '—';
-  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  const [sh, sm] = (start ?? "").split(":").map(Number);
+  const [eh, em] = (end ?? "").split(":").map(Number);
+  if ([sh, sm, eh, em].some(Number.isNaN)) return "—";
+  let mins = eh * 60 + em - (sh * 60 + sm);
   if (mins < 0) mins += 24 * 60; // overnight
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -66,20 +66,22 @@ export default function ShiftsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Shift | null>(null);
 
   const { data: shifts = [], isLoading } = useQuery<Shift[]>({
-    queryKey: ['shifts'],
+    queryKey: ["shifts"],
     queryFn: async () => {
-      const r = await getJSON<unknown>('/api/v1/staff/admin/shifts');
+      const r = await getJSON<unknown>("/api/v1/staff/admin/shifts");
       const res = r as { data?: Shift[] } | Shift[];
-      return (Array.isArray(res) ? res : (res as { data?: Shift[] }).data) ?? [];
+      return (
+        (Array.isArray(res) ? res : (res as { data?: Shift[] }).data) ?? []
+      );
     },
   });
 
   const createMutation = useMutation({
     mutationFn: (data: ShiftFormData) =>
-      postJSON('/api/v1/staff/admin/shifts/custom', data),
+      postJSON("/api/v1/staff/admin/shifts/custom", data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['shifts'] });
-      toast.success('Custom shift created');
+      qc.invalidateQueries({ queryKey: ["shifts"] });
+      toast.success("Custom shift created");
       setShowForm(false);
       setForm(emptyForm);
     },
@@ -90,8 +92,8 @@ export default function ShiftsPage() {
     mutationFn: ({ id, data }: { id: number; data: Partial<ShiftFormData> }) =>
       putJSON(`/api/v1/staff/admin/shifts/custom/${id}`, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['shifts'] });
-      toast.success('Shift updated');
+      qc.invalidateQueries({ queryKey: ["shifts"] });
+      toast.success("Shift updated");
       setEditingShift(null);
       setForm(emptyForm);
     },
@@ -102,15 +104,15 @@ export default function ShiftsPage() {
     mutationFn: (id: number) =>
       deleteJSON(`/api/v1/staff/admin/shifts/custom/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['shifts'] });
-      toast.success('Shift deactivated');
+      qc.invalidateQueries({ queryKey: ["shifts"] });
+      toast.success("Shift deactivated");
       setDeleteTarget(null);
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const presets = shifts.filter(s => s.is_preset);
-  const customs = shifts.filter(s => !s.is_preset);
+  const presets = shifts.filter((s) => s.is_preset);
+  const customs = shifts.filter((s) => !s.is_preset);
 
   function openCreate() {
     setEditingShift(null);
@@ -127,7 +129,7 @@ export default function ShiftsPage() {
       grace_period_minutes: shift.grace_period_minutes,
       late_threshold_minutes: shift.late_threshold_minutes,
       absent_threshold_minutes: shift.absent_threshold_minutes,
-      department: shift.department ?? '',
+      department: shift.department ?? "",
     });
     setShowForm(true);
   }
@@ -171,22 +173,28 @@ export default function ShiftsPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {isLoading
-            ? [1, 2, 3].map(i => (
-                <div key={i} className="h-28 bg-gray-100 rounded-xl animate-pulse" />
+            ? [1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-28 bg-gray-100 rounded-xl animate-pulse"
+                />
               ))
-            : presets.map(shift => (
+            : presets.map((shift) => (
                 <div
                   key={shift.id}
-                  className="bg-white border border-gray-200 rounded-xl p-4 relative"
+                  className="bg-card border border-gray-200 rounded-xl p-4 relative"
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="font-semibold text-gray-900">{shift.name}</p>
+                      <p className="font-semibold text-gray-900">
+                        {shift.name}
+                      </p>
                       <p className="text-primary font-mono text-lg mt-1">
-                        {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
+                        {formatTime(shift.start_time)} –{" "}
+                        {formatTime(shift.end_time)}
                       </p>
                       <p className="text-xs text-gray-400 mt-1">
-                        {shiftDuration(shift.start_time, shift.end_time)} ·{' '}
+                        {shiftDuration(shift.start_time, shift.end_time)} ·{" "}
                         {shift.grace_period_minutes}min grace
                       </p>
                     </div>
@@ -224,16 +232,19 @@ export default function ShiftsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {customs.map(shift => (
+            {customs.map((shift) => (
               <div
                 key={shift.id}
-                className="bg-white border border-gray-200 rounded-xl p-4"
+                className="bg-card border border-gray-200 rounded-xl p-4"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{shift.name}</p>
+                    <p className="font-semibold text-gray-900 truncate">
+                      {shift.name}
+                    </p>
                     <p className="text-primary font-mono text-lg mt-1">
-                      {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
+                      {formatTime(shift.start_time)} –{" "}
+                      {formatTime(shift.end_time)}
                     </p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
                       <span className="text-xs text-gray-500">
@@ -275,22 +286,29 @@ export default function ShiftsPage() {
       {/* Create/Edit Form Drawer */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl">
+          <div className="bg-card rounded-2xl w-full max-w-lg shadow-xl">
             <div className="flex items-center justify-between p-5 border-b">
               <h2 className="text-lg font-semibold">
-                {editingShift ? 'Edit Custom Shift' : 'New Custom Shift'}
+                {editingShift ? "Edit Custom Shift" : "New Custom Shift"}
               </h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button
+                onClick={() => setShowForm(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
                 <X size={20} />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Shift Name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Shift Name *
+                </label>
                 <input
                   required
                   value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: e.target.value }))
+                  }
                   placeholder="e.g. ICU Afternoon, OT Standby"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
@@ -298,22 +316,30 @@ export default function ShiftsPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Time *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Start Time *
+                  </label>
                   <input
                     required
                     type="time"
                     value={form.start_time}
-                    onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, start_time: e.target.value }))
+                    }
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End Time *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    End Time *
+                  </label>
                   <input
                     required
                     type="time"
                     value={form.end_time}
-                    onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, end_time: e.target.value }))
+                    }
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
@@ -321,16 +347,24 @@ export default function ShiftsPage() {
 
               {form.start_time && form.end_time && (
                 <p className="text-xs text-primary -mt-2">
-                  Duration: {shiftDuration(form.start_time + ':00', form.end_time + ':00')}
-                  {form.end_time < form.start_time ? ' (overnight)' : ''}
+                  Duration:{" "}
+                  {shiftDuration(
+                    form.start_time + ":00",
+                    form.end_time + ":00",
+                  )}
+                  {form.end_time < form.start_time ? " (overnight)" : ""}
                 </p>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Department (optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Department (optional)
+                </label>
                 <input
                   value={form.department}
-                  onChange={e => setForm(f => ({ ...f, department: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, department: e.target.value }))
+                  }
                   placeholder="e.g. ICU, OT, Radiology"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
@@ -342,18 +376,37 @@ export default function ShiftsPage() {
                 </p>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Grace (min)', key: 'grace_period_minutes' as const, help: 'On-time window' },
-                    { label: 'Late (min)', key: 'late_threshold_minutes' as const, help: 'Flagged late' },
-                    { label: 'Absent (min)', key: 'absent_threshold_minutes' as const, help: 'Counted absent' },
+                    {
+                      label: "Grace (min)",
+                      key: "grace_period_minutes" as const,
+                      help: "On-time window",
+                    },
+                    {
+                      label: "Late (min)",
+                      key: "late_threshold_minutes" as const,
+                      help: "Flagged late",
+                    },
+                    {
+                      label: "Absent (min)",
+                      key: "absent_threshold_minutes" as const,
+                      help: "Counted absent",
+                    },
                   ].map(({ label, key, help }) => (
                     <div key={key}>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        {label}
+                      </label>
                       <input
                         type="number"
                         min={0}
                         max={480}
                         value={form[key]}
-                        onChange={e => setForm(f => ({ ...f, [key]: parseInt(e.target.value) || 0 }))}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            [key]: parseInt(e.target.value) || 0,
+                          }))
+                        }
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
                       />
                       <p className="text-xs text-gray-400 mt-0.5">{help}</p>
@@ -380,7 +433,7 @@ export default function ShiftsPage() {
                   ) : (
                     <Save size={15} />
                   )}
-                  {editingShift ? 'Save Changes' : 'Create Shift'}
+                  {editingShift ? "Save Changes" : "Create Shift"}
                 </button>
               </div>
             </form>
@@ -391,12 +444,16 @@ export default function ShiftsPage() {
       {/* Delete confirm */}
       <ConfirmDialog
         open={!!deleteTarget}
-        setOpen={(v) => { if (!v) setDeleteTarget(null); }}
+        setOpen={(v) => {
+          if (!v) setDeleteTarget(null);
+        }}
         title="Deactivate Shift"
         message={`Deactivate "${deleteTarget?.name}"? Staff currently assigned to this shift will keep their assignment but should be reassigned to an active shift.`}
         confirmLabel="Deactivate"
         variant="destructive"
-        onConfirm={() => { if (deleteTarget) deleteMutation.mutate(deleteTarget.id); }}
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+        }}
         onCancel={() => setDeleteTarget(null)}
       />
     </div>

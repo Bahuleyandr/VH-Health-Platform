@@ -27,7 +27,7 @@ export function UserHistoryTab() {
     try {
       const res = await getJSON<UserHistory>(
         `/api/v1/admin/audit/user/${encodeURIComponent(userId.trim())}`,
-        { days }
+        { days },
       );
       setData(res ?? null);
     } catch {
@@ -40,7 +40,7 @@ export function UserHistoryTab() {
   return (
     <div className="space-y-4">
       {/* User lookup */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+      <div className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
@@ -74,7 +74,11 @@ export function UserHistoryTab() {
             disabled={!userId.trim() || loading}
             className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
           >
-            {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+            {loading ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Shield className="h-4 w-4" />
+            )}
             Investigate
           </button>
         </div>
@@ -88,7 +92,9 @@ export function UserHistoryTab() {
       )}
 
       {!loading && searched && !data && (
-        <div className="p-8 text-center text-gray-400">No data found for this user</div>
+        <div className="p-8 text-center text-gray-400">
+          No data found for this user
+        </div>
       )}
 
       {!loading && data && (
@@ -110,11 +116,16 @@ export function UserHistoryTab() {
               value={parseInt(data.stats.failures).toLocaleString()}
               color="red"
             />
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border-l-4 border-green-500 shadow-sm">
-              <p className="text-sm text-gray-500 dark:text-gray-400">Modules Accessed</p>
+            <div className="bg-card dark:bg-gray-800 rounded-lg p-4 border-l-4 border-green-500 shadow-sm">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Modules Accessed
+              </p>
               <div className="flex flex-wrap gap-1 mt-2">
                 {(data.stats.modules_accessed ?? []).map((m) => (
-                  <span key={m} className="text-xs bg-green-100 text-green-800 rounded px-2 py-0.5">
+                  <span
+                    key={m}
+                    className="text-xs bg-green-100 text-green-800 rounded px-2 py-0.5"
+                  >
                     {m}
                   </span>
                 ))}
@@ -123,7 +134,7 @@ export function UserHistoryTab() {
           </div>
 
           {/* Timeline */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-card dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                 Activity Timeline — {data.logs.length} entries
@@ -150,8 +161,8 @@ export function UserHistoryTab() {
                         !row.success
                           ? "border-l-4 border-red-400 bg-red-50/30 dark:bg-red-900/10"
                           : row.response_time_ms > 2000
-                          ? "border-l-4 border-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/10"
-                          : ""
+                            ? "border-l-4 border-yellow-400 bg-yellow-50/30 dark:bg-yellow-900/10"
+                            : ""
                       }`}
                     >
                       <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
@@ -168,7 +179,9 @@ export function UserHistoryTab() {
                       >
                         {row.path}
                       </td>
-                      <td className="px-3 py-2">{statusBadge(row.status_code)}</td>
+                      <td className="px-3 py-2">
+                        {statusBadge(row.status_code)}
+                      </td>
                       <td className="px-3 py-2 text-right text-xs">
                         <span
                           className={

@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -34,7 +30,11 @@ function unwrap<T>(r: unknown): T {
 export function ExpiryAlertsTab() {
   const qc = useQueryClient();
 
-  const { data: rows = [], error, isLoading } = useQuery<ExpiryAlert[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<ExpiryAlert[]>({
     queryKey: ["pharmacy", "expiry-alerts"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -48,15 +48,15 @@ export function ExpiryAlertsTab() {
   const scanMut = useMutation({
     mutationFn: () =>
       fetchAdminAPI("/pharmacy/inventory/v2/expiry-scan", { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] }),
   });
 
   const expired = rows.filter((r) => r.severity === "expired").length;
   const critical = rows.filter((r) => r.severity === "critical").length;
   const warning = rows.filter((r) => r.severity === "warning").length;
-  const errMsg = (error ?? scanMut.error)
-    ? (error ?? scanMut.error)!.toString()
-    : null;
+  const errMsg =
+    (error ?? scanMut.error) ? (error ?? scanMut.error)!.toString() : null;
 
   return (
     <div className="space-y-4">
@@ -76,7 +76,9 @@ export function ExpiryAlertsTab() {
             {scanMut.isPending ? "Scanning…" : "Run scan"}
           </button>
           <button
-            onClick={() => qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] })}
+            onClick={() =>
+              qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] })
+            }
             className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
           >
             Refresh
@@ -85,19 +87,19 @@ export function ExpiryAlertsTab() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Total alerts</p>
           <p className="text-xl font-semibold mt-1">{rows.length}</p>
         </div>
-        <div className="bg-white rounded-lg border border-rose-300 shadow-sm p-3">
+        <div className="bg-card rounded-lg border border-rose-300 shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Expired</p>
           <p className="text-xl font-semibold mt-1 text-rose-700">{expired}</p>
         </div>
-        <div className="bg-white rounded-lg border border-rose-200 shadow-sm p-3">
+        <div className="bg-card rounded-lg border border-rose-200 shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Critical (≤30d)</p>
           <p className="text-xl font-semibold mt-1 text-rose-600">{critical}</p>
         </div>
-        <div className="bg-white rounded-lg border border-amber-200 shadow-sm p-3">
+        <div className="bg-card rounded-lg border border-amber-200 shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Warning (≤90d)</p>
           <p className="text-xl font-semibold mt-1 text-amber-700">{warning}</p>
         </div>
@@ -114,7 +116,7 @@ export function ExpiryAlertsTab() {
       ) : rows.length === 0 ? (
         <EmptyState title="All clear" description="No batches expiring soon." />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -144,7 +146,9 @@ export function ExpiryAlertsTab() {
                     </span>
                   </td>
                   <td className="px-3 py-2 font-medium">{r.item_name}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.batch_number}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {r.batch_number}
+                  </td>
                   <td className="px-3 py-2 text-xs">{r.expiry_date}</td>
                   <td
                     className={`px-3 py-2 font-mono ${
@@ -159,7 +163,9 @@ export function ExpiryAlertsTab() {
                   </td>
                   <td className="px-3 py-2 font-mono">
                     {r.remaining_quantity}
-                    {r.unit ? <span className="text-muted-foreground"> {r.unit}</span> : null}
+                    {r.unit ? (
+                      <span className="text-muted-foreground"> {r.unit}</span>
+                    ) : null}
                   </td>
                 </tr>
               ))}

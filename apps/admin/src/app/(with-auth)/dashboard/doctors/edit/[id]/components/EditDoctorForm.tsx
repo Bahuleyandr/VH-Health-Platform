@@ -248,7 +248,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl">
       {/* Professional Information */}
-      <div className="bg-white dark:bg-card shadow rounded-lg p-6">
+      <div className="bg-card dark:bg-card shadow rounded-lg p-6">
         <h2 className="text-lg font-medium text-foreground mb-4">
           Professional Information
         </h2>
@@ -429,7 +429,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
       </div>
 
       {/* Schedule Editor */}
-      <div className="bg-white dark:bg-card shadow rounded-lg p-6">
+      <div className="bg-card dark:bg-card shadow rounded-lg p-6">
         <h2 className="text-lg font-medium text-foreground mb-4">
           Weekly Schedule
         </h2>
@@ -492,7 +492,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
       </div>
 
       {/* Contact Information (Read-only) */}
-      <div className="bg-white dark:bg-card shadow rounded-lg p-6">
+      <div className="bg-card dark:bg-card shadow rounded-lg p-6">
         <h2 className="text-lg font-medium text-foreground mb-4">
           Contact Information (Read-only)
         </h2>

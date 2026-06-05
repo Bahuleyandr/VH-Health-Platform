@@ -79,7 +79,7 @@ export function CreateAdminForm({ onAdminCreated }: CreateAdminFormProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-4 p-6 border rounded-lg bg-white shadow"
+      className="space-y-4 p-6 border rounded-lg bg-card shadow"
     >
       <div className="flex justify-between items-center">
         <h3 className="text-lg font-semibold text-foreground">

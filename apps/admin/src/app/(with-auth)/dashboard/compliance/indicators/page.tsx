@@ -31,14 +31,38 @@ type Payload = {
 };
 
 const TILES: { key: keyof Payload; title: string; lowerIsBetter: boolean }[] = [
-  { key: "medicationErrorRate", title: "Medication error rate", lowerIsBetter: true },
-  { key: "patientIdentificationErrorRate", title: "Patient-ID error rate", lowerIsBetter: true },
+  {
+    key: "medicationErrorRate",
+    title: "Medication error rate",
+    lowerIsBetter: true,
+  },
+  {
+    key: "patientIdentificationErrorRate",
+    title: "Patient-ID error rate",
+    lowerIsBetter: true,
+  },
   { key: "marOverrideRate", title: "MAR override rate", lowerIsBetter: true },
   { key: "cdsOverrideRate", title: "CDS override rate", lowerIsBetter: true },
-  { key: "unacknowledgedCriticalAlerts", title: "Unack. critical alerts", lowerIsBetter: true },
-  { key: "handHygieneCompliance", title: "Hand-hygiene compliance", lowerIsBetter: false },
-  { key: "hospitalAcquiredInfectionRate", title: "HAI rate", lowerIsBetter: true },
-  { key: "surgicalSiteInfectionRate", title: "Surgical-site infection rate", lowerIsBetter: true },
+  {
+    key: "unacknowledgedCriticalAlerts",
+    title: "Unack. critical alerts",
+    lowerIsBetter: true,
+  },
+  {
+    key: "handHygieneCompliance",
+    title: "Hand-hygiene compliance",
+    lowerIsBetter: false,
+  },
+  {
+    key: "hospitalAcquiredInfectionRate",
+    title: "HAI rate",
+    lowerIsBetter: true,
+  },
+  {
+    key: "surgicalSiteInfectionRate",
+    title: "Surgical-site infection rate",
+    lowerIsBetter: true,
+  },
 ];
 
 function toneFor(rate: number | undefined, lowerIsBetter: boolean) {
@@ -87,21 +111,30 @@ export default function ComplianceIndicatorsPage() {
                 tables: [
                   {
                     title: "NABH / JCI indicators",
-                    head: ["Indicator", "Rate", "Numerator / Denominator", "Status"],
+                    head: [
+                      "Indicator",
+                      "Rate",
+                      "Numerator / Denominator",
+                      "Status",
+                    ],
                     rows: TILES.map((t) => {
                       const ind = data[t.key] as Indicator;
                       return [
                         t.title,
                         ind.available ? `${ind.ratePct?.toFixed(2)}%` : "—",
-                        ind.available ? `${ind.numerator ?? 0} / ${ind.denominator ?? 0}` : "—",
-                        ind.available ? "Tracked" : (ind.reason ?? "Not available"),
+                        ind.available
+                          ? `${ind.numerator ?? 0} / ${ind.denominator ?? 0}`
+                          : "—",
+                        ind.available
+                          ? "Tracked"
+                          : (ind.reason ?? "Not available"),
                       ];
                     }),
                   },
                 ],
               });
             }}
-            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-white hover:border-indigo-500"
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:border-indigo-500"
           >
             Export PDF
           </button>
@@ -112,11 +145,18 @@ export default function ComplianceIndicatorsPage() {
         {TILES.map((t) => {
           const ind = data[t.key] as Indicator;
           return (
-            <div key={String(t.key)} className="rounded-xl border border-border bg-card p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.title}</p>
+            <div
+              key={String(t.key)}
+              className="rounded-xl border border-border bg-card p-4"
+            >
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                {t.title}
+              </p>
               {ind.available ? (
                 <>
-                  <p className={`mt-1 text-2xl font-bold ${toneFor(ind.ratePct, t.lowerIsBetter)}`}>
+                  <p
+                    className={`mt-1 text-2xl font-bold ${toneFor(ind.ratePct, t.lowerIsBetter)}`}
+                  >
                     {ind.ratePct?.toFixed(2) ?? "—"}%
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -125,7 +165,9 @@ export default function ComplianceIndicatorsPage() {
                 </>
               ) : (
                 <>
-                  <p className="mt-1 text-lg font-semibold text-muted-foreground">—</p>
+                  <p className="mt-1 text-lg font-semibold text-muted-foreground">
+                    —
+                  </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {ind.reason ?? "Not available"}
                   </p>

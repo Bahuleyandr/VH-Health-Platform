@@ -5,11 +5,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -101,8 +97,8 @@ export default function PmjayPage() {
       </h1>
       <p className="text-sm text-muted-foreground mb-6">
         Beneficiary verification → fixed-rate package pre-auth → claim
-        settlement. Different model from private TPA claims (which live
-        under Insurance).
+        settlement. Different model from private TPA claims (which live under
+        Insurance).
       </p>
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 w-fit">
         {(
@@ -117,7 +113,7 @@ export default function PmjayPage() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -137,7 +133,11 @@ function CasesTab() {
   const [statusFilter, setStatusFilter] = useState("");
   const [openCase, setOpenCase] = useState<number | null>(null);
 
-  const { data: rows = [], error, isLoading } = useQuery<Case[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<Case[]>({
     queryKey: ["pmjay", "cases", { statusFilter }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -174,7 +174,11 @@ function CasesTab() {
         "",
       );
       if (ref === null) return;
-      transitionMut.mutate({ id: c.id, status, scheme_reference_id: ref || undefined });
+      transitionMut.mutate({
+        id: c.id,
+        status,
+        scheme_reference_id: ref || undefined,
+      });
       return;
     }
     if (status === "preauth_approved" || status === "claim_approved") {
@@ -220,7 +224,12 @@ function CasesTab() {
   // Allowed transitions match backend STATUS_TRANSITIONS map.
   const allowedNextStatuses: Record<string, string[]> = {
     preauth_draft: ["preauth_submitted", "cancelled"],
-    preauth_submitted: ["preauth_approved", "preauth_queried", "preauth_denied", "cancelled"],
+    preauth_submitted: [
+      "preauth_approved",
+      "preauth_queried",
+      "preauth_denied",
+      "cancelled",
+    ],
     preauth_queried: ["preauth_submitted", "preauth_denied", "cancelled"],
     preauth_approved: ["admission_in_progress", "cancelled"],
     admission_in_progress: ["discharge_pending", "cancelled"],
@@ -238,7 +247,9 @@ function CasesTab() {
     <div className="space-y-4">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -246,7 +257,9 @@ function CasesTab() {
           >
             <option value="">All</option>
             {Object.keys(STATUS_COLOURS).map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+              <option key={s} value={s}>
+                {s.replace(/_/g, " ")}
+              </option>
             ))}
           </select>
         </div>
@@ -267,9 +280,12 @@ function CasesTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No cases" description="No PMJAY cases match this filter." />
+        <EmptyState
+          title="No cases"
+          description="No PMJAY cases match this filter."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -286,22 +302,35 @@ function CasesTab() {
             </thead>
             <tbody>
               {rows.map((c) => (
-                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className="px-3 py-2 font-mono text-xs">{c.case_number}</td>
+                <tr
+                  key={c.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {c.case_number}
+                  </td>
                   <td className="px-3 py-2 text-xs font-mono">
                     {c.patient_uid.slice(0, 8)}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     <div>{c.scheme_code}</div>
-                    <div className="text-muted-foreground font-mono">{c.package_code}</div>
-                    <div className="text-muted-foreground">{c.procedure_name}</div>
+                    <div className="text-muted-foreground font-mono">
+                      {c.package_code}
+                    </div>
+                    <div className="text-muted-foreground">
+                      {c.procedure_name}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-xs max-w-xs truncate">
                     {c.primary_diagnosis}
                   </td>
-                  <td className="px-3 py-2 font-mono">{fmtINR(c.locked_package_rate)}</td>
                   <td className="px-3 py-2 font-mono">
-                    {c.approved_amount != null ? fmtINR(c.approved_amount) : "—"}
+                    {fmtINR(c.locked_package_rate)}
+                  </td>
+                  <td className="px-3 py-2 font-mono">
+                    {c.approved_amount != null
+                      ? fmtINR(c.approved_amount)
+                      : "—"}
                   </td>
                   <td className="px-3 py-2 font-mono">
                     {c.paid_amount != null ? fmtINR(c.paid_amount) : "—"}
@@ -356,7 +385,8 @@ function CasesTab() {
 }
 
 function NewCaseModal({
-  onClose, onCreated,
+  onClose,
+  onCreated,
 }: {
   onClose: () => void;
   onCreated: () => void;
@@ -411,24 +441,38 @@ function NewCaseModal({
     onSuccess: onCreated,
   });
 
-  const errMsg = createMut.error instanceof Error ? createMut.error.message : null;
+  const errMsg =
+    createMut.error instanceof Error ? createMut.error.message : null;
   const verifiedBeneficiary = beneficiaries.find(
     (b) => b.id === form.beneficiary_id && b.verified_at,
   );
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl mb-8">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-2xl mb-8">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">New PMJAY case</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Patient UID *</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Patient UID *
+            </label>
             <input
               value={form.patient_uid}
-              onChange={(e) => setForm({ ...form, patient_uid: e.target.value, beneficiary_id: 0 })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  patient_uid: e.target.value,
+                  beneficiary_id: 0,
+                })
+              }
               placeholder="UUID"
               className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono"
             />
@@ -440,7 +484,8 @@ function NewCaseModal({
               </label>
               {beneficiaries.length === 0 ? (
                 <p className="text-xs text-amber-700">
-                  No beneficiaries linked to this patient. Add one in the Beneficiaries tab first.
+                  No beneficiaries linked to this patient. Add one in the
+                  Beneficiaries tab first.
                 </p>
               ) : (
                 <select
@@ -462,8 +507,8 @@ function NewCaseModal({
               )}
               {form.beneficiary_id > 0 && !verifiedBeneficiary && (
                 <p className="text-xs text-rose-700 mt-1">
-                  This beneficiary is not verified. Verify (OTP / biometric) in the
-                  Beneficiaries tab before creating a case.
+                  This beneficiary is not verified. Verify (OTP / biometric) in
+                  the Beneficiaries tab before creating a case.
                 </p>
               )}
             </div>
@@ -490,11 +535,15 @@ function NewCaseModal({
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono">{p.package_code}</span>
-                      <span className="font-mono">{fmtINR(p.package_rate)}</span>
+                      <span className="font-mono">
+                        {fmtINR(p.package_rate)}
+                      </span>
                     </div>
                     <div>{p.procedure_name}</div>
                     {p.specialty_group && (
-                      <div className="text-muted-foreground">{p.specialty_group}</div>
+                      <div className="text-muted-foreground">
+                        {p.specialty_group}
+                      </div>
                     )}
                   </button>
                 ))}
@@ -507,7 +556,9 @@ function NewCaseModal({
             </label>
             <input
               value={form.primary_diagnosis}
-              onChange={(e) => setForm({ ...form, primary_diagnosis: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, primary_diagnosis: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
@@ -518,7 +569,9 @@ function NewCaseModal({
               </label>
               <input
                 value={form.treating_doctor_name}
-                onChange={(e) => setForm({ ...form, treating_doctor_name: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, treating_doctor_name: e.target.value })
+                }
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm"
               />
             </div>
@@ -529,7 +582,9 @@ function NewCaseModal({
               <input
                 type="date"
                 value={form.expected_admission_date}
-                onChange={(e) => setForm({ ...form, expected_admission_date: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, expected_admission_date: e.target.value })
+                }
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm"
               />
             </div>
@@ -569,7 +624,11 @@ function BeneficiariesTab() {
   const [submittedUid, setSubmittedUid] = useState("");
   const [showAdd, setShowAdd] = useState(false);
 
-  const { data: rows = [], isLoading, error } = useQuery<Beneficiary[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<Beneficiary[]>({
     queryKey: ["pmjay", "beneficiaries", "patient", submittedUid],
     queryFn: async () => {
       if (!submittedUid) return [];
@@ -587,7 +646,8 @@ function BeneficiariesTab() {
         method: "POST",
         body: { verification_method: vars.method },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pmjay", "beneficiaries"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["pmjay", "beneficiaries"] }),
   });
 
   function verify(b: Beneficiary) {
@@ -644,7 +704,10 @@ function BeneficiariesTab() {
       )}
 
       {!submittedUid ? (
-        <EmptyState title="Enter a patient UID" description="Look up linked PMJAY / scheme beneficiaries." />
+        <EmptyState
+          title="Enter a patient UID"
+          description="Look up linked PMJAY / scheme beneficiaries."
+        />
       ) : isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
@@ -653,7 +716,7 @@ function BeneficiariesTab() {
           description="Click 'Link beneficiary' to add one."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -669,19 +732,30 @@ function BeneficiariesTab() {
             </thead>
             <tbody>
               {rows.map((b) => (
-                <tr key={b.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className="px-3 py-2 font-mono text-xs">{b.scheme_code}</td>
+                <tr
+                  key={b.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {b.scheme_code}
+                  </td>
                   <td className="px-3 py-2 font-mono text-xs">
                     {b.beneficiary_id}
                     {b.family_id && (
-                      <div className="text-muted-foreground">family {b.family_id}</div>
+                      <div className="text-muted-foreground">
+                        family {b.family_id}
+                      </div>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs">{b.policyholder_name ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {b.policyholder_name ?? "—"}
+                  </td>
                   <td className="px-3 py-2 text-xs">{b.state_code ?? "—"}</td>
                   <td className="px-3 py-2 text-xs">{b.policy_year ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-xs">
-                    {b.cumulative_used != null ? fmtINR(b.cumulative_used) : "—"}
+                    {b.cumulative_used != null
+                      ? fmtINR(b.cumulative_used)
+                      : "—"}
                   </td>
                   <td className="px-3 py-2">
                     {b.verified_at ? (
@@ -698,7 +772,9 @@ function BeneficiariesTab() {
                       </button>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs">{b.age_eligible ? "" : "✗ age"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {b.age_eligible ? "" : "✗ age"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -721,7 +797,9 @@ function BeneficiariesTab() {
 }
 
 function AddBeneficiaryModal({
-  patientUid, onClose, onSaved,
+  patientUid,
+  onClose,
+  onSaved,
 }: {
   patientUid: string;
   onClose: () => void;
@@ -742,9 +820,7 @@ function AddBeneficiaryModal({
         method: "POST",
         body: {
           patient_uid: patientUid,
-          ...Object.fromEntries(
-            Object.entries(form).filter(([, v]) => v),
-          ),
+          ...Object.fromEntries(Object.entries(form).filter(([, v]) => v)),
         },
       }),
     onSuccess: onSaved,
@@ -752,17 +828,26 @@ function AddBeneficiaryModal({
   const errMsg = mut.error instanceof Error ? mut.error.message : null;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-md">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Link scheme beneficiary</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Scheme</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Scheme
+            </label>
             <select
               value={form.scheme_code}
-              onChange={(e) => setForm({ ...form, scheme_code: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, scheme_code: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             >
               <option value="AB-PMJAY">AB-PMJAY (central)</option>
@@ -782,7 +867,9 @@ function AddBeneficiaryModal({
             { k: "policy_year", l: "Policy year (e.g. 2026-27)" },
           ].map(({ k, l }) => (
             <div key={k}>
-              <label className="text-xs text-muted-foreground block mb-1">{l}</label>
+              <label className="text-xs text-muted-foreground block mb-1">
+                {l}
+              </label>
               <input
                 value={form[k as keyof typeof form]}
                 onChange={(e) => setForm({ ...form, [k]: e.target.value })}
@@ -816,7 +903,11 @@ function PackagesTab() {
   const [q, setQ] = useState("");
   const [scheme, setScheme] = useState("");
 
-  const { data: rows = [], isLoading, error } = useQuery<PmjayPackage[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<PmjayPackage[]>({
     queryKey: ["pmjay", "packages", { q, scheme }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "300" });
@@ -833,7 +924,9 @@ function PackagesTab() {
     <div className="space-y-4">
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Scheme</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Scheme
+          </label>
           <select
             value={scheme}
             onChange={(e) => setScheme(e.target.value)}
@@ -848,7 +941,9 @@ function PackagesTab() {
           </select>
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Search</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Search
+          </label>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -867,9 +962,12 @@ function PackagesTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No packages" description="No HBP packages match this filter." />
+        <EmptyState
+          title="No packages"
+          description="No HBP packages match this filter."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -883,13 +981,26 @@ function PackagesTab() {
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className="px-3 py-2 font-mono text-xs">{p.scheme_code}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{p.package_code}</td>
+                <tr
+                  key={p.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {p.scheme_code}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {p.package_code}
+                  </td>
                   <td className="px-3 py-2">{p.procedure_name}</td>
-                  <td className="px-3 py-2 text-xs">{p.specialty_group ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-right">{fmtINR(p.package_rate)}</td>
-                  <td className="px-3 py-2 text-xs">{p.los_days != null ? `${p.los_days}d` : "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {p.specialty_group ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-right">
+                    {fmtINR(p.package_rate)}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {p.los_days != null ? `${p.los_days}d` : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>

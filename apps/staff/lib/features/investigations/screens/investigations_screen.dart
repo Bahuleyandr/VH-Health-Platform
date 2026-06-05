@@ -291,7 +291,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             ),
           ),
           Container(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             child: TabBar(
               controller: _tabController,
               labelColor: AppTheme.primaryBlue,

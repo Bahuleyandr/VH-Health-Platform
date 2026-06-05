@@ -26,7 +26,10 @@ export function LogSearchTab() {
   const [page, setPage] = useState(0);
   const [data, setData] = useState<LogsResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [modules, setModules] = useState<ModulesResponse>({ modules: [], actions: [] });
+  const [modules, setModules] = useState<ModulesResponse>({
+    modules: [],
+    actions: [],
+  });
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const LIMIT = 100;
@@ -54,7 +57,7 @@ export function LogSearchTab() {
 
       const res = await getJSON<LogsResponse>(
         "/api/v1/admin/audit/logs",
-        params as Record<string, string | number | boolean | undefined | null>
+        params as Record<string, string | number | boolean | undefined | null>,
       );
       setData(res ?? null);
     } catch {
@@ -77,45 +80,63 @@ export function LogSearchTab() {
   return (
     <div className="space-y-4">
       {/* Filter bar */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+      <div className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
           <select
             className="input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
             value={filters.module}
-            onChange={(e) => { setFilters((f) => ({ ...f, module: e.target.value })); setPage(0); }}
+            onChange={(e) => {
+              setFilters((f) => ({ ...f, module: e.target.value }));
+              setPage(0);
+            }}
           >
             <option value="">All Modules</option>
             {modules.modules.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
           </select>
 
           <select
             className="input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
             value={filters.action}
-            onChange={(e) => { setFilters((f) => ({ ...f, action: e.target.value })); setPage(0); }}
+            onChange={(e) => {
+              setFilters((f) => ({ ...f, action: e.target.value }));
+              setPage(0);
+            }}
           >
             <option value="">All Actions</option>
             {modules.actions.map((a) => (
-              <option key={a} value={a}>{a}</option>
+              <option key={a} value={a}>
+                {a}
+              </option>
             ))}
           </select>
 
           <select
             className="input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
             value={filters.method}
-            onChange={(e) => { setFilters((f) => ({ ...f, method: e.target.value })); setPage(0); }}
+            onChange={(e) => {
+              setFilters((f) => ({ ...f, method: e.target.value }));
+              setPage(0);
+            }}
           >
             <option value="">All Methods</option>
             {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
           </select>
 
           <select
             className="input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
             value={filters.success}
-            onChange={(e) => { setFilters((f) => ({ ...f, success: e.target.value })); setPage(0); }}
+            onChange={(e) => {
+              setFilters((f) => ({ ...f, success: e.target.value }));
+              setPage(0);
+            }}
           >
             <option value="">All Status</option>
             <option value="true">Success</option>
@@ -126,7 +147,10 @@ export function LogSearchTab() {
             type="date"
             className="input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
             value={filters.from}
-            onChange={(e) => { setFilters((f) => ({ ...f, from: e.target.value })); setPage(0); }}
+            onChange={(e) => {
+              setFilters((f) => ({ ...f, from: e.target.value }));
+              setPage(0);
+            }}
             placeholder="From"
           />
 
@@ -134,7 +158,10 @@ export function LogSearchTab() {
             type="date"
             className="input-sm border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
             value={filters.to}
-            onChange={(e) => { setFilters((f) => ({ ...f, to: e.target.value })); setPage(0); }}
+            onChange={(e) => {
+              setFilters((f) => ({ ...f, to: e.target.value }));
+              setPage(0);
+            }}
             placeholder="To"
           />
 
@@ -145,7 +172,10 @@ export function LogSearchTab() {
               placeholder="Search..."
               className="input-sm border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200"
               value={filters.search}
-              onChange={(e) => { setFilters((f) => ({ ...f, search: e.target.value })); setPage(0); }}
+              onChange={(e) => {
+                setFilters((f) => ({ ...f, search: e.target.value }));
+                setPage(0);
+              }}
             />
           </div>
         </div>
@@ -178,7 +208,7 @@ export function LogSearchTab() {
       )}
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-x-auto">
+      <div className="bg-card dark:bg-gray-800 rounded-lg shadow-sm overflow-x-auto">
         {loading ? (
           <div className="p-8 text-center text-gray-400">
             <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
@@ -224,7 +254,9 @@ export function LogSearchTab() {
                         {row.user_name || "anon"}
                       </div>
                       {row.user_role && (
-                        <div className="text-xs text-gray-400">{row.user_role}</div>
+                        <div className="text-xs text-gray-400">
+                          {row.user_role}
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-2">{methodBadge(row.method)}</td>
@@ -245,7 +277,9 @@ export function LogSearchTab() {
                         {truncate(row.path, 40)}
                       </span>
                     </td>
-                    <td className="px-3 py-2">{statusBadge(row.status_code)}</td>
+                    <td className="px-3 py-2">
+                      {statusBadge(row.status_code)}
+                    </td>
                     <td className="px-3 py-2 text-right">
                       <span
                         className={
@@ -266,13 +300,17 @@ export function LogSearchTab() {
                             <span className="font-semibold text-gray-600 dark:text-gray-400">
                               IP:{" "}
                             </span>
-                            <span className="font-mono">{row.ip_address || "—"}</span>
+                            <span className="font-mono">
+                              {row.ip_address || "—"}
+                            </span>
                           </div>
                           <div>
                             <span className="font-semibold text-gray-600 dark:text-gray-400">
                               Full Path:{" "}
                             </span>
-                            <span className="font-mono break-all">{row.path}</span>
+                            <span className="font-mono break-all">
+                              {row.path}
+                            </span>
                           </div>
                           {row.request_summary && (
                             <div className="md:col-span-2">
@@ -289,7 +327,9 @@ export function LogSearchTab() {
                               <span className="font-semibold text-red-600">
                                 Error:{" "}
                               </span>
-                              <span className="text-red-500">{row.error_message}</span>
+                              <span className="text-red-500">
+                                {row.error_message}
+                              </span>
                             </div>
                           )}
                         </div>

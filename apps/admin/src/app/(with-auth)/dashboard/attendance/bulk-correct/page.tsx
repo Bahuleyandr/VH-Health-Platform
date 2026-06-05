@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import toast from 'react-hot-toast';
-import { bulkCorrectAttendance } from '@/lib/api/attendance';
-import { CheckCircle2, Download } from 'lucide-react';
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import toast from "react-hot-toast";
+import { bulkCorrectAttendance } from "@/lib/api/attendance";
+import { CheckCircle2, Download } from "lucide-react";
 
 interface Correction {
   staff_id: string | number;
@@ -23,24 +23,24 @@ interface CorrectionResult {
 }
 
 export default function BulkCorrectionPage() {
-  const [csvText, setCsvText] = useState('');
+  const [csvText, setCsvText] = useState("");
   const [corrections, setCorrections] = useState<Correction[]>([]);
-  const [globalReason, setGlobalReason] = useState('');
+  const [globalReason, setGlobalReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CorrectionResult | null>(null);
 
   const parseCSV = (text: string) => {
-    const lines = text.trim().split('\n');
+    const lines = text.trim().split("\n");
     if (lines.length < 2) {
-      toast.error('CSV must have a header row and at least one data row');
+      toast.error("CSV must have a header row and at least one data row");
       return;
     }
 
-    lines[0].split(',').map(h => h.trim()); // validate header exists
+    lines[0].split(",").map((h) => h.trim()); // validate header exists
     const data: Correction[] = [];
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
+      const values = lines[i].split(",").map((v) => v.trim());
       if (values.length < 2 || !values[0]) continue;
 
       const correction: Correction = {
@@ -48,14 +48,14 @@ export default function BulkCorrectionPage() {
         date: values[1],
         check_in_time: values[2] || undefined,
         check_out_time: values[3] || undefined,
-        reason: values[4] || undefined
+        reason: values[4] || undefined,
       };
 
       data.push(correction);
     }
 
     if (data.length === 0) {
-      toast.error('No valid corrections found in CSV');
+      toast.error("No valid corrections found in CSV");
       return;
     }
 
@@ -65,18 +65,20 @@ export default function BulkCorrectionPage() {
 
   const handleDownloadTemplate = async () => {
     try {
-      const response = await fetch('/api/v1/staff/admin/attendance/bulk-template');
+      const response = await fetch(
+        "/api/v1/staff/admin/attendance/bulk-template",
+      );
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = 'attendance_bulk_template.csv';
+      a.download = "attendance_bulk_template.csv";
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch {
-      toast.error('Failed to download template');
+      toast.error("Failed to download template");
     }
   };
 
@@ -95,7 +97,7 @@ export default function BulkCorrectionPage() {
 
   const handleSubmit = async () => {
     if (corrections.length === 0) {
-      toast.error('Please provide corrections');
+      toast.error("Please provide corrections");
       return;
     }
 
@@ -103,12 +105,12 @@ export default function BulkCorrectionPage() {
       setSubmitting(true);
       const response = await bulkCorrectAttendance<{ data: CorrectionResult }>({
         corrections,
-        reason: globalReason || undefined
+        reason: globalReason || undefined,
       });
       setResult(response.data);
-      toast.success('Bulk correction completed');
+      toast.success("Bulk correction completed");
     } catch {
-      toast.error('Failed to apply corrections');
+      toast.error("Failed to apply corrections");
     } finally {
       setSubmitting(false);
     }
@@ -117,7 +119,9 @@ export default function BulkCorrectionPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-primary">Bulk Attendance Correction</h1>
+        <h1 className="text-3xl font-bold text-primary">
+          Bulk Attendance Correction
+        </h1>
         <p className="text-sm text-gray-600 mt-1">
           Upload or paste CSV data to correct multiple attendance records
         </p>
@@ -129,7 +133,9 @@ export default function BulkCorrectionPage() {
           <div className="bg-blue-50 rounded-lg p-4 border border-blue-200 flex items-center justify-between">
             <div>
               <p className="font-medium text-blue-900">Need a template?</p>
-              <p className="text-sm text-blue-700">Download a CSV template to use as reference</p>
+              <p className="text-sm text-blue-700">
+                Download a CSV template to use as reference
+              </p>
             </div>
             <Button
               onClick={handleDownloadTemplate}
@@ -144,7 +150,9 @@ export default function BulkCorrectionPage() {
           {/* CSV Input */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Upload CSV File</label>
+              <label className="block text-sm font-medium mb-2">
+                Upload CSV File
+              </label>
               <input
                 type="file"
                 accept=".csv"
@@ -158,7 +166,9 @@ export default function BulkCorrectionPage() {
                 <div className="w-full border-t border-gray-300"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Or paste CSV data</span>
+                <span className="px-2 bg-card text-gray-500">
+                  Or paste CSV data
+                </span>
               </div>
             </div>
 
@@ -178,7 +188,9 @@ export default function BulkCorrectionPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Global Reason (Optional)</label>
+              <label className="block text-sm font-medium mb-2">
+                Global Reason (Optional)
+              </label>
               <Input
                 placeholder="Reason to apply to all corrections if not specified individually"
                 value={globalReason}
@@ -190,7 +202,9 @@ export default function BulkCorrectionPage() {
           {/* Preview */}
           {corrections.length > 0 && (
             <div className="space-y-4">
-              <h2 className="font-semibold text-lg">Preview ({corrections.length} records)</h2>
+              <h2 className="font-semibold text-lg">
+                Preview ({corrections.length} records)
+              </h2>
               <div className="overflow-x-auto rounded-lg border max-h-96 overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -207,9 +221,13 @@ export default function BulkCorrectionPage() {
                       <tr key={idx} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2 font-mono">{c.staff_id}</td>
                         <td className="px-4 py-2">{c.date}</td>
-                        <td className="px-4 py-2 text-xs">{c.check_in_time || '—'}</td>
-                        <td className="px-4 py-2 text-xs">{c.check_out_time || '—'}</td>
-                        <td className="px-4 py-2 text-xs">{c.reason || '—'}</td>
+                        <td className="px-4 py-2 text-xs">
+                          {c.check_in_time || "—"}
+                        </td>
+                        <td className="px-4 py-2 text-xs">
+                          {c.check_out_time || "—"}
+                        </td>
+                        <td className="px-4 py-2 text-xs">{c.reason || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -221,7 +239,7 @@ export default function BulkCorrectionPage() {
                 disabled={submitting}
                 className="w-full bg-primary text-white hover:bg-primary/90"
               >
-                {submitting ? 'Applying Corrections...' : 'Apply Corrections'}
+                {submitting ? "Applying Corrections..." : "Apply Corrections"}
               </Button>
             </div>
           )}
@@ -232,30 +250,41 @@ export default function BulkCorrectionPage() {
           <div className="bg-green-50 rounded-lg p-6 border border-green-200">
             <div className="flex items-center gap-3 mb-4">
               <CheckCircle2 className="text-green-600" size={24} />
-              <h2 className="text-xl font-semibold text-green-900">Bulk Correction Completed</h2>
+              <h2 className="text-xl font-semibold text-green-900">
+                Bulk Correction Completed
+              </h2>
             </div>
 
             <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="bg-white rounded p-3">
+              <div className="bg-card rounded p-3">
                 <p className="text-sm text-gray-600">Applied</p>
-                <p className="text-2xl font-bold text-green-600">{result.applied}</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {result.applied}
+                </p>
               </div>
-              <div className="bg-white rounded p-3">
+              <div className="bg-card rounded p-3">
                 <p className="text-sm text-gray-600">Skipped</p>
-                <p className="text-2xl font-bold text-yellow-600">{result.skipped}</p>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {result.skipped}
+                </p>
               </div>
-              <div className="bg-white rounded p-3">
+              <div className="bg-card rounded p-3">
                 <p className="text-sm text-gray-600">Errors</p>
-                <p className="text-2xl font-bold text-red-600">{result.errors?.length || 0}</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {result.errors?.length || 0}
+                </p>
               </div>
             </div>
 
             {result.errors && result.errors.length > 0 && (
               <div>
                 <p className="font-medium text-gray-900 mb-2">Errors:</p>
-                <div className="bg-white rounded p-3 max-h-48 overflow-y-auto">
+                <div className="bg-card rounded p-3 max-h-48 overflow-y-auto">
                   {result.errors.map((err, idx) => (
-                    <div key={idx} className="text-xs text-red-600 mb-1 font-mono">
+                    <div
+                      key={idx}
+                      className="text-xs text-red-600 mb-1 font-mono"
+                    >
                       Staff {err.staff_id} ({err.date}): {err.error}
                     </div>
                   ))}
@@ -266,10 +295,10 @@ export default function BulkCorrectionPage() {
 
           <Button
             onClick={() => {
-              setCsvText('');
+              setCsvText("");
               setCorrections([]);
               setResult(null);
-              setGlobalReason('');
+              setGlobalReason("");
             }}
             className="w-full"
             variant="outline"

@@ -203,7 +203,7 @@ export function CommandPalette() {
             leaveFrom="opacity-100 scale-100"
             leaveTo="opacity-0 scale-95"
           >
-            <Dialog.Panel className="mx-auto max-w-2xl transform overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5 transition-all">
+            <Dialog.Panel className="mx-auto max-w-2xl transform overflow-hidden rounded-xl bg-card shadow-2xl ring-1 ring-black/5 transition-all">
               <div className="flex items-center border-b px-4">
                 <SearchIcon className="w-5 h-5 text-muted-foreground mr-3" />
                 <input
@@ -233,7 +233,10 @@ export function CommandPalette() {
                           : "hover:bg-muted"
                       }`}
                       onClick={command.action}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') command.action(); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ")
+                          command.action();
+                      }}
                       onMouseEnter={() => setSelectedIndex(index)}
                     >
                       <div className="mr-3 flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-muted">

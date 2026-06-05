@@ -15,10 +15,12 @@ interface Props {
 export function AuditTrailDialog({ target, data, isLoading, onClose }: Props) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
+      <div className="bg-card rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
         <div className="flex items-center justify-between p-5 border-b">
           <div>
-            <h2 className="font-semibold text-lg">{target.number} — Audit Trail</h2>
+            <h2 className="font-semibold text-lg">
+              {target.number} — Audit Trail
+            </h2>
             <p className="text-xs text-gray-500 capitalize">
               {target.type} report · complete action history
             </p>

@@ -43,7 +43,11 @@ export function ScheduleRegisterTab() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  const { data: rows = [], error, isLoading } = useQuery<ScheduleEntry[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<ScheduleEntry[]>({
     queryKey: ["pharmacy", "schedule-register", { scheduleClass, from, to }],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -68,7 +72,9 @@ export function ScheduleRegisterTab() {
 
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Class</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Class
+          </label>
           <select
             value={scheduleClass}
             onChange={(e) => setScheduleClass(e.target.value)}
@@ -81,7 +87,9 @@ export function ScheduleRegisterTab() {
           </select>
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">From</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            From
+          </label>
           <input
             type="date"
             value={from}
@@ -99,7 +107,11 @@ export function ScheduleRegisterTab() {
           />
         </div>
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["pharmacy", "schedule-register"] })}
+          onClick={() =>
+            qc.invalidateQueries({
+              queryKey: ["pharmacy", "schedule-register"],
+            })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -120,7 +132,7 @@ export function ScheduleRegisterTab() {
           description="No dispenses recorded for these filters."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -153,12 +165,18 @@ export function ScheduleRegisterTab() {
                       {r.schedule_class}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs font-mono">{r.batch_number}</td>
-                  <td className="px-3 py-2 font-mono">{r.quantity_dispensed}</td>
+                  <td className="px-3 py-2 text-xs font-mono">
+                    {r.batch_number}
+                  </td>
+                  <td className="px-3 py-2 font-mono">
+                    {r.quantity_dispensed}
+                  </td>
                   <td className="px-3 py-2 text-xs">{r.patient_name ?? "—"}</td>
                   <td className="px-3 py-2 text-xs">
                     <div>{r.prescriber_name ?? "—"}</div>
-                    <div className="text-muted-foreground">{r.prescriber_reg}</div>
+                    <div className="text-muted-foreground">
+                      {r.prescriber_reg}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {r.schedule_class === "X" && !r.witness_name ? (
@@ -166,7 +184,9 @@ export function ScheduleRegisterTab() {
                     ) : (
                       <>
                         <div>{r.witness_name ?? "—"}</div>
-                        <div className="text-muted-foreground">{r.witness_reg}</div>
+                        <div className="text-muted-foreground">
+                          {r.witness_reg}
+                        </div>
                       </>
                     )}
                   </td>

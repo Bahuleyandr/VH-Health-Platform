@@ -13,7 +13,9 @@ export function InsuranceClaimsTab() {
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
-  const [selectedClaim, setSelectedClaim] = useState<InsuranceClaim | null>(null);
+  const [selectedClaim, setSelectedClaim] = useState<InsuranceClaim | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const fetchClaims = useCallback(async () => {
@@ -37,7 +39,10 @@ export function InsuranceClaimsTab() {
     fetchClaims();
   }, [fetchClaims]);
 
-  const updateClaimStatus = async (claimId: number, payload: UpdateClaimPayload) => {
+  const updateClaimStatus = async (
+    claimId: number,
+    payload: UpdateClaimPayload,
+  ) => {
     try {
       await putJSON(`/api/v1/billing/insurance/claim/${claimId}`, payload);
       setSelectedClaim(null);
@@ -83,7 +88,9 @@ export function InsuranceClaimsTab() {
       </div>
 
       {loading && (
-        <div className="text-center py-8 text-muted-foreground">Loading claims...</div>
+        <div className="text-center py-8 text-muted-foreground">
+          Loading claims...
+        </div>
       )}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
@@ -114,14 +121,24 @@ export function InsuranceClaimsTab() {
             </thead>
             <tbody>
               {claims.map((claim) => (
-                <tr key={claim.id} className="border-b border-border hover:bg-muted/40">
-                  <td className="py-2 px-3 font-medium">{claim.claim_number}</td>
+                <tr
+                  key={claim.id}
+                  className="border-b border-border hover:bg-muted/40"
+                >
+                  <td className="py-2 px-3 font-medium">
+                    {claim.claim_number}
+                  </td>
                   <td className="py-2 px-3">{claim.insurance_provider}</td>
-                  <td className="py-2 px-3 font-mono text-xs">{claim.policy_number}</td>
+                  <td className="py-2 px-3 font-mono text-xs">
+                    {claim.policy_number}
+                  </td>
                   <td className="py-2 px-3">{fmt(claim.claim_amount)}</td>
                   <td className="py-2 px-3">{fmt(claim.approved_amount)}</td>
                   <td className="py-2 px-3">
-                    <StatusBadge status={claim.status} colorMap={CLAIM_STATUS_COLORS} />
+                    <StatusBadge
+                      status={claim.status}
+                      colorMap={CLAIM_STATUS_COLORS}
+                    />
                   </td>
                   <td className="py-2 px-3">{fmtDate(claim.submitted_at)}</td>
                   <td className="py-2 px-3">
@@ -188,13 +205,16 @@ function UpdateClaimModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-md w-full p-6">
+      <div className="bg-card rounded-xl max-w-md w-full p-6">
         <div className="flex justify-between items-start mb-4">
           <div>
             <h3 className="text-lg font-bold">Update Claim</h3>
             <p className="text-sm text-gray-500">{claim.claim_number}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+          >
             ✕
           </button>
         </div>
@@ -214,7 +234,10 @@ function UpdateClaimModal({
             <select
               value={form.status}
               onChange={(e) =>
-                setForm({ ...form, status: e.target.value as UpdateClaimPayload["status"] })
+                setForm({
+                  ...form,
+                  status: e.target.value as UpdateClaimPayload["status"],
+                })
               }
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
             >
@@ -226,15 +249,21 @@ function UpdateClaimModal({
             </select>
           </div>
 
-          {(form.status === "approved" || form.status === "partially_approved") && (
+          {(form.status === "approved" ||
+            form.status === "partially_approved") && (
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Approved Amount (₹)</label>
+              <label className="text-xs text-gray-500 block mb-1">
+                Approved Amount (₹)
+              </label>
               <input
                 type="number"
                 min={0}
                 value={form.approved_amount ?? ""}
                 onChange={(e) =>
-                  setForm({ ...form, approved_amount: parseFloat(e.target.value) || 0 })
+                  setForm({
+                    ...form,
+                    approved_amount: parseFloat(e.target.value) || 0,
+                  })
                 }
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
               />
@@ -243,7 +272,9 @@ function UpdateClaimModal({
 
           {form.status === "rejected" && (
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Rejection Reason</label>
+              <label className="text-xs text-gray-500 block mb-1">
+                Rejection Reason
+              </label>
               <textarea
                 rows={3}
                 value={form.reason ?? ""}

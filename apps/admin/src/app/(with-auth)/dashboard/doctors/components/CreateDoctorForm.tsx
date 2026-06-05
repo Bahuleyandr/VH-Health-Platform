@@ -30,7 +30,8 @@ export function CreateDoctorForm({
       name: formData.get("name") as string,
       department: formData.get("department") as string,
       specialization: formData.get("specialization") as string,
-      consultation_fee: parseFloat(formData.get("consultation_fee") as string) || undefined,
+      consultation_fee:
+        parseFloat(formData.get("consultation_fee") as string) || undefined,
       available_days: selectedDays.length > 0 ? selectedDays : undefined,
     };
 
@@ -65,7 +66,7 @@ export function CreateDoctorForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
       {/* Doctor Information */}
-      <div className="bg-white shadow rounded-lg p-6">
+      <div className="bg-card shadow rounded-lg p-6">
         <h2 className="text-lg font-medium text-foreground mb-4">
           Doctor Information
         </h2>
@@ -92,7 +93,7 @@ export function CreateDoctorForm({
       </div>
 
       {/* Professional Information */}
-      <div className="bg-white shadow rounded-lg p-6">
+      <div className="bg-card shadow rounded-lg p-6">
         <h2 className="text-lg font-medium text-foreground mb-4">
           Professional Information
         </h2>
@@ -163,8 +164,19 @@ export function CreateDoctorForm({
               Available Days
             </label>
             <div className="flex flex-wrap gap-3">
-              {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => (
-                <label key={day} className="flex items-center gap-1.5 cursor-pointer">
+              {[
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+              ].map((day) => (
+                <label
+                  key={day}
+                  className="flex items-center gap-1.5 cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     name="available_days"
@@ -172,7 +184,9 @@ export function CreateDoctorForm({
                     disabled={loading}
                     className="rounded border-input"
                   />
-                  <span className="text-sm text-foreground">{day.slice(0, 3)}</span>
+                  <span className="text-sm text-foreground">
+                    {day.slice(0, 3)}
+                  </span>
                 </label>
               ))}
             </div>

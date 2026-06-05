@@ -82,7 +82,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.surfaceWhite,
               ),
               onChanged: (v) => setState(() => _searchQuery = v),
             ),

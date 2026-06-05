@@ -52,7 +52,8 @@ export function TrailPanel({ data }: Props) {
           </p>
           <div className="flex gap-4 mt-2 text-xs text-gray-500">
             <span>
-              Status: <b className="text-gray-800">{String(report.status ?? "")}</b>
+              Status:{" "}
+              <b className="text-gray-800">{String(report.status ?? "")}</b>
             </span>
             {report.assigned_to_name ? (
               <span>
@@ -79,13 +80,13 @@ export function TrailPanel({ data }: Props) {
                   entry.author_role === "system"
                     ? "bg-gray-300"
                     : entry.author_role === "reporter"
-                    ? "bg-blue-400"
-                    : entry.is_internal
-                    ? "bg-yellow-400"
-                    : "bg-green-400"
+                      ? "bg-blue-400"
+                      : entry.is_internal
+                        ? "bg-yellow-400"
+                        : "bg-green-400"
                 } `}
               />
-              <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm">
+              <div className="bg-card border border-gray-200 rounded-lg p-3 text-sm">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <span className="font-medium text-gray-800">
                     {entry.author_name
@@ -98,10 +99,13 @@ export function TrailPanel({ data }: Props) {
                     </span>
                   ) : null}
                   <span className="text-xs text-gray-400 ml-auto">
-                    {new Date(String(entry.created_at)).toLocaleString("en-IN", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
+                    {new Date(String(entry.created_at)).toLocaleString(
+                      "en-IN",
+                      {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      },
+                    )}
                   </span>
                 </div>
                 <p className="text-gray-600">{String(entry.message ?? "")}</p>

@@ -66,7 +66,7 @@ class _VitalsScreenState extends State<VitalsScreen>
               accent: const Color(0xFFC62828),
             ),
           Container(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             child: TabBar(
               controller: _tabController,
               labelColor: const Color(0xFFC62828),

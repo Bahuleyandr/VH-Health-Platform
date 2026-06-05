@@ -126,7 +126,7 @@ export function AppointmentsTable({
         countLabel={`${rows.length} of ${appointments.length} appointments`}
       />
 
-      <div className="overflow-hidden rounded-lg bg-white shadow">
+      <div className="overflow-hidden rounded-lg bg-card shadow">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] divide-y divide-border">
             <thead className="bg-muted">
@@ -162,7 +162,7 @@ export function AppointmentsTable({
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-border bg-white">
+            <tbody className="divide-y divide-border bg-card">
               {paged.rows.map((appt) => (
                 <tr key={appt.id}>
                   <td className="whitespace-nowrap px-6 py-4">

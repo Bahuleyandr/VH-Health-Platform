@@ -26,10 +26,9 @@ export function LiveFeedTab() {
       // getJSON already unwraps the success envelope's `.data` — reading
       // `res.data` again double-unwrapped to undefined, leaving the whole
       // Live Feed blank even when the backend returned a full summary.
-      const res = await getJSON<AuditSummary>(
-        "/api/v1/admin/audit/summary",
-        { hours }
-      );
+      const res = await getJSON<AuditSummary>("/api/v1/admin/audit/summary", {
+        hours,
+      });
       setData(res ?? null);
       setLastRefresh(new Date());
     } catch {
@@ -53,10 +52,8 @@ export function LiveFeedTab() {
     };
   }, [autoRefresh, fetch]);
 
-  const maxModuleCount = data?.top_modules.reduce(
-    (m, t) => Math.max(m, parseInt(t.count)),
-    1
-  ) ?? 1;
+  const maxModuleCount =
+    data?.top_modules.reduce((m, t) => Math.max(m, parseInt(t.count)), 1) ?? 1;
 
   return (
     <div className="space-y-6">
@@ -91,7 +88,9 @@ export function LiveFeedTab() {
                 : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
             }`}
           >
-            <RefreshCw className={`h-3 w-3 ${autoRefresh ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3 w-3 ${autoRefresh ? "animate-spin" : ""}`}
+            />
             {autoRefresh ? "Auto ON" : "Auto OFF"}
           </button>
           <button
@@ -107,7 +106,10 @@ export function LiveFeedTab() {
       {loading && !data ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+            <div
+              key={i}
+              className="h-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"
+            />
           ))}
         </div>
       ) : data ? (
@@ -148,7 +150,7 @@ export function LiveFeedTab() {
 
           {/* Module usage bars */}
           {data.top_modules.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <div className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                 Module Activity
               </h3>
@@ -164,7 +166,7 @@ export function LiveFeedTab() {
                         style={{
                           width: `${Math.max(
                             2,
-                            (parseInt(m.count) / maxModuleCount) * 100
+                            (parseInt(m.count) / maxModuleCount) * 100,
                           )}%`,
                         }}
                       />
@@ -185,7 +187,7 @@ export function LiveFeedTab() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Top users */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <div className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                 <User className="h-4 w-4" /> Top Users
               </h3>
@@ -211,13 +213,17 @@ export function LiveFeedTab() {
                           <div className="font-medium text-gray-800 dark:text-gray-200 truncate max-w-[140px]">
                             {u.user_name || "—"}
                           </div>
-                          <div className="text-xs text-gray-400">{u.user_role}</div>
+                          <div className="text-xs text-gray-400">
+                            {u.user_role}
+                          </div>
                         </td>
                         <td className="text-right text-gray-700 dark:text-gray-300">
                           {u.action_count}
                         </td>
                         <td className="text-right text-blue-600">{u.writes}</td>
-                        <td className="text-right text-red-500">{u.failures}</td>
+                        <td className="text-right text-red-500">
+                          {u.failures}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -226,7 +232,7 @@ export function LiveFeedTab() {
             </div>
 
             {/* Recent errors */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <div className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-red-500" /> Recent Errors
               </h3>
@@ -263,9 +269,10 @@ export function LiveFeedTab() {
 
           {/* Slow requests */}
           {data.slow_requests.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow-sm">
+            <div className="bg-card dark:bg-gray-800 rounded-lg p-4 shadow-sm">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                <Clock className="h-4 w-4 text-yellow-500" /> Slow Requests (&gt;2s)
+                <Clock className="h-4 w-4 text-yellow-500" /> Slow Requests
+                (&gt;2s)
               </h3>
               <div className="space-y-2">
                 {data.slow_requests.map((s) => (

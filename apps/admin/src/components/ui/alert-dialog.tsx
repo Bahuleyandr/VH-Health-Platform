@@ -70,11 +70,13 @@ export function AlertDialog({
             leaveFrom="opacity-100 scale-100"
             leaveTo="opacity-0 scale-95"
           >
-            <DialogPanel className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <DialogPanel className="w-full max-w-md rounded-lg bg-card p-6 shadow-xl">
               <DialogTitle className="text-lg font-semibold text-foreground">
                 {title}
               </DialogTitle>
-              <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {description}
+              </p>
 
               <div className="mt-6 flex justify-end gap-3">
                 <Button
@@ -86,7 +88,9 @@ export function AlertDialog({
                   {cancelLabel}
                 </Button>
                 <Button
-                  variant={variant === "destructive" ? "destructive" : "default"}
+                  variant={
+                    variant === "destructive" ? "destructive" : "default"
+                  }
                   onClick={handleConfirm}
                   disabled={loading}
                 >

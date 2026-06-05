@@ -1,11 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -28,7 +24,11 @@ export function ClaimsTab() {
   const [statusFilter, setStatusFilter] = useState("");
   const [agingFilter, setAgingFilter] = useState("");
 
-  const { data: rows = [], error, isLoading } = useQuery<Claim[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<Claim[]>({
     queryKey: ["insurance", "claims", { statusFilter, agingFilter }],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -52,7 +52,8 @@ export function ClaimsTab() {
           tpa_reference_id: vars.ref || undefined,
         },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
   });
 
   const decisionMut = useMutation({
@@ -63,14 +64,16 @@ export function ClaimsTab() {
       denial_reason?: string;
     }) => {
       const body: Record<string, unknown> = { decision: vars.decision };
-      if (vars.approved_amount != null) body.approved_amount = vars.approved_amount;
+      if (vars.approved_amount != null)
+        body.approved_amount = vars.approved_amount;
       if (vars.denial_reason != null) body.denial_reason = vars.denial_reason;
       return fetchAdminAPI(`/insurance/claims/${vars.c.id}/decision`, {
         method: "POST",
         body: body,
       });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
   });
 
   const paymentMut = useMutation({
@@ -86,7 +89,8 @@ export function ClaimsTab() {
           payment_reference: vars.payment_reference || undefined,
         },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
   });
 
   function submit(c: Claim) {
@@ -130,9 +134,13 @@ export function ClaimsTab() {
     });
   }
 
-  const errMsg = (error ?? submitMut.error ?? decisionMut.error ?? paymentMut.error)
-    ? (error ?? submitMut.error ?? decisionMut.error ?? paymentMut.error)!.toString()
-    : null;
+  const errMsg =
+    (error ?? submitMut.error ?? decisionMut.error ?? paymentMut.error)
+      ? (error ??
+          submitMut.error ??
+          decisionMut.error ??
+          paymentMut.error)!.toString()
+      : null;
   const busy =
     submitMut.isPending || decisionMut.isPending || paymentMut.isPending;
 
@@ -140,7 +148,9 @@ export function ClaimsTab() {
     <div className="space-y-4">
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -165,7 +175,9 @@ export function ClaimsTab() {
           </select>
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Aging</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Aging
+          </label>
           <select
             value={agingFilter}
             onChange={(e) => setAgingFilter(e.target.value)}
@@ -181,7 +193,9 @@ export function ClaimsTab() {
         </div>
         <div className="flex-1" />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["insurance", "claims"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["insurance", "claims"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -197,9 +211,12 @@ export function ClaimsTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No claims" description="No claims match these filters." />
+        <EmptyState
+          title="No claims"
+          description="No claims match these filters."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -217,16 +234,27 @@ export function ClaimsTab() {
             </thead>
             <tbody>
               {rows.map((c) => (
-                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className="px-3 py-2 font-mono text-xs">{c.claim_number}</td>
+                <tr
+                  key={c.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {c.claim_number}
+                  </td>
                   <td className="px-3 py-2 text-xs font-mono">
                     {c.patient_uid.slice(0, 8)}
                   </td>
-                  <td className="px-3 py-2 text-xs">{c.policy_number ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {c.policy_number ?? "—"}
+                  </td>
                   <td className="px-3 py-2 text-xs">{c.claim_type}</td>
-                  <td className="px-3 py-2 font-mono">{fmtINR(c.claimed_amount)}</td>
                   <td className="px-3 py-2 font-mono">
-                    {c.approved_amount != null ? fmtINR(c.approved_amount) : "—"}
+                    {fmtINR(c.claimed_amount)}
+                  </td>
+                  <td className="px-3 py-2 font-mono">
+                    {c.approved_amount != null
+                      ? fmtINR(c.approved_amount)
+                      : "—"}
                   </td>
                   <td className="px-3 py-2 font-mono">
                     {c.paid_amount != null ? fmtINR(c.paid_amount) : "—"}
@@ -280,7 +308,8 @@ export function ClaimsTab() {
                         </button>
                       </>
                     )}
-                    {(c.status === "approved" || c.status === "partially_approved") && (
+                    {(c.status === "approved" ||
+                      c.status === "partially_approved") && (
                       <button
                         disabled={busy}
                         onClick={() => recordPayment(c)}

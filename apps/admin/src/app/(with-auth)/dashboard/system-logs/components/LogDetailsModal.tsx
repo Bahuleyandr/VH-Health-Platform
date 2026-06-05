@@ -49,12 +49,14 @@ export function LogDetailsModal({
       tabIndex={0}
       className="fixed inset-0 bg-foreground bg-opacity-50 overflow-y-auto h-full w-full z-50"
       onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onClose();
+      }}
     >
       <div
         role="button"
         tabIndex={0}
-        className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white"
+        className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-card"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
@@ -74,7 +76,9 @@ export function LogDetailsModal({
           {type === "audit" && isAuditLog(log) ? (
             <>
               <div>
-                <h4 className="text-sm font-medium text-foreground">Timestamp</h4>
+                <h4 className="text-sm font-medium text-foreground">
+                  Timestamp
+                </h4>
                 <p className="mt-1 text-sm text-foreground">
                   {new Date(log.created_at).toLocaleString("en-GB")}
                 </p>
@@ -107,14 +111,18 @@ export function LogDetailsModal({
                   <h4 className="text-sm font-medium text-foreground">
                     IP Address
                   </h4>
-                  <p className="mt-1 text-sm text-foreground">{log.ip_address}</p>
+                  <p className="mt-1 text-sm text-foreground">
+                    {log.ip_address}
+                  </p>
                 </div>
               )}
             </>
           ) : type === "system" && isSystemLog(log) ? (
             <>
               <div>
-                <h4 className="text-sm font-medium text-foreground">Timestamp</h4>
+                <h4 className="text-sm font-medium text-foreground">
+                  Timestamp
+                </h4>
                 <p className="mt-1 text-sm text-foreground">
                   {new Date(log.timestamp).toLocaleString("en-GB")}
                 </p>
@@ -141,7 +149,9 @@ export function LogDetailsModal({
 
               {log.service && (
                 <div>
-                  <h4 className="text-sm font-medium text-foreground">Service</h4>
+                  <h4 className="text-sm font-medium text-foreground">
+                    Service
+                  </h4>
                   <p className="mt-1 text-sm text-foreground">
                     {log.service}
                     {log.module && ` - ${log.module}`}

@@ -42,8 +42,10 @@ export function CatalogForm({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto">
-        <h3 className="text-lg font-bold mb-4">{item ? "Edit Medicine" : "Add Medicine"}</h3>
+      <div className="bg-card rounded-xl max-w-md w-full p-6 max-h-[80vh] overflow-y-auto">
+        <h3 className="text-lg font-bold mb-4">
+          {item ? "Edit Medicine" : "Add Medicine"}
+        </h3>
 
         <div className="space-y-3">
           <input
@@ -64,7 +66,9 @@ export function CatalogForm({
             className="w-full border rounded-lg px-3 py-2 text-sm"
           >
             {CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>
+                {c}
+              </option>
             ))}
           </select>
           <input
@@ -93,14 +97,18 @@ export function CatalogForm({
               placeholder="Stock Qty"
               type="number"
               value={form.stock_quantity}
-              onChange={(e) => setForm({ ...form, stock_quantity: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, stock_quantity: e.target.value })
+              }
               className="border rounded-lg px-3 py-2 text-sm"
             />
             <input
               placeholder="Reorder Level"
               type="number"
               value={form.reorder_level}
-              onChange={(e) => setForm({ ...form, reorder_level: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, reorder_level: e.target.value })
+              }
               className="border rounded-lg px-3 py-2 text-sm"
             />
           </div>
@@ -119,7 +127,9 @@ export function CatalogForm({
               <input
                 type="checkbox"
                 checked={form.in_stock}
-                onChange={(e) => setForm({ ...form, in_stock: e.target.checked })}
+                onChange={(e) =>
+                  setForm({ ...form, in_stock: e.target.checked })
+                }
               />
               In Stock
             </label>

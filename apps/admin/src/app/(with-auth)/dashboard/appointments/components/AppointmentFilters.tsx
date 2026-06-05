@@ -49,7 +49,7 @@ export function AppointmentFilters() {
   }, [status, debouncedSearch, router, searchParams]);
 
   return (
-    <div className="mb-4 flex gap-4 items-center bg-white p-3 rounded-lg shadow">
+    <div className="mb-4 flex gap-4 items-center bg-card p-3 rounded-lg shadow">
       <input
         type="text"
         placeholder="Search by patient or doctor..."

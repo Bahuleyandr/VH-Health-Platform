@@ -68,7 +68,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
     <form
       ref={formRef}
       onSubmit={handleSubmit}
-      className="space-y-4 p-4 border rounded-lg bg-white shadow mb-6"
+      className="space-y-4 p-4 border rounded-lg bg-card shadow mb-6"
     >
       <h3 className="text-lg font-semibold">Send System-Wide Announcement</h3>
       <div>

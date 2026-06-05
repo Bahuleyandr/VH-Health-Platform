@@ -8,11 +8,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -80,7 +76,11 @@ function unwrap<T>(r: unknown): T {
   return ((r as { data?: T }).data ?? r) as T;
 }
 
-function unwrapList<T>(r: unknown, key: string, ...fallbackKeys: string[]): T[] {
+function unwrapList<T>(
+  r: unknown,
+  key: string,
+  ...fallbackKeys: string[]
+): T[] {
   const data = (r as { data?: unknown }).data ?? r;
   if (Array.isArray(data)) return data as T[];
   const obj = data as Record<string, unknown>;
@@ -105,35 +105,44 @@ export default function BedsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [wardFilter, setWardFilter] = useState<string>("");
 
-  const { data: occupancy, error: occErr, isLoading: occLoading } =
-    useQuery<OccupancySummary>({
-      queryKey: ["beds", "occupancy"],
-      queryFn: async () => {
-        const r = await fetchAdminAPI<unknown>("/beds/occupancy");
-        return unwrap<OccupancySummary>(r);
-      },
-      refetchInterval: 60_000,
-    });
+  const {
+    data: occupancy,
+    error: occErr,
+    isLoading: occLoading,
+  } = useQuery<OccupancySummary>({
+    queryKey: ["beds", "occupancy"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/beds/occupancy");
+      return unwrap<OccupancySummary>(r);
+    },
+    refetchInterval: 60_000,
+  });
 
-  const { data: beds = [], error: bedsErr, isLoading: bedsLoading } =
-    useQuery<Bed[]>({
-      queryKey: ["beds", "list"],
-      queryFn: async () => {
-        const r = await fetchAdminAPI<unknown>("/beds");
-        return unwrapList<Bed>(r, "beds", "rows");
-      },
-      refetchInterval: 60_000,
-    });
+  const {
+    data: beds = [],
+    error: bedsErr,
+    isLoading: bedsLoading,
+  } = useQuery<Bed[]>({
+    queryKey: ["beds", "list"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/beds");
+      return unwrapList<Bed>(r, "beds", "rows");
+    },
+    refetchInterval: 60_000,
+  });
 
-  const { data: wards = [], error: wardsErr, isLoading: wardsLoading } =
-    useQuery<Ward[]>({
-      queryKey: ["wards", "list"],
-      queryFn: async () => {
-        const r = await fetchAdminAPI<unknown>("/wards");
-        return unwrapList<Ward>(r, "wards", "rows");
-      },
-      refetchInterval: 60_000,
-    });
+  const {
+    data: wards = [],
+    error: wardsErr,
+    isLoading: wardsLoading,
+  } = useQuery<Ward[]>({
+    queryKey: ["wards", "list"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/wards");
+      return unwrapList<Ward>(r, "wards", "rows");
+    },
+    refetchInterval: 60_000,
+  });
 
   function invalidateBedMaster() {
     qc.invalidateQueries({ queryKey: ["beds"] });
@@ -141,7 +150,11 @@ export default function BedsPage() {
   }
 
   const admitMut = useMutation({
-    mutationFn: async (vars: { bedId: number; patient_uid: string; expected_discharge?: string }) =>
+    mutationFn: async (vars: {
+      bedId: number;
+      patient_uid: string;
+      expected_discharge?: string;
+    }) =>
       fetchAdminAPI(`/beds/${vars.bedId}/admit`, {
         method: "POST",
         body: {
@@ -165,7 +178,11 @@ export default function BedsPage() {
   });
 
   const transferMut = useMutation({
-    mutationFn: async (vars: { patient_uid: string; to_bed_id: number; reason?: string }) =>
+    mutationFn: async (vars: {
+      patient_uid: string;
+      to_bed_id: number;
+      reason?: string;
+    }) =>
       fetchAdminAPI(`/beds/transfer`, {
         method: "POST",
         body: vars,
@@ -180,7 +197,11 @@ export default function BedsPage() {
   });
 
   const createWardMut = useMutation({
-    mutationFn: async (vars: { name: string; floor?: number; total_beds?: number }) =>
+    mutationFn: async (vars: {
+      name: string;
+      floor?: number;
+      total_beds?: number;
+    }) =>
       fetchAdminAPI("/wards", {
         method: "POST",
         body: vars,
@@ -221,7 +242,12 @@ export default function BedsPage() {
   }
 
   function discharge(bed: Bed) {
-    if (!window.confirm(`Discharge patient from ${bed.bed_number}? Bed will go to cleaning.`)) return;
+    if (
+      !window.confirm(
+        `Discharge patient from ${bed.bed_number}? Bed will go to cleaning.`,
+      )
+    )
+      return;
     dischargeMut.mutate(bed.id);
   }
 
@@ -247,9 +273,13 @@ export default function BedsPage() {
   }
 
   function deleteBedRow(bed: Bed) {
-    const canDelete = (bed.status === "available" || bed.status === "maintenance") && !bed.patient_uid;
+    const canDelete =
+      (bed.status === "available" || bed.status === "maintenance") &&
+      !bed.patient_uid;
     if (!canDelete) {
-      window.alert("Only available or maintenance beds with no patient attached can be deleted.");
+      window.alert(
+        "Only available or maintenance beds with no patient attached can be deleted.",
+      );
       return;
     }
     const typed = window.prompt(
@@ -273,7 +303,10 @@ export default function BedsPage() {
       window.alert("Floor must be a whole number.");
       return;
     }
-    if (totalBeds !== undefined && (!Number.isInteger(totalBeds) || totalBeds < 0)) {
+    if (
+      totalBeds !== undefined &&
+      (!Number.isInteger(totalBeds) || totalBeds < 0)
+    ) {
       window.alert("Planned bed count must be a whole number.");
       return;
     }
@@ -292,9 +325,14 @@ export default function BedsPage() {
     }
 
     const wardOptions = wards
-      .map((ward) => `${ward.id}: ${ward.name}${ward.floor != null ? ` F${ward.floor}` : ""}`)
+      .map(
+        (ward) =>
+          `${ward.id}: ${ward.name}${ward.floor != null ? ` F${ward.floor}` : ""}`,
+      )
       .join("\n");
-    const wardIdRaw = window.prompt(`Ward id:\n${wardOptions}`, String(wards[0]?.id ?? ""))?.trim();
+    const wardIdRaw = window
+      .prompt(`Ward id:\n${wardOptions}`, String(wards[0]?.id ?? ""))
+      ?.trim();
     if (!wardIdRaw) return;
 
     const wardId = Number(wardIdRaw);
@@ -308,7 +346,11 @@ export default function BedsPage() {
     if (!bedNumber) return;
 
     const bedType = window.prompt("Bed type:", "general")?.trim() || "general";
-    const statusRaw = window.prompt("Starting status (available or maintenance):", "available")?.trim().toLowerCase() || "available";
+    const statusRaw =
+      window
+        .prompt("Starting status (available or maintenance):", "available")
+        ?.trim()
+        .toLowerCase() || "available";
     if (statusRaw !== "available" && statusRaw !== "maintenance") {
       window.alert("New beds can only start as available or maintenance.");
       return;
@@ -326,7 +368,9 @@ export default function BedsPage() {
 
   function deleteWardRow(ward: Ward, bedCount: number) {
     if (bedCount > 0) {
-      window.alert("Delete or move every bed in this ward before deleting the ward.");
+      window.alert(
+        "Delete or move every bed in this ward before deleting the ward.",
+      );
       return;
     }
     const typed = window.prompt(
@@ -364,14 +408,27 @@ export default function BedsPage() {
   const wardMaster = [...wards].sort((a, b) => a.name.localeCompare(b.name));
 
   const errMsg = (
-    occErr ?? bedsErr ?? wardsErr ?? admitMut.error ?? dischargeMut.error ?? readyMut.error
-      ?? transferMut.error ?? deleteMut.error ?? createWardMut.error ?? createBedMut.error
-      ?? deleteWardMut.error
+    occErr ??
+    bedsErr ??
+    wardsErr ??
+    admitMut.error ??
+    dischargeMut.error ??
+    readyMut.error ??
+    transferMut.error ??
+    deleteMut.error ??
+    createWardMut.error ??
+    createBedMut.error ??
+    deleteWardMut.error
   )?.toString();
   const busy =
-    admitMut.isPending || dischargeMut.isPending || readyMut.isPending || transferMut.isPending
-      || deleteMut.isPending || createWardMut.isPending || createBedMut.isPending
-      || deleteWardMut.isPending;
+    admitMut.isPending ||
+    dischargeMut.isPending ||
+    readyMut.isPending ||
+    transferMut.isPending ||
+    deleteMut.isPending ||
+    createWardMut.isPending ||
+    createBedMut.isPending ||
+    deleteWardMut.isPending;
 
   return (
     <div className="p-6 space-y-6">
@@ -379,7 +436,8 @@ export default function BedsPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Bed Management</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Occupancy grid + admit / discharge / transfer flow. Auto-refreshes every 60s.
+            Occupancy grid + admit / discharge / transfer flow. Auto-refreshes
+            every 60s.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -442,12 +500,15 @@ export default function BedsPage() {
                 {occupancy.by_ward.map((w, i) => (
                   <div
                     key={`${w.ward_id ?? "x"}-${i}`}
-                    className="bg-white rounded-lg border shadow-sm p-3"
+                    className="bg-card rounded-lg border shadow-sm p-3"
                   >
                     <p className="text-sm font-medium">
                       {w.ward_name ?? "Unassigned"}
                       {w.floor != null && (
-                        <span className="text-muted-foreground"> · F{w.floor}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · F{w.floor}
+                        </span>
                       )}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -474,26 +535,34 @@ export default function BedsPage() {
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {wardMaster.map((ward) => {
-                  const usage = wardUsageById.get(ward.id) ?? wardUsageByName.get(ward.name.toLowerCase());
+                  const usage =
+                    wardUsageById.get(ward.id) ??
+                    wardUsageByName.get(ward.name.toLowerCase());
                   const bedCount = Number(usage?.total ?? ward.bed_count ?? 0);
-                  const occupiedCount = Number(usage?.occupied ?? ward.occupied_count ?? 0);
+                  const occupiedCount = Number(
+                    usage?.occupied ?? ward.occupied_count ?? 0,
+                  );
                   const plannedBeds = Number(ward.total_beds ?? 0);
 
                   return (
                     <div
                       key={ward.id}
-                      className="bg-white rounded-lg border shadow-sm p-3"
+                      className="bg-card rounded-lg border shadow-sm p-3"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">
                             {ward.name}
                             {ward.floor != null && (
-                              <span className="text-muted-foreground"> · F{ward.floor}</span>
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · F{ward.floor}
+                              </span>
                             )}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {bedCount} bed{bedCount === 1 ? "" : "s"} · {occupiedCount} occupied
+                            {bedCount} bed{bedCount === 1 ? "" : "s"} ·{" "}
+                            {occupiedCount} occupied
                             {plannedBeds > 0 ? ` · ${plannedBeds} planned` : ""}
                           </p>
                         </div>
@@ -517,20 +586,32 @@ export default function BedsPage() {
 
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-border rounded-lg px-3 py-2 text-sm"
           >
             <option value="">All</option>
-            {["available", "occupied", "reserved", "cleaning", "maintenance"].map((s) => (
-              <option key={s} value={s}>{s}</option>
+            {[
+              "available",
+              "occupied",
+              "reserved",
+              "cleaning",
+              "maintenance",
+            ].map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Ward</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Ward
+          </label>
           <select
             value={wardFilter}
             onChange={(e) => setWardFilter(e.target.value)}
@@ -555,7 +636,10 @@ export default function BedsPage() {
       {bedsLoading && beds.length === 0 ? (
         <LoadingSpinner />
       ) : visibleBeds.length === 0 ? (
-        <EmptyState title="No beds" description="No beds match these filters." />
+        <EmptyState
+          title="No beds"
+          description="No beds match these filters."
+        />
       ) : (
         <div className="space-y-4">
           {Array.from(grouped.entries())
@@ -563,10 +647,11 @@ export default function BedsPage() {
             .map(([ward, wardBeds]) => (
               <section
                 key={ward}
-                className="bg-white rounded-lg border shadow-sm overflow-hidden"
+                className="bg-card rounded-lg border shadow-sm overflow-hidden"
               >
                 <div className="px-4 py-2 bg-muted border-b text-sm font-semibold">
-                  {ward} · {wardBeds.length} bed{wardBeds.length === 1 ? "" : "s"}
+                  {ward} · {wardBeds.length} bed
+                  {wardBeds.length === 1 ? "" : "s"}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 p-3">
                   {wardBeds.map((bed) => (
@@ -607,13 +692,19 @@ function BedTile({
   onTransfer: () => void;
   onDelete: () => void;
 }) {
-  const canDelete = (bed.status === "available" || bed.status === "maintenance") && !bed.patient_uid;
+  const canDelete =
+    (bed.status === "available" || bed.status === "maintenance") &&
+    !bed.patient_uid;
 
   return (
-    <div className={`rounded border-2 p-2 text-xs ${STATUS_COLOURS[bed.status]}`}>
+    <div
+      className={`rounded border-2 p-2 text-xs ${STATUS_COLOURS[bed.status]}`}
+    >
       <div className="flex items-center justify-between">
         <span className="font-mono font-bold">{bed.bed_number}</span>
-        <span className="text-[10px] uppercase tracking-wider">{bed.status}</span>
+        <span className="text-[10px] uppercase tracking-wider">
+          {bed.status}
+        </span>
       </div>
       <p className="text-[10px] text-muted-foreground mt-0.5">
         {bed.bed_type ?? "general"}

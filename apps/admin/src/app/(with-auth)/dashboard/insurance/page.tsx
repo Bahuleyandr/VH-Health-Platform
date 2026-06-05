@@ -24,7 +24,8 @@ function InsuranceContent() {
         Insurance Coordinator
       </h1>
       <p className="text-sm text-muted-foreground mb-6">
-        TPA pre-authorisation, cashless claim filing, and reimbursement tracking.
+        TPA pre-authorisation, cashless claim filing, and reimbursement
+        tracking.
       </p>
 
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 w-fit">
@@ -41,7 +42,7 @@ function InsuranceContent() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >

@@ -28,7 +28,10 @@ function unwrapData<T>(x: unknown): T | null {
 }
 
 function unwrapList(x: unknown): AttendanceRecord[] {
-  const data = unwrapData<AttendanceRecord[] | { records?: AttendanceRecord[]; staff?: AttendanceRecord[] }>(x);
+  const data = unwrapData<
+    | AttendanceRecord[]
+    | { records?: AttendanceRecord[]; staff?: AttendanceRecord[] }
+  >(x);
   if (Array.isArray(data)) return data;
   if (data && typeof data === "object") {
     const obj = data as Record<string, unknown>;
@@ -45,12 +48,12 @@ function StatusBadge({ status }: StatusBadgeProps) {
     s === "present" || s === "checked-in"
       ? "bg-green-100 text-green-700 border border-green-300"
       : s === "absent"
-      ? "bg-red-100 text-red-700 border border-red-300"
-      : s === "late"
-      ? "bg-orange-100 text-orange-700 border border-orange-300"
-      : s === "leave"
-      ? "bg-blue-100 text-blue-700 border border-blue-300"
-      : "bg-gray-100 text-gray-600 border border-gray-300";
+        ? "bg-red-100 text-red-700 border border-red-300"
+        : s === "late"
+          ? "bg-orange-100 text-orange-700 border border-orange-300"
+          : s === "leave"
+            ? "bg-blue-100 text-blue-700 border border-blue-300"
+            : "bg-gray-100 text-gray-600 border border-gray-300";
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
       {status?.toUpperCase() ?? "—"}
@@ -58,10 +61,17 @@ function StatusBadge({ status }: StatusBadgeProps) {
   );
 }
 
-type StatCardProps = { label: string; value: number | string; color: string; icon: string };
+type StatCardProps = {
+  label: string;
+  value: number | string;
+  color: string;
+  icon: string;
+};
 function StatCard({ label, value, color, icon }: StatCardProps) {
   return (
-    <div className={`rounded-xl border p-4 flex items-center gap-4 bg-white shadow-sm`}>
+    <div
+      className={`rounded-xl border p-4 flex items-center gap-4 bg-card shadow-sm`}
+    >
       <span className={`text-3xl`}>{icon}</span>
       <div>
         <p className="text-sm text-muted-foreground">{label}</p>
@@ -80,7 +90,7 @@ export default function AttendancePage() {
   const [department, setDepartment] = useState("");
   const [search, setSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().slice(0, 10)
+    new Date().toISOString().slice(0, 10),
   );
 
   const load = useCallback(async () => {
@@ -89,8 +99,14 @@ export default function AttendancePage() {
       const [a, an, ab, late] = await Promise.allSettled([
         adminService.getAttendanceAnalytics({ group_by: "day" }),
         adminService.getAttendanceAnomalies(),
-        adminService.getAbsentReport({ date: selectedDate, department: department || null }),
-        adminService.getLateArrivals({ date: selectedDate, department: department || null }),
+        adminService.getAbsentReport({
+          date: selectedDate,
+          department: department || null,
+        }),
+        adminService.getLateArrivals({
+          date: selectedDate,
+          department: department || null,
+        }),
       ]);
 
       if (a.status === "fulfilled") {
@@ -110,32 +126,54 @@ export default function AttendancePage() {
   }, [load]);
 
   // Derive stats from analytics or fallback to list counts
-  const analyticsObj = analytics && typeof analytics === "object" && !Array.isArray(analytics)
-    ? (analytics as Record<string, Json>)
-    : null;
+  const analyticsObj =
+    analytics && typeof analytics === "object" && !Array.isArray(analytics)
+      ? (analytics as Record<string, Json>)
+      : null;
 
   const presentCount = (analyticsObj?.present as number) ?? 0;
   const absentCount = (analyticsObj?.absent as number) ?? absentList.length;
   const leaveCount = (analyticsObj?.leave as number) ?? 0;
   const lateCount = (analyticsObj?.late as number) ?? lateList.length;
 
-  const departments = ["", "Nursing", "Pharmacy", "Administration", "Lab", "Radiology", "OT", "ICU"];
-  const matchesSearch = useCallback((record: AttendanceRecord) => {
-    const term = search.trim().toLowerCase();
-    if (!term) return true;
-    return [
-      record.staff_name,
-      record.name,
-      record.department,
-      record.status,
-      record.staff_id,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(term));
-  }, [search]);
-  const visibleAbsent = useMemo(() => absentList.filter(matchesSearch), [absentList, matchesSearch]);
-  const visibleLate = useMemo(() => lateList.filter(matchesSearch), [lateList, matchesSearch]);
-  const visibleAnomalies = useMemo(() => anomalies.filter(matchesSearch), [anomalies, matchesSearch]);
+  const departments = [
+    "",
+    "Nursing",
+    "Pharmacy",
+    "Administration",
+    "Lab",
+    "Radiology",
+    "OT",
+    "ICU",
+  ];
+  const matchesSearch = useCallback(
+    (record: AttendanceRecord) => {
+      const term = search.trim().toLowerCase();
+      if (!term) return true;
+      return [
+        record.staff_name,
+        record.name,
+        record.department,
+        record.status,
+        record.staff_id,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    },
+    [search],
+  );
+  const visibleAbsent = useMemo(
+    () => absentList.filter(matchesSearch),
+    [absentList, matchesSearch],
+  );
+  const visibleLate = useMemo(
+    () => lateList.filter(matchesSearch),
+    [lateList, matchesSearch],
+  );
+  const visibleAnomalies = useMemo(
+    () => anomalies.filter(matchesSearch),
+    [anomalies, matchesSearch],
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -196,10 +234,30 @@ export default function AttendancePage() {
         <>
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="Present Today" value={presentCount} color="text-green-600" icon="✅" />
-            <StatCard label="Absent" value={absentCount} color="text-red-600" icon="❌" />
-            <StatCard label="On Leave" value={leaveCount} color="text-blue-600" icon="🏖️" />
-            <StatCard label="Late Arrivals" value={lateCount} color="text-orange-600" icon="⏰" />
+            <StatCard
+              label="Present Today"
+              value={presentCount}
+              color="text-green-600"
+              icon="✅"
+            />
+            <StatCard
+              label="Absent"
+              value={absentCount}
+              color="text-red-600"
+              icon="❌"
+            />
+            <StatCard
+              label="On Leave"
+              value={leaveCount}
+              color="text-blue-600"
+              icon="🏖️"
+            />
+            <StatCard
+              label="Late Arrivals"
+              value={lateCount}
+              color="text-orange-600"
+              icon="⏰"
+            />
           </div>
 
           {/* Absent Staff */}
@@ -208,20 +266,29 @@ export default function AttendancePage() {
               Absent Staff — {selectedDate}
             </h2>
             {visibleAbsent.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4">No absent staff for this date.</p>
+              <p className="text-sm text-muted-foreground py-4">
+                No absent staff for this date.
+              </p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+              <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
                 <table className="min-w-[620px] w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Name</th>
-                      <th className="text-left px-4 py-3 font-medium">Department</th>
-                      <th className="text-left px-4 py-3 font-medium">Status</th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Department
+                      </th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {visibleAbsent.map((r) => (
-                      <tr key={`${r.staff_id ?? r.staff_name ?? r.name}-absent`} className="hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={`${r.staff_id ?? r.staff_name ?? r.name}-absent`}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
                         <td className="px-4 py-3 font-medium">
                           {r.staff_name ?? r.name ?? `Staff #${r.staff_id}`}
                         </td>
@@ -245,19 +312,28 @@ export default function AttendancePage() {
               <h2 className="text-lg font-semibold mb-3">
                 Late Arrivals — {selectedDate}
               </h2>
-              <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+              <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
                 <table className="min-w-[720px] w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Name</th>
-                      <th className="text-left px-4 py-3 font-medium">Department</th>
-                      <th className="text-left px-4 py-3 font-medium">Check-in</th>
-                      <th className="text-left px-4 py-3 font-medium">Status</th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Department
+                      </th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Check-in
+                      </th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {visibleLate.map((r) => (
-                      <tr key={`${r.staff_id ?? r.staff_name ?? r.name}-late`} className="hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={`${r.staff_id ?? r.staff_name ?? r.name}-late`}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
                         <td className="px-4 py-3 font-medium">
                           {r.staff_name ?? r.name ?? `Staff #${r.staff_id}`}
                         </td>
@@ -266,10 +342,13 @@ export default function AttendancePage() {
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {r.check_in_time
-                            ? new Date(r.check_in_time).toLocaleTimeString("en-IN", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
+                            ? new Date(r.check_in_time).toLocaleTimeString(
+                                "en-IN",
+                                {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )
                             : "—"}
                         </td>
                         <td className="px-4 py-3">
@@ -286,19 +365,28 @@ export default function AttendancePage() {
           {/* Anomalies */}
           {visibleAnomalies.length > 0 && (
             <section>
-              <h2 className="text-lg font-semibold mb-3">Anomalies (Last 30 days)</h2>
-              <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+              <h2 className="text-lg font-semibold mb-3">
+                Anomalies (Last 30 days)
+              </h2>
+              <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
                 <table className="min-w-[620px] w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Name</th>
-                      <th className="text-left px-4 py-3 font-medium">Department</th>
-                      <th className="text-left px-4 py-3 font-medium">Status</th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Department
+                      </th>
+                      <th className="text-left px-4 py-3 font-medium">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {visibleAnomalies.map((r) => (
-                      <tr key={`${r.staff_id ?? r.staff_name ?? r.name}-anomaly`} className="hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={`${r.staff_id ?? r.staff_name ?? r.name}-anomaly`}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
                         <td className="px-4 py-3 font-medium">
                           {r.staff_name ?? r.name ?? `Staff #${r.staff_id}`}
                         </td>

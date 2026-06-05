@@ -614,7 +614,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                 borderRadius: BorderRadius.circular(12),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: AppTheme.surfaceWhite,
             ),
             onChanged: (v) => setState(() => _searchQuery = v),
           ),

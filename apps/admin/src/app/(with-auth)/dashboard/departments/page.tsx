@@ -17,7 +17,7 @@ function DepartmentsSkeleton() {
         <Skeleton className="h-4 w-80" />
       </div>
       {/* Search bar skeleton */}
-      <div className="bg-white dark:bg-card p-4 rounded-lg shadow">
+      <div className="bg-card dark:bg-card p-4 rounded-lg shadow">
         <div className="flex items-center gap-4">
           <Skeleton className="h-9 flex-1" />
           <Skeleton className="h-4 w-32" />

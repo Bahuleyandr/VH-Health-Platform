@@ -275,8 +275,8 @@ export function DoctorsTable({
 
   return (
     <>
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="border-b border-border bg-white px-4 py-4">
+      <div className="bg-card shadow rounded-lg overflow-hidden">
+        <div className="border-b border-border bg-card px-4 py-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="relative max-w-md flex-1">
               <Search
@@ -311,10 +311,18 @@ export function DoctorsTable({
                   if (DOCTOR_SORT_KEYS.includes(view.sortKey as SortKey)) {
                     setSortKey(view.sortKey as SortKey);
                   }
-                  setSortDirection(view.sortDirection === "desc" ? "desc" : "asc");
+                  setSortDirection(
+                    view.sortDirection === "desc" ? "desc" : "asc",
+                  );
                   const nextPageSize = Number(view.pageSize);
-                  if (PAGE_SIZE_OPTIONS.includes(nextPageSize as typeof PAGE_SIZE_OPTIONS[number])) {
-                    setPageSize(nextPageSize as typeof PAGE_SIZE_OPTIONS[number]);
+                  if (
+                    PAGE_SIZE_OPTIONS.includes(
+                      nextPageSize as (typeof PAGE_SIZE_OPTIONS)[number],
+                    )
+                  ) {
+                    setPageSize(
+                      nextPageSize as (typeof PAGE_SIZE_OPTIONS)[number],
+                    );
                   }
                   setPage(1);
                 }}
@@ -474,7 +482,7 @@ export function DoctorsTable({
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-border">
+            <tbody className="bg-card divide-y divide-border">
               {paginatedDoctors.length === 0 ? (
                 <tr>
                   <td
@@ -584,7 +592,7 @@ export function DoctorsTable({
           </table>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border bg-white px-4 py-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-t border-border bg-card px-4 py-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
           <div>
             Showing {pageStart}-{pageEnd} of {filteredDoctors.length}
           </div>

@@ -7,11 +7,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -32,7 +28,12 @@ interface ChartEntry {
   tidal_volume_ml: number | null;
   peep_cmh2o: number | null;
   airway_pressure: number | null;
-  drugs_given: Array<{ name?: string; dose_mg?: number; route?: string; time?: string }> | null;
+  drugs_given: Array<{
+    name?: string;
+    dose_mg?: number;
+    route?: string;
+    time?: string;
+  }> | null;
   iv_fluids_ml: number | null;
   blood_loss_ml: number | null;
   urine_output_ml: number | null;
@@ -65,7 +66,9 @@ function unwrapList<T>(r: unknown): T[] {
 function fmtTime(s: string | null): string {
   if (!s) return "—";
   return new Date(s).toLocaleTimeString([], {
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
   });
 }
 
@@ -157,13 +160,19 @@ export default function AnesthesiaChartPage() {
           {totals && (totals.entries ?? 0) > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               <Tile label="Entries" value={String(totals.entries)} />
-              <Tile label="IV fluids" value={`${totals.total_iv_fluids_ml ?? 0} mL`} />
+              <Tile
+                label="IV fluids"
+                value={`${totals.total_iv_fluids_ml ?? 0} mL`}
+              />
               <Tile
                 label="Blood loss"
                 value={`${totals.total_blood_loss_ml ?? 0} mL`}
                 alert={(totals.total_blood_loss_ml ?? 0) > 500}
               />
-              <Tile label="Urine" value={`${totals.total_urine_output_ml ?? 0} mL`} />
+              <Tile
+                label="Urine"
+                value={`${totals.total_urine_output_ml ?? 0} mL`}
+              />
               <Tile
                 label="Min MAP"
                 value={totals.min_map != null ? `${totals.min_map}` : "—"}
@@ -193,7 +202,7 @@ export default function AnesthesiaChartPage() {
               description='Click "+ New entry" to record the first 5-minute slice.'
             />
           ) : (
-            <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+            <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
               <table className="min-w-full text-xs">
                 <thead className="text-muted-foreground border-b">
                   <tr className="text-left">
@@ -223,7 +232,9 @@ export default function AnesthesiaChartPage() {
                           concerning ? "bg-rose-50" : ""
                         }`}
                       >
-                        <td className="px-2 py-1 font-mono">{fmtTime(e.recorded_at)}</td>
+                        <td className="px-2 py-1 font-mono">
+                          {fmtTime(e.recorded_at)}
+                        </td>
                         <td className="px-2 py-1 font-mono">{e.hr ?? "—"}</td>
                         <td className="px-2 py-1 font-mono">
                           {e.sbp && e.dbp ? `${e.sbp}/${e.dbp}` : "—"}
@@ -242,15 +253,21 @@ export default function AnesthesiaChartPage() {
                         >
                           {e.spo2 != null ? `${e.spo2}%` : "—"}
                         </td>
-                        <td className="px-2 py-1 font-mono">{e.etco2 ?? "—"}</td>
+                        <td className="px-2 py-1 font-mono">
+                          {e.etco2 ?? "—"}
+                        </td>
                         <td className="px-2 py-1 font-mono">{e.rr ?? "—"}</td>
-                        <td className="px-2 py-1 font-mono">{e.temp_c ?? "—"}</td>
+                        <td className="px-2 py-1 font-mono">
+                          {e.temp_c ?? "—"}
+                        </td>
                         <td className="px-2 py-1">
                           {e.vent_mode ? (
                             <div>
                               <div>{e.vent_mode}</div>
                               <div className="text-muted-foreground">
-                                FiO2 {e.fio2_pct ?? "—"}% · TV {e.tidal_volume_ml ?? "—"} · PEEP {e.peep_cmh2o ?? "—"}
+                                FiO2 {e.fio2_pct ?? "—"}% · TV{" "}
+                                {e.tidal_volume_ml ?? "—"} · PEEP{" "}
+                                {e.peep_cmh2o ?? "—"}
                               </div>
                             </div>
                           ) : (
@@ -258,7 +275,8 @@ export default function AnesthesiaChartPage() {
                           )}
                         </td>
                         <td className="px-2 py-1">
-                          {Array.isArray(e.drugs_given) && e.drugs_given.length > 0
+                          {Array.isArray(e.drugs_given) &&
+                          e.drugs_given.length > 0
                             ? e.drugs_given.map((d, i) => (
                                 <div key={i}>
                                   {d.name}
@@ -270,10 +288,18 @@ export default function AnesthesiaChartPage() {
                         </td>
                         <td className="px-2 py-1 font-mono">
                           {[
-                            e.iv_fluids_ml != null ? `+${e.iv_fluids_ml}` : null,
-                            e.blood_loss_ml != null ? `-${e.blood_loss_ml}` : null,
-                            e.urine_output_ml != null ? `u${e.urine_output_ml}` : null,
-                          ].filter(Boolean).join(" / ") || "—"}
+                            e.iv_fluids_ml != null
+                              ? `+${e.iv_fluids_ml}`
+                              : null,
+                            e.blood_loss_ml != null
+                              ? `-${e.blood_loss_ml}`
+                              : null,
+                            e.urine_output_ml != null
+                              ? `u${e.urine_output_ml}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" / ") || "—"}
                         </td>
                         <td className="px-2 py-1 max-w-xs truncate">
                           {e.event_note ?? ""}
@@ -302,11 +328,23 @@ export default function AnesthesiaChartPage() {
   );
 }
 
-function Tile({ label, value, alert }: { label: string; value: string; alert?: boolean }) {
+function Tile({
+  label,
+  value,
+  alert,
+}: {
+  label: string;
+  value: string;
+  alert?: boolean;
+}) {
   return (
-    <div className={`bg-white rounded-lg border shadow-sm p-3 ${alert ? "border-rose-300" : ""}`}>
+    <div
+      className={`bg-card rounded-lg border shadow-sm p-3 ${alert ? "border-rose-300" : ""}`}
+    >
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-lg font-semibold mt-1 font-mono ${alert ? "text-rose-700" : ""}`}>
+      <p
+        className={`text-lg font-semibold mt-1 font-mono ${alert ? "text-rose-700" : ""}`}
+      >
         {value}
       </p>
     </div>
@@ -314,23 +352,48 @@ function Tile({ label, value, alert }: { label: string; value: string; alert?: b
 }
 
 function NewEntryModal({
-  scheduleId, onClose, onSaved,
+  scheduleId,
+  onClose,
+  onSaved,
 }: {
   scheduleId: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState<{
-    hr: string; sbp: string; dbp: string; spo2: string; etco2: string;
-    rr: string; temp_c: string;
-    vent_mode: string; fio2_pct: string; tidal_volume_ml: string; peep_cmh2o: string;
-    iv_fluids_ml: string; blood_loss_ml: string; urine_output_ml: string;
-    drugs_text: string; event_note: string;
+    hr: string;
+    sbp: string;
+    dbp: string;
+    spo2: string;
+    etco2: string;
+    rr: string;
+    temp_c: string;
+    vent_mode: string;
+    fio2_pct: string;
+    tidal_volume_ml: string;
+    peep_cmh2o: string;
+    iv_fluids_ml: string;
+    blood_loss_ml: string;
+    urine_output_ml: string;
+    drugs_text: string;
+    event_note: string;
   }>({
-    hr: "", sbp: "", dbp: "", spo2: "", etco2: "", rr: "", temp_c: "",
-    vent_mode: "", fio2_pct: "", tidal_volume_ml: "", peep_cmh2o: "",
-    iv_fluids_ml: "", blood_loss_ml: "", urine_output_ml: "",
-    drugs_text: "", event_note: "",
+    hr: "",
+    sbp: "",
+    dbp: "",
+    spo2: "",
+    etco2: "",
+    rr: "",
+    temp_c: "",
+    vent_mode: "",
+    fio2_pct: "",
+    tidal_volume_ml: "",
+    peep_cmh2o: "",
+    iv_fluids_ml: "",
+    blood_loss_ml: "",
+    urine_output_ml: "",
+    drugs_text: "",
+    event_note: "",
   });
 
   const mut = useMutation({
@@ -353,9 +416,19 @@ function NewEntryModal({
         drugs_given: drugs,
       };
       const numericKeys: Array<keyof typeof form> = [
-        "hr", "sbp", "dbp", "spo2", "etco2", "rr", "temp_c",
-        "fio2_pct", "tidal_volume_ml", "peep_cmh2o",
-        "iv_fluids_ml", "blood_loss_ml", "urine_output_ml",
+        "hr",
+        "sbp",
+        "dbp",
+        "spo2",
+        "etco2",
+        "rr",
+        "temp_c",
+        "fio2_pct",
+        "tidal_volume_ml",
+        "peep_cmh2o",
+        "iv_fluids_ml",
+        "blood_loss_ml",
+        "urine_output_ml",
       ];
       for (const k of numericKeys) {
         const v = form[k];
@@ -376,27 +449,38 @@ function NewEntryModal({
   function field(k: keyof typeof form, label: string, hint?: string) {
     return (
       <div>
-        <label className="text-xs text-muted-foreground block mb-1">{label}</label>
+        <label className="text-xs text-muted-foreground block mb-1">
+          {label}
+        </label>
         <input
           value={form[k]}
           onChange={(e) => setForm({ ...form, [k]: e.target.value })}
           className="w-full border border-border rounded-lg px-2 py-1 text-sm font-mono"
         />
-        {hint && <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>}
+        {hint && (
+          <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>
+        )}
       </div>
     );
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl mb-8">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-2xl mb-8">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">New chart entry</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Vitals</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Vitals
+            </p>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {field("hr", "HR (bpm)")}
               {field("sbp", "SBP")}
@@ -408,13 +492,19 @@ function NewEntryModal({
             </div>
           </section>
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Ventilation</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Ventilation
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div>
-                <label className="text-xs text-muted-foreground block mb-1">Mode</label>
+                <label className="text-xs text-muted-foreground block mb-1">
+                  Mode
+                </label>
                 <select
                   value={form.vent_mode}
-                  onChange={(e) => setForm({ ...form, vent_mode: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, vent_mode: e.target.value })
+                  }
                   className="w-full border border-border rounded-lg px-2 py-1 text-sm"
                 >
                   <option value="">—</option>
@@ -430,7 +520,9 @@ function NewEntryModal({
             </div>
           </section>
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Fluids since last</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Fluids since last
+            </p>
             <div className="grid grid-cols-3 gap-2">
               {field("iv_fluids_ml", "IV (mL)")}
               {field("blood_loss_ml", "Loss (mL)")}
@@ -450,7 +542,9 @@ function NewEntryModal({
             />
           </section>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Event note</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Event note
+            </label>
             <input
               value={form.event_note}
               onChange={(e) => setForm({ ...form, event_note: e.target.value })}
@@ -461,7 +555,12 @@ function NewEntryModal({
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border text-sm hover:bg-muted">Cancel</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending}

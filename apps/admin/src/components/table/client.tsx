@@ -70,7 +70,7 @@ export function ManagedTableToolbar({
   children?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-lg bg-white p-3 shadow dark:bg-card lg:flex-row lg:items-center">
+    <div className="mb-4 flex flex-col gap-3 rounded-lg bg-card p-3 shadow dark:bg-card lg:flex-row lg:items-center">
       <label className="relative min-w-0 flex-1">
         <span className="sr-only">{placeholder}</span>
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -192,7 +192,7 @@ export function ClientTablePagination({
   );
 
   return (
-    <div className="mt-4 flex flex-col gap-3 rounded-lg bg-white p-3 text-sm shadow dark:bg-card sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-4 flex flex-col gap-3 rounded-lg bg-card p-3 text-sm shadow dark:bg-card sm:flex-row sm:items-center sm:justify-between">
       <div className="text-muted-foreground">
         Showing {start}-{end} of {total} {itemLabel}
       </div>

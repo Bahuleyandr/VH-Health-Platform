@@ -23,7 +23,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
   };
 
   return (
-    <div className="flex items-center justify-between mt-4 bg-white px-4 py-3 sm:px-6 rounded-lg shadow">
+    <div className="flex items-center justify-between mt-4 bg-card px-4 py-3 sm:px-6 rounded-lg shadow">
       <div className="flex flex-1 justify-between sm:hidden">
         <button
           onClick={handlePrev}
@@ -31,7 +31,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
           aria-disabled={!pagination.hasPrev}
           className={`relative inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasPrev
-              ? "bg-white text-foreground hover:bg-muted"
+              ? "bg-card text-foreground hover:bg-muted"
               : "bg-muted text-muted-foreground cursor-not-allowed"
           }`}
         >
@@ -43,7 +43,7 @@ export function PaginationControls({ pagination }: { pagination: Pagination }) {
           aria-disabled={!pagination.hasNext}
           className={`relative ml-3 inline-flex items-center px-4 py-2 text-sm font-medium rounded-md ${
             pagination.hasNext
-              ? "bg-white text-foreground hover:bg-muted"
+              ? "bg-card text-foreground hover:bg-muted"
               : "bg-muted text-muted-foreground cursor-not-allowed"
           }`}
         >

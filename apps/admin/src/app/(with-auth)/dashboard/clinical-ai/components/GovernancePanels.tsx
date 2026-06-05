@@ -2,7 +2,21 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, AlertOctagon, BookOpen, CheckCircle2, Clock, FileText, Globe2, HeartPulse, Inbox, PlayCircle, Search, Shield, XCircle } from "lucide-react";
+import {
+  Activity,
+  AlertOctagon,
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Globe2,
+  HeartPulse,
+  Inbox,
+  PlayCircle,
+  Search,
+  Shield,
+  XCircle,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
   activateClinicalAiPrompt,
@@ -53,9 +67,11 @@ function fmt(value?: string | null) {
 
 function decisionClass(decision: string) {
   const d = decision.toLowerCase();
-  if (d === "accepted" || d === "approved" || d === "signed") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (d === "accepted" || d === "approved" || d === "signed")
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (d === "rejected") return "bg-red-100 text-red-800 border-red-200";
-  if (d === "needs_revision" || d === "edited") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (d === "needs_revision" || d === "edited")
+    return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
@@ -74,9 +90,12 @@ export function BreakGlassBanner() {
     mutationFn: (sessionId: number) => endBreakGlassSession(sessionId),
     onSuccess: () => {
       toast.success("Break-glass session ended");
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "break-glass"] });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "break-glass"],
+      });
     },
-    onError: (err: Error) => toast.error(err.message || "Could not end session"),
+    onError: (err: Error) =>
+      toast.error(err.message || "Could not end session"),
   });
 
   const activeSessions = sessions.data?.sessions ?? [];
@@ -89,7 +108,8 @@ export function BreakGlassBanner() {
           <AlertOctagon className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
           <div>
             <div className="font-semibold text-red-900">
-              Break-Glass active: {activeSessions.length} emergency governance session(s) in effect
+              Break-Glass active: {activeSessions.length} emergency governance
+              session(s) in effect
             </div>
             <ul className="mt-2 space-y-1 text-sm text-red-900">
               {activeSessions.map((session) => (
@@ -97,11 +117,13 @@ export function BreakGlassBanner() {
                   <Clock className="h-3.5 w-3.5" />
                   <span className="font-medium">{session.scope}</span>
                   <span className="text-red-800">— {session.reason}</span>
-                  <span className="text-xs text-red-700">expires {fmt(session.expires_at)}</span>
+                  <span className="text-xs text-red-700">
+                    expires {fmt(session.expires_at)}
+                  </span>
                   <button
                     onClick={() => endSession.mutate(session.id)}
                     disabled={endSession.isPending}
-                    className="ml-2 rounded-md border border-red-300 bg-white px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                    className="ml-2 rounded-md border border-red-300 bg-card px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
                   >
                     End
                   </button>
@@ -144,7 +166,12 @@ export function ReviewQueuePanel() {
   });
 
   const updateReview = useMutation({
-    mutationFn: (payload: { id: number; decision: string; rejection_reason?: string; reviewer_note?: string }) =>
+    mutationFn: (payload: {
+      id: number;
+      decision: string;
+      rejection_reason?: string;
+      reviewer_note?: string;
+    }) =>
       updateClinicalAiReview(payload.id, {
         decision: payload.decision,
         rejection_reason: payload.rejection_reason,
@@ -153,7 +180,9 @@ export function ReviewQueuePanel() {
     onSuccess: (_data, variables) => {
       toast.success(`Review ${variables.decision}`);
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "reviews"] });
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "generations"] });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "generations"],
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Review update failed"),
   });
@@ -161,10 +190,15 @@ export function ReviewQueuePanel() {
   const rows: ClinicalAiReview[] = reviews.data?.reviews ?? [];
 
   function promptReviewerNote() {
-    const note = window.prompt("Reviewer note (one sentence required before accept)");
+    const note = window.prompt(
+      "Reviewer note (one sentence required before accept)",
+    );
     const trimmed = note?.trim() ?? "";
     if (!trimmed) return null;
-    if (trimmed.length < 12 || trimmed.split(/\s+/).filter(Boolean).length < 3) {
+    if (
+      trimmed.length < 12 ||
+      trimmed.split(/\s+/).filter(Boolean).length < 3
+    ) {
       toast.error("Reviewer note must be at least 3 words");
       return null;
     }
@@ -197,7 +231,9 @@ export function ReviewQueuePanel() {
             title="Show only reviews for modules whose sign-off roles include this role"
           >
             {REVIEWER_ROLE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
           </select>
         </div>
@@ -207,18 +243,33 @@ export function ReviewQueuePanel() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Decision</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Reviewer</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Module
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Patient
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Decision
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Reviewer
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Created
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                <td
+                  className="px-4 py-8 text-center text-muted-foreground"
+                  colSpan={6}
+                >
                   No reviews in this bucket
                 </td>
               </tr>
@@ -227,26 +278,37 @@ export function ReviewQueuePanel() {
                 <tr key={row.id}>
                   <td className="px-4 py-3">
                     <div className="font-medium">{row.module_key}</div>
-                    <div className="text-xs text-muted-foreground">Gen #{row.generation_id ?? "-"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Gen #{row.generation_id ?? "-"}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="font-medium">{row.patient_name ?? "-"}</div>
-                    <div className="text-xs text-muted-foreground">{row.patient_uid ?? ""}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.patient_uid ?? ""}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${decisionClass(row.decision)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${decisionClass(row.decision)}`}
+                    >
                       {row.decision}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     <div>{row.reviewer_role ?? "-"}</div>
                     {row.reviewer_note ? (
-                      <div className="mt-1 max-w-64 truncate" title={row.reviewer_note}>
+                      <div
+                        className="mt-1 max-w-64 truncate"
+                        title={row.reviewer_note}
+                      >
                         {row.reviewer_note}
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.created_at)}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     {row.decision === "pending" ? (
                       <div className="inline-flex gap-1">
@@ -267,7 +329,9 @@ export function ReviewQueuePanel() {
                         </button>
                         <button
                           onClick={() => {
-                            const reason = window.prompt("Rejection reason (required)");
+                            const reason = window.prompt(
+                              "Rejection reason (required)",
+                            );
                             if (!reason) return;
                             updateReview.mutate({
                               id: row.id,
@@ -305,7 +369,11 @@ function diffLines(before: string, after: string) {
   const beforeLines = String(before || "").split(/\r?\n/);
   const afterLines = String(after || "").split(/\r?\n/);
   const max = Math.max(beforeLines.length, afterLines.length);
-  const rows: Array<{ kind: "same" | "removed" | "added"; left: string | null; right: string | null }> = [];
+  const rows: Array<{
+    kind: "same" | "removed" | "added";
+    left: string | null;
+    right: string | null;
+  }> = [];
   for (let i = 0; i < max; i += 1) {
     const left = i < beforeLines.length ? beforeLines[i] : null;
     const right = i < afterLines.length ? afterLines[i] : null;
@@ -331,8 +399,14 @@ function PromptDiffModal({
   onConfirm: () => void;
   confirming: boolean;
 }) {
-  const systemDiff = diffLines(activePrompt?.system_prompt ?? "", candidate.system_prompt);
-  const userDiff = diffLines(activePrompt?.user_prompt_template ?? "", candidate.user_prompt_template);
+  const systemDiff = diffLines(
+    activePrompt?.system_prompt ?? "",
+    candidate.system_prompt,
+  );
+  const userDiff = diffLines(
+    activePrompt?.user_prompt_template ?? "",
+    candidate.user_prompt_template,
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -340,10 +414,13 @@ function PromptDiffModal({
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
             <div className="text-sm font-semibold">
-              Review prompt activation: {candidate.module_key} / {candidate.version}
+              Review prompt activation: {candidate.module_key} /{" "}
+              {candidate.version}
             </div>
             <div className="text-xs text-muted-foreground">
-              {activePrompt ? `Currently active: ${activePrompt.version}` : "No currently active version"}
+              {activePrompt
+                ? `Currently active: ${activePrompt.version}`
+                : "No currently active version"}
             </div>
           </div>
           <button
@@ -354,39 +431,59 @@ function PromptDiffModal({
           </button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto p-4">
-          <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">System prompt</div>
+          <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            System prompt
+          </div>
           <div className="mb-4 overflow-x-auto rounded-md border border-border font-mono text-xs">
             {systemDiff.map((row, idx) => (
               <div
                 key={`sys-${idx}`}
                 className={
-                  row.kind === "added" ? "bg-emerald-50 text-emerald-900"
-                  : row.kind === "removed" ? "bg-red-50 text-red-900 line-through"
-                  : ""
+                  row.kind === "added"
+                    ? "bg-emerald-50 text-emerald-900"
+                    : row.kind === "removed"
+                      ? "bg-red-50 text-red-900 line-through"
+                      : ""
                 }
               >
                 <span className="inline-block w-8 select-none px-2 text-muted-foreground">
-                  {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                  {row.kind === "added"
+                    ? "+"
+                    : row.kind === "removed"
+                      ? "-"
+                      : " "}
                 </span>
-                <span className="whitespace-pre-wrap">{row.right ?? row.left ?? ""}</span>
+                <span className="whitespace-pre-wrap">
+                  {row.right ?? row.left ?? ""}
+                </span>
               </div>
             ))}
           </div>
-          <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">User prompt template</div>
+          <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            User prompt template
+          </div>
           <div className="overflow-x-auto rounded-md border border-border font-mono text-xs">
             {userDiff.map((row, idx) => (
               <div
                 key={`usr-${idx}`}
                 className={
-                  row.kind === "added" ? "bg-emerald-50 text-emerald-900"
-                  : row.kind === "removed" ? "bg-red-50 text-red-900 line-through"
-                  : ""
+                  row.kind === "added"
+                    ? "bg-emerald-50 text-emerald-900"
+                    : row.kind === "removed"
+                      ? "bg-red-50 text-red-900 line-through"
+                      : ""
                 }
               >
                 <span className="inline-block w-8 select-none px-2 text-muted-foreground">
-                  {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                  {row.kind === "added"
+                    ? "+"
+                    : row.kind === "removed"
+                      ? "-"
+                      : " "}
                 </span>
-                <span className="whitespace-pre-wrap">{row.right ?? row.left ?? ""}</span>
+                <span className="whitespace-pre-wrap">
+                  {row.right ?? row.left ?? ""}
+                </span>
               </div>
             ))}
           </div>
@@ -412,9 +509,15 @@ function PromptDiffModal({
   );
 }
 
-export function PromptRegistryPanel({ modules }: { modules: { module_key: string; display_name: string }[] }) {
+export function PromptRegistryPanel({
+  modules,
+}: {
+  modules: { module_key: string; display_name: string }[];
+}) {
   const queryClient = useQueryClient();
-  const [moduleKey, setModuleKey] = useState<string>(modules[0]?.module_key ?? "");
+  const [moduleKey, setModuleKey] = useState<string>(
+    modules[0]?.module_key ?? "",
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [diffTarget, setDiffTarget] = useState<ClinicalAiPrompt | null>(null);
   const [draft, setDraft] = useState({
@@ -442,7 +545,12 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
     onSuccess: () => {
       toast.success("Prompt draft created");
       setShowCreate(false);
-      setDraft({ version: "", title: "", system_prompt: "", user_prompt_template: "" });
+      setDraft({
+        version: "",
+        title: "",
+        system_prompt: "",
+        user_prompt_template: "",
+      });
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "prompts"] });
     },
     onError: (err: Error) => toast.error(err.message || "Create failed"),
@@ -496,9 +604,12 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
       {activePrompt ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
           <div className="font-medium text-emerald-900">
-            Active: {activePrompt.version}{activePrompt.title ? ` — ${activePrompt.title}` : ""}
+            Active: {activePrompt.version}
+            {activePrompt.title ? ` — ${activePrompt.title}` : ""}
           </div>
-          <div className="text-xs text-emerald-800">Activated {fmt(activePrompt.activated_at)}</div>
+          <div className="text-xs text-emerald-800">
+            Activated {fmt(activePrompt.activated_at)}
+          </div>
         </div>
       ) : null}
 
@@ -509,7 +620,9 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
               Version
               <input
                 value={draft.version}
-                onChange={(event) => setDraft({ ...draft, version: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, version: event.target.value })
+                }
                 placeholder="v2"
                 className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
               />
@@ -518,7 +631,9 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
               Title
               <input
                 value={draft.title}
-                onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, title: event.target.value })
+                }
                 placeholder="Descriptive title"
                 className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
               />
@@ -528,7 +643,9 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
             System prompt
             <textarea
               value={draft.system_prompt}
-              onChange={(event) => setDraft({ ...draft, system_prompt: event.target.value })}
+              onChange={(event) =>
+                setDraft({ ...draft, system_prompt: event.target.value })
+              }
               rows={4}
               className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm font-mono"
             />
@@ -537,7 +654,9 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
             User prompt template
             <textarea
               value={draft.user_prompt_template}
-              onChange={(event) => setDraft({ ...draft, user_prompt_template: event.target.value })}
+              onChange={(event) =>
+                setDraft({ ...draft, user_prompt_template: event.target.value })
+              }
               rows={3}
               className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm font-mono"
             />
@@ -558,17 +677,30 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Version</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Title</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Version
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Title
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Created
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                <td
+                  className="px-4 py-8 text-center text-muted-foreground"
+                  colSpan={5}
+                >
                   No prompts defined for this module
                 </td>
               </tr>
@@ -578,14 +710,21 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
                   <td className="px-4 py-3 font-mono">{row.version}</td>
                   <td className="px-4 py-3">{row.title ?? "-"}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${row.active ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>
-                      {row.status}{row.active ? " (live)" : ""}
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${row.active ? "bg-emerald-100 text-emerald-800 border-emerald-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}
+                    >
+                      {row.status}
+                      {row.active ? " (live)" : ""}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.created_at)}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     {row.active ? (
-                      <span className="text-xs text-muted-foreground">in use</span>
+                      <span className="text-xs text-muted-foreground">
+                        in use
+                      </span>
                     ) : (
                       <button
                         onClick={() => setDiffTarget(row)}
@@ -623,24 +762,34 @@ export function PromptRegistryPanel({ modules }: { modules: { module_key: string
 // Approvals — two-person queue for prompt activation + high-risk governance.
 // Current admin cannot approve their own request.
 // ---------------------------------------------------------------------------
-export function ApprovalsPanel({ currentAdminUid }: { currentAdminUid: string | null }) {
+export function ApprovalsPanel({
+  currentAdminUid,
+}: {
+  currentAdminUid: string | null;
+}) {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("pending");
 
   const approvals = useQuery({
     queryKey: ["clinical-ai", "approvals", statusFilter],
-    queryFn: () => getClinicalAiApprovals(statusFilter ? { status: statusFilter } : {}),
+    queryFn: () =>
+      getClinicalAiApprovals(statusFilter ? { status: statusFilter } : {}),
   });
 
   const decide = useMutation({
-    mutationFn: (payload: { id: number; decision: "approved" | "rejected"; reason?: string }) =>
+    mutationFn: (payload: {
+      id: number;
+      decision: "approved" | "rejected";
+      reason?: string;
+    }) =>
       decideClinicalAiApproval(payload.id, payload.decision, payload.reason),
     onSuccess: (_data, variables) => {
       toast.success(`Approval ${variables.decision}`);
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "approvals"] });
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "prompts"] });
     },
-    onError: (err: Error) => toast.error(err.message || "Approval update failed"),
+    onError: (err: Error) =>
+      toast.error(err.message || "Approval update failed"),
   });
 
   const rows: ClinicalAiApproval[] = approvals.data?.approvals ?? [];
@@ -668,28 +817,46 @@ export function ApprovalsPanel({ currentAdminUid }: { currentAdminUid: string | 
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Type</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Reason</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Requested</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Type
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Module
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Reason
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Requested
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                <td
+                  className="px-4 py-8 text-center text-muted-foreground"
+                  colSpan={6}
+                >
                   No approvals in this bucket
                 </td>
               </tr>
             ) : (
               rows.map((row) => {
                 const isOwnRequest =
-                  Boolean(currentAdminUid) && row.requested_by === currentAdminUid;
+                  Boolean(currentAdminUid) &&
+                  row.requested_by === currentAdminUid;
                 return (
                   <tr key={row.id}>
-                    <td className="px-4 py-3 font-mono text-xs">{row.approval_type}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {row.approval_type}
+                    </td>
                     <td className="px-4 py-3">{row.module_key ?? "-"}</td>
                     <td className="px-4 py-3">
                       <div>{row.reason ?? "-"}</div>
@@ -702,28 +869,45 @@ export function ApprovalsPanel({ currentAdminUid }: { currentAdminUid: string | 
                       ) : null}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${decisionClass(row.status)}`}>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-xs font-medium ${decisionClass(row.status)}`}
+                      >
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {fmt(row.created_at)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {row.status === "pending" ? (
                         <div className="inline-flex gap-1">
                           <button
                             onClick={() =>
-                              decide.mutate({ id: row.id, decision: "approved" })
+                              decide.mutate({
+                                id: row.id,
+                                decision: "approved",
+                              })
                             }
                             disabled={decide.isPending || isOwnRequest}
-                            title={isOwnRequest ? "Two-person approval required — another admin must approve your request" : undefined}
+                            title={
+                              isOwnRequest
+                                ? "Two-person approval required — another admin must approve your request"
+                                : undefined
+                            }
                             className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                           >
                             Approve
                           </button>
                           <button
                             onClick={() => {
-                              const reason = window.prompt("Rejection reason (optional)") ?? undefined;
-                              decide.mutate({ id: row.id, decision: "rejected", reason });
+                              const reason =
+                                window.prompt("Rejection reason (optional)") ??
+                                undefined;
+                              decide.mutate({
+                                id: row.id,
+                                decision: "rejected",
+                                reason,
+                              });
                             }}
                             disabled={decide.isPending}
                             className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
@@ -770,18 +954,24 @@ export function BreakGlassControls() {
     onSuccess: () => {
       toast.success("Break-glass session opened");
       setReason("");
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "break-glass"] });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "break-glass"],
+      });
     },
-    onError: (err: Error) => toast.error(err.message || "Could not start session"),
+    onError: (err: Error) =>
+      toast.error(err.message || "Could not start session"),
   });
 
   const end = useMutation({
     mutationFn: (sessionId: number) => endBreakGlassSession(sessionId),
     onSuccess: () => {
       toast.success("Session ended");
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "break-glass"] });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "break-glass"],
+      });
     },
-    onError: (err: Error) => toast.error(err.message || "Could not end session"),
+    onError: (err: Error) =>
+      toast.error(err.message || "Could not end session"),
   });
 
   const rows: ClinicalAiBreakGlassSession[] = sessions.data?.sessions ?? [];
@@ -839,16 +1029,27 @@ export function BreakGlassControls() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Scope</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Reason</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Expires</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Scope
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Reason
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Expires
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-center text-muted-foreground" colSpan={4}>
+                <td
+                  className="px-4 py-6 text-center text-muted-foreground"
+                  colSpan={4}
+                >
                   No active sessions
                 </td>
               </tr>
@@ -857,7 +1058,9 @@ export function BreakGlassControls() {
                 <tr key={row.id}>
                   <td className="px-4 py-3 font-mono text-xs">{row.scope}</td>
                   <td className="px-4 py-3">{row.reason}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.expires_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.expires_at)}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => end.mutate(row.id)}
@@ -903,9 +1106,11 @@ export function SelfHealingPanel() {
       toast.success(
         findingCount === 0
           ? "Scan complete — no findings"
-          : `Scan complete — ${findingCount} finding${findingCount === 1 ? "" : "s"}`
+          : `Scan complete — ${findingCount} finding${findingCount === 1 ? "" : "s"}`,
       );
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "self-healing", "runs"] });
+      queryClient.invalidateQueries({
+        queryKey: ["clinical-ai", "self-healing", "runs"],
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Scan failed"),
   });
@@ -931,7 +1136,8 @@ export function SelfHealingPanel() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        This agent only reads. Findings are surfaced as draft suggestions; no production state is modified.
+        This agent only reads. Findings are surfaced as draft suggestions; no
+        production state is modified.
       </p>
 
       {latestFindings.length > 0 ? (
@@ -939,24 +1145,36 @@ export function SelfHealingPanel() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Severity</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Finding</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Suggested Action</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Severity
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Finding
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Suggested Action
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {latestFindings.map((finding, idx) => (
                 <tr key={`${finding.code}-${idx}`}>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(finding.severity)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityBadgeClass(finding.severity)}`}
+                    >
                       {finding.severity}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="font-mono text-xs text-muted-foreground">{finding.code}</div>
+                    <div className="font-mono text-xs text-muted-foreground">
+                      {finding.code}
+                    </div>
                     <div>{finding.message}</div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">{finding.suggested_action ?? "-"}</td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">
+                    {finding.suggested_action ?? "-"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -968,13 +1186,15 @@ export function SelfHealingPanel() {
         </div>
       ) : (
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          No scans yet. Run one to inspect fallback rate, stale reviews, break-glass, and process health.
+          No scans yet. Run one to inspect fallback rate, stale reviews,
+          break-glass, and process health.
         </div>
       )}
 
       {rows.length > 0 ? (
         <div className="text-xs text-muted-foreground">
-          Last scan: {rows[0].finished_at || rows[0].started_at} ({rows[0].status}) — {rows.length} runs in history.
+          Last scan: {rows[0].finished_at || rows[0].started_at} (
+          {rows[0].status}) — {rows.length} runs in history.
         </div>
       ) : null}
     </section>
@@ -1002,7 +1222,9 @@ export function CorpusHealthPanel() {
       if (result.halted) {
         toast.error(`Reindex halted: ${result.reason || "unknown"}`);
       } else {
-        toast.success(`Reindexed ${result.indexed} chunks (skipped ${result.skipped})`);
+        toast.success(
+          `Reindexed ${result.indexed} chunks (skipped ${result.skipped})`,
+        );
       }
       queryClient.invalidateQueries({ queryKey: ["clinical-ai", "corpus"] });
     },
@@ -1032,12 +1254,18 @@ export function CorpusHealthPanel() {
           <h2 className="text-lg font-semibold">Institutional Memory (RAG)</h2>
         </div>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="font-medium">pgvector not installed on this database.</div>
+          <div className="font-medium">
+            pgvector not installed on this database.
+          </div>
           <p className="mt-1">
-            RAG retrieval is disabled. Drafts continue to generate using the current chart packet only.
-            Install <code className="rounded bg-amber-100 px-1 text-xs">pgvector</code> and re-run migration
-            <code className="rounded bg-amber-100 px-1 text-xs">015_rag_corpus.sql</code> to enable
-            institutional memory.
+            RAG retrieval is disabled. Drafts continue to generate using the
+            current chart packet only. Install{" "}
+            <code className="rounded bg-amber-100 px-1 text-xs">pgvector</code>{" "}
+            and re-run migration
+            <code className="rounded bg-amber-100 px-1 text-xs">
+              015_rag_corpus.sql
+            </code>{" "}
+            to enable institutional memory.
           </p>
         </div>
       </section>
@@ -1065,16 +1293,23 @@ export function CorpusHealthPanel() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="text-sm text-muted-foreground">Total chunks</div>
-          <div className="mt-1 text-2xl font-semibold">{health.data?.total_chunks ?? 0}</div>
+          <div className="mt-1 text-2xl font-semibold">
+            {health.data?.total_chunks ?? 0}
+          </div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="text-sm text-muted-foreground">Source types</div>
           <div className="mt-1 text-2xl font-semibold">{rows.length}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-sm text-muted-foreground">Expired chunks (past retention)</div>
+          <div className="text-sm text-muted-foreground">
+            Expired chunks (past retention)
+          </div>
           <div className="mt-1 text-2xl font-semibold">
-            {rows.reduce((sum, row) => sum + Number(row.expired_chunks || 0), 0)}
+            {rows.reduce(
+              (sum, row) => sum + Number(row.expired_chunks || 0),
+              0,
+            )}
           </div>
         </div>
       </div>
@@ -1084,22 +1319,40 @@ export function CorpusHealthPanel() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Source type</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Documents</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Chunks</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Oldest signed</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Newest signed</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Expired</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Source type
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Documents
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Chunks
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Oldest signed
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Newest signed
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Expired
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map((row) => (
                 <tr key={row.source_type}>
-                  <td className="px-4 py-3 font-mono text-xs">{row.source_type}</td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {row.source_type}
+                  </td>
                   <td className="px-4 py-3">{row.document_count}</td>
                   <td className="px-4 py-3">{row.chunk_count}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.oldest_signed)}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.newest_signed)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.oldest_signed)}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.newest_signed)}
+                  </td>
                   <td className="px-4 py-3">{row.expired_chunks}</td>
                 </tr>
               ))}
@@ -1108,7 +1361,8 @@ export function CorpusHealthPanel() {
         </div>
       ) : (
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          No chunks indexed yet. Reindex to backfill from signed discharge summaries.
+          No chunks indexed yet. Reindex to backfill from signed discharge
+          summaries.
         </div>
       )}
 
@@ -1118,7 +1372,8 @@ export function CorpusHealthPanel() {
           Test query
         </div>
         <p className="text-xs text-muted-foreground">
-          Dry-run a retrieval. Pulls up to 5 similar discharge summaries from this tenant&apos;s corpus.
+          Dry-run a retrieval. Pulls up to 5 similar discharge summaries from
+          this tenant&apos;s corpus.
         </p>
         <div className="mt-2 flex gap-2">
           <input
@@ -1144,12 +1399,21 @@ export function CorpusHealthPanel() {
         {testResults.length > 0 ? (
           <ul className="mt-2 space-y-2 text-xs">
             {testResults.map((row) => (
-              <li key={row.id} className="rounded border border-border bg-card p-2">
+              <li
+                key={row.id}
+                className="rounded border border-border bg-card p-2"
+              >
                 <div className="flex items-center justify-between">
-                  <span className="font-mono">{row.source_type} / {row.source_id}</span>
-                  <span className="text-muted-foreground">sim {Number(row.similarity).toFixed(2)}</span>
+                  <span className="font-mono">
+                    {row.source_type} / {row.source_id}
+                  </span>
+                  <span className="text-muted-foreground">
+                    sim {Number(row.similarity).toFixed(2)}
+                  </span>
                 </div>
-                <p className="mt-1 line-clamp-3 text-muted-foreground">{row.content}</p>
+                <p className="mt-1 line-clamp-3 text-muted-foreground">
+                  {row.content}
+                </p>
               </li>
             ))}
           </ul>
@@ -1179,8 +1443,9 @@ export function DeadLetterPanel() {
         <h2 className="text-lg font-semibold">Dead-Letter Queue</h2>
       </div>
       <p className="text-xs text-muted-foreground">
-        Drafts that tripped a critical defense (PHI leak, unsafe allergy, schema fail) are held here.
-        They never reach reviewers; a platform admin must investigate and document the root cause.
+        Drafts that tripped a critical defense (PHI leak, unsafe allergy, schema
+        fail) are held here. They never reach reviewers; a platform admin must
+        investigate and document the root cause.
       </p>
       {rows.length === 0 ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
@@ -1191,39 +1456,61 @@ export function DeadLetterPanel() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Blocking flag</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">When</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Module
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Patient
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Provider
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  Blocking flag
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  When
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map((row) => {
-                const critical = (row.safety_flags || []).find((f) => f.severity === "critical")
-                  ?? row.safety_flags?.[0];
+                const critical =
+                  (row.safety_flags || []).find(
+                    (f) => f.severity === "critical",
+                  ) ?? row.safety_flags?.[0];
                 return (
                   <tr key={row.id}>
                     <td className="px-4 py-3">
                       <div className="font-medium">{row.module_key}</div>
-                      <div className="text-xs text-muted-foreground font-mono">gen #{row.id}</div>
+                      <div className="text-xs text-muted-foreground font-mono">
+                        gen #{row.id}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div>{row.patient_name ?? "-"}</div>
-                      <div className="text-xs text-muted-foreground">{row.patient_uid ?? ""}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.patient_uid ?? ""}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs">{row.provider}</td>
                     <td className="px-4 py-3">
                       {critical ? (
                         <>
-                          <div className="font-mono text-xs text-red-800">{critical.code}</div>
-                          <div className="text-xs text-muted-foreground">{critical.message}</div>
+                          <div className="font-mono text-xs text-red-800">
+                            {critical.code}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {critical.message}
+                          </div>
                         </>
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {fmt(row.created_at)}
+                    </td>
                   </tr>
                 );
               })}
@@ -1252,8 +1539,10 @@ const LANGUAGE_LABELS: Record<string, string> = {
 };
 
 function translationStatusClass(status: string) {
-  if (status === "completed") return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (status === "needs_review") return "bg-amber-100 text-amber-800 border-amber-200";
+  if (status === "completed")
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "needs_review")
+    return "bg-amber-100 text-amber-800 border-amber-200";
   return "bg-red-100 text-red-800 border-red-200";
 }
 
@@ -1279,33 +1568,53 @@ export function TranslationsPanel() {
           className="rounded-md border border-border bg-card px-2 py-1 text-sm"
         >
           <option value="">All languages</option>
-          {Object.entries(LANGUAGE_LABELS).filter(([code]) => code !== "en").map(([code, label]) => (
-            <option key={code} value={code}>{label} ({code})</option>
-          ))}
+          {Object.entries(LANGUAGE_LABELS)
+            .filter(([code]) => code !== "en")
+            .map(([code, label]) => (
+              <option key={code} value={code}>
+                {label} ({code})
+              </option>
+            ))}
         </select>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Only reviewer-accepted drafts are translated. Rows marked <strong>needs_review</strong> tripped a
-        numeric/date/drug fidelity check and must not be shown to the patient until a clinician reconfirms.
+        Only reviewer-accepted drafts are translated. Rows marked{" "}
+        <strong>needs_review</strong> tripped a numeric/date/drug fidelity check
+        and must not be shown to the patient until a clinician reconfirms.
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Module</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Target</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Fidelity</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Module
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Target
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Provider
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Fidelity
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Created
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                <td
+                  className="px-4 py-8 text-center text-muted-foreground"
+                  colSpan={6}
+                >
                   No translations yet
                 </td>
               </tr>
@@ -1320,29 +1629,40 @@ export function TranslationsPanel() {
                   </td>
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium">
-                      {LANGUAGE_LABELS[row.target_language] ?? row.target_language}
+                      {LANGUAGE_LABELS[row.target_language] ??
+                        row.target_language}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs">{row.provider}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${translationStatusClass(row.status)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${translationStatusClass(row.status)}`}
+                    >
                       {row.status}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     {row.fidelity_flags.length === 0 ? (
-                      <span className="text-xs text-emerald-700">All tuples preserved</span>
+                      <span className="text-xs text-emerald-700">
+                        All tuples preserved
+                      </span>
                     ) : (
                       <ul className="space-y-1">
                         {row.fidelity_flags.slice(0, 3).map((flag, idx) => (
-                          <li key={idx} className={`text-xs ${flag.severity === "high" ? "text-red-800" : "text-amber-800"}`}>
-                            <span className="font-mono">{flag.code}</span>: {flag.message}
+                          <li
+                            key={idx}
+                            className={`text-xs ${flag.severity === "high" ? "text-red-800" : "text-amber-800"}`}
+                          >
+                            <span className="font-mono">{flag.code}</span>:{" "}
+                            {flag.message}
                           </li>
                         ))}
                       </ul>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.created_at)}
+                  </td>
                 </tr>
               ))
             )}
@@ -1391,7 +1711,9 @@ export function LongitudinalRiskPanel() {
         </div>
         <select
           value={bandFilter}
-          onChange={(event) => setBandFilter(event.target.value as RiskBand | "")}
+          onChange={(event) =>
+            setBandFilter(event.target.value as RiskBand | "")
+          }
           className="rounded-md border border-border bg-card px-2 py-1 text-sm"
         >
           <option value="critical">Critical only</option>
@@ -1403,26 +1725,44 @@ export function LongitudinalRiskPanel() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Decision-support only. Each snapshot is immutable; recomputing creates a new snapshot with a new timestamp.
+        Decision-support only. Each snapshot is immutable; recomputing creates a
+        new snapshot with a new timestamp.
       </p>
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Patient</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Admission</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Band</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Score</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Contributors</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Top recommendation</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">When</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Patient
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Admission
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Band
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Score
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Contributors
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Top recommendation
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                When
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
+                <td
+                  className="px-4 py-8 text-center text-muted-foreground"
+                  colSpan={7}
+                >
                   No snapshots in this band yet
                 </td>
               </tr>
@@ -1432,16 +1772,26 @@ export function LongitudinalRiskPanel() {
                 return (
                   <tr key={row.id}>
                     <td className="px-4 py-3">
-                      <div className="font-medium">{row.patient_name ?? "-"}</div>
-                      <div className="text-xs text-muted-foreground">{row.patient_uid ?? ""}</div>
+                      <div className="font-medium">
+                        {row.patient_name ?? "-"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.patient_uid ?? ""}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs">#{row.admission_id}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      #{row.admission_id}
+                    </td>
                     <td className="px-4 py-3">
-                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${riskBandClass(row.band)}`}>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-xs font-medium ${riskBandClass(row.band)}`}
+                      >
                         {row.band}
                       </span>
                     </td>
-                    <td className={`px-4 py-3 font-semibold ${scoreColorClass(row.overall_score)}`}>
+                    <td
+                      className={`px-4 py-3 font-semibold ${scoreColorClass(row.overall_score)}`}
+                    >
                       {Number(row.overall_score).toFixed(0)}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -1454,14 +1804,18 @@ export function LongitudinalRiskPanel() {
                     <td className="px-4 py-3 text-xs">
                       {topRec ? (
                         <div className="max-w-md">
-                          <div className="font-mono text-muted-foreground">{topRec.category}</div>
+                          <div className="font-mono text-muted-foreground">
+                            {topRec.category}
+                          </div>
                           <div>{topRec.message}</div>
                         </div>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {fmt(row.created_at)}
+                    </td>
                   </tr>
                 );
               })

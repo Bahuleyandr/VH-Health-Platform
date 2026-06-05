@@ -464,7 +464,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             ),
           ),
           Container(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             child: TabBar(
               controller: _tabController,
               labelColor: AppTheme.primaryBlue,

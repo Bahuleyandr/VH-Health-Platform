@@ -124,7 +124,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   Widget _buildFilterRow() {
     final str = AppStrings.of(context);
     return Container(
-      color: Colors.white,
+      color: AppTheme.cardSurface,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [

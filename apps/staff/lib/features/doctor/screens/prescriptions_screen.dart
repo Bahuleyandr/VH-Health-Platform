@@ -52,7 +52,7 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
       body: Column(
         children: [
           Container(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             child: TabBar(
               controller: _tabController,
               labelColor: const Color(0xFF00838F),
@@ -1112,7 +1112,7 @@ class _MedicationCardState extends State<_MedicationCard> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardSurface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: const Color(0xFF00838F).withValues(alpha: 0.3),
@@ -1171,7 +1171,7 @@ class _MedicationCardState extends State<_MedicationCard> {
               constraints: const BoxConstraints(maxHeight: 160),
               margin: const EdgeInsets.only(top: 2),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppTheme.cardSurface,
                 border: Border.all(color: Colors.grey.shade300),
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: [

@@ -142,9 +142,15 @@ export default function OrBoardPage() {
   const totals = useMemo(() => {
     if (!board) return null;
     const total = board.cases.length;
-    const completed = board.cases.filter((c) => c.status === "completed").length;
-    const inProgress = board.cases.filter((c) => c.status === "in_progress").length;
-    const cancelled = board.cases.filter((c) => c.status === "cancelled").length;
+    const completed = board.cases.filter(
+      (c) => c.status === "completed",
+    ).length;
+    const inProgress = board.cases.filter(
+      (c) => c.status === "in_progress",
+    ).length;
+    const cancelled = board.cases.filter(
+      (c) => c.status === "cancelled",
+    ).length;
     const allPhasesDone = board.cases.filter(
       (c) => c.sign_in_complete && c.time_out_complete && c.sign_out_complete,
     ).length;
@@ -152,7 +158,14 @@ export default function OrBoardPage() {
       (acc, c) => acc + (c.open_complications || 0),
       0,
     );
-    return { total, completed, inProgress, cancelled, allPhasesDone, openComplications };
+    return {
+      total,
+      completed,
+      inProgress,
+      cancelled,
+      allPhasesDone,
+      openComplications,
+    };
   }, [board]);
 
   return (
@@ -161,11 +174,16 @@ export default function OrBoardPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">OR Board</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Today&apos;s surgical cases with checklist + WHO safety phase status. Auto-refreshes every 60s.
+            Today&apos;s surgical cases with checklist + WHO safety phase
+            status. Auto-refreshes every 60s.
           </p>
         </div>
         <div className="text-xs text-muted-foreground">
-          {dataUpdatedAt ? <>Updated {new Date(dataUpdatedAt).toLocaleTimeString()}</> : <>—</>}
+          {dataUpdatedAt ? (
+            <>Updated {new Date(dataUpdatedAt).toLocaleTimeString()}</>
+          ) : (
+            <>—</>
+          )}
           <button
             onClick={() => refetch()}
             className="ml-3 px-3 py-1.5 rounded-md border text-foreground hover:bg-muted text-xs"
@@ -178,7 +196,9 @@ export default function OrBoardPage() {
       {/* Filters */}
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Date</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Date
+          </label>
           <input
             type="date"
             value={date}
@@ -187,7 +207,9 @@ export default function OrBoardPage() {
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Room</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Room
+          </label>
           <select
             value={room}
             onChange={(e) => setRoom(e.target.value)}
@@ -232,7 +254,7 @@ export default function OrBoardPage() {
           ].map((s) => (
             <div
               key={s.label}
-              className={`bg-white rounded-lg border shadow-sm p-3 ${
+              className={`bg-card rounded-lg border shadow-sm p-3 ${
                 s.alert ? "border-rose-300" : ""
               }`}
             >
@@ -262,7 +284,7 @@ export default function OrBoardPage() {
           {grouped.map(({ room: roomKey, cases }) => (
             <div
               key={roomKey}
-              className="bg-white rounded-lg border shadow-sm overflow-hidden"
+              className="bg-card rounded-lg border shadow-sm overflow-hidden"
             >
               <div className="px-4 py-2 bg-muted border-b text-sm font-semibold">
                 {roomKey}{" "}
@@ -279,7 +301,10 @@ export default function OrBoardPage() {
                       <th className="px-3 py-2 font-medium">Surgeon</th>
                       <th className="px-3 py-2 font-medium">Status</th>
                       <th className="px-3 py-2 font-medium">Pre-op</th>
-                      <th className="px-3 py-2 font-medium" title="Sign-in / Time-out / Sign-out">
+                      <th
+                        className="px-3 py-2 font-medium"
+                        title="Sign-in / Time-out / Sign-out"
+                      >
                         WHO phases
                       </th>
                       <th className="px-3 py-2 font-medium">Notes</th>
@@ -288,7 +313,10 @@ export default function OrBoardPage() {
                   </thead>
                   <tbody>
                     {cases.map((c) => (
-                      <tr key={c.id} className="border-b last:border-0 hover:bg-muted/50">
+                      <tr
+                        key={c.id}
+                        className="border-b last:border-0 hover:bg-muted/50"
+                      >
                         <td className="px-3 py-2 font-mono text-xs">
                           {fmtTime(c.scheduled_time)}
                           {c.estimated_duration ? (
@@ -321,13 +349,21 @@ export default function OrBoardPage() {
                         <td className="px-3 py-2">
                           <div className="flex gap-2 text-xs">
                             <span
-                              className={c.consent_obtained ? "text-emerald-600" : "text-rose-600"}
+                              className={
+                                c.consent_obtained
+                                  ? "text-emerald-600"
+                                  : "text-rose-600"
+                              }
                               title="Consent obtained"
                             >
                               {c.consent_obtained ? "✓" : "✗"} consent
                             </span>
                             <span
-                              className={c.blood_arranged ? "text-emerald-600" : "text-slate-400"}
+                              className={
+                                c.blood_arranged
+                                  ? "text-emerald-600"
+                                  : "text-slate-400"
+                              }
                               title="Blood arranged"
                             >
                               {c.blood_arranged ? "✓" : "—"} blood
@@ -345,7 +381,8 @@ export default function OrBoardPage() {
                           </div>
                         </td>
                         <td className="px-3 py-2 text-xs">
-                          {c.intraop_note_count} intra · {c.postop_note_count} post
+                          {c.intraop_note_count} intra · {c.postop_note_count}{" "}
+                          post
                         </td>
                         <td className="px-3 py-2">
                           {c.open_complications > 0 ? (
@@ -353,7 +390,9 @@ export default function OrBoardPage() {
                               {c.open_complications} open
                             </span>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            <span className="text-xs text-muted-foreground">
+                              —
+                            </span>
                           )}
                         </td>
                       </tr>

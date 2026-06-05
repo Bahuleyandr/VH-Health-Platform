@@ -74,7 +74,7 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
   ).length;
 
   return (
-    <div className="bg-white rounded-lg shadow">
+    <div className="bg-card rounded-lg shadow">
       <div className="p-4">
         <button
           onClick={() => setShowFilters(!showFilters)}

@@ -7,11 +7,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -69,7 +65,11 @@ function PathologistWorklist() {
   const [signedByName, setSignedByName] = useState("");
   const [signedByReg, setSignedByReg] = useState("");
 
-  const { data: rows = [], error, isLoading } = useQuery<PendingResult[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<PendingResult[]>({
     queryKey: ["lab", "pathologist", "pending"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -160,7 +160,11 @@ function PathologistWorklist() {
         </button>
         <div className="flex-1" />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["lab", "pathologist", "pending"] })}
+          onClick={() =>
+            qc.invalidateQueries({
+              queryKey: ["lab", "pathologist", "pending"],
+            })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -176,9 +180,12 @@ function PathologistWorklist() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="Inbox zero" description="No results pending sign-off." />
+        <EmptyState
+          title="Inbox zero"
+          description="No results pending sign-off."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -193,7 +200,10 @@ function PathologistWorklist() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr
+                  key={r.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-3 py-2">
                     <input
                       type="checkbox"
@@ -210,8 +220,12 @@ function PathologistWorklist() {
                     )}
                   </td>
                   <td className="px-3 py-2 font-mono">
-                    {r.value_numeric != null ? r.value_numeric : r.value_text ?? "—"}
-                    {r.unit ? <span className="text-muted-foreground"> {r.unit}</span> : null}
+                    {r.value_numeric != null
+                      ? r.value_numeric
+                      : (r.value_text ?? "—")}
+                    {r.unit ? (
+                      <span className="text-muted-foreground"> {r.unit}</span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {r.reference_range ?? "—"}
@@ -253,7 +267,11 @@ function CriticalAlerts() {
     method: "phone",
   });
 
-  const { data: rows = [], error, isLoading } = useQuery<CriticalAlert[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<CriticalAlert[]>({
     queryKey: ["lab", "alerts", "critical"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>("/lab/alerts/critical?limit=100");
@@ -309,10 +327,14 @@ function CriticalAlerts() {
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Method</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Method
+          </label>
           <select
             value={readBack.method}
-            onChange={(e) => setReadBack({ ...readBack, method: e.target.value })}
+            onChange={(e) =>
+              setReadBack({ ...readBack, method: e.target.value })
+            }
             className="border border-border rounded-lg px-3 py-2 text-sm"
           >
             <option value="phone">Phone</option>
@@ -322,7 +344,9 @@ function CriticalAlerts() {
         </div>
         <div className="flex-1" />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["lab", "alerts", "critical"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["lab", "alerts", "critical"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -344,9 +368,13 @@ function CriticalAlerts() {
               Open <span className="text-rose-600">{open.length}</span>
             </h3>
             {open.length === 0 ? (
-              <EmptyState title="All clear" description="No open critical alerts." compact />
+              <EmptyState
+                title="All clear"
+                description="No open critical alerts."
+                compact
+              />
             ) : (
-              <div className="bg-white rounded-lg border border-rose-200 shadow-sm overflow-x-auto">
+              <div className="bg-card rounded-lg border border-rose-200 shadow-sm overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="text-xs text-muted-foreground border-b">
                     <tr className="text-left">
@@ -370,21 +398,32 @@ function CriticalAlerts() {
                             stale ? "bg-rose-50" : ""
                           }`}
                         >
-                          <td className="px-3 py-2 font-medium">{r.test_name}</td>
+                          <td className="px-3 py-2 font-medium">
+                            {r.test_name}
+                          </td>
                           <td className="px-3 py-2 font-mono">
-                            {r.value_numeric != null ? r.value_numeric : r.value_text ?? "—"}
+                            {r.value_numeric != null
+                              ? r.value_numeric
+                              : (r.value_text ?? "—")}
                             {r.unit ? (
-                              <span className="text-muted-foreground"> {r.unit}</span>
+                              <span className="text-muted-foreground">
+                                {" "}
+                                {r.unit}
+                              </span>
                             ) : null}
                           </td>
                           <td className="px-3 py-2 text-xs">
                             {r.threshold_breached ?? "—"}{" "}
-                            {r.threshold_value != null ? `(${r.threshold_value})` : ""}
+                            {r.threshold_value != null
+                              ? `(${r.threshold_value})`
+                              : ""}
                           </td>
                           <td className="px-3 py-2 text-xs font-mono">
                             {r.patient_uid.slice(0, 8)}
                           </td>
-                          <td className="px-3 py-2 text-xs">{fmtTs(r.fired_at)}</td>
+                          <td className="px-3 py-2 text-xs">
+                            {fmtTs(r.fired_at)}
+                          </td>
                           <td
                             className={`px-3 py-2 text-xs ${
                               stale ? "text-rose-600 font-semibold" : ""
@@ -415,7 +454,7 @@ function CriticalAlerts() {
               <h3 className="text-sm font-semibold mb-2 text-muted-foreground">
                 Acknowledged ({closed.length})
               </h3>
-              <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+              <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="text-xs text-muted-foreground border-b">
                     <tr className="text-left">
@@ -432,13 +471,19 @@ function CriticalAlerts() {
                       <tr key={r.id} className="border-b last:border-0">
                         <td className="px-3 py-2">{r.test_name}</td>
                         <td className="px-3 py-2 font-mono">
-                          {r.value_numeric != null ? r.value_numeric : r.value_text ?? "—"}
+                          {r.value_numeric != null
+                            ? r.value_numeric
+                            : (r.value_text ?? "—")}
                         </td>
-                        <td className="px-3 py-2">{r.acknowledged_by_name ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          {r.acknowledged_by_name ?? "—"}
+                        </td>
                         <td className="px-3 py-2 text-xs">
                           {r.read_back_method ?? "—"}
                         </td>
-                        <td className="px-3 py-2 text-xs">{fmtTs(r.fired_at)}</td>
+                        <td className="px-3 py-2 text-xs">
+                          {fmtTs(r.fired_at)}
+                        </td>
                         <td className="px-3 py-2 text-xs">
                           {fmtTs(r.acknowledged_at)}
                         </td>
@@ -472,7 +517,7 @@ export default function LabPage() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >

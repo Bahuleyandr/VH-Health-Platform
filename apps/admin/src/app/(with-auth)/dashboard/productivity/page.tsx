@@ -17,7 +17,9 @@ function ProductivityContent() {
   const [tab, setTab] = useState<Tab>("phrases");
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-foreground mb-1">Doctor Productivity</h1>
+      <h1 className="text-3xl font-bold text-foreground mb-1">
+        Doctor Productivity
+      </h1>
       <p className="text-sm text-muted-foreground mb-6">
         Smart-phrase library and order-set bundle templates.
       </p>
@@ -33,7 +35,7 @@ function ProductivityContent() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >

@@ -305,7 +305,7 @@ export function UsersTable({
 
   return (
     <>
-      <div className="overflow-hidden rounded-lg bg-white shadow dark:bg-card">
+      <div className="overflow-hidden rounded-lg bg-card shadow dark:bg-card">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] divide-y divide-border dark:divide-border">
             <thead className="bg-muted dark:bg-background">
@@ -360,7 +360,7 @@ export function UsersTable({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border bg-white dark:divide-border dark:bg-card">
+            <tbody className="divide-y divide-border bg-card dark:divide-border dark:bg-card">
               {users.map((user) => (
                 <tr
                   key={user.id}

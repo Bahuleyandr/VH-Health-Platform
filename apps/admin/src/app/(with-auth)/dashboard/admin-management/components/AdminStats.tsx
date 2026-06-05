@@ -3,7 +3,13 @@
 
 import { useMemo } from "react";
 import type { AdminUser } from "@/lib/types";
-import { UsersIcon, CheckCircle, XCircle, ShieldIcon, ClockIcon } from "lucide-react";
+import {
+  UsersIcon,
+  CheckCircle,
+  XCircle,
+  ShieldIcon,
+  ClockIcon,
+} from "lucide-react";
 
 interface AdminStatsProps {
   admins: AdminUser[];
@@ -14,7 +20,14 @@ interface AdminStatsProps {
 export function AdminStats({ admins, isLoading, error }: AdminStatsProps) {
   const { total, active, inactive, superAdmins, recentlyActive } =
     useMemo(() => {
-      if (isLoading || error) return { total: 0, active: 0, inactive: 0, superAdmins: 0, recentlyActive: 0 };
+      if (isLoading || error)
+        return {
+          total: 0,
+          active: 0,
+          inactive: 0,
+          superAdmins: 0,
+          recentlyActive: 0,
+        };
       const now = Date.now();
       const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
@@ -41,7 +54,13 @@ export function AdminStats({ admins, isLoading, error }: AdminStatsProps) {
     }, [admins, isLoading, error]);
 
   if (isLoading) {
-    return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"><div className="col-span-full p-6 text-center text-muted-foreground">Loading stats...</div></div>;
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="col-span-full p-6 text-center text-muted-foreground">
+          Loading stats...
+        </div>
+      </div>
+    );
   }
 
   if (error) {
@@ -51,10 +70,12 @@ export function AdminStats({ admins, isLoading, error }: AdminStatsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
       {/* Total */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-border">
+      <div className="bg-card p-6 rounded-lg shadow-sm border border-border">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Total Admins</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              Total Admins
+            </p>
             <p className="text-2xl font-bold text-foreground mt-2">{total}</p>
           </div>
           <div className="text-muted-foreground" aria-hidden>
@@ -81,7 +102,9 @@ export function AdminStats({ admins, isLoading, error }: AdminStatsProps) {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-destructive">Inactive</p>
-            <p className="text-2xl font-bold text-destructive mt-2">{inactive}</p>
+            <p className="text-2xl font-bold text-destructive mt-2">
+              {inactive}
+            </p>
           </div>
           <div className="text-destructive/60" aria-hidden>
             <XCircle className="w-8 h-8" />

@@ -44,53 +44,53 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div className="overflow-x-auto w-full">
-    <table className="min-w-full divide-y divide-border">
-      <thead>
-        <tr>
-          {selectable && <th className="w-12" />}
-          {columns.map((column) => (
-            <th
-              key={String(column.key)}
-              className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
-            >
-              {column.header}
-            </th>
-          ))}
-        </tr>
-      </thead>
-
-      <tbody className="bg-white divide-y divide-border">
-        {data.map((row) => (
-          <tr
-            key={row.id}
-            onClick={() => onRowClick?.(row)}
-            className={onRowClick ? "cursor-pointer hover:bg-muted" : ""}
-          >
-            {selectable && (
-              <td className="px-6 py-4">
-                <input
-                  type="checkbox"
-                  checked={selectedRows.has(row.id)}
-                  onChange={() => handleSelectRow(row.id)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </td>
-            )}
-
+      <table className="min-w-full divide-y divide-border">
+        <thead>
+          <tr>
+            {selectable && <th className="w-12" />}
             {columns.map((column) => (
-              <td
+              <th
                 key={String(column.key)}
-                className="px-6 py-4 whitespace-nowrap"
+                className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
-                {column.render
-                  ? column.render(row[column.key], row)
-                  : String(row[column.key])}
-              </td>
+                {column.header}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+
+        <tbody className="bg-card divide-y divide-border">
+          {data.map((row) => (
+            <tr
+              key={row.id}
+              onClick={() => onRowClick?.(row)}
+              className={onRowClick ? "cursor-pointer hover:bg-muted" : ""}
+            >
+              {selectable && (
+                <td className="px-6 py-4">
+                  <input
+                    type="checkbox"
+                    checked={selectedRows.has(row.id)}
+                    onChange={() => handleSelectRow(row.id)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </td>
+              )}
+
+              {columns.map((column) => (
+                <td
+                  key={String(column.key)}
+                  className="px-6 py-4 whitespace-nowrap"
+                >
+                  {column.render
+                    ? column.render(row[column.key], row)
+                    : String(row[column.key])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

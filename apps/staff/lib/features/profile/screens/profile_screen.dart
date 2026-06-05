@@ -187,7 +187,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           CircleAvatar(
             radius: 44,
-            backgroundColor: Colors.white.withValues(alpha: 0.25),
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.onPrimary.withValues(alpha: 0.25),
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : 'S',
               style: const TextStyle(

@@ -33,12 +33,14 @@ export function KeyboardShortcuts() {
           tabIndex={0}
           className="fixed inset-0 bg-foreground bg-opacity-50 z-50"
           onClick={() => setShowShortcuts(false)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowShortcuts(false); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setShowShortcuts(false);
+          }}
         >
           <div
             role="button"
             tabIndex={0}
-            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-6 max-w-sm"
+            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-card rounded-lg shadow-xl p-6 max-w-sm"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >

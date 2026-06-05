@@ -19,7 +19,7 @@ const baseStyles =
 const variants = {
   default: "bg-primary text-white hover:bg-primary/90",
   destructive: "bg-destructive text-white hover:bg-destructive/90",
-  outline: "border border-input bg-white hover:bg-muted",
+  outline: "border border-input bg-card hover:bg-muted",
   secondary: "bg-muted text-foreground hover:bg-muted",
   ghost: "hover:bg-muted hover:text-foreground",
   link: "text-primary underline-offset-4 hover:underline",
@@ -33,7 +33,16 @@ const sizes = {
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  function Button({ className, variant = "default", size = "default", type = "button", ...props }, ref) {
+  function Button(
+    {
+      className,
+      variant = "default",
+      size = "default",
+      type = "button",
+      ...props
+    },
+    ref,
+  ) {
     return (
       <button
         ref={ref}

@@ -676,7 +676,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       child: Column(
         children: [
           Container(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             child: TabBar(
               labelColor: AppTheme.primaryBlue,
               unselectedLabelColor: AppTheme.textSecondary,
@@ -705,7 +705,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       children: [
         // Search
         Container(
-          color: Colors.white,
+          color: AppTheme.cardSurface,
           padding: const EdgeInsets.all(12),
           child: LayoutBuilder(
             builder: (context, constraints) {

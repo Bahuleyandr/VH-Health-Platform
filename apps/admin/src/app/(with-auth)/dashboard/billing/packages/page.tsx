@@ -109,10 +109,16 @@ function rowToForm(row: PackageRow): PackageFormState {
 
 export default function PackagesPage() {
   const qc = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<"" | PackageRow["status"]>("");
+  const [statusFilter, setStatusFilter] = useState<"" | PackageRow["status"]>(
+    "",
+  );
   const [form, setForm] = useState<PackageFormState | null>(null);
 
-  const { data: rows = [], isLoading, error } = useQuery<PackageRow[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<PackageRow[]>({
     queryKey: ["billing-masters", "packages", { statusFilter }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -127,16 +133,17 @@ export default function PackagesPage() {
   const upsertMut = useMutation({
     mutationFn: async (f: PackageFormState) => {
       const priceMinor = rupeesToPaise(f.price_rupees);
-      const durationDays = f.duration_days.trim() === ""
-        ? null
-        : Number(f.duration_days);
+      const durationDays =
+        f.duration_days.trim() === "" ? null : Number(f.duration_days);
       const body: Record<string, unknown> = {
         package_code: f.package_code.trim(),
         display_name: f.display_name.trim(),
         description: f.description.trim() || null,
         base_specialty: f.base_specialty.trim() || null,
         base_procedure_code: f.base_procedure_code.trim() || null,
-        duration_days: Number.isFinite(durationDays as number) ? durationDays : null,
+        duration_days: Number.isFinite(durationDays as number)
+          ? durationDays
+          : null,
         fixed_price_minor: priceMinor,
         currency: (f.currency.trim() || "INR").toUpperCase(),
         status: f.status,
@@ -161,7 +168,9 @@ export default function PackagesPage() {
   });
 
   const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => a.display_name.localeCompare(b.display_name));
+    return [...rows].sort((a, b) =>
+      a.display_name.localeCompare(b.display_name),
+    );
   }, [rows]);
 
   function openCreate() {
@@ -204,8 +213,10 @@ export default function PackagesPage() {
         <div className="flex items-center gap-2">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="h-10 rounded-md border border-input bg-white px-3 text-sm"
+            onChange={(e) =>
+              setStatusFilter(e.target.value as typeof statusFilter)
+            }
+            className="h-10 rounded-md border border-input bg-card px-3 text-sm"
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
@@ -237,7 +248,7 @@ export default function PackagesPage() {
           description="Create your first day-care package — admit screens auto-populate the deposit from the fixed price."
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-white shadow">
+        <div className="overflow-hidden rounded-lg border border-border bg-card shadow">
           <table className="w-full min-w-[920px] divide-y divide-border">
             <thead className="bg-muted">
               <tr className="text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -266,7 +277,8 @@ export default function PackagesPage() {
                     {row.duration_days ?? "—"}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums text-foreground">
-                    {row.fixed_price_minor === null || row.fixed_price_minor === undefined
+                    {row.fixed_price_minor === null ||
+                    row.fixed_price_minor === undefined
                       ? "—"
                       : `${row.currency} ${paiseToRupees(row.fixed_price_minor)}`}
                   </td>
@@ -321,7 +333,10 @@ function PackageFormModal({
 }) {
   const isEdit = form.id !== null;
 
-  function field<K extends keyof PackageFormState>(key: K, value: PackageFormState[K]) {
+  function field<K extends keyof PackageFormState>(
+    key: K,
+    value: PackageFormState[K],
+  ) {
     onChange({ ...form, [key]: value });
   }
 
@@ -331,7 +346,7 @@ function PackageFormModal({
       onClick={onCancel}
     >
       <div
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-card p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-xl font-bold text-foreground">
@@ -351,7 +366,7 @@ function PackageFormModal({
               value={form.package_code}
               onChange={(e) => field("package_code", e.target.value)}
               placeholder="DC-CATARACT-PHACO"
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm font-mono"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm font-mono"
               disabled={isEdit}
               required
             />
@@ -362,7 +377,7 @@ function PackageFormModal({
               value={form.display_name}
               onChange={(e) => field("display_name", e.target.value)}
               placeholder="Cataract — Phacoemulsification + IOL (day-care)"
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
               required
             />
           </Field>
@@ -373,7 +388,7 @@ function PackageFormModal({
               value={form.base_specialty}
               onChange={(e) => field("base_specialty", e.target.value)}
               placeholder="ophthalmology"
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
             />
           </Field>
           <Field label="Procedure code">
@@ -382,7 +397,7 @@ function PackageFormModal({
               value={form.base_procedure_code}
               onChange={(e) => field("base_procedure_code", e.target.value)}
               placeholder="PHACO_IOL"
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm font-mono"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm font-mono"
             />
           </Field>
 
@@ -393,7 +408,7 @@ function PackageFormModal({
               step={1}
               value={form.duration_days}
               onChange={(e) => field("duration_days", e.target.value)}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm tabular-nums"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm tabular-nums"
             />
           </Field>
           <Field label={`Price (${form.currency})`}>
@@ -404,7 +419,7 @@ function PackageFormModal({
               value={form.price_rupees}
               onChange={(e) => field("price_rupees", e.target.value)}
               placeholder="15000.00"
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm tabular-nums"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm tabular-nums"
             />
           </Field>
 
@@ -414,14 +429,16 @@ function PackageFormModal({
               value={form.currency}
               onChange={(e) => field("currency", e.target.value.toUpperCase())}
               maxLength={8}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm uppercase"
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm uppercase"
             />
           </Field>
           <Field label="Status">
             <select
               value={form.status}
-              onChange={(e) => field("status", e.target.value as PackageRow["status"])}
-              className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
+              onChange={(e) =>
+                field("status", e.target.value as PackageRow["status"])
+              }
+              className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
             >
               <option value="active">Active</option>
               <option value="draft">Draft</option>
@@ -436,18 +453,21 @@ function PackageFormModal({
                 value={form.description}
                 onChange={(e) => field("description", e.target.value)}
                 rows={2}
-                className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
               />
             </Field>
           </div>
 
           <div className="md:col-span-2">
-            <Field label="Inclusions" hint="What's bundled into the fixed price.">
+            <Field
+              label="Inclusions"
+              hint="What's bundled into the fixed price."
+            >
               <textarea
                 value={form.inclusion_notes}
                 onChange={(e) => field("inclusion_notes", e.target.value)}
                 rows={2}
-                className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
               />
             </Field>
           </div>
@@ -458,7 +478,7 @@ function PackageFormModal({
                 value={form.exclusion_notes}
                 onChange={(e) => field("exclusion_notes", e.target.value)}
                 rows={2}
-                className="w-full rounded-md border border-input bg-white px-3 py-2 text-sm"
+                className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
               />
             </Field>
           </div>
@@ -467,7 +487,7 @@ function PackageFormModal({
             <button
               type="button"
               onClick={onCancel}
-              className="h-10 rounded-xl border border-input bg-white px-4 text-sm font-medium text-foreground hover:bg-muted"
+              className="h-10 rounded-xl border border-input bg-card px-4 text-sm font-medium text-foreground hover:bg-muted"
             >
               Cancel
             </button>
@@ -476,7 +496,11 @@ function PackageFormModal({
               disabled={submitting}
               className="h-10 rounded-xl bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
             >
-              {submitting ? "Saving…" : isEdit ? "Save changes" : "Create package"}
+              {submitting
+                ? "Saving…"
+                : isEdit
+                  ? "Save changes"
+                  : "Create package"}
             </button>
           </div>
         </form>

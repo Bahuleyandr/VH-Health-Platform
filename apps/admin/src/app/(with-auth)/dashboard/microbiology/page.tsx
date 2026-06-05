@@ -6,11 +6,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -97,7 +93,7 @@ export default function MicrobiologyPage() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -118,7 +114,11 @@ function OrdersTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [openOrder, setOpenOrder] = useState<number | null>(null);
 
-  const { data: rows = [], error, isLoading } = useQuery<MicroOrder[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<MicroOrder[]>({
     queryKey: ["micro", "orders", { statusFilter }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -136,7 +136,9 @@ function OrdersTab() {
     <div className="space-y-4">
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -144,7 +146,9 @@ function OrdersTab() {
           >
             <option value="">All</option>
             {Object.keys(STATUS_COLOURS).map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+              <option key={s} value={s}>
+                {s.replace(/_/g, " ")}
+              </option>
             ))}
           </select>
         </div>
@@ -172,9 +176,12 @@ function OrdersTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No orders" description="No micro orders match this filter." />
+        <EmptyState
+          title="No orders"
+          description="No micro orders match this filter."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -190,7 +197,10 @@ function OrdersTab() {
             </thead>
             <tbody>
               {rows.map((o) => (
-                <tr key={o.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr
+                  key={o.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-3 py-2 font-mono text-xs">#{o.id}</td>
                   <td className="px-3 py-2 font-mono text-xs">
                     {o.patient_uid.slice(0, 8)}
@@ -198,7 +208,9 @@ function OrdersTab() {
                   <td className="px-3 py-2 text-xs">
                     <div>{o.specimen_type}</div>
                     {o.specimen_site && (
-                      <div className="text-muted-foreground">{o.specimen_site}</div>
+                      <div className="text-muted-foreground">
+                        {o.specimen_site}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs">{o.test_kind}</td>
@@ -250,7 +262,8 @@ function OrdersTab() {
 }
 
 function CreateOrderModal({
-  onClose, onCreated,
+  onClose,
+  onCreated,
 }: {
   onClose: () => void;
   onCreated: () => void;
@@ -273,60 +286,110 @@ function CreateOrderModal({
   const errMsg = mut.error instanceof Error ? mut.error.message : null;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-lg">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">New culture order</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Patient UID *</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Patient UID *
+            </label>
             <input
               value={form.patient_uid}
-              onChange={(e) => setForm({ ...form, patient_uid: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, patient_uid: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Specimen *</label>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Specimen *
+              </label>
               <select
                 value={form.specimen_type}
-                onChange={(e) => setForm({ ...form, specimen_type: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, specimen_type: e.target.value })
+                }
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm"
               >
-                {["blood", "urine", "sputum", "pus", "csf", "stool", "wound", "et_secretion", "tip", "other"].map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {[
+                  "blood",
+                  "urine",
+                  "sputum",
+                  "pus",
+                  "csf",
+                  "stool",
+                  "wound",
+                  "et_secretion",
+                  "tip",
+                  "other",
+                ].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Test kind</label>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Test kind
+              </label>
               <select
                 value={form.test_kind}
-                onChange={(e) => setForm({ ...form, test_kind: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, test_kind: e.target.value })
+                }
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm"
               >
-                {["culture_sensitivity", "gram_stain", "afb_smear", "afb_culture", "fungal_culture", "mrsa_screen", "esbl_screen", "cre_screen", "kpc_screen"].map((s) => (
-                  <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                {[
+                  "culture_sensitivity",
+                  "gram_stain",
+                  "afb_smear",
+                  "afb_culture",
+                  "fungal_culture",
+                  "mrsa_screen",
+                  "esbl_screen",
+                  "cre_screen",
+                  "kpc_screen",
+                ].map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace(/_/g, " ")}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Site</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Site
+            </label>
             <input
               value={form.specimen_site}
-              onChange={(e) => setForm({ ...form, specimen_site: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, specimen_site: e.target.value })
+              }
               placeholder="e.g. central line tip / left ankle wound"
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Clinical notes</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Clinical notes
+            </label>
             <textarea
               value={form.clinical_notes}
-              onChange={(e) => setForm({ ...form, clinical_notes: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, clinical_notes: e.target.value })
+              }
               rows={3}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
@@ -334,7 +397,12 @@ function CreateOrderModal({
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border text-sm hover:bg-muted">Cancel</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending || !form.patient_uid}
@@ -372,7 +440,8 @@ interface OrderDetail extends MicroOrder {
 }
 
 function OrderDetailModal({
-  orderId, onClose,
+  orderId,
+  onClose,
 }: {
   orderId: number;
   onClose: () => void;
@@ -422,7 +491,9 @@ function OrderDetailModal({
     fetchAdminAPI(`/microbiology/orders/${orderId}/isolates`, {
       method: "POST",
       body: { organism_name: name },
-    }).then(() => qc.invalidateQueries({ queryKey: ["micro", "order", orderId] }));
+    }).then(() =>
+      qc.invalidateQueries({ queryKey: ["micro", "order", orderId] }),
+    );
   }
 
   function addSensitivity(isolateId: number) {
@@ -442,15 +513,22 @@ function OrderDetailModal({
         antibiotic_name: name,
         result: result.toUpperCase(),
       },
-    }).then(() => qc.invalidateQueries({ queryKey: ["micro", "order", orderId] }));
+    }).then(() =>
+      qc.invalidateQueries({ queryKey: ["micro", "order", orderId] }),
+    );
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl mb-8">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-3xl mb-8">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Micro order #{orderId}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4">
           {isLoading || !detail ? (
@@ -469,7 +547,9 @@ function OrderDetailModal({
                   {detail.specimen_type}
                   {detail.specimen_site ? ` · ${detail.specimen_site}` : ""}
                 </span>
-                <span className="text-muted-foreground">{detail.test_kind}</span>
+                <span className="text-muted-foreground">
+                  {detail.test_kind}
+                </span>
               </div>
 
               {/* Workflow buttons */}
@@ -500,7 +580,9 @@ function OrderDetailModal({
                   </button>
                 </div>
                 {detail.isolates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No isolates recorded yet.</p>
+                  <p className="text-xs text-muted-foreground">
+                    No isolates recorded yet.
+                  </p>
                 ) : (
                   <div className="space-y-3">
                     {detail.isolates.map((iso) => (
@@ -517,7 +599,9 @@ function OrderDetailModal({
                               {iso.is_mrsa && <ResistancePill label="MRSA" />}
                               {iso.is_esbl && <ResistancePill label="ESBL" />}
                               {iso.is_amp_c && <ResistancePill label="AmpC" />}
-                              {iso.is_carbapenemase && <ResistancePill label="Carbapenemase" />}
+                              {iso.is_carbapenemase && (
+                                <ResistancePill label="Carbapenemase" />
+                              )}
                               {iso.is_vre && <ResistancePill label="VRE" />}
                               {iso.is_xdr && <ResistancePill label="XDR" />}
                             </div>
@@ -542,10 +626,18 @@ function OrderDetailModal({
                             </thead>
                             <tbody>
                               {iso.sensitivities.map((s) => (
-                                <tr key={s.id} className="border-b last:border-0">
+                                <tr
+                                  key={s.id}
+                                  className="border-b last:border-0"
+                                >
                                   <td className="py-1">
-                                    <span className="font-mono">{s.antibiotic_code}</span>
-                                    <span className="text-muted-foreground"> · {s.antibiotic_name}</span>
+                                    <span className="font-mono">
+                                      {s.antibiotic_code}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      {" "}
+                                      · {s.antibiotic_name}
+                                    </span>
                                   </td>
                                   <td className="py-1">
                                     <span
@@ -561,9 +653,13 @@ function OrderDetailModal({
                                     </span>
                                   </td>
                                   <td className="py-1 font-mono">
-                                    {s.mic_value != null ? `${s.mic_value} ${s.mic_unit ?? ""}` : "—"}
+                                    {s.mic_value != null
+                                      ? `${s.mic_value} ${s.mic_unit ?? ""}`
+                                      : "—"}
                                   </td>
-                                  <td className="py-1 text-muted-foreground">{s.method ?? "—"}</td>
+                                  <td className="py-1 text-muted-foreground">
+                                    {s.method ?? "—"}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -593,7 +689,11 @@ function ResistancePill({ label }: { label: string }) {
 function AntibiogramTab() {
   const [organism, setOrganism] = useState("");
   const [antibiotic, setAntibiotic] = useState("");
-  const { data: rows = [], isLoading, error } = useQuery<AntibiogramRow[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<AntibiogramRow[]>({
     queryKey: ["micro", "antibiogram", { organism, antibiotic }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
@@ -609,13 +709,15 @@ function AntibiogramTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Susceptibility patterns over the last 90 days. Min sample n=5 to suppress
-        small-sample noise. Drives empirical antibiotic guidance for the
-        antimicrobial stewardship committee.
+        Susceptibility patterns over the last 90 days. Min sample n=5 to
+        suppress small-sample noise. Drives empirical antibiotic guidance for
+        the antimicrobial stewardship committee.
       </p>
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Organism</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Organism
+          </label>
           <input
             value={organism}
             onChange={(e) => setOrganism(e.target.value)}
@@ -624,7 +726,9 @@ function AntibiogramTab() {
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Antibiotic</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Antibiotic
+          </label>
           <input
             value={antibiotic}
             onChange={(e) => setAntibiotic(e.target.value)}
@@ -646,7 +750,7 @@ function AntibiogramTab() {
           description="No antibiogram entries match (or sample size is below 5)."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -675,12 +779,20 @@ function AntibiogramTab() {
                     <td className="px-3 py-2">{r.organism_name}</td>
                     <td className="px-3 py-2 text-xs">
                       <div>{r.antibiotic_name}</div>
-                      <div className="text-muted-foreground font-mono">{r.antibiotic_code}</div>
+                      <div className="text-muted-foreground font-mono">
+                        {r.antibiotic_code}
+                      </div>
                     </td>
-                    <td className="px-3 py-2 font-mono text-right">{r.total_tested}</td>
-                    <td className="px-3 py-2 font-mono text-right">{r.susceptible_count}</td>
+                    <td className="px-3 py-2 font-mono text-right">
+                      {r.total_tested}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-right">
+                      {r.susceptible_count}
+                    </td>
                     <td className="px-3 py-2">
-                      <span className={`inline-block px-2 py-0.5 rounded font-mono ${colour}`}>
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded font-mono ${colour}`}
+                      >
                         {pct.toFixed(1)}%
                       </span>
                     </td>
@@ -691,7 +803,11 @@ function AntibiogramTab() {
                       >
                         <div
                           className={
-                            pct >= 80 ? "bg-emerald-500 h-full" : pct >= 50 ? "bg-amber-500 h-full" : "bg-rose-500 h-full"
+                            pct >= 80
+                              ? "bg-emerald-500 h-full"
+                              : pct >= 50
+                                ? "bg-amber-500 h-full"
+                                : "bg-rose-500 h-full"
                           }
                           style={{ width: `${pct}%` }}
                         />
@@ -709,7 +825,11 @@ function AntibiogramTab() {
 }
 
 function ResistanceTab() {
-  const { data: rows = [], isLoading, error } = useQuery<ResistantIsolateRow[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<ResistantIsolateRow[]>({
     queryKey: ["micro", "resistant"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -734,9 +854,12 @@ function ResistanceTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="All clear" description="No resistant organisms in the last 30 days." />
+        <EmptyState
+          title="All clear"
+          description="No resistant organisms in the last 30 days."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -749,10 +872,7 @@ function ResistanceTab() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-b last:border-0 bg-rose-50/30"
-                >
+                <tr key={r.id} className="border-b last:border-0 bg-rose-50/30">
                   <td className="px-3 py-2 text-xs">{fmtTs(r.created_at)}</td>
                   <td className="px-3 py-2 font-mono text-xs">
                     {r.patient_uid.slice(0, 8)}
@@ -760,7 +880,9 @@ function ResistanceTab() {
                   <td className="px-3 py-2 text-xs">
                     <div>{r.specimen_type}</div>
                     {r.specimen_site && (
-                      <div className="text-muted-foreground">{r.specimen_site}</div>
+                      <div className="text-muted-foreground">
+                        {r.specimen_site}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-2">{r.organism_name}</td>
@@ -769,7 +891,9 @@ function ResistanceTab() {
                       {r.is_mrsa && <ResistancePill label="MRSA" />}
                       {r.is_esbl && <ResistancePill label="ESBL" />}
                       {r.is_amp_c && <ResistancePill label="AmpC" />}
-                      {r.is_carbapenemase && <ResistancePill label="Carbapenemase" />}
+                      {r.is_carbapenemase && (
+                        <ResistancePill label="Carbapenemase" />
+                      )}
                       {r.is_vre && <ResistancePill label="VRE" />}
                       {r.is_xdr && <ResistancePill label="XDR" />}
                     </div>

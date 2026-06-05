@@ -15,7 +15,7 @@ interface Props {
 export function StatCard({ icon, label, value, sub, alert }: Props) {
   return (
     <div
-      className={`bg-white border rounded-xl p-4 ${
+      className={`bg-card border rounded-xl p-4 ${
         alert ? "border-red-300" : "border-gray-200"
       }`}
     >
@@ -23,7 +23,9 @@ export function StatCard({ icon, label, value, sub, alert }: Props) {
         {icon}
         <span className="text-xs text-gray-500 font-medium">{label}</span>
       </div>
-      <p className={`text-3xl font-bold ${alert ? "text-red-600" : "text-gray-900"}`}>
+      <p
+        className={`text-3xl font-bold ${alert ? "text-red-600" : "text-gray-900"}`}
+      >
         {value}
       </p>
       {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}

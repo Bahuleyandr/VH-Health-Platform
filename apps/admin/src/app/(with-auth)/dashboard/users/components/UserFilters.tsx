@@ -72,7 +72,7 @@ export function UserFilters() {
   );
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-lg bg-white p-3 shadow dark:bg-card sm:flex-row sm:items-center">
+    <div className="mb-4 flex flex-col gap-3 rounded-lg bg-card p-3 shadow dark:bg-card sm:flex-row sm:items-center">
       <input
         type="text"
         placeholder="Search by name, email, phone..."

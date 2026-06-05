@@ -5,11 +5,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -79,7 +75,11 @@ export default function NursingAssessmentsPage() {
   const qc = useQueryClient();
   const [scoring, setScoring] = useState<{ kind: string } | null>(null);
 
-  const { data: rows = [], isLoading, error } = useQuery<OverdueRow[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<OverdueRow[]>({
     queryKey: ["nursing-assessments", "overdue"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -95,9 +95,15 @@ export default function NursingAssessmentsPage() {
   // Counts by band severity for the headline strip.
   const counts = {
     septic_shock: rows.filter((r) => r.band === "septic_shock_risk").length,
-    high: rows.filter((r) => r.band === "high" || r.band === "severe_risk").length,
+    high: rows.filter((r) => r.band === "high" || r.band === "severe_risk")
+      .length,
     sepsis: rows.filter((r) => r.band === "sepsis_likely").length,
-    medium: rows.filter((r) => r.band === "medium" || r.band === "moderate_risk" || r.band === "high_risk").length,
+    medium: rows.filter(
+      (r) =>
+        r.band === "medium" ||
+        r.band === "moderate_risk" ||
+        r.band === "high_risk",
+    ).length,
     overdue: rows.filter((r) => r.minutes_overdue > 0).length,
   };
 
@@ -149,7 +155,11 @@ export default function NursingAssessmentsPage() {
         <Tile label="High / severe risk" value={counts.high} colour="rose" />
         <Tile label="Sepsis likely" value={counts.sepsis} colour="rose" />
         <Tile label="Medium / moderate" value={counts.medium} colour="amber" />
-        <Tile label="Overdue reassessment" value={counts.overdue} colour="amber" />
+        <Tile
+          label="Overdue reassessment"
+          value={counts.overdue}
+          colour="amber"
+        />
       </div>
 
       {/* Active list */}
@@ -161,7 +171,7 @@ export default function NursingAssessmentsPage() {
           description="No high-risk patients or overdue reassessments right now."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -192,7 +202,9 @@ export default function NursingAssessmentsPage() {
                   <td className="px-3 py-2 text-xs">
                     {KIND_LABELS[r.assessment_kind] ?? r.assessment_kind}
                   </td>
-                  <td className="px-3 py-2 font-mono">{r.total_score ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono">
+                    {r.total_score ?? "—"}
+                  </td>
                   <td className="px-3 py-2">
                     <span
                       className={`inline-block px-2 py-0.5 rounded text-xs ${
@@ -237,7 +249,9 @@ export default function NursingAssessmentsPage() {
 }
 
 function Tile({
-  label, value, colour,
+  label,
+  value,
+  colour,
 }: {
   label: string;
   value: number;
@@ -250,7 +264,7 @@ function Tile({
         ? "border-amber-300"
         : "";
   return (
-    <div className={`bg-white rounded-lg border shadow-sm p-3 ${cls}`}>
+    <div className={`bg-card rounded-lg border shadow-sm p-3 ${cls}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p
         className={`text-xl font-semibold mt-1 ${
@@ -279,62 +293,115 @@ const FIELDS: Record<string, FieldDef[]> = {
   news2: [
     { name: "rr", label: "Respiratory rate", kind: "number" },
     { name: "spo2", label: "SpO2 (%)", kind: "number" },
-    { name: "spo2_scale", label: "SpO2 scale", kind: "enum", options: [
-      { value: "1", label: "Scale 1 (normal target)" },
-      { value: "2", label: "Scale 2 (COPD target 88-92%)" },
-    ] },
+    {
+      name: "spo2_scale",
+      label: "SpO2 scale",
+      kind: "enum",
+      options: [
+        { value: "1", label: "Scale 1 (normal target)" },
+        { value: "2", label: "Scale 2 (COPD target 88-92%)" },
+      ],
+    },
     { name: "supplemental_o2", label: "On supplemental O2", kind: "bool" },
     { name: "temp_c", label: "Temperature (°C)", kind: "number" },
     { name: "sbp", label: "Systolic BP", kind: "number" },
     { name: "hr", label: "Heart rate", kind: "number" },
-    { name: "consciousness", label: "Consciousness", kind: "enum", options: [
-      { value: "awake", label: "Alert" },
-      { value: "V", label: "Voice (V)" },
-      { value: "P", label: "Pain (P)" },
-      { value: "U", label: "Unresponsive (U)" },
-    ] },
+    {
+      name: "consciousness",
+      label: "Consciousness",
+      kind: "enum",
+      options: [
+        { value: "awake", label: "Alert" },
+        { value: "V", label: "Voice (V)" },
+        { value: "P", label: "Pain (P)" },
+        { value: "U", label: "Unresponsive (U)" },
+      ],
+    },
   ],
   braden: [
-    { name: "sensory", label: "Sensory perception", kind: "number", hint: "1 (completely limited) – 4 (no impairment)" },
+    {
+      name: "sensory",
+      label: "Sensory perception",
+      kind: "number",
+      hint: "1 (completely limited) – 4 (no impairment)",
+    },
     { name: "moisture", label: "Moisture", kind: "number", hint: "1 – 4" },
     { name: "activity", label: "Activity", kind: "number", hint: "1 – 4" },
     { name: "mobility", label: "Mobility", kind: "number", hint: "1 – 4" },
     { name: "nutrition", label: "Nutrition", kind: "number", hint: "1 – 4" },
-    { name: "friction", label: "Friction & shear", kind: "number", hint: "1 – 3" },
+    {
+      name: "friction",
+      label: "Friction & shear",
+      kind: "number",
+      hint: "1 – 3",
+    },
   ],
   morse: [
-    { name: "history_falls", label: "History of falls (within 3 months)", kind: "bool" },
+    {
+      name: "history_falls",
+      label: "History of falls (within 3 months)",
+      kind: "bool",
+    },
     { name: "secondary_dx", label: "Secondary diagnosis", kind: "bool" },
-    { name: "ambulatory_aid", label: "Ambulatory aid", kind: "enum", options: [
-      { value: "none", label: "None / bedrest / wheelchair / nurse" },
-      { value: "crutches_cane_walker", label: "Crutches / cane / walker" },
-      { value: "furniture", label: "Holds onto furniture" },
-    ] },
+    {
+      name: "ambulatory_aid",
+      label: "Ambulatory aid",
+      kind: "enum",
+      options: [
+        { value: "none", label: "None / bedrest / wheelchair / nurse" },
+        { value: "crutches_cane_walker", label: "Crutches / cane / walker" },
+        { value: "furniture", label: "Holds onto furniture" },
+      ],
+    },
     { name: "iv_therapy", label: "IV therapy / saline lock", kind: "bool" },
-    { name: "gait", label: "Gait", kind: "enum", options: [
-      { value: "normal_or_bedrest", label: "Normal / bedrest / wheelchair" },
-      { value: "weak", label: "Weak" },
-      { value: "impaired", label: "Impaired" },
-    ] },
-    { name: "mental_status", label: "Mental status", kind: "enum", options: [
-      { value: "oriented", label: "Oriented to own ability" },
-      { value: "forgets_limits", label: "Overestimates / forgets limits" },
-    ] },
+    {
+      name: "gait",
+      label: "Gait",
+      kind: "enum",
+      options: [
+        { value: "normal_or_bedrest", label: "Normal / bedrest / wheelchair" },
+        { value: "weak", label: "Weak" },
+        { value: "impaired", label: "Impaired" },
+      ],
+    },
+    {
+      name: "mental_status",
+      label: "Mental status",
+      kind: "enum",
+      options: [
+        { value: "oriented", label: "Oriented to own ability" },
+        { value: "forgets_limits", label: "Overestimates / forgets limits" },
+      ],
+    },
   ],
   sepsis_screen: [
     { name: "rr_over_22", label: "Respiratory rate > 22", kind: "bool" },
     { name: "hr_over_90", label: "Heart rate > 90", kind: "bool" },
     { name: "temp_abnormal", label: "Temp < 36 or > 38", kind: "bool" },
-    { name: "wbc_abnormal", label: "WBC < 4 or > 12 (or > 10% bands)", kind: "bool" },
-    { name: "altered_mentation", label: "Altered mentation (GCS < 15)", kind: "bool" },
+    {
+      name: "wbc_abnormal",
+      label: "WBC < 4 or > 12 (or > 10% bands)",
+      kind: "bool",
+    },
+    {
+      name: "altered_mentation",
+      label: "Altered mentation (GCS < 15)",
+      kind: "bool",
+    },
     { name: "sbp_under_100", label: "SBP < 100", kind: "bool" },
     { name: "lactate_over_2", label: "Lactate > 2 mmol/L", kind: "bool" },
-    { name: "source_suspected", label: "Suspected source of infection", kind: "bool" },
+    {
+      name: "source_suspected",
+      label: "Suspected source of infection",
+      kind: "bool",
+    },
   ],
 };
 
 function ScoreModal({
-  kind, onClose, onSaved,
+  kind,
+  onClose,
+  onSaved,
 }: {
   kind: string;
   onClose: () => void;
@@ -375,7 +442,7 @@ function ScoreModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl mb-8">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-2xl mb-8">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             New {KIND_LABELS[kind]} assessment
@@ -445,11 +512,16 @@ function ScoreModal({
             >
               <p className="text-sm font-semibold">
                 Score {preview.total_score} —{" "}
-                <span className="uppercase">{preview.band.replace(/_/g, " ")}</span>
+                <span className="uppercase">
+                  {preview.band.replace(/_/g, " ")}
+                </span>
               </p>
               {preview.reassessmentMins != null && (
                 <p className="text-xs mt-1">
-                  Reassess in: {preview.reassessmentMins < 60 ? `${preview.reassessmentMins}m` : `${(preview.reassessmentMins / 60).toFixed(0)}h`}
+                  Reassess in:{" "}
+                  {preview.reassessmentMins < 60
+                    ? `${preview.reassessmentMins}m`
+                    : `${(preview.reassessmentMins / 60).toFixed(0)}h`}
                 </p>
               )}
               {preview.recommended_actions?.length > 0 && (
@@ -485,7 +557,9 @@ function ScoreModal({
 }
 
 function FieldInput({
-  field, value, onChange,
+  field,
+  value,
+  onChange,
 }: {
   field: FieldDef;
   value: unknown;

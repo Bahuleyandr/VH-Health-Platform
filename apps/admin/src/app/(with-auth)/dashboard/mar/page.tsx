@@ -19,11 +19,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -81,7 +77,11 @@ export default function MarPage() {
   const [windowMins, setWindowMins] = useState(60);
   const [scanning, setScanning] = useState<MarDose | null>(null);
 
-  const { data: due = [], error, isLoading } = useQuery<MarDose[]>({
+  const {
+    data: due = [],
+    error,
+    isLoading,
+  } = useQuery<MarDose[]>({
     queryKey: ["mar", "due", windowMins],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -95,9 +95,7 @@ export default function MarPage() {
   const { data: overdue = [] } = useQuery<MarDose[]>({
     queryKey: ["mar", "overdue"],
     queryFn: async () => {
-      const r = await fetchAdminAPI<unknown>(
-        "/clinical/mar/overdue?limit=100",
-      );
+      const r = await fetchAdminAPI<unknown>("/clinical/mar/overdue?limit=100");
       return unwrapList<MarDose>(r);
     },
     refetchInterval: 30_000,
@@ -149,12 +147,12 @@ export default function MarPage() {
 
       {/* Headline */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Due in window</p>
           <p className="text-xl font-semibold mt-1">{due.length}</p>
         </div>
         <div
-          className={`bg-white rounded-lg border shadow-sm p-3 ${
+          className={`bg-card rounded-lg border shadow-sm p-3 ${
             overdue.length > 0 ? "border-rose-300" : ""
           }`}
         >
@@ -167,7 +165,7 @@ export default function MarPage() {
             {overdue.length}
           </p>
         </div>
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Total to round</p>
           <p className="text-xl font-semibold mt-1">
             {due.length + overdue.length}
@@ -217,14 +215,16 @@ export default function MarPage() {
 }
 
 function DoseList({
-  rows, onScan, overdue,
+  rows,
+  onScan,
+  overdue,
 }: {
   rows: MarDose[];
   onScan: (d: MarDose) => void;
   overdue?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+    <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead className="text-xs text-muted-foreground border-b">
           <tr className="text-left">
@@ -280,7 +280,9 @@ function DoseList({
 }
 
 function ScanModal({
-  dose, onClose, onSaved,
+  dose,
+  onClose,
+  onSaved,
 }: {
   dose: MarDose;
   onClose: () => void;
@@ -327,12 +329,13 @@ function ScanModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-lg">
         <div className="p-4 border-b">
           <h2 className="text-lg font-semibold">5-Rights Check</h2>
           <p className="text-sm text-muted-foreground mt-1">
             <strong>{dose.medication_name}</strong> · {dose.dose ?? dose.dosage}
-            {dose.route && ` · ${dose.route}`} · scheduled {fmtTime(dose.scheduled_time)}
+            {dose.route && ` · ${dose.route}`} · scheduled{" "}
+            {fmtTime(dose.scheduled_time)}
           </p>
           <p className="text-xs text-muted-foreground font-mono mt-1">
             Patient {dose.patient_uid.slice(0, 8)}
@@ -386,7 +389,9 @@ function ScanModal({
               }`}
             >
               <p className="text-sm font-semibold mb-2">
-                {allRightsPassed ? "✓ All 5 rights passed" : "✗ Rights check FAILED"}
+                {allRightsPassed
+                  ? "✓ All 5 rights passed"
+                  : "✗ Rights check FAILED"}
               </p>
               <ul className="text-xs space-y-1">
                 {Object.entries(verifyResult.rights_passed).map(([k, ok]) => (

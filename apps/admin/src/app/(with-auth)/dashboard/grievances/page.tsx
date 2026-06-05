@@ -3,7 +3,11 @@
 import React, { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Lock, RefreshCw } from "lucide-react";
-import { getGrievances, getGrievanceStats, updateGrievance } from "@/lib/api/reports";
+import {
+  getGrievances,
+  getGrievanceStats,
+  updateGrievance,
+} from "@/lib/api/reports";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "react-hot-toast";
 
@@ -80,25 +84,52 @@ const PRIORITY_STYLES: Record<string, string> = {
   normal: "bg-gray-100 text-gray-600 border-gray-300",
 };
 
-function Badge({ value, styleMap }: { value: string; styleMap: Record<string, string> }) {
+function Badge({
+  value,
+  styleMap,
+}: {
+  value: string;
+  styleMap: Record<string, string>;
+}) {
   const cls = styleMap[value] ?? "bg-gray-100 text-gray-600 border-gray-300";
   return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}>
+    <span
+      className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}
+    >
       {value.replace(/_/g, " ").toUpperCase()}
     </span>
   );
 }
 
 function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(d).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 const GRIEVANCE_TYPES = [
-  "harassment", "discrimination", "unfair_treatment", "unsafe_conditions",
-  "workload", "pay_dispute", "schedule_conflict", "policy_violation", "other",
+  "harassment",
+  "discrimination",
+  "unfair_treatment",
+  "unsafe_conditions",
+  "workload",
+  "pay_dispute",
+  "schedule_conflict",
+  "policy_violation",
+  "other",
 ];
 
-const STATUSES = ["submitted", "acknowledged", "under_review", "mediation", "resolved", "closed", "escalated"];
+const STATUSES = [
+  "submitted",
+  "acknowledged",
+  "under_review",
+  "mediation",
+  "resolved",
+  "closed",
+  "escalated",
+];
 
 // ─── Side Panel ──────────────────────────────────────────────────────────────
 
@@ -124,7 +155,9 @@ function GrievancePanel({
       await updateGrievance(String(grievance.id), {
         ...(status !== grievance.status ? { status } : {}),
         ...(resolution !== (grievance.resolution ?? "") ? { resolution } : {}),
-        ...(hrNotes !== (grievance.hr_notes ?? "") ? { hr_notes: hrNotes } : {}),
+        ...(hrNotes !== (grievance.hr_notes ?? "")
+          ? { hr_notes: hrNotes }
+          : {}),
         ...(publicUpdate.trim() ? { public_update: publicUpdate.trim() } : {}),
         ...(internalNote.trim() ? { internal_note: internalNote.trim() } : {}),
       });
@@ -137,22 +170,37 @@ function GrievancePanel({
     } finally {
       setSaving(false);
     }
-  }, [grievance, status, resolution, hrNotes, publicUpdate, internalNote, onUpdated]);
+  }, [
+    grievance,
+    status,
+    resolution,
+    hrNotes,
+    publicUpdate,
+    internalNote,
+    onUpdated,
+  ]);
 
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <div className="w-full max-w-2xl bg-white shadow-xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-2xl bg-card shadow-xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-purple-50">
           <div>
-            <p className="text-xs text-purple-400 font-mono">{grievance.grievance_number}</p>
-            <h2 className="font-bold text-gray-800 text-lg leading-tight">{grievance.subject}</h2>
+            <p className="text-xs text-purple-400 font-mono">
+              {grievance.grievance_number}
+            </p>
+            <h2 className="font-bold text-gray-800 text-lg leading-tight">
+              {grievance.subject}
+            </h2>
             <p className="text-xs text-purple-600 mt-0.5">
               {grievance.grievance_type.replace(/_/g, " ")}
             </p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-purple-100">
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-purple-100"
+          >
             <X size={18} />
           </button>
         </div>
@@ -172,33 +220,63 @@ function GrievancePanel({
           {/* Info grid */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             {!grievance.is_anonymous && grievance.reporter_name && (
-              <div><span className="text-gray-500">Reporter:</span> <span className="font-medium">{grievance.reporter_name}</span></div>
+              <div>
+                <span className="text-gray-500">Reporter:</span>{" "}
+                <span className="font-medium">{grievance.reporter_name}</span>
+              </div>
             )}
             {!grievance.is_anonymous && grievance.reporter_department && (
-              <div><span className="text-gray-500">Department:</span> <span className="font-medium">{grievance.reporter_department}</span></div>
+              <div>
+                <span className="text-gray-500">Department:</span>{" "}
+                <span className="font-medium">
+                  {grievance.reporter_department}
+                </span>
+              </div>
             )}
             {grievance.against_whom && (
-              <div><span className="text-gray-500">Against:</span> <span className="font-medium">{grievance.against_whom}</span></div>
+              <div>
+                <span className="text-gray-500">Against:</span>{" "}
+                <span className="font-medium">{grievance.against_whom}</span>
+              </div>
             )}
             {grievance.department && (
-              <div><span className="text-gray-500">Dept:</span> <span className="font-medium">{grievance.department}</span></div>
+              <div>
+                <span className="text-gray-500">Dept:</span>{" "}
+                <span className="font-medium">{grievance.department}</span>
+              </div>
             )}
             {grievance.incident_date && (
-              <div><span className="text-gray-500">Incident Date:</span> <span className="font-medium">{fmtDate(grievance.incident_date)}</span></div>
+              <div>
+                <span className="text-gray-500">Incident Date:</span>{" "}
+                <span className="font-medium">
+                  {fmtDate(grievance.incident_date)}
+                </span>
+              </div>
             )}
-            <div><span className="text-gray-500">Submitted:</span> <span className="font-medium">{fmtDate(grievance.created_at)}</span></div>
+            <div>
+              <span className="text-gray-500">Submitted:</span>{" "}
+              <span className="font-medium">
+                {fmtDate(grievance.created_at)}
+              </span>
+            </div>
           </div>
 
           {/* Description */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</p>
-            <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{grievance.description}</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase mb-1">
+              Description
+            </p>
+            <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">
+              {grievance.description}
+            </p>
           </div>
 
           {/* Updates thread */}
           {grievance.updates && grievance.updates.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Updates Thread</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                Updates Thread
+              </p>
               <div className="space-y-2">
                 {grievance.updates.map((u) => (
                   <div
@@ -210,13 +288,21 @@ function GrievancePanel({
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      {u.is_internal && <Lock size={10} className="text-orange-500" />}
-                      <span className={`font-semibold ${u.is_internal ? "text-orange-700" : "text-blue-700"}`}>
+                      {u.is_internal && (
+                        <Lock size={10} className="text-orange-500" />
+                      )}
+                      <span
+                        className={`font-semibold ${u.is_internal ? "text-orange-700" : "text-blue-700"}`}
+                      >
                         {u.author_role.toUpperCase()}
                         {u.is_internal && " (Internal)"}
                       </span>
-                      {u.author_name && <span className="text-gray-500">({u.author_name})</span>}
-                      <span className="text-xs text-gray-400 ml-auto">{fmtDate(u.created_at)}</span>
+                      {u.author_name && (
+                        <span className="text-gray-500">({u.author_name})</span>
+                      )}
+                      <span className="text-xs text-gray-400 ml-auto">
+                        {fmtDate(u.created_at)}
+                      </span>
                     </div>
                     <p className="text-gray-700">{u.message}</p>
                   </div>
@@ -227,17 +313,23 @@ function GrievancePanel({
 
           {/* Update form */}
           <div className="border-t pt-4 space-y-3">
-            <p className="text-sm font-semibold text-gray-700">Update Grievance</p>
+            <p className="text-sm font-semibold text-gray-700">
+              Update Grievance
+            </p>
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">Status</label>
+              <label className="text-xs font-medium text-gray-500 block mb-1">
+                Status
+              </label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 {STATUSES.map((s) => (
-                  <option key={s} value={s}>{s.replace(/_/g, " ").toUpperCase()}</option>
+                  <option key={s} value={s}>
+                    {s.replace(/_/g, " ").toUpperCase()}
+                  </option>
                 ))}
               </select>
             </div>
@@ -268,7 +360,8 @@ function GrievancePanel({
                 className="w-full border-2 border-orange-200 bg-orange-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
               />
               <p className="text-xs text-orange-600 mt-1 flex items-center gap-1">
-                <Lock size={10} /> This note is strictly internal — never shown to the reporter.
+                <Lock size={10} /> This note is strictly internal — never shown
+                to the reporter.
               </p>
             </div>
 
@@ -323,7 +416,8 @@ export default function GrievancesPage() {
 
   const statsQ = useQuery({
     queryKey: ["grievance-stats"],
-    queryFn: () => getGrievanceStats<GrievanceStats>().then(unwrap<GrievanceStats>),
+    queryFn: () =>
+      getGrievanceStats<GrievanceStats>().then(unwrap<GrievanceStats>),
     staleTime: 30_000,
   });
 
@@ -352,10 +446,15 @@ export default function GrievancesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Staff Grievances</h1>
-          <p className="text-sm text-gray-500">HR-only — confidential staff grievance management</p>
+          <p className="text-sm text-gray-500">
+            HR-only — confidential staff grievance management
+          </p>
         </div>
         <button
-          onClick={() => { qc.invalidateQueries({ queryKey: ["grievances"] }); qc.invalidateQueries({ queryKey: ["grievance-stats"] }); }}
+          onClick={() => {
+            qc.invalidateQueries({ queryKey: ["grievances"] });
+            qc.invalidateQueries({ queryKey: ["grievance-stats"] });
+          }}
           className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 transition-colors"
         >
           <RefreshCw size={14} />
@@ -367,25 +466,55 @@ export default function GrievancesPage() {
       <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-xl px-5 py-3">
         <Lock size={18} className="text-purple-600 flex-shrink-0" />
         <p className="text-sm text-purple-700">
-          <strong>HR Confidential.</strong> This data is visible only to HR and senior management. 
-          Anonymous submissions must remain anonymous — no identity disclosure under any circumstances.
+          <strong>HR Confidential.</strong> This data is visible only to HR and
+          senior management. Anonymous submissions must remain anonymous — no
+          identity disclosure under any circumstances.
         </p>
       </div>
 
       {/* Stats cards */}
       {statsQ.isLoading ? (
         <div className="grid grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "New / Pending", value: stats?.summary?.new_count ?? "0", color: "text-blue-600", bg: "bg-blue-50", icon: "📬" },
-            { label: "Under Review", value: stats?.summary?.active_count ?? "0", color: "text-purple-600", bg: "bg-purple-50", icon: "🔍" },
-            { label: "Resolved", value: stats?.summary?.resolved_count ?? "0", color: "text-green-600", bg: "bg-green-50", icon: "✅" },
-            { label: "Anonymous", value: stats?.summary?.anonymous_count ?? "0", color: "text-gray-600", bg: "bg-gray-50", icon: "🔒" },
+            {
+              label: "New / Pending",
+              value: stats?.summary?.new_count ?? "0",
+              color: "text-blue-600",
+              bg: "bg-blue-50",
+              icon: "📬",
+            },
+            {
+              label: "Under Review",
+              value: stats?.summary?.active_count ?? "0",
+              color: "text-purple-600",
+              bg: "bg-purple-50",
+              icon: "🔍",
+            },
+            {
+              label: "Resolved",
+              value: stats?.summary?.resolved_count ?? "0",
+              color: "text-green-600",
+              bg: "bg-green-50",
+              icon: "✅",
+            },
+            {
+              label: "Anonymous",
+              value: stats?.summary?.anonymous_count ?? "0",
+              color: "text-gray-600",
+              bg: "bg-gray-50",
+              icon: "🔒",
+            },
           ].map((c) => (
-            <div key={c.label} className={`rounded-xl border p-4 ${c.bg} shadow-sm`}>
+            <div
+              key={c.label}
+              className={`rounded-xl border p-4 ${c.bg} shadow-sm`}
+            >
               <div className="text-2xl mb-1">{c.icon}</div>
               <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
               <p className="text-xs text-gray-500 mt-0.5">{c.label}</p>
@@ -402,7 +531,11 @@ export default function GrievancesPage() {
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
         >
           <option value="">All Statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ").toUpperCase()}</option>)}
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s.replace(/_/g, " ").toUpperCase()}
+            </option>
+          ))}
         </select>
         <select
           value={filterType}
@@ -410,11 +543,18 @@ export default function GrievancesPage() {
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
         >
           <option value="">All Types</option>
-          {GRIEVANCE_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+          {GRIEVANCE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")}
+            </option>
+          ))}
         </select>
         {(filterStatus || filterType) && (
           <button
-            onClick={() => { setFilterStatus(""); setFilterType(""); }}
+            onClick={() => {
+              setFilterStatus("");
+              setFilterType("");
+            }}
             className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border rounded-lg"
           >
             Clear filters
@@ -425,23 +565,43 @@ export default function GrievancesPage() {
       {/* Table */}
       {listQ.isLoading ? (
         <div className="space-y-2">
-          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+          {[...Array(6)].map((_, i) => (
+            <Skeleton key={i} className="h-12 rounded-lg" />
+          ))}
         </div>
       ) : (
-        <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+        <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-purple-50 border-b">
                 <tr>
-                  {["#", "Subject", "Type", "Reporter", "Date", "Priority", "Status"].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                  {[
+                    "#",
+                    "Subject",
+                    "Type",
+                    "Reporter",
+                    "Date",
+                    "Priority",
+                    "Status",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                    >
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {grievances.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-gray-400">No grievances found</td>
+                    <td
+                      colSpan={7}
+                      className="px-4 py-12 text-center text-gray-400"
+                    >
+                      No grievances found
+                    </td>
                   </tr>
                 )}
                 {grievances.map((grv) => (
@@ -454,9 +614,13 @@ export default function GrievancesPage() {
                       {grv.grievance_number}
                     </td>
                     <td className="px-4 py-3 max-w-xs">
-                      <p className="font-medium text-gray-800 truncate">{grv.subject}</p>
+                      <p className="font-medium text-gray-800 truncate">
+                        {grv.subject}
+                      </p>
                       {grv.against_whom && (
-                        <p className="text-xs text-gray-400">vs {grv.against_whom}</p>
+                        <p className="text-xs text-gray-400">
+                          vs {grv.against_whom}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
@@ -468,7 +632,7 @@ export default function GrievancesPage() {
                           <Lock size={11} /> Anonymous
                         </span>
                       ) : (
-                        grv.reporter_name ?? "—"
+                        (grv.reporter_name ?? "—")
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
@@ -487,7 +651,8 @@ export default function GrievancesPage() {
           </div>
           {grievances.length > 0 && (
             <div className="px-4 py-3 border-t bg-gray-50 text-xs text-gray-500">
-              {grievances.length} grievance{grievances.length !== 1 ? "s" : ""} shown
+              {grievances.length} grievance{grievances.length !== 1 ? "s" : ""}{" "}
+              shown
             </div>
           )}
         </div>

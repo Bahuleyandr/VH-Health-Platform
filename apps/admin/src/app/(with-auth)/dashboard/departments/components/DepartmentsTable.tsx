@@ -122,7 +122,7 @@ export function DepartmentsTable({
 
   if (departments.length === 0) {
     return (
-      <div className="bg-white dark:bg-card p-8 rounded-lg shadow text-center">
+      <div className="bg-card dark:bg-card p-8 rounded-lg shadow text-center">
         <HospitalIcon className="mx-auto h-12 w-12 text-muted-foreground" />
         <h3 className="mt-2 text-sm font-medium text-foreground dark:text-white">
           No departments found
@@ -146,7 +146,7 @@ export function DepartmentsTable({
         countLabel={`${rows.length} of ${departments.length} departments`}
       />
 
-      <div className="bg-white dark:bg-card shadow rounded-lg overflow-hidden">
+      <div className="bg-card dark:bg-card shadow rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] divide-y divide-border dark:divide-border">
             <thead className="bg-muted dark:bg-background">
@@ -177,7 +177,7 @@ export function DepartmentsTable({
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-border">
+            <tbody className="bg-card divide-y divide-border">
               {paged.rows.map((department) => (
                 <tr key={department.id} className="hover:bg-muted">
                   <td className="px-6 py-4 whitespace-nowrap">

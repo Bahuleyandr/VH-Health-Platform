@@ -8,11 +8,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -84,7 +80,10 @@ function unwrapList<T>(r: unknown): T[] {
 
 function fmtTime(s: string | null): string {
   if (!s) return "—";
-  return new Date(s).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(s).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function ageMinutes(s: string | null): number | null {
@@ -108,10 +107,16 @@ export default function EdTrackerPage() {
   const [editVisit, setEditVisit] = useState<EdVisit | null>(null);
   const [showRegister, setShowRegister] = useState(false);
 
-  const { data: visits = [], error, isLoading } = useQuery<EdVisit[]>({
+  const {
+    data: visits = [],
+    error,
+    isLoading,
+  } = useQuery<EdVisit[]>({
     queryKey: ["ed", "visits", "active"],
     queryFn: async () => {
-      const r = await fetchAdminAPI<unknown>("/admin/ed/visits?openOnly=true&limit=200");
+      const r = await fetchAdminAPI<unknown>(
+        "/admin/ed/visits?openOnly=true&limit=200",
+      );
       return unwrapList<EdVisit>(r);
     },
     refetchInterval: 30_000,
@@ -137,20 +142,39 @@ export default function EdTrackerPage() {
 
   // KPI strip values.
   const kpis = (() => {
-    const open = visits.filter((v) => !["discharged", "admitted", "transferred", "lwbs", "left_against_advice", "expired"].includes(v.status));
-    const inTreatment = visits.filter((v) => v.status === "in_treatment").length;
-    const waiting = visits.filter((v) => v.status === "awaiting_treatment" || v.status === "in_triage").length;
+    const open = visits.filter(
+      (v) =>
+        ![
+          "discharged",
+          "admitted",
+          "transferred",
+          "lwbs",
+          "left_against_advice",
+          "expired",
+        ].includes(v.status),
+    );
+    const inTreatment = visits.filter(
+      (v) => v.status === "in_treatment",
+    ).length;
+    const waiting = visits.filter(
+      (v) => v.status === "awaiting_treatment" || v.status === "in_triage",
+    ).length;
     const boarders = visits.filter((v) => v.status === "admitted").length;
-    const critical = visits.filter((v) =>
-      v.triage_priority === "esi_1" ||
-      v.triage_priority === "esi_2" ||
-      v.triage_priority === "manchester_red" ||
-      v.triage_priority === "manchester_orange",
+    const critical = visits.filter(
+      (v) =>
+        v.triage_priority === "esi_1" ||
+        v.triage_priority === "esi_2" ||
+        v.triage_priority === "manchester_red" ||
+        v.triage_priority === "manchester_orange",
     ).length;
     // Door-to-treatment median (very rough — median of (treatment_started_at − arrival_at) for those that started).
     const startedTimes = visits
       .filter((v) => v.treatment_started_at)
-      .map((v) => new Date(v.treatment_started_at!).getTime() - new Date(v.arrival_at).getTime())
+      .map(
+        (v) =>
+          new Date(v.treatment_started_at!).getTime() -
+          new Date(v.arrival_at).getTime(),
+      )
       .sort((a, b) => a - b);
     const median = startedTimes.length
       ? startedTimes[Math.floor(startedTimes.length / 2)]
@@ -172,13 +196,19 @@ export default function EdTrackerPage() {
     return acc;
   }, {});
 
-  const errMsg = (error ?? transitionMut.error ?? priorityMut.error)?.toString();
+  const errMsg = (
+    error ??
+    transitionMut.error ??
+    priorityMut.error
+  )?.toString();
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">ED Tracking Board</h1>
+          <h1 className="text-3xl font-bold text-foreground">
+            ED Tracking Board
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Live emergency department flow. Auto-refreshes every 30s.
           </p>
@@ -212,7 +242,11 @@ export default function EdTrackerPage() {
           { label: "Waiting", value: kpis.waiting },
           { label: "In treatment", value: kpis.inTreatment },
           { label: "Boarders", value: kpis.boarders, alert: kpis.boarders > 5 },
-          { label: "Critical (red/orange)", value: kpis.critical, alert: kpis.critical > 0 },
+          {
+            label: "Critical (red/orange)",
+            value: kpis.critical,
+            alert: kpis.critical > 0,
+          },
           {
             label: "Median door-to-treat",
             value: kpis.medianMin != null ? `${kpis.medianMin}m` : "—",
@@ -220,7 +254,7 @@ export default function EdTrackerPage() {
         ].map((s) => (
           <div
             key={s.label}
-            className={`bg-white rounded-lg border shadow-sm p-3 ${
+            className={`bg-card rounded-lg border shadow-sm p-3 ${
               s.alert ? "border-rose-300" : ""
             }`}
           >
@@ -240,14 +274,19 @@ export default function EdTrackerPage() {
       {isLoading && visits.length === 0 ? (
         <LoadingSpinner />
       ) : visits.length === 0 ? (
-        <EmptyState title="ED is quiet" description="No active visits right now." />
+        <EmptyState
+          title="ED is quiet"
+          description="No active visits right now."
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
           {STATUS_ORDER.map((s) => (
-            <div key={s} className="bg-white rounded-lg border shadow-sm">
+            <div key={s} className="bg-card rounded-lg border shadow-sm">
               <div className="px-3 py-2 bg-muted border-b text-xs font-semibold flex items-center justify-between">
                 <span>{STATUS_LABELS[s]}</span>
-                <span className="text-muted-foreground">{byStatus[s].length}</span>
+                <span className="text-muted-foreground">
+                  {byStatus[s].length}
+                </span>
               </div>
               <div className="p-2 space-y-2 max-h-[60vh] overflow-y-auto">
                 {byStatus[s].map((v) => (
@@ -268,8 +307,12 @@ export default function EdTrackerPage() {
         <VisitModal
           visit={editVisit}
           onClose={() => setEditVisit(null)}
-          onTransition={(s) => transitionMut.mutate({ id: editVisit.id, status: s })}
-          onPriority={(p) => priorityMut.mutate({ id: editVisit.id, priority: p })}
+          onTransition={(s) =>
+            transitionMut.mutate({ id: editVisit.id, status: s })
+          }
+          onPriority={(p) =>
+            priorityMut.mutate({ id: editVisit.id, priority: p })
+          }
           busy={transitionMut.isPending || priorityMut.isPending}
         />
       )}
@@ -287,16 +330,26 @@ export default function EdTrackerPage() {
   );
 }
 
-function VisitCard({ visit, onClick }: { visit: EdVisit; onClick: () => void }) {
+function VisitCard({
+  visit,
+  onClick,
+}: {
+  visit: EdVisit;
+  onClick: () => void;
+}) {
   const ageM = ageMinutes(visit.arrival_at);
-  const stale = ageM != null && ageM > 60 && (visit.status === "awaiting_treatment" || visit.status === "in_triage");
+  const stale =
+    ageM != null &&
+    ageM > 60 &&
+    (visit.status === "awaiting_treatment" || visit.status === "in_triage");
   return (
     <button
       onClick={onClick}
       className={`w-full text-left rounded border-2 p-2 ${
         visit.triage_priority
-          ? PRIORITY_COLOURS[visit.triage_priority] ?? "bg-white border-slate-200"
-          : "bg-white border-slate-200"
+          ? (PRIORITY_COLOURS[visit.triage_priority] ??
+            "bg-card border-slate-200")
+          : "bg-card border-slate-200"
       } ${stale ? "ring-2 ring-rose-400" : ""}`}
     >
       <div className="flex items-center justify-between text-xs">
@@ -307,7 +360,9 @@ function VisitCard({ visit, onClick }: { visit: EdVisit; onClick: () => void }) 
           </span>
         )}
       </div>
-      <p className="text-xs mt-1 line-clamp-2">{visit.chief_complaint ?? "—"}</p>
+      <p className="text-xs mt-1 line-clamp-2">
+        {visit.chief_complaint ?? "—"}
+      </p>
       <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
         <span>{fmtTime(visit.arrival_at)}</span>
         <span className={stale ? "text-rose-700 font-bold" : ""}>
@@ -315,16 +370,18 @@ function VisitCard({ visit, onClick }: { visit: EdVisit; onClick: () => void }) 
         </span>
       </div>
       {visit.triage_priority && (
-        <p className="text-[10px] font-mono mt-1">
-          {visit.triage_priority}
-        </p>
+        <p className="text-[10px] font-mono mt-1">{visit.triage_priority}</p>
       )}
     </button>
   );
 }
 
 function VisitModal({
-  visit, onClose, onTransition, onPriority, busy,
+  visit,
+  onClose,
+  onTransition,
+  onPriority,
+  busy,
 }: {
   visit: EdVisit;
   onClose: () => void;
@@ -334,12 +391,15 @@ function VisitModal({
 }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-xl">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-xl">
         <div className="p-4 border-b flex items-start justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Visit {visit.visit_number}</h2>
+            <h2 className="text-lg font-semibold">
+              Visit {visit.visit_number}
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Arrived {fmtTime(visit.arrival_at)} · {fmtAge(visit.arrival_at)} ago
+              Arrived {fmtTime(visit.arrival_at)} · {fmtAge(visit.arrival_at)}{" "}
+              ago
               {visit.is_mlc && " · MLC"}
             </p>
           </div>
@@ -352,14 +412,18 @@ function VisitModal({
         </div>
         <div className="p-4 space-y-4 text-sm">
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Chief complaint</p>
+            <p className="text-xs text-muted-foreground mb-1">
+              Chief complaint
+            </p>
             <p>{visit.chief_complaint ?? "—"}</p>
           </div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
               <p className="text-muted-foreground">Patient</p>
               <p className="font-mono">
-                {visit.patient_uid ? visit.patient_uid.slice(0, 8) : "(unregistered)"}
+                {visit.patient_uid
+                  ? visit.patient_uid.slice(0, 8)
+                  : "(unregistered)"}
               </p>
             </div>
             <div>
@@ -372,12 +436,16 @@ function VisitModal({
             </div>
             <div>
               <p className="text-muted-foreground">Priority</p>
-              <p className="font-mono">{visit.triage_priority ?? "unassigned"}</p>
+              <p className="font-mono">
+                {visit.triage_priority ?? "unassigned"}
+              </p>
             </div>
           </div>
 
           <div>
-            <p className="text-xs text-muted-foreground mb-2">Set priority (ESI)</p>
+            <p className="text-xs text-muted-foreground mb-2">
+              Set priority (ESI)
+            </p>
             <div className="flex flex-wrap gap-1">
               {["esi_1", "esi_2", "esi_3", "esi_4", "esi_5"].map((p) => (
                 <button
@@ -395,7 +463,9 @@ function VisitModal({
           </div>
 
           <div>
-            <p className="text-xs text-muted-foreground mb-2">Transition status</p>
+            <p className="text-xs text-muted-foreground mb-2">
+              Transition status
+            </p>
             <div className="flex flex-wrap gap-1">
               {[
                 "in_triage",
@@ -426,7 +496,8 @@ function VisitModal({
 }
 
 function RegisterModal({
-  onClose, onCreated,
+  onClose,
+  onCreated,
 }: {
   onClose: () => void;
   onCreated: () => void;
@@ -453,10 +524,15 @@ function RegisterModal({
   const errMsg = mut.error instanceof Error ? mut.error.message : null;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-md">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Register ED arrival</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           <div>
@@ -465,15 +541,21 @@ function RegisterModal({
             </label>
             <input
               value={form.patient_uid}
-              onChange={(e) => setForm({ ...form, patient_uid: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, patient_uid: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Arrival mode</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Arrival mode
+            </label>
             <select
               value={form.arrival_mode}
-              onChange={(e) => setForm({ ...form, arrival_mode: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, arrival_mode: e.target.value })
+              }
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             >
               <option value="walk_in">Walk-in</option>
@@ -484,10 +566,14 @@ function RegisterModal({
             </select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Chief complaint</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Chief complaint
+            </label>
             <textarea
               value={form.chief_complaint}
-              onChange={(e) => setForm({ ...form, chief_complaint: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, chief_complaint: e.target.value })
+              }
               rows={3}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm"
             />
@@ -503,7 +589,12 @@ function RegisterModal({
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border text-sm hover:bg-muted">Cancel</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending}

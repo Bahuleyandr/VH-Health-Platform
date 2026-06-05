@@ -17,8 +17,19 @@ import { StatusBadge, INVOICE_STATUS_COLORS, fmt, fmtDate } from "./shared";
 // INVOICES TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
-type InvoiceSortKey = "invoice_number" | "type" | "total_amount" | "payment_status" | "issued_at";
-const INVOICE_SORT_KEYS: InvoiceSortKey[] = ["invoice_number", "type", "total_amount", "payment_status", "issued_at"];
+type InvoiceSortKey =
+  | "invoice_number"
+  | "type"
+  | "total_amount"
+  | "payment_status"
+  | "issued_at";
+const INVOICE_SORT_KEYS: InvoiceSortKey[] = [
+  "invoice_number",
+  "type",
+  "total_amount",
+  "payment_status",
+  "issued_at",
+];
 const PAGE_SIZE_OPTIONS = [10, 50, 100];
 
 export function InvoicesTab() {
@@ -31,7 +42,9 @@ export function InvoicesTab() {
   const [pageSize, setPageSize] = useState(10);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(
+    null,
+  );
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +75,9 @@ export function InvoicesTab() {
       const data = (r as Record<string, unknown>).data ?? r;
       setSelectedInvoice(data as InvoiceDetail);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to load invoice detail");
+      alert(
+        err instanceof Error ? err.message : "Failed to load invoice detail",
+      );
     } finally {
       setDetailLoading(false);
     }
@@ -98,7 +113,9 @@ export function InvoicesTab() {
   const pagedInvoices = paginateRows(visibleInvoices, page, pageSize);
 
   const handleSort = (key: typeof sortKey) => {
-    setSortDirection((current) => (sortKey === key && current === "asc" ? "desc" : "asc"));
+    setSortDirection((current) =>
+      sortKey === key && current === "asc" ? "desc" : "asc",
+    );
     setSortKey(key);
   };
 
@@ -127,101 +144,161 @@ export function InvoicesTab() {
         </div>
       )}
 
-      {loading && <div className="text-center py-8 text-muted-foreground">Loading invoices...</div>}
+      {loading && (
+        <div className="text-center py-8 text-muted-foreground">
+          Loading invoices...
+        </div>
+      )}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">{error}</div>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+          {error}
+        </div>
       )}
 
       {!loading && patientUid && invoices.length === 0 && !error && (
-        <div className="text-center py-12 text-muted-foreground">No invoices found for this patient</div>
+        <div className="text-center py-12 text-muted-foreground">
+          No invoices found for this patient
+        </div>
       )}
 
       {invoices.length > 0 && (
         <>
-        <ManagedTableToolbar
-          search={tableSearch}
-          onSearchChange={(value) => {
-            setTableSearch(value);
-            setPage(1);
-          }}
-          placeholder="Search invoice, type, status"
-          countLabel={`${visibleInvoices.length} of ${invoices.length} invoices`}
-          savedViewScope="billing-invoices"
-          savedViewState={{ patientUid, tableSearch, sortKey, sortDirection, pageSize }}
-          onApplySavedView={(view) => {
-            const nextPatientUid = String(view.patientUid ?? "");
-            setPatientUid(nextPatientUid);
-            setSearchInput(nextPatientUid);
-            setTableSearch(String(view.tableSearch ?? ""));
-            if (INVOICE_SORT_KEYS.includes(view.sortKey as InvoiceSortKey)) {
-              setSortKey(view.sortKey as InvoiceSortKey);
-            }
-            setSortDirection(view.sortDirection === "asc" ? "asc" : "desc");
-            const nextPageSize = Number(view.pageSize);
-            if (PAGE_SIZE_OPTIONS.includes(nextPageSize)) setPageSize(nextPageSize);
-            setPage(1);
-            if (nextPatientUid) void fetchInvoices(nextPatientUid);
-          }}
-        />
-        <div className="overflow-x-auto border border-border rounded-lg">
-          <table className="min-w-[860px] w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left bg-muted/50">
-                <SortableTableHeader label="Invoice #" sortKey="invoice_number" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <SortableTableHeader label="Type" sortKey="type" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <SortableTableHeader label="Total" sortKey="total_amount" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <th className="py-2 px-3">Paid</th>
-                <SortableTableHeader label="Status" sortKey="payment_status" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <SortableTableHeader label="Date" sortKey="issued_at" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
-                <th className="py-2 px-3">Due</th>
-                <th className="py-2 px-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedInvoices.rows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
-                    No invoices match the current filters
-                  </td>
+          <ManagedTableToolbar
+            search={tableSearch}
+            onSearchChange={(value) => {
+              setTableSearch(value);
+              setPage(1);
+            }}
+            placeholder="Search invoice, type, status"
+            countLabel={`${visibleInvoices.length} of ${invoices.length} invoices`}
+            savedViewScope="billing-invoices"
+            savedViewState={{
+              patientUid,
+              tableSearch,
+              sortKey,
+              sortDirection,
+              pageSize,
+            }}
+            onApplySavedView={(view) => {
+              const nextPatientUid = String(view.patientUid ?? "");
+              setPatientUid(nextPatientUid);
+              setSearchInput(nextPatientUid);
+              setTableSearch(String(view.tableSearch ?? ""));
+              if (INVOICE_SORT_KEYS.includes(view.sortKey as InvoiceSortKey)) {
+                setSortKey(view.sortKey as InvoiceSortKey);
+              }
+              setSortDirection(view.sortDirection === "asc" ? "asc" : "desc");
+              const nextPageSize = Number(view.pageSize);
+              if (PAGE_SIZE_OPTIONS.includes(nextPageSize))
+                setPageSize(nextPageSize);
+              setPage(1);
+              if (nextPatientUid) void fetchInvoices(nextPatientUid);
+            }}
+          />
+          <div className="overflow-x-auto border border-border rounded-lg">
+            <table className="min-w-[860px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left bg-muted/50">
+                  <SortableTableHeader
+                    label="Invoice #"
+                    sortKey="invoice_number"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Type"
+                    sortKey="type"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Total"
+                    sortKey="total_amount"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <th className="py-2 px-3">Paid</th>
+                  <SortableTableHeader
+                    label="Status"
+                    sortKey="payment_status"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <SortableTableHeader
+                    label="Date"
+                    sortKey="issued_at"
+                    activeSort={sortKey}
+                    direction={sortDirection}
+                    onSort={handleSort}
+                    className="px-3 py-2"
+                  />
+                  <th className="py-2 px-3">Due</th>
+                  <th className="py-2 px-3"></th>
                 </tr>
-              ) : pagedInvoices.rows.map((inv) => (
-                <tr key={inv.id} className="border-b border-border hover:bg-muted/40">
-                  <td className="py-2 px-3 font-medium text-primary">
-                    {inv.invoice_number}
-                  </td>
-                  <td className="py-2 px-3 capitalize">{inv.type.replace("_", " ")}</td>
-                  <td className="py-2 px-3">{fmt(inv.total_amount)}</td>
-                  <td className="py-2 px-3">{fmt(inv.paid_amount)}</td>
-                  <td className="py-2 px-3">
-                    <StatusBadge
-                      status={inv.payment_status}
-                      colorMap={INVOICE_STATUS_COLORS}
-                    />
-                  </td>
-                  <td className="py-2 px-3">{fmtDate(inv.issued_at)}</td>
-                  <td className="py-2 px-3">{fmtDate(inv.due_date)}</td>
-                  <td className="py-2 px-3">
-                    <button
-                      onClick={() => openInvoiceDetail(inv.id)}
-                      disabled={detailLoading}
-                      className="text-xs text-primary hover:underline disabled:opacity-50"
+              </thead>
+              <tbody>
+                {pagedInvoices.rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-3 py-8 text-center text-muted-foreground"
                     >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <ClientTablePagination
-          page={pagedInvoices.page}
-          pageSize={pageSize}
-          total={visibleInvoices.length}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          itemLabel="invoices"
-        />
+                      No invoices match the current filters
+                    </td>
+                  </tr>
+                ) : (
+                  pagedInvoices.rows.map((inv) => (
+                    <tr
+                      key={inv.id}
+                      className="border-b border-border hover:bg-muted/40"
+                    >
+                      <td className="py-2 px-3 font-medium text-primary">
+                        {inv.invoice_number}
+                      </td>
+                      <td className="py-2 px-3 capitalize">
+                        {inv.type.replace("_", " ")}
+                      </td>
+                      <td className="py-2 px-3">{fmt(inv.total_amount)}</td>
+                      <td className="py-2 px-3">{fmt(inv.paid_amount)}</td>
+                      <td className="py-2 px-3">
+                        <StatusBadge
+                          status={inv.payment_status}
+                          colorMap={INVOICE_STATUS_COLORS}
+                        />
+                      </td>
+                      <td className="py-2 px-3">{fmtDate(inv.issued_at)}</td>
+                      <td className="py-2 px-3">{fmtDate(inv.due_date)}</td>
+                      <td className="py-2 px-3">
+                        <button
+                          onClick={() => openInvoiceDetail(inv.id)}
+                          disabled={detailLoading}
+                          className="text-xs text-primary hover:underline disabled:opacity-50"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <ClientTablePagination
+            page={pagedInvoices.page}
+            pageSize={pageSize}
+            total={visibleInvoices.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="invoices"
+          />
         </>
       )}
 
@@ -266,7 +343,10 @@ function InvoiceDetailModal({
     }
     setPaying(true);
     try {
-      await postJSON(`/api/v1/billing/invoice/${invoice.id}/payment`, paymentForm);
+      await postJSON(
+        `/api/v1/billing/invoice/${invoice.id}/payment`,
+        paymentForm,
+      );
       onPaymentRecorded();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Payment failed");
@@ -286,20 +366,28 @@ function InvoiceDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-xl w-full max-h-[85vh] overflow-y-auto p-6">
+      <div className="bg-card rounded-xl max-w-xl w-full max-h-[85vh] overflow-y-auto p-6">
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
           <div>
             <h3 className="text-lg font-bold">{invoice.invoice_number}</h3>
-            <p className="text-sm text-gray-500">{fmtDate(invoice.issued_at)}</p>
+            <p className="text-sm text-gray-500">
+              {fmtDate(invoice.issued_at)}
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+          >
             ✕
           </button>
         </div>
 
         <div className="flex items-center gap-2 mb-4">
-          <StatusBadge status={invoice.payment_status} colorMap={INVOICE_STATUS_COLORS} />
+          <StatusBadge
+            status={invoice.payment_status}
+            colorMap={INVOICE_STATUS_COLORS}
+          />
           <span className="text-xs text-gray-500 capitalize">
             {invoice.type.replace("_", " ")}
           </span>
@@ -308,7 +396,9 @@ function InvoiceDetailModal({
         {/* Invoice Items */}
         {items.length > 0 && (
           <div className="mb-4">
-            <p className="text-sm font-semibold text-gray-700 mb-2">Line Items</p>
+            <p className="text-sm font-semibold text-gray-700 mb-2">
+              Line Items
+            </p>
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
@@ -324,8 +414,12 @@ function InvoiceDetailModal({
                     <tr key={i} className="border-t border-gray-100">
                       <td className="py-2 px-3">{item.description}</td>
                       <td className="py-2 px-3 text-right">{item.quantity}</td>
-                      <td className="py-2 px-3 text-right">{fmt(item.unit_price)}</td>
-                      <td className="py-2 px-3 text-right">{fmt(item.amount)}</td>
+                      <td className="py-2 px-3 text-right">
+                        {fmt(item.unit_price)}
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        {fmt(item.amount)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -349,7 +443,9 @@ function InvoiceDetailModal({
           {parseFloat(invoice.discount_amount) > 0 && (
             <div className="flex justify-between">
               <span className="text-gray-500">Discount</span>
-              <span className="text-green-600">-{fmt(invoice.discount_amount)}</span>
+              <span className="text-green-600">
+                -{fmt(invoice.discount_amount)}
+              </span>
             </div>
           )}
           <div className="flex justify-between font-bold border-t border-gray-200 pt-1 mt-1">
@@ -360,10 +456,16 @@ function InvoiceDetailModal({
             <span>Paid</span>
             <span>{fmt(invoice.paid_amount)}</span>
           </div>
-          {parseFloat(invoice.total_amount) - parseFloat(invoice.paid_amount) > 0 && (
+          {parseFloat(invoice.total_amount) - parseFloat(invoice.paid_amount) >
+            0 && (
             <div className="flex justify-between text-orange-600 font-semibold">
               <span>Balance Due</span>
-              <span>{fmt(parseFloat(invoice.total_amount) - parseFloat(invoice.paid_amount))}</span>
+              <span>
+                {fmt(
+                  parseFloat(invoice.total_amount) -
+                    parseFloat(invoice.paid_amount),
+                )}
+              </span>
             </div>
           )}
         </div>
@@ -371,7 +473,9 @@ function InvoiceDetailModal({
         {/* Payment History */}
         {transactions.length > 0 && (
           <div className="mb-4">
-            <p className="text-sm font-semibold text-gray-700 mb-2">Payment History</p>
+            <p className="text-sm font-semibold text-gray-700 mb-2">
+              Payment History
+            </p>
             <div className="space-y-2">
               {transactions.map((txn) => (
                 <div
@@ -379,7 +483,9 @@ function InvoiceDetailModal({
                   className="flex justify-between items-center text-sm bg-green-50 rounded-lg px-3 py-2"
                 >
                   <div>
-                    <span className="font-medium uppercase">{txn.payment_method}</span>
+                    <span className="font-medium uppercase">
+                      {txn.payment_method}
+                    </span>
                     {txn.transaction_ref && (
                       <span className="text-gray-500 ml-2 text-xs">
                         ref: {txn.transaction_ref}
@@ -387,8 +493,12 @@ function InvoiceDetailModal({
                     )}
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold text-green-700">{fmt(txn.amount)}</div>
-                    <div className="text-xs text-gray-400">{fmtDate(txn.created_at)}</div>
+                    <div className="font-semibold text-green-700">
+                      {fmt(txn.amount)}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {fmtDate(txn.created_at)}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -399,7 +509,8 @@ function InvoiceDetailModal({
         {/* Notes */}
         {invoice.notes && (
           <div className="mb-4 text-sm text-gray-600 bg-yellow-50 rounded-lg p-3">
-            <span className="font-medium">Notes: </span>{invoice.notes}
+            <span className="font-medium">Notes: </span>
+            {invoice.notes}
           </div>
         )}
 
@@ -415,14 +526,19 @@ function InvoiceDetailModal({
               </button>
             ) : (
               <div className="space-y-3">
-                <p className="text-sm font-semibold text-gray-700">Record Payment</p>
+                <p className="text-sm font-semibold text-gray-700">
+                  Record Payment
+                </p>
                 <input
                   type="number"
                   placeholder="Amount (₹)"
                   min={0}
                   value={paymentForm.amount || ""}
                   onChange={(e) =>
-                    setPaymentForm({ ...paymentForm, amount: parseFloat(e.target.value) || 0 })
+                    setPaymentForm({
+                      ...paymentForm,
+                      amount: parseFloat(e.target.value) || 0,
+                    })
                   }
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
                 />
@@ -446,7 +562,10 @@ function InvoiceDetailModal({
                   placeholder="Transaction Reference (optional)"
                   value={paymentForm.transaction_ref ?? ""}
                   onChange={(e) =>
-                    setPaymentForm({ ...paymentForm, transaction_ref: e.target.value })
+                    setPaymentForm({
+                      ...paymentForm,
+                      transaction_ref: e.target.value,
+                    })
                   }
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
                 />

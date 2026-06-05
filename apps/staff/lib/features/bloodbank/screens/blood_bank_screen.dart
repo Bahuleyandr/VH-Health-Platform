@@ -342,7 +342,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.surfaceWhite,
               ),
               validator: (v) => (v == null || v.trim().isEmpty)
                   ? s.bloodBankPatientNameRequired
@@ -362,7 +362,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.surfaceWhite,
               ),
               items: _bloodTypes
                   .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -383,7 +383,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.surfaceWhite,
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) {
@@ -410,7 +410,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: AppTheme.surfaceWhite,
               ),
             ),
             const SizedBox(height: 20),

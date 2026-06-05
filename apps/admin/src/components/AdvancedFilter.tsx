@@ -1,10 +1,15 @@
 // src/components/AdvancedFilter.tsx
-'use client';
+"use client";
 
-import { useState, useCallback } from 'react';
-import { useDebouncedCallback } from 'use-debounce';
-import { SearchIcon, FilterIcon, CalendarIcon, CloseIcon } from '@/components/icons';
-import { cn } from '@/lib/utils';
+import { useState, useCallback } from "react";
+import { useDebouncedCallback } from "use-debounce";
+import {
+  SearchIcon,
+  FilterIcon,
+  CalendarIcon,
+  CloseIcon,
+} from "@/components/icons";
+import { cn } from "@/lib/utils";
 
 /* ─── Types ─── */
 
@@ -40,11 +45,11 @@ export interface AdvancedFilterProps {
 }
 
 const EMPTY_FILTERS: FilterValues = {
-  search: '',
-  dateFrom: '',
-  dateTo: '',
-  status: '',
-  role: '',
+  search: "",
+  dateFrom: "",
+  dateTo: "",
+  status: "",
+  role: "",
 };
 
 /* ─── Component ─── */
@@ -53,11 +58,11 @@ export function AdvancedFilter({
   onFilterChange,
   statusOptions = [],
   roleOptions = [],
-  roleLabel = 'Role',
+  roleLabel = "Role",
   showDateRange = false,
   showStatusFilter = false,
   showRoleFilter = false,
-  searchPlaceholder = 'Search...',
+  searchPlaceholder = "Search...",
   debounceMs = 300,
   className,
 }: AdvancedFilterProps) {
@@ -81,7 +86,7 @@ export function AdvancedFilter({
     (key: keyof FilterValues, value: string) => {
       setFilters((prev) => {
         const next = { ...prev, [key]: value };
-        if (key === 'search') {
+        if (key === "search") {
           debouncedNotify(next);
         } else {
           notifyImmediate(next);
@@ -98,21 +103,21 @@ export function AdvancedFilter({
   }, [onFilterChange]);
 
   const hasActiveFilters =
-    filters.search !== '' ||
-    filters.dateFrom !== '' ||
-    filters.dateTo !== '' ||
-    filters.status !== '' ||
-    filters.role !== '';
+    filters.search !== "" ||
+    filters.dateFrom !== "" ||
+    filters.dateTo !== "" ||
+    filters.status !== "" ||
+    filters.role !== "";
 
   // Common input classes matching the project style
   const inputCls =
-    'w-full px-3 py-2 border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-primary bg-white';
-  const labelCls = 'block text-sm font-medium text-foreground mb-1';
+    "w-full px-3 py-2 border border-input rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-primary bg-card";
+  const labelCls = "block text-sm font-medium text-foreground mb-1";
 
   return (
     <div
       className={cn(
-        'bg-white rounded-lg border shadow-sm p-4 space-y-4',
+        "bg-card rounded-lg border shadow-sm p-4 space-y-4",
         className,
       )}
     >
@@ -148,8 +153,8 @@ export function AdvancedFilter({
               type="text"
               placeholder={searchPlaceholder}
               value={filters.search}
-              onChange={(e) => updateFilter('search', e.target.value)}
-              className={cn(inputCls, 'pl-9')}
+              onChange={(e) => updateFilter("search", e.target.value)}
+              className={cn(inputCls, "pl-9")}
             />
           </div>
         </div>
@@ -166,8 +171,8 @@ export function AdvancedFilter({
                 id="af-date-from"
                 type="date"
                 value={filters.dateFrom}
-                onChange={(e) => updateFilter('dateFrom', e.target.value)}
-                className={cn(inputCls, 'pl-9')}
+                onChange={(e) => updateFilter("dateFrom", e.target.value)}
+                className={cn(inputCls, "pl-9")}
               />
             </div>
           </div>
@@ -185,8 +190,8 @@ export function AdvancedFilter({
                 id="af-date-to"
                 type="date"
                 value={filters.dateTo}
-                onChange={(e) => updateFilter('dateTo', e.target.value)}
-                className={cn(inputCls, 'pl-9')}
+                onChange={(e) => updateFilter("dateTo", e.target.value)}
+                className={cn(inputCls, "pl-9")}
               />
             </div>
           </div>
@@ -201,13 +206,14 @@ export function AdvancedFilter({
             <select
               id="af-status"
               value={filters.status}
-              onChange={(e) => updateFilter('status', e.target.value)}
+              onChange={(e) => updateFilter("status", e.target.value)}
               className={inputCls}
             >
               <option value="">All Statuses</option>
               {statusOptions.map((opt) => (
                 <option key={opt} value={opt}>
-                  {opt.charAt(0) + opt.slice(1).toLowerCase().replace(/_/g, ' ')}
+                  {opt.charAt(0) +
+                    opt.slice(1).toLowerCase().replace(/_/g, " ")}
                 </option>
               ))}
             </select>
@@ -223,13 +229,14 @@ export function AdvancedFilter({
             <select
               id="af-role"
               value={filters.role}
-              onChange={(e) => updateFilter('role', e.target.value)}
+              onChange={(e) => updateFilter("role", e.target.value)}
               className={inputCls}
             >
               <option value="">All {roleLabel}s</option>
               {roleOptions.map((opt) => (
                 <option key={opt} value={opt}>
-                  {opt.charAt(0) + opt.slice(1).toLowerCase().replace(/_/g, ' ')}
+                  {opt.charAt(0) +
+                    opt.slice(1).toLowerCase().replace(/_/g, " ")}
                 </option>
               ))}
             </select>
@@ -243,31 +250,31 @@ export function AdvancedFilter({
           {filters.search && (
             <FilterChip
               label={`Search: "${filters.search}"`}
-              onRemove={() => updateFilter('search', '')}
+              onRemove={() => updateFilter("search", "")}
             />
           )}
           {filters.dateFrom && (
             <FilterChip
               label={`From: ${filters.dateFrom}`}
-              onRemove={() => updateFilter('dateFrom', '')}
+              onRemove={() => updateFilter("dateFrom", "")}
             />
           )}
           {filters.dateTo && (
             <FilterChip
               label={`To: ${filters.dateTo}`}
-              onRemove={() => updateFilter('dateTo', '')}
+              onRemove={() => updateFilter("dateTo", "")}
             />
           )}
           {filters.status && (
             <FilterChip
               label={`Status: ${filters.status}`}
-              onRemove={() => updateFilter('status', '')}
+              onRemove={() => updateFilter("status", "")}
             />
           )}
           {filters.role && (
             <FilterChip
               label={`${roleLabel}: ${filters.role}`}
-              onRemove={() => updateFilter('role', '')}
+              onRemove={() => updateFilter("role", "")}
             />
           )}
         </div>

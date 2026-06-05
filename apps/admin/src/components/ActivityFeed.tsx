@@ -49,7 +49,7 @@ export function ActivityFeed() {
   });
 
   return (
-    <div className="bg-white rounded-lg shadow p-4">
+    <div className="bg-card rounded-lg shadow p-4">
       <h3 className="font-semibold mb-4">Recent Activity</h3>
       <div className="space-y-3 max-h-96 overflow-y-auto">
         {activities?.length ? (

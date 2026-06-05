@@ -52,7 +52,7 @@ export function CreateDepartmentForm() {
   };
 
   return (
-    <div className="rounded-lg bg-white p-6 shadow dark:bg-card">
+    <div className="rounded-lg bg-card p-6 shadow dark:bg-card">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Create New Department</h2>
         <button
@@ -80,8 +80,10 @@ export function CreateDepartmentForm() {
               value={formData.name}
               onChange={handleChange}
               aria-invalid={nameError ? "true" : undefined}
-              aria-describedby={nameError ? "dept-create-name-error" : undefined}
-              className="w-full rounded-md border border-input bg-white px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted dark:text-white"
+              aria-describedby={
+                nameError ? "dept-create-name-error" : undefined
+              }
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted"
               placeholder="e.g., Cardiology, Neurology"
               disabled={createDepartment.isPending}
               required
@@ -105,13 +107,15 @@ export function CreateDepartmentForm() {
               >
                 Description
               </label>
-              <span className={`text-xs ${
-                formData.description.length > 900
-                  ? formData.description.length >= 1000
-                    ? "text-destructive font-medium"
-                    : "text-amber-500"
-                  : "text-muted-foreground"
-              }`}>
+              <span
+                className={`text-xs ${
+                  formData.description.length > 900
+                    ? formData.description.length >= 1000
+                      ? "text-destructive font-medium"
+                      : "text-amber-500"
+                    : "text-muted-foreground"
+                }`}
+              >
                 {formData.description.length} / 1000
               </span>
             </div>
@@ -122,7 +126,7 @@ export function CreateDepartmentForm() {
               onChange={handleChange}
               rows={3}
               maxLength={1000}
-              className="w-full rounded-md border border-input bg-white px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted dark:text-white"
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-primary dark:border-input dark:bg-muted"
               placeholder="Brief description of the department..."
               disabled={createDepartment.isPending}
             />

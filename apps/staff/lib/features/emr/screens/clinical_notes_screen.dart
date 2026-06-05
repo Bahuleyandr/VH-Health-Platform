@@ -26,9 +26,9 @@ class ClinicalNotesScreen extends StatefulWidget {
 class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  static const Color _sheetTextPrimary = Color(0xFF1F2937);
-  static const Color _sheetTextSecondary = Color(0xFF667085);
-  static const Color _sheetFieldFill = Color(0xFFF8FAFC);
+  static Color get _sheetTextPrimary => AppTheme.textPrimary;
+  static Color get _sheetTextSecondary => AppTheme.textSecondary;
+  static Color get _sheetFieldFill => AppTheme.surfaceWhite;
 
   // First two tabs are typed (filtered by note_type when fetching);
   // the 3rd tab (index == _noteTypes.length) is the cross-role
@@ -467,14 +467,15 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Theme(
-        data: _lightSheetTheme(ctx),
+        data: _sheetTheme(ctx),
         child: Container(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(ctx).size.height * 0.85,
           ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border(top: BorderSide(color: AppTheme.divider)),
           ),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -498,7 +499,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       child: Text(
                         note['title'] as String? ??
                             AppStrings.of(ctx).clinicalNotesNoteFallback,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
                           color: _sheetTextPrimary,
@@ -513,10 +514,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 const SizedBox(height: 4),
                 Text(
                   '${_noteAuthorName(note, AppStrings.of(ctx))} - ${_formatTimestamp(note['created_at'] as String?)}',
-                  style: const TextStyle(
-                    color: _sheetTextSecondary,
-                    fontSize: 13,
-                  ),
+                  style: TextStyle(color: _sheetTextSecondary, fontSize: 13),
                 ),
                 const Divider(height: 24, color: Color(0xFFD0D5DD)),
                 // SOAP fields
@@ -610,7 +608,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       const SizedBox(height: 4),
                       Text(
                         AppStrings.of(context).aiAssistGenerateBlurb,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color: _sheetTextSecondary,
                         ),
@@ -792,7 +790,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           const SizedBox(height: 4),
           Text(
             content,
-            style: const TextStyle(
+            style: TextStyle(
               color: _sheetTextPrimary,
               fontSize: 14,
               height: 1.5,
@@ -871,7 +869,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       title: s.clinicalNotesNewProgress,
       formKey: formKey,
       fields: [
-        const Text(
+        Text(
           'Vitals',
           style: TextStyle(
             color: _sheetTextPrimary,
@@ -1064,33 +1062,32 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     );
   }
 
-  ThemeData _lightSheetTheme(BuildContext context) {
+  ThemeData _sheetTheme(BuildContext context) {
     final baseTheme = Theme.of(context);
     return baseTheme.copyWith(
-      brightness: Brightness.light,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: AppTheme.primaryBlue,
-        brightness: Brightness.light,
+      colorScheme: baseTheme.colorScheme.copyWith(
+        surface: AppTheme.cardSurface,
+        onSurface: AppTheme.textPrimary,
       ),
       textTheme: baseTheme.textTheme.apply(
         bodyColor: _sheetTextPrimary,
         displayColor: _sheetTextPrimary,
       ),
-      inputDecorationTheme: InputDecorationTheme(
+      inputDecorationTheme: baseTheme.inputDecorationTheme.copyWith(
         filled: true,
         fillColor: _sheetFieldFill,
-        labelStyle: const TextStyle(color: _sheetTextSecondary),
+        labelStyle: TextStyle(color: _sheetTextSecondary),
         hintStyle: TextStyle(
           color: _sheetTextSecondary.withValues(alpha: 0.75),
         ),
         helperStyle: TextStyle(
           color: _sheetTextSecondary.withValues(alpha: 0.8),
         ),
-        suffixStyle: const TextStyle(color: _sheetTextSecondary),
+        suffixStyle: TextStyle(color: _sheetTextSecondary),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderSide: BorderSide(color: AppTheme.divider),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -1098,9 +1095,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         ),
       ),
       chipTheme: baseTheme.chipTheme.copyWith(
-        backgroundColor: const Color(0xFFEFF6FF),
-        labelStyle: const TextStyle(color: _sheetTextPrimary),
-        side: BorderSide(color: Colors.blue.shade100),
+        backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.12),
+        labelStyle: TextStyle(color: _sheetTextPrimary),
+        side: BorderSide(color: AppTheme.primaryBlue.withValues(alpha: 0.25)),
       ),
     );
   }
@@ -1117,14 +1114,17 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return Theme(
-          data: _lightSheetTheme(ctx),
+          data: _sheetTheme(ctx),
           child: Container(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(ctx).viewInsets.bottom,
             ),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            decoration: BoxDecoration(
+              color: AppTheme.cardSurface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              border: Border(top: BorderSide(color: AppTheme.divider)),
             ),
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -1148,7 +1148,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       const SizedBox(height: 16),
                       Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
                           color: _sheetTextPrimary,
@@ -1260,7 +1260,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       body: Column(
         children: [
           Material(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             elevation: 1,
             child: TabBar(
               controller: _tabController,
@@ -1511,9 +1511,10 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
       maxChildSize: 0.97,
       expand: false,
       builder: (ctx, scrollController) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: AppTheme.cardSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: AppTheme.divider)),
         ),
         child: SingleChildScrollView(
           controller: scrollController,

@@ -15,7 +15,11 @@ export function PoliciesTab() {
   const [patientUid, setPatientUid] = useState("");
   const [submittedUid, setSubmittedUid] = useState("");
 
-  const { data: rows = [], error, isLoading } = useQuery<InsurancePolicy[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<InsurancePolicy[]>({
     queryKey: ["insurance", "policies", "patient", submittedUid],
     queryFn: async () => {
       if (!submittedUid) return [];
@@ -74,7 +78,7 @@ export function PoliciesTab() {
           }
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -91,14 +95,23 @@ export function PoliciesTab() {
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className="px-3 py-2 font-mono text-xs">{p.policy_number}</td>
+                <tr
+                  key={p.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {p.policy_number}
+                  </td>
                   <td className="px-3 py-2 text-xs">{p.member_id ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs">{p.policyholder_name ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {p.policyholder_name ?? "—"}
+                  </td>
                   <td className="px-3 py-2 text-xs">
                     <div>{p.tpa_name ?? p.payer_name ?? "—"}</div>
                     {p.tpa_name && p.payer_name && (
-                      <div className="text-muted-foreground">{p.payer_name}</div>
+                      <div className="text-muted-foreground">
+                        {p.payer_name}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs">{p.policy_type ?? "—"}</td>
@@ -106,7 +119,9 @@ export function PoliciesTab() {
                     {p.sum_insured != null ? fmtINR(p.sum_insured) : "—"}
                   </td>
                   <td className="px-3 py-2 font-mono text-muted-foreground">
-                    {p.cumulative_used != null ? fmtINR(p.cumulative_used) : "—"}
+                    {p.cumulative_used != null
+                      ? fmtINR(p.cumulative_used)
+                      : "—"}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {fmtDate(p.valid_from)} → {fmtDate(p.valid_to)}

@@ -38,7 +38,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
 
   if (loading && logs.length === 0) {
     return (
-      <div className="bg-white shadow rounded-lg p-8">
+      <div className="bg-card shadow rounded-lg p-8">
         <div className="flex justify-center items-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
@@ -48,7 +48,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
 
   if (logs.length === 0) {
     return (
-      <div className="bg-white shadow rounded-lg p-8">
+      <div className="bg-card shadow rounded-lg p-8">
         <div className="text-center text-muted-foreground">
           No audit logs found for the selected filters.
         </div>
@@ -57,7 +57,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
   }
 
   return (
-    <div className="bg-white shadow rounded-lg overflow-hidden">
+    <div className="bg-card shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1040px] divide-y divide-border">
           <thead className="bg-muted">
@@ -100,7 +100,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-border">
+          <tbody className="bg-card divide-y divide-border">
             {logs.map((log) => (
               <tr key={log.id} className="hover:bg-muted">
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">

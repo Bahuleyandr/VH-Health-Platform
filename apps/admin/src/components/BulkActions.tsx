@@ -66,13 +66,13 @@ export function BulkActions({
       case "danger":
         return "bg-destructive text-white hover:bg-destructive/90";
       default:
-        return "bg-foreground text-white hover:bg-muted";
+        return "bg-foreground text-background hover:bg-muted";
     }
   };
 
   return (
     <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-      <div className="bg-white dark:bg-card shadow-lg rounded-lg p-4 flex items-center gap-4 border border-border dark:border-border">
+      <div className="bg-card dark:bg-card shadow-lg rounded-lg p-4 flex items-center gap-4 border border-border dark:border-border">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground dark:text-foreground">
             {selectedCount} selected

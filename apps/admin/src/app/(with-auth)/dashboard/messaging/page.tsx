@@ -7,11 +7,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -103,20 +99,18 @@ export default function MessagingPage() {
   });
 
   // Detail query for the open thread.
-  const {
-    data: detail,
-    isLoading: detailLoading,
-  } = useQuery<ThreadDetail | null>({
-    queryKey: ["staff-messaging", "thread", open],
-    queryFn: async () => {
-      if (open === null) return null;
-      const r = await fetchAdminAPI<unknown>(
-        `/staff-messaging/threads/${open}`,
-      );
-      return unwrap<ThreadDetail>(r);
-    },
-    enabled: open !== null,
-  });
+  const { data: detail, isLoading: detailLoading } =
+    useQuery<ThreadDetail | null>({
+      queryKey: ["staff-messaging", "thread", open],
+      queryFn: async () => {
+        if (open === null) return null;
+        const r = await fetchAdminAPI<unknown>(
+          `/staff-messaging/threads/${open}`,
+        );
+        return unwrap<ThreadDetail>(r);
+      },
+      enabled: open !== null,
+    });
 
   // Side-effect: mark read on view (one-shot, fire-and-forget).
   useEffect(() => {
@@ -237,7 +231,7 @@ export default function MessagingPage() {
               <button
                 key={t.id}
                 onClick={() => setOpen(t.id)}
-                className={`w-full text-left bg-white rounded-lg border shadow-sm p-3 hover:bg-muted/30 ${
+                className={`w-full text-left bg-card rounded-lg border shadow-sm p-3 hover:bg-muted/30 ${
                   open === t.id ? "ring-2 ring-blue-400" : ""
                 }`}
               >
@@ -264,10 +258,13 @@ export default function MessagingPage() {
                   >
                     {t.status}
                   </span>
-                  <span className="text-xs text-muted-foreground">{t.category}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t.category}
+                  </span>
                 </div>
                 <div className="text-xs text-muted-foreground mt-1.5">
-                  Patient {t.patient_uid.slice(0, 8)} · {fmtTs(t.last_message_at)}
+                  Patient {t.patient_uid.slice(0, 8)} ·{" "}
+                  {fmtTs(t.last_message_at)}
                 </div>
               </button>
             ))}
@@ -276,7 +273,7 @@ export default function MessagingPage() {
       </div>
 
       {/* Right pane: thread detail */}
-      <div className="bg-white rounded-lg border shadow-sm flex flex-col min-h-0">
+      <div className="bg-card rounded-lg border shadow-sm flex flex-col min-h-0">
         {open === null ? (
           <div className="flex-1 flex items-center justify-center">
             <EmptyState
@@ -292,7 +289,9 @@ export default function MessagingPage() {
             <div className="p-4 border-b">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold">{detail.thread.subject}</h2>
+                  <h2 className="text-lg font-semibold">
+                    {detail.thread.subject}
+                  </h2>
                   <p className="text-xs text-muted-foreground mt-1 font-mono">
                     Patient {detail.thread.patient_uid.slice(0, 8)} · thread #
                     {detail.thread.id}
@@ -373,7 +372,9 @@ export default function MessagingPage() {
               />
               <div className="mt-2 flex justify-end">
                 <button
-                  onClick={() => reply.trim() && replyMutation.mutate(reply.trim())}
+                  onClick={() =>
+                    reply.trim() && replyMutation.mutate(reply.trim())
+                  }
                   disabled={!reply.trim() || replyMutation.isPending}
                   className="px-4 py-2 rounded-md bg-foreground text-background text-sm disabled:opacity-40"
                 >

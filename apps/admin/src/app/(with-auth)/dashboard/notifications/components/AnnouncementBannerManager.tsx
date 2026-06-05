@@ -34,7 +34,9 @@ export function AnnouncementBannerManager() {
         setType(data.type);
         setEnabled(data.enabled);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   function handleSave() {
@@ -62,10 +64,11 @@ export function AnnouncementBannerManager() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-border dark:border-border bg-white dark:bg-background p-5 space-y-4">
+      <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-background p-5 space-y-4">
         <h3 className="text-lg font-semibold">Announcement Banner</h3>
         <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-          Set a banner that appears at the top of all dashboard pages. Users can dismiss it.
+          Set a banner that appears at the top of all dashboard pages. Users can
+          dismiss it.
         </p>
 
         {/* Enable toggle */}
@@ -81,19 +84,23 @@ export function AnnouncementBannerManager() {
 
         {/* Text */}
         <div>
-          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Banner Text</label>
+          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">
+            Banner Text
+          </label>
           <input
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="e.g. System maintenance scheduled for tonight 10 PM"
-            className="w-full rounded-lg border border-input dark:border-input bg-white dark:bg-card px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-input dark:border-input bg-card dark:bg-card px-3 py-2 text-sm"
           />
         </div>
 
         {/* Type */}
         <div>
-          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">Style</label>
+          <label className="block text-sm font-medium text-foreground dark:text-foreground mb-1">
+            Style
+          </label>
           <div className="flex gap-2">
             {(["info", "warning", "critical", "success"] as const).map((t) => (
               <button
@@ -114,8 +121,12 @@ export function AnnouncementBannerManager() {
         {/* Preview */}
         {text.trim() && enabled && (
           <div>
-            <p className="text-sm font-medium text-foreground dark:text-foreground mb-1">Preview:</p>
-            <div className={`${colors.bg} ${colors.text} px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between`}>
+            <p className="text-sm font-medium text-foreground dark:text-foreground mb-1">
+              Preview:
+            </p>
+            <div
+              className={`${colors.bg} ${colors.text} px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between`}
+            >
               <span>📢 {text}</span>
               <span className="opacity-60 text-xs ml-3">✕</span>
             </div>
@@ -137,7 +148,9 @@ export function AnnouncementBannerManager() {
             Clear
           </button>
           {saved && (
-            <span className="inline-flex items-center text-sm text-emerald-600 dark:text-emerald-400">✅ Saved</span>
+            <span className="inline-flex items-center text-sm text-emerald-600 dark:text-emerald-400">
+              ✅ Saved
+            </span>
           )}
         </div>
       </div>
@@ -167,7 +180,9 @@ export function AnnouncementBanner() {
           setBanner(data);
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   if (!banner || dismissed) return null;
@@ -175,12 +190,17 @@ export function AnnouncementBanner() {
   const colors = typeColors[banner.type];
 
   return (
-    <div className={`${colors.bg} ${colors.text} px-4 py-2.5 text-sm font-medium flex items-center justify-between`}>
+    <div
+      className={`${colors.bg} ${colors.text} px-4 py-2.5 text-sm font-medium flex items-center justify-between`}
+    >
       <span>📢 {banner.text}</span>
       <button
         onClick={() => {
           setDismissed(true);
-          localStorage.setItem(STORAGE_KEY + "-dismissed", new Date().toISOString());
+          localStorage.setItem(
+            STORAGE_KEY + "-dismissed",
+            new Date().toISOString(),
+          );
         }}
         className="ml-3 opacity-70 hover:opacity-100 transition-opacity"
         aria-label="Dismiss announcement"

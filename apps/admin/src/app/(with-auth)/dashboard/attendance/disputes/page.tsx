@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Skeleton } from '@/components/ui/skeleton';
-import toast from 'react-hot-toast';
-import { getPendingDisputes, resolveDispute } from '@/lib/api/attendance';
-import { Button } from '@/components/ui/button';
+import { useEffect, useState } from "react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import toast from "react-hot-toast";
+import { getPendingDisputes, resolveDispute } from "@/lib/api/attendance";
+import { Button } from "@/components/ui/button";
 
 interface Dispute {
   id: number;
@@ -17,7 +17,7 @@ interface Dispute {
   requested_check_in: string;
   requested_check_out: string;
   evidence_url: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: "pending" | "approved" | "rejected";
   reviewer_comment: string;
   created_at: string;
 }
@@ -28,8 +28,10 @@ export default function DisputesPage() {
   const [selectedDispute, setSelectedDispute] = useState<Dispute | null>(null);
   const [, setResolving] = useState(false);
   const [applyCorrection] = useState(true);
-  const [reviewerComment, setReviewerComment] = useState('');
-  const [resolveAction, setResolveAction] = useState<'approved' | 'rejected' | null>(null);
+  const [reviewerComment, setReviewerComment] = useState("");
+  const [resolveAction, setResolveAction] = useState<
+    "approved" | "rejected" | null
+  >(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export default function DisputesPage() {
         const data = await getPendingDisputes<{ data: Dispute[] }>();
         setDisputes(data.data || []);
       } catch {
-        toast.error('Failed to load disputes');
+        toast.error("Failed to load disputes");
       } finally {
         setLoading(false);
       }
@@ -56,18 +58,18 @@ export default function DisputesPage() {
       await resolveDispute(selectedDispute.id, {
         status: resolveAction,
         reviewer_comment: reviewerComment || undefined,
-        apply_correction: applyCorrection
+        apply_correction: applyCorrection,
       });
 
       toast.success(`Dispute ${resolveAction} successfully`);
 
       // Remove from list
-      setDisputes(disputes.filter(d => d.id !== selectedDispute.id));
+      setDisputes(disputes.filter((d) => d.id !== selectedDispute.id));
       setSelectedDispute(null);
-      setReviewerComment('');
+      setReviewerComment("");
       setResolveAction(null);
     } catch {
-      toast.error('Failed to resolve dispute');
+      toast.error("Failed to resolve dispute");
     } finally {
       setResolving(false);
     }
@@ -75,11 +77,11 @@ export default function DisputesPage() {
 
   const getDisputeTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      'missed_checkin': 'Missed Check-in',
-      'missed_checkout': 'Missed Check-out',
-      'wrong_time': 'Wrong Time',
-      'app_failure': 'App Failure',
-      'other': 'Other'
+      missed_checkin: "Missed Check-in",
+      missed_checkout: "Missed Check-out",
+      wrong_time: "Wrong Time",
+      app_failure: "App Failure",
+      other: "Other",
     };
     return labels[type] || type;
   };
@@ -102,7 +104,7 @@ export default function DisputesPage() {
       <div>
         <h1 className="text-3xl font-bold text-primary">Attendance Disputes</h1>
         <p className="text-sm text-gray-600 mt-1">
-          {disputes.length} pending dispute{disputes.length !== 1 ? 's' : ''}
+          {disputes.length} pending dispute{disputes.length !== 1 ? "s" : ""}
         </p>
       </div>
 
@@ -115,10 +117,14 @@ export default function DisputesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50">
-                <th className="px-6 py-3 text-left font-semibold">Staff Member</th>
+                <th className="px-6 py-3 text-left font-semibold">
+                  Staff Member
+                </th>
                 <th className="px-6 py-3 text-left font-semibold">Date</th>
                 <th className="px-6 py-3 text-left font-semibold">Type</th>
-                <th className="px-6 py-3 text-left font-semibold">Description</th>
+                <th className="px-6 py-3 text-left font-semibold">
+                  Description
+                </th>
                 <th className="px-6 py-3 text-left font-semibold">Actions</th>
               </tr>
             </thead>
@@ -126,25 +132,29 @@ export default function DisputesPage() {
               {disputes.map((dispute) => (
                 <tr key={dispute.id} className="border-b hover:bg-gray-50">
                   <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900">{dispute.staff_name}</div>
+                    <div className="font-medium text-gray-900">
+                      {dispute.staff_name}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
-                    {new Date(dispute.date).toLocaleDateString('en-GB')}
+                    {new Date(dispute.date).toLocaleDateString("en-GB")}
                   </td>
                   <td className="px-6 py-4">
-                    <span className="px-3 py-1 rounded border border-gray-300 text-xs font-medium bg-white">
+                    <span className="px-3 py-1 rounded border border-gray-300 text-xs font-medium bg-card">
                       {getDisputeTypeLabel(dispute.dispute_type)}
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <p className="text-gray-600 truncate max-w-xs">{dispute.description}</p>
+                    <p className="text-gray-600 truncate max-w-xs">
+                      {dispute.description}
+                    </p>
                   </td>
                   <td className="px-6 py-4">
                     <Button
                       size="sm"
                       onClick={() => {
                         setSelectedDispute(dispute);
-                        setResolveAction('approved');
+                        setResolveAction("approved");
                         setConfirmOpen(true);
                       }}
                       className="bg-primary text-white hover:bg-primary/90 mr-2"
@@ -156,7 +166,7 @@ export default function DisputesPage() {
                       variant="outline"
                       onClick={() => {
                         setSelectedDispute(dispute);
-                        setResolveAction('rejected');
+                        setResolveAction("rejected");
                         setConfirmOpen(true);
                       }}
                     >
@@ -175,16 +185,16 @@ export default function DisputesPage() {
         <ConfirmDialog
           open={confirmOpen}
           setOpen={setConfirmOpen}
-          title={`${resolveAction === 'approved' ? 'Approve' : 'Reject'} Dispute`}
-          message={`Are you sure you want to ${resolveAction === 'approved' ? 'approve' : 'reject'} this dispute?`}
+          title={`${resolveAction === "approved" ? "Approve" : "Reject"} Dispute`}
+          message={`Are you sure you want to ${resolveAction === "approved" ? "approve" : "reject"} this dispute?`}
           onConfirm={handleResolve}
           onCancel={() => {
             setSelectedDispute(null);
             setResolveAction(null);
-            setReviewerComment('');
+            setReviewerComment("");
           }}
-          confirmLabel={resolveAction === 'approved' ? 'Approve' : 'Reject'}
-          variant={resolveAction === 'approved' ? 'default' : 'destructive'}
+          confirmLabel={resolveAction === "approved" ? "Approve" : "Reject"}
+          variant={resolveAction === "approved" ? "default" : "destructive"}
         />
       )}
     </div>

@@ -73,7 +73,7 @@ export function PermissionGrid({ admins, onEdit }: PermissionGridProps) {
         countLabel={`${rows.length} of ${admins.length} admins`}
       />
 
-      <div className="overflow-hidden rounded-lg bg-white shadow">
+      <div className="overflow-hidden rounded-lg bg-card shadow">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-border">
             <thead className="bg-muted">
@@ -108,7 +108,7 @@ export function PermissionGrid({ admins, onEdit }: PermissionGridProps) {
                   : [];
                 return (
                   <tr key={admin.uid} className="hover:bg-muted">
-                    <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-6 py-4">
+                    <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-6 py-4">
                       <div className="text-sm font-medium text-foreground">
                         {admin.name}
                       </div>

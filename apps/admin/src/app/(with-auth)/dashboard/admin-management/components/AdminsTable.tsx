@@ -215,7 +215,7 @@ export function AdminsTable({
         countLabel={`${rows.length} of ${admins.length} administrators`}
       />
 
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-card shadow rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-[980px] w-full divide-y divide-border">
             <thead className="bg-muted">
@@ -261,7 +261,7 @@ export function AdminsTable({
               </tr>
             </thead>
 
-            <tbody className="bg-white divide-y divide-border">
+            <tbody className="bg-card divide-y divide-border">
               {paged.rows.map((admin) => {
                 const loginInfo = formatLastLogin(admin.last_login ?? null);
                 const toggling = updatingAdminId === admin.uid;

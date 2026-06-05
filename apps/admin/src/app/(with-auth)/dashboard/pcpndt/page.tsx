@@ -6,11 +6,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -110,7 +106,7 @@ export default function PcpndtPage() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -131,11 +127,21 @@ export default function PcpndtPage() {
 function RegisterTab() {
   const qc = useQueryClient();
   const today = new Date().toISOString().split("T")[0]!;
-  const monthAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString().split("T")[0]!;
-  const [filters, setFilters] = useState({ from: monthAgo, to: today, status: "" });
+  const monthAgo = new Date(Date.now() - 30 * 86400 * 1000)
+    .toISOString()
+    .split("T")[0]!;
+  const [filters, setFilters] = useState({
+    from: monthAgo,
+    to: today,
+    status: "",
+  });
   const [showCreate, setShowCreate] = useState(false);
 
-  const { data: rows = [], isLoading, error } = useQuery<FormFRow[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<FormFRow[]>({
     queryKey: ["pcpndt", "forms", filters],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -156,23 +162,27 @@ function RegisterTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">In window</p>
           <p className="text-xl font-semibold mt-1">{rows.length}</p>
         </div>
-        <div className={`bg-white rounded-lg border shadow-sm p-3 ${pendingSubmission > 0 ? "border-amber-300" : ""}`}>
+        <div
+          className={`bg-card rounded-lg border shadow-sm p-3 ${pendingSubmission > 0 ? "border-amber-300" : ""}`}
+        >
           <p className="text-xs text-muted-foreground">Pending submission</p>
-          <p className={`text-xl font-semibold mt-1 ${pendingSubmission > 0 ? "text-amber-700" : ""}`}>
+          <p
+            className={`text-xl font-semibold mt-1 ${pendingSubmission > 0 ? "text-amber-700" : ""}`}
+          >
             {pendingSubmission}
           </p>
         </div>
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Submitted</p>
           <p className="text-xl font-semibold mt-1">
             {rows.filter((r) => r.status === "submitted_to_authority").length}
           </p>
         </div>
-        <div className="bg-white rounded-lg border shadow-sm p-3">
+        <div className="bg-card rounded-lg border shadow-sm p-3">
           <p className="text-xs text-muted-foreground">Voided</p>
           <p className="text-xl font-semibold mt-1">
             {rows.filter((r) => r.status === "voided").length}
@@ -182,7 +192,9 @@ function RegisterTab() {
 
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">From</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            From
+          </label>
           <input
             type="date"
             value={filters.from}
@@ -200,7 +212,9 @@ function RegisterTab() {
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={filters.status}
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
@@ -208,7 +222,9 @@ function RegisterTab() {
           >
             <option value="">All</option>
             {Object.keys(STATUS_COLOURS).map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+              <option key={s} value={s}>
+                {s.replace(/_/g, " ")}
+              </option>
             ))}
           </select>
         </div>
@@ -220,7 +236,9 @@ function RegisterTab() {
         </button>
         <div className="flex-1" />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["pcpndt", "forms"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["pcpndt", "forms"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -236,9 +254,12 @@ function RegisterTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No entries" description="No Form F entries in this window." />
+        <EmptyState
+          title="No entries"
+          description="No Form F entries in this window."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -254,19 +275,32 @@ function RegisterTab() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-3 py-2 font-mono text-xs">#{r.serial_no}</td>
+                <tr
+                  key={r.id}
+                  className="border-b last:border-0 hover:bg-muted/30"
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    #{r.serial_no}
+                  </td>
                   <td className="px-3 py-2 text-xs">{fmtDate(r.test_date)}</td>
                   <td className="px-3 py-2">
                     <div>{r.patient_name}</div>
-                    <div className="text-xs text-muted-foreground">{r.patient_age} y</div>
+                    <div className="text-xs text-muted-foreground">
+                      {r.patient_age} y
+                    </div>
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">G{r.gravida}P{r.parity}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    G{r.gravida}P{r.parity}
+                  </td>
                   <td className="px-3 py-2 text-xs">
                     {r.indication_category?.replace(/_/g, " ") ?? "—"}
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">{r.machine_code ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs">{r.sonologist_name ?? "—"}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {r.machine_code ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {r.sonologist_name ?? "—"}
+                  </td>
                   <td className="px-3 py-2">
                     <span
                       className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
@@ -297,7 +331,8 @@ function RegisterTab() {
 }
 
 function NewFormFModal({
-  onClose, onCreated,
+  onClose,
+  onCreated,
 }: {
   onClose: () => void;
   onCreated: () => void;
@@ -395,69 +430,141 @@ function NewFormFModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl mb-8">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-3xl mb-8">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">New Form F entry</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Identity</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Identity
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Test date" type="date" value={form.test_date}
-                onChange={(v) => setForm({ ...form, test_date: v })} />
-              <Field label="Patient UID (optional)" mono value={form.patient_uid}
-                onChange={(v) => setForm({ ...form, patient_uid: v })} />
-              <Field label="Patient name *" value={form.patient_name}
-                onChange={(v) => setForm({ ...form, patient_name: v })} />
-              <Field label="Age (yr) *" type="number" value={form.patient_age}
-                onChange={(v) => setForm({ ...form, patient_age: v })} />
-              <Field label="Husband / father name *" value={form.husband_or_father_name}
-                onChange={(v) => setForm({ ...form, husband_or_father_name: v })} />
-              <Field label="Contact number" value={form.contact_number}
-                onChange={(v) => setForm({ ...form, contact_number: v })} />
+              <Field
+                label="Test date"
+                type="date"
+                value={form.test_date}
+                onChange={(v) => setForm({ ...form, test_date: v })}
+              />
+              <Field
+                label="Patient UID (optional)"
+                mono
+                value={form.patient_uid}
+                onChange={(v) => setForm({ ...form, patient_uid: v })}
+              />
+              <Field
+                label="Patient name *"
+                value={form.patient_name}
+                onChange={(v) => setForm({ ...form, patient_name: v })}
+              />
+              <Field
+                label="Age (yr) *"
+                type="number"
+                value={form.patient_age}
+                onChange={(v) => setForm({ ...form, patient_age: v })}
+              />
+              <Field
+                label="Husband / father name *"
+                value={form.husband_or_father_name}
+                onChange={(v) =>
+                  setForm({ ...form, husband_or_father_name: v })
+                }
+              />
+              <Field
+                label="Contact number"
+                value={form.contact_number}
+                onChange={(v) => setForm({ ...form, contact_number: v })}
+              />
             </div>
-            <Field label="Full address *" value={form.full_address}
-              onChange={(v) => setForm({ ...form, full_address: v })} />
+            <Field
+              label="Full address *"
+              value={form.full_address}
+              onChange={(v) => setForm({ ...form, full_address: v })}
+            />
           </section>
 
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Pregnancy</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Pregnancy
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Field label="Gravida" type="number" value={form.gravida}
-                onChange={(v) => setForm({ ...form, gravida: v })} />
-              <Field label="Parity" type="number" value={form.parity}
-                onChange={(v) => setForm({ ...form, parity: v })} />
-              <Field label="Abortions" type="number" value={form.abortions}
-                onChange={(v) => setForm({ ...form, abortions: v })} />
-              <Field label="Living children" type="number" value={form.living_children}
-                onChange={(v) => setForm({ ...form, living_children: v })} />
+              <Field
+                label="Gravida"
+                type="number"
+                value={form.gravida}
+                onChange={(v) => setForm({ ...form, gravida: v })}
+              />
+              <Field
+                label="Parity"
+                type="number"
+                value={form.parity}
+                onChange={(v) => setForm({ ...form, parity: v })}
+              />
+              <Field
+                label="Abortions"
+                type="number"
+                value={form.abortions}
+                onChange={(v) => setForm({ ...form, abortions: v })}
+              />
+              <Field
+                label="Living children"
+                type="number"
+                value={form.living_children}
+                onChange={(v) => setForm({ ...form, living_children: v })}
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="Living children sex" value={form.living_children_sex}
+              <Field
+                label="Living children sex"
+                value={form.living_children_sex}
                 onChange={(v) => setForm({ ...form, living_children_sex: v })}
-                hint="e.g. M / M / F" />
-              <Field label="LMP date" type="date" value={form.lmp_date}
-                onChange={(v) => setForm({ ...form, lmp_date: v })} />
-              <Field label="Gestational age (weeks)" type="number" value={form.gestational_age_weeks}
-                onChange={(v) => setForm({ ...form, gestational_age_weeks: v })} />
+                hint="e.g. M / M / F"
+              />
+              <Field
+                label="LMP date"
+                type="date"
+                value={form.lmp_date}
+                onChange={(v) => setForm({ ...form, lmp_date: v })}
+              />
+              <Field
+                label="Gestational age (weeks)"
+                type="number"
+                value={form.gestational_age_weeks}
+                onChange={(v) => setForm({ ...form, gestational_age_weeks: v })}
+              />
             </div>
           </section>
 
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Indication</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Indication
+            </p>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">
                 Category *
               </label>
               <select
                 value={form.indication_category}
-                onChange={(e) => setForm({ ...form, indication_category: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, indication_category: e.target.value })
+                }
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm"
               >
                 {[
-                  ["to_diagnose_intrauterine_pregnancy", "To diagnose intrauterine pregnancy"],
-                  ["genetic_testing_with_consent", "Genetic testing (with consent)"],
+                  [
+                    "to_diagnose_intrauterine_pregnancy",
+                    "To diagnose intrauterine pregnancy",
+                  ],
+                  [
+                    "genetic_testing_with_consent",
+                    "Genetic testing (with consent)",
+                  ],
                   ["detection_of_anomalies", "Detection of anomalies"],
                   ["multiple_pregnancy", "Multiple pregnancy"],
                   ["placental_localisation", "Placental localisation"],
@@ -466,7 +573,9 @@ function NewFormFModal({
                   ["placenta_praevia", "Placenta praevia"],
                   ["other", "Other"],
                 ].map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
                 ))}
               </select>
             </div>
@@ -477,36 +586,55 @@ function NewFormFModal({
               multiline
             />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Referred by (doctor)" value={form.referred_by_doctor_name}
-                onChange={(v) => setForm({ ...form, referred_by_doctor_name: v })} />
-              <Field label="Referrer reg #" value={form.referred_by_reg_no}
-                onChange={(v) => setForm({ ...form, referred_by_reg_no: v })} />
+              <Field
+                label="Referred by (doctor)"
+                value={form.referred_by_doctor_name}
+                onChange={(v) =>
+                  setForm({ ...form, referred_by_doctor_name: v })
+                }
+              />
+              <Field
+                label="Referrer reg #"
+                value={form.referred_by_reg_no}
+                onChange={(v) => setForm({ ...form, referred_by_reg_no: v })}
+              />
             </div>
           </section>
 
           <section>
-            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Procedure</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+              Procedure
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground block mb-1">Machine *</label>
+                <label className="text-xs text-muted-foreground block mb-1">
+                  Machine *
+                </label>
                 <select
                   value={form.machine_id || ""}
-                  onChange={(e) => setForm({ ...form, machine_id: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setForm({ ...form, machine_id: Number(e.target.value) })
+                  }
                   className="w-full border border-border rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="">Select machine…</option>
                   {machines.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.machine_code} · {m.manufacturer} {m.model} · Reg {m.pcpndt_registration_no}
+                      {m.machine_code} · {m.manufacturer} {m.model} · Reg{" "}
+                      {m.pcpndt_registration_no}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground block mb-1">Sonologist *</label>
+                <label className="text-xs text-muted-foreground block mb-1">
+                  Sonologist *
+                </label>
                 <select
                   value={form.sonologist_id || ""}
-                  onChange={(e) => setForm({ ...form, sonologist_id: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setForm({ ...form, sonologist_id: Number(e.target.value) })
+                  }
                   className="w-full border border-border rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="">Select sonologist…</option>
@@ -538,10 +666,10 @@ function NewFormFModal({
               <div>
                 <strong>Sonologist declaration:</strong>
                 <p className="text-xs mt-1">
-                  I declare that the sex of the foetus has NOT been determined and
-                  has NOT been disclosed to the patient or any other person. The
-                  test was performed for the indication recorded above. Patient
-                  consent was obtained before the test.
+                  I declare that the sex of the foetus has NOT been determined
+                  and has NOT been disclosed to the patient or any other person.
+                  The test was performed for the indication recorded above.
+                  Patient consent was obtained before the test.
                 </p>
               </div>
             </label>
@@ -550,7 +678,12 @@ function NewFormFModal({
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border text-sm hover:bg-muted">Cancel</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending || !canSubmit}
@@ -565,7 +698,13 @@ function NewFormFModal({
 }
 
 function Field({
-  label, value, onChange, type = "text", hint, multiline, mono,
+  label,
+  value,
+  onChange,
+  type = "text",
+  hint,
+  multiline,
+  mono,
 }: {
   label: string;
   value: string;
@@ -577,7 +716,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
+      <label className="text-xs text-muted-foreground block mb-1">
+        {label}
+      </label>
       {multiline ? (
         <textarea
           value={value}
@@ -593,7 +734,9 @@ function Field({
           className={`w-full border border-border rounded-lg px-3 py-2 text-sm ${mono ? "font-mono" : ""}`}
         />
       )}
-      {hint && <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>}
+      {hint && (
+        <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>
+      )}
     </div>
   );
 }
@@ -604,7 +747,11 @@ function MachinesTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
 
-  const { data: rows = [], isLoading, error } = useQuery<Machine[]>({
+  const {
+    data: rows = [],
+    isLoading,
+    error,
+  } = useQuery<Machine[]>({
     queryKey: ["pcpndt", "machines", "all"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -634,9 +781,12 @@ function MachinesTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No machines" description="Register at least one PCPNDT-registered USG machine." />
+        <EmptyState
+          title="No machines"
+          description="Register at least one PCPNDT-registered USG machine."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -651,18 +801,32 @@ function MachinesTab() {
             </thead>
             <tbody>
               {rows.map((m) => {
-                const expired = m.registration_valid_to &&
+                const expired =
+                  m.registration_valid_to &&
                   new Date(m.registration_valid_to) < new Date();
                 return (
-                  <tr key={m.id} className={`border-b last:border-0 ${expired ? "bg-rose-50" : ""}`}>
-                    <td className="px-3 py-2 font-mono text-xs">{m.machine_code}</td>
+                  <tr
+                    key={m.id}
+                    className={`border-b last:border-0 ${expired ? "bg-rose-50" : ""}`}
+                  >
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {m.machine_code}
+                    </td>
                     <td className="px-3 py-2">
                       <div>{m.manufacturer}</div>
-                      <div className="text-xs text-muted-foreground">{m.model}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {m.model}
+                      </div>
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs">{m.serial_number}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{m.pcpndt_registration_no}</td>
-                    <td className={`px-3 py-2 text-xs ${expired ? "text-rose-700 font-semibold" : ""}`}>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {m.serial_number}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {m.pcpndt_registration_no}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-xs ${expired ? "text-rose-700 font-semibold" : ""}`}
+                    >
                       {fmtDate(m.registration_valid_to)}
                       {expired && " (EXPIRED)"}
                     </td>
@@ -690,7 +854,8 @@ function MachinesTab() {
 }
 
 function MachineFormModal({
-  onClose, onSaved,
+  onClose,
+  onSaved,
 }: {
   onClose: () => void;
   onSaved: () => void;
@@ -716,10 +881,15 @@ function MachineFormModal({
   const errMsg = mut.error instanceof Error ? mut.error.message : null;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-lg">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Register USG machine</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           {[
@@ -737,17 +907,33 @@ function MachineFormModal({
             />
           ))}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Registered on" type="date" value={form.registered_at}
-              onChange={(v) => setForm({ ...form, registered_at: v })} />
-            <Field label="Valid to" type="date" value={form.registration_valid_to}
-              onChange={(v) => setForm({ ...form, registration_valid_to: v })} />
+            <Field
+              label="Registered on"
+              type="date"
+              value={form.registered_at}
+              onChange={(v) => setForm({ ...form, registered_at: v })}
+            />
+            <Field
+              label="Valid to"
+              type="date"
+              value={form.registration_valid_to}
+              onChange={(v) => setForm({ ...form, registration_valid_to: v })}
+            />
           </div>
-          <Field label="Location" value={form.location}
-            onChange={(v) => setForm({ ...form, location: v })} />
+          <Field
+            label="Location"
+            value={form.location}
+            onChange={(v) => setForm({ ...form, location: v })}
+          />
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border text-sm hover:bg-muted">Cancel</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending}
@@ -790,9 +976,12 @@ function SonologistsTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No sonologists" description="Add at least one trained sonologist with signed undertaking." />
+        <EmptyState
+          title="No sonologists"
+          description="Add at least one trained sonologist with signed undertaking."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -813,20 +1002,30 @@ function SonologistsTab() {
                   }`}
                 >
                   <td className="px-3 py-2">{s.name}</td>
-                  <td className="px-3 py-2 text-xs">{s.qualification ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{s.medical_council_reg ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {s.qualification ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {s.medical_council_reg ?? "—"}
+                  </td>
                   <td className="px-3 py-2 text-xs">
                     {s.pcpndt_training_cert_no ?? "—"}
                     {s.pcpndt_training_date && (
-                      <div className="text-muted-foreground">{fmtDate(s.pcpndt_training_date)}</div>
+                      <div className="text-muted-foreground">
+                        {fmtDate(s.pcpndt_training_date)}
+                      </div>
                     )}
                   </td>
-                  <td className={`px-3 py-2 text-xs ${!s.undertaking_signed_at ? "text-rose-700 font-semibold" : ""}`}>
+                  <td
+                    className={`px-3 py-2 text-xs ${!s.undertaking_signed_at ? "text-rose-700 font-semibold" : ""}`}
+                  >
                     {s.undertaking_signed_at
                       ? `Signed ${fmtDate(s.undertaking_signed_at)}`
                       : "MISSING"}
                   </td>
-                  <td className="px-3 py-2 text-xs">{s.active ? "yes" : "no"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {s.active ? "yes" : "no"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -848,7 +1047,8 @@ function SonologistsTab() {
 }
 
 function SonologistFormModal({
-  onClose, onSaved,
+  onClose,
+  onSaved,
 }: {
   onClose: () => void;
   onSaved: () => void;
@@ -872,10 +1072,15 @@ function SonologistFormModal({
   const errMsg = mut.error instanceof Error ? mut.error.message : null;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-lg">
         <div className="p-4 border-b flex items-center justify-between">
           <h2 className="text-lg font-semibold">Add sonologist</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            ✕
+          </button>
         </div>
         <div className="p-4 space-y-3">
           {[
@@ -892,15 +1097,28 @@ function SonologistFormModal({
             />
           ))}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Training date" type="date" value={form.pcpndt_training_date}
-              onChange={(v) => setForm({ ...form, pcpndt_training_date: v })} />
-            <Field label="Undertaking signed *" type="date" value={form.undertaking_signed_at}
-              onChange={(v) => setForm({ ...form, undertaking_signed_at: v })} />
+            <Field
+              label="Training date"
+              type="date"
+              value={form.pcpndt_training_date}
+              onChange={(v) => setForm({ ...form, pcpndt_training_date: v })}
+            />
+            <Field
+              label="Undertaking signed *"
+              type="date"
+              value={form.undertaking_signed_at}
+              onChange={(v) => setForm({ ...form, undertaking_signed_at: v })}
+            />
           </div>
           {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
         </div>
         <div className="p-4 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-2 rounded-md border text-sm hover:bg-muted">Cancel</button>
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending || !form.undertaking_signed_at}
@@ -950,7 +1168,8 @@ function SubmissionsTab() {
         method: "POST",
         body: { authority_reference: vars.reference },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pcpndt", "submissions"] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["pcpndt", "submissions"] }),
   });
 
   function ack(s: Submission) {
@@ -964,27 +1183,39 @@ function SubmissionsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-lg border shadow-sm p-4">
-        <h3 className="text-sm font-semibold mb-2">Generate submission for period</h3>
+      <div className="bg-card rounded-lg border shadow-sm p-4">
+        <h3 className="text-sm font-semibold mb-2">
+          Generate submission for period
+        </h3>
         <div className="flex gap-3 items-end flex-wrap">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Year</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Year
+            </label>
             <input
               type="number"
               value={period.year}
-              onChange={(e) => setPeriod({ ...period, year: Number(e.target.value) })}
+              onChange={(e) =>
+                setPeriod({ ...period, year: Number(e.target.value) })
+              }
               className="border border-border rounded-lg px-3 py-2 text-sm font-mono w-24"
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Month</label>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Month
+            </label>
             <select
               value={period.month}
-              onChange={(e) => setPeriod({ ...period, month: Number(e.target.value) })}
+              onChange={(e) =>
+                setPeriod({ ...period, month: Number(e.target.value) })
+              }
               className="border border-border rounded-lg px-3 py-2 text-sm"
             >
               {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m} value={m}>
+                  {m}
+                </option>
               ))}
             </select>
           </div>
@@ -1005,9 +1236,12 @@ function SubmissionsTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No submissions yet" description="Generate the first batch above." />
+        <EmptyState
+          title="No submissions yet"
+          description="Generate the first batch above."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -1026,13 +1260,19 @@ function SubmissionsTab() {
                     {s.period_year}-{String(s.period_month).padStart(2, "0")}
                   </td>
                   <td className="px-3 py-2 font-mono">{s.total_forms}</td>
-                  <td className="px-3 py-2 text-xs">{fmtDate(s.generated_at)}</td>
                   <td className="px-3 py-2 text-xs">
-                    {s.submitted_to_authority_at
-                      ? fmtDate(s.submitted_to_authority_at)
-                      : <span className="text-amber-700">pending</span>}
+                    {fmtDate(s.generated_at)}
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">{s.authority_reference ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {s.submitted_to_authority_at ? (
+                      fmtDate(s.submitted_to_authority_at)
+                    ) : (
+                      <span className="text-amber-700">pending</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {s.authority_reference ?? "—"}
+                  </td>
                   <td className="px-3 py-2">
                     {!s.submitted_to_authority_at && (
                       <button

@@ -79,9 +79,11 @@ function PartographDrilldown({
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-4xl">
         <div className="p-4 border-b flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Partograph — Labor #{laborId}</h2>
+          <h2 className="text-lg font-semibold">
+            Partograph — Labor #{laborId}
+          </h2>
           <button
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground"
@@ -124,21 +126,29 @@ function PartographDrilldown({
                             : ""
                       }`}
                     >
-                      <td className="px-2 py-2 text-xs">{fmtTs(r.recorded_at)}</td>
+                      <td className="px-2 py-2 text-xs">
+                        {fmtTs(r.recorded_at)}
+                      </td>
                       <td className="px-2 py-2 font-mono">
                         {r.cervix_dilation_cm ?? "—"} cm
                       </td>
-                      <td className="px-2 py-2 font-mono">{r.fetal_heart_rate_bpm ?? "—"}</td>
+                      <td className="px-2 py-2 font-mono">
+                        {r.fetal_heart_rate_bpm ?? "—"}
+                      </td>
                       <td className="px-2 py-2 text-xs">
                         {r.contractions_per_10min ?? "—"}
-                        {r.contractions_intensity ? ` · ${r.contractions_intensity}` : ""}
+                        {r.contractions_intensity
+                          ? ` · ${r.contractions_intensity}`
+                          : ""}
                       </td>
                       <td className="px-2 py-2 font-mono text-xs">
                         {r.bp_systolic && r.bp_diastolic
                           ? `${r.bp_systolic}/${r.bp_diastolic}`
                           : "—"}
                       </td>
-                      <td className="px-2 py-2 font-mono text-xs">{r.pulse_bpm ?? "—"}</td>
+                      <td className="px-2 py-2 font-mono text-xs">
+                        {r.pulse_bpm ?? "—"}
+                      </td>
                       <td className="px-2 py-2 space-x-1">
                         {r.on_action_line && (
                           <span className="px-1.5 py-0.5 rounded bg-rose-200 text-rose-900 text-xs font-medium">
@@ -166,7 +176,12 @@ function PartographDrilldown({
 export default function MaternityPage() {
   const [drilldown, setDrilldown] = useState<number | null>(null);
 
-  const { data: rows = [], error, isLoading, refetch } = useQuery<ActiveLabor[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+    refetch,
+  } = useQuery<ActiveLabor[]>({
     queryKey: ["maternity", "labor-admissions", "active"],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
@@ -184,7 +199,8 @@ export default function MaternityPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Maternity</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Active labour board. Click a row to view the WHO modified partograph.
+            Active labour board. Click a row to view the WHO modified
+            partograph.
           </p>
         </div>
         <button
@@ -197,7 +213,9 @@ export default function MaternityPage() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error instanceof Error ? error.message : "Failed to load labour board"}
+          {error instanceof Error
+            ? error.message
+            : "Failed to load labour board"}
         </div>
       )}
 
@@ -209,7 +227,7 @@ export default function MaternityPage() {
           description="No active labour admissions right now."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -254,9 +272,13 @@ export default function MaternityPage() {
                   </td>
                   <td className="px-3 py-2 text-xs">
                     <div>{fmtTs(r.admitted_at)}</div>
-                    <div className="text-muted-foreground">{ageHours(r.admitted_at)} ago</div>
+                    <div className="text-muted-foreground">
+                      {ageHours(r.admitted_at)} ago
+                    </div>
                   </td>
-                  <td className="px-3 py-2 text-xs">{r.admission_reason ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {r.admission_reason ?? "—"}
+                  </td>
                   <td className="px-3 py-2 font-mono">
                     {r.gestational_age_weeks ?? "—"}w
                   </td>
@@ -269,7 +291,9 @@ export default function MaternityPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs">{r.membrane_status ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {r.membrane_status ?? "—"}
+                  </td>
                   <td className="px-3 py-2 font-mono">
                     {r.fetal_heart_rate_bpm ?? "—"}
                   </td>
@@ -292,7 +316,10 @@ export default function MaternityPage() {
       )}
 
       {drilldown !== null && (
-        <PartographDrilldown laborId={drilldown} onClose={() => setDrilldown(null)} />
+        <PartographDrilldown
+          laborId={drilldown}
+          onClose={() => setDrilldown(null)}
+        />
       )}
     </div>
   );

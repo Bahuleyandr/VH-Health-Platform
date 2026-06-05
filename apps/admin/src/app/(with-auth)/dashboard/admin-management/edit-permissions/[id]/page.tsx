@@ -159,7 +159,7 @@ export default function EditPermissionsPage() {
         Edit Permissions for {admin.name}
       </h1>
 
-      <form onSubmit={handleSubmit} className="rounded-lg bg-white p-6 shadow">
+      <form onSubmit={handleSubmit} className="rounded-lg bg-card p-6 shadow">
         <div className="mb-6">
           <div className="mb-2 text-sm text-muted-foreground">
             Email:{" "}

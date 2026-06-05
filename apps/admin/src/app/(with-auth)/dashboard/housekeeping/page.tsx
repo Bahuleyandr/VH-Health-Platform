@@ -37,7 +37,9 @@ export default function HousekeepingPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">🧹 Housekeeping Management</h1>
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">
+        🧹 Housekeeping Management
+      </h1>
 
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6 w-fit flex-wrap">
         {TABS.map((t) => (
@@ -46,7 +48,7 @@ export default function HousekeepingPage() {
             onClick={() => setTab(t.id)}
             className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
               tab === t.id
-                ? "bg-white text-gray-800 shadow-sm"
+                ? "bg-card text-gray-800 shadow-sm"
                 : "text-gray-600 hover:text-gray-800"
             }`}
           >

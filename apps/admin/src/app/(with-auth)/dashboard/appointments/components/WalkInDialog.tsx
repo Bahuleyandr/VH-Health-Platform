@@ -3,7 +3,10 @@
 import React, { useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { useQuery } from "@tanstack/react-query";
-import { registerWalkInAdmin, type WalkInPayload } from "@/lib/api/appointments";
+import {
+  registerWalkInAdmin,
+  type WalkInPayload,
+} from "@/lib/api/appointments";
 import { fetchAdminAPI } from "@/lib/api";
 
 interface DoctorOption {
@@ -32,7 +35,7 @@ const ER_DEPT_KEYWORDS = ["emergency", "emer", "casualty"];
 
 function matchesAny(deptName: string, keywords: string[]): boolean {
   const norm = deptName.trim().toLowerCase();
-  return keywords.some(k => norm.includes(k));
+  return keywords.some((k) => norm.includes(k));
 }
 
 // Compute age in years from a yyyy-mm-dd birthday string. Returns null if
@@ -136,7 +139,8 @@ export function WalkInDialog({
     if (!patientDob) return false;
     const dob = new Date(patientDob);
     if (Number.isNaN(dob.getTime())) return false;
-    const ageYears = (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+    const ageYears =
+      (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
     return ageYears >= 0 && ageYears < 12;
   })();
 
@@ -158,13 +162,20 @@ export function WalkInDialog({
     return parts.join("&");
   })();
   const { data: doctorsResp } = useQuery({
-    queryKey: ["doctors", { limit: 200, assignable: true, department, isPaediatric }],
+    queryKey: [
+      "doctors",
+      { limit: 200, assignable: true, department, isPaediatric },
+    ],
     queryFn: () => fetchAdminAPI<unknown>(`/doctors?${doctorQueryParams}`),
   });
   const doctorsList: DoctorOption[] = (() => {
     const raw = doctorsResp as Record<string, unknown> | unknown[] | undefined;
     if (Array.isArray(raw)) return raw as DoctorOption[];
-    if (raw && typeof raw === "object" && Array.isArray((raw as { doctors?: unknown }).doctors)) {
+    if (
+      raw &&
+      typeof raw === "object" &&
+      Array.isArray((raw as { doctors?: unknown }).doctors)
+    ) {
       return (raw as { doctors: DoctorOption[] }).doctors;
     }
     return [];
@@ -180,12 +191,17 @@ export function WalkInDialog({
     queryFn: () => fetchAdminAPI<unknown>("/departments?limit=200"),
   });
   const departmentsList: DepartmentOption[] = (() => {
-    const raw = departmentsResp as Record<string, unknown> | unknown[] | undefined;
+    const raw = departmentsResp as
+      | Record<string, unknown>
+      | unknown[]
+      | undefined;
     if (Array.isArray(raw)) return raw as DepartmentOption[];
     if (raw && typeof raw === "object") {
       const wrapper = raw as { departments?: unknown; data?: unknown };
-      if (Array.isArray(wrapper.departments)) return wrapper.departments as DepartmentOption[];
-      if (Array.isArray(wrapper.data)) return wrapper.data as DepartmentOption[];
+      if (Array.isArray(wrapper.departments))
+        return wrapper.departments as DepartmentOption[];
+      if (Array.isArray(wrapper.data))
+        return wrapper.data as DepartmentOption[];
     }
     return [];
   })();
@@ -207,8 +223,8 @@ export function WalkInDialog({
     if (!patientPhone && !(isUnidentified && showErSection)) {
       toast.error(
         showErSection
-          ? "Mobile number required, or tick \"Unidentified patient\" for an unconscious arrival"
-          : "Mobile number is required"
+          ? 'Mobile number required, or tick "Unidentified patient" for an unconscious arrival'
+          : "Mobile number is required",
       );
       return;
     }
@@ -218,7 +234,9 @@ export function WalkInDialog({
     // would accept a partial payload, but the receptionist UI is the
     // last hard stop before the chart is opened.
     if (isMinor && (!guardianName || !guardianPhone || !guardianRelationship)) {
-      toast.error("Minor patient — guardian name, phone, and relationship are required");
+      toast.error(
+        "Minor patient — guardian name, phone, and relationship are required",
+      );
       return;
     }
     if (showAncSection && !lmpDate) {
@@ -228,14 +246,19 @@ export function WalkInDialog({
     setSubmitting(true);
     try {
       const effectivePatientName =
-        patientName || (isUnidentified && showErSection ? "Unidentified Patient" : "Walk-in Patient");
+        patientName ||
+        (isUnidentified && showErSection
+          ? "Unidentified Patient"
+          : "Walk-in Patient");
       const payload: WalkInPayload = {
         patient_phone: patientPhone || undefined,
         patient_name: effectivePatientName,
         patient_birthday: patientDob || undefined,
         patient_gender: patientGender || undefined,
         patient_address: patientAddress || undefined,
-        patient_weight_kg: patientWeightKg ? Number(patientWeightKg) : undefined,
+        patient_weight_kg: patientWeightKg
+          ? Number(patientWeightKg)
+          : undefined,
         department: department || undefined,
         reason: reason || "Walk-in consultation",
         appointment_time: time || "Walk-in",
@@ -260,7 +283,8 @@ export function WalkInDialog({
         if (eddDate) payload.edd_date = eddDate;
         if (gravida) payload.gravida = parseInt(gravida, 10);
         if (parity) payload.parity = parseInt(parity, 10);
-        if (livingChildren) payload.living_children = parseInt(livingChildren, 10);
+        if (livingChildren)
+          payload.living_children = parseInt(livingChildren, 10);
         if (abortions) payload.abortions = parseInt(abortions, 10);
       }
       if (showErSection && isUnidentified) {
@@ -270,13 +294,16 @@ export function WalkInDialog({
       }
       const res = await registerWalkInAdmin(payload);
       const token = (res as Record<string, unknown>)?.data
-        ? ((res as Record<string, unknown>).data as Record<string, unknown>)?.token_number
+        ? ((res as Record<string, unknown>).data as Record<string, unknown>)
+            ?.token_number
         : (res as Record<string, unknown>)?.token_number;
       onSuccess(Number(token) || 0);
       toast.success(`Walk-in registered! Token #${token}`);
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to register walk-in");
+      toast.error(
+        e instanceof Error ? e.message : "Failed to register walk-in",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -284,7 +311,7 @@ export function WalkInDialog({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[95vh] overflow-y-auto">
+      <div className="bg-card rounded-xl shadow-xl w-full max-w-md p-6 max-h-[95vh] overflow-y-auto">
         <h3 className="text-lg font-bold mb-4">Register Walk-in Patient</h3>
         <form onSubmit={handleSubmit} className="space-y-3">
           {showErSection && (
@@ -292,7 +319,7 @@ export function WalkInDialog({
               <input
                 type="checkbox"
                 checked={isUnidentified}
-                onChange={e => setIsUnidentified(e.target.checked)}
+                onChange={(e) => setIsUnidentified(e.target.checked)}
                 className="mt-0.5"
               />
               <span className="text-sm">
@@ -306,36 +333,66 @@ export function WalkInDialog({
           )}
           <div>
             <label className="text-sm font-medium">
-              Patient Phone{isUnidentified && showErSection ? " (optional — unidentified)" : ""}
+              Patient Phone
+              {isUnidentified && showErSection
+                ? " (optional — unidentified)"
+                : ""}
             </label>
-            <input type="tel" value={patientPhone} onChange={e => setPatientPhone(e.target.value)}
+            <input
+              type="tel"
+              value={patientPhone}
+              onChange={(e) => setPatientPhone(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm mt-1"
-              placeholder={isUnidentified && showErSection ? "Leave blank if unknown" : "10-digit mobile number"}
-              disabled={isUnidentified && showErSection} />
+              placeholder={
+                isUnidentified && showErSection
+                  ? "Leave blank if unknown"
+                  : "10-digit mobile number"
+              }
+              disabled={isUnidentified && showErSection}
+            />
           </div>
           <div>
             <label className="text-sm font-medium">Patient Name</label>
-            <input type="text" value={patientName} onChange={e => setPatientName(e.target.value)}
+            <input
+              type="text"
+              value={patientName}
+              onChange={(e) => setPatientName(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm mt-1"
-              placeholder={isUnidentified && showErSection ? "Unidentified Patient" : "Full name"} />
+              placeholder={
+                isUnidentified && showErSection
+                  ? "Unidentified Patient"
+                  : "Full name"
+              }
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium">
-                DOB{showPaedsHint ? <span className="text-rose-600">*</span> : null}
+                DOB
+                {showPaedsHint ? (
+                  <span className="text-rose-600">*</span>
+                ) : null}
               </label>
-              <input type="date" value={patientDob} onChange={e => setPatientDob(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm mt-1" />
+              <input
+                type="date"
+                value={patientDob}
+                onChange={(e) => setPatientDob(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm mt-1"
+              />
               {ageYears !== null && (
                 <span className="text-xs text-gray-500 mt-1 block">
-                  Age: {ageYears}y {isMinor ? "(minor — guardian required)" : ""}
+                  Age: {ageYears}y{" "}
+                  {isMinor ? "(minor — guardian required)" : ""}
                 </span>
               )}
             </div>
             <div>
               <label className="text-sm font-medium">Gender</label>
-              <select value={patientGender} onChange={e => setPatientGender(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white">
+              <select
+                value={patientGender}
+                onChange={(e) => setPatientGender(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
+              >
                 <option value="">— Select —</option>
                 <option value="male">Male</option>
                 <option value="female">Female</option>
@@ -347,24 +404,38 @@ export function WalkInDialog({
             <div>
               <label className="text-sm font-medium">
                 Weight (kg)
-                <span className="text-xs text-gray-500 ml-1">— required for paediatric dosing</span>
+                <span className="text-xs text-gray-500 ml-1">
+                  — required for paediatric dosing
+                </span>
               </label>
-              <input type="number" step="0.01" min="0" max="999"
-                value={patientWeightKg} onChange={e => setPatientWeightKg(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="e.g. 12.5" />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="999"
+                value={patientWeightKg}
+                onChange={(e) => setPatientWeightKg(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm mt-1"
+                placeholder="e.g. 12.5"
+              />
             </div>
           )}
           <div>
             <label className="text-sm font-medium">Address (optional)</label>
-            <input type="text" value={patientAddress} onChange={e => setPatientAddress(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Street, area, city" />
+            <input
+              type="text"
+              value={patientAddress}
+              onChange={(e) => setPatientAddress(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1"
+              placeholder="Street, area, city"
+            />
           </div>
           <div>
             <label className="text-sm font-medium">Doctor (optional)</label>
             <select
               value={doctorId}
-              onChange={e => setDoctorId(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white"
+              onChange={(e) => setDoctorId(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
             >
               <option value="">— Unassigned —</option>
               {doctorsList.map((d) => {
@@ -383,8 +454,8 @@ export function WalkInDialog({
             <label className="text-sm font-medium">Department</label>
             <select
               value={department}
-              onChange={e => setDepartment(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white"
+              onChange={(e) => setDepartment(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
             >
               <option value="">— Select department —</option>
               {departmentsList.map((d, idx) => (
@@ -400,20 +471,37 @@ export function WalkInDialog({
                 Guardian (required — minor patient)
               </legend>
               <div>
-                <label className="text-xs font-medium">Guardian Name <span className="text-rose-600">*</span></label>
-                <input type="text" value={guardianName} onChange={e => setGuardianName(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm mt-1" />
+                <label className="text-xs font-medium">
+                  Guardian Name <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={guardianName}
+                  onChange={(e) => setGuardianName(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm mt-1"
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs font-medium">Phone <span className="text-rose-600">*</span></label>
-                  <input type="tel" value={guardianPhone} onChange={e => setGuardianPhone(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm mt-1" />
+                  <label className="text-xs font-medium">
+                    Phone <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={guardianPhone}
+                    onChange={(e) => setGuardianPhone(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm mt-1"
+                  />
                 </div>
                 <div>
-                  <label className="text-xs font-medium">Relationship <span className="text-rose-600">*</span></label>
-                  <select value={guardianRelationship} onChange={e => setGuardianRelationship(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white">
+                  <label className="text-xs font-medium">
+                    Relationship <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={guardianRelationship}
+                    onChange={(e) => setGuardianRelationship(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
+                  >
                     <option value="">— Select —</option>
                     <option value="mother">Mother</option>
                     <option value="father">Father</option>
@@ -427,8 +515,11 @@ export function WalkInDialog({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-medium">ID Type</label>
-                  <select value={guardianIdType} onChange={e => setGuardianIdType(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white">
+                  <select
+                    value={guardianIdType}
+                    onChange={(e) => setGuardianIdType(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm mt-1 bg-card"
+                  >
                     <option value="">— Select —</option>
                     <option value="aadhaar">Aadhaar</option>
                     <option value="pan">PAN</option>
@@ -443,20 +534,34 @@ export function WalkInDialog({
                 <div>
                   <label className="text-xs font-medium">
                     ID Reference
-                    <span className="text-gray-500 ml-1 text-[10px]">last 4 digits</span>
+                    <span className="text-gray-500 ml-1 text-[10px]">
+                      last 4 digits
+                    </span>
                   </label>
-                  <input type="text" value={guardianIdReference} onChange={e => setGuardianIdReference(e.target.value)}
-                    className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="e.g. XXXX-XXXX-4821" />
+                  <input
+                    type="text"
+                    value={guardianIdReference}
+                    onChange={(e) => setGuardianIdReference(e.target.value)}
+                    className="w-full border rounded px-3 py-2 text-sm mt-1"
+                    placeholder="e.g. XXXX-XXXX-4821"
+                  />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium">
                   Existing Guardian User ID
-                  <span className="text-gray-500 ml-1 text-[10px]">if guardian already has an account</span>
+                  <span className="text-gray-500 ml-1 text-[10px]">
+                    if guardian already has an account
+                  </span>
                 </label>
-                <input type="number" min="1" value={guardianUserId} onChange={e => setGuardianUserId(e.target.value)}
+                <input
+                  type="number"
+                  min="1"
+                  value={guardianUserId}
+                  onChange={(e) => setGuardianUserId(e.target.value)}
                   className="w-full border rounded px-3 py-2 text-sm mt-1"
-                  placeholder="links minor's profile to guardian as dependent" />
+                  placeholder="links minor's profile to guardian as dependent"
+                />
               </div>
             </fieldset>
           )}
@@ -469,56 +574,109 @@ export function WalkInDialog({
                 <label className="text-xs font-medium">
                   LMP date <span className="text-rose-600">*</span>
                   {gaWeeks !== null && (
-                    <span className="text-xs text-gray-600 ml-2">≈ {gaWeeks} weeks GA</span>
+                    <span className="text-xs text-gray-600 ml-2">
+                      ≈ {gaWeeks} weeks GA
+                    </span>
                   )}
                 </label>
-                <input type="date" value={lmpDate} onChange={e => setLmpDate(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm mt-1" />
+                <input
+                  type="date"
+                  value={lmpDate}
+                  onChange={(e) => setLmpDate(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm mt-1"
+                />
                 {eddDate && (
-                  <span className="text-xs text-gray-600 mt-1 block">EDD: {eddDate}</span>
+                  <span className="text-xs text-gray-600 mt-1 block">
+                    EDD: {eddDate}
+                  </span>
                 )}
               </div>
               <div className="grid grid-cols-4 gap-2">
                 <div>
                   <label className="text-xs font-medium">G</label>
-                  <input type="number" min="0" max="20" value={gravida} onChange={e => setGravida(e.target.value)}
-                    className="w-full border rounded px-2 py-2 text-sm mt-1" placeholder="1" />
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={gravida}
+                    onChange={(e) => setGravida(e.target.value)}
+                    className="w-full border rounded px-2 py-2 text-sm mt-1"
+                    placeholder="1"
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium">P</label>
-                  <input type="number" min="0" max="20" value={parity} onChange={e => setParity(e.target.value)}
-                    className="w-full border rounded px-2 py-2 text-sm mt-1" placeholder="0" />
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={parity}
+                    onChange={(e) => setParity(e.target.value)}
+                    className="w-full border rounded px-2 py-2 text-sm mt-1"
+                    placeholder="0"
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium">L</label>
-                  <input type="number" min="0" max="20" value={livingChildren}
-                    onChange={e => setLivingChildren(e.target.value)}
-                    className="w-full border rounded px-2 py-2 text-sm mt-1" placeholder="0" />
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={livingChildren}
+                    onChange={(e) => setLivingChildren(e.target.value)}
+                    className="w-full border rounded px-2 py-2 text-sm mt-1"
+                    placeholder="0"
+                  />
                 </div>
                 <div>
                   <label className="text-xs font-medium">A</label>
-                  <input type="number" min="0" max="20" value={abortions}
-                    onChange={e => setAbortions(e.target.value)}
-                    className="w-full border rounded px-2 py-2 text-sm mt-1" placeholder="0" />
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={abortions}
+                    onChange={(e) => setAbortions(e.target.value)}
+                    className="w-full border rounded px-2 py-2 text-sm mt-1"
+                    placeholder="0"
+                  />
                 </div>
               </div>
             </fieldset>
           )}
           <div>
-            <label className="text-sm font-medium">Appointment Time (optional)</label>
-            <input type="time" value={time} onChange={e => setTime(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1" />
+            <label className="text-sm font-medium">
+              Appointment Time (optional)
+            </label>
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1"
+            />
           </div>
           <div>
             <label className="text-sm font-medium">Reason</label>
-            <input type="text" value={reason} onChange={e => setReason(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Walk-in consultation" />
+            <input
+              type="text"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1"
+              placeholder="Walk-in consultation"
+            />
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 border rounded px-4 py-2 text-sm hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting}
-              className="flex-1 bg-teal-600 text-white rounded px-4 py-2 text-sm hover:bg-teal-700 disabled:opacity-50">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border rounded px-4 py-2 text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 bg-teal-600 text-white rounded px-4 py-2 text-sm hover:bg-teal-700 disabled:opacity-50"
+            >
               {submitting ? "Registering…" : "Register Walk-in"}
             </button>
           </div>

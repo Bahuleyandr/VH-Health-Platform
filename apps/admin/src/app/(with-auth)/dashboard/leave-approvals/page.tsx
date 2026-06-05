@@ -2,7 +2,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getLeaveApprovals, approveLeave, rejectLeave, hrApproveReplacement } from "@/lib/api/attendance";
+import {
+  getLeaveApprovals,
+  approveLeave,
+  rejectLeave,
+  hrApproveReplacement,
+} from "@/lib/api/attendance";
 
 type LeaveRequest = {
   id: number;
@@ -39,7 +44,7 @@ type ConfirmDialogProps = {
 function ConfirmDialog({ message, onConfirm, onCancel }: ConfirmDialogProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 shadow-lg max-w-sm w-full mx-4">
+      <div className="bg-card rounded-xl p-6 shadow-lg max-w-sm w-full mx-4">
         <p className="text-sm text-gray-700 mb-4">{message}</p>
         <div className="flex justify-end gap-3">
           <button
@@ -67,10 +72,10 @@ function StatusBadge({ status }: StatusBadgeProps) {
     s === "approved"
       ? "bg-green-100 text-green-700 border border-green-300"
       : s === "rejected"
-      ? "bg-red-100 text-red-700 border border-red-300"
-      : s === "pending"
-      ? "bg-yellow-100 text-yellow-700 border border-yellow-300"
-      : "bg-gray-100 text-gray-600 border border-gray-300";
+        ? "bg-red-100 text-red-700 border border-red-300"
+        : s === "pending"
+          ? "bg-yellow-100 text-yellow-700 border border-yellow-300"
+          : "bg-gray-100 text-gray-600 border border-gray-300";
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
       {status?.toUpperCase() ?? "—"}
@@ -92,7 +97,7 @@ function calcDays(start?: string, end?: string, totalDays?: number) {
   if (!start || !end) return "—";
   const diff =
     (new Date(end).getTime() - new Date(start).getTime()) /
-    (1000 * 60 * 60 * 24) +
+      (1000 * 60 * 60 * 24) +
     1;
   return Math.max(1, Math.round(diff));
 }
@@ -239,7 +244,7 @@ export default function LeaveApprovalsPage() {
             onClick={() => setActiveTab(t.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === t.key
-                ? "bg-white shadow text-primary"
+                ? "bg-card shadow text-primary"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -261,7 +266,7 @@ export default function LeaveApprovalsPage() {
           <p>No {activeTab} leave requests</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
@@ -284,10 +289,10 @@ export default function LeaveApprovalsPage() {
                   replacementStatus === "hr_approved"
                     ? `✅ ${leave.replacement_name ?? "Confirmed"}`
                     : replacementStatus === "accepted"
-                    ? `👍 ${leave.replacement_name ?? "Accepted"}`
-                    : replacementStatus === "pending"
-                    ? "⏳ Pending"
-                    : "—";
+                      ? `👍 ${leave.replacement_name ?? "Accepted"}`
+                      : replacementStatus === "pending"
+                        ? "⏳ Pending"
+                        : "—";
 
                 return (
                   <tr
@@ -308,10 +313,15 @@ export default function LeaveApprovalsPage() {
                       {(leave.leave_type ?? "—").replace(/_/g, " ")}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
-                      {formatDate(leave.start_date)} → {formatDate(leave.end_date)}
+                      {formatDate(leave.start_date)} →{" "}
+                      {formatDate(leave.end_date)}
                     </td>
                     <td className="px-4 py-3 text-center font-semibold">
-                      {calcDays(leave.start_date, leave.end_date, leave.total_days)}
+                      {calcDays(
+                        leave.start_date,
+                        leave.end_date,
+                        leave.total_days,
+                      )}
                     </td>
                     <td className="px-4 py-3 max-w-xs truncate text-muted-foreground">
                       {leave.reason ?? "—"}
@@ -322,7 +332,9 @@ export default function LeaveApprovalsPage() {
                         {replacementStatus === "accepted" &&
                           activeTab === "pending" && (
                             <button
-                              onClick={() => handleHRApproveReplacement(leave.id)}
+                              onClick={() =>
+                                handleHRApproveReplacement(leave.id)
+                              }
                               disabled={actionLoading === leave.id}
                               className="text-xs px-2 py-0.5 rounded border border-green-500 text-green-600 hover:bg-green-50 transition-colors disabled:opacity-50"
                             >

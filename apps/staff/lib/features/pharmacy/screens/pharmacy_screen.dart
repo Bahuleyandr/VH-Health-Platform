@@ -691,7 +691,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   icon: const Icon(Icons.add, color: Color(0xFFE65100)),
                   label: const Text('New'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
+                    backgroundColor: AppTheme.cardSurface,
                     foregroundColor: const Color(0xFFE65100),
                     minimumSize: const Size(0, 38),
                     padding: const EdgeInsets.symmetric(horizontal: 12),

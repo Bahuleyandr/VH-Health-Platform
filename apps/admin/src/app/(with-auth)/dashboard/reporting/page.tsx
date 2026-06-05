@@ -14,7 +14,9 @@ export default function ReportingPage() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "export" | "bulk">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "export" | "bulk">(
+    "overview",
+  );
 
   useEffect(() => {
     fetchData();
@@ -115,7 +117,7 @@ export default function ReportingPage() {
         ) : activeTab === "export" ? (
           <DataExporter />
         ) : (
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-card p-6 rounded-lg shadow">
             <h2 className="text-xl font-semibold mb-4">
               Export Medical Records
             </h2>

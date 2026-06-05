@@ -67,7 +67,10 @@ export default function DashboardsPage() {
         <p className="text-sm text-muted-foreground mt-1">
           Metabase-hosted analytics. Pick a dashboard to embed it inline.
           Snapshots and ad-hoc views live under{" "}
-          <a href="/dashboard/operations" className="text-blue-600 hover:underline">
+          <a
+            href="/dashboard/operations"
+            className="text-blue-600 hover:underline"
+          >
             /dashboard/operations
           </a>
           .
@@ -89,7 +92,7 @@ export default function DashboardsPage() {
               key={d.key}
               onClick={() => d.available && open(d)}
               disabled={!d.available}
-              className={`text-left bg-white rounded-lg border shadow-sm p-4 hover:bg-muted/30 disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`text-left bg-card rounded-lg border shadow-sm p-4 hover:bg-muted/30 disabled:opacity-50 disabled:cursor-not-allowed ${
                 openKey === d.key ? "ring-2 ring-blue-400" : ""
               }`}
             >
@@ -108,7 +111,7 @@ export default function DashboardsPage() {
       )}
 
       {openKey !== null && (
-        <div className="bg-white rounded-lg border shadow-sm">
+        <div className="bg-card rounded-lg border shadow-sm">
           <div className="p-3 border-b flex items-center justify-between">
             <h2 className="text-base font-semibold">
               {list.find((d) => d.key === openKey)?.title}

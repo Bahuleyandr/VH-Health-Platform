@@ -7,11 +7,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -71,23 +67,28 @@ export default function DischargeSummariesPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState<number | null>(null);
 
-  const { data: pending = [], error: listError, isLoading } =
-    useQuery<PendingSummary[]>({
-      queryKey: ["discharge", "pending"],
-      queryFn: async () => {
-        const r = await fetchAdminAPI<unknown>(
-          "/discharge-summaries/pending?limit=100",
-        );
-        const data = unwrap<PendingSummary[]>(r);
-        return Array.isArray(data) ? data : [];
-      },
-      refetchInterval: 60_000,
-    });
+  const {
+    data: pending = [],
+    error: listError,
+    isLoading,
+  } = useQuery<PendingSummary[]>({
+    queryKey: ["discharge", "pending"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
+        "/discharge-summaries/pending?limit=100",
+      );
+      const data = unwrap<PendingSummary[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 60_000,
+  });
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Discharge Summaries</h1>
+        <h1 className="text-3xl font-bold text-foreground">
+          Discharge Summaries
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Drafts awaiting completion + ready-for-sign-off queue. Auto-refreshes
           every 60s.
@@ -108,7 +109,7 @@ export default function DischargeSummariesPage() {
           description="No discharge summaries pending."
         />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -123,7 +124,10 @@ export default function DischargeSummariesPage() {
             </thead>
             <tbody>
               {pending.map((s) => (
-                <tr key={s.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr
+                  key={s.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-3 py-2 text-xs">
                     {s.patient_name_snapshot ?? s.patient_uid.slice(0, 8)}
                   </td>
@@ -131,7 +135,9 @@ export default function DischargeSummariesPage() {
                     {s.primary_diagnosis ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-xs">{fmtTs(s.admitted_at)}</td>
-                  <td className="px-3 py-2 text-xs">{fmtTs(s.discharged_at)}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {fmtTs(s.discharged_at)}
+                  </td>
                   <td className="px-3 py-2">
                     <span
                       className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
@@ -190,13 +196,15 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
         method: "PATCH",
         body: { body: vars.body },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });
 
   const readyMut = useMutation({
     mutationFn: async () =>
       fetchAdminAPI(`/discharge-summaries/${id}/ready`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });
 
   const signMut = useMutation({
@@ -210,7 +218,8 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
         },
       });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });
 
   const deliverMut = useMutation({
@@ -219,11 +228,15 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
         method: "POST",
         body: { delivery_method: method },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });
 
   const errMsg = (
-    editMut.error ?? readyMut.error ?? signMut.error ?? deliverMut.error
+    editMut.error ??
+    readyMut.error ??
+    signMut.error ??
+    deliverMut.error
   )?.toString();
 
   function saveSection(key: string) {
@@ -240,11 +253,12 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
     );
   }
 
-  const editable = detail.status === "draft" || detail.status === "ready_for_signoff";
+  const editable =
+    detail.status === "draft" || detail.status === "ready_for_signoff";
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-4xl mb-8">
+      <div className="bg-card rounded-lg shadow-lg w-full max-w-4xl mb-8">
         <div className="p-4 border-b flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold">
@@ -263,8 +277,9 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
             {detail.signed_by_name && (
               <p className="text-xs text-muted-foreground mt-1">
                 Signed by {detail.signed_by_name}
-                {detail.signed_by_reg ? ` (${detail.signed_by_reg})` : ""} on{" "}
-                {fmtTs(detail.signed_at)}
+                {detail.signed_by_reg
+                  ? ` (${detail.signed_by_reg})`
+                  : ""} on {fmtTs(detail.signed_at)}
               </p>
             )}
           </div>
@@ -331,7 +346,8 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
             </button>
           )}
 
-          {(detail.status === "draft" || detail.status === "ready_for_signoff") && (
+          {(detail.status === "draft" ||
+            detail.status === "ready_for_signoff") && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">

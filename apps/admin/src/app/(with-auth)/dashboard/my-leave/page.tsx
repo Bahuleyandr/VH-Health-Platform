@@ -1,8 +1,8 @@
 // src/app/(with-auth)/dashboard/my-leave/page.tsx
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState } from 'react';
-import { API_BASE_URL, API_ENDPOINTS } from '@/lib/api-config';
+import { useCallback, useEffect, useState } from "react";
+import { API_BASE_URL, API_ENDPOINTS } from "@/lib/api-config";
 
 interface LeaveRequest {
   id: number;
@@ -11,7 +11,7 @@ interface LeaveRequest {
   end_date: string;
   days: number;
   reason: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
   created_at: string;
   reviewed_by?: string;
   review_notes?: string;
@@ -26,13 +26,21 @@ interface LeaveBalance {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  PENDING: 'bg-yellow-500/20 text-yellow-400',
-  APPROVED: 'bg-green-500/20 text-green-400',
-  REJECTED: 'bg-red-500/20 text-red-400',
-  CANCELLED: 'bg-gray-500/20 text-gray-400',
+  PENDING: "bg-yellow-500/20 text-yellow-400",
+  APPROVED: "bg-green-500/20 text-green-400",
+  REJECTED: "bg-red-500/20 text-red-400",
+  CANCELLED: "bg-gray-500/20 text-gray-400",
 };
 
-const LEAVE_TYPES = ['CASUAL', 'SICK', 'EARNED', 'ANNUAL', 'MATERNITY', 'PATERNITY', 'COMPENSATORY'];
+const LEAVE_TYPES = [
+  "CASUAL",
+  "SICK",
+  "EARNED",
+  "ANNUAL",
+  "MATERNITY",
+  "PATERNITY",
+  "COMPENSATORY",
+];
 
 export default function MyLeavePage() {
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -44,31 +52,43 @@ export default function MyLeavePage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [form, setForm] = useState({
-    type: 'CASUAL',
-    start_date: '',
-    end_date: '',
-    reason: '',
+    type: "CASUAL",
+    start_date: "",
+    end_date: "",
+    reason: "",
   });
 
   // Auth is carried via the httpOnly auth_token cookie handled by /api/proxy.
-  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  const headers: HeadersInit = { "Content-Type": "application/json" };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [leaveRes, balanceRes] = await Promise.allSettled([
-        fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.leave.myLeave}`, { headers }),
-        fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.leave.balance}`, { headers }),
+        fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.leave.myLeave}`, {
+          headers,
+        }),
+        fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.leave.balance}`, {
+          headers,
+        }),
       ]);
 
-      if (leaveRes.status === 'fulfilled' && leaveRes.value.ok) {
-        const d = await leaveRes.value.json() as { data?: LeaveRequest[]; requests?: LeaveRequest[] } | LeaveRequest[];
-        const items = Array.isArray(d) ? d : ((d as { data?: LeaveRequest[] }).data ?? (d as { requests?: LeaveRequest[] }).requests ?? []);
+      if (leaveRes.status === "fulfilled" && leaveRes.value.ok) {
+        const d = (await leaveRes.value.json()) as
+          | { data?: LeaveRequest[]; requests?: LeaveRequest[] }
+          | LeaveRequest[];
+        const items = Array.isArray(d)
+          ? d
+          : ((d as { data?: LeaveRequest[] }).data ??
+            (d as { requests?: LeaveRequest[] }).requests ??
+            []);
         setRequests(items);
       }
-      if (balanceRes.status === 'fulfilled' && balanceRes.value.ok) {
-        const d = await balanceRes.value.json() as { data?: LeaveBalance } | LeaveBalance;
+      if (balanceRes.status === "fulfilled" && balanceRes.value.ok) {
+        const d = (await balanceRes.value.json()) as
+          | { data?: LeaveBalance }
+          | LeaveBalance;
         setBalance((d as { data?: LeaveBalance }).data ?? (d as LeaveBalance));
       }
     } catch (e) {
@@ -76,22 +96,28 @@ export default function MyLeavePage() {
     } finally {
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { void fetchData(); }, [fetchData]);
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   const applyLeave = async () => {
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.leave.apply}`, {
-        method: 'POST', headers,
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) throw new Error('Failed to apply for leave');
-      setSuccessMsg('Leave application submitted.');
+      const res = await fetch(
+        `${API_BASE_URL}${API_ENDPOINTS.myWork.leave.apply}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(form),
+        },
+      );
+      if (!res.ok) throw new Error("Failed to apply for leave");
+      setSuccessMsg("Leave application submitted.");
       setShowApply(false);
-      setForm({ type: 'CASUAL', start_date: '', end_date: '', reason: '' });
+      setForm({ type: "CASUAL", start_date: "", end_date: "", reason: "" });
       await fetchData();
     } catch (e) {
       setSuccessMsg(`Error: ${(e as Error).message}`);
@@ -115,7 +141,12 @@ export default function MyLeavePage() {
       {successMsg && (
         <div className="rounded bg-green-500/10 border border-green-500/30 px-4 py-2 text-sm text-green-400 flex items-center justify-between">
           {successMsg}
-          <button className="ml-4 text-xs opacity-60 hover:opacity-100" onClick={() => setSuccessMsg(null)}>✕</button>
+          <button
+            className="ml-4 text-xs opacity-60 hover:opacity-100"
+            onClick={() => setSuccessMsg(null)}
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -127,7 +158,9 @@ export default function MyLeavePage() {
             {Object.entries(balance).map(([key, val]) => (
               <div key={key} className="text-center">
                 <p className="text-2xl font-bold text-white">{val}</p>
-                <p className="text-xs text-muted-foreground capitalize">{key}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {key}
+                </p>
               </div>
             ))}
           </div>
@@ -140,22 +173,34 @@ export default function MyLeavePage() {
         {loading && <p className="text-muted-foreground text-sm">Loading…</p>}
         {error && <p className="text-red-400 text-sm">{error}</p>}
         {!loading && requests.length === 0 && (
-          <p className="text-muted-foreground text-sm">No leave requests found.</p>
+          <p className="text-muted-foreground text-sm">
+            No leave requests found.
+          </p>
         )}
         {requests.map((req) => (
-          <div key={req.id} className="rounded-lg border border-border bg-card p-4 space-y-2">
+          <div
+            key={req.id}
+            className="rounded-lg border border-border bg-card p-4 space-y-2"
+          >
             <div className="flex items-start justify-between">
               <div>
                 <p className="font-medium text-white">{req.type} Leave</p>
                 <p className="text-sm text-muted-foreground">
-                  {req.start_date} → {req.end_date} ({req.days} day{req.days !== 1 ? 's' : ''})
+                  {req.start_date} → {req.end_date} ({req.days} day
+                  {req.days !== 1 ? "s" : ""})
                 </p>
-                <p className="text-sm text-muted-foreground italic mt-1">{req.reason}</p>
+                <p className="text-sm text-muted-foreground italic mt-1">
+                  {req.reason}
+                </p>
                 {req.review_notes && (
-                  <p className="text-xs text-muted-foreground mt-1">Note: {req.review_notes}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Note: {req.review_notes}
+                  </p>
                 )}
               </div>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLE[req.status]}`}>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLE[req.status]}`}
+              >
                 {req.status}
               </span>
             </div>
@@ -171,31 +216,71 @@ export default function MyLeavePage() {
             <div className="space-y-3">
               <label className="block text-sm text-muted-foreground">
                 Leave Type
-                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-white">
-                  {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                <select
+                  value={form.type}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, type: e.target.value }))
+                  }
+                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground"
+                >
+                  {LEAVE_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="block text-sm text-muted-foreground">
                 Start Date
-                <input type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
-                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-white" />
+                <input
+                  type="date"
+                  value={form.start_date}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, start_date: e.target.value }))
+                  }
+                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground"
+                />
               </label>
               <label className="block text-sm text-muted-foreground">
                 End Date
-                <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
-                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-white" />
+                <input
+                  type="date"
+                  value={form.end_date}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, end_date: e.target.value }))
+                  }
+                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground"
+                />
               </label>
               <label className="block text-sm text-muted-foreground">
                 Reason
-                <textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} rows={3}
-                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-white" />
+                <textarea
+                  value={form.reason}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, reason: e.target.value }))
+                  }
+                  rows={3}
+                  className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm text-foreground"
+                />
               </label>
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowApply(false)} className="rounded bg-muted px-4 py-2 text-sm text-muted-foreground hover:text-white">Cancel</button>
-              <button onClick={() => void applyLeave()} disabled={submitting || !form.start_date || !form.end_date || !form.reason}
-                className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50">
+              <button
+                onClick={() => setShowApply(false)}
+                className="rounded bg-muted px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void applyLeave()}
+                disabled={
+                  submitting ||
+                  !form.start_date ||
+                  !form.end_date ||
+                  !form.reason
+                }
+                className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+              >
                 Submit
               </button>
             </div>

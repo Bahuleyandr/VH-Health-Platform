@@ -5,7 +5,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
-import { fmtDate, fmtINR, STATUS_COLOURS, type InsurancePolicy, type Preauth } from "./types";
+import {
+  fmtDate,
+  fmtINR,
+  STATUS_COLOURS,
+  type InsurancePolicy,
+  type Preauth,
+} from "./types";
 
 interface AdmissionRow {
   id: number;
@@ -118,7 +124,8 @@ function unwrap<T>(r: unknown): T {
 
 function unwrapAdmission(r: unknown): AdmissionDetail {
   const data = unwrap<{ admission?: AdmissionDetail } | AdmissionDetail>(r);
-  return ((data as { admission?: AdmissionDetail }).admission ?? data) as AdmissionDetail;
+  return ((data as { admission?: AdmissionDetail }).admission ??
+    data) as AdmissionDetail;
 }
 
 function asNumber(value: string): number | undefined {
@@ -144,14 +151,19 @@ function isoDate(s: string | null | undefined): string | undefined {
 }
 
 function admissionTitle(admission: AdmissionRow): string {
-  const patient = admission.patient_name || admission.patient_uid?.slice(0, 8) || "Unknown patient";
+  const patient =
+    admission.patient_name ||
+    admission.patient_uid?.slice(0, 8) ||
+    "Unknown patient";
   return `#${admission.id} ${patient}`;
 }
 
 export function AdmissionIntakeTab() {
   const qc = useQueryClient();
   const [admissionIdInput, setAdmissionIdInput] = useState("");
-  const [selectedAdmissionId, setSelectedAdmissionId] = useState<number | null>(null);
+  const [selectedAdmissionId, setSelectedAdmissionId] = useState<number | null>(
+    null,
+  );
   const [form, setForm] = useState<IntakeForm>(EMPTY_FORM);
   const [estimate, setEstimate] = useState<PackageEstimate | null>(null);
   const [result, setResult] = useState<IntakeResult | null>(null);
@@ -168,15 +180,25 @@ export function AdmissionIntakeTab() {
   const packagesQuery = useQuery<InsurancePackage[]>({
     queryKey: ["insurance", "packages", "active"],
     queryFn: async () => {
-      const r = await fetchAdminAPI<unknown>("/insurance/packages?status=active");
+      const r = await fetchAdminAPI<unknown>(
+        "/insurance/packages?status=active",
+      );
       const rows = unwrap<InsurancePackage[]>(r);
       return Array.isArray(rows) ? rows : [];
     },
   });
 
   const admissionQuery = useQuery<AdmissionDetail>({
-    queryKey: ["insurance", "admission-intake", "admission", selectedAdmissionId],
-    queryFn: async () => unwrapAdmission(await fetchAdminAPI<unknown>(`/emr/admission/${selectedAdmissionId}`)),
+    queryKey: [
+      "insurance",
+      "admission-intake",
+      "admission",
+      selectedAdmissionId,
+    ],
+    queryFn: async () =>
+      unwrapAdmission(
+        await fetchAdminAPI<unknown>(`/emr/admission/${selectedAdmissionId}`),
+      ),
     enabled: selectedAdmissionId != null,
   });
 
@@ -191,20 +213,27 @@ export function AdmissionIntakeTab() {
     if (!admission) return;
     setForm((prev) => ({
       ...prev,
-      primary_diagnosis: prev.primary_diagnosis || admission.admitting_diagnosis || admission.chief_complaint || "",
-      expected_los_days: prev.expected_los_days || String(admission.expected_los_days ?? ""),
+      primary_diagnosis:
+        prev.primary_diagnosis ||
+        admission.admitting_diagnosis ||
+        admission.chief_complaint ||
+        "",
+      expected_los_days:
+        prev.expected_los_days || String(admission.expected_los_days ?? ""),
       room_category: prev.room_category || admission.room_category || "",
     }));
   }, [admission]);
 
   const estimateMut = useMutation({
     mutationFn: async () => {
-      if (!form.package_id) throw new Error("Choose a package before estimating");
+      if (!form.package_id)
+        throw new Error("Choose a package before estimating");
       const r = await fetchAdminAPI<unknown>("/insurance/packages/estimate", {
         method: "POST",
         body: {
           package_id: Number(form.package_id),
-          room_category: form.room_category || admission?.room_category || undefined,
+          room_category:
+            form.room_category || admission?.room_category || undefined,
           los_days: asNumber(form.expected_los_days),
         },
       });
@@ -215,7 +244,8 @@ export function AdmissionIntakeTab() {
       setForm((prev) => ({
         ...prev,
         expected_cost: toINRFromMinor(nextEstimate.estimated_total_minor),
-        proposed_procedure: prev.proposed_procedure || nextEstimate.package.display_name,
+        proposed_procedure:
+          prev.proposed_procedure || nextEstimate.package.display_name,
       }));
     },
   });
@@ -223,30 +253,37 @@ export function AdmissionIntakeTab() {
   const intakeMut = useMutation({
     mutationFn: async (): Promise<IntakeResult> => {
       if (!admission) throw new Error("Load an admission first");
-      if (!admission.patient_uid) throw new Error("Admission is missing patient_uid");
-      if (!form.policy_number.trim()) throw new Error("Policy number is required");
-      if (!form.primary_diagnosis.trim()) throw new Error("Primary diagnosis is required");
+      if (!admission.patient_uid)
+        throw new Error("Admission is missing patient_uid");
+      if (!form.policy_number.trim())
+        throw new Error("Policy number is required");
+      if (!form.primary_diagnosis.trim())
+        throw new Error("Primary diagnosis is required");
       const expectedCost = asNumber(form.expected_cost);
-      if (!expectedCost || expectedCost <= 0) throw new Error("Expected cost must be > 0");
+      if (!expectedCost || expectedCost <= 0)
+        throw new Error("Expected cost must be > 0");
 
-      const policy = await fetchAdminAPI<InsurancePolicy>("/insurance/policies", {
-        method: "POST",
-        body: {
-          patient_uid: admission.patient_uid,
-          insurer_name: form.insurer_name.trim() || undefined,
-          tpa_name: form.tpa_name.trim() || undefined,
-          policy_number: form.policy_number.trim(),
-          member_id: form.member_id.trim() || undefined,
-          policyholder_name: form.policyholder_name.trim() || undefined,
-          relation_to_patient: form.relation_to_patient.trim() || undefined,
-          policy_type: form.policy_type.trim() || undefined,
-          corporate_employer: form.corporate_employer.trim() || undefined,
-          sum_insured: asNumber(form.sum_insured),
-          valid_from: form.valid_from || undefined,
-          valid_to: form.valid_to || undefined,
-          notes: form.notes.trim() || undefined,
+      const policy = await fetchAdminAPI<InsurancePolicy>(
+        "/insurance/policies",
+        {
+          method: "POST",
+          body: {
+            patient_uid: admission.patient_uid,
+            insurer_name: form.insurer_name.trim() || undefined,
+            tpa_name: form.tpa_name.trim() || undefined,
+            policy_number: form.policy_number.trim(),
+            member_id: form.member_id.trim() || undefined,
+            policyholder_name: form.policyholder_name.trim() || undefined,
+            relation_to_patient: form.relation_to_patient.trim() || undefined,
+            policy_type: form.policy_type.trim() || undefined,
+            corporate_employer: form.corporate_employer.trim() || undefined,
+            sum_insured: asNumber(form.sum_insured),
+            valid_from: form.valid_from || undefined,
+            valid_to: form.valid_to || undefined,
+            notes: form.notes.trim() || undefined,
+          },
         },
-      });
+      );
 
       const preauth = await fetchAdminAPI<Preauth>("/insurance/preauth", {
         method: "POST",
@@ -266,7 +303,8 @@ export function AdmissionIntakeTab() {
                 package_id: estimate.package.id,
                 package_code: estimate.package.package_code,
                 estimated_total_minor: estimate.estimated_total_minor,
-                estimated_total_is_lower_bound: estimate.estimated_total_is_lower_bound,
+                estimated_total_is_lower_bound:
+                  estimate.estimated_total_is_lower_bound,
                 review_required: estimate.review_required,
                 review_flags: estimate.review_flags,
                 line_items: estimate.line_items,
@@ -281,10 +319,13 @@ export function AdmissionIntakeTab() {
       });
 
       const finalPreauth = form.submitNow
-        ? await fetchAdminAPI<Preauth>(`/insurance/preauth/${preauth.id}/submit`, {
-            method: "POST",
-            body: { submission_channel: "portal" },
-          })
+        ? await fetchAdminAPI<Preauth>(
+            `/insurance/preauth/${preauth.id}/submit`,
+            {
+              method: "POST",
+              body: { submission_channel: "portal" },
+            },
+          )
         : preauth;
 
       return { policy, preauth: finalPreauth, submitted: form.submitNow };
@@ -303,11 +344,16 @@ export function AdmissionIntakeTab() {
     estimateMut.error ??
     intakeMut.error;
   const errorMessage = error instanceof Error ? error.message : null;
-  const busy = admissionQuery.isFetching || estimateMut.isPending || intakeMut.isPending;
+  const busy =
+    admissionQuery.isFetching || estimateMut.isPending || intakeMut.isPending;
 
   function update<K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
-    if (key === "package_id" || key === "room_category" || key === "expected_los_days") {
+    if (
+      key === "package_id" ||
+      key === "room_category" ||
+      key === "expected_los_days"
+    ) {
       setEstimate(null);
     }
   }
@@ -330,7 +376,10 @@ export function AdmissionIntakeTab() {
         className="flex flex-wrap items-end gap-3"
       >
         <div className="min-w-[220px] flex-1">
-          <label htmlFor="insurance-admission-id" className="mb-1 block text-xs text-muted-foreground">
+          <label
+            htmlFor="insurance-admission-id"
+            className="mb-1 block text-xs text-muted-foreground"
+          >
             Admission ID
           </label>
           <input
@@ -358,7 +407,7 @@ export function AdmissionIntakeTab() {
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(280px,380px)_1fr]">
-        <section className="rounded-lg border bg-white shadow-sm">
+        <section className="rounded-lg border bg-card shadow-sm">
           <div className="border-b px-4 py-3">
             <h2 className="text-base font-semibold">Active admissions</h2>
           </div>
@@ -369,11 +418,14 @@ export function AdmissionIntakeTab() {
               </div>
             ) : (admissionsQuery.data ?? []).length === 0 ? (
               <div className="p-4">
-                <EmptyState title="No active admissions" description="Load by admission ID." />
+                <EmptyState
+                  title="No active admissions"
+                  description="Load by admission ID."
+                />
               </div>
             ) : (
               <table className="min-w-full text-sm">
-                <thead className="sticky top-0 border-b bg-white text-left text-xs text-muted-foreground">
+                <thead className="sticky top-0 border-b bg-card text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2">Admission</th>
                     <th className="px-3 py-2">Bed</th>
@@ -382,16 +434,23 @@ export function AdmissionIntakeTab() {
                 </thead>
                 <tbody>
                   {(admissionsQuery.data ?? []).map((row) => (
-                    <tr key={row.id} className="border-b last:border-0 hover:bg-muted/40">
+                    <tr
+                      key={row.id}
+                      className="border-b last:border-0 hover:bg-muted/40"
+                    >
                       <td className="px-3 py-2">
                         <div className="font-medium">{admissionTitle(row)}</div>
                         <div className="text-xs text-muted-foreground">
-                          {row.admitting_diagnosis || row.chief_complaint || "No diagnosis"}
+                          {row.admitting_diagnosis ||
+                            row.chief_complaint ||
+                            "No diagnosis"}
                         </div>
                       </td>
                       <td className="px-3 py-2 text-xs">
                         <div>{row.ward ?? row.department ?? "—"}</div>
-                        <div className="text-muted-foreground">{row.bed_number ?? "No bed"}</div>
+                        <div className="text-muted-foreground">
+                          {row.bed_number ?? "No bed"}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button
@@ -410,13 +469,16 @@ export function AdmissionIntakeTab() {
           </div>
         </section>
 
-        <section className="rounded-lg border bg-white shadow-sm">
+        <section className="rounded-lg border bg-card shadow-sm">
           <div className="border-b px-4 py-3">
             <h2 className="text-base font-semibold">Admission TPA intake</h2>
           </div>
           {!admission ? (
             <div className="p-6">
-              <EmptyState title="Choose an admission" description="Select an active admission or load one by ID." />
+              <EmptyState
+                title="Choose an admission"
+                description="Select an active admission or load one by ID."
+              />
             </div>
           ) : (
             <div className="space-y-5 p-4">
@@ -427,11 +489,21 @@ export function AdmissionIntakeTab() {
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Patient</div>
-                  <div>{admission.patient_name ?? admission.patient_uid?.slice(0, 8) ?? "—"}</div>
+                  <div>
+                    {admission.patient_name ??
+                      admission.patient_uid?.slice(0, 8) ??
+                      "—"}
+                  </div>
                 </div>
                 <div>
-                  <div className="text-xs text-muted-foreground">Ward / bed</div>
-                  <div>{[admission.ward, admission.bed_number].filter(Boolean).join(" / ") || "—"}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Ward / bed
+                  </div>
+                  <div>
+                    {[admission.ward, admission.bed_number]
+                      .filter(Boolean)
+                      .join(" / ") || "—"}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Admitted</div>
@@ -440,24 +512,78 @@ export function AdmissionIntakeTab() {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Insurer" value={form.insurer_name} onChange={(v) => update("insurer_name", v)} placeholder="Star Health" />
-                <Field label="TPA" value={form.tpa_name} onChange={(v) => update("tpa_name", v)} placeholder="Medi Assist" />
-                <Field label="Policy number" value={form.policy_number} onChange={(v) => update("policy_number", v)} required />
-                <Field label="Member ID" value={form.member_id} onChange={(v) => update("member_id", v)} />
-                <Field label="Policyholder" value={form.policyholder_name} onChange={(v) => update("policyholder_name", v)} placeholder={admission.patient_name ?? ""} />
-                <Field label="Relation" value={form.relation_to_patient} onChange={(v) => update("relation_to_patient", v)} />
-                <Field label="Policy type" value={form.policy_type} onChange={(v) => update("policy_type", v)} />
-                <Field label="Corporate employer" value={form.corporate_employer} onChange={(v) => update("corporate_employer", v)} />
-                <Field label="Sum insured" value={form.sum_insured} onChange={(v) => update("sum_insured", v)} inputMode="decimal" />
+                <Field
+                  label="Insurer"
+                  value={form.insurer_name}
+                  onChange={(v) => update("insurer_name", v)}
+                  placeholder="Star Health"
+                />
+                <Field
+                  label="TPA"
+                  value={form.tpa_name}
+                  onChange={(v) => update("tpa_name", v)}
+                  placeholder="Medi Assist"
+                />
+                <Field
+                  label="Policy number"
+                  value={form.policy_number}
+                  onChange={(v) => update("policy_number", v)}
+                  required
+                />
+                <Field
+                  label="Member ID"
+                  value={form.member_id}
+                  onChange={(v) => update("member_id", v)}
+                />
+                <Field
+                  label="Policyholder"
+                  value={form.policyholder_name}
+                  onChange={(v) => update("policyholder_name", v)}
+                  placeholder={admission.patient_name ?? ""}
+                />
+                <Field
+                  label="Relation"
+                  value={form.relation_to_patient}
+                  onChange={(v) => update("relation_to_patient", v)}
+                />
+                <Field
+                  label="Policy type"
+                  value={form.policy_type}
+                  onChange={(v) => update("policy_type", v)}
+                />
+                <Field
+                  label="Corporate employer"
+                  value={form.corporate_employer}
+                  onChange={(v) => update("corporate_employer", v)}
+                />
+                <Field
+                  label="Sum insured"
+                  value={form.sum_insured}
+                  onChange={(v) => update("sum_insured", v)}
+                  inputMode="decimal"
+                />
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Valid from" type="date" value={form.valid_from} onChange={(v) => update("valid_from", v)} />
-                  <Field label="Valid to" type="date" value={form.valid_to} onChange={(v) => update("valid_to", v)} />
+                  <Field
+                    label="Valid from"
+                    type="date"
+                    value={form.valid_from}
+                    onChange={(v) => update("valid_from", v)}
+                  />
+                  <Field
+                    label="Valid to"
+                    type="date"
+                    value={form.valid_to}
+                    onChange={(v) => update("valid_to", v)}
+                  />
                 </div>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
                 <div>
-                  <label htmlFor="insurance-package" className="mb-1 block text-xs text-muted-foreground">
+                  <label
+                    htmlFor="insurance-package"
+                    className="mb-1 block text-xs text-muted-foreground"
+                  >
                     Package
                   </label>
                   <select
@@ -474,10 +600,26 @@ export function AdmissionIntakeTab() {
                     ))}
                   </select>
                 </div>
-                <Field label="Room category" value={form.room_category} onChange={(v) => update("room_category", v)} placeholder="general / private" />
-                <Field label="LOS days" value={form.expected_los_days} onChange={(v) => update("expected_los_days", v)} inputMode="numeric" />
+                <Field
+                  label="Room category"
+                  value={form.room_category}
+                  onChange={(v) => update("room_category", v)}
+                  placeholder="general / private"
+                />
+                <Field
+                  label="LOS days"
+                  value={form.expected_los_days}
+                  onChange={(v) => update("expected_los_days", v)}
+                  inputMode="numeric"
+                />
                 <div className="md:col-span-2">
-                  <Field label="Expected cost" value={form.expected_cost} onChange={(v) => update("expected_cost", v)} inputMode="decimal" required />
+                  <Field
+                    label="Expected cost"
+                    value={form.expected_cost}
+                    onChange={(v) => update("expected_cost", v)}
+                    inputMode="decimal"
+                    required
+                  />
                 </div>
                 <div className="flex items-end">
                   <button
@@ -495,8 +637,11 @@ export function AdmissionIntakeTab() {
                 <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-sm">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium">
-                      {estimate.package.package_code} estimate: {fmtMinorINR(estimate.estimated_total_minor)}
-                      {estimate.estimated_total_is_lower_bound ? " lower bound" : ""}
+                      {estimate.package.package_code} estimate:{" "}
+                      {fmtMinorINR(estimate.estimated_total_minor)}
+                      {estimate.estimated_total_is_lower_bound
+                        ? " lower bound"
+                        : ""}
                     </div>
                     {estimate.review_required && (
                       <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
@@ -506,10 +651,15 @@ export function AdmissionIntakeTab() {
                   </div>
                   <ul className="space-y-1">
                     {estimate.line_items.map((line) => (
-                      <li key={`${line.kind}-${line.label}`} className="flex justify-between gap-3">
+                      <li
+                        key={`${line.kind}-${line.label}`}
+                        className="flex justify-between gap-3"
+                      >
                         <span>{line.label}</span>
                         <span className="font-mono">
-                          {line.amount_minor == null ? "review" : fmtMinorINR(line.amount_minor)}
+                          {line.amount_minor == null
+                            ? "review"
+                            : fmtMinorINR(line.amount_minor)}
                         </span>
                       </li>
                     ))}
@@ -519,21 +669,38 @@ export function AdmissionIntakeTab() {
 
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
-                  <label htmlFor="insurance-request-type" className="mb-1 block text-xs text-muted-foreground">
+                  <label
+                    htmlFor="insurance-request-type"
+                    className="mb-1 block text-xs text-muted-foreground"
+                  >
                     Request type
                   </label>
                   <select
                     id="insurance-request-type"
                     value={form.request_type}
-                    onChange={(e) => update("request_type", e.target.value as IntakeForm["request_type"])}
+                    onChange={(e) =>
+                      update(
+                        "request_type",
+                        e.target.value as IntakeForm["request_type"],
+                      )
+                    }
                     className="w-full rounded-lg border border-border px-3 py-2 text-sm"
                   >
                     <option value="planned">Planned</option>
                     <option value="emergency">Emergency</option>
                   </select>
                 </div>
-                <Field label="Primary diagnosis" value={form.primary_diagnosis} onChange={(v) => update("primary_diagnosis", v)} required />
-                <Field label="Proposed procedure" value={form.proposed_procedure} onChange={(v) => update("proposed_procedure", v)} />
+                <Field
+                  label="Primary diagnosis"
+                  value={form.primary_diagnosis}
+                  onChange={(v) => update("primary_diagnosis", v)}
+                  required
+                />
+                <Field
+                  label="Proposed procedure"
+                  value={form.proposed_procedure}
+                  onChange={(v) => update("proposed_procedure", v)}
+                />
                 <label className="flex items-end gap-2 rounded-lg border px-3 py-2 text-sm">
                   <input
                     type="checkbox"
@@ -541,10 +708,14 @@ export function AdmissionIntakeTab() {
                     onChange={(e) => update("submitNow", e.target.checked)}
                     className="mb-1"
                   />
-                  Submit to TPA with admission note, advice letter, and record bundle
+                  Submit to TPA with admission note, advice letter, and record
+                  bundle
                 </label>
                 <div className="md:col-span-2">
-                  <label htmlFor="insurance-notes" className="mb-1 block text-xs text-muted-foreground">
+                  <label
+                    htmlFor="insurance-notes"
+                    className="mb-1 block text-xs text-muted-foreground"
+                  >
                     Notes
                   </label>
                   <textarea
@@ -564,7 +735,9 @@ export function AdmissionIntakeTab() {
                   onClick={() => intakeMut.mutate()}
                   className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
                 >
-                  {form.submitNow ? "Create and submit pre-auth" : "Create draft pre-auth"}
+                  {form.submitNow
+                    ? "Create and submit pre-auth"
+                    : "Create draft pre-auth"}
                 </button>
                 <button
                   type="button"
@@ -582,11 +755,14 @@ export function AdmissionIntakeTab() {
               {result && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
                   <div className="font-medium">
-                    {result.submitted ? "Submitted" : "Draft created"}: {result.preauth.preauth_number}
+                    {result.submitted ? "Submitted" : "Draft created"}:{" "}
+                    {result.preauth.preauth_number}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-3 text-xs">
                     <span>Policy {result.policy.policy_number}</span>
-                    <span className={`rounded px-2 py-0.5 ${STATUS_COLOURS[result.preauth.status] ?? "bg-slate-100"}`}>
+                    <span
+                      className={`rounded px-2 py-0.5 ${STATUS_COLOURS[result.preauth.status] ?? "bg-slate-100"}`}
+                    >
                       {result.preauth.status}
                     </span>
                     <span>{fmtINR(result.preauth.expected_cost)}</span>

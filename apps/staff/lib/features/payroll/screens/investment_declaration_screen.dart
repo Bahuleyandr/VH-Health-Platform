@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -231,7 +232,7 @@ class _InvestmentDeclarationScreenState
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardSurface,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -339,12 +340,26 @@ class _InvestmentDeclarationScreenState
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: _selectedFY,
-                dropdownColor: Colors.white,
-                style: const TextStyle(
-                  color: Colors.white,
+                dropdownColor: AppTheme.cardSurface,
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
                   fontWeight: FontWeight.w500,
                 ),
                 iconEnabledColor: Colors.white,
+                selectedItemBuilder: (context) => _fyOptions
+                    .map(
+                      (fy) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'FY $fy',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
                 items: _fyOptions
                     .map(
                       (fy) =>

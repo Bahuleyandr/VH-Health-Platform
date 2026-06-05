@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/device_integrity_service.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -71,7 +72,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppTheme.backgroundGrey,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

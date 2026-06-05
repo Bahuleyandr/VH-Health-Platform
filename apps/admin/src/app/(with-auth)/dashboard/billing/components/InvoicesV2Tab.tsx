@@ -4,11 +4,7 @@
 // surface (line-item invoices with GST split, payments, advances, refunds).
 
 import { useState } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -85,7 +81,11 @@ export function InvoicesV2Tab() {
     items: [{ ...EMPTY_ITEM }],
   });
 
-  const { data: rows = [], error, isLoading } = useQuery<InvoiceV2[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<InvoiceV2[]>({
     queryKey: ["billing", "invoices", "v2", { statusFilter }],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "100" });
@@ -161,26 +161,29 @@ export function InvoicesV2Tab() {
     setCreateForm({ ...createForm, items: next });
   }
 
-  const errMsg = (error ?? createMut.error)
-    ? (error ?? createMut.error)!.toString()
-    : null;
+  const errMsg =
+    (error ?? createMut.error) ? (error ?? createMut.error)!.toString() : null;
 
   return (
     <div className="space-y-4">
       <div className="flex items-end gap-3 flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Status
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="border border-border rounded-lg px-3 py-2 text-sm"
           >
             <option value="">All</option>
-            {["DRAFT", "ISSUED", "PARTIAL", "PAID", "VOID", "REFUNDED"].map((s) => (
-              <option key={s} value={s}>
-                {s.toLowerCase()}
-              </option>
-            ))}
+            {["DRAFT", "ISSUED", "PARTIAL", "PAID", "VOID", "REFUNDED"].map(
+              (s) => (
+                <option key={s} value={s}>
+                  {s.toLowerCase()}
+                </option>
+              ),
+            )}
           </select>
         </div>
         <button
@@ -191,7 +194,9 @@ export function InvoicesV2Tab() {
         </button>
         <div className="flex-1" />
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["billing", "invoices", "v2"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["billing", "invoices", "v2"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -207,9 +212,12 @@ export function InvoicesV2Tab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No invoices" description="Try clearing the filter or create a new invoice." />
+        <EmptyState
+          title="No invoices"
+          description="Try clearing the filter or create a new invoice."
+        />
       ) : (
-        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+        <div className="bg-card rounded-lg border shadow-sm overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-xs text-muted-foreground border-b">
               <tr className="text-left">
@@ -225,7 +233,10 @@ export function InvoicesV2Tab() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr
+                  key={r.id}
+                  className="border-b last:border-0 hover:bg-muted/40"
+                >
                   <td className="px-3 py-2 font-mono text-xs">
                     {r.invoice_number ?? `#${r.id}`}
                   </td>
@@ -239,10 +250,14 @@ export function InvoicesV2Tab() {
                   <td className="px-3 py-2 font-mono font-semibold">
                     {fmtINR(r.total_amount)}
                   </td>
-                  <td className="px-3 py-2 font-mono">{fmtINR(r.amount_paid)}</td>
+                  <td className="px-3 py-2 font-mono">
+                    {fmtINR(r.amount_paid)}
+                  </td>
                   <td className="px-3 py-2 font-mono">
                     {Number(r.amount_due) > 0 ? (
-                      <span className="text-rose-700">{fmtINR(r.amount_due)}</span>
+                      <span className="text-rose-700">
+                        {fmtINR(r.amount_due)}
+                      </span>
                     ) : (
                       "—"
                     )}
@@ -265,7 +280,7 @@ export function InvoicesV2Tab() {
 
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl">
+          <div className="bg-card rounded-lg shadow-lg w-full max-w-3xl">
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">New invoice</h2>
               <button
@@ -284,7 +299,10 @@ export function InvoicesV2Tab() {
                   <input
                     value={createForm.patient_uid}
                     onChange={(e) =>
-                      setCreateForm({ ...createForm, patient_uid: e.target.value })
+                      setCreateForm({
+                        ...createForm,
+                        patient_uid: e.target.value,
+                      })
                     }
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono"
                   />
@@ -296,7 +314,10 @@ export function InvoicesV2Tab() {
                   <select
                     value={createForm.invoice_type}
                     onChange={(e) =>
-                      setCreateForm({ ...createForm, invoice_type: e.target.value })
+                      setCreateForm({
+                        ...createForm,
+                        invoice_type: e.target.value,
+                      })
                     }
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm"
                   >
@@ -314,7 +335,10 @@ export function InvoicesV2Tab() {
                   <input
                     value={createForm.patient_state}
                     onChange={(e) =>
-                      setCreateForm({ ...createForm, patient_state: e.target.value })
+                      setCreateForm({
+                        ...createForm,
+                        patient_state: e.target.value,
+                      })
                     }
                     placeholder="Karnataka"
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm"
@@ -327,7 +351,10 @@ export function InvoicesV2Tab() {
                   <input
                     value={createForm.hospital_state}
                     onChange={(e) =>
-                      setCreateForm({ ...createForm, hospital_state: e.target.value })
+                      setCreateForm({
+                        ...createForm,
+                        hospital_state: e.target.value,
+                      })
                     }
                     placeholder="Karnataka"
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm"
@@ -353,31 +380,41 @@ export function InvoicesV2Tab() {
                     >
                       <input
                         value={item.service_code}
-                        onChange={(e) => updateItem(idx, "service_code", e.target.value)}
+                        onChange={(e) =>
+                          updateItem(idx, "service_code", e.target.value)
+                        }
                         placeholder="Code"
                         className="col-span-2 border rounded px-2 py-1 text-xs font-mono"
                       />
                       <input
                         value={item.description}
-                        onChange={(e) => updateItem(idx, "description", e.target.value)}
+                        onChange={(e) =>
+                          updateItem(idx, "description", e.target.value)
+                        }
                         placeholder="Description"
                         className="col-span-4 border rounded px-2 py-1 text-xs"
                       />
                       <input
                         value={item.quantity}
-                        onChange={(e) => updateItem(idx, "quantity", e.target.value)}
+                        onChange={(e) =>
+                          updateItem(idx, "quantity", e.target.value)
+                        }
                         placeholder="Qty"
                         className="col-span-1 border rounded px-2 py-1 text-xs font-mono text-right"
                       />
                       <input
                         value={item.unit_price}
-                        onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
+                        onChange={(e) =>
+                          updateItem(idx, "unit_price", e.target.value)
+                        }
                         placeholder="Unit ₹"
                         className="col-span-2 border rounded px-2 py-1 text-xs font-mono text-right"
                       />
                       <input
                         value={item.gst_rate}
-                        onChange={(e) => updateItem(idx, "gst_rate", e.target.value)}
+                        onChange={(e) =>
+                          updateItem(idx, "gst_rate", e.target.value)
+                        }
                         placeholder="GST %"
                         className="col-span-2 border rounded px-2 py-1 text-xs font-mono text-right"
                       />

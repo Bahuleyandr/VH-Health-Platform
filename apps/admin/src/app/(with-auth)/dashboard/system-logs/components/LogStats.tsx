@@ -2,7 +2,17 @@
 "use client";
 
 import { AuditLog, SystemLog } from "@/lib/types";
-import { ClipboardList, Clock, Users, TrendingUp, AlertCircle, AlertTriangle, Info, Code2, FileText } from "lucide-react";
+import {
+  ClipboardList,
+  Clock,
+  Users,
+  TrendingUp,
+  AlertCircle,
+  AlertTriangle,
+  Info,
+  Code2,
+  FileText,
+} from "lucide-react";
 
 interface LogStatsProps {
   logs: AuditLog[] | SystemLog[];
@@ -34,10 +44,12 @@ export function LogStats({ logs, type }: LogStatsProps) {
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-border">
+        <div className="bg-card p-4 rounded-lg shadow-sm border border-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Total Actions</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                Total Actions
+              </p>
               <p className="text-2xl font-bold text-foreground mt-1">
                 {auditLogs.length}
               </p>
@@ -125,7 +137,9 @@ export function LogStats({ logs, type }: LogStatsProps) {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-destructive">Errors</p>
-            <p className="text-2xl font-bold text-destructive mt-1">{errorCount}</p>
+            <p className="text-2xl font-bold text-destructive mt-1">
+              {errorCount}
+            </p>
             {recentErrors > 0 && (
               <p className="text-xs text-destructive mt-1">
                 {recentErrors} in last hour
@@ -142,9 +156,7 @@ export function LogStats({ logs, type }: LogStatsProps) {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-warning">Warnings</p>
-            <p className="text-2xl font-bold text-warning mt-1">
-              {warnCount}
-            </p>
+            <p className="text-2xl font-bold text-warning mt-1">{warnCount}</p>
           </div>
           <div className="text-yellow-400">
             <AlertTriangle className="w-8 h-8" />
@@ -178,10 +190,12 @@ export function LogStats({ logs, type }: LogStatsProps) {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-border">
+      <div className="bg-card p-4 rounded-lg shadow-sm border border-border">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Total Logs</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              Total Logs
+            </p>
             <p className="text-2xl font-bold text-foreground mt-1">
               {systemLogs.length}
             </p>

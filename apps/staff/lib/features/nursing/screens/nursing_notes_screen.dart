@@ -67,7 +67,7 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
               accent: const Color(0xFF00695C),
             ),
           Container(
-            color: Colors.white,
+            color: AppTheme.cardSurface,
             child: TabBar(
               controller: _tabController,
               labelColor: const Color(0xFF00695C),

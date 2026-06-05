@@ -48,11 +48,13 @@ export function ReportsOverview() {
       const days = Math.max(
         1,
         Math.round(
-          (new Date(dateRange.to).getTime() - new Date(dateRange.from).getTime()) /
+          (new Date(dateRange.to).getTime() -
+            new Date(dateRange.from).getTime()) /
             (24 * 60 * 60 * 1000),
         ),
       );
-      const timeframe = days <= 7 ? "7d" : days <= 30 ? "30d" : days <= 90 ? "90d" : "1y";
+      const timeframe =
+        days <= 7 ? "7d" : days <= 30 ? "30d" : days <= 90 ? "90d" : "1y";
 
       const data = await fetchAdminAPI<AnalyticsDashboardResponse>(
         `/admin/analytics/dashboard?timeframe=${timeframe}`,
@@ -60,7 +62,9 @@ export function ReportsOverview() {
       );
 
       setStats({
-        totalAppointments: Number(data.appointmentAnalytics?.total_appointments ?? 0),
+        totalAppointments: Number(
+          data.appointmentAnalytics?.total_appointments ?? 0,
+        ),
         totalRevenue: Number(data.pharmacyAnalytics?.total_revenue ?? 0),
         totalPatients: Number(data.appointmentAnalytics?.unique_patients ?? 0),
         averageRating: Number(data.feedbackAnalytics?.average_rating ?? 0),
@@ -114,10 +118,13 @@ export function ReportsOverview() {
   return (
     <div className="space-y-6">
       {/* Date Range Selector */}
-      <div className="bg-white p-4 rounded-lg shadow">
+      <div className="bg-card p-4 rounded-lg shadow">
         <div className="flex items-center gap-4">
           <div>
-            <label htmlFor="overview-date-from" className="block text-sm font-medium text-foreground mb-1">
+            <label
+              htmlFor="overview-date-from"
+              className="block text-sm font-medium text-foreground mb-1"
+            >
               From Date
             </label>
             <input
@@ -129,7 +136,10 @@ export function ReportsOverview() {
             />
           </div>
           <div>
-            <label htmlFor="overview-date-to" className="block text-sm font-medium text-foreground mb-1">
+            <label
+              htmlFor="overview-date-to"
+              className="block text-sm font-medium text-foreground mb-1"
+            >
               To Date
             </label>
             <input
@@ -153,7 +163,7 @@ export function ReportsOverview() {
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-muted-foreground">
               Total Appointments
@@ -163,12 +173,16 @@ export function ReportsOverview() {
           <p className="text-2xl font-bold text-foreground">
             {stats.totalAppointments.toLocaleString()}
           </p>
-          <p className="text-sm text-muted-foreground mt-1">In selected period</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            In selected period
+          </p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-muted-foreground">Total Revenue</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">
+              Total Revenue
+            </h3>
             <DollarSign className="w-5 h-5 text-success" />
           </div>
           <p className="text-2xl font-bold text-foreground">
@@ -177,7 +191,7 @@ export function ReportsOverview() {
           <p className="text-sm text-muted-foreground mt-1">Total earnings</p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-muted-foreground">
               Active Patients
@@ -190,7 +204,7 @@ export function ReportsOverview() {
           <p className="text-sm text-muted-foreground mt-1">Unique patients</p>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-muted-foreground">
               Average Rating
@@ -207,7 +221,7 @@ export function ReportsOverview() {
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Appointments Trend */}
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Appointments Trend</h3>
           <div className="h-64 flex items-end justify-between gap-1">
             {stats.appointmentsTrend.map((day) => {
@@ -221,7 +235,7 @@ export function ReportsOverview() {
                   className="flex-1 bg-primary hover:bg-primary/90 rounded-t transition-colors relative group"
                   style={{ height: `${height}%` }}
                 >
-                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-card text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                  <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-popover text-popover-foreground text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                     {day.count} appointments
                     <br />
                     {new Date(day.date).toLocaleDateString()}
@@ -236,7 +250,7 @@ export function ReportsOverview() {
         </div>
 
         {/* Revenue by Department */}
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-card p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Revenue by Department</h3>
           <div className="space-y-3">
             {stats.revenueByDepartment.slice(0, 5).map((dept) => {
@@ -272,7 +286,7 @@ export function ReportsOverview() {
       </div>
 
       {/* Top Performing Doctors */}
-      <div className="bg-white p-6 rounded-lg shadow">
+      <div className="bg-card p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4">Top Performing Doctors</h3>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-border">

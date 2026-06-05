@@ -31,18 +31,16 @@ const navSections: NavSection[] = [
   {
     title: "Overview",
     minRole: null, // all authenticated users
-    items: [
-      { name: "Dashboard", href: "/dashboard" },
-    ],
+    items: [{ name: "Dashboard", href: "/dashboard" }],
   },
   {
     title: "My Work",
     minRole: "STAFF", // STAFF | DOCTOR | HR | ADMIN | SUPER_ADMIN
     items: [
       { name: "My Appointments", href: "/dashboard/my-appointments" },
-      { name: "My Attendance",   href: "/dashboard/my-attendance" },
-      { name: "My Leave",        href: "/dashboard/my-leave" },
-      { name: "My Payslips",     href: "/dashboard/my-payslips" },
+      { name: "My Attendance", href: "/dashboard/my-attendance" },
+      { name: "My Leave", href: "/dashboard/my-leave" },
+      { name: "My Payslips", href: "/dashboard/my-payslips" },
       { name: "My Replacements", href: "/dashboard/my-replacements" },
       { name: "Upload Prescription", href: "/dashboard/upload-prescription" },
     ],
@@ -51,8 +49,8 @@ const navSections: NavSection[] = [
     title: "Operations",
     minRole: null, // all authenticated
     items: [
-      { name: "Appointments",    href: "/dashboard/appointments" },
-      { name: "Housekeeping",    href: "/dashboard/housekeeping" },
+      { name: "Appointments", href: "/dashboard/appointments" },
+      { name: "Housekeeping", href: "/dashboard/housekeeping" },
       { name: "Emergency / SOS", href: "/dashboard/sos" },
     ],
   },
@@ -81,73 +79,73 @@ const navSections: NavSection[] = [
     title: "Clinical Services",
     minRole: "STAFF", // all clinical staff
     items: [
-      { name: "Radiology",   href: "/dashboard/radiology" },
-      { name: "Laboratory",  href: "/dashboard/lab" },
+      { name: "Radiology", href: "/dashboard/radiology" },
+      { name: "Laboratory", href: "/dashboard/lab" },
       { name: "Microbiology", href: "/dashboard/microbiology" },
       { name: "Anesthesia chart", href: "/dashboard/anesthesia-chart" },
-      { name: "Dietary",     href: "/dashboard/dietary" },
-      { name: "Theatre",     href: "/dashboard/theatre" },
-      { name: "OR Board",    href: "/dashboard/or-board" },
-      { name: "Maternity",   href: "/dashboard/maternity" },
-      { name: "Blood Bank",  href: "/dashboard/blood-bank" },
-      { name: "Quality",     href: "/dashboard/quality" },
-      { name: "Referrals",   href: "/dashboard/referral" },
+      { name: "Dietary", href: "/dashboard/dietary" },
+      { name: "Theatre", href: "/dashboard/theatre" },
+      { name: "OR Board", href: "/dashboard/or-board" },
+      { name: "Maternity", href: "/dashboard/maternity" },
+      { name: "Blood Bank", href: "/dashboard/blood-bank" },
+      { name: "Quality", href: "/dashboard/quality" },
+      { name: "Referrals", href: "/dashboard/referral" },
       { name: "Productivity", href: "/dashboard/productivity" },
       { name: "Patient Messages", href: "/dashboard/messaging" },
       { name: "Discharge Summaries", href: "/dashboard/discharge-summaries" },
-      { name: "ED Tracker",          href: "/dashboard/ed-tracker" },
-      { name: "MAR (5-rights)",      href: "/dashboard/mar" },
+      { name: "ED Tracker", href: "/dashboard/ed-tracker" },
+      { name: "MAR (5-rights)", href: "/dashboard/mar" },
       { name: "Nursing Assessments", href: "/dashboard/nursing-assessments" },
-      { name: "Beds",                href: "/dashboard/beds" },
-      { name: "ICU Command Centre",  href: "/dashboard/icu" },
-      { name: "Dialysis Unit",       href: "/dashboard/dialysis" },
-      { name: "Immunisations",       href: "/dashboard/immunisations" },
+      { name: "Beds", href: "/dashboard/beds" },
+      { name: "ICU Command Centre", href: "/dashboard/icu" },
+      { name: "Dialysis Unit", href: "/dashboard/dialysis" },
+      { name: "Immunisations", href: "/dashboard/immunisations" },
     ],
   },
   {
     title: "HR Management",
     minRole: "HR", // HR | ADMIN | SUPER_ADMIN
     items: [
-      { name: "Leave Approvals",  href: "/dashboard/leave-approvals" },
-      { name: "Grievances",       href: "/dashboard/grievances" },
-      { name: "Incidents",        href: "/dashboard/incidents" },
+      { name: "Leave Approvals", href: "/dashboard/leave-approvals" },
+      { name: "Grievances", href: "/dashboard/grievances" },
+      { name: "Incidents", href: "/dashboard/incidents" },
       { name: "Attendance Audit", href: "/dashboard/attendance-audit" },
-      { name: "Report Audit",     href: "/dashboard/reporting" },
-      { name: "Investigations",   href: "/dashboard/investigations" },
-      { name: "Staff Roster",     href: "/dashboard/staff-roster" },
+      { name: "Report Audit", href: "/dashboard/reporting" },
+      { name: "Investigations", href: "/dashboard/investigations" },
+      { name: "Staff Roster", href: "/dashboard/staff-roster" },
     ],
   },
   {
     title: "Administration",
     minRole: "ADMIN", // ADMIN | SUPER_ADMIN only
     items: [
-      { name: "Users",           href: "/dashboard/users" },
-      { name: "Patient Dedupe",  href: "/dashboard/patients/dedupe" },
-      { name: "Doctors",         href: "/dashboard/doctors" },
-      { name: "Departments",     href: "/dashboard/departments" },
+      { name: "Users", href: "/dashboard/users" },
+      { name: "Patient Dedupe", href: "/dashboard/patients/dedupe" },
+      { name: "Doctors", href: "/dashboard/doctors" },
+      { name: "Departments", href: "/dashboard/departments" },
       { name: "Clinical Governance", href: "/dashboard/clinical-governance" },
-      { name: "Payroll",         href: "/dashboard/payroll" },
-      { name: "Analytics",       href: "/dashboard/analytics" },
-      { name: "Operations",      href: "/dashboard/operations" },
-      { name: "Dashboards",      href: "/dashboard/dashboards" },
-      { name: "Insurance",       href: "/dashboard/insurance" },
-      { name: "PM-JAY",          href: "/dashboard/pmjay" },
+      { name: "Payroll", href: "/dashboard/payroll" },
+      { name: "Analytics", href: "/dashboard/analytics" },
+      { name: "Operations", href: "/dashboard/operations" },
+      { name: "Dashboards", href: "/dashboard/dashboards" },
+      { name: "Insurance", href: "/dashboard/insurance" },
+      { name: "PM-JAY", href: "/dashboard/pmjay" },
       { name: "Day-care Packages", href: "/dashboard/billing/packages" },
       { name: "PCPNDT (Form F)", href: "/dashboard/pcpndt" },
-      { name: "BMW Register",    href: "/dashboard/bmw" },
-      { name: "Drug Returns",    href: "/dashboard/drug-returns" },
+      { name: "BMW Register", href: "/dashboard/bmw" },
+      { name: "Drug Returns", href: "/dashboard/drug-returns" },
       { name: "Death Certification", href: "/dashboard/death-certification" },
       { name: "Medical Records", href: "/dashboard/records" },
-      { name: "Pharmacy",        href: "/dashboard/pharmacy" },
-      { name: "Notifications",   href: "/dashboard/notifications" },
-      { name: "Attendance",      href: "/dashboard/attendance" },
-      { name: "Uploads",         href: "/dashboard/uploads" },
-      { name: "Feedback",        href: "/dashboard/feedback" },
+      { name: "Pharmacy", href: "/dashboard/pharmacy" },
+      { name: "Notifications", href: "/dashboard/notifications" },
+      { name: "Attendance", href: "/dashboard/attendance" },
+      { name: "Uploads", href: "/dashboard/uploads" },
+      { name: "Feedback", href: "/dashboard/feedback" },
       { name: "System Settings", href: "/dashboard/settings" },
-      { name: "System Audit",    href: "/dashboard/system-audit" },
-      { name: "Audit Logs",      href: "/dashboard/audit" },
-      { name: "Audit Explorer",  href: "/dashboard/audit-explorer" },
-      { name: "Integrations",    href: "/dashboard/integrations" },
+      { name: "System Audit", href: "/dashboard/system-audit" },
+      { name: "Audit Logs", href: "/dashboard/audit" },
+      { name: "Audit Explorer", href: "/dashboard/audit-explorer" },
+      { name: "Integrations", href: "/dashboard/integrations" },
     ],
   },
 ];
@@ -196,19 +194,19 @@ export default function AdminNav() {
   const pathname = usePathname();
   const { role, isSuperAdmin } = usePermissions();
 
-  const userRank = isSuperAdmin
-    ? 4
-    : role
-    ? (ROLE_RANK[role] ?? -1)
-    : -1;
+  const userRank = isSuperAdmin ? 4 : role ? (ROLE_RANK[role] ?? -1) : -1;
 
   return (
     <nav aria-label="Admin navigation" className="space-y-4">
       {navSections.map((section) => {
         // Determine if this section is visible to current user
-        const minRank = section.minRole ? (ROLE_RANK[section.minRole] ?? 99) : -Infinity;
+        const minRank = section.minRole
+          ? (ROLE_RANK[section.minRole] ?? 99)
+          : -Infinity;
         if (userRank < minRank) return null;
-        const visibleItems = section.items.filter((item) => canSeeItem(item, role, isSuperAdmin));
+        const visibleItems = section.items.filter((item) =>
+          canSeeItem(item, role, isSuperAdmin),
+        );
         if (visibleItems.length === 0) return null;
 
         return (
@@ -221,15 +219,16 @@ export default function AdminNav() {
                 const active =
                   item.href === "/dashboard"
                     ? pathname === item.href
-                    : pathname === item.href || pathname.startsWith(item.href + "/");
+                    : pathname === item.href ||
+                      pathname.startsWith(item.href + "/");
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     className={`block rounded px-3 py-2 text-sm transition-colors ${
                       active
-                        ? "bg-background text-white"
-                        : "text-muted-foreground hover:bg-muted hover:text-white"
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
                     {item.name}

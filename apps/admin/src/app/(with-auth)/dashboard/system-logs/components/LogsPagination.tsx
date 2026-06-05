@@ -19,7 +19,7 @@ export function LogsPagination({
   onPageSizeChange,
 }: Props) {
   return (
-    <div className="mt-6 flex flex-col gap-3 rounded-lg bg-white p-3 shadow sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-6 flex flex-col gap-3 rounded-lg bg-card p-3 shadow sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-muted-foreground">
         Showing page {currentPage} of {Math.max(1, totalPages)}
       </div>

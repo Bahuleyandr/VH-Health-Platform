@@ -61,14 +61,14 @@ function DevAuthDebugger() {
       <button
         type="button"
         onClick={() => setShowDebug((s) => !s)}
-        className="bg-card text-white px-3 py-1 rounded text-sm"
+        className="bg-card text-foreground px-3 py-1 rounded text-sm"
         aria-expanded={showDebug}
       >
         🔧 Auth Debug
       </button>
 
       {showDebug && (
-        <div className="absolute bottom-12 right-0 w-96 rounded-lg border bg-white p-4 shadow-lg">
+        <div className="absolute bottom-12 right-0 w-96 rounded-lg border bg-card p-4 shadow-lg">
           <h3 className="mb-2 font-bold">Auth State</h3>
 
           <div className="space-y-2 text-sm">
@@ -131,7 +131,7 @@ function DevAuthDebugger() {
                     console.warn("Unable to inspect localStorage:", e);
                   }
                 }}
-                className="w-full rounded bg-muted-foreground px-3 py-1 text-white text-xs"
+                className="w-full rounded bg-muted-foreground px-3 py-1 text-background text-xs"
               >
                 Log to Console
               </button>

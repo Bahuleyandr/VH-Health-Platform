@@ -34,8 +34,12 @@ const DATE_PRESETS: DatePreset[] = [
   { label: "This month", from: startOfMonth(), to: today() },
   {
     label: "Last month",
-    from: startOfMonth(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)),
-    to: new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split("T")[0],
+    from: startOfMonth(
+      new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1),
+    ),
+    to: new Date(new Date().getFullYear(), new Date().getMonth(), 0)
+      .toISOString()
+      .split("T")[0],
   },
   { label: "This quarter", from: startOfQuarter(), to: today() },
 ];
@@ -56,7 +60,8 @@ const EXPORTS: ExportDef[] = [
   {
     id: "appointments",
     label: "Appointments CSV",
-    description: "All appointments with patient/doctor info, status, and timestamps",
+    description:
+      "All appointments with patient/doctor info, status, and timestamps",
     color: "bg-primary",
     hoverColor: "hover:bg-primary/90",
     previewAsCsv: true,
@@ -119,7 +124,10 @@ interface PreviewData {
 }
 
 export function DataExporter() {
-  const [dateRange, setDateRange] = useState({ from: daysAgo(30), to: today() });
+  const [dateRange, setDateRange] = useState({
+    from: daysAgo(30),
+    to: today(),
+  });
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewData | null>(null);
@@ -129,7 +137,10 @@ export function DataExporter() {
   };
 
   const activePreset = useMemo(
-    () => DATE_PRESETS.find((p) => p.from === dateRange.from && p.to === dateRange.to)?.label ?? null,
+    () =>
+      DATE_PRESETS.find(
+        (p) => p.from === dateRange.from && p.to === dateRange.to,
+      )?.label ?? null,
     [dateRange],
   );
 
@@ -156,11 +167,17 @@ export function DataExporter() {
           const text = await blob.text();
           const lines = text.split("\n").filter(Boolean);
           if (lines.length > 0) {
-            const columns = lines[0].split(",").map((c) => c.replace(/"/g, "").trim());
+            const columns = lines[0]
+              .split(",")
+              .map((c) => c.replace(/"/g, "").trim());
             const sampleRows = lines.slice(1, 6).map((line) => {
-              const vals = line.split(",").map((v) => v.replace(/"/g, "").trim());
+              const vals = line
+                .split(",")
+                .map((v) => v.replace(/"/g, "").trim());
               const row: Record<string, string> = {};
-              columns.forEach((col, i) => { row[col] = vals[i] ?? ""; });
+              columns.forEach((col, i) => {
+                row[col] = vals[i] ?? "";
+              });
               return row;
             });
             setPreview({
@@ -171,7 +188,9 @@ export function DataExporter() {
               sampleRows,
             });
           }
-        } catch { /* ignore parse errors, still download */ }
+        } catch {
+          /* ignore parse errors, still download */
+        }
       }
 
       // Trigger download
@@ -193,7 +212,7 @@ export function DataExporter() {
   return (
     <div className="space-y-6">
       {/* Date Range */}
-      <div className="bg-white p-5 rounded-lg shadow">
+      <div className="bg-card p-5 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-3">Date Range</h3>
 
         {/* Presets */}
@@ -205,7 +224,7 @@ export function DataExporter() {
               className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
                 activePreset === p.label
                   ? "bg-primary text-white border-primary"
-                  : "bg-white text-foreground border-input hover:border-primary hover:text-primary"
+                  : "bg-card text-foreground border-input hover:border-primary hover:text-primary"
               }`}
             >
               {p.label}
@@ -216,26 +235,36 @@ export function DataExporter() {
         {/* Manual date inputs */}
         <div className="flex items-center gap-4">
           <div>
-            <label htmlFor="exp-from" className="block text-sm font-medium text-foreground mb-1">
+            <label
+              htmlFor="exp-from"
+              className="block text-sm font-medium text-foreground mb-1"
+            >
               Start Date
             </label>
             <input
               id="exp-from"
               type="date"
               value={dateRange.from}
-              onChange={(e) => setDateRange((r) => ({ ...r, from: e.target.value }))}
+              onChange={(e) =>
+                setDateRange((r) => ({ ...r, from: e.target.value }))
+              }
               className="px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label htmlFor="exp-to" className="block text-sm font-medium text-foreground mb-1">
+            <label
+              htmlFor="exp-to"
+              className="block text-sm font-medium text-foreground mb-1"
+            >
               End Date
             </label>
             <input
               id="exp-to"
               type="date"
               value={dateRange.to}
-              onChange={(e) => setDateRange((r) => ({ ...r, to: e.target.value }))}
+              onChange={(e) =>
+                setDateRange((r) => ({ ...r, to: e.target.value }))
+              }
               className="px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -243,15 +272,22 @@ export function DataExporter() {
       </div>
 
       {error && (
-        <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded-lg">{error}</div>
+        <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive rounded-lg">
+          {error}
+        </div>
       )}
 
       {/* Export Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {EXPORTS.map((exp) => (
-          <div key={exp.id} className="bg-white rounded-lg shadow p-5 flex flex-col">
+          <div
+            key={exp.id}
+            className="bg-card rounded-lg shadow p-5 flex flex-col"
+          >
             <h4 className="font-semibold text-foreground mb-1">{exp.label}</h4>
-            <p className="text-sm text-muted-foreground mb-4 flex-1">{exp.description}</p>
+            <p className="text-sm text-muted-foreground mb-4 flex-1">
+              {exp.description}
+            </p>
             <button
               onClick={() => downloadFile(exp)}
               disabled={loading !== null}
@@ -275,24 +311,37 @@ export function DataExporter() {
 
       {/* Preview Table */}
       {preview && (
-        <div className="bg-white rounded-lg shadow p-5">
+        <div className="bg-card rounded-lg shadow p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">Export Preview</h3>
-            <button onClick={() => setPreview(null)} className="text-sm text-muted-foreground hover:text-foreground">
+            <button
+              onClick={() => setPreview(null)}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
               Dismiss
             </button>
           </div>
           <div className="mb-3 flex flex-wrap gap-4 text-sm text-muted-foreground">
-            <span><strong>Rows:</strong> {preview.rows.toLocaleString()}</span>
-            <span><strong>Columns:</strong> {preview.columns.length}</span>
-            <span><strong>Range:</strong> {preview.dateRange.from} → {preview.dateRange.to}</span>
+            <span>
+              <strong>Rows:</strong> {preview.rows.toLocaleString()}
+            </span>
+            <span>
+              <strong>Columns:</strong> {preview.columns.length}
+            </span>
+            <span>
+              <strong>Range:</strong> {preview.dateRange.from} →{" "}
+              {preview.dateRange.to}
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-muted">
                 <tr>
                   {preview.columns.map((col) => (
-                    <th key={col} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">
+                    <th
+                      key={col}
+                      className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase"
+                    >
                       {col}
                     </th>
                   ))}
@@ -302,7 +351,10 @@ export function DataExporter() {
                 {preview.sampleRows.map((row, i) => (
                   <tr key={i} className="hover:bg-muted">
                     {preview.columns.map((col) => (
-                      <td key={col} className="px-3 py-2 text-foreground whitespace-nowrap max-w-[200px] truncate">
+                      <td
+                        key={col}
+                        className="px-3 py-2 text-foreground whitespace-nowrap max-w-[200px] truncate"
+                      >
                         {row[col]}
                       </td>
                     ))}
@@ -312,7 +364,9 @@ export function DataExporter() {
             </table>
           </div>
           {preview.rows > 5 && (
-            <p className="mt-2 text-xs text-muted-foreground">Showing first 5 of {preview.rows.toLocaleString()} rows</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Showing first 5 of {preview.rows.toLocaleString()} rows
+            </p>
           )}
         </div>
       )}

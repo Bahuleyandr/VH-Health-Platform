@@ -197,12 +197,12 @@ export function SettingsListForm({
   return (
     <div className="space-y-6">
       {Object.keys(groupedSettings).length === 0 ? (
-        <div className="bg-white p-8 rounded-lg shadow text-center">
+        <div className="bg-card p-8 rounded-lg shadow text-center">
           <p className="text-muted-foreground">No settings available</p>
         </div>
       ) : (
         Object.entries(groupedSettings).map(([category, categorySettings]) => (
-          <div key={category} className="bg-white p-6 rounded-lg shadow">
+          <div key={category} className="bg-card p-6 rounded-lg shadow">
             <h3 className="text-lg font-semibold text-foreground mb-4 pb-4 border-b">
               {category} Settings
             </h3>

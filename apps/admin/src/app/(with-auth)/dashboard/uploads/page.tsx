@@ -59,7 +59,10 @@ function fmtDate(iso?: string) {
   if (!iso) return "—";
   try {
     return new Date(iso).toLocaleString("en-IN", {
-      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
     return iso;
@@ -89,39 +92,56 @@ export default function UploadsPage() {
       ]);
       setSummary(unwrap<Summary>(s) ?? {});
       const qp = unwrap<QuarantinedFile[] | { items?: QuarantinedFile[] }>(q);
-      setQuarantine(Array.isArray(qp) ? qp : (qp && "items" in qp ? qp.items ?? [] : []));
+      setQuarantine(
+        Array.isArray(qp) ? qp : qp && "items" in qp ? (qp.items ?? []) : [],
+      );
       const hp = unwrap<AuditEntry[] | { items?: AuditEntry[] }>(h);
-      setHipaa(Array.isArray(hp) ? hp : (hp && "items" in hp ? hp.items ?? [] : []));
+      setHipaa(
+        Array.isArray(hp) ? hp : hp && "items" in hp ? (hp.items ?? []) : [],
+      );
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  const cleanup = useCallback(async (action: "cleanup" | "purge") => {
-    setRunning(action);
-    setActionMsg(null);
-    try {
-      if (action === "cleanup") await adminService.cleanupExpiredFiles(true);
-      else await adminService.purgeQuarantinedFiles(true);
-      setActionMsg(`${action === "cleanup" ? "Cleanup" : "Purge"} dry run complete.`);
-      await refresh();
-    } catch (e) {
-      setActionMsg(e instanceof Error ? `${action} failed: ${e.message}` : `${action} failed`);
-    } finally {
-      setRunning(null);
-    }
+  useEffect(() => {
+    void refresh();
   }, [refresh]);
+
+  const cleanup = useCallback(
+    async (action: "cleanup" | "purge") => {
+      setRunning(action);
+      setActionMsg(null);
+      try {
+        if (action === "cleanup") await adminService.cleanupExpiredFiles(true);
+        else await adminService.purgeQuarantinedFiles(true);
+        setActionMsg(
+          `${action === "cleanup" ? "Cleanup" : "Purge"} dry run complete.`,
+        );
+        await refresh();
+      } catch (e) {
+        setActionMsg(
+          e instanceof Error
+            ? `${action} failed: ${e.message}`
+            : `${action} failed`,
+        );
+      } finally {
+        setRunning(null);
+      }
+    },
+    [refresh],
+  );
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-end justify-between">
-        <h1 className="text-2xl font-bold text-white">Uploads / File management</h1>
+        <h1 className="text-2xl font-bold text-white">
+          Uploads / File management
+        </h1>
         <button
           onClick={() => void refresh()}
           disabled={loading}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-white hover:border-indigo-500 disabled:opacity-50"
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:border-indigo-500 disabled:opacity-50"
         >
           {loading ? "Refreshing…" : "Refresh"}
         </button>
@@ -129,20 +149,40 @@ export default function UploadsPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatTile label="Total files" value={summary?.totalFiles ?? 0} />
-        <StatTile label="Total size" value={fmtBytes(summary?.totalSizeBytes)} />
-        <StatTile label="HIPAA protected" value={summary?.hipaaProtected ?? 0} tone="emerald" />
-        <StatTile label="Quarantined" value={summary?.quarantined ?? 0} tone={(summary?.quarantined ?? 0) > 0 ? "red" : "white"} />
-        <StatTile label="Expired" value={summary?.expired ?? 0} tone={(summary?.expired ?? 0) > 0 ? "amber" : "white"} />
+        <StatTile
+          label="Total size"
+          value={fmtBytes(summary?.totalSizeBytes)}
+        />
+        <StatTile
+          label="HIPAA protected"
+          value={summary?.hipaaProtected ?? 0}
+          tone="emerald"
+        />
+        <StatTile
+          label="Quarantined"
+          value={summary?.quarantined ?? 0}
+          tone={(summary?.quarantined ?? 0) > 0 ? "red" : "white"}
+        />
+        <StatTile
+          label="Expired"
+          value={summary?.expired ?? 0}
+          tone={(summary?.expired ?? 0) > 0 ? "amber" : "white"}
+        />
       </div>
 
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="mb-3 font-semibold text-white">Trailing 7 days</h2>
         {(summary?.last7Days ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No uploads in the last 7 days.</p>
+          <p className="text-sm text-muted-foreground">
+            No uploads in the last 7 days.
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead className="text-muted-foreground">
-              <tr><Th>Date</Th><Th>Uploads</Th></tr>
+              <tr>
+                <Th>Date</Th>
+                <Th>Uploads</Th>
+              </tr>
             </thead>
             <tbody>
               {(summary?.last7Days ?? []).map((d) => (
@@ -163,11 +203,24 @@ export default function UploadsPage() {
         ) : (
           <table className="w-full text-sm">
             <thead className="text-muted-foreground">
-              <tr><Th>When</Th><Th>File</Th><Th>Reason</Th><Th>Uploaded by</Th><Th>Size</Th></tr>
+              <tr>
+                <Th>When</Th>
+                <Th>File</Th>
+                <Th>Reason</Th>
+                <Th>Uploaded by</Th>
+                <Th>Size</Th>
+              </tr>
             </thead>
             <tbody>
               {quarantine.map((f, index) => (
-                <tr key={stableRowKey("quarantine", f.id ?? f.file_name ?? f.quarantined_at, index)} className="border-t border-border">
+                <tr
+                  key={stableRowKey(
+                    "quarantine",
+                    f.id ?? f.file_name ?? f.quarantined_at,
+                    index,
+                  )}
+                  className="border-t border-border"
+                >
                   <Td>{fmtDate(f.quarantined_at)}</Td>
                   <Td>{f.file_name ?? "—"}</Td>
                   <Td>{f.reason ?? "—"}</Td>
@@ -183,19 +236,37 @@ export default function UploadsPage() {
       <div className="rounded-xl border border-border bg-card p-4">
         <h2 className="mb-3 font-semibold text-white">HIPAA audit (recent)</h2>
         {hipaa.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No audit entries in window.</p>
+          <p className="text-sm text-muted-foreground">
+            No audit entries in window.
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead className="text-muted-foreground">
-              <tr><Th>When</Th><Th>Actor</Th><Th>Action</Th><Th>Resource</Th></tr>
+              <tr>
+                <Th>When</Th>
+                <Th>Actor</Th>
+                <Th>Action</Th>
+                <Th>Resource</Th>
+              </tr>
             </thead>
             <tbody>
               {hipaa.map((e, index) => (
-                <tr key={stableRowKey("hipaa", e.id ?? e.created_at ?? e.resource_id, index)} className="border-t border-border">
+                <tr
+                  key={stableRowKey(
+                    "hipaa",
+                    e.id ?? e.created_at ?? e.resource_id,
+                    index,
+                  )}
+                  className="border-t border-border"
+                >
                   <Td>{fmtDate(e.created_at)}</Td>
                   <Td>{e.actor ?? "—"}</Td>
                   <Td>{e.action ?? "—"}</Td>
-                  <Td>{e.resource_type ? `${e.resource_type}${e.resource_id ? `:${e.resource_id}` : ""}` : "—"}</Td>
+                  <Td>
+                    {e.resource_type
+                      ? `${e.resource_type}${e.resource_id ? `:${e.resource_id}` : ""}`
+                      : "—"}
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -209,7 +280,7 @@ export default function UploadsPage() {
           <button
             onClick={() => void cleanup("cleanup")}
             disabled={running !== null}
-            className="rounded border border-border bg-card px-4 py-2 text-sm text-white hover:border-indigo-500 disabled:opacity-50"
+            className="rounded border border-border bg-card px-4 py-2 text-sm text-foreground hover:border-indigo-500 disabled:opacity-50"
           >
             {running === "cleanup" ? "Cleaning…" : "Cleanup expired files"}
           </button>
@@ -221,21 +292,36 @@ export default function UploadsPage() {
             {running === "purge" ? "Purging…" : "Purge quarantined"}
           </button>
         </div>
-        {actionMsg && <p className="text-xs text-muted-foreground">{actionMsg}</p>}
+        {actionMsg && (
+          <p className="text-xs text-muted-foreground">{actionMsg}</p>
+        )}
       </div>
     </div>
   );
 }
 
-function StatTile({ label, value, tone }: { label: string; value: string | number; tone?: "amber" | "red" | "emerald" | "white" }) {
+function StatTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "amber" | "red" | "emerald" | "white";
+}) {
   const colour =
-    tone === "red" ? "text-red-400"
-    : tone === "amber" ? "text-amber-400"
-    : tone === "emerald" ? "text-emerald-400"
-    : "text-white";
+    tone === "red"
+      ? "text-red-400"
+      : tone === "amber"
+        ? "text-amber-400"
+        : tone === "emerald"
+          ? "text-emerald-400"
+          : "text-white";
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
       <p className={`mt-1 text-2xl font-bold ${colour}`}>{value}</p>
     </div>
   );

@@ -81,7 +81,7 @@ export function EditDepartmentModal({
 
   return (
     <div className="fixed inset-0 bg-foreground dark:bg-background bg-opacity-50 dark:bg-opacity-70 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-5 border dark:border-border w-full max-w-lg shadow-lg rounded-md bg-white dark:bg-card">
+      <div className="relative top-20 mx-auto p-5 border dark:border-border w-full max-w-lg shadow-lg rounded-md bg-card dark:bg-card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-foreground">Edit Department</h3>
           <button
@@ -141,13 +141,15 @@ export function EditDepartmentModal({
               >
                 Description
               </label>
-              <span className={`text-xs ${
-                formData.description.length > 900
-                  ? formData.description.length >= 1000
-                    ? "text-destructive font-medium"
-                    : "text-amber-500"
-                  : "text-muted-foreground"
-              }`}>
+              <span
+                className={`text-xs ${
+                  formData.description.length > 900
+                    ? formData.description.length >= 1000
+                      ? "text-destructive font-medium"
+                      : "text-amber-500"
+                    : "text-muted-foreground"
+                }`}
+              >
                 {formData.description.length} / 1000
               </span>
             </div>

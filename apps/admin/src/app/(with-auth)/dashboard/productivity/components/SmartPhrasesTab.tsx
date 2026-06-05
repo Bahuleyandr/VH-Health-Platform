@@ -29,7 +29,11 @@ export function SmartPhrasesTab() {
   const [q, setQ] = useState("");
   const [specialty, setSpecialty] = useState("");
 
-  const { data: rows = [], error, isLoading } = useQuery<Phrase[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+  } = useQuery<Phrase[]>({
     queryKey: ["productivity", "phrases", { q, specialty }],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -56,7 +60,9 @@ export function SmartPhrasesTab() {
 
       <div className="flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Search</label>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Search
+          </label>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -76,7 +82,9 @@ export function SmartPhrasesTab() {
           />
         </div>
         <button
-          onClick={() => qc.invalidateQueries({ queryKey: ["productivity", "phrases"] })}
+          onClick={() =>
+            qc.invalidateQueries({ queryKey: ["productivity", "phrases"] })
+          }
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -92,14 +100,14 @@ export function SmartPhrasesTab() {
       {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
-        <EmptyState title="No smart phrases" description="Try clearing the filter." />
+        <EmptyState
+          title="No smart phrases"
+          description="Try clearing the filter."
+        />
       ) : (
         <div className="space-y-3">
           {rows.map((p) => (
-            <details
-              key={p.id}
-              className="bg-white rounded-lg border shadow-sm"
-            >
+            <details key={p.id} className="bg-card rounded-lg border shadow-sm">
               <summary className="cursor-pointer px-4 py-2 flex items-center justify-between hover:bg-muted/30">
                 <div className="flex items-center gap-3">
                   <code className="bg-muted px-2 py-0.5 rounded text-xs font-mono">

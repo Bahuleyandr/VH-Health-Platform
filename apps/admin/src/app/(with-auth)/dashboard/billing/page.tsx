@@ -9,14 +9,22 @@ import { PaymentLinksTab } from "./components/PaymentLinksTab";
 import { InsuranceClaimsTab } from "./components/InsuranceClaimsTab";
 import { RevenueCycleTab } from "./components/RevenueCycleTab";
 
-type Tab = "revenue" | "invoices" | "invoices_v2" | "links" | "claims" | "revenue-cycle";
+type Tab =
+  | "revenue"
+  | "invoices"
+  | "invoices_v2"
+  | "links"
+  | "claims"
+  | "revenue-cycle";
 
 function BillingContent() {
   const [tab, setTab] = useState<Tab>("revenue");
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-foreground mb-6">Billing &amp; Invoicing</h1>
+      <h1 className="text-3xl font-bold text-foreground mb-6">
+        Billing &amp; Invoicing
+      </h1>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 overflow-x-auto">
@@ -33,7 +41,7 @@ function BillingContent() {
             onClick={() => setTab(key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
               tab === key
-                ? "bg-white text-foreground shadow-sm"
+                ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >

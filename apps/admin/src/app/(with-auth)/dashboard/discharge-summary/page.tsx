@@ -37,29 +37,23 @@ export default function DischargeSummaryPage() {
   const [dietInstructions, setDietInstructions] = useState("");
   const [warningSigns, setWarningSigns] = useState("");
 
-  const populateFromSummary = useCallback(
-    (data: Record<string, unknown>) => {
-      setHospitalCourse(String(data.hospital_course || ""));
-      setDischargeDiagnosis(String(data.discharge_diagnosis || ""));
-      setDischargeCondition(String(data.discharge_condition || ""));
-      setFollowUp(String(data.follow_up_instructions || ""));
-      setActivityRestrictions(String(data.activity_restrictions || ""));
-      setDietInstructions(String(data.diet_instructions || ""));
-      setWarningSigns(String(data.warning_signs || ""));
-    },
-    []
-  );
+  const populateFromSummary = useCallback((data: Record<string, unknown>) => {
+    setHospitalCourse(String(data.hospital_course || ""));
+    setDischargeDiagnosis(String(data.discharge_diagnosis || ""));
+    setDischargeCondition(String(data.discharge_condition || ""));
+    setFollowUp(String(data.follow_up_instructions || ""));
+    setActivityRestrictions(String(data.activity_restrictions || ""));
+    setDietInstructions(String(data.diet_instructions || ""));
+    setWarningSigns(String(data.warning_signs || ""));
+  }, []);
 
   const handleGenerate = async () => {
     if (!admissionId) return toast.error("No admission ID provided");
     setGenerating(true);
     try {
       const result = await generateDischargeSummary(admissionId);
-      const ds =
-        (result as Record<string, unknown>)?.discharge_summary as Record<
-          string,
-          unknown
-        >;
+      const ds = (result as Record<string, unknown>)
+        ?.discharge_summary as Record<string, unknown>;
       if (ds) {
         setSummary(ds);
         populateFromSummary(ds);
@@ -85,7 +79,11 @@ export default function DischargeSummaryPage() {
   });
 
   const safetyFlags = Array.isArray(summary?.safety_flags)
-    ? (summary.safety_flags as Array<{ severity?: string; code?: string; message?: string }>)
+    ? (summary.safety_flags as Array<{
+        severity?: string;
+        code?: string;
+        message?: string;
+      }>)
     : [];
   const aiMetadata =
     summary?.ai_metadata && typeof summary.ai_metadata === "object"
@@ -116,7 +114,7 @@ export default function DischargeSummaryPage() {
   const handleSign = async () => {
     if (
       !confirm(
-        "Once signed, this discharge summary becomes the official record and cannot be modified. Only addenda are allowed after signing.\n\nProceed?"
+        "Once signed, this discharge summary becomes the official record and cannot be modified. Only addenda are allowed after signing.\n\nProceed?",
       )
     )
       return;
@@ -147,7 +145,9 @@ export default function DischargeSummaryPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Discharge Summary</h1>
-          <p className="text-gray-500">{patientName} — Admission #{admissionId}</p>
+          <p className="text-gray-500">
+            {patientName} — Admission #{admissionId}
+          </p>
         </div>
         {summary && !isSigned && (
           <button
@@ -218,11 +218,15 @@ export default function DischargeSummaryPage() {
             <div className="mb-6 rounded-lg border border-border bg-card p-4 text-sm">
               <div className="flex flex-wrap items-center gap-2 font-semibold">
                 <span>Clinical AI Draft</span>
-                <span className={`rounded-full border px-2 py-0.5 text-xs ${generationModeClass(aiGenerationMode)}`}>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-xs ${generationModeClass(aiGenerationMode)}`}
+                >
                   {generationModeLabel(aiGenerationMode)}
                 </span>
                 {aiMetadata.provider_status && (
-                  <span className={`rounded-full border px-2 py-0.5 text-xs ${providerStatusClass(aiMetadata.provider_status)}`}>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-xs ${providerStatusClass(aiMetadata.provider_status)}`}
+                  >
                     {providerStatusLabel(aiMetadata.provider_status)}
                   </span>
                 )}
@@ -249,7 +253,7 @@ export default function DischargeSummaryPage() {
                 {safetyFlags.map((flag, index) => (
                   <div
                     key={`${flag.code ?? "flag"}-${index}`}
-                    className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm"
+                    className="rounded-md border border-amber-200 bg-card px-3 py-2 text-sm"
                   >
                     <div className="font-medium text-amber-900">
                       {(flag.severity ?? "info").toUpperCase()} -{" "}
@@ -315,8 +319,11 @@ export default function DischargeSummaryPage() {
 
             {/* Medications */}
             {Array.isArray(summary.medications_on_discharge) &&
-              (summary.medications_on_discharge as Array<Record<string, string>>)
-                .length > 0 && (
+              (
+                summary.medications_on_discharge as Array<
+                  Record<string, string>
+                >
+              ).length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-gray-700 mb-2">
                     Medications on Discharge
@@ -428,7 +435,7 @@ function Field({
         className={`w-full px-3 py-2 border rounded-lg text-sm ${
           readOnly
             ? "bg-gray-50 text-gray-600 cursor-not-allowed"
-            : "bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            : "bg-card focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         } border-gray-300`}
       />
     </div>

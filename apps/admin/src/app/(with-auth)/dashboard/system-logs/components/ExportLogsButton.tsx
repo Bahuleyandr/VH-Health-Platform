@@ -147,7 +147,7 @@ export function ExportLogsButton({
       </div>
 
       {/* Example dropdown wiring (hidden by default) */}
-      <div className="hidden origin-top-right absolute right-0 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+      <div className="hidden origin-top-right absolute right-0 mt-2 w-40 rounded-md shadow-lg bg-card ring-1 ring-black ring-opacity-5">
         <div className="py-1" role="menu">
           <button
             onClick={() => handleExport("json")}

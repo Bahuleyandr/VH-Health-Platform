@@ -72,7 +72,7 @@ export function PermissionEditModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 m-4">
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 m-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-semibold">
             Edit Permissions — {admin.name}
@@ -95,7 +95,7 @@ export function PermissionEditModal({
               <button
                 key={key}
                 onClick={() => applyTemplate(key)}
-                className="px-3 py-1.5 text-sm rounded-full border border-input hover:border-primary hover:text-primary bg-white transition-colors"
+                className="px-3 py-1.5 text-sm rounded-full border border-input hover:border-primary hover:text-primary bg-card transition-colors"
               >
                 {tmpl.label}
               </button>
@@ -105,10 +105,7 @@ export function PermissionEditModal({
 
         <div className="space-y-4">
           {Object.entries(PERMISSION_CATEGORIES).map(([catKey, cat]) => (
-            <div
-              key={catKey}
-              className="border border-border rounded-lg p-4"
-            >
+            <div key={catKey} className="border border-border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-foreground">{cat.label}</h4>
                 <div className="flex gap-2">
@@ -147,7 +144,7 @@ export function PermissionEditModal({
                         }`}
                       >
                         <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          className={`inline-block h-4 w-4 transform rounded-full bg-card transition-transform ${
                             enabled ? "translate-x-6" : "translate-x-1"
                           }`}
                         />
