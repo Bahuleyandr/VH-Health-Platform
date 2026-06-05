@@ -54,6 +54,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _opAiAssistModules = const [];
   int _pendingSyncCount = 0;
   int _clinicalServiceTabIndex = 0;
+  bool _recentActivityExpanded = false;
 
   @override
   void initState() {
@@ -589,12 +590,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                           // Recent activity
                           if (_recentNotifications.isNotEmpty) ...[
-                            _buildSectionHeader(
-                              s.dashboardRecentActivity,
-                              '/notifications',
-                            ),
-                            const SizedBox(height: 8),
-                            ..._recentNotifications.map(_buildActivityItem),
+                            _buildRecentActivitySection(),
                             const SizedBox(height: 16),
                           ],
 
@@ -1546,57 +1542,90 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 900
-            ? stats.length.clamp(1, 4)
-            : width >= 560
-            ? 2
-            : 1;
-        final tileWidth = (width - (columns - 1) * 8) / columns;
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: stats.map((s) {
-            return SizedBox(
-              width: tileWidth,
-              child: Card(
-                margin: EdgeInsets.zero,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: s.route != null ? () => context.push(s.route!) : null,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(s.icon, color: s.color, size: 22),
-                        const SizedBox(height: 6),
-                        Text(
-                          s.value,
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: s.color,
-                          ),
-                        ),
-                        Text(
-                          s.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
+        final compact = constraints.maxWidth < 760;
+        final micro = constraints.maxWidth < 520;
+        final gap = micro ? 4.0 : 8.0;
+        final height = micro
+            ? 78.0
+            : compact
+            ? 88.0
+            : 96.0;
+
+        return SizedBox(
+          height: height,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < stats.length; i++) ...[
+                Expanded(
+                  child: _buildStatCard(
+                    stats[i],
+                    compact: compact,
+                    micro: micro,
                   ),
                 ),
-              ),
-            );
-          }).toList(),
+                if (i != stats.length - 1) SizedBox(width: gap),
+              ],
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildStatCard(
+    _StatItem item, {
+    required bool compact,
+    required bool micro,
+  }) {
+    final labelStyle = TextStyle(
+      fontSize: micro ? 8 : 10,
+      color: AppTheme.textSecondary,
+      height: 1.1,
+    );
+    return Card(
+      margin: EdgeInsets.zero,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: item.route != null ? () => context.push(item.route!) : null,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: micro ? 6 : 10,
+            vertical: compact ? 8 : 12,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(item.icon, color: item.color, size: micro ? 16 : 22),
+              SizedBox(height: micro ? 3 : 6),
+              Text(
+                item.value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: micro
+                      ? 15
+                      : compact
+                      ? 17
+                      : 20,
+                  fontWeight: FontWeight.bold,
+                  color: item.color,
+                  height: 1,
+                ),
+              ),
+              SizedBox(height: micro ? 2 : 4),
+              Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: labelStyle,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1869,6 +1898,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
               )
             : null,
       ),
+    );
+  }
+
+  Widget _buildRecentActivitySection() {
+    final s = AppStrings.of(context);
+    final count = _recentNotifications.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              s.dashboardRecentActivity,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primaryBlue,
+                ),
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () => setState(
+                () => _recentActivityExpanded = !_recentActivityExpanded,
+              ),
+              icon: Icon(
+                _recentActivityExpanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+              ),
+              label: Text(
+                _recentActivityExpanded
+                    ? s.dashboardCollapse
+                    : s.dashboardExpand,
+              ),
+            ),
+            TextButton(
+              onPressed: () => context.push('/notifications'),
+              child: Text(s.dashboardSeeAll),
+            ),
+          ],
+        ),
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Column(
+              children: _recentNotifications.map(_buildActivityItem).toList(),
+            ),
+          ),
+          crossFadeState: _recentActivityExpanded
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 180),
+          sizeCurve: Curves.easeOutCubic,
+        ),
+      ],
     );
   }
 }

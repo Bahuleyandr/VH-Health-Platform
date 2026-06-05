@@ -184,6 +184,8 @@ class AppStrings {
   String get dashboardMoreTools => _t('dashboard.more_tools');
   String get dashboardMoreToolsHint => _t('dashboard.more_tools_hint');
   String get dashboardRecentActivity => _t('dashboard.recent_activity');
+  String get dashboardExpand => _t('dashboard.expand');
+  String get dashboardCollapse => _t('dashboard.collapse');
   String get dashboardCheckedInTitle => _t('dashboard.checked_in_title');
   String get dashboardNotCheckedInTitle => _t('dashboard.not_checked_in_title');
   String get dashboardSinceTimePrefix => _t('dashboard.since_time_prefix');
@@ -2328,6 +2330,8 @@ class AppStrings {
       'dashboard.more_tools_hint':
           'Leave, profile, settings, and occasional workflows',
       'dashboard.recent_activity': 'Recent Activity',
+      'dashboard.expand': 'Expand',
+      'dashboard.collapse': 'Collapse',
       'dashboard.checked_in_title': 'Checked In',
       'dashboard.not_checked_in_title': 'Not Checked In',
       'dashboard.since_time_prefix': 'Since',
@@ -4126,6 +4130,8 @@ class AppStrings {
       'dashboard.more_tools_hint':
           'छुट्टी, प्रोफ़ाइल, सेटिंग्स और कभी-कभार के कार्य',
       'dashboard.recent_activity': 'हाल की गतिविधि',
+      'dashboard.expand': 'खोलें',
+      'dashboard.collapse': 'समेटें',
       'dashboard.checked_in_title': 'चेक इन हो गया',
       'dashboard.not_checked_in_title': 'चेक इन नहीं हुआ',
       'dashboard.since_time_prefix': 'से',
@@ -6099,6 +6105,8 @@ class AppStrings {
       'dashboard.more_tools_hint':
           'விடுப்பு, சுயவிவரம், அமைப்புகள் மற்றும் அரிதான பணிகள்',
       'dashboard.recent_activity': 'சமீபத்திய செயல்பாடு',
+      'dashboard.expand': 'விரி',
+      'dashboard.collapse': 'சுருக்கு',
       'dashboard.checked_in_title': 'சரிபார்க்கப்பட்டது',
       'dashboard.not_checked_in_title': 'சரிபார்க்கப்படவில்லை',
       'dashboard.since_time_prefix': 'முதல்',
@@ -8535,6 +8543,8 @@ class AppStrings {
       'dashboard.more_tools_hint':
           'సెలవు, ప్రొఫైల్, సెట్టింగులు మరియు అప్పుడప్పుడు చేసే పనులు',
       'dashboard.recent_activity': 'ఇటీవలి కార్యకలాపం',
+      'dashboard.expand': 'విస్తరించు',
+      'dashboard.collapse': 'కుదించు',
       'dashboard.checked_in_title': 'చెక్ ఇన్',
       'dashboard.not_checked_in_title': 'చెక్ ఇన్ కాలేదు',
       'dashboard.since_time_prefix': 'నుండి',
