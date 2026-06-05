@@ -1,9 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+
+class _TimelineAction {
+  final IconData icon;
+  final String label;
+  final String route;
+
+  const _TimelineAction({
+    required this.icon,
+    required this.label,
+    required this.route,
+  });
+}
 
 /// EMR Patient Timeline — chronological list of all clinical events for a patient.
 class PatientTimelineScreen extends StatefulWidget {
@@ -464,6 +477,63 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     );
   }
 
+  String _patientRouteQuery() {
+    final params = <String>[
+      if ((widget.patientName ?? '').trim().isNotEmpty)
+        'name=${Uri.encodeQueryComponent(widget.patientName!.trim())}',
+    ];
+    return params.isEmpty ? '' : '?${params.join('&')}';
+  }
+
+  Widget _buildClinicalActionStrip() {
+    final query = _patientRouteQuery();
+    final actions = [
+      _TimelineAction(
+        icon: Icons.note_add_outlined,
+        label: 'Add note',
+        route: '/emr/notes/${widget.patientUid}$query',
+      ),
+      _TimelineAction(
+        icon: Icons.receipt_long_outlined,
+        label: 'Orders',
+        route: '/emr/orders/${widget.patientUid}$query',
+      ),
+      _TimelineAction(
+        icon: Icons.monitor_heart_outlined,
+        label: 'Vitals',
+        route: '/emr/vitals/${widget.patientUid}$query',
+      ),
+      _TimelineAction(
+        icon: Icons.biotech_outlined,
+        label: 'Investigations',
+        route:
+            '/investigations?patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
+      ),
+    ];
+
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        itemCount: actions.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final action = actions[index];
+          return ActionChip(
+            avatar: Icon(action.icon, size: 18, color: AppTheme.primaryBlue),
+            label: Text(action.label),
+            onPressed: () => context.push(action.route),
+            backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.08),
+            side: BorderSide(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.22),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   // ── Timeline Item ──
 
   Widget _buildTimelineItem(Map<String, dynamic> event, bool isLast) {
@@ -641,6 +711,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
           : Column(
               children: [
                 const SizedBox(height: 8),
+                _buildClinicalActionStrip(),
+                const SizedBox(height: 4),
                 _buildFilterChips(),
                 const SizedBox(height: 8),
                 Expanded(

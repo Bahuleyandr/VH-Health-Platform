@@ -25,7 +25,6 @@ import '../../features/ward/screens/ward_mode_screen.dart';
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
-import '../../features/doctor/screens/queue_screen.dart';
 
 // Clinical AI (Phase 2 of the rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md)
 import '../../features/clinical_ai/screens/clinical_ai_review_queue_screen.dart';
@@ -353,8 +352,9 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/queue',
           name: 'queue',
+          redirect: (context, state) => '/appointments',
           pageBuilder: (context, state) =>
-              const NoTransitionPage(child: QueueScreen()),
+              const NoTransitionPage(child: AppointmentsScreen()),
         ),
         GoRoute(
           path: '/appointment-queue',

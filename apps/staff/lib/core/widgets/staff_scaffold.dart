@@ -119,7 +119,12 @@ class StaffScaffold extends StatelessWidget {
             Icons.dashboard,
             '/dashboard',
           ),
-          const _NavItem('Queue', Icons.queue_outlined, Icons.queue, '/queue'),
+          const _NavItem(
+            'Appointments',
+            Icons.calendar_month_outlined,
+            Icons.calendar_month,
+            '/appointments',
+          ),
           const _NavItem(
             'Records',
             Icons.folder_shared_outlined,

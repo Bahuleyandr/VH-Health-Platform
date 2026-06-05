@@ -554,13 +554,6 @@ class RoleFeatures {
     route: '/nursing-notes',
     color: Color(0xFF00695C),
   );
-  static const DashboardFeature _queue = DashboardFeature(
-    id: 'queue',
-    title: 'Patient Queue',
-    icon: Icons.queue,
-    route: '/queue',
-    color: Color(0xFF1565C0),
-  );
   static const DashboardFeature _clinicalAiReviewQueue = DashboardFeature(
     id: 'clinical_ai_review_queue',
     title: 'AI Review',
@@ -703,23 +696,17 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
-        _frontOfficeWorkbench,
-        _queue,
         _clinicalAiReviewQueue,
         _opAiAssist,
         _appointments,
         _patientRecords,
         _prescriptions,
         _investigationResults,
-        _cathLab,
-        _theatre,
-        _radiology,
         _patientCommandBoard,
         _referrals,
         _bedBoard,
         _wardMode,
         _dischargeHub,
-        _bloodBank,
         _leave,
         _staffDirectory,
         _messaging,
@@ -1127,11 +1114,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.queue_outlined),
-            activeIcon: Icon(Icons.queue),
-            label: 'Queue',
+            icon: Icon(Icons.calendar_month_outlined),
+            activeIcon: Icon(Icons.calendar_month),
+            label: 'Appointments',
           ),
-          route: '/queue',
+          route: '/appointments',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -1814,8 +1801,6 @@ class RoleFeatures {
       StaffRole.admin ||
       StaffRole.superAdmin ||
       StaffRole.medicalSuperintendent ||
-      StaffRole.doctor ||
-      StaffRole.dutyDoctor ||
       StaffRole.opStaffNurse ||
       StaffRole.opIncharge ||
       StaffRole.receptionist ||
@@ -2001,6 +1986,17 @@ class RoleFeatures {
           icon: Icons.space_dashboard_outlined,
           selectedIcon: Icons.space_dashboard,
           route: '/front-office',
+        ),
+      );
+    }
+
+    if (role == StaffRole.doctor || role == StaffRole.dutyDoctor) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'Appointments',
+          icon: Icons.calendar_month_outlined,
+          selectedIcon: Icons.calendar_month,
+          route: '/appointments',
         ),
       );
     }

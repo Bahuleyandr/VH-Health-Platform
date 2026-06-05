@@ -630,8 +630,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ) {
     final dailyIds = switch (_role) {
       StaffRole.doctor || StaffRole.dutyDoctor || StaffRole.anaesthetist => {
-        'front_office_workbench',
-        'queue',
         'clinical_ai_review_queue',
         'op_ai_assist',
         'appointments',
@@ -639,13 +637,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'prescriptions',
         'referrals',
         'investigation_results',
-        'cath_lab',
-        'theatre',
-        'radiology',
         'patient_command_board',
         'bed_board',
         'ward_mode',
-        'blood_bank',
       },
       StaffRole.nurse ||
       StaffRole.nursingSuperintendent ||
@@ -856,8 +850,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'patient_records',
       },
       StaffRole.doctor => {
-        'front_office_workbench',
-        'queue',
         'clinical_ai_review_queue',
         'op_ai_assist',
         'appointments',
@@ -869,9 +861,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'bed_board',
         'ward_mode',
         'discharge_hub',
-        'radiology',
-        'theatre',
-        'blood_bank',
       },
       StaffRole.admin || StaffRole.superAdmin => {
         'front_office_workbench',
@@ -1109,15 +1098,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
-              'front_office_workbench',
-              'queue',
               'clinical_ai_review_queue',
               'op_ai_assist',
               'appointments',
               'patient_records',
               'prescriptions',
               'investigation_results',
-              'cath_lab',
             ],
             titleOverrides: {
               'patient_records': s.dashboardOpPatientRecords,
@@ -1140,10 +1126,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records',
               'prescriptions',
               'investigation_results',
-              'radiology',
-              'theatre',
-              'cath_lab',
-              'blood_bank',
             ],
             titleOverrides: {
               'patient_records': s.dashboardIpPatientRecords,
@@ -1168,7 +1150,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'investigations_upload',
               'investigation_results',
               'lab_bookings',
-              'cath_lab',
             ],
             titleOverrides: {
               'patient_records': s.dashboardOpPatientRecords,
@@ -1806,6 +1787,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String _appointmentPatientUid(Map<String, dynamic> apt) {
+    final patient = apt['patient'];
+    return _firstText([
+      apt['patient_uid'],
+      apt['patientUid'],
+      patient is Map ? patient['uid'] : null,
+      patient is Map ? patient['patient_uid'] : null,
+    ]);
+  }
+
+  void _openAppointmentPatient(Map<String, dynamic> apt, String patientName) {
+    final uid = _appointmentPatientUid(apt);
+    if (uid.isEmpty) {
+      context.push('/appointments');
+      return;
+    }
+    final appointmentId = _firstText([
+      apt['id'],
+      apt['appointment_id'],
+      apt['appointmentId'],
+    ]);
+    final query = <String>[
+      'name=${Uri.encodeQueryComponent(patientName)}',
+      if (appointmentId.isNotEmpty)
+        'appointment_id=${Uri.encodeQueryComponent(appointmentId)}',
+      'context=op',
+    ].join('&');
+    context.push('/emr/timeline/$uid?$query');
+  }
+
   Widget _buildAppointmentCard(Map<String, dynamic> apt) {
     final patient = apt['patient'];
     final patientName = _firstText([
@@ -1855,7 +1866,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ].join(' • '),
         ),
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-        onTap: () => context.push('/appointments'),
+        onTap: () => _openAppointmentPatient(apt, patientName),
       ),
     );
   }

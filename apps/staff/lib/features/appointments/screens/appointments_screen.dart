@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/api_config.dart';
@@ -67,9 +68,19 @@ bool _isDoctorQueueRole(String role) =>
 
 const int _calendarStartHour = 5;
 const int _calendarEndHour = 22;
-const double _calendarHourHeight = 68;
-const double _calendarTimeGutterWidth = 64;
-const double _calendarDayColumnWidth = 156;
+const double _calendarTimeGutterWidth = 56;
+
+double _calendarHourHeightForWidth(double width) {
+  if (width < 760) return 46;
+  if (width < 1100) return 52;
+  return 58;
+}
+
+double _calendarHeaderHeightForWidth(double width) {
+  if (width < 760) return 60;
+  if (width < 1100) return 68;
+  return 76;
+}
 
 Color _appointmentStatusColor(String status) {
   return switch (status.toLowerCase()) {
@@ -154,6 +165,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   String _doctorDepartmentQuery = '';
   late DateTime _selectedDate;
   String _scopeLabel = 'All OP queues';
+  bool _doctorScoped = false;
+
+  bool get _canBookAppointments => !_doctorScoped;
 
   List<StaffAppointment> get _filtered => _appointmentsByDate.values
       .expand((rows) => rows)
@@ -247,6 +261,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       if (mounted) {
         setState(() {
           _appointmentsByDate = byDate;
+          _doctorScoped = doctorScoped;
           _scopeLabel = doctorScoped ? 'My OP queue' : 'All OP queues';
         });
       }
@@ -287,6 +302,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       if (!mounted) return;
       ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
     }
+  }
+
+  String _appointmentPatientRoute(StaffAppointment appointment) {
+    final uid = appointment.patientUid.trim();
+    if (uid.isEmpty) return '/patient-records';
+    final name = Uri.encodeQueryComponent(appointment.patientName);
+    final appointmentId = appointment.id?.toString() ?? '';
+    final qp = [
+      'name=$name',
+      if (appointmentId.isNotEmpty) 'appointment_id=$appointmentId',
+      'context=op',
+    ].join('&');
+    return '/emr/timeline/$uid?$qp';
+  }
+
+  void _openAppointmentPatient(StaffAppointment appointment) {
+    context.push(_appointmentPatientRoute(appointment));
   }
 
   Future<void> _createAppointment() async {
@@ -1049,15 +1081,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 ),
               ),
               _CalendarModePill(scopeLabel: _scopeLabel),
-              FilledButton.icon(
-                onPressed: _createAppointment,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Book OP'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+              if (_canBookAppointments)
+                FilledButton.icon(
+                  onPressed: _createAppointment,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Book OP'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                  ),
                 ),
-              ),
             ],
           );
         },
@@ -1066,6 +1099,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   void _openAppointmentActions(StaffAppointment appointment) {
+    if (_doctorScoped) {
+      _openAppointmentPatient(appointment);
+      return;
+    }
     final statusColor = _appointmentStatusColor(appointment.status);
     showModalBottomSheet<void>(
       context: context,
@@ -1189,16 +1226,19 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           );
         }
 
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
+        return Padding(
           padding: const EdgeInsets.all(16),
           child: SizedBox(
             width: constraints.maxWidth - 32,
+            height: constraints.maxHeight - 32,
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(width: 286, child: sidebar),
-                const SizedBox(width: 16),
+                SizedBox(
+                  width: constraints.maxWidth >= 1280 ? 286 : 254,
+                  child: SingleChildScrollView(child: sidebar),
+                ),
+                const SizedBox(width: 12),
                 Expanded(child: board),
               ],
             ),
@@ -1760,14 +1800,63 @@ class _WeekCalendarBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = _dateOnly(selectedDate);
-    final minWidth =
-        _calendarTimeGutterWidth + (_calendarDayColumnWidth * days.length);
     return LayoutBuilder(
       builder: (context, constraints) {
+        final compact = constraints.maxWidth < 960;
+        final minDayWidth = compact ? 96.0 : 118.0;
+        final minWidth = _calendarTimeGutterWidth + (minDayWidth * days.length);
         final boardWidth = constraints.maxWidth > minWidth
             ? constraints.maxWidth
             : minWidth;
         final dayWidth = (boardWidth - _calendarTimeGutterWidth) / days.length;
+        final hourHeight = _calendarHourHeightForWidth(constraints.maxWidth);
+        final headerHeight = _calendarHeaderHeightForWidth(
+          constraints.maxWidth,
+        );
+        final floatingHeight = compact ? 96.0 : 112.0;
+        final content = SizedBox(
+          width: boardWidth,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _WeekHeader(
+                  days: days,
+                  selectedDate: selected,
+                  dayWidth: dayWidth,
+                  height: headerHeight,
+                  onDateSelected: onDateSelected,
+                  appointmentCountFor: (day) => _appointmentsFor(day).length,
+                ),
+                _FloatingAppointmentRow(
+                  days: days,
+                  dayWidth: dayWidth,
+                  height: floatingHeight,
+                  selectedDate: selected,
+                  appointmentsFor: _floatingAppointments,
+                  onDateSelected: onDateSelected,
+                  onAppointmentTap: onAppointmentTap,
+                ),
+                for (
+                  var hour = _calendarStartHour;
+                  hour < _calendarEndHour;
+                  hour += 1
+                )
+                  _HourRow(
+                    hour: hour,
+                    days: days,
+                    dayWidth: dayWidth,
+                    hourHeight: hourHeight,
+                    selectedDate: selected,
+                    appointmentsForHour: (day) =>
+                        _appointmentsForHour(day, hour),
+                    onDateSelected: onDateSelected,
+                    onAppointmentTap: onAppointmentTap,
+                  ),
+              ],
+            ),
+          ),
+        );
         return Container(
           decoration: BoxDecoration(
             color: AppTheme.cardSurface,
@@ -1776,44 +1865,7 @@ class _WeekCalendarBoard extends StatelessWidget {
           ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: boardWidth,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _WeekHeader(
-                    days: days,
-                    selectedDate: selected,
-                    dayWidth: dayWidth,
-                    onDateSelected: onDateSelected,
-                    appointmentCountFor: (day) => _appointmentsFor(day).length,
-                  ),
-                  _FloatingAppointmentRow(
-                    days: days,
-                    dayWidth: dayWidth,
-                    selectedDate: selected,
-                    appointmentsFor: _floatingAppointments,
-                    onDateSelected: onDateSelected,
-                    onAppointmentTap: onAppointmentTap,
-                  ),
-                  for (
-                    var hour = _calendarStartHour;
-                    hour < _calendarEndHour;
-                    hour += 1
-                  )
-                    _HourRow(
-                      hour: hour,
-                      days: days,
-                      dayWidth: dayWidth,
-                      selectedDate: selected,
-                      appointmentsForHour: (day) =>
-                          _appointmentsForHour(day, hour),
-                      onDateSelected: onDateSelected,
-                      onAppointmentTap: onAppointmentTap,
-                    ),
-                ],
-              ),
-            ),
+            child: content,
           ),
         );
       },
@@ -1825,6 +1877,7 @@ class _WeekHeader extends StatelessWidget {
   final List<DateTime> days;
   final DateTime selectedDate;
   final double dayWidth;
+  final double height;
   final ValueChanged<DateTime> onDateSelected;
   final int Function(DateTime day) appointmentCountFor;
 
@@ -1832,6 +1885,7 @@ class _WeekHeader extends StatelessWidget {
     required this.days,
     required this.selectedDate,
     required this.dayWidth,
+    required this.height,
     required this.onDateSelected,
     required this.appointmentCountFor,
   });
@@ -1848,7 +1902,7 @@ class _WeekHeader extends StatelessWidget {
         children: [
           SizedBox(
             width: _calendarTimeGutterWidth,
-            height: 84,
+            height: height,
             child: Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
@@ -1868,6 +1922,7 @@ class _WeekHeader extends StatelessWidget {
             _DayHeaderCell(
               day: day,
               width: dayWidth,
+              height: height,
               selected: _dateOnly(day) == selectedDate,
               today: _dateOnly(day) == _dateOnly(DateTime.now()),
               count: appointmentCountFor(day),
@@ -1882,6 +1937,7 @@ class _WeekHeader extends StatelessWidget {
 class _DayHeaderCell extends StatelessWidget {
   final DateTime day;
   final double width;
+  final double height;
   final bool selected;
   final bool today;
   final int count;
@@ -1890,6 +1946,7 @@ class _DayHeaderCell extends StatelessWidget {
   const _DayHeaderCell({
     required this.day,
     required this.width,
+    required this.height,
     required this.selected,
     required this.today,
     required this.count,
@@ -1902,7 +1959,7 @@ class _DayHeaderCell extends StatelessWidget {
       onTap: onTap,
       child: Container(
         width: width,
-        height: 84,
+        height: height,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: selected
@@ -1968,6 +2025,7 @@ class _DayHeaderCell extends StatelessWidget {
 class _FloatingAppointmentRow extends StatelessWidget {
   final List<DateTime> days;
   final double dayWidth;
+  final double height;
   final DateTime selectedDate;
   final List<StaffAppointment> Function(DateTime day) appointmentsFor;
   final ValueChanged<DateTime> onDateSelected;
@@ -1976,6 +2034,7 @@ class _FloatingAppointmentRow extends StatelessWidget {
   const _FloatingAppointmentRow({
     required this.days,
     required this.dayWidth,
+    required this.height,
     required this.selectedDate,
     required this.appointmentsFor,
     required this.onDateSelected,
@@ -1987,7 +2046,7 @@ class _FloatingAppointmentRow extends StatelessWidget {
     final hasFloating = days.any((day) => appointmentsFor(day).isNotEmpty);
     if (!hasFloating) return const SizedBox.shrink();
     return SizedBox(
-      height: 132,
+      height: height,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -2023,6 +2082,7 @@ class _HourRow extends StatelessWidget {
   final int hour;
   final List<DateTime> days;
   final double dayWidth;
+  final double hourHeight;
   final DateTime selectedDate;
   final List<StaffAppointment> Function(DateTime day) appointmentsForHour;
   final ValueChanged<DateTime> onDateSelected;
@@ -2032,6 +2092,7 @@ class _HourRow extends StatelessWidget {
     required this.hour,
     required this.days,
     required this.dayWidth,
+    required this.hourHeight,
     required this.selectedDate,
     required this.appointmentsForHour,
     required this.onDateSelected,
@@ -2041,7 +2102,7 @@ class _HourRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: _calendarHourHeight,
+      height: hourHeight,
       child: Row(
         children: [
           SizedBox(
@@ -2064,7 +2125,7 @@ class _HourRow extends StatelessWidget {
           for (final day in days)
             _CalendarCell(
               width: dayWidth,
-              minHeight: _calendarHourHeight,
+              minHeight: hourHeight,
               selected: _dateOnly(day) == selectedDate,
               onTap: () => onDateSelected(day),
               appointments: appointmentsForHour(day),

@@ -115,9 +115,13 @@ void main() {
       expect(ids, contains('patient_records'));
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('op_ai_assist'));
-      expect(ids, contains('theatre'));
-      expect(ids, contains('blood_bank'));
       expect(ids, contains('ward_mode'));
+      expect(ids, isNot(contains('front_office_workbench')));
+      expect(ids, isNot(contains('queue')));
+      expect(ids, isNot(contains('cath_lab')));
+      expect(ids, isNot(contains('theatre')));
+      expect(ids, isNot(contains('radiology')));
+      expect(ids, isNot(contains('blood_bank')));
       expect(ids, isNot(contains('hr_dashboard')));
       expect(ids, isNot(contains('staff_management')));
     });
@@ -498,7 +502,7 @@ void main() {
         RoleFeatures.hasFrontOfficeWorkbench(StaffRole.receptionist),
         isTrue,
       );
-      expect(RoleFeatures.hasFrontOfficeWorkbench(StaffRole.doctor), isTrue);
+      expect(RoleFeatures.hasFrontOfficeWorkbench(StaffRole.doctor), isFalse);
       expect(RoleFeatures.hasFrontOfficeWorkbench(StaffRole.nurse), isFalse);
       expect(RoleFeatures.hasBillingDesk(StaffRole.billingStaff), isTrue);
       expect(RoleFeatures.hasIpAdmissionAccess(StaffRole.receptionist), isTrue);
@@ -530,7 +534,9 @@ void main() {
       );
       expect(admissionsLabel, 'IP Admissions');
       expect(receptionistRoutes, isNot(contains('/appointment-queue')));
-      expect(doctorRoutes, containsAll(['/front-office', '/patient-records']));
+      expect(doctorRoutes, contains('/patient-records'));
+      expect(doctorRoutes, contains('/appointments'));
+      expect(doctorRoutes, isNot(contains('/front-office')));
       expect(patientRecordsLabel, 'Patient Records');
       expect(doctorRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, isNot(contains('/billing-desk')));

@@ -3,6 +3,7 @@ class StaffAppointment {
   final int? id;
   final int? patientId;
   final int? doctorId;
+  final String patientUid;
   final String patientName;
   final String patientPhone;
   final String doctorName;
@@ -20,6 +21,7 @@ class StaffAppointment {
     required this.id,
     required this.patientId,
     required this.doctorId,
+    required this.patientUid,
     required this.patientName,
     required this.patientPhone,
     required this.doctorName,
@@ -64,6 +66,12 @@ class StaffAppointment {
       id: _intFrom(json['id'] ?? json['_id']),
       patientId: _intFrom(json['patient_id'] ?? json['patientId']),
       doctorId: _intFrom(json['doctor_id'] ?? json['doctorId']),
+      patientUid: _firstText([
+        json['patient_uid'],
+        json['patientUid'],
+        patient?['uid'],
+        patient?['patient_uid'],
+      ]),
       patientName: patientName.isEmpty ? 'Unknown Patient' : patientName,
       patientPhone: _firstText([
         json['patient_phone'],
