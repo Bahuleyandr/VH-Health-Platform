@@ -25,6 +25,7 @@ import '../../features/ward/screens/ward_mode_screen.dart';
 // Doctor
 import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
+import '../../features/opd/screens/op_doctor_workspace_screen.dart';
 
 // Clinical AI (Phase 2 of the rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md)
 import '../../features/clinical_ai/screens/clinical_ai_review_queue_screen.dart';
@@ -345,6 +346,30 @@ final GoRouter appRouter = GoRouter(
             return NoTransitionPage(
               child: PrescriptionsScreen(
                 prefilledAppointment: prefilledAppointment,
+              ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/op/doctor-workspace/:uid',
+          name: 'op-doctor-workspace',
+          pageBuilder: (context, state) {
+            final uid = state.pathParameters['uid']!;
+            final q = state.uri.queryParameters;
+            int? intParam(String key) => int.tryParse(q[key] ?? '');
+            return NoTransitionPage(
+              child: OpDoctorWorkspaceScreen(
+                patientUid: uid,
+                patientName: q['name'],
+                appointmentId: intParam('appointment_id'),
+                patientId: intParam('patient_id'),
+                doctorId: intParam('doctor_id'),
+                doctorName: q['doctor_name'],
+                department: q['department'],
+                reason: q['reason'],
+                appointmentDate: q['date'],
+                appointmentTime: q['time'],
+                status: q['status'],
               ),
             );
           },

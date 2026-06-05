@@ -21,6 +21,7 @@ import '../../../core/widgets/patient_search_action.dart';
 import '../../../core/widgets/theme_toggle_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../../clinical_ai/op_ai_assist_availability.dart';
+import '../../opd/op_doctor_workspace_route.dart';
 import '../dashboard_inpatient_count.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -1787,34 +1788,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  String _appointmentPatientUid(Map<String, dynamic> apt) {
-    final patient = apt['patient'];
-    return _firstText([
-      apt['patient_uid'],
-      apt['patientUid'],
-      patient is Map ? patient['uid'] : null,
-      patient is Map ? patient['patient_uid'] : null,
-    ]);
-  }
-
   void _openAppointmentPatient(Map<String, dynamic> apt, String patientName) {
-    final uid = _appointmentPatientUid(apt);
-    if (uid.isEmpty) {
-      context.push('/appointments');
-      return;
-    }
-    final appointmentId = _firstText([
-      apt['id'],
-      apt['appointment_id'],
-      apt['appointmentId'],
-    ]);
-    final query = <String>[
-      'name=${Uri.encodeQueryComponent(patientName)}',
-      if (appointmentId.isNotEmpty)
-        'appointment_id=${Uri.encodeQueryComponent(appointmentId)}',
-      'context=op',
-    ].join('&');
-    context.push('/emr/timeline/$uid?$query');
+    context.push(
+      opDoctorWorkspaceRouteFromMap(apt, fallbackPatientName: patientName),
+    );
   }
 
   Widget _buildAppointmentCard(Map<String, dynamic> apt) {

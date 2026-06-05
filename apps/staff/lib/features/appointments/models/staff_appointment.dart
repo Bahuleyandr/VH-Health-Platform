@@ -64,8 +64,16 @@ class StaffAppointment {
     return StaffAppointment._(
       raw: Map<String, dynamic>.from(json),
       id: _intFrom(json['id'] ?? json['_id']),
-      patientId: _intFrom(json['patient_id'] ?? json['patientId']),
-      doctorId: _intFrom(json['doctor_id'] ?? json['doctorId']),
+      patientId: _intFrom(
+        json['patient_id'] ?? json['patientId'] ?? patient?['id'],
+      ),
+      doctorId: _intFrom(
+        json['doctor_id'] ??
+            json['doctorId'] ??
+            doctor?['user_id'] ??
+            doctor?['userId'] ??
+            doctor?['id'],
+      ),
       patientUid: _firstText([
         json['patient_uid'],
         json['patientUid'],

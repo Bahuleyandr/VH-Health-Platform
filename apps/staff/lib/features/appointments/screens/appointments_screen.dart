@@ -14,6 +14,7 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../appointment_calendar_helpers.dart';
 import '../models/staff_appointment.dart';
+import '../../opd/op_doctor_workspace_route.dart';
 
 export '../appointment_calendar_helpers.dart';
 
@@ -305,16 +306,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   }
 
   String _appointmentPatientRoute(StaffAppointment appointment) {
-    final uid = appointment.patientUid.trim();
-    if (uid.isEmpty) return '/patient-records';
-    final name = Uri.encodeQueryComponent(appointment.patientName);
-    final appointmentId = appointment.id?.toString() ?? '';
-    final qp = [
-      'name=$name',
-      if (appointmentId.isNotEmpty) 'appointment_id=$appointmentId',
-      'context=op',
-    ].join('&');
-    return '/emr/timeline/$uid?$qp';
+    return opDoctorWorkspaceRouteFromAppointment(appointment);
   }
 
   void _openAppointmentPatient(StaffAppointment appointment) {
