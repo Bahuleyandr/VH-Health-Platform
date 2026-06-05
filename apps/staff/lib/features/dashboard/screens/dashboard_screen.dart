@@ -1259,20 +1259,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final crossAxisCount = width >= 900
-            ? 6
-            : width >= 640
-            ? 4
-            : 3;
+        final crossAxisCount = _dailyWorkGridColumns(width);
+        final spacing = _dailyWorkGridSpacing(width);
+        final tileHeight = _dailyWorkTileHeight(width);
+        final tileWidth =
+            (width - (crossAxisCount - 1) * spacing) / crossAxisCount;
         return GridView.builder(
           itemCount: features.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.0,
+            mainAxisSpacing: spacing,
+            crossAxisSpacing: spacing,
+            childAspectRatio: tileWidth / tileHeight,
           ),
           itemBuilder: (context, index) {
             final feature = features[index];
@@ -1281,6 +1281,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: feature.title,
               color: feature.color,
               route: feature.route,
+              compact: width < 760,
+              micro: width < 520,
             );
           },
         );
@@ -1293,20 +1295,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       key: key,
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final crossAxisCount = width >= 900
-            ? 5
-            : width >= 640
-            ? 4
-            : 2;
+        final crossAxisCount = _dailyWorkServiceGridColumns(width);
+        final spacing = _dailyWorkGridSpacing(width);
+        final tileHeight = _dailyWorkServiceTileHeight(width);
+        final tileWidth =
+            (width - (crossAxisCount - 1) * spacing) / crossAxisCount;
         return GridView.builder(
           itemCount: tiles.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: width >= 640 ? 1.12 : 1.05,
+            mainAxisSpacing: spacing,
+            crossAxisSpacing: spacing,
+            childAspectRatio: tileWidth / tileHeight,
           ),
           itemBuilder: (context, index) {
             final tile = tiles[index];
@@ -1315,11 +1317,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: tile.title,
               color: tile.color,
               route: tile.route,
+              compact: width < 760,
+              micro: width < 520,
             );
           },
         );
       },
     );
+  }
+
+  int _dailyWorkGridColumns(double width) {
+    if (width >= 1500) return 8;
+    if (width >= 1200) return 7;
+    if (width >= 900) return 6;
+    if (width >= 720) return 5;
+    if (width >= 520) return 4;
+    return 3;
+  }
+
+  int _dailyWorkServiceGridColumns(double width) {
+    if (width >= 1400) return 8;
+    if (width >= 1100) return 7;
+    if (width >= 860) return 6;
+    if (width >= 680) return 5;
+    if (width >= 520) return 4;
+    return 3;
+  }
+
+  double _dailyWorkGridSpacing(double width) {
+    if (width < 520) return 6;
+    if (width < 760) return 8;
+    return 10;
+  }
+
+  double _dailyWorkTileHeight(double width) {
+    if (width < 520) return 72;
+    if (width < 760) return 82;
+    return 92;
+  }
+
+  double _dailyWorkServiceTileHeight(double width) {
+    if (width < 520) return 72;
+    if (width < 760) return 80;
+    return 88;
   }
 
   Widget _buildMoreTools(List<DashboardFeature> features) {
@@ -2265,22 +2305,47 @@ class _FeatureButton extends StatelessWidget {
   final String label;
   final Color color;
   final String route;
+  final bool compact;
+  final bool micro;
 
   const _FeatureButton({
     required this.icon,
     required this.label,
     required this.color,
     required this.route,
+    this.compact = false,
+    this.micro = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final iconBoxSize = micro
+        ? 28.0
+        : compact
+        ? 34.0
+        : 42.0;
+    final iconSize = micro
+        ? 16.0
+        : compact
+        ? 18.0
+        : 24.0;
+    final labelSize = micro
+        ? 8.5
+        : compact
+        ? 9.5
+        : 10.5;
+    final labelLines = compact ? 1 : 2;
+
     return GestureDetector(
       onTap: () => context.push(route),
       child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: micro ? 4 : 6,
+          vertical: micro ? 4 : 6,
+        ),
         decoration: BoxDecoration(
           color: AppTheme.cardSurface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(compact ? 12 : 14),
           border: Border.all(color: AppTheme.divider),
           boxShadow: [
             BoxShadow(
@@ -2292,27 +2357,32 @@ class _FeatureButton extends StatelessWidget {
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              width: iconBoxSize,
+              height: iconBoxSize,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(compact ? 9 : 10),
               ),
-              child: Icon(icon, color: color, size: 26),
+              child: Icon(icon, color: color, size: iconSize),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: micro ? 3 : 5),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+              child: Tooltip(
+                message: label,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: labelLines,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
             ),
