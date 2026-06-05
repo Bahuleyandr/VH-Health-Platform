@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -19,8 +21,13 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   List<dynamic> _allOrders = [];
+  List<Map<String, dynamic>> _catalog = [];
   bool _loading = true;
+  bool _catalogLoading = false;
   String? _error;
+  String? _catalogError;
+  StaffRole _role = StaffRole.general;
+  final TextEditingController _catalogSearchCtrl = TextEditingController();
 
   // Delivery tracking
   Timer? _locationTimer;
@@ -30,15 +37,27 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
+    _loadRole();
     _loadOrders();
+    _loadCatalog();
   }
 
   @override
   void dispose() {
     _stopLocationSharing(notify: false);
+    _catalogSearchCtrl.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  bool get _canManageFormulary =>
+      _role == StaffRole.pharmacyIncharge || _role.isAdminTier;
+
+  Future<void> _loadRole() async {
+    final role = StaffRole.fromString(await ApiConfig.getRole());
+    if (!mounted) return;
+    setState(() => _role = role);
   }
 
   void _startLocationSharing(int orderId) {
@@ -113,6 +132,31 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         setState(() {
           _error = e.toString().replaceFirst('Exception: ', '');
           _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadCatalog({String? search}) async {
+    setState(() {
+      _catalogLoading = true;
+      _catalogError = null;
+    });
+    try {
+      final items = await PharmacyApiService.getCatalog(
+        search: search ?? _catalogSearchCtrl.text,
+      );
+      if (mounted) {
+        setState(() {
+          _catalog = items;
+          _catalogLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _catalogError = e.toString().replaceFirst('Exception: ', '');
+          _catalogLoading = false;
         });
       }
     }
@@ -630,6 +674,340 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     }
   }
 
+  Future<void> _openCatalogEditor([Map<String, dynamic>? item]) async {
+    if (!_canManageFormulary) {
+      _snack(
+        'Only Pharmacy Incharge or Admin can change the formulary',
+        isError: true,
+      );
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final nameCtrl = TextEditingController(
+      text: item?['name']?.toString() ?? '',
+    );
+    final genericCtrl = TextEditingController(
+      text: item?['generic_name']?.toString() ?? '',
+    );
+    final categoryCtrl = TextEditingController(
+      text: item?['category']?.toString() ?? 'other',
+    );
+    final manufacturerCtrl = TextEditingController(
+      text: item?['manufacturer']?.toString() ?? '',
+    );
+    final unitPriceCtrl = TextEditingController(
+      text: (item?['unit_price'] ?? item?['price'] ?? '').toString(),
+    );
+    final packSizeCtrl = TextEditingController(
+      text: item?['pack_size']?.toString() ?? '',
+    );
+    final stockCtrl = TextEditingController(
+      text: (item?['stock_quantity'] ?? item?['stock'] ?? '0').toString(),
+    );
+    final reorderCtrl = TextEditingController(
+      text: (item?['reorder_level'] ?? '10').toString(),
+    );
+    var requiresPrescription = item?['requires_prescription'] != false;
+    var inStock = item?['in_stock'] != false && item?['is_available'] != false;
+    var submitting = false;
+
+    int? itemId() {
+      final raw = item?['id'];
+      if (raw is int) return raw;
+      if (raw is num) return raw.toInt();
+      return int.tryParse(raw?.toString() ?? '');
+    }
+
+    try {
+      final saved = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: AppTheme.cardSurface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+              setSheetState(() => submitting = true);
+              try {
+                await PharmacyApiService.saveCatalogItem(
+                  id: itemId(),
+                  name: nameCtrl.text,
+                  genericName: genericCtrl.text,
+                  category: categoryCtrl.text,
+                  manufacturer: manufacturerCtrl.text,
+                  unitPrice: double.tryParse(unitPriceCtrl.text.trim()),
+                  packSize: packSizeCtrl.text,
+                  requiresPrescription: requiresPrescription,
+                  inStock: inStock,
+                  stockQuantity: int.tryParse(stockCtrl.text.trim()) ?? 0,
+                  reorderLevel: int.tryParse(reorderCtrl.text.trim()) ?? 10,
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx, true);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                setSheetState(() => submitting = false);
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item == null
+                                  ? 'Add Formulary Drug'
+                                  : 'Edit Formulary Drug',
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: submitting
+                                ? null
+                                : () => Navigator.pop(ctx, false),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Drug name with strength',
+                          hintText: 'Paracetamol 650 mg',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.medication_outlined),
+                          ),
+                        ),
+                        validator: (value) => (value?.trim().isEmpty ?? true)
+                            ? 'Drug name is required'
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: genericCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Generic name',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: categoryCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Category',
+                                hintText: 'analgesic',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: packSizeCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Pack / strength note',
+                                hintText: '10 tablets / strip',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: unitPriceCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Unit price',
+                                prefixText: '₹ ',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: manufacturerCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Manufacturer',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: stockCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Stock quantity',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: reorderCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Reorder level',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: requiresPrescription,
+                        title: const Text('Prescription required'),
+                        onChanged: submitting
+                            ? null
+                            : (value) => setSheetState(
+                                () => requiresPrescription = value,
+                              ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: inStock,
+                        title: const Text('Available in formulary'),
+                        onChanged: submitting
+                            ? null
+                            : (value) => setSheetState(() => inStock = value),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: submitting ? null : submit,
+                          icon: submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined),
+                          label: Text(submitting ? 'Saving...' : 'Save Drug'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      if (saved == true) {
+        _snack(item == null ? 'Drug added to formulary' : 'Drug updated');
+        await _loadCatalog();
+      }
+    } finally {
+      nameCtrl.dispose();
+      genericCtrl.dispose();
+      categoryCtrl.dispose();
+      manufacturerCtrl.dispose();
+      unitPriceCtrl.dispose();
+      packSizeCtrl.dispose();
+      stockCtrl.dispose();
+      reorderCtrl.dispose();
+    }
+  }
+
+  Future<void> _removeCatalogItem(Map<String, dynamic> item) async {
+    if (!_canManageFormulary) {
+      _snack(
+        'Only Pharmacy Incharge or Admin can remove formulary drugs',
+        isError: true,
+      );
+      return;
+    }
+
+    final rawId = item['id'];
+    final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    if (id == null) {
+      _snack('Could not identify formulary item', isError: true);
+      return;
+    }
+
+    final name = item['name']?.toString() ?? 'this drug';
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove from formulary?'),
+        content: Text(
+          '$name will be hidden from OP/IP prescribing suggestions and the pharmacy formulary list.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Remove'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.errorRed,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+    try {
+      await PharmacyApiService.removeCatalogItem(id);
+      _snack('Drug removed from formulary');
+      await _loadCatalog();
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILD
   // ═══════════════════════════════════════════════════════════════════════════
@@ -671,7 +1049,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${_newOrders.length} new • ${_activeOrders.length} active',
+                        '${_newOrders.length} new • ${_activeOrders.length} active • ${_catalog.length} formulary',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 12,
@@ -683,7 +1061,10 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 IconButton(
                   icon: const Icon(Icons.refresh, color: Colors.white),
                   tooltip: s.actionRefresh,
-                  onPressed: _loadOrders,
+                  onPressed: () {
+                    _loadOrders();
+                    _loadCatalog();
+                  },
                 ),
                 const SizedBox(width: 4),
                 ElevatedButton.icon(
@@ -710,6 +1091,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               Tab(text: '${s.pharmacyTabNew} (${_newOrders.length})'),
               Tab(text: '${s.pharmacyTabActive} (${_activeOrders.length})'),
               Tab(text: '${s.pharmacyTabDone} (${_completedOrders.length})'),
+              Tab(text: 'Formulary (${_catalog.length})'),
             ],
           ),
 
@@ -739,10 +1121,250 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                       _buildOrderList(_newOrders, s.pharmacyEmptyNew),
                       _buildOrderList(_activeOrders, s.pharmacyEmptyActive),
                       _buildOrderList(_completedOrders, s.pharmacyEmptyDone),
+                      _buildFormularyTab(),
                     ],
                   ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFormularyTab() {
+    return RefreshIndicator(
+      onRefresh: _loadCatalog,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.inventory_2_outlined,
+                        color: Color(0xFFE65100),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Shared Pharmacy Formulary',
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      if (_canManageFormulary)
+                        ElevatedButton.icon(
+                          onPressed: () => _openCatalogEditor(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Drug'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE65100),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 38),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _canManageFormulary
+                        ? 'OP prescriptions, IP drug charts, and pharmacy use this same backend catalog.'
+                        : 'OP prescriptions, IP drug charts, and pharmacy use this same backend catalog. Changes are limited to Pharmacy Incharge/Admin.',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _catalogSearchCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Search formulary',
+                            hintText: 'Drug, generic, or strength',
+                            prefixIcon: ExcludeSemantics(
+                              child: Icon(Icons.search),
+                            ),
+                          ),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _loadCatalog(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'Search',
+                        onPressed: () => _loadCatalog(),
+                        icon: const Icon(Icons.search),
+                      ),
+                      if (_catalogSearchCtrl.text.isNotEmpty) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _catalogSearchCtrl.clear();
+                            _loadCatalog(search: '');
+                          },
+                          icon: const Icon(Icons.clear),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_catalogLoading)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_catalogError != null)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  children: [
+                    Icon(Icons.error_outline, color: AppTheme.errorOnSurface),
+                    const SizedBox(height: 8),
+                    Text(
+                      _catalogError!,
+                      style: TextStyle(color: AppTheme.errorOnSurface),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => _loadCatalog(),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (_catalog.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: Text(
+                    'No formulary drugs found',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ),
+              ),
+            )
+          else
+            ..._catalog.map(_buildCatalogCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCatalogCard(Map<String, dynamic> item) {
+    final name = item['name']?.toString() ?? 'Unnamed drug';
+    final generic = item['generic_name']?.toString() ?? '';
+    final category = item['category']?.toString() ?? 'other';
+    final pack = item['pack_size']?.toString() ?? '';
+    final stock = item['stock'] ?? item['stock_quantity'] ?? 0;
+    final unitPrice = item['unit_price'] ?? item['price'];
+    final available =
+        item['is_available'] != false && item['in_stock'] != false;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE65100).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.medication_liquid_outlined,
+                color: Color(0xFFE65100),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (generic.isNotEmpty || pack.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        [
+                          if (generic.isNotEmpty) generic,
+                          if (pack.isNotEmpty) pack,
+                        ].join(' • '),
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Category', value: category),
+            ),
+            Expanded(
+              child: _CatalogMetric(
+                label: 'Stock',
+                value: stock.toString(),
+                valueColor: available
+                    ? AppTheme.successOnSurface
+                    : AppTheme.warningOnSurface,
+              ),
+            ),
+            Expanded(
+              child: _CatalogMetric(
+                label: 'Unit price',
+                value: unitPrice == null ? '-' : '₹$unitPrice',
+              ),
+            ),
+            _buildStatusChip(available ? 'AVAILABLE' : 'UNAVAILABLE'),
+            if (_canManageFormulary) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit formulary drug',
+                onPressed: () => _openCatalogEditor(item),
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                tooltip: 'Remove from formulary',
+                onPressed: () => _removeCatalogItem(item),
+                icon: Icon(
+                  Icons.delete_outline,
+                  color: AppTheme.errorOnSurface,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1003,6 +1625,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       'DISPATCHED' => (Colors.teal, s.pharmacyStatusDispatched),
       'DELIVERED' => (AppTheme.successGreen, s.pharmacyStatusDelivered),
       'CANCELLED' => (AppTheme.errorRed, s.pharmacyStatusCancelled),
+      'AVAILABLE' => (AppTheme.successGreen, 'Available'),
+      'UNAVAILABLE' => (AppTheme.warningAmber, 'Unavailable'),
       _ => (Colors.grey, status),
     };
 
@@ -1019,6 +1643,46 @@ class _PharmacyScreenState extends State<PharmacyScreen>
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+}
+
+class _CatalogMetric extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  const _CatalogMetric({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: valueColor ?? AppTheme.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

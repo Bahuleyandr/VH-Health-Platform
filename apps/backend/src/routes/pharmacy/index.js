@@ -73,9 +73,15 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
 wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
   get: [
     ['/catalog', [], pharmacyOrderController.getCatalog]
-  ],
+  ]
+});
+
+wrapAutoRBAC(router, 'pharmacyCatalogAdminRoutes', {
   post: [
     ['/catalog', [], pharmacyOrderController.upsertCatalog]
+  ],
+  delete: [
+    ['/catalog/:id', [], pharmacyOrderController.removeCatalog]
   ]
 });
 

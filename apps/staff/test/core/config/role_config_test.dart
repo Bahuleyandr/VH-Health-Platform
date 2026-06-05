@@ -15,6 +15,10 @@ void main() {
       expect(StaffRole.fromString('ADMIN'), StaffRole.admin);
       expect(StaffRole.fromString('SUPER_ADMIN'), StaffRole.superAdmin);
       expect(StaffRole.fromString('PHARMACY_STAFF'), StaffRole.pharmacy);
+      expect(
+        StaffRole.fromString('PHARMACY_INCHARGE'),
+        StaffRole.pharmacyIncharge,
+      );
       expect(StaffRole.fromString('LAB_STAFF'), StaffRole.lab);
       expect(StaffRole.fromString('BILLING_STAFF'), StaffRole.billingStaff);
       expect(

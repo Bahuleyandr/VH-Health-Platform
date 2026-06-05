@@ -22,6 +22,7 @@ enum StaffRole {
   admin('ADMIN'),
   superAdmin('SUPER_ADMIN'),
   pharmacy('PHARMACY_STAFF'),
+  pharmacyIncharge('PHARMACY_INCHARGE'),
   lab('LAB_STAFF'),
   radiologyStaff('RADIOLOGY_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
@@ -129,6 +130,13 @@ enum StaffRole {
       return StaffRole.cathLabIncharge;
     }
     if (const {
+      'PHARMACY_IN_CHARGE',
+      'PHARMACY_SUPERVISOR',
+      'PHARMACIST_INCHARGE',
+    }.contains(normalized)) {
+      return StaffRole.pharmacyIncharge;
+    }
+    if (const {
       'CHIEF_NURSING_OFFICER',
       'NURSING_SUPERINTENDENT',
     }.contains(normalized)) {
@@ -178,6 +186,7 @@ enum StaffRole {
     StaffRole.admin => 'Admin',
     StaffRole.superAdmin => 'Super Admin',
     StaffRole.pharmacy => 'Pharmacy',
+    StaffRole.pharmacyIncharge => 'Pharmacy Incharge',
     StaffRole.lab => 'Lab Technician',
     StaffRole.radiologyStaff => 'Radiology Staff',
     StaffRole.housekeeping => 'Housekeeping',
@@ -216,6 +225,7 @@ enum StaffRole {
     StaffRole.hr => const Color(0xFF6A1B9A),
     StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
     StaffRole.pharmacy => const Color(0xFFE65100),
+    StaffRole.pharmacyIncharge => const Color(0xFFBF360C),
     StaffRole.lab => const Color(0xFF0097A7),
     StaffRole.radiologyStaff => const Color(0xFF0277BD),
     StaffRole.housekeeping => const Color(0xFF007A64),
@@ -252,7 +262,7 @@ enum StaffRole {
     StaffRole.opStaffNurse || StaffRole.opIncharge => 'op_nursing',
     StaffRole.otNurse || StaffRole.otIncharge => 'ot_nursing',
     StaffRole.cathLabStaff || StaffRole.cathLabIncharge => 'cath_lab',
-    StaffRole.pharmacy => 'pharmacy',
+    StaffRole.pharmacy || StaffRole.pharmacyIncharge => 'pharmacy',
     StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
     StaffRole.receptionist ||
     StaffRole.receptionIncharge ||
@@ -953,7 +963,7 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
-      StaffRole.pharmacy => [
+      StaffRole.pharmacy || StaffRole.pharmacyIncharge => [
         _attendance,
         _schedule,
         _dutyPreference,
@@ -1403,7 +1413,7 @@ class RoleFeatures {
           route: '/profile',
         ),
       ],
-      StaffRole.pharmacy => [
+      StaffRole.pharmacy || StaffRole.pharmacyIncharge => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),

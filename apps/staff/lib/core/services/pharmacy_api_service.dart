@@ -22,6 +22,11 @@ class PharmacyApiService {
     return _handle(resp);
   }
 
+  static Future<Map<String, dynamic>> _delete(String path) async {
+    final resp = await ApiClient.delete(path);
+    return _handle(resp);
+  }
+
   static Map<String, dynamic> _handle(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
       final raw = Map<String, dynamic>.from(resp.raw as Map);
@@ -47,6 +52,65 @@ class PharmacyApiService {
     }
     if (value is List) return value;
     return const [];
+  }
+
+  // ─── Shared Formulary / Medication Catalog ───────────────────────────────
+
+  /// GET /pharmacy-orders/catalog — the same formulary source used by OP/IP
+  /// prescribing autocomplete.
+  static Future<List<Map<String, dynamic>>> getCatalog({
+    String? search,
+    String? category,
+  }) async {
+    final resp = await _get(
+      '/pharmacy-orders/catalog',
+      query: {
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        if (category != null && category.trim().isNotEmpty)
+          'category': category.trim(),
+      },
+    );
+    return _listFrom(resp, const [
+      'catalog',
+      'items',
+      'medications',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy-orders/catalog — Pharmacy Incharge/Admin formulary upsert.
+  static Future<Map<String, dynamic>> saveCatalogItem({
+    int? id,
+    required String name,
+    String? genericName,
+    String? category,
+    String? manufacturer,
+    num? unitPrice,
+    String? packSize,
+    bool requiresPrescription = true,
+    bool inStock = true,
+    int? stockQuantity,
+    int? reorderLevel,
+  }) async {
+    return _post('/pharmacy-orders/catalog', {
+      'id': ?id,
+      'name': name.trim(),
+      'generic_name': genericName?.trim(),
+      'category': category?.trim().isNotEmpty == true
+          ? category!.trim()
+          : 'other',
+      'manufacturer': manufacturer?.trim(),
+      'unit_price': unitPrice,
+      'pack_size': packSize?.trim(),
+      'requires_prescription': requiresPrescription,
+      'in_stock': inStock,
+      'stock_quantity': stockQuantity ?? 0,
+      'reorder_level': reorderLevel ?? 10,
+    });
+  }
+
+  /// DELETE /pharmacy-orders/catalog/:id — soft-removes an active medicine.
+  static Future<Map<String, dynamic>> removeCatalogItem(int id) async {
+    return _delete('/pharmacy-orders/catalog/$id');
   }
 
   // ─── Pharmacy Orders ──────────────────────────────────────────────────────

@@ -513,6 +513,7 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
     _StaffRoleOption('HOUSEKEEPING_STAFF', 'Housekeeping Staff'),
     _StaffRoleOption('HOUSEKEEPING_INCHARGE', 'Housekeeping Incharge'),
     _StaffRoleOption('PHARMACY_STAFF', 'Pharmacy Staff'),
+    _StaffRoleOption('PHARMACY_INCHARGE', 'Pharmacy Incharge'),
     _StaffRoleOption('LAB_STAFF', 'Lab Staff'),
     _StaffRoleOption('RADIOLOGY_STAFF', 'Radiology Staff'),
     _StaffRoleOption('DRIVER', 'Driver'),

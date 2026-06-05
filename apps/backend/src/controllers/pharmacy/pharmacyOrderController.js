@@ -1235,9 +1235,9 @@ export const getCatalog = async (req, res) => {
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, name, generic_name, category, price, unit_price, pack_size,
+      `SELECT id, name, generic_name, category, manufacturer, price, unit_price, pack_size,
               COALESCE(stock_quantity, stock) AS stock,
-              is_available, description, created_at
+              in_stock, is_available, requires_prescription, reorder_level, description, created_at
        FROM pharmacy_catalog ${where} ORDER BY category, name`,
       ...params
     );
@@ -1264,9 +1264,9 @@ export const upsertCatalog = async (req, res) => {
         `UPDATE pharmacy_catalog SET
           name=$1, generic_name=$2, category=$3, manufacturer=$4,
           unit_price=$5, pack_size=$6, requires_prescription=$7,
-          in_stock=$8, stock_quantity=$9, reorder_level=$10, updated_at=NOW()
+          in_stock=$8, is_available=$8, stock_quantity=$9, reorder_level=$10, updated_at=NOW()
         WHERE id=$11 RETURNING id, name, generic_name, category, manufacturer,
-          unit_price, pack_size, requires_prescription, in_stock, stock_quantity,
+          unit_price, pack_size, requires_prescription, in_stock, is_available, stock_quantity,
           reorder_level, updated_at`,
         name, generic_name, category, manufacturer, unit_price, pack_size,
         requires_prescription ?? true, in_stock ?? true,
@@ -1276,10 +1276,10 @@ export const upsertCatalog = async (req, res) => {
       result = await prisma.$queryRawUnsafe(
         `INSERT INTO pharmacy_catalog
           (name, generic_name, category, manufacturer, unit_price, pack_size,
-           requires_prescription, in_stock, stock_quantity, reorder_level)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           requires_prescription, in_stock, is_available, stock_quantity, reorder_level)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10)
         RETURNING id, name, generic_name, category, manufacturer, unit_price,
-          pack_size, requires_prescription, in_stock, stock_quantity, reorder_level, created_at`,
+          pack_size, requires_prescription, in_stock, is_available, stock_quantity, reorder_level, created_at`,
         name, generic_name || null, category || 'other', manufacturer || null,
         unit_price || null, pack_size || null, requires_prescription ?? true,
         in_stock ?? true, stock_quantity || 0, reorder_level || 10
@@ -1290,5 +1290,31 @@ export const upsertCatalog = async (req, res) => {
   } catch (err) {
     logger.error('Upsert pharmacy catalog error:', err);
     error(res, 'Failed to save medicine', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const removeCatalog = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return error(res, 'Valid medicine id is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE pharmacy_catalog
+       SET is_active=FALSE, is_available=FALSE, in_stock=FALSE, updated_at=NOW()
+       WHERE id=$1 AND is_active=TRUE
+       RETURNING id, name, generic_name, category, updated_at`,
+      id
+    );
+
+    if (!result?.length) {
+      return error(res, 'Medicine not found in active formulary', HTTP_STATUS.NOT_FOUND);
+    }
+
+    success(res, result[0], 'Medicine removed from formulary');
+  } catch (err) {
+    logger.error('Remove pharmacy catalog error:', err);
+    error(res, 'Failed to remove medicine', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

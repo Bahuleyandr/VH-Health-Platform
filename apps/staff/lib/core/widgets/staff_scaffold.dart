@@ -341,6 +341,7 @@ class StaffScaffold extends StatelessWidget {
           ),
         ];
       case StaffRole.pharmacy:
+      case StaffRole.pharmacyIncharge:
         return [
           const _NavItem(
             'Home',

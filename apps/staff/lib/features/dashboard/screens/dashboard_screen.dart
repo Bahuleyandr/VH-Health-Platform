@@ -737,7 +737,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'hr_dashboard',
         'staff_management',
       },
-      StaffRole.pharmacy => {
+      StaffRole.pharmacy || StaffRole.pharmacyIncharge => {
         'pharmacy_roster',
         'pharmacy_orders',
         'patient_command_board',
@@ -1658,6 +1658,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _role == StaffRole.doctor ||
         _role == StaffRole.nurse ||
         _role == StaffRole.pharmacy ||
+        _role == StaffRole.pharmacyIncharge ||
         _role.isAdminTier;
 
     // Attendance — phone-only. The backend's requireDeviceType('mobile')
@@ -1732,7 +1733,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           color: const Color(0xFF00695C),
         ),
       );
-    } else if (_role == StaffRole.pharmacy) {
+    } else if (_role == StaffRole.pharmacy ||
+        _role == StaffRole.pharmacyIncharge) {
       actions.add(
         _QuickAction(
           icon: Icons.medication,

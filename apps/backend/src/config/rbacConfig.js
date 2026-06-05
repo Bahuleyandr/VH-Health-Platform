@@ -15,6 +15,7 @@ import {
   CATH_LAB_STAFF,
   CATH_LAB_INCHARGE,
   PHARMACY_STAFF,
+  PHARMACY_INCHARGE,
   LAB_STAFF,
   RADIOLOGY_STAFF,
   DOCTOR,
@@ -88,6 +89,7 @@ export default {
     OT_NURSE,
     OT_INCHARGE,
     CATH_LAB_STAFF,
+    PHARMACY_INCHARGE,
     PHARMACY_STAFF,
     LAB_STAFF,
     HR_STAFF,
@@ -98,16 +100,27 @@ export default {
     ADMISSION_OFFICER,
     IPD_COUNSELLOR
   ],
-  pharmacyRoutes: [PHARMACY_STAFF, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
+  pharmacyRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
-  pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
-  pharmacyOrderRoutes: [PHARMACY_STAFF, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
+  pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
+  pharmacyOrderRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
   // Pharmacy lifecycle — patient can place + view own orders
-  pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
+  pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, PHARMACY_INCHARGE, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, DOCTOR, ADMIN],
   // Pharmacy staff/admin lifecycle actions
-  pharmacyLifecycleRoutes: [PHARMACY_STAFF, ADMIN],
-  // Pharmacy catalog management
-  pharmacyCatalogRoutes: [PHARMACY_STAFF, ADMIN],
+  pharmacyLifecycleRoutes: [PHARMACY_STAFF, PHARMACY_INCHARGE, ADMIN],
+  // Pharmacy formulary read access is shared by clinical prescribing flows.
+  pharmacyCatalogRoutes: [
+    PHARMACY_STAFF,
+    PHARMACY_INCHARGE,
+    NURSING_STAFF,
+    IP_STAFF_NURSE,
+    OP_STAFF_NURSE,
+    DOCTOR,
+    DUTY_DOCTOR,
+    ADMIN
+  ],
+  // Pharmacy formulary write access is intentionally narrower.
+  pharmacyCatalogAdminRoutes: [PHARMACY_INCHARGE, ADMIN],
 
   recordRoutes: [ADMIN, GENERAL_STAFF, DOCTOR, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, OT_NURSE, OT_INCHARGE, CATH_LAB_STAFF],
   // ✅ Fix: use NURSING_STAFF constant instead of string 'NURSE'
