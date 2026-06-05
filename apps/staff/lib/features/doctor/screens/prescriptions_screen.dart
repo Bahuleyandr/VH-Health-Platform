@@ -685,12 +685,18 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     String query,
   ) async {
     final q = query.trim();
-    if (q.length < 2) {
-      setState(() {
-        _drugSuggestions[med] = [];
-        _drugSuggestionLoading.remove(med);
-        _drugSuggestionQuery.remove(med);
-      });
+    if (q.isEmpty) {
+      final needsClear =
+          _drugSuggestions.containsKey(med) ||
+          _drugSuggestionLoading.contains(med) ||
+          _drugSuggestionQuery.containsKey(med);
+      if (needsClear) {
+        setState(() {
+          _drugSuggestions.remove(med);
+          _drugSuggestionLoading.remove(med);
+          _drugSuggestionQuery.remove(med);
+        });
+      }
       return;
     }
     setState(() {
@@ -698,7 +704,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _drugSuggestionLoading.add(med);
     });
     try {
-      final rows = await MedicalApiService.searchMedicationCatalog(q);
+      final rows = await MedicalApiService.searchMedicationCatalog(
+        q,
+        minLength: 1,
+      );
       if (!mounted) return;
       if (_drugSuggestionQuery[med] != q) return;
       setState(() {
@@ -1207,14 +1216,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return SizedBox(
       width: width,
       child: RawAutocomplete<Map<String, dynamic>>(
-        key: ValueKey(
-          'drug-${identityHashCode(medication)}-${medication.catalogId}-${medication.name}-${medication.strength}',
-        ),
+        key: ValueKey('drug-${identityHashCode(medication)}'),
         initialValue: TextEditingValue(text: medication.name),
         displayStringForOption: _catalogDrugLabel,
         optionsBuilder: (textEditingValue) {
           final q = textEditingValue.text.trim();
-          if (q.length < 2) return const <Map<String, dynamic>>[];
+          if (q.isEmpty) return const <Map<String, dynamic>>[];
           return _drugSuggestions[medication] ?? const <Map<String, dynamic>>[];
         },
         onSelected: (row) => _applyCatalogRowToMedication(medication, row),

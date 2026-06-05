@@ -516,10 +516,11 @@ class MedicalApiService {
   /// GET /pharmacy-orders/catalog — medication catalog suggestions for
   /// inpatient drug chart type-ahead.
   static Future<List<Map<String, dynamic>>> searchMedicationCatalog(
-    String search,
-  ) async {
+    String search, {
+    int minLength = 2,
+  }) async {
     final q = search.trim();
-    if (q.length < 2) return const [];
+    if (q.length < minLength) return const [];
     final data = await _get('/pharmacy-orders/catalog', query: {'search': q});
     final rows = data['data'];
     if (rows is! List) return const [];
