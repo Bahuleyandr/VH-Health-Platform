@@ -37,6 +37,7 @@ import {
   isPlatformRole,
   isResident,
   isStaff,
+  isStoresPurchaseIncharge,
   isWebhookClient,
 } from '../../utils/roleHelpers.js';
 
@@ -49,6 +50,8 @@ describe('Phase F1 role registry', () => {
     expect(ROLES.CARE_COORDINATOR).toBe('CARE_COORDINATOR');
     expect(ROLES.CLAIMS_MANAGER).toBe('CLAIMS_MANAGER');
     expect(ROLES.AMBULANCE_COORDINATOR).toBe('AMBULANCE_COORDINATOR');
+    expect(ROLES.PHARMACY_INCHARGE).toBe('PHARMACY_INCHARGE');
+    expect(ROLES.STORES_PURCHASE_INCHARGE).toBe('STORES_PURCHASE_INCHARGE');
     expect(ROLES.INTEGRATION_ADMIN).toBe('INTEGRATION_ADMIN');
     expect(ROLES.WEBHOOK_CLIENT).toBe('WEBHOOK_CLIENT');
     expect(ROLES.AI_GOVERNANCE_ADMIN).toBe('AI_GOVERNANCE_ADMIN');
@@ -88,6 +91,7 @@ describe('Phase F1 role registry', () => {
     expect(SUPPORT_ROLES).toContain('ADMISSION_OFFICER');
     expect(SUPPORT_ROLES).toContain('IPD_COUNSELLOR');
     expect(SUPPORT_ROLES).toContain('INSURANCE_COORDINATOR');
+    expect(SUPPORT_ROLES).toContain('STORES_PURCHASE_INCHARGE');
   });
 
   it('routes platform-governance roles into PLATFORM_ROLES', () => {
@@ -98,6 +102,12 @@ describe('Phase F1 role registry', () => {
 
   it('routes WEBHOOK_CLIENT into MACHINE_ROLES (never a human)', () => {
     expect(MACHINE_ROLES).toEqual(['WEBHOOK_CLIENT']);
+  });
+
+  it('exposes the stores/purchase predicate without treating it as clinical', () => {
+    expect(isStoresPurchaseIncharge('STORES_PURCHASE_INCHARGE')).toBe(true);
+    expect(isClinical('STORES_PURCHASE_INCHARGE')).toBe(false);
+    expect(isStaff('STORES_PURCHASE_INCHARGE')).toBe(true);
   });
 });
 

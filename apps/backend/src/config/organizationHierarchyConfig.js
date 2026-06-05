@@ -348,6 +348,22 @@ export const ORGANIZATION_HIERARCHY_NODES = [
     ],
   },
   {
+    id: 'stores_purchase_incharge',
+    lane: 'operations',
+    title: 'Stores / Purchase Incharge',
+    subtitle: 'Inventory and procurement lead',
+    role_codes: ['STORES_PURCHASE_INCHARGE'],
+    access_level: 'Inventory and purchase governance access',
+    responsibilities: [
+      'Maintains supplier, purchase order, goods receipt, batch, stock movement, reorder, and expiry work queues',
+      'Coordinates purchase and stock governance with pharmacy incharge and administration',
+    ],
+    boundaries: [
+      'No clinical PHI access and no medication dispensing authority',
+      'Formulary clinical governance remains with Pharmacy Incharge/Admin unless separately delegated',
+    ],
+  },
+  {
     id: 'housekeeping_incharge',
     lane: 'operations',
     title: 'Housekeeping Incharge',
@@ -442,6 +458,7 @@ export const ORGANIZATION_HIERARCHY_EDGES = [
   { from: 'operations_incharge', to: 'billing_insurance', type: 'work', label: 'Financial clearance and insurance desk supervision' },
   { from: 'operations_incharge', to: 'pharmacy_incharge', type: 'work', label: 'Pharmacy operations supervision' },
   { from: 'pharmacy_incharge', to: 'pharmacy_staff', type: 'work', label: 'Pharmacy dispensing work allocation' },
+  { from: 'operations_incharge', to: 'stores_purchase_incharge', type: 'work', label: 'Stores, purchase, and stock governance' },
   { from: 'operations_incharge', to: 'housekeeping_incharge', type: 'work', label: 'Facility operations supervision' },
   { from: 'housekeeping_incharge', to: 'housekeeping_staff', type: 'work', label: 'Housekeeping floor and task assignment' },
   { from: 'operations_incharge', to: 'maintenance_incharge', type: 'work', label: 'Maintenance escalation and facility work supervision' },

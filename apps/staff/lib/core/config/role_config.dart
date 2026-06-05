@@ -23,6 +23,7 @@ enum StaffRole {
   superAdmin('SUPER_ADMIN'),
   pharmacy('PHARMACY_STAFF'),
   pharmacyIncharge('PHARMACY_INCHARGE'),
+  storesPurchaseIncharge('STORES_PURCHASE_INCHARGE'),
   lab('LAB_STAFF'),
   radiologyStaff('RADIOLOGY_STAFF'),
   housekeeping('HOUSEKEEPING_STAFF'),
@@ -137,6 +138,17 @@ enum StaffRole {
       return StaffRole.pharmacyIncharge;
     }
     if (const {
+      'STORES_INCHARGE',
+      'STORE_INCHARGE',
+      'PURCHASE_INCHARGE',
+      'PURCHASE_MANAGER',
+      'MATERIALS_INCHARGE',
+      'MATERIALS_MANAGER',
+      'INVENTORY_INCHARGE',
+    }.contains(normalized)) {
+      return StaffRole.storesPurchaseIncharge;
+    }
+    if (const {
       'CHIEF_NURSING_OFFICER',
       'NURSING_SUPERINTENDENT',
     }.contains(normalized)) {
@@ -187,6 +199,7 @@ enum StaffRole {
     StaffRole.superAdmin => 'Super Admin',
     StaffRole.pharmacy => 'Pharmacy',
     StaffRole.pharmacyIncharge => 'Pharmacy Incharge',
+    StaffRole.storesPurchaseIncharge => 'Stores / Purchase Incharge',
     StaffRole.lab => 'Lab Technician',
     StaffRole.radiologyStaff => 'Radiology Staff',
     StaffRole.housekeeping => 'Housekeeping',
@@ -226,6 +239,7 @@ enum StaffRole {
     StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
     StaffRole.pharmacy => const Color(0xFFE65100),
     StaffRole.pharmacyIncharge => const Color(0xFFBF360C),
+    StaffRole.storesPurchaseIncharge => const Color(0xFF7C2D12),
     StaffRole.lab => const Color(0xFF0097A7),
     StaffRole.radiologyStaff => const Color(0xFF0277BD),
     StaffRole.housekeeping => const Color(0xFF007A64),
@@ -263,6 +277,7 @@ enum StaffRole {
     StaffRole.otNurse || StaffRole.otIncharge => 'ot_nursing',
     StaffRole.cathLabStaff || StaffRole.cathLabIncharge => 'cath_lab',
     StaffRole.pharmacy || StaffRole.pharmacyIncharge => 'pharmacy',
+    StaffRole.storesPurchaseIncharge => 'stores_purchase',
     StaffRole.housekeeping || StaffRole.housekeepingIncharge => 'housekeeping',
     StaffRole.receptionist ||
     StaffRole.receptionIncharge ||
@@ -291,6 +306,7 @@ enum StaffRole {
     'ot_nursing' => 'OT Nursing',
     'cath_lab' => 'Cath Lab',
     'pharmacy' => 'Pharmacy',
+    'stores_purchase' => 'Stores / Purchase',
     'housekeeping' => 'Housekeeping',
     'reception' => 'Reception',
     'billing' => 'Billing',
@@ -979,6 +995,17 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.storesPurchaseIncharge => [
+        _attendance,
+        _schedule,
+        _dutyPreference,
+        _pharmacyOrders,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.lab => [
         _attendance,
         _schedule,
@@ -1427,6 +1454,40 @@ class RoleFeatures {
             icon: Icon(Icons.medication_outlined),
             activeIcon: Icon(Icons.medication),
             label: 'Orders',
+          ),
+          route: '/pharmacy',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.storesPurchaseIncharge => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.inventory_2_outlined),
+            activeIcon: Icon(Icons.inventory_2),
+            label: 'Inventory',
           ),
           route: '/pharmacy',
         ),

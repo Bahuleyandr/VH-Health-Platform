@@ -35,6 +35,9 @@ export const LAB_ROUTE_ROLES = mergeRoles(
   rolesFrom(['DOCTOR', 'NURSING_STAFF', 'IP_STAFF_NURSE', 'OP_STAFF_NURSE', 'CATH_LAB_STAFF']),
 );
 export const PHARMACY_ROUTE_ROLES = getRolesForCapabilityGroups('pharmacy');
+export const PHARMACY_SUPPLY_ROUTE_ROLES = getRolesForCapabilityGroups('supply_chain', {
+  includeAdmin: true,
+});
 export const THEATRE_ROUTE_ROLES = getRolesForCapabilityGroups('theatre', {
   include: ['DOCTOR', 'DUTY_DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'NURSING_STAFF'],
 });

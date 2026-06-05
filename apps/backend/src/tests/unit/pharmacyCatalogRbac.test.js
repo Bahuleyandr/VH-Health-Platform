@@ -6,6 +6,7 @@ describe('pharmacy catalog RBAC', () => {
       expect.arrayContaining([
         'PHARMACY_STAFF',
         'PHARMACY_INCHARGE',
+        'STORES_PURCHASE_INCHARGE',
         'DOCTOR',
         'DUTY_DOCTOR',
         'NURSING_STAFF',
@@ -20,6 +21,9 @@ describe('pharmacy catalog RBAC', () => {
     );
     expect(rbacConfig.pharmacyCatalogAdminRoutes).not.toContain(
       'PHARMACY_STAFF',
+    );
+    expect(rbacConfig.pharmacyCatalogAdminRoutes).not.toContain(
+      'STORES_PURCHASE_INCHARGE',
     );
     expect(rbacConfig.pharmacyCatalogAdminRoutes).not.toContain('DOCTOR');
     expect(rbacConfig.pharmacyCatalogAdminRoutes).not.toContain(

@@ -19,6 +19,10 @@ void main() {
         StaffRole.fromString('PHARMACY_INCHARGE'),
         StaffRole.pharmacyIncharge,
       );
+      expect(
+        StaffRole.fromString('STORES_PURCHASE_INCHARGE'),
+        StaffRole.storesPurchaseIncharge,
+      );
       expect(StaffRole.fromString('LAB_STAFF'), StaffRole.lab);
       expect(StaffRole.fromString('BILLING_STAFF'), StaffRole.billingStaff);
       expect(
@@ -56,6 +60,10 @@ void main() {
       expect(
         StaffRole.fromString('HOUSEKEEPING_ATTENDANT'),
         StaffRole.housekeeping,
+      );
+      expect(
+        StaffRole.fromString('PURCHASE_INCHARGE'),
+        StaffRole.storesPurchaseIncharge,
       );
     });
 
@@ -95,6 +103,10 @@ void main() {
       expect(StaffRole.driver.rosterDepartment, 'ambulance');
       expect(StaffRole.maintenance.rosterDepartment, 'maintenance');
       expect(StaffRole.pharmacy.rosterDepartment, 'pharmacy');
+      expect(
+        StaffRole.storesPurchaseIncharge.rosterDepartment,
+        'stores_purchase',
+      );
       expect(StaffRole.doctor.rosterDepartment, 'medical');
       expect(StaffRole.anaesthetist.rosterDepartment, 'medical');
       expect(StaffRole.emergencyResponder.rosterDepartment, 'ambulance');
@@ -190,6 +202,18 @@ void main() {
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('vitals')));
       expect(ids, isNot(contains('hr_dashboard')));
+    });
+
+    test('stores/purchase role sees inventory workspace without clinical tools', () {
+      final feats = RoleFeatures.getFeaturesForRole(
+        StaffRole.storesPurchaseIncharge,
+      );
+      final ids = feats.map((f) => f.id).toSet();
+      expect(ids, contains('pharmacy_orders'));
+      expect(ids, contains('staff_directory'));
+      expect(ids, isNot(contains('patient_command_board')));
+      expect(ids, isNot(contains('clinical_ai_review_queue')));
+      expect(ids, isNot(contains('patient_records')));
     });
 
     test(

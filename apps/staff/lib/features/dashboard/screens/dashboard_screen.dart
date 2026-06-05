@@ -743,6 +743,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'patient_command_board',
         'clinical_ai_review_queue',
       },
+      StaffRole.storesPurchaseIncharge => {
+        'pharmacy_orders',
+        'staff_directory',
+      },
       StaffRole.lab => {
         'investigations_upload',
         'investigation_results',
@@ -1741,6 +1745,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           label: s.dashboardActionPharmacy,
           route: '/pharmacy',
           color: const Color(0xFFE65100),
+        ),
+      );
+    } else if (_role == StaffRole.storesPurchaseIncharge) {
+      actions.add(
+        _QuickAction(
+          icon: Icons.inventory_2_outlined,
+          label: s.dashboardActionPharmacy,
+          route: '/pharmacy',
+          color: const Color(0xFF7C2D12),
         ),
       );
     } else if (_role == StaffRole.lab) {

@@ -123,6 +123,17 @@ describe('routeRolePolicy', () => {
     ]));
   });
 
+  it('keeps stores/purchase authority on supply-chain routes, not dispensing-only route groups', () => {
+    expect(routePolicy.PHARMACY_SUPPLY_ROUTE_ROLES).toEqual(expect.arrayContaining([
+      'ADMIN',
+      'SUPER_ADMIN',
+      'PHARMACY_INCHARGE',
+      'STORES_PURCHASE_INCHARGE',
+    ]));
+    expect(routePolicy.PHARMACY_ROUTE_ROLES).not.toContain('STORES_PURCHASE_INCHARGE');
+    expect(routePolicy.PHARMACY_ORDER_ROUTE_ROLES).not.toContain('STORES_PURCHASE_INCHARGE');
+  });
+
   it('keeps diagnostic clinical surfaces represented by named route policies', () => {
     expect(routePolicy.RADIOLOGY_ROUTE_ROLES).toEqual(expect.arrayContaining([
       'RADIOLOGY_STAFF',

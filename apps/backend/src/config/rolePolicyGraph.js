@@ -122,6 +122,11 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
     description: 'Prescription review, ward dispensing, inventory, and medication handover.',
     roles: ['SUPER_ADMIN', 'ADMIN', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHARMACIST'],
   },
+  supply_chain: {
+    title: 'Stores and purchase',
+    description: 'Supplier master, purchase orders, goods receipt, batches, stock movement, reorder and expiry oversight.',
+    roles: ['SUPER_ADMIN', 'ADMIN', 'PHARMACY_INCHARGE', 'STORES_PURCHASE_INCHARGE'],
+  },
   theatre: {
     title: 'Operating theatre',
     description: 'OT case readiness, theatre nursing workflow, and anaesthesia surfaces.',
@@ -211,7 +216,6 @@ const FUTURE_OR_RECOMMENDED_ROLES = [
   'ER_STAFF',
   'OPERATIONS_INCHARGE',
   'MAINTENANCE_INCHARGE',
-  'PHARMACY_INCHARGE',
   'PHARMACIST',
   'PATHOLOGIST',
   'LAB_INCHARGE',
@@ -254,6 +258,7 @@ const SUPPORT_ROLE_SET = new Set([
   ...SUPPORT_ROLES,
   'RECEPTIONIST',
   'PHARMACY_INCHARGE',
+  'STORES_PURCHASE_INCHARGE',
   'PHARMACIST',
   'LAB_INCHARGE',
   'DIETARY_STAFF',
@@ -276,7 +281,6 @@ const NON_ASSIGNABLE_HUMAN_ROLES = new Set([
   'ER_STAFF',
   'OPERATIONS_INCHARGE',
   'MAINTENANCE_INCHARGE',
-  'PHARMACY_INCHARGE',
   'PHARMACIST',
   'PATHOLOGIST',
   'LAB_INCHARGE',
@@ -311,6 +315,7 @@ const DISPLAY_TITLE_OVERRIDES = {
   RECEPTION_INCHARGE: 'Reception / Admission Incharge',
   MEDICAL_SUPERINTENDENT: 'Medical Superintendent',
   HR_STAFF: 'HR Staff',
+  STORES_PURCHASE_INCHARGE: 'Stores / Purchase Incharge',
   WEBHOOK_CLIENT: 'Webhook Client',
   AI_GOVERNANCE_ADMIN: 'AI Governance Admin',
   DATA_PROTECTION_OFFICER: 'Data Protection Officer',
@@ -348,6 +353,7 @@ const DEPARTMENT_OVERRIDES = {
   RADIOLOGY_STAFF: 'Radiology',
   PHARMACY_STAFF: 'Pharmacy',
   PHARMACY_INCHARGE: 'Pharmacy',
+  STORES_PURCHASE_INCHARGE: 'Stores / Purchase',
   PHARMACIST: 'Pharmacy',
   RECEPTIONIST: 'Front Office',
   RECEPTION_INCHARGE: 'Front Office',
@@ -421,6 +427,8 @@ const STAFF_VISIBILITY_OVERRIDES = {
   CATH_LAB_STAFF: ['CATH_LAB_STAFF'],
   RADIOLOGY_STAFF: ['RADIOLOGY_STAFF'],
   PHARMACY_STAFF: ['PHARMACY_STAFF'],
+  PHARMACY_INCHARGE: ['PHARMACY_INCHARGE', 'PHARMACY_STAFF', 'STORES_PURCHASE_INCHARGE'],
+  STORES_PURCHASE_INCHARGE: ['STORES_PURCHASE_INCHARGE', 'PHARMACY_INCHARGE', 'PHARMACY_STAFF'],
   LAB_STAFF: ['LAB_STAFF'],
   GENERAL_STAFF: ['GENERAL_STAFF'],
   HOUSEKEEPING_STAFF: ['HOUSEKEEPING_STAFF'],
@@ -493,6 +501,7 @@ const MANAGEABLE_ROLE_OVERRIDES = {
   BILLING_INCHARGE: ['BILLING_STAFF', 'INSURANCE_COORDINATOR'],
   FINANCE_INCHARGE: ['BILLING_STAFF', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR', 'CLAIMS_MANAGER'],
   PHARMACY_INCHARGE: ['PHARMACY_STAFF'],
+  STORES_PURCHASE_INCHARGE: [],
 };
 
 const LEGACY_ROLE_HIERARCHY_OVERRIDES = {
@@ -514,6 +523,8 @@ const LEGACY_ROLE_HIERARCHY_OVERRIDES = {
     'CATH_LAB_STAFF',
     'CATH_LAB_INCHARGE',
     'PHARMACY_STAFF',
+    'PHARMACY_INCHARGE',
+    'STORES_PURCHASE_INCHARGE',
     'LAB_STAFF',
     'HR_STAFF',
     'RECEPTIONIST',
@@ -574,6 +585,20 @@ const ACCESS_MATRIX_OVERRIDES = {
     appointments: ['read'],
     records: ['read'],
     pharmacy: ['create', 'read', 'update'],
+    investigations: [],
+  },
+  PHARMACY_INCHARGE: {
+    users: ['read'],
+    appointments: ['read'],
+    records: ['read'],
+    pharmacy: ['create', 'read', 'update', 'approve'],
+    investigations: [],
+  },
+  STORES_PURCHASE_INCHARGE: {
+    users: ['read'],
+    appointments: [],
+    records: [],
+    pharmacy: ['create', 'read', 'update', 'approve'],
     investigations: [],
   },
   LAB_STAFF: {
@@ -812,6 +837,39 @@ const RBAC_OVERRIDES = {
     maxUsers: 20,
     requiresApproval: true,
   },
+  PHARMACY_INCHARGE: {
+    level: 65,
+    permissions: [
+      'view_prescriptions',
+      'manage_pharmacy_orders',
+      'access_medication_history',
+      'dispense_medications',
+      'manage_inventory',
+      'manage_formulary',
+      'approve_pharmacy_supply',
+    ],
+    canViewData: 'pharmacy_lead',
+    description: 'Pharmacy Incharge - Medication Supply Governance',
+    color: '#7c2d12',
+    maxUsers: 3,
+    requiresApproval: true,
+  },
+  STORES_PURCHASE_INCHARGE: {
+    level: 58,
+    permissions: [
+      'view_inventory',
+      'manage_inventory',
+      'manage_suppliers',
+      'manage_purchase_orders',
+      'record_goods_receipts',
+      'review_expiry_alerts',
+    ],
+    canViewData: 'supply_chain_only',
+    description: 'Stores / Purchase Incharge - Inventory and Procurement',
+    color: '#92400e',
+    maxUsers: 3,
+    requiresApproval: true,
+  },
   LAB_STAFF: {
     level: 60,
     permissions: ['manage_investigations', 'upload_lab_results', 'view_test_requests', 'process_specimens', 'generate_reports'],
@@ -871,6 +929,8 @@ const REPORTING_OVERRIDES = {
   HOUSEKEEPING_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.HOUSEKEEPING_INCHARGE },
   BILLING_INCHARGE: { reports_to: 'FINANCE_INCHARGE', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.BILLING_INCHARGE },
   FINANCE_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.FINANCE_INCHARGE },
+  PHARMACY_INCHARGE: { reports_to: 'ADMIN', supervises_roles: MANAGEABLE_ROLE_OVERRIDES.PHARMACY_INCHARGE },
+  STORES_PURCHASE_INCHARGE: { reports_to: 'ADMIN', supervises_roles: [] },
   HR_STAFF: { reports_to: 'ADMIN', supervises_roles: [] },
 };
 
@@ -935,6 +995,8 @@ const UI_FEATURES_BY_ROLE = {
   DUTY_DOCTOR: ['front_office_workbench', 'appointments', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
   CONSULTANT: ['front_office_workbench', 'appointments', 'patient_command_board', 'patient_records', 'prescriptions', 'investigation_results', 'discharge_hub', 'referrals'],
   PHARMACY_STAFF: ['pharmacy_orders', 'pharmacy_roster'],
+  PHARMACY_INCHARGE: ['pharmacy_orders', 'pharmacy_roster', 'staff_directory'],
+  STORES_PURCHASE_INCHARGE: ['pharmacy_orders', 'staff_directory'],
   LAB_STAFF: ['investigations_upload', 'investigation_results', 'lab_bookings'],
   HOUSEKEEPING_STAFF: ['housekeeping_tasks'],
   HOUSEKEEPING_INCHARGE: ['housekeeping_hub', 'housekeeping_command', 'housekeeping_roster'],
@@ -1191,7 +1253,14 @@ function phiAccessLevelForRole(roleCode) {
   if (roleCode === 'PATIENT') return PHI_ACCESS_LEVELS.OWN_RECORD;
   if (roleCode === 'HR_STAFF') return PHI_ACCESS_LEVELS.STAFF_ONLY;
   if (['SUPER_ADMIN', 'ADMIN'].includes(roleCode)) return PHI_ACCESS_LEVELS.ADMIN_BREAK_GLASS;
-  if (['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE', 'MAINTENANCE', 'DRIVER', 'SECURITY'].includes(roleCode)) {
+  if ([
+    'HOUSEKEEPING_STAFF',
+    'HOUSEKEEPING_INCHARGE',
+    'MAINTENANCE',
+    'DRIVER',
+    'SECURITY',
+    'STORES_PURCHASE_INCHARGE',
+  ].includes(roleCode)) {
     return PHI_ACCESS_LEVELS.OPERATIONAL_ONLY;
   }
   if (['RECEPTIONIST', 'RECEPTION_INCHARGE', 'BILLING_STAFF', 'BILLING_INCHARGE', 'INSURANCE_COORDINATOR'].includes(roleCode)) {

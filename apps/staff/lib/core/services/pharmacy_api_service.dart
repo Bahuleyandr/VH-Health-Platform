@@ -113,6 +113,90 @@ class PharmacyApiService {
     return _delete('/pharmacy-orders/catalog/$id');
   }
 
+  // ─── Inventory / Stores ──────────────────────────────────────────────────
+
+  /// GET /pharmacy/inventory/v2/items — operational inventory item list.
+  static Future<List<Map<String, dynamic>>> getInventoryItems({
+    String? search,
+    String? schedule,
+    String? status,
+  }) async {
+    final resp = await _get(
+      '/pharmacy/inventory/v2/items',
+      query: {
+        if (search != null && search.trim().isNotEmpty) 'q': search.trim(),
+        if (schedule != null && schedule.trim().isNotEmpty)
+          'schedule': schedule.trim(),
+        if (status != null && status.trim().isNotEmpty) 'status': status.trim(),
+      },
+    );
+    return _listFrom(resp, const [
+      'items',
+      'inventory',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy/inventory/v2/items — Stores/Purchase or Pharmacy Incharge.
+  static Future<Map<String, dynamic>> createInventoryItem({
+    required String skuCode,
+    required String displayName,
+    String? genericName,
+    String? brandName,
+    String? manufacturer,
+    String? form,
+    String? strength,
+    String? unitLabel,
+    String? packSize,
+    String? scheduleClass,
+    bool isNarcotic = false,
+    bool isColdChain = false,
+    num? reorderLevel,
+    num? reorderQuantity,
+  }) async {
+    return _post('/pharmacy/inventory/v2/items', {
+      'sku_code': skuCode.trim(),
+      'display_name': displayName.trim(),
+      'generic_name': genericName?.trim(),
+      'brand_name': brandName?.trim(),
+      'manufacturer': manufacturer?.trim(),
+      'form': form?.trim(),
+      'strength': strength?.trim(),
+      'unit_label': unitLabel?.trim().isNotEmpty == true
+          ? unitLabel!.trim()
+          : 'each',
+      'pack_size': packSize?.trim(),
+      'schedule_class': scheduleClass?.trim().isNotEmpty == true
+          ? scheduleClass!.trim()
+          : null,
+      'is_narcotic': isNarcotic,
+      'is_cold_chain': isColdChain,
+      'reorder_level': reorderLevel,
+      'reorder_quantity': reorderQuantity,
+    });
+  }
+
+  /// GET /pharmacy/inventory/v2/expiry-alerts — cached expiry buckets.
+  static Future<List<Map<String, dynamic>>> getExpiryAlerts({
+    String? bucket,
+  }) async {
+    final resp = await _get(
+      '/pharmacy/inventory/v2/expiry-alerts',
+      query: {
+        if (bucket != null && bucket.trim().isNotEmpty) 'bucket': bucket.trim(),
+      },
+    );
+    return _listFrom(resp, const [
+      'alerts',
+      'expiry_alerts',
+      'items',
+    ]).whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList();
+  }
+
+  /// POST /pharmacy/inventory/v2/run-expiry-scan.
+  static Future<Map<String, dynamic>> runExpiryScan() async {
+    return _post('/pharmacy/inventory/v2/run-expiry-scan', {});
+  }
+
   // ─── Pharmacy Orders ──────────────────────────────────────────────────────
 
   /// POST /pharmacy-orders/orders — create a pharmacy order for a patient.

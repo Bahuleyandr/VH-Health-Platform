@@ -21,6 +21,8 @@ export const ROLES = {
   CATH_LAB_STAFF: 'CATH_LAB_STAFF',
   CATH_LAB_INCHARGE: 'CATH_LAB_INCHARGE',
   PHARMACY_STAFF: 'PHARMACY_STAFF',
+  PHARMACY_INCHARGE: 'PHARMACY_INCHARGE',
+  STORES_PURCHASE_INCHARGE: 'STORES_PURCHASE_INCHARGE',
   LAB_STAFF: 'LAB_STAFF',
   HR_STAFF: 'HR_STAFF',
   GENERAL_STAFF: 'GENERAL_STAFF',
@@ -127,6 +129,7 @@ export const SUPPORT_ROLES = [
   ROLES.CARE_COORDINATOR,
   ROLES.CLAIMS_MANAGER,
   ROLES.AMBULANCE_COORDINATOR,
+  ROLES.STORES_PURCHASE_INCHARGE,
   ROLES.RECEPTION_INCHARGE,
   ROLES.DRIVER,
   ROLES.HOUSEKEEPING_STAFF,
@@ -145,6 +148,8 @@ export const MACHINE_ROLES = [ROLES.WEBHOOK_CLIENT];
 export const ALL_STAFF_ROLES = [
   ...CLINICAL_ROLES,
   ROLES.PHARMACY_STAFF,
+  ROLES.PHARMACY_INCHARGE,
+  ROLES.STORES_PURCHASE_INCHARGE,
   ROLES.LAB_STAFF,
   ROLES.HR_STAFF,
   ROLES.GENERAL_STAFF,
@@ -211,6 +216,7 @@ export const isCounsellor = role => role === ROLES.COUNSELLOR;
 export const isCareCoordinator = role => role === ROLES.CARE_COORDINATOR;
 export const isClaimsManager = role => role === ROLES.CLAIMS_MANAGER;
 export const isAmbulanceCoordinator = role => role === ROLES.AMBULANCE_COORDINATOR;
+export const isStoresPurchaseIncharge = role => role === ROLES.STORES_PURCHASE_INCHARGE;
 export const isIntegrationAdmin = role => role === ROLES.INTEGRATION_ADMIN;
 export const isWebhookClient = role => role === ROLES.WEBHOOK_CLIENT;
 export const isAiGovernanceAdmin = role => role === ROLES.AI_GOVERNANCE_ADMIN;

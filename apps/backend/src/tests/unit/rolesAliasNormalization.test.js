@@ -14,6 +14,9 @@ describe('role alias normalization', () => {
     ['THEATRE_INCHARGE', 'OT_INCHARGE'],
     ['REGISTERED_NURSE', 'NURSING_STAFF'],
     ['HOUSEKEEPING_ATTENDANT', 'HOUSEKEEPING_STAFF'],
+    ['STORES_INCHARGE', 'STORES_PURCHASE_INCHARGE'],
+    ['PURCHASE_INCHARGE', 'STORES_PURCHASE_INCHARGE'],
+    ['MATERIALS_MANAGER', 'STORES_PURCHASE_INCHARGE'],
   ])('normalizes %s to %s', (input, expected) => {
     expect(normalizeRole(input)).toBe(expected);
   });
@@ -26,5 +29,6 @@ describe('role alias normalization', () => {
     expect(hasRole('WARD_NURSE', ['IP_STAFF_NURSE'])).toBe(true);
     expect(hasRole('THEATRE_INCHARGE', ['OT_INCHARGE'])).toBe(true);
     expect(hasRole('HOUSEKEEPING_ATTENDANT', ['HOUSEKEEPING_STAFF'])).toBe(true);
+    expect(hasRole('PURCHASE_INCHARGE', ['STORES_PURCHASE_INCHARGE'])).toBe(true);
   });
 });

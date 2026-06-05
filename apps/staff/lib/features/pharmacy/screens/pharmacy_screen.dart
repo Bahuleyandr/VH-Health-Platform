@@ -17,17 +17,20 @@ class PharmacyScreen extends StatefulWidget {
   State<PharmacyScreen> createState() => _PharmacyScreenState();
 }
 
-class _PharmacyScreenState extends State<PharmacyScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _PharmacyScreenState extends State<PharmacyScreen> {
   List<dynamic> _allOrders = [];
   List<Map<String, dynamic>> _catalog = [];
+  List<Map<String, dynamic>> _inventoryItems = [];
+  List<Map<String, dynamic>> _expiryAlerts = [];
   bool _loading = true;
   bool _catalogLoading = false;
+  bool _inventoryLoading = false;
   String? _error;
   String? _catalogError;
+  String? _inventoryError;
   StaffRole _role = StaffRole.general;
   final TextEditingController _catalogSearchCtrl = TextEditingController();
+  final TextEditingController _inventorySearchCtrl = TextEditingController();
 
   // Delivery tracking
   Timer? _locationTimer;
@@ -37,27 +40,48 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
     _loadRole();
-    _loadOrders();
     _loadCatalog();
+    _loadInventory();
   }
 
   @override
   void dispose() {
     _stopLocationSharing(notify: false);
     _catalogSearchCtrl.dispose();
-    _tabController.dispose();
+    _inventorySearchCtrl.dispose();
     super.dispose();
   }
 
   bool get _canManageFormulary =>
       _role == StaffRole.pharmacyIncharge || _role.isAdminTier;
 
+  bool get _canWorkPharmacyOrders =>
+      _role == StaffRole.pharmacy ||
+      _role == StaffRole.pharmacyIncharge ||
+      _role.isAdminTier;
+
+  bool get _canViewInventory =>
+      _role == StaffRole.pharmacy ||
+      _role == StaffRole.pharmacyIncharge ||
+      _role == StaffRole.storesPurchaseIncharge ||
+      _role.isAdminTier;
+
+  bool get _canManageInventory =>
+      _role == StaffRole.pharmacyIncharge ||
+      _role == StaffRole.storesPurchaseIncharge ||
+      _role.isAdminTier;
+
   Future<void> _loadRole() async {
     final role = StaffRole.fromString(await ApiConfig.getRole());
     if (!mounted) return;
-    setState(() => _role = role);
+    setState(() {
+      _role = role;
+      if (!_canWorkPharmacyOrders) _loading = false;
+    });
+    if (_canWorkPharmacyOrders) {
+      await _loadOrders();
+    }
   }
 
   void _startLocationSharing(int orderId) {
@@ -115,6 +139,16 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Future<void> _loadOrders() async {
+    if (!_canWorkPharmacyOrders) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = null;
+          _allOrders = [];
+        });
+      }
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -157,6 +191,36 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         setState(() {
           _catalogError = e.toString().replaceFirst('Exception: ', '');
           _catalogLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadInventory({String? search}) async {
+    if (!_canViewInventory && _role != StaffRole.general) return;
+    setState(() {
+      _inventoryLoading = true;
+      _inventoryError = null;
+    });
+    try {
+      final results = await Future.wait([
+        PharmacyApiService.getInventoryItems(
+          search: search ?? _inventorySearchCtrl.text,
+        ),
+        PharmacyApiService.getExpiryAlerts(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _inventoryItems = results[0];
+          _expiryAlerts = results[1];
+          _inventoryLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _inventoryError = e.toString().replaceFirst('Exception: ', '');
+          _inventoryLoading = false;
         });
       }
     }
@@ -1008,6 +1072,360 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     }
   }
 
+  Future<void> _runExpiryScan() async {
+    if (!_canManageInventory) {
+      _snack(
+        'Only Stores/Purchase, Pharmacy Incharge, or Admin can run expiry scans',
+        isError: true,
+      );
+      return;
+    }
+    try {
+      await PharmacyApiService.runExpiryScan();
+      _snack('Expiry scan completed');
+      await _loadInventory();
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+    }
+  }
+
+  Future<void> _openInventoryItemEditor() async {
+    if (!_canManageInventory) {
+      _snack(
+        'Only Stores/Purchase, Pharmacy Incharge, or Admin can add inventory items',
+        isError: true,
+      );
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final skuCtrl = TextEditingController();
+    final displayCtrl = TextEditingController();
+    final genericCtrl = TextEditingController();
+    final brandCtrl = TextEditingController();
+    final manufacturerCtrl = TextEditingController();
+    final formCtrl = TextEditingController();
+    final strengthCtrl = TextEditingController();
+    final unitCtrl = TextEditingController(text: 'each');
+    final packCtrl = TextEditingController();
+    final reorderLevelCtrl = TextEditingController();
+    final reorderQtyCtrl = TextEditingController();
+    String? scheduleClass;
+    var isColdChain = false;
+    var isNarcotic = false;
+    var submitting = false;
+
+    try {
+      final saved = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: AppTheme.cardSurface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+              setSheetState(() => submitting = true);
+              try {
+                await PharmacyApiService.createInventoryItem(
+                  skuCode: skuCtrl.text,
+                  displayName: displayCtrl.text,
+                  genericName: genericCtrl.text,
+                  brandName: brandCtrl.text,
+                  manufacturer: manufacturerCtrl.text,
+                  form: formCtrl.text,
+                  strength: strengthCtrl.text,
+                  unitLabel: unitCtrl.text,
+                  packSize: packCtrl.text,
+                  scheduleClass: scheduleClass,
+                  isNarcotic: isNarcotic,
+                  isColdChain: isColdChain,
+                  reorderLevel: num.tryParse(reorderLevelCtrl.text.trim()),
+                  reorderQuantity: num.tryParse(reorderQtyCtrl.text.trim()),
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx, true);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                setSheetState(() => submitting = false);
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Add Inventory Item',
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: submitting
+                                ? null
+                                : () => Navigator.pop(ctx, false),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: skuCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'SKU code',
+                                hintText: 'PARA-650-TAB',
+                              ),
+                              validator: (value) =>
+                                  (value?.trim().isEmpty ?? true)
+                                  ? 'SKU code is required'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: TextFormField(
+                              controller: displayCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Display name',
+                                hintText: 'Paracetamol 650 mg tablet',
+                              ),
+                              validator: (value) =>
+                                  (value?.trim().isEmpty ?? true)
+                                  ? 'Display name is required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: genericCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Generic name',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: brandCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Brand name',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: manufacturerCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Manufacturer',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: formCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Form',
+                                hintText: 'tablet',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: strengthCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Strength',
+                                hintText: '650 mg',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: unitCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Unit label',
+                                hintText: 'tablet',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: packCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Pack size',
+                                hintText: '10 tablets / strip',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: DropdownButtonFormField<String?>(
+                              initialValue: scheduleClass,
+                              decoration: const InputDecoration(
+                                labelText: 'Schedule',
+                              ),
+                              items: const [
+                                DropdownMenuItem<String?>(
+                                  value: null,
+                                  child: Text('None'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'OTC',
+                                  child: Text('OTC'),
+                                ),
+                                DropdownMenuItem(value: 'H', child: Text('H')),
+                                DropdownMenuItem(
+                                  value: 'H1',
+                                  child: Text('H1'),
+                                ),
+                                DropdownMenuItem(value: 'X', child: Text('X')),
+                              ],
+                              onChanged: submitting
+                                  ? null
+                                  : (value) => setSheetState(() {
+                                      scheduleClass = value;
+                                      if (value == 'X') isNarcotic = true;
+                                    }),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: reorderLevelCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Reorder level',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: reorderQtyCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Reorder quantity',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: isColdChain,
+                        title: const Text('Cold-chain item'),
+                        onChanged: submitting
+                            ? null
+                            : (value) =>
+                                  setSheetState(() => isColdChain = value),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: isNarcotic,
+                        title: const Text('Controlled / narcotic item'),
+                        onChanged: submitting
+                            ? null
+                            : (value) =>
+                                  setSheetState(() => isNarcotic = value),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: submitting ? null : submit,
+                          icon: submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined),
+                          label: Text(
+                            submitting ? 'Saving...' : 'Save Inventory Item',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      if (saved == true) {
+        _snack('Inventory item added');
+        await _loadInventory();
+      }
+    } finally {
+      skuCtrl.dispose();
+      displayCtrl.dispose();
+      genericCtrl.dispose();
+      brandCtrl.dispose();
+      manufacturerCtrl.dispose();
+      formCtrl.dispose();
+      strengthCtrl.dispose();
+      unitCtrl.dispose();
+      packCtrl.dispose();
+      reorderLevelCtrl.dispose();
+      reorderQtyCtrl.dispose();
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // BUILD
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1015,8 +1433,32 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final tabs = <Tab>[
+      if (_canWorkPharmacyOrders) ...[
+        Tab(text: '${s.pharmacyTabNew} (${_newOrders.length})'),
+        Tab(text: '${s.pharmacyTabActive} (${_activeOrders.length})'),
+        Tab(text: '${s.pharmacyTabDone} (${_completedOrders.length})'),
+      ],
+      Tab(text: 'Formulary (${_catalog.length})'),
+      if (_canViewInventory) Tab(text: 'Inventory (${_inventoryItems.length})'),
+    ];
+    final tabViews = <Widget>[
+      if (_canWorkPharmacyOrders) ...[
+        _buildOrderTab(_newOrders, s.pharmacyEmptyNew),
+        _buildOrderTab(_activeOrders, s.pharmacyEmptyActive),
+        _buildOrderTab(_completedOrders, s.pharmacyEmptyDone),
+      ],
+      _buildFormularyTab(),
+      if (_canViewInventory) _buildInventoryTab(),
+    ];
+    final summaryText = _canWorkPharmacyOrders
+        ? '${_newOrders.length} new • ${_activeOrders.length} active • ${_catalog.length} formulary'
+        : '${_inventoryItems.length} inventory items • ${_expiryAlerts.length} expiry alerts • ${_catalog.length} formulary';
+
     return StaffScaffold(
-      title: s.pharmacyTitle,
+      title: _role == StaffRole.storesPurchaseIncharge
+          ? 'Inventory & Purchase'
+          : s.pharmacyTitle,
       body: Column(
         children: [
           // Header
@@ -1049,7 +1491,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${_newOrders.length} new • ${_activeOrders.length} active • ${_catalog.length} formulary',
+                        summaryText,
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 12,
@@ -1062,72 +1504,79 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   icon: const Icon(Icons.refresh, color: Colors.white),
                   tooltip: s.actionRefresh,
                   onPressed: () {
-                    _loadOrders();
+                    if (_canWorkPharmacyOrders) _loadOrders();
                     _loadCatalog();
+                    if (_canViewInventory) _loadInventory();
                   },
                 ),
-                const SizedBox(width: 4),
-                ElevatedButton.icon(
-                  onPressed: _createOrder,
-                  icon: const Icon(Icons.add, color: Color(0xFFE65100)),
-                  label: const Text('New'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.cardSurface,
-                    foregroundColor: const Color(0xFFE65100),
-                    minimumSize: const Size(0, 38),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                if (_canWorkPharmacyOrders) ...[
+                  const SizedBox(width: 4),
+                  ElevatedButton.icon(
+                    onPressed: _createOrder,
+                    icon: const Icon(Icons.add, color: Color(0xFFE65100)),
+                    label: const Text('New'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.cardSurface,
+                      foregroundColor: const Color(0xFFE65100),
+                      minimumSize: const Size(0, 38),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
 
-          TabBar(
-            controller: _tabController,
-            labelColor: const Color(0xFFE65100),
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: const Color(0xFFE65100),
-            tabs: [
-              Tab(text: '${s.pharmacyTabNew} (${_newOrders.length})'),
-              Tab(text: '${s.pharmacyTabActive} (${_activeOrders.length})'),
-              Tab(text: '${s.pharmacyTabDone} (${_completedOrders.length})'),
-              Tab(text: 'Formulary (${_catalog.length})'),
-            ],
-          ),
-
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                        const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _loadOrders,
-                          child: Text(s.actionRetry),
-                        ),
-                      ],
-                    ),
-                  )
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildOrderList(_newOrders, s.pharmacyEmptyNew),
-                      _buildOrderList(_activeOrders, s.pharmacyEmptyActive),
-                      _buildOrderList(_completedOrders, s.pharmacyEmptyDone),
-                      _buildFormularyTab(),
-                    ],
+            child: DefaultTabController(
+              length: tabViews.length,
+              child: Column(
+                children: [
+                  TabBar(
+                    labelColor: const Color(0xFFE65100),
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: const Color(0xFFE65100),
+                    isScrollable: true,
+                    tabs: tabs,
                   ),
+                  Expanded(child: TabBarView(children: tabViews)),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildOrderTab(List<dynamic> orders, String emptyMsg) {
+    final s = AppStrings.of(context);
+    if (!_canWorkPharmacyOrders) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Pharmacy dispensing workflow is handled by Pharmacy staff. Use Inventory for stock, expiry, and purchase oversight.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
+        ),
+      );
+    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: _loadOrders, child: Text(s.actionRetry)),
+          ],
+        ),
+      );
+    }
+    return _buildOrderList(orders, emptyMsg);
   }
 
   Widget _buildFormularyTab() {
@@ -1267,6 +1716,310 @@ class _PharmacyScreenState extends State<PharmacyScreen>
           else
             ..._catalog.map(_buildCatalogCard),
         ],
+      ),
+    );
+  }
+
+  Widget _buildInventoryTab() {
+    return RefreshIndicator(
+      onRefresh: _loadInventory,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.warehouse_outlined,
+                        color: Color(0xFFE65100),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Inventory & Purchase Oversight',
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      if (_canManageInventory) ...[
+                        OutlinedButton.icon(
+                          onPressed: _runExpiryScan,
+                          icon: const Icon(Icons.history_toggle_off_outlined),
+                          label: const Text('Run Expiry Scan'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: _openInventoryItemEditor,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Item'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE65100),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 38),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Stores/Purchase can maintain the drug master, stock visibility, and expiry oversight without dispensing patient medications.',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _inventorySearchCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Search inventory',
+                            hintText: 'SKU, drug, brand, or generic',
+                            prefixIcon: ExcludeSemantics(
+                              child: Icon(Icons.search),
+                            ),
+                          ),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _loadInventory(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'Search',
+                        onPressed: () => _loadInventory(),
+                        icon: const Icon(Icons.search),
+                      ),
+                      if (_inventorySearchCtrl.text.isNotEmpty) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            _inventorySearchCtrl.clear();
+                            _loadInventory(search: '');
+                          },
+                          icon: const Icon(Icons.clear),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_inventoryLoading)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_inventoryError != null)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  children: [
+                    Icon(Icons.error_outline, color: AppTheme.errorOnSurface),
+                    const SizedBox(height: 8),
+                    Text(
+                      _inventoryError!,
+                      style: TextStyle(color: AppTheme.errorOnSurface),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => _loadInventory(),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else ...[
+            if (_expiryAlerts.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 6),
+                child: Text(
+                  'Expiry alerts',
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              ..._expiryAlerts.take(8).map(_buildExpiryAlertCard),
+              const SizedBox(height: 8),
+            ],
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 6),
+              child: Text(
+                'Inventory items',
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (_inventoryItems.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: Text(
+                      'No inventory items found',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                ),
+              )
+            else
+              ..._inventoryItems.map(_buildInventoryItemCard),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInventoryItemCard(Map<String, dynamic> item) {
+    final name = item['display_name']?.toString() ?? 'Unnamed item';
+    final sku = item['sku_code']?.toString() ?? '';
+    final generic = item['generic_name']?.toString() ?? '';
+    final strength = item['strength']?.toString() ?? '';
+    final schedule = item['schedule_class']?.toString() ?? '-';
+    final reorder = item['reorder_level']?.toString() ?? '-';
+    final unit = item['unit_label']?.toString() ?? 'each';
+    final status = item['status']?.toString().toUpperCase() ?? 'ACTIVE';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE65100).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.inventory_2_outlined,
+                color: Color(0xFFE65100),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if ([sku, generic, strength].any((value) => value.isNotEmpty))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        [
+                          if (sku.isNotEmpty) sku,
+                          if (generic.isNotEmpty) generic,
+                          if (strength.isNotEmpty) strength,
+                        ].join(' • '),
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Unit', value: unit),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Schedule', value: schedule),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Reorder', value: reorder),
+            ),
+            _buildStatusChip(status),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpiryAlertCard(Map<String, dynamic> item) {
+    final name = item['display_name']?.toString() ?? 'Unnamed item';
+    final batch =
+        item['batch_number']?.toString() ??
+        item['lot_number']?.toString() ??
+        '-';
+    final bucket = item['bucket']?.toString() ?? '-';
+    final days = item['days_to_expiry']?.toString() ?? '-';
+    final qty = item['remaining_quantity']?.toString() ?? '-';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_outlined,
+              color: AppTheme.warningOnSurface,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Batch $batch',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Bucket', value: bucket),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Days', value: days),
+            ),
+            Expanded(
+              child: _CatalogMetric(label: 'Qty', value: qty),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -93,6 +93,18 @@ const STAFF_ROLE_OPTIONS: RoleOption[] = [
     permissions: ["Medication orders", "Inventory", "Dispensing"],
   },
   {
+    value: "PHARMACY_INCHARGE",
+    label: "Pharmacy Incharge",
+    group: "Support",
+    permissions: ["Formulary", "Medication orders", "Pharmacy oversight"],
+  },
+  {
+    value: "STORES_PURCHASE_INCHARGE",
+    label: "Stores / Purchase Incharge",
+    group: "Operations",
+    permissions: ["Suppliers", "Purchase orders", "Inventory batches"],
+  },
+  {
     value: "LAB_STAFF",
     label: "Lab Staff",
     group: "Support",

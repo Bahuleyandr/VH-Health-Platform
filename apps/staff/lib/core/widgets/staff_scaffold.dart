@@ -368,6 +368,33 @@ class StaffScaffold extends StatelessWidget {
             '/profile',
           ),
         ];
+      case StaffRole.storesPurchaseIncharge:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Inventory',
+            Icons.inventory_2_outlined,
+            Icons.inventory_2,
+            '/pharmacy',
+          ),
+          const _NavItem(
+            'Attendance',
+            Icons.fingerprint_outlined,
+            Icons.fingerprint,
+            '/attendance',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
       case StaffRole.lab:
       case StaffRole.radiologyStaff:
         return [

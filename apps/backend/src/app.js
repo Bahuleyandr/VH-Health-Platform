@@ -68,7 +68,9 @@ import {
   NURSING_ASSESSMENT_ROUTE_ROLES,
   PAEDIATRIC_ROUTE_ROLES,
   PCPNDT_ROUTE_ROLES,
+  PHARMACY_ROUTE_ROLES,
   PHARMACY_ORDER_ROUTE_ROLES,
+  PHARMACY_SUPPLY_ROUTE_ROLES,
   RADIOLOGY_ROUTE_ROLES,
   RECORD_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
@@ -117,6 +119,8 @@ import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
 import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
+import pharmacyInventoryV2Routes from './routes/pharmacy/inventoryV2Routes.js';
+import pharmacySupplyRoutes from './routes/admin/pharmacySupplyRoutes.js';
 import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
 import housekeepingRoutes from './routes/housekeepingRoutes.js';
@@ -256,6 +260,9 @@ const EMR_TIMELINE_READ_ROLES = EMR_TIMELINE_READ_ROUTE_ROLES;
 const ADMISSION_SURFACE_ROLES = ADMISSION_SURFACE_ROUTE_ROLES;
 const ADMISSION_OCCUPANCY_ROLES = ADMISSION_OCCUPANCY_ROUTE_ROLES;
 const CLINICAL_AI_CONTROL_ROLES = TECHNICAL_ADMIN_ROUTE_ROLES;
+const PHARMACY_INVENTORY_PARENT_ROLES = [
+  ...new Set([...PHARMACY_ROUTE_ROLES, ...PHARMACY_SUPPLY_ROUTE_ROLES]),
+];
 
 function rewriteAdmissionSurface(req, _res, next) {
   const [pathPart, queryPart] = req.url.split('?');
@@ -499,6 +506,13 @@ app.use(
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
 app.use('/api/v1/records', patientRateLimiter, requireRole(...RECORD_ROUTE_ROLES), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
 app.use('/api/v1/investigations', patientRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+// Pharmacy inventory and stores/purchase routes are operational supply-chain
+// surfaces. Mount them before the broader pharmacy-order router so stores and
+// purchase users do not need patient pharmacy-order permissions.
+app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
+app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
+app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUPPLY_ROUTE_ROLES), pharmacySupplyRoutes);
+
 app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 // Alias mount: /api/v1/pharmacy/* → same sub-routes as /api/v1/pharmacy-orders/*.
 // The admin /dashboard/pharmacy/inventory page calls /pharmacy/inventory/*

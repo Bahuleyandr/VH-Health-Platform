@@ -5,6 +5,8 @@
 
 import express from 'express';
 
+import { PHARMACY_SUPPLY_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
+import rbac from '../../middleware/rbacMiddleware.js';
 import { success } from '../../utils/responseHelper.js';
 import {
   acknowledgeExpiryAlert,
@@ -33,6 +35,8 @@ import {
 } from '../../services/pharmacySupply/pharmacySupplyService.js';
 
 const router = express.Router();
+
+router.use(rbac(PHARMACY_SUPPLY_ROUTE_ROLES));
 
 // Suppliers
 router.put('/suppliers', async (req, res, next) => {

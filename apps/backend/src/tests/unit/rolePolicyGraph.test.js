@@ -109,4 +109,25 @@ describe('rolePolicyGraph', () => {
     expect(pickerRoles).not.toContain('WEBHOOK_CLIENT');
     expect(pickerRoles).not.toContain('SUPER_ADMIN');
   });
+
+  it('models stores/purchase as operational supply-chain authority without PHI access', () => {
+    const policy = getRolePolicy();
+    const role = policy.roles.find((item) => item.role_code === 'STORES_PURCHASE_INCHARGE');
+    const chart = getOrgHierarchyFromPolicy();
+    const node = chart.nodes.find((item) => item.id === 'stores_purchase_incharge');
+
+    expect(role).toEqual(expect.objectContaining({
+      display_title: 'Stores / Purchase Incharge',
+      group: 'support',
+      department: 'Stores / Purchase',
+    }));
+    expect(role?.access?.route_capability_groups).toEqual(['supply_chain']);
+    expect(role?.phi).toEqual(expect.objectContaining({
+      access_level: PHI_ACCESS_LEVELS.OPERATIONAL_ONLY,
+      requires_patient_relationship: false,
+      can_break_glass: false,
+    }));
+    expect(getRolePickerOptions().map((item) => item.role)).toContain('STORES_PURCHASE_INCHARGE');
+    expect(node?.role_codes).toContain('STORES_PURCHASE_INCHARGE');
+  });
 });
