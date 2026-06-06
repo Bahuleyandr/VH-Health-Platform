@@ -2361,7 +2361,8 @@ async function seedMissingModules() {
     if (typeof prisma.$transaction === 'function') {
       await prisma.$transaction(async (tx) => {
         await tx.$queryRawUnsafe(
-          'SELECT pg_advisory_xact_lock($1::bigint)',
+          `SELECT 1::int AS locked
+             FROM (SELECT pg_advisory_xact_lock($1::bigint)) AS seed_lock`,
           MODULE_SEED_LOCK_KEY,
         );
         await upsertMissingModules(tx);
