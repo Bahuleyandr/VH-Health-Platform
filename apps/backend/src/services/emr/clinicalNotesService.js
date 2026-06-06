@@ -7,7 +7,6 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { isDoctor } from '../../utils/roleHelpers.js';
 import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimelineService.js';
 
-
 // ===================================================================
 // Clinical Notes Service — SOAP, Progress, Procedure, Discharge, etc.
 // ===================================================================
@@ -18,7 +17,18 @@ import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimel
 // progress SOAP note, and coding/discharge-summary generation keys off
 // the typed note rather than inspecting SOAP content. Finding:
 // 2026-05-09-emergency-walk-in-doctor-no-admission-note-type.
-const VALID_NOTE_TYPES = ['soap', 'progress', 'procedure', 'discharge', 'nursing_assessment', 'consultation_note', 'op_consultation', 'admission_note', 'er_note', 'transfer_note'];
+const VALID_NOTE_TYPES = [
+  'soap',
+  'progress',
+  'procedure',
+  'discharge',
+  'nursing_assessment',
+  'consultation_note',
+  'op_consultation',
+  'admission_note',
+  'er_note',
+  'transfer_note'
+];
 
 /**
  * Required content fields per note type.
@@ -28,13 +38,19 @@ const REQUIRED_CONTENT_FIELDS = {
   soap: ['subjective', 'objective', 'assessment', 'plan'],
   progress: ['summary', 'current_status', 'plan'],
   procedure: ['procedure_name', 'pre_op_diagnosis', 'post_op_diagnosis', 'findings'],
-  discharge: ['hospital_course', 'discharge_diagnosis', 'discharge_condition', 'medications_on_discharge', 'follow_up_instructions'],
+  discharge: [
+    'hospital_course',
+    'discharge_diagnosis',
+    'discharge_condition',
+    'medications_on_discharge',
+    'follow_up_instructions'
+  ],
   nursing_assessment: ['pain_level', 'mobility', 'plan_of_care'],
   consultation_note: ['summary', 'assessment', 'plan'],
   op_consultation: ['chief_complaint', 'history', 'examination', 'diagnosis', 'plan'],
   admission_note: ['chief_complaint', 'history_of_present_illness', 'assessment', 'plan'],
   er_note: ['chief_complaint', 'assessment', 'plan'],
-  transfer_note: ['reason_for_transfer', 'clinical_summary', 'plan'],
+  transfer_note: ['reason_for_transfer', 'clinical_summary', 'plan']
 };
 
 const ADMIN_NOTE_EDIT_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
@@ -43,8 +59,46 @@ const TERMINAL_APPOINTMENT_STATUSES = new Set([
   'CANCELLED',
   'CANCELED',
   'NO_SHOW',
-  'RESCHEDULED',
+  'RESCHEDULED'
 ]);
+const OP_APPOINTMENT_NOTE_TYPES = ['op_consultation', 'soap', 'progress', 'consultation_note'];
+const HOSPITAL_TIME_ZONE = 'Asia/Kolkata';
+
+function hospitalDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: HOSPITAL_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const part = type => parts.find(item => item.type === type)?.value;
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+function assertOpenOpAppointmentSession(appt, action = 'write') {
+  const status = String(appt?.status || '').toUpperCase();
+  if (TERMINAL_APPOINTMENT_STATUSES.has(status)) {
+    throw AppError.conflict(
+      `OP consultation note can no longer be ${action} after the appointment is terminal`,
+      'OP_NOTE_SESSION_CLOSED'
+    );
+  }
+
+  const appointmentDate = hospitalDateKey(appt?.appointment_date);
+  const today = hospitalDateKey();
+  if (appointmentDate && today && appointmentDate !== today) {
+    throw AppError.conflict(
+      `OP consultation notes can only be ${action} on the appointment date`,
+      'OP_NOTE_SESSION_CLOSED',
+      { appointment_date: appointmentDate, today }
+    );
+  }
+}
 
 // Column projection used by every read/write that returns a full note row.
 // Mirrors the pre-ORM RETURNING / SELECT lists exactly so the public API
@@ -66,7 +120,7 @@ const NOTE_SELECT = {
   signed_at: true,
   signed_by: true,
   created_at: true,
-  updated_at: true,
+  updated_at: true
 };
 
 // Slimmer projection used by the version-history sub-list inside
@@ -81,17 +135,15 @@ const VERSION_HISTORY_SELECT = {
   is_signed: true,
   signed_at: true,
   signed_by: true,
-  created_at: true,
+  created_at: true
 };
 
 async function attachAuthorNames(notes) {
   const list = Array.isArray(notes) ? notes : [notes];
   const authorUids = [
     ...new Set(
-      list
-        .map((note) => note?.author_uid)
-        .filter((uid) => typeof uid === 'string' && uid.length > 0),
-    ),
+      list.map(note => note?.author_uid).filter(uid => typeof uid === 'string' && uid.length > 0)
+    )
   ];
   if (authorUids.length === 0) {
     return Array.isArray(notes) ? list : { ...notes, author_name: null };
@@ -99,12 +151,12 @@ async function attachAuthorNames(notes) {
 
   const authors = await prisma.users.findMany({
     where: { uid: { in: authorUids } },
-    select: { uid: true, name: true },
+    select: { uid: true, name: true }
   });
-  const namesByUid = new Map(authors.map((author) => [author.uid, author.name]));
-  const enriched = list.map((note) => ({
+  const namesByUid = new Map(authors.map(author => [author.uid, author.name]));
+  const enriched = list.map(note => ({
     ...note,
-    author_name: namesByUid.get(note.author_uid) ?? null,
+    author_name: namesByUid.get(note.author_uid) ?? null
   }));
   return Array.isArray(notes) ? enriched : enriched[0];
 }
@@ -115,10 +167,14 @@ async function attachAuthorNames(notes) {
 function validateNoteContent(noteType, content) {
   const requiredFields = REQUIRED_CONTENT_FIELDS[noteType];
   if (!requiredFields) {
-    throw AppError.badRequest(`Invalid note_type: ${noteType}. Must be one of: ${VALID_NOTE_TYPES.join(', ')}`);
+    throw AppError.badRequest(
+      `Invalid note_type: ${noteType}. Must be one of: ${VALID_NOTE_TYPES.join(', ')}`
+    );
   }
 
-  const missing = requiredFields.filter((field) => content[field] === undefined || content[field] === null);
+  const missing = requiredFields.filter(
+    field => content[field] === undefined || content[field] === null
+  );
   if (missing.length > 0) {
     throw AppError.badRequest(
       `Missing required content fields for ${noteType} note: ${missing.join(', ')}`,
@@ -141,15 +197,28 @@ function validateNoteContent(noteType, content) {
  * @returns {Object} Created note row
  */
 export async function createNote(data) {
-  const { encounter_id, appointment_id, patient_uid, author_uid, author_role, note_type, title, content } = data;
+  const {
+    encounter_id,
+    appointment_id,
+    patient_uid,
+    author_uid,
+    author_role,
+    note_type,
+    title,
+    content
+  } = data;
   const actingUser = data.acting_user || { uid: author_uid, role: author_role };
 
   if (!patient_uid || !author_uid || !author_role || !note_type || !content) {
-    throw AppError.badRequest('patient_uid, author_uid, author_role, note_type, and content are required');
+    throw AppError.badRequest(
+      'patient_uid, author_uid, author_role, note_type, and content are required'
+    );
   }
 
   if (!VALID_NOTE_TYPES.includes(note_type)) {
-    throw AppError.badRequest(`Invalid note_type: ${note_type}. Must be one of: ${VALID_NOTE_TYPES.join(', ')}`);
+    throw AppError.badRequest(
+      `Invalid note_type: ${note_type}. Must be one of: ${VALID_NOTE_TYPES.join(', ')}`
+    );
   }
 
   validateNoteContent(note_type, content);
@@ -161,7 +230,7 @@ export async function createNote(data) {
   if (encounter_id) {
     const [admissionEnc, erEnc] = await Promise.all([
       prisma.admissions.findFirst({ where: { encounter_id }, select: { id: true } }),
-      prisma.emergency_visits.findFirst({ where: { encounter_id }, select: { id: true } }),
+      prisma.emergency_visits.findFirst({ where: { encounter_id }, select: { id: true } })
     ]);
     if (!admissionEnc && !erEnc) {
       throw AppError.notFound('Encounter not found');
@@ -179,10 +248,35 @@ export async function createNote(data) {
     }
     const appt = await prisma.appointments.findUnique({
       where: { id: appointmentIdNum },
-      select: { id: true, doctor_id: true },
+      select: {
+        id: true,
+        doctor_id: true,
+        status: true,
+        appointment_date: true
+      }
     });
     if (!appt) {
       throw AppError.notFound('Appointment not found');
+    }
+    assertOpenOpAppointmentSession(appt, 'created');
+
+    if (OP_APPOINTMENT_NOTE_TYPES.includes(note_type)) {
+      const existingOpNote = await prisma.clinical_notes.findFirst({
+        where: {
+          appointment_id: appointmentIdNum,
+          note_type: { in: OP_APPOINTMENT_NOTE_TYPES },
+          parent_note_id: null,
+          is_addendum: false
+        },
+        select: { id: true }
+      });
+      if (existingOpNote) {
+        throw AppError.conflict(
+          'This OP appointment already has a consultation note; edit the existing unsigned note or add an addendum after signing',
+          'OP_NOTE_ALREADY_EXISTS',
+          { note_id: existingOpNote.id, appointment_id: appointmentIdNum }
+        );
+      }
     }
 
     // H2 RBAC — a note bound to a specific OPD appointment may only be
@@ -194,13 +288,13 @@ export async function createNote(data) {
     if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
       const doctor = await prisma.users.findUnique({
         where: { id: appt.doctor_id },
-        select: { uid: true },
+        select: { uid: true }
       });
       assignedDoctorUid = doctor?.uid ?? null;
     }
     assertCanWriteAppointmentClinical(actingUser, {
       doctor_id: appt.doctor_id,
-      assigned_doctor_uid: assignedDoctorUid,
+      assigned_doctor_uid: assignedDoctorUid
     });
   }
 
@@ -218,12 +312,14 @@ export async function createNote(data) {
       content,
       version: 1,
       is_addendum: false,
-      is_signed: false,
+      is_signed: false
     },
-    select: NOTE_SELECT,
+    select: NOTE_SELECT
   });
 
-  logger.info(`Clinical note created: id=${created.id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`);
+  logger.info(
+    `Clinical note created: id=${created.id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`
+  );
   return attachAuthorNames(created);
 }
 
@@ -257,8 +353,8 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
       patient_uid: true,
       note_type: true,
       version: true,
-      parent_note_id: true,
-    },
+      parent_note_id: true
+    }
   });
 
   if (!parentNote) {
@@ -273,9 +369,9 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   // the chain is empty (defensive — the root row itself is always part of the chain).
   const versionAgg = await prisma.clinical_notes.aggregate({
     where: {
-      OR: [{ id: rootNoteId }, { parent_note_id: rootNoteId }],
+      OR: [{ id: rootNoteId }, { parent_note_id: rootNoteId }]
     },
-    _max: { version: true },
+    _max: { version: true }
   });
 
   const nextVersion = (versionAgg._max.version ?? 0) + 1;
@@ -291,12 +387,14 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
       version: nextVersion,
       parent_note_id: rootNoteId,
       is_addendum: true,
-      is_signed: false,
+      is_signed: false
     },
-    select: NOTE_SELECT,
+    select: NOTE_SELECT
   });
 
-  logger.info(`Addendum added to note ${rootNoteId}: addendum_id=${created.id}, version=${nextVersion}, author=${authorUid}`);
+  logger.info(
+    `Addendum added to note ${rootNoteId}: addendum_id=${created.id}, version=${nextVersion}, author=${authorUid}`
+  );
   return attachAuthorNames(created);
 }
 
@@ -346,8 +444,8 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
       author_uid: true,
       author_role: true,
       is_signed: true,
-      appointment_id: true,
-    },
+      appointment_id: true
+    }
   });
 
   if (!existing) {
@@ -363,57 +461,57 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
     if (existing.is_signed) {
       throw AppError.conflict(
         'Signed clinical notes are immutable; add an addendum for corrections',
-        'SIGNED_NOTE_IMMUTABLE',
+        'SIGNED_NOTE_IMMUTABLE'
       );
     }
 
     if (!existing.appointment_id) {
       throw AppError.forbidden(
         'Only unsigned OP appointment notes may be revised by their original doctor; use addendum for other notes',
-        'CLINICAL_NOTE_ADDENDUM_REQUIRED',
+        'CLINICAL_NOTE_ADDENDUM_REQUIRED'
       );
     }
 
     if (String(existing.author_uid) !== String(editorUid)) {
       throw AppError.forbidden(
         'Only the original note author may revise an unsigned OP consultation note',
-        'NOTE_AUTHOR_ONLY_EDIT',
+        'NOTE_AUTHOR_ONLY_EDIT'
       );
     }
 
     if (!isDoctor(editorRole)) {
       throw AppError.forbidden(
         'Only the original doctor may revise an unsigned OP consultation note',
-        'DOCTOR_ONLY_OP_NOTE_EDIT',
+        'DOCTOR_ONLY_OP_NOTE_EDIT'
       );
     }
 
     const appt = await prisma.appointments.findUnique({
       where: { id: Number(existing.appointment_id) },
-      select: { id: true, doctor_id: true, status: true },
+      select: {
+        id: true,
+        doctor_id: true,
+        status: true,
+        appointment_date: true
+      }
     });
     if (!appt) {
       throw AppError.notFound('Appointment not found');
     }
 
-    if (TERMINAL_APPOINTMENT_STATUSES.has(String(appt.status || '').toUpperCase())) {
-      throw AppError.conflict(
-        'OP consultation note can no longer be edited after the appointment is terminal',
-        'OP_NOTE_SESSION_CLOSED',
-      );
-    }
+    assertOpenOpAppointmentSession(appt, 'edited');
 
     let assignedDoctorUid = null;
     if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
       const doctor = await prisma.users.findUnique({
         where: { id: appt.doctor_id },
-        select: { uid: true },
+        select: { uid: true }
       });
       assignedDoctorUid = doctor?.uid ?? null;
     }
     assertCanWriteAppointmentClinical(actingUser || { uid: editorUid, role: editorRole }, {
       doctor_id: appt.doctor_id,
-      assigned_doctor_uid: assignedDoctorUid,
+      assigned_doctor_uid: assignedDoctorUid
     });
   }
 
@@ -423,13 +521,13 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
     data: {
       content,
       version: existing.version + 1,
-      updated_at: now,
+      updated_at: now
     },
-    select: NOTE_SELECT,
+    select: NOTE_SELECT
   });
 
   logger.info(
-    `Clinical note edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}, admin_override=${adminOverride}`,
+    `Clinical note edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}, admin_override=${adminOverride}`
   );
   return attachAuthorNames(updated);
 }
@@ -456,7 +554,7 @@ export async function signNote(noteId, signerUid, actingUser = null) {
 
   const existing = await prisma.clinical_notes.findUnique({
     where: { id: Number(noteId) },
-    select: { id: true, is_signed: true, signed_at: true, appointment_id: true },
+    select: { id: true, is_signed: true, signed_at: true, appointment_id: true }
   });
 
   if (!existing) {
@@ -470,20 +568,20 @@ export async function signNote(noteId, signerUid, actingUser = null) {
   if (existing.appointment_id !== null && existing.appointment_id !== undefined) {
     const appt = await prisma.appointments.findUnique({
       where: { id: existing.appointment_id },
-      select: { doctor_id: true },
+      select: { doctor_id: true }
     });
     if (appt) {
       let assignedDoctorUid = null;
       if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
         const doctor = await prisma.users.findUnique({
           where: { id: appt.doctor_id },
-          select: { uid: true },
+          select: { uid: true }
         });
         assignedDoctorUid = doctor?.uid ?? null;
       }
       assertCanWriteAppointmentClinical(actingUser || { uid: signerUid, role: undefined }, {
         doctor_id: appt.doctor_id,
-        assigned_doctor_uid: assignedDoctorUid,
+        assigned_doctor_uid: assignedDoctorUid
       });
     }
   }
@@ -499,9 +597,9 @@ export async function signNote(noteId, signerUid, actingUser = null) {
       is_signed: true,
       signed_at: now,
       signed_by: signerUid,
-      updated_at: now,
+      updated_at: now
     },
-    select: NOTE_SELECT,
+    select: NOTE_SELECT
   });
 
   logger.info(`Clinical note signed: id=${noteId}, signed_by=${signerUid}`);
@@ -544,14 +642,14 @@ export async function getPatientNotes(patientUid, filters = {}) {
       select: NOTE_SELECT,
       orderBy: { created_at: 'desc' },
       skip: listQuery.offset,
-      take: listQuery.limit,
-    }),
+      take: listQuery.limit
+    })
   ]);
   const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
     notes: await attachAuthorNames(notes),
-    pagination,
+    pagination
   };
 }
 
@@ -568,7 +666,7 @@ export async function getEncounterNotes(encounterId) {
   const notes = await prisma.clinical_notes.findMany({
     where: { encounter_id: encounterId },
     select: NOTE_SELECT,
-    orderBy: { created_at: 'asc' },
+    orderBy: { created_at: 'asc' }
   });
   return attachAuthorNames(notes);
 }
@@ -586,7 +684,7 @@ export async function getNoteDetail(noteId) {
   const id = Number(noteId);
   const note = await prisma.clinical_notes.findUnique({
     where: { id },
-    select: NOTE_SELECT,
+    select: NOTE_SELECT
   });
 
   if (!note) {
@@ -599,23 +697,20 @@ export async function getNoteDetail(noteId) {
   const rootId = note.parent_note_id || note.id;
   const versions = await prisma.clinical_notes.findMany({
     where: {
-      AND: [
-        { OR: [{ id: rootId }, { parent_note_id: rootId }] },
-        { id: { not: id } },
-      ],
+      AND: [{ OR: [{ id: rootId }, { parent_note_id: rootId }] }, { id: { not: id } }]
     },
     select: VERSION_HISTORY_SELECT,
-    orderBy: { version: 'asc' },
+    orderBy: { version: 'asc' }
   });
 
   const [enrichedNote, enrichedVersions] = await Promise.all([
     attachAuthorNames(note),
-    attachAuthorNames(versions),
+    attachAuthorNames(versions)
   ]);
 
   return {
     ...enrichedNote,
-    version_history: enrichedVersions,
+    version_history: enrichedVersions
   };
 }
 
@@ -642,5 +737,5 @@ export default {
   getPatientNotes,
   getEncounterNotes,
   getNoteDetail,
-  getPatientTimeline,
+  getPatientTimeline
 };

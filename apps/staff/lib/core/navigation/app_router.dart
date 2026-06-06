@@ -887,6 +887,7 @@ final GoRouter appRouter = GoRouter(
                 reason: q['reason'],
                 appointmentDate: q['appointment_date'],
                 appointmentTime: q['appointment_time'],
+                appointmentStatus: q['status'],
               ),
             );
           },

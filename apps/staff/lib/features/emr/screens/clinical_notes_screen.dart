@@ -22,6 +22,7 @@ class ClinicalNotesScreen extends StatefulWidget {
   final String? reason;
   final String? appointmentDate;
   final String? appointmentTime;
+  final String? appointmentStatus;
 
   const ClinicalNotesScreen({
     super.key,
@@ -36,6 +37,7 @@ class ClinicalNotesScreen extends StatefulWidget {
     this.reason,
     this.appointmentDate,
     this.appointmentTime,
+    this.appointmentStatus,
   });
 
   @override
@@ -58,6 +60,47 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
   bool get _isOpConsultation =>
       widget.opConsultation || widget.appointmentId != null;
+
+  static const _terminalAppointmentStatuses = {
+    'COMPLETED',
+    'CANCELLED',
+    'CANCELED',
+    'NO_SHOW',
+    'RESCHEDULED',
+  };
+  static const _opAppointmentNoteTypes = {
+    'op_consultation',
+    'soap',
+    'progress',
+    'consultation_note',
+  };
+
+  bool get _opSessionClosed {
+    if (!_isOpConsultation || widget.appointmentId == null) return false;
+    final status = (widget.appointmentStatus ?? '').trim().toUpperCase();
+    if (_terminalAppointmentStatuses.contains(status)) return true;
+    return _appointmentDateOutsideToday;
+  }
+
+  bool get _appointmentDateOutsideToday {
+    final raw = widget.appointmentDate?.trim() ?? '';
+    if (raw.isEmpty) return false;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return false;
+    final local = parsed.toLocal();
+    final now = DateTime.now();
+    return local.year != now.year ||
+        local.month != now.month ||
+        local.day != now.day;
+  }
+
+  String get _opSessionClosedReason {
+    final status = (widget.appointmentStatus ?? '').trim().toUpperCase();
+    if (_terminalAppointmentStatuses.contains(status)) {
+      return 'This OP visit is $status; create a new appointment for fresh documentation.';
+    }
+    return 'This OP visit is not dated today; create a new appointment for fresh documentation.';
+  }
 
   String get _patientTitle {
     final name = widget.patientName?.trim() ?? '';
@@ -143,6 +186,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       ),
     ]);
     final notes = responses.expand(_listFromNoteResponse).toList();
+    if (_isOpConsultation && widget.appointmentId != null) {
+      notes.removeWhere(
+        (note) => _noteAppointmentId(note) != widget.appointmentId,
+      );
+    }
     notes.sort((a, b) {
       final aTime = DateTime.tryParse('${a['created_at']}') ?? DateTime(1970);
       final bTime = DateTime.tryParse('${b['created_at']}') ?? DateTime(1970);
@@ -240,7 +288,22 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       return false;
     }
     if (_isNoteSigned(note)) return false;
+    if (_opSessionClosed) return false;
     return _noteAppointmentId(note) == appointmentId;
+  }
+
+  Map<String, dynamic>? _appointmentOpNote() {
+    final appointmentId = widget.appointmentId;
+    if (!_isOpConsultation || appointmentId == null) return null;
+    final notes = _notesByType['progress'] ?? const <Map<String, dynamic>>[];
+    for (final note in notes) {
+      final noteType = '${note['note_type'] ?? ''}'.trim().toLowerCase();
+      if (_noteAppointmentId(note) == appointmentId &&
+          _opAppointmentNoteTypes.contains(noteType)) {
+        return note;
+      }
+    }
+    return null;
   }
 
   String _firstNoteText(Map<String, dynamic> note, List<String> keys) {
@@ -964,6 +1027,36 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── Create Note FAB ──
 
   void _showCreateNoteSheet() {
+    if (_isOpConsultation) {
+      if (_opSessionClosed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_opSessionClosedReason),
+            backgroundColor: AppTheme.warningAmber,
+          ),
+        );
+        return;
+      }
+      final existing = _appointmentOpNote();
+      if (existing != null) {
+        if (_canEditOpNote(existing)) {
+          _showProgressNoteForm(existingNote: existing);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This OP consultation note is signed or no longer editable.',
+              ),
+              backgroundColor: AppTheme.warningAmber,
+            ),
+          );
+        }
+        return;
+      }
+      _showProgressNoteForm();
+      return;
+    }
+
     final type = _tabController.index < _noteTypes.length
         ? _noteTypes[_tabController.index]
         : _noteTypes.first;
@@ -1688,16 +1781,39 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final existingOpNote = _appointmentOpNote();
+    final canEditExistingOpNote =
+        existingOpNote != null && _canEditOpNote(existingOpNote);
     return StaffScaffold(
       title: widget.patientName != null
           ? s.clinicalNotesTitleWithName(widget.patientName!)
           : s.clinicalNotesTitle,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateNoteSheet,
-        backgroundColor: AppTheme.primaryBlue,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.note_add),
-        label: Text(s.clinicalNotesNewNote),
+        onPressed:
+            _opSessionClosed ||
+                (_isOpConsultation &&
+                    existingOpNote != null &&
+                    !canEditExistingOpNote)
+            ? null
+            : _showCreateNoteSheet,
+        backgroundColor: _opSessionClosed
+            ? AppTheme.textSecondary.withValues(alpha: 0.18)
+            : AppTheme.primaryBlue,
+        foregroundColor: _opSessionClosed
+            ? AppTheme.textSecondary
+            : Colors.white,
+        icon: Icon(
+          _isOpConsultation && existingOpNote != null
+              ? Icons.edit_note_outlined
+              : Icons.note_add,
+        ),
+        label: Text(
+          _opSessionClosed
+              ? 'Visit locked'
+              : (_isOpConsultation && existingOpNote != null
+                    ? 'Edit note'
+                    : s.clinicalNotesNewNote),
+        ),
       ),
       body: Column(
         children: [

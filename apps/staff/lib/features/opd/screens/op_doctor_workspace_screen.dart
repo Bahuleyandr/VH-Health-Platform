@@ -186,6 +186,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         'appointment_date=${Uri.encodeQueryComponent(_clean(widget.appointmentDate))}',
       if (_clean(widget.appointmentTime).isNotEmpty)
         'appointment_time=${Uri.encodeQueryComponent(_clean(widget.appointmentTime))}',
+      if (_clean(_status).isNotEmpty)
+        'status=${Uri.encodeQueryComponent(_status)}',
       'context=op',
     ];
     return params.isEmpty ? '' : '?${params.join('&')}';
@@ -198,6 +200,26 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
       widget.appointmentId != null &&
       !_completing &&
       !_isTerminalStatus(_status);
+
+  bool get _opSessionClosed {
+    if (_isTerminalStatus(_status)) return true;
+    final raw = _clean(widget.appointmentDate);
+    if (raw.isEmpty) return false;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return false;
+    final local = parsed.toLocal();
+    final now = DateTime.now();
+    return local.year != now.year ||
+        local.month != now.month ||
+        local.day != now.day;
+  }
+
+  String get _opSessionClosedReason {
+    if (_isTerminalStatus(_status)) {
+      return 'This OP visit is ${_status.toLowerCase()}; create a new appointment for fresh documentation.';
+    }
+    return 'This OP visit is not dated today; create a new appointment for fresh documentation.';
+  }
 
   String get _scheduledLabel {
     final parts = [
@@ -316,6 +338,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     bool signAfter = false,
   }) async {
     if (_savingNote || _opNoteSigned) return;
+    if (_opSessionClosed) {
+      ErrorToast.show(context, _opSessionClosedReason);
+      return;
+    }
     final content = _currentOpContent();
     if (_clean(content['chief_complaint']).isEmpty &&
         _clean(content['diagnosis']).isEmpty &&
@@ -462,6 +488,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   }
 
   Widget _buildConsultationNotePanel() {
+    final noteFieldsEnabled = !_opNoteSigned && !_opSessionClosed;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -479,7 +506,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                     title: 'OP consultation note',
                     subtitle: _opNoteSigned
                         ? 'Signed and locked'
-                        : 'Editable until this consultation is signed',
+                        : (_opSessionClosed
+                              ? _opSessionClosedReason
+                              : 'Editable until this consultation is signed'),
                   ),
                 ),
                 if (_opNoteId != null)
@@ -497,7 +526,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               label: 'Chief complaint',
               hint: 'Main complaint or visit reason',
               minLines: 2,
-              enabled: !_opNoteSigned,
+              enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -505,7 +534,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               label: 'History',
               hint: 'Relevant history, negatives, risk factors',
               minLines: 3,
-              enabled: !_opNoteSigned,
+              enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -513,7 +542,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               label: 'Examination',
               hint: 'Vitals, examination findings, bedside observations',
               minLines: 3,
-              enabled: !_opNoteSigned,
+              enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -521,7 +550,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               label: 'Diagnosis',
               hint: 'Working diagnosis or differential',
               minLines: 2,
-              enabled: !_opNoteSigned,
+              enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -529,7 +558,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               label: 'Plan',
               hint: 'Medicines, investigations, advice, follow-up',
               minLines: 3,
-              enabled: !_opNoteSigned,
+              enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 14),
             Wrap(
@@ -537,7 +566,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               runSpacing: 10,
               children: [
                 FilledButton.icon(
-                  onPressed: _savingNote || _opNoteSigned
+                  onPressed: _savingNote || !noteFieldsEnabled
                       ? null
                       : () => _saveOpNote(),
                   icon: _savingNote
@@ -550,14 +579,18 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                   label: const Text('Save note'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: _savingNote || _opNoteSigned
+                  onPressed: _savingNote || !noteFieldsEnabled
                       ? null
                       : () => _saveOpNote(openPrescriptionAfter: true),
                   icon: const Icon(Icons.medication_outlined, size: 18),
                   label: const Text('Save & prescribe'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: _savingNote || _opNoteSigned || _opNoteId == null
+                  onPressed:
+                      _savingNote ||
+                          _opNoteSigned ||
+                          _opSessionClosed ||
+                          _opNoteId == null
                       ? null
                       : () => _saveOpNote(signAfter: true),
                   icon: const Icon(Icons.verified_outlined, size: 18),
