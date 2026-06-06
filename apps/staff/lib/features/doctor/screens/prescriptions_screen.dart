@@ -17,6 +17,7 @@ import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
+import '../../ipd/utils/drug_chart_utils.dart';
 import '../widgets/cds_blocker_modal.dart';
 
 /// E-Prescriptions screen — structured prescription entry with medicine type-ahead.
@@ -873,8 +874,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (strength.isNotEmpty && !med.strengthOptions.contains(strength)) {
       med.strengthOptions = [strength, ...med.strengthOptions];
     }
-    if (med.dosage.trim().isEmpty && med.strength.trim().isNotEmpty) {
-      med.dosage = med.strength.trim();
+    if (med.dosage.trim().isEmpty) {
+      final derived = med.strength.trim().isNotEmpty
+          ? med.strength.trim()
+          : deriveDoseFromDrug(med.name);
+      if (derived.isNotEmpty) med.dosage = derived;
     }
     med.frequency = _frequencyForDoseTimes(med.doseTimes);
     med.duration = _durationForDays(med.days);
@@ -1236,7 +1240,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       });
     } catch (e) {
       if (!mounted) return;
-      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _drugSuggestions[med] = const []);
     } finally {
       if (mounted && _drugSuggestionQuery[med] == q) {
         setState(() => _drugSuggestionLoading.remove(med));
@@ -1644,18 +1648,20 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         scrollDirection: Axis.horizontal,
         child: DataTable(
           headingRowHeight: 38,
-          dataRowMinHeight: 78,
-          dataRowMaxHeight: 96,
-          columnSpacing: 10,
+          dataRowMinHeight: 86,
+          dataRowMaxHeight: 116,
+          columnSpacing: 8,
           columns: const [
             DataColumn(label: Text('Drug*')),
-            DataColumn(label: Text('Strength')),
-            DataColumn(label: Text('Route & frequency')),
-            DataColumn(label: Text('Food timing')),
+            DataColumn(label: Text('Dose')),
+            DataColumn(label: Text('Route')),
+            DataColumn(label: Text('M')),
+            DataColumn(label: Text('A')),
+            DataColumn(label: Text('E')),
+            DataColumn(label: Text('N')),
+            DataColumn(label: Text('Food')),
             DataColumn(label: Text('Days')),
-            DataColumn(label: Text('Type')),
-            DataColumn(label: Text('Flags')),
-            DataColumn(label: Text('Special Instruction')),
+            DataColumn(label: Text('Notes / safety')),
             DataColumn(label: Text('')),
           ],
           rows: _medications.asMap().entries.map((entry) {
@@ -1663,73 +1669,45 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             final med = entry.value;
             return DataRow(
               cells: [
-                DataCell(_drugAutocompleteField(width: 255, medication: med)),
-                DataCell(_strengthDropdown(width: 120, medication: med)),
-                DataCell(_routeFrequencyCell(width: 300, medication: med)),
-                DataCell(_foodTimingDropdown(width: 140, medication: med)),
+                DataCell(_drugAutocompleteField(width: 280, medication: med)),
+                DataCell(_strengthDropdown(width: 130, medication: med)),
+                DataCell(
+                  _tableDropdown(
+                    width: 118,
+                    value: med.route.isEmpty ? 'Oral' : med.route,
+                    options: _routes,
+                    onChanged: (value) {
+                      setState(() => med.route = value);
+                    },
+                  ),
+                ),
+                ..._doseSlotLabels.keys.map(
+                  (slot) =>
+                      DataCell(_doseTickCell(slot: slot, medication: med)),
+                ),
+                DataCell(_foodTimingDropdown(width: 132, medication: med)),
                 DataCell(
                   _tableNumberField(
-                    width: 70,
+                    width: 64,
                     value: med.days,
                     onChanged: (value) {
-                      med.days = value;
-                      med.duration = _durationForDays(value);
+                      setState(() {
+                        med.days = value;
+                        med.duration = _durationForDays(value);
+                        _syncMedicationDerivedFields(med);
+                      });
                     },
                   ),
                 ),
                 DataCell(
-                  _readOnlyPill(
-                    width: 130,
-                    text: med.type.trim().isEmpty ? 'Auto' : med.type.trim(),
-                  ),
-                ),
-                DataCell(
-                  Wrap(
-                    spacing: 4,
-                    children: [
-                      _flagChip('PRN', med.prn, (value) {
-                        setState(() => med.prn = value);
-                      }),
-                      _flagChip('NTE', med.nte, (value) {
-                        setState(() => med.nte = value);
-                      }),
-                      _flagChip('DAW', med.daw, (value) {
-                        setState(() => med.daw = value);
-                      }),
-                    ],
-                  ),
-                ),
-                DataCell(
                   _tableTextField(
-                    width: 260,
+                    width: 280,
                     value: med.instructions,
-                    hint: 'e.g. after food, avoid driving',
+                    hint: 'PRN reason, warning, special advice',
                     onChanged: (value) => med.instructions = value,
                   ),
                 ),
-                DataCell(
-                  SizedBox(
-                    width: 84,
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Save favorite',
-                          onPressed: med.name.trim().isEmpty
-                              ? null
-                              : () => _saveFavorite(med),
-                          icon: const Icon(Icons.star_border),
-                        ),
-                        IconButton(
-                          tooltip: 'Delete row',
-                          onPressed: _medications.length <= 1
-                              ? null
-                              : () => _removeMedicationAt(index),
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                DataCell(_rowActionCell(index, med)),
               ],
             );
           }).toList(),
@@ -1750,7 +1728,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       return _tableTextField(
         width: width,
         value: medication.strength,
-        hint: 'Select drug',
+        hint: 'auto-filled',
         onChanged: (value) {
           medication
             ..strength = value
@@ -1783,59 +1761,6 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     );
   }
 
-  Widget _routeFrequencyCell({
-    required double width,
-    required _MedicationEntry medication,
-  }) {
-    return SizedBox(
-      width: width,
-      child: Row(
-        children: [
-          _tableDropdown(
-            width: 112,
-            value: medication.route.isEmpty ? 'Oral' : medication.route,
-            options: _routes,
-            onChanged: (value) {
-              setState(() => medication.route = value);
-            },
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: _doseSlotLabels.entries
-                  .map((entry) {
-                    final selected = medication.doseTimes.contains(entry.key);
-                    return FilterChip(
-                      label: Text(
-                        entry.value,
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      tooltip: _doseSlotNames[entry.key],
-                      selected: selected,
-                      onSelected: (value) {
-                        setState(() {
-                          if (value) {
-                            medication.doseTimes.add(entry.key);
-                          } else {
-                            medication.doseTimes.remove(entry.key);
-                          }
-                          _syncMedicationDerivedFields(medication);
-                        });
-                      },
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    );
-                  })
-                  .toList(growable: false),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _foodTimingDropdown({
     required double width,
     required _MedicationEntry medication,
@@ -1853,25 +1778,60 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     );
   }
 
-  Widget _readOnlyPill({required double width, required String text}) {
+  Widget _doseTickCell({
+    required String slot,
+    required _MedicationEntry medication,
+  }) {
+    final selected = medication.doseTimes.contains(slot);
     return SizedBox(
-      width: width,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppTheme.backgroundGrey,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.divider),
+      width: 42,
+      child: Center(
+        child: Checkbox(
+          value: selected,
+          visualDensity: VisualDensity.compact,
+          onChanged: (value) {
+            setState(() {
+              if (value == true) {
+                medication.doseTimes.add(slot);
+              } else {
+                medication.doseTimes.remove(slot);
+              }
+              _syncMedicationDerivedFields(medication);
+            });
+          },
         ),
-        child: Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: AppTheme.textPrimary,
-            fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  Widget _rowActionCell(int index, _MedicationEntry med) {
+    return SizedBox(
+      width: 148,
+      child: Wrap(
+        spacing: 2,
+        runSpacing: 2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _flagChip('PRN', med.prn, (value) {
+            setState(() => med.prn = value);
+          }),
+          IconButton(
+            tooltip: 'Save favorite',
+            visualDensity: VisualDensity.compact,
+            onPressed: med.name.trim().isEmpty
+                ? null
+                : () => _saveFavorite(med),
+            icon: const Icon(Icons.star_border, size: 18),
           ),
-        ),
+          IconButton(
+            tooltip: 'Delete row',
+            visualDensity: VisualDensity.compact,
+            onPressed: _medications.length <= 1
+                ? null
+                : () => _removeMedicationAt(index),
+            icon: const Icon(Icons.delete_outline, size: 18),
+          ),
+        ],
       ),
     );
   }

@@ -526,16 +526,18 @@ class MedicalApiService {
     });
   }
 
-  /// GET /prescriptions/catalog — shared formulary suggestions for inpatient
-  /// and outpatient prescription type-ahead. The backend also exposes the
-  /// same handler at /pharmacy-orders/catalog for pharmacy screens.
+  /// GET /pharmacy-orders/catalog — shared formulary suggestions for inpatient
+  /// and outpatient prescription type-ahead. This intentionally uses the
+  /// pharmacy catalog namespace because older deployed backends may route
+  /// `/prescriptions/catalog` through the dynamic `/:id` prescription detail
+  /// route and return "Invalid prescription id".
   static Future<List<Map<String, dynamic>>> searchMedicationCatalog(
     String search, {
     int minLength = 2,
   }) async {
     final q = search.trim();
     if (q.length < minLength) return const [];
-    final data = await _get('/prescriptions/catalog', query: {'search': q});
+    final data = await _get('/pharmacy-orders/catalog', query: {'search': q});
     final rows = data['data'];
     if (rows is! List) return const [];
     return rows
