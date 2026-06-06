@@ -13,6 +13,7 @@ import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { formatTemperatureForDisplay } from '../../services/prescription/prescriptionPdfHelper.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { logAudit } from '../../utils/logAudit.js';
 
 // ─── Frequency label map ─────────────────────────────────────────────────────
 const FREQ_LABELS = {
@@ -29,6 +30,8 @@ const FREQ_LABELS = {
 // prescription carries 'inpatient' so the pharmacy queue / nursing MAR
 // can split it from OPD scripts; everything else is 'outpatient'.
 const VALID_VISIT_TYPES = ['outpatient', 'inpatient'];
+const TERMINAL_PRESCRIPTION_STATUSES = new Set(['fulfilled', 'cancelled', 'canceled']);
+const PRIVILEGED_PRESCRIPTION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
 
 function parseJsonField(value, fallback = null) {
   if (value === undefined || value === null || value === '') return fallback;
@@ -284,6 +287,86 @@ function parseIntegerField(value) {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : NaN;
+}
+
+function normalizeRole(role) {
+  return String(role || '').toUpperCase();
+}
+
+function normalizeMedicationList(value) {
+  const parsed = parseJsonField(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function isPrescriptionOwner(req, rx) {
+  const role = normalizeRole(req.user?.role);
+  if (PRIVILEGED_PRESCRIPTION_ROLES.has(role)) return true;
+  if (role !== 'DOCTOR') return false;
+  const actorId = req.user?.id ?? req.user?.userId;
+  const actorUid = req.user?.uid;
+  return (
+    (actorId != null && rx?.doctor_id != null && String(actorId) === String(rx.doctor_id)) ||
+    (actorUid && rx?.doctor_uid && String(actorUid) === String(rx.doctor_uid))
+  );
+}
+
+function assertPrescriptionEditable(req, rx) {
+  if (!rx) return 'Prescription not found';
+  if (!isPrescriptionOwner(req, rx)) return 'Only the prescribing doctor or Admin/SuperAdmin can edit this prescription';
+  if (rx.signed_at || rx.locked_at || String(rx.lifecycle_status || '').toLowerCase() === 'signed') {
+    return 'Prescription is signed and locked';
+  }
+  if (rx.pharmacy_opted || rx.pharmacy_order_id || String(rx.status || '').toLowerCase() === 'pharmacy_linked') {
+    return 'Prescription has already been sent to pharmacy and cannot be edited';
+  }
+  if (TERMINAL_PRESCRIPTION_STATUSES.has(String(rx.status || '').toLowerCase())) {
+    return 'Prescription is in a terminal status and cannot be edited';
+  }
+  return null;
+}
+
+function assertPrescriptionSignable(req, rx) {
+  if (!rx) return 'Prescription not found';
+  if (!isPrescriptionOwner(req, rx)) return 'Only the prescribing doctor or Admin/SuperAdmin can sign this prescription';
+  if (rx.signed_at || rx.locked_at || String(rx.lifecycle_status || '').toLowerCase() === 'signed') {
+    return 'Prescription is already signed';
+  }
+  if (TERMINAL_PRESCRIPTION_STATUSES.has(String(rx.status || '').toLowerCase())) {
+    return 'Prescription is in a terminal status and cannot be signed';
+  }
+  return null;
+}
+
+async function loadPrescriptionRow(id) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM e_prescriptions WHERE id = $1`,
+    id,
+  );
+  return rows[0] || null;
+}
+
+async function regeneratePrescriptionPdf(req, prescription) {
+  if (!prescription?.id) return prescription;
+  const [patientRes, doctorRes] = await Promise.all([
+    prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1', prescription.patient_id),
+    prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
+              FROM users u LEFT JOIN doctors d ON d.user_id = u.id
+              WHERE u.id=$1`, prescription.doctor_id),
+  ]);
+  const patient = patientRes[0] || {};
+  const doctor = doctorRes[0] || {};
+  const pdfBuffer = await generatePrescriptionPDF(prescription, patient, doctor);
+  const pdfKey = `prescriptions/pdf/${prescription.prescription_number || `RX-${prescription.id}`}-rev${prescription.revision || 1}.pdf`;
+  await uploadFileToR2(pdfBuffer, pdfKey, 'application/pdf');
+  await prisma.$queryRawUnsafe('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', pdfKey, prescription.id);
+  prescription.pdf_key = pdfKey;
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  try {
+    prescription.pdf_url = await getSignedFileUrl(pdfKey, 3600, { baseUrl });
+  } catch (signedErr) {
+    logger.warn(`Prescription PDF signed URL failed for ${prescription.id}: ${signedErr.message}`);
+  }
+  return prescription;
 }
 
 // Extract a per-kg dose rate (mg/kg) from a dose / strength string. Matches
@@ -545,19 +628,26 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
         }
 
         const bgColor = idx % 2 === 0 ? '#f8f8f8' : '#ffffff';
-        const rowHeight = 18;
+        const rowHeight = 24;
         doc.rect(leftX, y, pageWidth, rowHeight).fill(bgColor);
 
         doc.fillColor('#333').fontSize(7).font('Helvetica');
         cx = leftX + 3;
+        const doseSlots = Array.isArray(med.dose_times) && med.dose_times.length
+          ? ` (${med.dose_times.map((slot) => String(slot).charAt(0).toUpperCase()).join('/')})`
+          : '';
+        const instructionParts = [
+          med.food_timing || null,
+          med.instructions || null,
+        ].filter(Boolean);
         const rowData = [
           `${idx + 1}`,
           `${med.name}${med.generic_name ? ` (${med.generic_name})` : ''}`,
           med.dosage || '-',
-          FREQ_LABELS[med.frequency] || med.frequency || '-',
+          `${FREQ_LABELS[med.frequency] || med.frequency || '-'}${doseSlots}`,
           med.duration || '-',
           med.route || 'Oral',
-          med.instructions || '-',
+          instructionParts.join('; ') || '-',
         ];
         rowData.forEach((val, i) => {
           doc.text(val, cx, y + 5, { width: colWidths[i], lineBreak: false });
@@ -791,7 +881,8 @@ export const createPrescription = async (req, res) => {
        VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13,
                $14, $15)
        RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
-                 medications, status, created_at,
+                 medications, status, lifecycle_status, revision, signed_at, signed_by, locked_at, locked_by,
+                 created_at,
                  prescription_number, diagnosis, clinical_notes, vitals,
                  follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key,
                  admission_id, visit_type`,
@@ -813,6 +904,27 @@ export const createPrescription = async (req, res) => {
     );
 
     const prescription = insertResult[0];
+
+    logAudit(
+      req,
+      'OP_PRESCRIPTION_CREATED',
+      {
+        prescription_id: prescription.id,
+        prescription_number: prescription.prescription_number,
+        patient_id: patientId,
+        patient_uid: patientUid,
+        doctor_id: doctorId,
+        doctor_uid: doctorUid,
+        appointment_id: appointmentId || null,
+        admission_id: admissionId || null,
+        visit_type: resolvedVisitType,
+        medication_count: medications.length,
+        pharmacy: medications[0]?.pharmacy || null,
+      },
+      { resource: 'e_prescriptions', resourceId: prescription.id },
+    ).catch((auditErr) => {
+      logger.warn(`Prescription create audit failed for ${prescription.id}: ${auditErr.message}`);
+    });
 
     // If CDS blockers were overridden, persist the audit row linked to the new Rx.
     if (!safety.safe && override) {
@@ -995,6 +1107,182 @@ export const createPrescription = async (req, res) => {
       stack: err?.stack,
     });
     error(res, 'Failed to create prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUT /prescriptions/:id — edit draft prescription during active consultation
+// ═══════════════════════════════════════════════════════════════════════════════
+export const updatePrescription = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const existing = await loadPrescriptionRow(id);
+    if (!existing) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+
+    const editError = assertPrescriptionEditable(req, existing);
+    if (editError) return error(res, editError, HTTP_STATUS.FORBIDDEN);
+
+    const medications = req.body.medications !== undefined
+      ? normalizeMedicationList(req.body.medications)
+      : normalizeMedicationList(existing.medications);
+    if (!Array.isArray(medications) || medications.length === 0) {
+      return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const override = parseJsonField(req.body.override, null);
+    const safety = await validatePrescriptionSafety(existing.patient_id, medications);
+    if (!safety.safe) {
+      if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
+        return error(
+          res,
+          'Prescription blocked by clinical safety check',
+          HTTP_STATUS.CONFLICT,
+          { blockers: safety.blockers, warnings: safety.warnings, requiresOverride: true },
+        );
+      }
+    }
+
+    const diagnosis = req.body.diagnosis !== undefined ? req.body.diagnosis : existing.diagnosis;
+    const clinicalNotes = req.body.clinical_notes !== undefined ? req.body.clinical_notes : existing.clinical_notes;
+    const followUpDate = req.body.follow_up_date !== undefined ? req.body.follow_up_date : existing.follow_up_date;
+    const followUpNotes = req.body.follow_up_notes !== undefined ? req.body.follow_up_notes : existing.follow_up_notes;
+    const vitals = req.body.vitals !== undefined ? parseJsonField(req.body.vitals, null) : existing.vitals;
+
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE e_prescriptions
+          SET diagnosis=$1,
+              clinical_notes=$2,
+              medications=$3::jsonb,
+              follow_up_date=$4::date,
+              follow_up_notes=$5,
+              vitals=$6::jsonb,
+              revision=COALESCE(revision, 1) + 1,
+              lifecycle_status='draft',
+              updated_at=NOW()
+        WHERE id=$7
+        RETURNING *`,
+      diagnosis || null,
+      clinicalNotes || null,
+      JSON.stringify(medications),
+      followUpDate || null,
+      followUpNotes || null,
+      vitals ? JSON.stringify(vitals) : null,
+      id,
+    );
+
+    const updated = result[0];
+
+    if (!safety.safe && override) {
+      try {
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO prescription_safety_overrides
+             (prescription_id, patient_id, doctor_id, blockers, reason, approved_by, created_by)
+           VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
+          updated.id,
+          updated.patient_id,
+          updated.doctor_id,
+          JSON.stringify(safety.blockers),
+          override.reason.trim(),
+          override.approvedBy || null,
+          req.user?.id || req.user?.userId || null,
+        );
+      } catch (auditErr) {
+        logger.error('Failed to persist edit CDS override audit row:', auditErr.message);
+      }
+    }
+
+    try {
+      await regeneratePrescriptionPdf(req, updated);
+    } catch (pdfErr) {
+      logger.error(`Failed to regenerate prescription PDF for ${updated.id}:`, pdfErr.message);
+    }
+
+    logAudit(
+      req,
+      'OP_PRESCRIPTION_EDITED',
+      {
+        prescription_id: updated.id,
+        prescription_number: updated.prescription_number,
+        patient_id: updated.patient_id,
+        patient_uid: updated.patient_uid,
+        doctor_id: updated.doctor_id,
+        doctor_uid: updated.doctor_uid,
+        appointment_id: updated.appointment_id || null,
+        admission_id: updated.admission_id || null,
+        revision: updated.revision,
+        medication_count: medications.length,
+      },
+      { resource: 'e_prescriptions', resourceId: updated.id },
+    ).catch((auditErr) => {
+      logger.warn(`Prescription edit audit failed for ${updated.id}: ${auditErr.message}`);
+    });
+
+    success(res, updated, 'Prescription updated');
+  } catch (err) {
+    logger.error('Update prescription error:', err);
+    error(res, 'Failed to update prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POST /prescriptions/:id/sign — sign and lock prescription
+// ═══════════════════════════════════════════════════════════════════════════════
+export const signPrescription = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const existing = await loadPrescriptionRow(id);
+    if (!existing) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+
+    const signError = assertPrescriptionSignable(req, existing);
+    if (signError) return error(res, signError, HTTP_STATUS.FORBIDDEN);
+
+    const actorUid = req.user?.uid || null;
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE e_prescriptions
+          SET signed_at=NOW(),
+              signed_by=$1::uuid,
+              locked_at=NOW(),
+              locked_by=$1::uuid,
+              lifecycle_status='signed',
+              updated_at=NOW()
+        WHERE id=$2
+        RETURNING *`,
+      actorUid,
+      id,
+    );
+    const signed = result[0];
+
+    logAudit(
+      req,
+      'OP_PRESCRIPTION_SIGNED',
+      {
+        prescription_id: signed.id,
+        prescription_number: signed.prescription_number,
+        patient_id: signed.patient_id,
+        patient_uid: signed.patient_uid,
+        doctor_id: signed.doctor_id,
+        doctor_uid: signed.doctor_uid,
+        appointment_id: signed.appointment_id || null,
+        admission_id: signed.admission_id || null,
+        revision: signed.revision,
+      },
+      { resource: 'e_prescriptions', resourceId: signed.id },
+    ).catch((auditErr) => {
+      logger.warn(`Prescription sign audit failed for ${signed.id}: ${auditErr.message}`);
+    });
+
+    success(res, signed, 'Prescription signed and locked');
+  } catch (err) {
+    logger.error('Sign prescription error:', err);
+    error(res, 'Failed to sign prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -1513,6 +1801,10 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       }
       const doseText = med.dose || med.dosage || med.strength || '';
       const instructionText = med.instructions || med.notes || '';
+      const foodTiming = med.food_timing || med.foodTiming || null;
+      const doseTimes = Array.isArray(med.dose_times)
+        ? med.dose_times
+        : (Array.isArray(med.doseTimes) ? med.doseTimes : []);
 
       // Child weight for weight-based (mg/kg) liquid dosing. Explicit field
       // wins; then a weight named in the dose/instruction free-text; then the
@@ -1689,12 +1981,14 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         dose: doseText || null,
         route: med.route || null,
         frequency: med.frequency || null,
+        dose_times: doseTimes,
+        food_timing: foodTiming,
         duration: med.duration || null,
         instructions: instructionText || null,
         dispensed_quantity_ml: Number.isFinite(dispensedQuantityMl) ? dispensedQuantityMl : null,
         child_weight_kg: Number.isFinite(childWeightKg) ? childWeightKg : null,
         measuring_instruction: measuringInstruction,
-        label_instruction: [instructionText || null, measuringInstruction].filter(Boolean).join(' ') || null,
+        label_instruction: [foodTiming, instructionText || null, measuringInstruction].filter(Boolean).join(' ') || null,
         qty,
         prescribed_qty: qty,
         quantity_source: quantitySource,
@@ -1771,6 +2065,26 @@ export const orderPharmacyFromPrescription = async (req, res) => {
        WHERE id = $3`,
       pharmacyOrder.id, delivery_type, id
     );
+
+    logAudit(
+      req,
+      isRefill ? 'OP_PRESCRIPTION_REFILL_SENT_TO_PHARMACY' : 'OP_PRESCRIPTION_SENT_TO_PHARMACY',
+      {
+        prescription_id: id,
+        prescription_number: rx.prescription_number,
+        pharmacy_order_id: pharmacyOrder.id,
+        pharmacy_order_uid: pharmacyOrder.uid,
+        pharmacy_order_number: pharmacyOrder.order_number,
+        patient_id: rx.patient_id,
+        patient_name: rx.patient_name,
+        delivery_type,
+        item_count: itemsList.length,
+        total_amount: totalCost,
+      },
+      { resource: 'pharmacy_orders', resourceId: pharmacyOrder.id },
+    ).catch((auditErr) => {
+      logger.warn(`Prescription pharmacy audit failed for rx ${id}: ${auditErr.message}`);
+    });
 
     // Notify pharmacy staff
     dispatch({

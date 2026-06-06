@@ -6,6 +6,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/pharmacyCapService.js';
 
@@ -17,6 +18,26 @@ async function attachSignedUrl(order) {
     } catch (e) { logger.warn('Signed URL generation failed for prescription photo:', e.message); }
   }
   return order;
+}
+
+function auditPharmacyOrder(req, action, order, extra = {}) {
+  if (!order?.id) return;
+  logAudit(
+    req,
+    action,
+    {
+      pharmacy_order_id: order.id,
+      pharmacy_order_uid: order.uid || null,
+      order_number: order.order_number || null,
+      patient_id: order.patient_id || null,
+      patient_name: order.patient_name || null,
+      status: order.status || null,
+      ...extra,
+    },
+    { resource: 'pharmacy_orders', resourceId: order.id },
+  ).catch((auditErr) => {
+    logger.warn(`Pharmacy audit ${action} failed for order ${order.id}: ${auditErr.message}`);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -218,6 +239,11 @@ export const confirmOrder = async (req, res) => {
       parseInt(id), staffId, confirmation_notes || null
     );
 
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_CONFIRMED', { ...result[0], order_number: order[0].order_number }, {
+      from_status: 'PENDING',
+      to_status: 'CONFIRMED',
+    });
+
     setImmediate(async () => {
       try {
         const { sendSMS } = await import('../../services/smsService.js');
@@ -275,6 +301,11 @@ export const markPreparing = async (req, res) => {
       parseInt(id), req.user?.id
     );
 
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_PREPARING', result[0], {
+      from_status: 'CONFIRMED',
+      to_status: 'PREPARING',
+    });
+
     success(res, result[0], 'Preparing');
   } catch (err) {
     logger.error('Mark preparing error:', err);
@@ -319,6 +350,12 @@ export const dispatchOrder = async (req, res) => {
        VALUES ($1, $2, 'DISPATCHED', $3, 'pharmacist')`,
       parseInt(id), fromStatus, staffId
     );
+
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_DISPATCHED', result[0], {
+      from_status: fromStatus,
+      to_status: 'DISPATCHED',
+      delivery_person: delivery_person || null,
+    });
 
     let eta = { estimated_mins: null, distance_km: null };
     try {
@@ -476,6 +513,11 @@ export const markDelivered = async (req, res) => {
     if (!result) {
       return error(res, 'Order not found or wrong status', HTTP_STATUS.BAD_REQUEST);
     }
+
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_DELIVERED', result, {
+      from_status: 'DISPATCHED',
+      to_status: 'DELIVERED',
+    });
 
     success(res, result, 'Delivered');
   } catch (err) {
@@ -971,10 +1013,70 @@ export const markCounterDispensed = async (req, res) => {
         { code: 'DISPENSE_QUANTITY_MISMATCH', mismatches: result.mismatches },
       );
     }
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_DISPENSED', result.ok, {
+      to_status: 'DISPENSED',
+      partial_dispense: Boolean(result.ok?.partial_dispense),
+      payment_status: result.ok?.payment_status || null,
+    });
     success(res, result.ok, 'Counter dispense complete');
   } catch (err) {
     logger.error('Counter dispense error:', err);
     error(res, 'Failed to dispense order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const markUnavailable = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(orderId)) {
+      return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const { reason, unavailable_items } = req.body ?? {};
+    const order = await prisma.$queryRawUnsafe(
+      `SELECT id, uid, patient_id, patient_name, status, order_number
+         FROM pharmacy_orders WHERE id=$1`,
+      orderId,
+    );
+    if (!order.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
+    if (['DISPENSED', 'DELIVERED', 'CANCELLED', 'UNAVAILABLE'].includes(order[0].status)) {
+      return error(res, 'Order is already closed and cannot be marked unavailable', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const fromStatus = order[0].status;
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE pharmacy_orders
+          SET status='UNAVAILABLE',
+              cancellation_reason=$2,
+              partial_reason=$2,
+              updated_at=NOW()
+        WHERE id=$1
+        RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
+                  cancellation_reason, partial_reason, items_list, created_at, updated_at, order_number`,
+      orderId,
+      reason || 'Medicine unavailable',
+    );
+
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
+       VALUES ($1, $2, 'UNAVAILABLE', $3, 'pharmacist', $4)`,
+      orderId,
+      fromStatus,
+      req.user?.id,
+      reason || null,
+    );
+
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_UNAVAILABLE', result[0], {
+      from_status: fromStatus,
+      to_status: 'UNAVAILABLE',
+      reason: reason || null,
+      unavailable_items: Array.isArray(unavailable_items) ? unavailable_items : null,
+    });
+
+    success(res, result[0], 'Order marked unavailable');
+  } catch (err) {
+    logger.error('Mark pharmacy order unavailable error:', err);
+    error(res, 'Failed to mark order unavailable', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -986,8 +1088,8 @@ export const cancelOrder = async (req, res) => {
     const order = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM pharmacy_orders WHERE id=$1`, parseInt(id));
     if (!order.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
-    if (['DELIVERED', 'CANCELLED'].includes(order[0].status)) {
-      return error(res, 'Cannot cancel delivered or already cancelled order', HTTP_STATUS.BAD_REQUEST);
+    if (['DISPENSED', 'DELIVERED', 'CANCELLED', 'UNAVAILABLE'].includes(order[0].status)) {
+      return error(res, 'Cannot cancel a closed order', HTTP_STATUS.BAD_REQUEST);
     }
 
     const fromStatus = order[0].status;
@@ -1006,6 +1108,12 @@ export const cancelOrder = async (req, res) => {
        VALUES ($1, $2, 'CANCELLED', $3, 'staff', $4)`,
       parseInt(id), fromStatus, req.user?.id, cancellation_reason || null
     );
+
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_CANCELLED', result[0], {
+      from_status: fromStatus,
+      to_status: 'CANCELLED',
+      reason: cancellation_reason || null,
+    });
 
     success(res, result[0], 'Order cancelled');
   } catch (err) {
@@ -1028,8 +1136,11 @@ export const getPharmacySLADashboard = async (req, res) => {
           COUNT(CASE WHEN status='PREPARING' THEN 1 END)::int as preparing,
           COUNT(CASE WHEN status='DISPATCHED' THEN 1 END)::int as dispatched,
           COUNT(CASE WHEN status='DELIVERED' THEN 1 END)::int as delivered,
+          COUNT(CASE WHEN status='DISPENSED' THEN 1 END)::int as dispensed,
+          COUNT(CASE WHEN partial_dispense IS TRUE THEN 1 END)::int as partially_dispensed,
+          COUNT(CASE WHEN status='UNAVAILABLE' THEN 1 END)::int as unavailable,
           COUNT(CASE WHEN status='CANCELLED' THEN 1 END)::int as cancelled,
-          SUM(CASE WHEN status='DELIVERED' THEN COALESCE(total_amount,0) ELSE 0 END) as total_revenue
+          SUM(CASE WHEN status IN ('DELIVERED','DISPENSED') THEN COALESCE(total_amount,0) ELSE 0 END) as total_revenue
         FROM pharmacy_orders WHERE DATE(created_at) BETWEEN $1::date AND $2::date
       `, from, to),
       prisma.$queryRawUnsafe(`
@@ -1080,6 +1191,10 @@ export const getOrderDetail = async (req, res) => {
       parseInt(id));
 
     await attachSignedUrl(order[0]);
+
+    auditPharmacyOrder(req, 'PHARMACY_ORDER_VIEWED', order[0], {
+      history_count: history.length,
+    });
 
     success(res, { order: order[0], history }, 'Order detail');
   } catch (err) {

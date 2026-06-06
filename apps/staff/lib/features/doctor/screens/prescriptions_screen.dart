@@ -1,8 +1,12 @@
 // ignore_for_file: unused_element_parameter
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -89,12 +93,16 @@ class _MedicationEntry {
   String name;
   String? genericName;
   int? catalogId;
+  List<Map<String, dynamic>> catalogRows;
   String strength;
+  List<String> strengthOptions;
   String dosage;
   String frequency;
+  Set<String> doseTimes;
   String duration;
   String route;
   String instructions;
+  String foodTiming;
   int quantity;
   int days;
   int refills;
@@ -109,12 +117,16 @@ class _MedicationEntry {
     this.name = '',
     this.genericName,
     this.catalogId,
+    List<Map<String, dynamic>>? catalogRows,
     this.strength = '',
+    List<String>? strengthOptions,
     this.dosage = '',
     this.frequency = 'BD',
+    Set<String>? doseTimes,
     this.duration = '',
     this.route = 'Oral',
     this.instructions = '',
+    this.foodTiming = '',
     this.quantity = 1,
     this.days = 5,
     this.refills = 0,
@@ -124,7 +136,11 @@ class _MedicationEntry {
     this.type = '',
     this.category = '',
     this.pharmacy = '',
-  });
+  }) : catalogRows = catalogRows ?? const [],
+       strengthOptions =
+           strengthOptions ??
+           (strength.trim().isEmpty ? <String>[] : <String>[strength.trim()]),
+       doseTimes = doseTimes ?? <String>{'morning', 'night'};
 
   Map<String, dynamic> toJson() => {
     'name': name,
@@ -133,6 +149,8 @@ class _MedicationEntry {
     if (strength.trim().isNotEmpty) 'strength': strength.trim(),
     'dosage': dosage.trim().isNotEmpty ? dosage.trim() : strength.trim(),
     'frequency': frequency,
+    if (doseTimes.isNotEmpty) 'dose_times': doseTimes.toList(growable: false),
+    if (foodTiming.trim().isNotEmpty) 'food_timing': foodTiming.trim(),
     'duration': duration.trim().isNotEmpty ? duration.trim() : '$days days',
     'days': days,
     'route': route,
@@ -146,6 +164,54 @@ class _MedicationEntry {
     if (category.trim().isNotEmpty) 'category': category.trim(),
     if (pharmacy.trim().isNotEmpty) 'pharmacy': pharmacy.trim(),
   };
+
+  factory _MedicationEntry.fromJson(Map<String, dynamic> json) {
+    final doseTimes = json['dose_times'] ?? json['doseTimes'];
+    return _MedicationEntry(
+      name: json['name']?.toString() ?? '',
+      genericName: json['generic_name']?.toString(),
+      catalogId: json['catalog_id'] is int
+          ? json['catalog_id'] as int
+          : int.tryParse(json['catalog_id']?.toString() ?? ''),
+      strength: json['strength']?.toString() ?? '',
+      strengthOptions: (json['strength_options'] as List?)
+          ?.map((value) => value.toString())
+          .where((value) => value.trim().isNotEmpty)
+          .toList(growable: false),
+      dosage: json['dosage']?.toString() ?? '',
+      frequency: json['frequency']?.toString() ?? 'BD',
+      doseTimes: doseTimes is List
+          ? doseTimes.map((value) => value.toString()).toSet()
+          : null,
+      duration: json['duration']?.toString() ?? '',
+      route: json['route']?.toString() ?? 'Oral',
+      instructions: json['instructions']?.toString() ?? '',
+      foodTiming: json['food_timing']?.toString() ?? '',
+      quantity: json['quantity'] is int
+          ? json['quantity'] as int
+          : int.tryParse(json['quantity']?.toString() ?? '') ?? 1,
+      days: json['days'] is int
+          ? json['days'] as int
+          : int.tryParse(json['days']?.toString() ?? '') ?? 5,
+      refills: json['refills'] is int
+          ? json['refills'] as int
+          : int.tryParse(json['refills']?.toString() ?? '') ?? 0,
+      prn: json['prn'] == true,
+      nte: json['nte'] == true,
+      daw: json['do_not_substitute'] == true || json['daw'] == true,
+      type: json['type']?.toString() ?? '',
+      category: json['category']?.toString() ?? '',
+      pharmacy: json['pharmacy']?.toString() ?? '',
+    );
+  }
+}
+
+class _SubmitPrescriptionIntent extends Intent {
+  const _SubmitPrescriptionIntent();
+}
+
+class _AddMedicationIntent extends Intent {
+  const _AddMedicationIntent();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -192,24 +258,35 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   final Map<_MedicationEntry, List<Map<String, dynamic>>> _drugSuggestions = {};
   final Set<_MedicationEntry> _drugSuggestionLoading = {};
   final Map<_MedicationEntry, String> _drugSuggestionQuery = {};
+  final Map<_MedicationEntry, TextEditingController> _drugTextControllers = {};
+  final Map<_MedicationEntry, FocusNode> _drugFocusNodes = {};
+  final List<_MedicationEntry> _favorites = [];
 
   // Follow-up
   DateTime? _followUpDate;
+  int? _lastCreatedPrescriptionId;
+  String? _lastCreatedPrescriptionPdfUrl;
+  String? _lastPharmacyOrderMessage;
+  bool _signingLastPrescription = false;
+  bool _lastCreatedPrescriptionSigned = false;
 
   // Photo
   File? _handwrittenPhoto;
 
   bool _submitting = false;
 
-  static const _frequencies = ['OD', 'BD', 'TDS', 'QID', 'SOS', 'HS', 'STAT'];
-  static const _freqLabels = {
-    'OD': 'OD (Once daily)',
-    'BD': 'BD (Twice daily)',
-    'TDS': 'TDS (Thrice daily)',
-    'QID': 'QID (Four times)',
-    'SOS': 'SOS (As needed)',
-    'HS': 'HS (At bedtime)',
-    'STAT': 'STAT (Immediately)',
+  static const _favoritesPrefsKey = 'op_prescription_medication_favorites';
+  static const _doseSlotLabels = {
+    'morning': 'M',
+    'afternoon': 'A',
+    'evening': 'E',
+    'night': 'N',
+  };
+  static const _doseSlotNames = {
+    'morning': 'Morning',
+    'afternoon': 'Afternoon',
+    'evening': 'Evening',
+    'night': 'Night',
   };
   static const _routes = [
     'Oral',
@@ -219,20 +296,18 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     'Inhalation',
     'Sublingual',
   ];
-  static const _medicineTypes = [
-    'Tablet',
-    'Capsule',
-    'Syrup',
-    'Injection',
-    'Drops',
-    'Inhaler',
-    'Cream',
-    'Sachet',
-  ];
   static const _pharmacyOptions = [
     'In House Dispensary',
     'Patient choice',
     'External pharmacy',
+  ];
+  static const _foodTimingOptions = [
+    '',
+    'Before food',
+    'After food',
+    'With food',
+    'Empty stomach',
+    'At bedtime',
   ];
 
   @override
@@ -252,10 +327,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       );
       _prefillLatestVitals();
     }
+    _loadFavorites();
   }
 
   @override
   void dispose() {
+    _disposeMedicationEditors();
     _diagnosisCtrl.dispose();
     _clinicalNotesCtrl.dispose();
     _followUpNotesCtrl.dispose();
@@ -269,6 +346,140 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     _heightCtrl.dispose();
     _bsCtrl.dispose();
     super.dispose();
+  }
+
+  void _disposeMedicationEditors() {
+    for (final controller in _drugTextControllers.values) {
+      controller.dispose();
+    }
+    for (final node in _drugFocusNodes.values) {
+      node.dispose();
+    }
+    _drugTextControllers.clear();
+    _drugFocusNodes.clear();
+  }
+
+  void _disposeMedicationEditor(_MedicationEntry med) {
+    _drugTextControllers.remove(med)?.dispose();
+    _drugFocusNodes.remove(med)?.dispose();
+  }
+
+  TextEditingController _drugControllerFor(_MedicationEntry med) {
+    return _drugTextControllers.putIfAbsent(
+      med,
+      () => TextEditingController(text: med.name),
+    );
+  }
+
+  FocusNode _drugFocusFor(_MedicationEntry med) {
+    return _drugFocusNodes.putIfAbsent(med, FocusNode.new);
+  }
+
+  Future<void> _loadFavorites() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_favoritesPrefsKey) ?? const [];
+      final rows = raw
+          .map((value) {
+            try {
+              final decoded = jsonDecode(value);
+              if (decoded is Map<String, dynamic>) {
+                return _MedicationEntry.fromJson(decoded);
+              }
+            } catch (_) {
+              return null;
+            }
+            return null;
+          })
+          .whereType<_MedicationEntry>()
+          .where((med) => med.name.trim().isNotEmpty)
+          .toList(growable: false);
+      if (!mounted) return;
+      setState(() {
+        _favorites
+          ..clear()
+          ..addAll(rows);
+      });
+    } catch (_) {
+      // Favorites are a local workflow accelerator; failed reads should not
+      // block prescribing.
+    }
+  }
+
+  Future<void> _persistFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = _favorites
+        .map((med) => jsonEncode(med.toJson()))
+        .toList(growable: false);
+    await prefs.setStringList(_favoritesPrefsKey, payload);
+  }
+
+  Future<void> _saveFavorite(_MedicationEntry med) async {
+    _syncMedicationDerivedFields(med);
+    if (med.name.trim().isEmpty) return;
+    final key = '${med.name}|${med.strength}|${med.route}|${med.frequency}'
+        .toLowerCase();
+    setState(() {
+      _favorites.removeWhere(
+        (item) =>
+            '${item.name}|${item.strength}|${item.route}|${item.frequency}'
+                .toLowerCase() ==
+            key,
+      );
+      _favorites.insert(0, _MedicationEntry.fromJson(med.toJson()));
+      if (_favorites.length > 12) {
+        _favorites.removeRange(12, _favorites.length);
+      }
+    });
+    await _persistFavorites();
+    if (mounted) SuccessToast.show(context, 'Saved as favorite');
+  }
+
+  Future<void> _removeFavorite(_MedicationEntry med) async {
+    setState(() => _favorites.remove(med));
+    await _persistFavorites();
+  }
+
+  void _applyFavorite(_MedicationEntry favorite) {
+    final target = _medications.firstWhere(
+      (med) => med.name.trim().isEmpty,
+      orElse: () {
+        final med = _MedicationEntry(pharmacy: _preferredPharmacy);
+        _medications.add(med);
+        return med;
+      },
+    );
+    setState(() {
+      target
+        ..name = favorite.name
+        ..genericName = favorite.genericName
+        ..catalogId = favorite.catalogId
+        ..strength = favorite.strength
+        ..strengthOptions = _uniqueStrengths([
+          favorite.strength,
+          ...favorite.strengthOptions,
+        ])
+        ..dosage = favorite.dosage
+        ..frequency = favorite.frequency
+        ..doseTimes = {...favorite.doseTimes}
+        ..duration = favorite.duration
+        ..route = favorite.route
+        ..instructions = favorite.instructions
+        ..foodTiming = favorite.foodTiming
+        ..quantity = favorite.quantity
+        ..days = favorite.days
+        ..refills = favorite.refills
+        ..prn = favorite.prn
+        ..nte = favorite.nte
+        ..daw = favorite.daw
+        ..type = favorite.type
+        ..category = favorite.category
+        ..pharmacy = favorite.pharmacy.isEmpty
+            ? _preferredPharmacy
+            : favorite.pharmacy;
+      _syncMedicationDerivedFields(target);
+      _drugControllerFor(target).text = target.name;
+    });
   }
 
   String? _patientIdentifierForVitals() {
@@ -366,6 +577,76 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return v.isEmpty ? null : v;
   }
 
+  int? _createdPrescriptionId(Map<String, dynamic> result) {
+    final value =
+        result['id'] ?? result['prescription_id'] ?? result['data']?['id'];
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  Future<String?> _loadPrescriptionPdfUrl(int prescriptionId) async {
+    try {
+      return await MedicalApiService.getPrescriptionPdfUrl(prescriptionId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _orderInHousePharmacyIfNeeded({
+    required int prescriptionId,
+    required List<Map<String, dynamic>> medications,
+  }) async {
+    if (_preferredPharmacy != 'In House Dispensary') return null;
+    try {
+      final order = await MedicalApiService.orderPrescriptionToPharmacy(
+        prescriptionId,
+        deliveryType: 'counter',
+        medications: medications,
+      );
+      final orderNumber =
+          order['order_number'] ?? order['data']?['order_number'] ?? '';
+      return orderNumber.toString().trim().isEmpty
+          ? 'Pharmacy order sent'
+          : 'Pharmacy order $orderNumber sent';
+    } catch (e) {
+      return 'Prescription saved; pharmacy handoff needs formulary match: ${e.toString().replaceFirst('Exception: ', '')}';
+    }
+  }
+
+  Future<void> _openPrescriptionPdf(String? url) async {
+    final parsed = Uri.tryParse(url ?? '');
+    if (parsed == null) {
+      ErrorToast.show(context, 'Prescription PDF is not available yet');
+      return;
+    }
+    final launched = await launchUrl(
+      parsed,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && mounted) {
+      ErrorToast.show(context, 'Could not open prescription PDF');
+    }
+  }
+
+  Future<void> _signLastPrescription() async {
+    final id = _lastCreatedPrescriptionId;
+    if (id == null || _lastCreatedPrescriptionSigned) return;
+    setState(() => _signingLastPrescription = true);
+    try {
+      await MedicalApiService.signEPrescription(id);
+      if (!mounted) return;
+      setState(() {
+        _lastCreatedPrescriptionSigned = true;
+        _signingLastPrescription = false;
+      });
+      SuccessToast.show(context, 'Prescription signed and locked');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _signingLastPrescription = false);
+      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_patientId == null || _doctorId == null) {
@@ -393,8 +674,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       );
       return;
     }
-    if (_medications.any((m) => m.days < 1 || m.quantity < 1)) {
-      ErrorToast.show(context, 'Days and quantity must be at least 1');
+    if (_medications.any((m) => m.days < 1)) {
+      ErrorToast.show(context, 'Days must be at least 1');
       return;
     }
 
@@ -448,6 +729,16 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         body,
         photo: _handwrittenPhoto,
       );
+      final createdId = _createdPrescriptionId(result);
+      String? pdfUrl;
+      String? pharmacyMessage;
+      if (createdId != null) {
+        pharmacyMessage = await _orderInHousePharmacyIfNeeded(
+          prescriptionId: createdId,
+          medications: meds,
+        );
+        pdfUrl = await _loadPrescriptionPdfUrl(createdId);
+      }
       final rxNum =
           result['prescription_number'] ??
           result['data']?['prescription_number'] ??
@@ -458,9 +749,36 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           context,
           AppStrings.of(context).prescriptionsCreated('$rxNum'),
         );
+        if (pharmacyMessage != null && pharmacyMessage.isNotEmpty) {
+          final isWarning = pharmacyMessage.contains('needs formulary match');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(pharmacyMessage),
+              backgroundColor: isWarning ? Colors.orange.shade800 : null,
+            ),
+          );
+        }
+        if (pdfUrl != null && pdfUrl.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Prescription PDF is ready'),
+              action: SnackBarAction(
+                label: 'Open',
+                onPressed: () => _openPrescriptionPdf(pdfUrl),
+              ),
+            ),
+          );
+        }
         // Reset form
         _formKey.currentState!.reset();
+        for (final med in _medications) {
+          _disposeMedicationEditor(med);
+        }
         setState(() {
+          _lastCreatedPrescriptionId = createdId;
+          _lastCreatedPrescriptionPdfUrl = pdfUrl;
+          _lastPharmacyOrderMessage = pharmacyMessage;
+          _lastCreatedPrescriptionSigned = false;
           _medications.clear();
           _medications.add(_MedicationEntry());
           _diagnosisCtrl.clear();
@@ -527,38 +845,56 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     }
   }
 
-  String _defaultSig(_MedicationEntry med) {
-    final freq = med.frequency.trim();
-    final freqText = _freqLabels[freq] ?? freq;
-    final route = med.route.trim().isEmpty ? 'Oral' : med.route.trim();
-    final dose = med.dosage.trim().isEmpty
-        ? med.strength.trim()
-        : med.dosage.trim();
-    final parts = <String>[
-      if (dose.isNotEmpty) 'Take $dose',
-      if (route.isNotEmpty) route.toLowerCase(),
-      if (freqText.isNotEmpty) freqText.toLowerCase(),
-      if (med.prn) 'as needed',
-    ];
-    return parts.where((part) => part.trim().isNotEmpty).join(' ');
-  }
-
   String _durationForDays(int days) => days <= 1 ? '$days day' : '$days days';
 
+  String _frequencyForDoseTimes(Set<String> doseTimes) {
+    final slots = _doseSlotLabels.keys
+        .where((key) => doseTimes.contains(key))
+        .toList(growable: false);
+    if (slots.isEmpty) return 'SOS';
+    if (slots.length == 1) return slots.single == 'night' ? 'HS' : 'OD';
+    if (slots.length == 2 &&
+        slots.contains('morning') &&
+        slots.contains('night')) {
+      return 'BD';
+    }
+    if (slots.length == 3 &&
+        slots.contains('morning') &&
+        slots.contains('afternoon') &&
+        slots.contains('night')) {
+      return 'TDS';
+    }
+    if (slots.length == 4) return 'QID';
+    return slots.map((slot) => _doseSlotNames[slot] ?? slot).join(' + ');
+  }
+
   void _syncMedicationDerivedFields(_MedicationEntry med) {
+    final strength = med.strength.trim();
+    if (strength.isNotEmpty && !med.strengthOptions.contains(strength)) {
+      med.strengthOptions = [strength, ...med.strengthOptions];
+    }
     if (med.dosage.trim().isEmpty && med.strength.trim().isNotEmpty) {
       med.dosage = med.strength.trim();
     }
+    med.frequency = _frequencyForDoseTimes(med.doseTimes);
     med.duration = _durationForDays(med.days);
-    final hasDrugContext =
-        med.name.trim().isNotEmpty ||
-        med.strength.trim().isNotEmpty ||
-        med.dosage.trim().isNotEmpty;
-    if (hasDrugContext && med.instructions.trim().isEmpty) {
-      med.instructions = _defaultSig(med);
-    }
+    med.quantity =
+        med.days * (med.doseTimes.isEmpty ? 1 : med.doseTimes.length);
     if (med.pharmacy.trim().isEmpty) {
       med.pharmacy = _preferredPharmacy;
+    }
+  }
+
+  void _syncCatalogIdForStrength(_MedicationEntry med) {
+    if (med.catalogRows.isEmpty || med.strength.trim().isEmpty) return;
+    final selected = med.strength.trim().toLowerCase();
+    for (final row in med.catalogRows) {
+      if (_extractStrengthFromCatalog(row).toLowerCase() == selected) {
+        med.catalogId = _rowInt(row, 'id') ?? med.catalogId;
+        med.type = _extractMedicineTypeFromCatalog(row);
+        med.category = _rowText(row, const ['category', 'drug_class']);
+        return;
+      }
     }
   }
 
@@ -579,6 +915,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _drugSuggestionQuery.remove(med);
       _medications.removeAt(index);
     });
+    _disposeMedicationEditor(med);
   }
 
   String _rowText(Map<String, dynamic> row, List<String> keys) {
@@ -589,23 +926,192 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return '';
   }
 
-  String _extractStrengthFromCatalog(Map<String, dynamic> row) {
-    final explicit = _rowText(row, const [
-      'strength',
-      'dosage',
-      'dose',
-      'pack_size',
-    ]);
-    if (explicit.isNotEmpty) return explicit;
+  String _extractDrugNameFromCatalog(Map<String, dynamic> row) {
+    if (row['__grouped'] == true) {
+      return _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    }
     final name = _rowText(row, const ['name', 'drug_name', 'medicine_name']);
-    final match = RegExp(
-      r'(\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu|%))',
+    if (name.isEmpty) return '';
+    final cleaned = name
+        .replaceAll(
+          RegExp(
+            r'\b\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu|units?|%)\b',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'\s+\d+\s*$'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return cleaned.isEmpty ? name : cleaned;
+  }
+
+  String _extractStrengthFromCatalog(Map<String, dynamic> row) {
+    if (row['__grouped'] == true) {
+      final options = row['strength_options'];
+      if (options is List && options.isNotEmpty) {
+        return options.first.toString();
+      }
+    }
+    final explicit = _rowText(row, const ['strength', 'dosage', 'dose']);
+    final strengthPattern = RegExp(
+      r'(\d+(?:\.\d+)?\s?(?:mg|mcg|g|ml|iu|units?|%))',
       caseSensitive: false,
-    ).firstMatch(name);
+    );
+    if (explicit.isNotEmpty) {
+      final match = strengthPattern.firstMatch(explicit);
+      return match?.group(1) ?? explicit;
+    }
+    final name = _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    final match = strengthPattern.firstMatch(name);
     return match?.group(1) ?? '';
   }
 
+  String _extractMedicineTypeFromCatalog(Map<String, dynamic> row) {
+    final groupedForm = _rowText(row, const ['form', 'dosage_form', 'type']);
+    if (row['__grouped'] == true && groupedForm.isNotEmpty) {
+      return groupedForm;
+    }
+    final explicit = _rowText(row, const ['form', 'dosage_form', 'type']);
+    if (explicit.isNotEmpty) return explicit;
+    final text = [
+      _rowText(row, const ['name', 'drug_name', 'medicine_name']),
+      _rowText(row, const ['pack_size']),
+      _rowText(row, const ['category', 'drug_class']),
+    ].join(' ').toLowerCase();
+    if (text.contains('inj') || text.contains('injection')) return 'Injection';
+    if (text.contains('cap') || text.contains('capsule')) return 'Capsule';
+    if (text.contains('syrup') || text.contains('suspension')) return 'Syrup';
+    if (text.contains('drop')) return 'Drops';
+    if (text.contains('inhaler')) return 'Inhaler';
+    if (text.contains('cream') || text.contains('ointment')) return 'Cream';
+    if (text.contains('sachet')) return 'Sachet';
+    return 'Tablet';
+  }
+
+  List<String> _uniqueStrengths(Iterable<String> values) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final value in values) {
+      final text = value.trim();
+      if (text.isEmpty) continue;
+      final key = text.toLowerCase();
+      if (seen.add(key)) out.add(text);
+    }
+    return out;
+  }
+
+  int _stockCount(Map<String, dynamic> row) {
+    final value = row['stock'] ?? row['stock_quantity'] ?? row['quantity'];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  bool _isCatalogRowInStock(Map<String, dynamic> row) {
+    final explicit = row['in_stock'] ?? row['is_available'];
+    if (explicit is bool && explicit == false) return false;
+    return _stockCount(row) > 0 || explicit == true;
+  }
+
+  String _stockLabel(Map<String, dynamic> row) {
+    final count = _stockCount(row);
+    if (!_isCatalogRowInStock(row)) return 'Out';
+    if (count <= 0) return 'Stocked';
+    return '$count in stock';
+  }
+
+  String _catalogGroupKey(Map<String, dynamic> row) {
+    final name = _extractDrugNameFromCatalog(row).toLowerCase();
+    final generic = _rowText(row, const [
+      'generic_name',
+      'generic',
+    ]).toLowerCase();
+    return '$name|$generic';
+  }
+
+  List<Map<String, dynamic>> _groupCatalogRows(
+    Iterable<Map<String, dynamic>> rows,
+  ) {
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final row in rows) {
+      final key = _catalogGroupKey(row);
+      if (key.trim() == '|') continue;
+      groups.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(row);
+    }
+    final grouped = <Map<String, dynamic>>[];
+    for (final rows in groups.values) {
+      rows.sort((a, b) {
+        final stockDelta = _stockCount(b).compareTo(_stockCount(a));
+        if (stockDelta != 0) return stockDelta;
+        return _extractStrengthFromCatalog(
+          a,
+        ).compareTo(_extractStrengthFromCatalog(b));
+      });
+      final first = rows.first;
+      final strengths = _uniqueStrengths(rows.map(_extractStrengthFromCatalog));
+      final forms = _uniqueStrengths(rows.map(_extractMedicineTypeFromCatalog));
+      final totalStock = rows.fold<int>(
+        0,
+        (sum, row) => sum + _stockCount(row),
+      );
+      grouped.add({
+        '__grouped': true,
+        '__rows': rows,
+        'id': first['id'],
+        'name': _extractDrugNameFromCatalog(first),
+        'generic_name': _rowText(first, const ['generic_name', 'generic']),
+        'category': _rowText(first, const ['category', 'drug_class']),
+        'strength_options': strengths,
+        'strength': strengths.isNotEmpty ? strengths.first : '',
+        'form': forms.isNotEmpty
+            ? forms.first
+            : _extractMedicineTypeFromCatalog(first),
+        'forms': forms,
+        'stock': totalStock,
+        'in_stock': rows.any(_isCatalogRowInStock),
+        'pack_size': _rowText(first, const ['pack_size']),
+      });
+    }
+    grouped.sort((a, b) {
+      final stockDelta = _stockCount(b).compareTo(_stockCount(a));
+      if (stockDelta != 0) return stockDelta;
+      return _extractDrugNameFromCatalog(
+        a,
+      ).compareTo(_extractDrugNameFromCatalog(b));
+    });
+    return grouped.take(12).toList(growable: false);
+  }
+
+  List<String> _strengthOptionsForCatalogRow(
+    Map<String, dynamic> row,
+    Iterable<Map<String, dynamic>> candidates,
+  ) {
+    if (row['__grouped'] == true) {
+      final options = row['strength_options'];
+      if (options is List) {
+        return _uniqueStrengths(options.map((value) => value.toString()));
+      }
+    }
+    final drugName = _extractDrugNameFromCatalog(row).toLowerCase();
+    return _uniqueStrengths([
+      _extractStrengthFromCatalog(row),
+      ...candidates
+          .where(
+            (candidate) =>
+                _extractDrugNameFromCatalog(candidate).toLowerCase() ==
+                drugName,
+          )
+          .map(_extractStrengthFromCatalog),
+    ]);
+  }
+
   int? _rowInt(Map<String, dynamic> row, String key) {
+    if (row['__grouped'] == true && row['__rows'] is List) {
+      final rows = row['__rows'] as List;
+      if (rows.isNotEmpty && rows.first is Map) {
+        return _rowInt(Map<String, dynamic>.from(rows.first as Map), key);
+      }
+    }
     final value = row[key];
     if (value is int) return value;
     if (value is num) return value.toInt();
@@ -613,24 +1119,32 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   }
 
   _MedicationEntry _medicationFromCatalogRow(Map<String, dynamic> row) {
-    final name = _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    final name = _extractDrugNameFromCatalog(row);
     final strength = _extractStrengthFromCatalog(row);
-    final type = _rowText(row, const ['form', 'dosage_form', 'type']);
+    final type = _extractMedicineTypeFromCatalog(row);
     final category = _rowText(row, const ['category', 'drug_class']);
+    final catalogRows = row['__rows'] is List
+        ? (row['__rows'] as List)
+              .whereType<Map>()
+              .map((value) => Map<String, dynamic>.from(value))
+              .toList(growable: false)
+        : <Map<String, dynamic>>[row];
     final med = _MedicationEntry(
       name: name,
       genericName: _rowText(row, const ['generic_name', 'generic']).isEmpty
           ? null
           : _rowText(row, const ['generic_name', 'generic']),
       catalogId: _rowInt(row, 'id'),
+      catalogRows: catalogRows,
       strength: strength,
+      strengthOptions: _strengthOptionsForCatalogRow(row, [row]),
       dosage: strength,
       frequency: 'BD',
       days: 5,
       duration: _durationForDays(5),
       route: 'Oral',
-      quantity: 10,
-      type: type.isEmpty ? 'Tablet' : type,
+      quantity: 1,
+      type: type,
       category: category,
       pharmacy: _preferredPharmacy,
     );
@@ -639,14 +1153,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   }
 
   String _catalogDrugLabel(Map<String, dynamic> row) {
-    final name = _rowText(row, const ['name', 'drug_name', 'medicine_name']);
-    final strength = _extractStrengthFromCatalog(row);
-    if (name.isEmpty) return strength;
-    if (strength.isEmpty ||
-        name.toLowerCase().contains(strength.toLowerCase())) {
-      return name;
-    }
-    return '$name $strength';
+    final name = _extractDrugNameFromCatalog(row);
+    if (name.isNotEmpty) return name;
+    return _rowText(row, const ['name', 'drug_name', 'medicine_name']);
   }
 
   void _applyCatalogRowToMedication(
@@ -654,17 +1163,24 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     Map<String, dynamic> row,
   ) {
     final selected = _medicationFromCatalogRow(row);
+    final strengthOptions = _strengthOptionsForCatalogRow(
+      row,
+      _drugSuggestions[target] ?? [row],
+    );
     setState(() {
       target
-        ..name = _catalogDrugLabel(row)
+        ..name = selected.name
         ..genericName = selected.genericName
         ..catalogId = selected.catalogId
+        ..catalogRows = selected.catalogRows
         ..strength = selected.strength
+        ..strengthOptions = strengthOptions
         ..dosage = selected.dosage
         ..frequency = selected.frequency
         ..duration = selected.duration
         ..route = selected.route
         ..instructions = selected.instructions
+        ..foodTiming = selected.foodTiming
         ..quantity = selected.quantity
         ..days = selected.days
         ..refills = selected.refills
@@ -677,6 +1193,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _drugSuggestions[target] = [];
       _drugSuggestionLoading.remove(target);
       _drugSuggestionQuery.remove(target);
+      final controller = _drugControllerFor(target);
+      controller.value = TextEditingValue(
+        text: target.name,
+        selection: TextSelection.collapsed(offset: target.name.length),
+      );
     });
   }
 
@@ -711,7 +1232,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       if (!mounted) return;
       if (_drugSuggestionQuery[med] != q) return;
       setState(() {
-        _drugSuggestions[med] = rows.take(12).toList(growable: false);
+        _drugSuggestions[med] = _groupCatalogRows(rows);
       });
     } catch (e) {
       if (!mounted) return;
@@ -726,29 +1247,53 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktop = constraints.maxWidth >= 1050;
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildPatientDoctorSelectors(s),
-                const SizedBox(height: 12),
-                _buildClinicalContextCard(s, desktop: desktop),
-                const SizedBox(height: 12),
-                _buildRxWorkspace(s, desktop: desktop),
-                const SizedBox(height: 12),
-                _buildFollowupAndSubmit(s, desktop: desktop),
-                const SizedBox(height: 32),
-              ],
-            ),
-          ),
-        );
+    return Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.enter, control: true):
+            _SubmitPrescriptionIntent(),
+        SingleActivator(LogicalKeyboardKey.keyN, control: true):
+            _AddMedicationIntent(),
       },
+      child: Actions(
+        actions: {
+          _SubmitPrescriptionIntent: CallbackAction<_SubmitPrescriptionIntent>(
+            onInvoke: (_) {
+              if (!_submitting) _submit();
+              return null;
+            },
+          ),
+          _AddMedicationIntent: CallbackAction<_AddMedicationIntent>(
+            onInvoke: (_) {
+              _addBlankMedication();
+              return null;
+            },
+          ),
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final desktop = constraints.maxWidth >= 1050;
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildPatientDoctorSelectors(s),
+                    const SizedBox(height: 12),
+                    _buildClinicalContextCard(s, desktop: desktop),
+                    const SizedBox(height: 12),
+                    _buildRxWorkspace(s, desktop: desktop),
+                    const SizedBox(height: 12),
+                    _buildFollowupAndSubmit(s, desktop: desktop),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -1053,10 +1598,42 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   pharmacyPicker,
                 ],
               ),
+            if (_favorites.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _buildFavoritesStrip(),
+            ],
             const SizedBox(height: 8),
             _buildMedicationTable(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFavoritesStrip() {
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _favorites.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final med = _favorites[index];
+          final subtitle = [
+            if (med.strength.trim().isNotEmpty) med.strength.trim(),
+            med.frequency,
+          ].where((value) => value.trim().isNotEmpty).join(' • ');
+          return InputChip(
+            avatar: const Icon(Icons.star, size: 16),
+            label: Text(
+              subtitle.isEmpty ? med.name : '${med.name} ($subtitle)',
+              overflow: TextOverflow.ellipsis,
+            ),
+            tooltip: 'Use favorite',
+            onPressed: () => _applyFavorite(med),
+            onDeleted: () => _removeFavorite(med),
+          );
+        },
       ),
     );
   }
@@ -1067,21 +1644,18 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         scrollDirection: Axis.horizontal,
         child: DataTable(
           headingRowHeight: 38,
-          dataRowMinHeight: 62,
-          dataRowMaxHeight: 76,
+          dataRowMinHeight: 78,
+          dataRowMaxHeight: 96,
           columnSpacing: 10,
           columns: const [
             DataColumn(label: Text('Drug*')),
             DataColumn(label: Text('Strength')),
-            DataColumn(label: Text('SIG')),
-            DataColumn(label: Text('Freq')),
+            DataColumn(label: Text('Route & frequency')),
+            DataColumn(label: Text('Food timing')),
             DataColumn(label: Text('Days')),
-            DataColumn(label: Text('Qty')),
-            DataColumn(label: Text('Refill')),
-            DataColumn(label: Text('Route')),
             DataColumn(label: Text('Type')),
             DataColumn(label: Text('Flags')),
-            DataColumn(label: Text('Note')),
+            DataColumn(label: Text('Special Instruction')),
             DataColumn(label: Text('')),
           ],
           rows: _medications.asMap().entries.map((entry) {
@@ -1090,40 +1664,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             return DataRow(
               cells: [
                 DataCell(_drugAutocompleteField(width: 255, medication: med)),
-                DataCell(
-                  _tableTextField(
-                    width: 120,
-                    value: med.strength,
-                    hint: '650 mg',
-                    onChanged: (value) {
-                      med.strength = value;
-                      if (med.dosage.trim().isEmpty) med.dosage = value;
-                    },
-                  ),
-                ),
-                DataCell(
-                  _tableTextField(
-                    width: 260,
-                    value: med.instructions,
-                    hint: _defaultSig(med),
-                    onChanged: (value) => med.instructions = value,
-                  ),
-                ),
-                DataCell(
-                  _tableDropdown(
-                    width: 100,
-                    value: _frequencies.contains(med.frequency)
-                        ? med.frequency
-                        : _frequencies.first,
-                    options: _frequencies,
-                    onChanged: (value) {
-                      med.frequency = value;
-                      if (med.instructions.trim().isEmpty) {
-                        med.instructions = _defaultSig(med);
-                      }
-                    },
-                  ),
-                ),
+                DataCell(_strengthDropdown(width: 120, medication: med)),
+                DataCell(_routeFrequencyCell(width: 300, medication: med)),
+                DataCell(_foodTimingDropdown(width: 140, medication: med)),
                 DataCell(
                   _tableNumberField(
                     width: 70,
@@ -1135,36 +1678,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   ),
                 ),
                 DataCell(
-                  _tableNumberField(
-                    width: 78,
-                    value: med.quantity,
-                    onChanged: (value) => med.quantity = value,
-                  ),
-                ),
-                DataCell(
-                  _tableNumberField(
-                    width: 70,
-                    value: med.refills,
-                    min: 0,
-                    onChanged: (value) => med.refills = value,
-                  ),
-                ),
-                DataCell(
-                  _tableDropdown(
-                    width: 120,
-                    value: med.route.isEmpty ? 'Oral' : med.route,
-                    options: _routes,
-                    onChanged: (value) => med.route = value,
-                  ),
-                ),
-                DataCell(
-                  _tableDropdown(
+                  _readOnlyPill(
                     width: 130,
-                    value: _medicineTypes.contains(med.type)
-                        ? med.type
-                        : 'Tablet',
-                    options: _medicineTypes,
-                    onChanged: (value) => med.type = value,
+                    text: med.type.trim().isEmpty ? 'Auto' : med.type.trim(),
                   ),
                 ),
                 DataCell(
@@ -1185,19 +1701,33 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 ),
                 DataCell(
                   _tableTextField(
-                    width: 180,
-                    value: med.dosage,
-                    hint: 'Dose override',
-                    onChanged: (value) => med.dosage = value,
+                    width: 260,
+                    value: med.instructions,
+                    hint: 'e.g. after food, avoid driving',
+                    onChanged: (value) => med.instructions = value,
                   ),
                 ),
                 DataCell(
-                  IconButton(
-                    tooltip: 'Delete row',
-                    onPressed: _medications.length <= 1
-                        ? null
-                        : () => _removeMedicationAt(index),
-                    icon: const Icon(Icons.delete_outline),
+                  SizedBox(
+                    width: 84,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Save favorite',
+                          onPressed: med.name.trim().isEmpty
+                              ? null
+                              : () => _saveFavorite(med),
+                          icon: const Icon(Icons.star_border),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete row',
+                          onPressed: _medications.length <= 1
+                              ? null
+                              : () => _removeMedicationAt(index),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -1208,16 +1738,157 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     );
   }
 
+  Widget _strengthDropdown({
+    required double width,
+    required _MedicationEntry medication,
+  }) {
+    final options = _uniqueStrengths([
+      medication.strength,
+      ...medication.strengthOptions,
+    ]);
+    if (options.isEmpty) {
+      return _tableTextField(
+        width: width,
+        value: medication.strength,
+        hint: 'Select drug',
+        onChanged: (value) {
+          medication
+            ..strength = value
+            ..dosage = value;
+        },
+      );
+    }
+    final safeValue = options.contains(medication.strength)
+        ? medication.strength
+        : options.first;
+    return SizedBox(
+      width: width,
+      child: DropdownButtonFormField<String>(
+        initialValue: safeValue,
+        decoration: const InputDecoration(isDense: true),
+        items: options
+            .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+            .toList(growable: false),
+        onChanged: (value) {
+          if (value == null) return;
+          setState(() {
+            medication
+              ..strength = value
+              ..dosage = value;
+            _syncCatalogIdForStrength(medication);
+            _syncMedicationDerivedFields(medication);
+          });
+        },
+      ),
+    );
+  }
+
+  Widget _routeFrequencyCell({
+    required double width,
+    required _MedicationEntry medication,
+  }) {
+    return SizedBox(
+      width: width,
+      child: Row(
+        children: [
+          _tableDropdown(
+            width: 112,
+            value: medication.route.isEmpty ? 'Oral' : medication.route,
+            options: _routes,
+            onChanged: (value) {
+              setState(() => medication.route = value);
+            },
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: _doseSlotLabels.entries
+                  .map((entry) {
+                    final selected = medication.doseTimes.contains(entry.key);
+                    return FilterChip(
+                      label: Text(
+                        entry.value,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      tooltip: _doseSlotNames[entry.key],
+                      selected: selected,
+                      onSelected: (value) {
+                        setState(() {
+                          if (value) {
+                            medication.doseTimes.add(entry.key);
+                          } else {
+                            medication.doseTimes.remove(entry.key);
+                          }
+                          _syncMedicationDerivedFields(medication);
+                        });
+                      },
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    );
+                  })
+                  .toList(growable: false),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _foodTimingDropdown({
+    required double width,
+    required _MedicationEntry medication,
+  }) {
+    return _tableDropdown(
+      width: width,
+      value: _foodTimingOptions.contains(medication.foodTiming)
+          ? medication.foodTiming
+          : '',
+      options: _foodTimingOptions,
+      labels: const {'': 'Any time'},
+      onChanged: (value) {
+        setState(() => medication.foodTiming = value);
+      },
+    );
+  }
+
+  Widget _readOnlyPill({required double width, required String text}) {
+    return SizedBox(
+      width: width,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.backgroundGrey,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: AppTheme.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _drugAutocompleteField({
     required double width,
     required _MedicationEntry medication,
   }) {
     final loading = _drugSuggestionLoading.contains(medication);
+    final controller = _drugControllerFor(medication);
+    final focusNode = _drugFocusFor(medication);
     return SizedBox(
       width: width,
       child: RawAutocomplete<Map<String, dynamic>>(
         key: ValueKey('drug-${identityHashCode(medication)}'),
-        initialValue: TextEditingValue(text: medication.name),
+        textEditingController: controller,
+        focusNode: focusNode,
         displayStringForOption: _catalogDrugLabel,
         optionsBuilder: (textEditingValue) {
           final q = textEditingValue.text.trim();
@@ -1226,10 +1897,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         },
         onSelected: (row) => _applyCatalogRowToMedication(medication, row),
         fieldViewBuilder:
-            (context, textController, focusNode, onFieldSubmitted) {
+            (context, textController, fieldFocusNode, onFieldSubmitted) {
               return TextFormField(
                 controller: textController,
-                focusNode: focusNode,
+                focusNode: fieldFocusNode,
                 decoration: InputDecoration(
                   hintText: 'Type drug name',
                   isDense: true,
@@ -1252,7 +1923,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 onChanged: (value) {
                   medication
                     ..name = value
-                    ..catalogId = null;
+                    ..catalogId = null
+                    ..catalogRows = const []
+                    ..strength = ''
+                    ..strengthOptions = []
+                    ..dosage = ''
+                    ..type = '';
                   _searchDrugSuggestions(medication, value);
                 },
                 onFieldSubmitted: (_) => onFieldSubmitted(),
@@ -1287,12 +1963,22 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                       'generic',
                     ]);
                     final strength = _extractStrengthFromCatalog(row);
+                    final strengths = row['strength_options'] is List
+                        ? (row['strength_options'] as List)
+                              .map((value) => value.toString())
+                              .where((value) => value.trim().isNotEmpty)
+                              .take(4)
+                              .join(', ')
+                        : strength;
                     final pack = _rowText(row, const [
                       'pack_size',
                       'unit',
                       'form',
                       'dosage_form',
                     ]);
+                    final stockColor = _isCatalogRowInStock(row)
+                        ? AppTheme.successOnSurface
+                        : AppTheme.errorOnSurface;
                     return ListTile(
                       dense: true,
                       title: Text(
@@ -1307,12 +1993,33 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                       subtitle: Text(
                         [
                           if (generic.isNotEmpty) generic,
-                          if (strength.isNotEmpty) strength,
+                          if (strengths.isNotEmpty) strengths,
                           if (pack.isNotEmpty && pack != strength) pack,
                         ].join(' • '),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: stockColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: stockColor.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(
+                          _stockLabel(row),
+                          style: TextStyle(
+                            color: stockColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                       onTap: () => onSelected(row),
                     );
@@ -1371,6 +2078,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     required String value,
     required List<String> options,
     required ValueChanged<String> onChanged,
+    Map<String, String> labels = const {},
   }) {
     final safeValue = options.contains(value) ? value : options.first;
     return SizedBox(
@@ -1380,7 +2088,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         decoration: const InputDecoration(isDense: true),
         items: options
             .map(
-              (option) => DropdownMenuItem(value: option, child: Text(option)),
+              (option) => DropdownMenuItem(
+                value: option,
+                child: Text(labels[option] ?? option),
+              ),
             )
             .toList(),
         onChanged: (value) {
@@ -1468,9 +2179,67 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     onPressed: () => setState(() => _followUpDate = null),
                   ),
                 photoButton,
+                if (_lastCreatedPrescriptionPdfUrl != null)
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        _openPrescriptionPdf(_lastCreatedPrescriptionPdfUrl),
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                    label: Text(
+                      _lastCreatedPrescriptionId == null
+                          ? 'Open last PDF'
+                          : 'Open Rx #$_lastCreatedPrescriptionId PDF',
+                    ),
+                  ),
+                if (_lastCreatedPrescriptionId != null)
+                  OutlinedButton.icon(
+                    onPressed:
+                        _signingLastPrescription ||
+                            _lastCreatedPrescriptionSigned
+                        ? null
+                        : _signLastPrescription,
+                    icon: _signingLastPrescription
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.verified_outlined, size: 18),
+                    label: Text(
+                      _lastCreatedPrescriptionSigned
+                          ? 'Rx signed'
+                          : 'Sign & lock Rx',
+                    ),
+                  ),
                 submitButton,
               ],
             ),
+            if (_lastPharmacyOrderMessage != null &&
+                _lastPharmacyOrderMessage!.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(
+                    _lastPharmacyOrderMessage!.contains('needs formulary match')
+                        ? Icons.warning_amber_outlined
+                        : Icons.local_pharmacy_outlined,
+                    size: 18,
+                    color:
+                        _lastPharmacyOrderMessage!.contains(
+                          'needs formulary match',
+                        )
+                        ? Colors.orange.shade800
+                        : const Color(0xFF00838F),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _lastPharmacyOrderMessage!,
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (_followUpDate != null) ...[
               const SizedBox(height: 10),
               SizedBox(
@@ -2036,6 +2805,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
   List<dynamic> _prescriptions = [];
   bool _loading = true;
   String? _error;
+  final Set<int> _signing = {};
 
   @override
   void initState() {
@@ -2128,10 +2898,33 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
               trailing: p['pharmacy_opted'] == true
                   ? Chip(
                       label: Text(
-                        AppStrings.of(context).prescriptionsOrderedChip,
-                        style: const TextStyle(fontSize: 10),
+                        p['pharmacy_order_status']?.toString().isNotEmpty ==
+                                true
+                            ? p['pharmacy_order_status'].toString()
+                            : AppStrings.of(context).prescriptionsOrderedChip,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppTheme.successOnSurface,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                      backgroundColor: const Color(0xFFE8F5E9),
+                      backgroundColor: AppTheme.successOnSurface.withValues(
+                        alpha: 0.12,
+                      ),
+                    )
+                  : _isSigned(p)
+                  ? Chip(
+                      label: const Text(
+                        'Signed',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppTheme.primaryBlue,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      backgroundColor: AppTheme.primaryBlue.withValues(
+                        alpha: 0.12,
+                      ),
                     )
                   : null,
               onTap: () => _showDetail(p),
@@ -2142,8 +2935,39 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
     );
   }
 
+  bool _isSigned(Map<String, dynamic> rx) =>
+      rx['signed_at'] != null ||
+      rx['locked_at'] != null ||
+      rx['lifecycle_status']?.toString().toLowerCase() == 'signed';
+
+  int? _rxId(Map<String, dynamic> rx) {
+    final value = rx['id'];
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  Future<void> _signPrescription(Map<String, dynamic> rx) async {
+    final id = _rxId(rx);
+    if (id == null || _signing.contains(id)) return;
+    setState(() => _signing.add(id));
+    try {
+      await MedicalApiService.signEPrescription(id);
+      if (!mounted) return;
+      SuccessToast.show(context, 'Prescription signed and locked');
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _signing.remove(id));
+    }
+  }
+
   void _showDetail(Map<String, dynamic> rx) {
     final meds = rx['medications'] as List? ?? [];
+    final signed = _isSigned(rx);
+    final id = _rxId(rx);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2163,7 +2987,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: AppTheme.divider,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2176,7 +3000,43 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             const SizedBox(height: 4),
             Text(
               'Patient: ${rx['patient_name'] ?? ''} • Dr. ${rx['doctor_name'] ?? ''}',
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  label: Text(
+                    signed ? 'Signed and locked' : 'Draft',
+                    style: TextStyle(
+                      color: signed
+                          ? AppTheme.successOnSurface
+                          : AppTheme.warningOnSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  backgroundColor:
+                      (signed
+                              ? AppTheme.successOnSurface
+                              : AppTheme.warningOnSurface)
+                          .withValues(alpha: 0.12),
+                ),
+                if (rx['pharmacy_order_status'] != null)
+                  Chip(
+                    label: Text(
+                      'Pharmacy: ${rx['pharmacy_order_status']}',
+                      style: const TextStyle(
+                        color: AppTheme.primaryBlue,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    backgroundColor: AppTheme.primaryBlue.withValues(
+                      alpha: 0.12,
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             if (rx['diagnosis'] != null) ...[
@@ -2197,19 +3057,26 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                 margin: const EdgeInsets.only(bottom: 6),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.grey[50],
+                  color: AppTheme.backgroundGrey,
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.divider),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       m['name'] ?? '',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     Text(
                       '${m['dosage'] ?? ''} • ${m['frequency'] ?? ''} • ${m['duration'] ?? ''} • ${m['route'] ?? ''}',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
                     ),
                     if (m['instructions'] != null &&
                         m['instructions'].toString().isNotEmpty)
@@ -2230,6 +3097,52 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
                 'Follow-up: ${DateFormat('dd MMM yyyy').format(DateTime.parse(rx['follow_up_date']))}',
                 style: const TextStyle(fontWeight: FontWeight.w500),
               ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                if (id != null)
+                  OutlinedButton.icon(
+                    onPressed: signed || _signing.contains(id)
+                        ? null
+                        : () async {
+                            Navigator.of(ctx).pop();
+                            await _signPrescription(rx);
+                          },
+                    icon: _signing.contains(id)
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.verified_outlined, size: 18),
+                    label: Text(signed ? 'Signed' : 'Sign & lock'),
+                  ),
+                if (rx['pdf_url'] != null || rx['id'] != null)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final url = rx['pdf_url']?.toString();
+                      final target = url != null && url.isNotEmpty
+                          ? url
+                          : await MedicalApiService.getPrescriptionPdfUrl(id!);
+                      final uri = Uri.tryParse(target ?? '');
+                      if (uri == null) {
+                        if (mounted) {
+                          ErrorToast.show(context, 'PDF is not available');
+                        }
+                        return;
+                      }
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                    label: const Text('Open PDF'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

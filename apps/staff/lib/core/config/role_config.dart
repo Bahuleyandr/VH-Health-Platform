@@ -594,6 +594,13 @@ class RoleFeatures {
     route: '/op-ai-assist',
     color: Color(0xFF5E35B1),
   );
+  static const DashboardFeature _opDoctorWorkspace = DashboardFeature(
+    id: 'op_doctor_workspace',
+    title: 'OP Workspace',
+    icon: Icons.fact_check_outlined,
+    route: '/appointments?context=op&scope=my',
+    color: Color(0xFF00838F),
+  );
   static const DashboardFeature _schedule = DashboardFeature(
     id: 'schedule',
     title: 'My Roster',
@@ -722,6 +729,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         if (role == StaffRole.dutyDoctor) _nursingRoster,
+        _opDoctorWorkspace,
         _clinicalAiReviewQueue,
         _opAiAssist,
         _appointments,
@@ -916,6 +924,7 @@ class RoleFeatures {
         _frontOfficeWorkbench,
         _appointments,
         _admissions,
+        _opDoctorWorkspace,
         _clinicalAiReviewQueue,
         _opAiAssist,
         _patientRecords,
@@ -948,6 +957,7 @@ class RoleFeatures {
         _billingDesk,
         _appointments,
         _admissions,
+        _opDoctorWorkspace,
         _clinicalAiReviewQueue,
         _patientRecords,
         _prescriptions,

@@ -269,6 +269,134 @@ const ANTITHROMBOTIC_DRUGS = [
   { generic: 'piroxicam', klass: 'nsaid', aliases: ['piroxicam'] },
 ];
 
+const PREGNANCY_HIGH_RISK_DRUGS = [
+  {
+    term: 'isotretinoin',
+    severity: 'HIGH',
+    message: 'Isotretinoin is contraindicated in pregnancy. Confirm pregnancy status and use only through a documented specialist pathway.',
+  },
+  {
+    term: 'methotrexate',
+    severity: 'HIGH',
+    message: 'Methotrexate is contraindicated in pregnancy unless being used in a specific obstetric emergency protocol.',
+  },
+  {
+    term: 'misoprostol',
+    severity: 'HIGH',
+    message: 'Misoprostol has pregnancy-specific indications and risks. Confirm indication, gestation, and documented consent.',
+  },
+  {
+    term: 'warfarin',
+    severity: 'HIGH',
+    message: 'Warfarin is generally avoided in pregnancy because of fetal risk. Confirm indication and specialist plan before prescribing.',
+  },
+  {
+    term: 'valproate',
+    severity: 'HIGH',
+    message: 'Valproate carries major fetal risk. Confirm pregnancy status, contraception counselling, and specialist indication.',
+  },
+  {
+    term: 'atorvastatin',
+    severity: 'MODERATE',
+    message: 'Statins are usually withheld in pregnancy. Confirm pregnancy status and indication before continuing.',
+  },
+  {
+    term: 'rosuvastatin',
+    severity: 'MODERATE',
+    message: 'Statins are usually withheld in pregnancy. Confirm pregnancy status and indication before continuing.',
+  },
+  {
+    term: 'simvastatin',
+    severity: 'MODERATE',
+    message: 'Statins are usually withheld in pregnancy. Confirm pregnancy status and indication before continuing.',
+  },
+  {
+    term: 'enalapril',
+    severity: 'HIGH',
+    message: 'ACE inhibitors are contraindicated later in pregnancy and need obstetric review.',
+  },
+  {
+    term: 'ramipril',
+    severity: 'HIGH',
+    message: 'ACE inhibitors are contraindicated later in pregnancy and need obstetric review.',
+  },
+  {
+    term: 'lisinopril',
+    severity: 'HIGH',
+    message: 'ACE inhibitors are contraindicated later in pregnancy and need obstetric review.',
+  },
+  {
+    term: 'losartan',
+    severity: 'HIGH',
+    message: 'ARBs are contraindicated later in pregnancy and need obstetric review.',
+  },
+  {
+    term: 'telmisartan',
+    severity: 'HIGH',
+    message: 'ARBs are contraindicated later in pregnancy and need obstetric review.',
+  },
+  {
+    term: 'olmesartan',
+    severity: 'HIGH',
+    message: 'ARBs are contraindicated later in pregnancy and need obstetric review.',
+  },
+  {
+    term: 'doxycycline',
+    severity: 'MODERATE',
+    message: 'Tetracyclines are generally avoided in pregnancy. Confirm indication and safer alternatives.',
+  },
+  {
+    term: 'tetracycline',
+    severity: 'MODERATE',
+    message: 'Tetracyclines are generally avoided in pregnancy. Confirm indication and safer alternatives.',
+  },
+];
+
+const RENAL_RISK_DRUGS = [
+  { term: 'ibuprofen', severity: 'MODERATE', message: 'NSAIDs can worsen renal function. Confirm latest creatinine/eGFR and hydration status.' },
+  { term: 'diclofenac', severity: 'MODERATE', message: 'NSAIDs can worsen renal function. Confirm latest creatinine/eGFR and hydration status.' },
+  { term: 'aceclofenac', severity: 'MODERATE', message: 'NSAIDs can worsen renal function. Confirm latest creatinine/eGFR and hydration status.' },
+  { term: 'naproxen', severity: 'MODERATE', message: 'NSAIDs can worsen renal function. Confirm latest creatinine/eGFR and hydration status.' },
+  { term: 'ketorolac', severity: 'HIGH', message: 'Ketorolac is high renal/GI risk. Avoid or document strong indication with renal review.' },
+  { term: 'gentamicin', severity: 'HIGH', message: 'Aminoglycosides require renal-adjusted dosing and monitoring.' },
+  { term: 'amikacin', severity: 'HIGH', message: 'Aminoglycosides require renal-adjusted dosing and monitoring.' },
+  { term: 'vancomycin', severity: 'MODERATE', message: 'Vancomycin requires renal dosing review and trough/level monitoring.' },
+  { term: 'metformin', severity: 'HIGH', message: 'Metformin needs renal-function review; avoid in severe renal impairment or acute illness.' },
+  { term: 'nitrofurantoin', severity: 'HIGH', message: 'Nitrofurantoin is usually avoided when eGFR is low. Confirm renal function.' },
+  { term: 'spironolactone', severity: 'MODERATE', message: 'Spironolactone can worsen hyperkalaemia in renal impairment. Confirm K+/creatinine.' },
+  { term: 'furosemide', severity: 'MODERATE', message: 'Loop diuretic dosing should be reviewed against renal function and volume status.' },
+];
+
+const ANTIBIOTIC_RULES = [
+  { term: 'amoxicillin', className: 'penicillin', reserve: false },
+  { term: 'amoxiclav', className: 'penicillin-beta-lactamase-inhibitor', reserve: false },
+  { term: 'augmentin', className: 'penicillin-beta-lactamase-inhibitor', reserve: false },
+  { term: 'piperacillin', className: 'anti-pseudomonal-beta-lactam', reserve: true },
+  { term: 'tazobactam', className: 'anti-pseudomonal-beta-lactam', reserve: true },
+  { term: 'ceftriaxone', className: 'cephalosporin', reserve: false },
+  { term: 'cefixime', className: 'cephalosporin', reserve: false },
+  { term: 'cefoperazone', className: 'broad-spectrum-cephalosporin', reserve: true },
+  { term: 'meropenem', className: 'carbapenem', reserve: true },
+  { term: 'imipenem', className: 'carbapenem', reserve: true },
+  { term: 'ertapenem', className: 'carbapenem', reserve: true },
+  { term: 'vancomycin', className: 'glycopeptide', reserve: true },
+  { term: 'teicoplanin', className: 'glycopeptide', reserve: true },
+  { term: 'linezolid', className: 'oxazolidinone', reserve: true },
+  { term: 'colistin', className: 'polymyxin', reserve: true },
+  { term: 'polymyxin', className: 'polymyxin', reserve: true },
+  { term: 'tigecycline', className: 'glycylcycline', reserve: true },
+  { term: 'azithromycin', className: 'macrolide', reserve: false },
+  { term: 'clarithromycin', className: 'macrolide', reserve: false },
+  { term: 'ciprofloxacin', className: 'fluoroquinolone', reserve: false },
+  { term: 'levofloxacin', className: 'fluoroquinolone', reserve: false },
+  { term: 'moxifloxacin', className: 'fluoroquinolone', reserve: false },
+  { term: 'doxycycline', className: 'tetracycline', reserve: false },
+  { term: 'metronidazole', className: 'nitroimidazole', reserve: false },
+  { term: 'clindamycin', className: 'lincosamide', reserve: false },
+  { term: 'gentamicin', className: 'aminoglycoside', reserve: false },
+  { term: 'amikacin', className: 'aminoglycoside', reserve: false },
+];
+
 function classifyAntithromboticDrug(medName) {
   const name = String(medName || '').toLowerCase();
   if (!name) return null;
@@ -278,6 +406,246 @@ function classifyAntithromboticDrug(medName) {
     }
   }
   return null;
+}
+
+function medicationDisplayName(med) {
+  return String(med?.name || med?.medication_name || med?.drug_name || '').trim();
+}
+
+function medicationSearchText(med) {
+  return [
+    med?.name,
+    med?.medication_name,
+    med?.drug_name,
+    med?.generic_name,
+    med?.strength,
+    med?.dose,
+    med?.dosage,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function medIncludes(med, term) {
+  return medicationSearchText(med).includes(String(term || '').toLowerCase());
+}
+
+function parseMedicationDays(med) {
+  const value = med?.days ?? med?.duration_days ?? med?.duration;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const m = String(value || '').match(/\d+/);
+  if (!m) return null;
+  const days = Number.parseInt(m[0], 10);
+  return Number.isInteger(days) && days > 0 ? days : null;
+}
+
+async function loadPregnancyContext(patientId) {
+  if (!patientId) return { activePregnancy: false, possiblePregnancy: false };
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT u.gender,
+              u.is_pregnant,
+              u.pregnancy_lmp_date,
+              CASE WHEN u.birthday IS NOT NULL THEN DATE_PART('year', AGE(NOW()::date, u.birthday))::int ELSE NULL END AS age_years,
+              EXISTS (
+                SELECT 1 FROM maternity_pregnancies mp
+                 WHERE mp.patient_uid = u.uid
+                   AND COALESCE(mp.status, 'ongoing') = 'ongoing'
+              ) AS has_ongoing_pregnancy
+         FROM users u
+        WHERE u.id = $1
+        LIMIT 1`,
+      patientId,
+    );
+    const row = rows[0] || {};
+    const gender = String(row.gender || '').toLowerCase();
+    const age = row.age_years == null ? null : Number(row.age_years);
+    const possiblePregnancy = ['female', 'f'].includes(gender) && (age == null || (age >= 10 && age <= 55));
+    return {
+      activePregnancy: Boolean(row.is_pregnant || row.has_ongoing_pregnancy),
+      possiblePregnancy,
+      ageYears: age,
+      lmpDate: row.pregnancy_lmp_date || null,
+    };
+  } catch (err) {
+    logger.warn(`prescriptionSafetyCheck: pregnancy context lookup failed for patient=${patientId}: ${err.message}`);
+    return { activePregnancy: false, possiblePregnancy: false };
+  }
+}
+
+async function loadRenalContext(patientId) {
+  if (!patientId) return { evidenceFound: false };
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `WITH patient AS (
+         SELECT id, uid FROM users WHERE id = $1 LIMIT 1
+       ),
+       recent_labs AS (
+         SELECT test_name, test_code, value_numeric, value_text, unit, received_at
+           FROM lab_results lr
+           JOIN patient p ON p.uid = lr.patient_uid
+          WHERE (
+                 lr.test_name ILIKE '%egfr%'
+              OR lr.test_code ILIKE '%egfr%'
+              OR lr.test_name ILIKE '%creatinine%'
+              OR lr.test_code ILIKE '%creat%'
+              OR lr.test_name ILIKE '%urea%'
+              OR lr.test_code ILIKE '%urea%'
+            )
+          ORDER BY lr.received_at DESC NULLS LAST
+          LIMIT 8
+       )
+       SELECT jsonb_agg(
+                jsonb_build_object(
+                  'test_name', test_name,
+                  'test_code', test_code,
+                  'value_numeric', value_numeric,
+                  'value_text', value_text,
+                  'unit', unit,
+                  'received_at', received_at
+                )
+              ) AS labs`,
+      patientId,
+    );
+    const labs = Array.isArray(rows[0]?.labs) ? rows[0].labs : [];
+    const egfr = labs
+      .filter((r) => /egfr|e-gfr/i.test(`${r.test_name || ''} ${r.test_code || ''}`))
+      .map((r) => Number(r.value_numeric ?? r.value_text))
+      .find((v) => Number.isFinite(v));
+    const creatinine = labs
+      .filter((r) => /creatinine|creat/i.test(`${r.test_name || ''} ${r.test_code || ''}`))
+      .map((r) => Number(r.value_numeric ?? r.value_text))
+      .find((v) => Number.isFinite(v));
+    return {
+      evidenceFound: labs.length > 0,
+      egfr: Number.isFinite(egfr) ? egfr : null,
+      creatinine: Number.isFinite(creatinine) ? creatinine : null,
+      impaired: (Number.isFinite(egfr) && egfr < 60) || (Number.isFinite(creatinine) && creatinine >= 1.5),
+      severe: (Number.isFinite(egfr) && egfr < 30) || (Number.isFinite(creatinine) && creatinine >= 2.5),
+      labs: labs.slice(0, 4),
+    };
+  } catch (err) {
+    logger.warn(`prescriptionSafetyCheck: renal context lookup failed for patient=${patientId}: ${err.message}`);
+    return { evidenceFound: false };
+  }
+}
+
+function checkPregnancyMedicationSafety(medications, context) {
+  const warnings = [];
+  const blockers = [];
+  if (!Array.isArray(medications) || !context) return { warnings, blockers };
+
+  for (const med of medications) {
+    const name = medicationDisplayName(med);
+    if (!name) continue;
+    for (const rule of PREGNANCY_HIGH_RISK_DRUGS) {
+      if (!medIncludes(med, rule.term)) continue;
+      const issue = {
+        type: context.activePregnancy ? 'PREGNANCY_MEDICATION_RISK' : 'PREGNANCY_STATUS_REVIEW',
+        medication: name,
+        severity: rule.severity,
+        message: context.activePregnancy
+          ? rule.message
+          : `${name} can be pregnancy-sensitive. Confirm pregnancy status before prescribing to a patient of reproductive age.`,
+      };
+      if (context.activePregnancy && rule.severity === 'HIGH') blockers.push(issue);
+      else if (context.activePregnancy || context.possiblePregnancy) warnings.push(issue);
+    }
+  }
+
+  return { warnings, blockers };
+}
+
+function checkRenalMedicationSafety(medications, context) {
+  const warnings = [];
+  const blockers = [];
+  if (!Array.isArray(medications) || !context) return { warnings, blockers };
+
+  for (const med of medications) {
+    const name = medicationDisplayName(med);
+    if (!name) continue;
+    for (const rule of RENAL_RISK_DRUGS) {
+      if (!medIncludes(med, rule.term)) continue;
+      const issue = {
+        type: context.evidenceFound ? 'RENAL_MEDICATION_REVIEW' : 'RENAL_EVIDENCE_MISSING',
+        medication: name,
+        severity: rule.severity,
+        latest_egfr: context.egfr ?? null,
+        latest_creatinine: context.creatinine ?? null,
+        message: context.evidenceFound
+          ? rule.message
+          : `${name} may require renal review. No recent creatinine/eGFR was found in the lab-result feed.`,
+      };
+      if (context.severe && rule.severity === 'HIGH') blockers.push(issue);
+      else warnings.push(issue);
+    }
+  }
+
+  return { warnings, blockers };
+}
+
+function classifyAntibiotic(med) {
+  for (const rule of ANTIBIOTIC_RULES) {
+    if (medIncludes(med, rule.term)) return rule;
+  }
+  return null;
+}
+
+function checkAntibioticStewardship(medications) {
+  const warnings = [];
+  if (!Array.isArray(medications)) return { warnings, blockers: [] };
+
+  const antibiotics = medications
+    .map((med) => ({ med, name: medicationDisplayName(med), rule: classifyAntibiotic(med) }))
+    .filter((entry) => entry.name && entry.rule);
+
+  for (const entry of antibiotics) {
+    const days = parseMedicationDays(entry.med);
+    if (!days) {
+      warnings.push({
+        type: 'ANTIBIOTIC_DURATION_MISSING',
+        medication: entry.name,
+        severity: 'MODERATE',
+        message: `${entry.name} appears to be an antibiotic. Add intended duration/days and review stop date.`,
+      });
+    } else if (days > 14) {
+      warnings.push({
+        type: 'ANTIBIOTIC_LONG_DURATION',
+        medication: entry.name,
+        severity: 'MODERATE',
+        duration_days: days,
+        message: `${entry.name} duration is ${days} days. Confirm indication and review/de-escalation plan.`,
+      });
+    }
+    if (entry.rule.reserve) {
+      warnings.push({
+        type: 'ANTIBIOTIC_STEWARDSHIP_RESERVE',
+        medication: entry.name,
+        class_name: entry.rule.className,
+        severity: 'HIGH',
+        message: `${entry.name} is a broad/reserve antibiotic. Document indication, culture plan, and de-escalation review.`,
+      });
+    }
+  }
+
+  const classBuckets = new Map();
+  for (const entry of antibiotics) {
+    const bucket = classBuckets.get(entry.rule.className) || [];
+    bucket.push(entry.name);
+    classBuckets.set(entry.rule.className, bucket);
+  }
+  for (const [className, names] of classBuckets.entries()) {
+    const uniqueNames = [...new Set(names.map((n) => n.toLowerCase()))];
+    if (uniqueNames.length > 1) {
+      warnings.push({
+        type: 'ANTIBIOTIC_DUPLICATE_SPECTRUM',
+        class_name: className,
+        medications: [...new Set(names)],
+        severity: 'MODERATE',
+        message: `Multiple antibiotics from the ${className} spectrum are prescribed together. Confirm combination rationale.`,
+      });
+    }
+  }
+
+  return { warnings, blockers: [] };
 }
 
 /**
@@ -615,6 +983,33 @@ export async function validatePrescriptionSafety(patientId, medications) {
     const antithrombotic = checkAntithromboticInteractions(medications);
     warnings.push(...antithrombotic.warnings);
     blockers.push(...antithrombotic.blockers);
+
+    // 5. Pregnancy / lactation-adjacent medication safety. This is not a
+    // complete teratogenicity database; it is a conservative first-trial
+    // guard for the highest-signal drugs and ACEi/ARB/statin/tetracycline
+    // classes. Active pregnancy + high-risk drug blocks until a clinician
+    // overrides with reason; reproductive-age unknown status warns.
+    const pregnancyContext = await loadPregnancyContext(patientId);
+    const pregnancySafety = checkPregnancyMedicationSafety(medications, pregnancyContext);
+    warnings.push(...pregnancySafety.warnings);
+    blockers.push(...pregnancySafety.blockers);
+
+    // 6. Renal dose / nephrotoxin review. When recent creatinine/eGFR is
+    // present and severe, high-risk renal drugs block; otherwise they warn.
+    // If no recent renal lab exists, renal-risk medicines warn so OPD can
+    // order/check KFT instead of assuming safety.
+    const renalContext = await loadRenalContext(patientId);
+    const renalSafety = checkRenalMedicationSafety(medications, renalContext);
+    warnings.push(...renalSafety.warnings);
+    blockers.push(...renalSafety.blockers);
+
+    // 7. Antibiotic stewardship: duration, reserve/broad-spectrum prompts,
+    // and duplicate-spectrum prompts. These remain warnings because they
+    // need clinical context, but they are visible before save and audited
+    // through the existing override/lifecycle trail when overridden.
+    const stewardship = checkAntibioticStewardship(medications);
+    warnings.push(...stewardship.warnings);
+    blockers.push(...stewardship.blockers);
 
   } catch (err) {
     // Fail CLOSED on safety-check failure. Returning safe:true silently

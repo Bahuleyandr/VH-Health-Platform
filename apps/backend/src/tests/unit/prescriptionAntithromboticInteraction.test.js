@@ -146,7 +146,7 @@ describe('validatePrescriptionSafety — antithrombotic wiring (prisma stubbed)'
 
   it('keeps a benign single-drug prescription safe:true', async () => {
     const result = await validatePrescriptionSafety(106, [
-      { medication_name: 'Amoxicillin', dosage: '500 mg', frequency: 'TDS' },
+      { medication_name: 'Amoxicillin', dosage: '500 mg', frequency: 'TDS', days: 5 },
     ]);
     expect(result.safe).toBe(true);
     expect(result.blockers).toHaveLength(0);
@@ -170,5 +170,81 @@ describe('validatePrescriptionSafety — antithrombotic wiring (prisma stubbed)'
     }
     // Round-trips through JSON exactly as the override audit path serialises it.
     expect(JSON.parse(JSON.stringify(result.blockers))).toEqual(result.blockers);
+  });
+
+  it('blocks high-risk pregnancy medication when active pregnancy is recorded', async () => {
+    queryRawUnsafeMock.mockReset()
+      .mockResolvedValueOnce([]) // structured allergies
+      .mockResolvedValueOnce([]) // unstructured note scan
+      .mockResolvedValueOnce([]) // duplicate active prescriptions
+      .mockResolvedValueOnce([{ age_years: 30 }]) // paediatric context
+      .mockResolvedValueOnce([{
+        gender: 'female',
+        is_pregnant: true,
+        pregnancy_lmp_date: '2026-02-01',
+        age_years: 30,
+        has_ongoing_pregnancy: true,
+      }])
+      .mockResolvedValueOnce([{ labs: [] }]); // renal context
+
+    const result = await validatePrescriptionSafety(106, [
+      { medication_name: 'Warfarin 5mg', frequency: 'OD', days: 7 },
+    ]);
+
+    expect(result.safe).toBe(false);
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'PREGNANCY_MEDICATION_RISK',
+          medication: 'Warfarin 5mg',
+        }),
+      ]),
+    );
+  });
+
+  it('blocks high-risk renal drugs when severe renal impairment evidence exists', async () => {
+    queryRawUnsafeMock.mockReset()
+      .mockResolvedValueOnce([]) // structured allergies
+      .mockResolvedValueOnce([]) // unstructured note scan
+      .mockResolvedValueOnce([]) // duplicate active prescriptions
+      .mockResolvedValueOnce([{ age_years: 70 }]) // paediatric context
+      .mockResolvedValueOnce([{ gender: 'male', is_pregnant: false, age_years: 70, has_ongoing_pregnancy: false }])
+      .mockResolvedValueOnce([{
+        labs: [
+          { test_name: 'eGFR', test_code: 'EGFR', value_numeric: '22', unit: 'mL/min' },
+        ],
+      }]);
+
+    const result = await validatePrescriptionSafety(106, [
+      { medication_name: 'Gentamicin injection', frequency: 'OD', days: 3 },
+    ]);
+
+    expect(result.safe).toBe(false);
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'RENAL_MEDICATION_REVIEW',
+          medication: 'Gentamicin injection',
+          latest_egfr: 22,
+        }),
+      ]),
+    );
+  });
+
+  it('warns on reserve antibiotic stewardship and missing duration without hard-blocking', async () => {
+    queryRawUnsafeMock.mockReset().mockResolvedValue([]);
+
+    const result = await validatePrescriptionSafety(106, [
+      { medication_name: 'Meropenem injection', frequency: 'TDS' },
+    ]);
+
+    expect(result.safe).toBe(true);
+    expect(result.blockers).toHaveLength(0);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'ANTIBIOTIC_DURATION_MISSING' }),
+        expect.objectContaining({ type: 'ANTIBIOTIC_STEWARDSHIP_RESERVE' }),
+      ]),
+    );
   });
 });

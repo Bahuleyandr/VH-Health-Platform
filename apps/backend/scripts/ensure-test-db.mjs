@@ -171,6 +171,12 @@ function ensureCompatibilityTables() {
       medications JSONB,
       notes TEXT,
       status VARCHAR(50) DEFAULT 'active',
+      lifecycle_status VARCHAR(30) NOT NULL DEFAULT 'draft',
+      revision INTEGER NOT NULL DEFAULT 1,
+      signed_at TIMESTAMPTZ,
+      signed_by UUID,
+      locked_at TIMESTAMPTZ,
+      locked_by UUID,
       prescription_number VARCHAR(80) DEFAULT ('RX-' || replace(gen_random_uuid()::text, '-', '')),
       follow_up_date DATE,
       follow_up_notes TEXT,
@@ -181,6 +187,14 @@ function ensureCompatibilityTables() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    ALTER TABLE e_prescriptions
+      ADD COLUMN IF NOT EXISTS lifecycle_status VARCHAR(30) NOT NULL DEFAULT 'draft',
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS signed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS signed_by UUID,
+      ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS locked_by UUID;
 
     CREATE TABLE IF NOT EXISTS patient_vitals (
       id SERIAL PRIMARY KEY,

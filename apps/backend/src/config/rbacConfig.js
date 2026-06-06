@@ -126,6 +126,9 @@ export default {
     OP_STAFF_NURSE,
     DOCTOR,
     DUTY_DOCTOR,
+    'CONSULTANT',
+    'JUNIOR_DOCTOR',
+    'RESIDENT',
     ADMIN
   ],
   // Pharmacy formulary write access is intentionally narrower.

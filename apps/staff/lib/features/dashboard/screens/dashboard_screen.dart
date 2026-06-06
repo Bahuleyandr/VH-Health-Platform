@@ -631,6 +631,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ) {
     final dailyIds = switch (_role) {
       StaffRole.doctor || StaffRole.dutyDoctor || StaffRole.anaesthetist => {
+        'op_doctor_workspace',
         'clinical_ai_review_queue',
         'op_ai_assist',
         'appointments',
@@ -700,6 +701,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
       StaffRole.medicalSuperintendent => {
         'front_office_workbench',
+        'op_doctor_workspace',
         'appointments',
         'clinical_ai_review_queue',
         'op_ai_assist',
@@ -717,6 +719,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
       StaffRole.admin || StaffRole.superAdmin => {
         'front_office_workbench',
+        'op_doctor_workspace',
         'appointments',
         'clinical_ai_review_queue',
         'patient_records',
@@ -855,6 +858,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'patient_records',
       },
       StaffRole.doctor => {
+        'op_doctor_workspace',
         'clinical_ai_review_queue',
         'op_ai_assist',
         'appointments',
@@ -1103,6 +1107,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'op_doctor_workspace',
               'clinical_ai_review_queue',
               'op_ai_assist',
               'appointments',

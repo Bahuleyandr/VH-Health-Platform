@@ -48,8 +48,17 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   List<Map<String, dynamic>> _events = const [];
   bool _loading = true;
   bool _completing = false;
+  bool _savingNote = false;
   String? _error;
   late String _status;
+  int? _opNoteId;
+  bool _opNoteSigned = false;
+
+  final _chiefCtrl = TextEditingController();
+  final _historyCtrl = TextEditingController();
+  final _examCtrl = TextEditingController();
+  final _diagnosisCtrl = TextEditingController();
+  final _planCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -61,6 +70,16 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     RecentPatientsService.add(widget.patientUid, widget.patientName);
   }
 
+  @override
+  void dispose() {
+    _chiefCtrl.dispose();
+    _historyCtrl.dispose();
+    _examCtrl.dispose();
+    _diagnosisCtrl.dispose();
+    _planCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadTimeline() async {
     setState(() {
       _loading = true;
@@ -70,6 +89,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
       final data = await MedicalApiService.getPatientTimeline(
         widget.patientUid,
       );
+      final notesData = await MedicalApiService.getPatientNotes(
+        widget.patientUid,
+        noteType: 'op_consultation',
+      ).catchError((_) => <String, dynamic>{});
       final list = data['events'] ?? data['timeline'];
       final events = list is List
           ? list
@@ -77,6 +100,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                 .map((item) => Map<String, dynamic>.from(item))
                 .toList()
           : <Map<String, dynamic>>[];
+      _hydrateLatestOpNote(notesData);
       if (!mounted) return;
       setState(() {
         _events = events;
@@ -89,6 +113,54 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         _loading = false;
       });
     }
+  }
+
+  void _hydrateLatestOpNote(Map<String, dynamic> notesData) {
+    final raw = notesData['notes'] ?? notesData['data'] ?? notesData['items'];
+    if (raw is! List) {
+      if (_chiefCtrl.text.trim().isEmpty && _clean(widget.reason).isNotEmpty) {
+        _chiefCtrl.text = _clean(widget.reason);
+      }
+      return;
+    }
+    final notes = raw
+        .whereType<Map>()
+        .map((note) => Map<String, dynamic>.from(note))
+        .toList();
+    if (notes.isEmpty) {
+      if (_chiefCtrl.text.trim().isEmpty && _clean(widget.reason).isNotEmpty) {
+        _chiefCtrl.text = _clean(widget.reason);
+      }
+      return;
+    }
+    Map<String, dynamic>? selected;
+    if (widget.appointmentId != null) {
+      for (final note in notes) {
+        if (_asInt(note['appointment_id']) == widget.appointmentId) {
+          selected = note;
+          break;
+        }
+      }
+    }
+    selected ??= notes.first;
+    final content = _contentMap(selected);
+    _opNoteId = _asInt(selected['id']);
+    _opNoteSigned = selected['is_signed'] == true;
+    _chiefCtrl.text = _firstContentText(content, const [
+      'chief_complaint',
+      'chief_complaints',
+      'subjective',
+    ]);
+    _historyCtrl.text = _firstContentText(content, const ['history']);
+    _examCtrl.text = _firstContentText(content, const [
+      'examination',
+      'objective',
+    ]);
+    _diagnosisCtrl.text = _firstContentText(content, const [
+      'diagnosis',
+      'assessment',
+    ]);
+    _planCtrl.text = _firstContentText(content, const ['plan']);
   }
 
   String get _patientTitle {
@@ -179,6 +251,127 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     );
   }
 
+  Map<String, dynamic> _currentOpContent() {
+    final chief = _chiefCtrl.text.trim();
+    final diagnosis = _diagnosisCtrl.text.trim();
+    final plan = _planCtrl.text.trim();
+    return {
+      'chief_complaint': chief,
+      'history': _historyCtrl.text.trim(),
+      'examination': _examCtrl.text.trim(),
+      'diagnosis': diagnosis,
+      'plan': plan,
+      'summary': _joinNonEmpty([
+        if (chief.isNotEmpty) 'CC: $chief',
+        if (diagnosis.isNotEmpty) 'Dx: $diagnosis',
+        if (plan.isNotEmpty) 'Plan: $plan',
+      ]),
+      if (widget.appointmentId != null) 'appointment_id': widget.appointmentId,
+    };
+  }
+
+  String _prescriptionClinicalNotes(Map<String, dynamic> content) {
+    final parts = <String>[];
+    void add(String label, Object? value) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') {
+        parts.add('$label: $text');
+      }
+    }
+
+    add('Chief complaints', content['chief_complaint']);
+    add('History', content['history']);
+    add('Examination', content['examination']);
+    add('Diagnosis', content['diagnosis']);
+    add('Plan', content['plan']);
+    return parts.join('\n\n');
+  }
+
+  void _openPrescriptionFromContent(Map<String, dynamic> content) {
+    context.push(
+      '/prescriptions',
+      extra: {
+        if (widget.appointmentId != null) 'id': widget.appointmentId,
+        if (widget.patientId != null) 'patient_id': widget.patientId,
+        if (widget.doctorId != null) 'doctor_id': widget.doctorId,
+        'patient_uid': widget.patientUid,
+        'patient_name': _patientTitle,
+        if (_clean(widget.doctorName).isNotEmpty)
+          'doctor_name': _clean(widget.doctorName),
+        if (_clean(widget.department).isNotEmpty)
+          'department': _clean(widget.department),
+        if (_clean(widget.reason).isNotEmpty) 'reason': _clean(widget.reason),
+        if (_clean(widget.appointmentDate).isNotEmpty)
+          'appointment_date': _clean(widget.appointmentDate),
+        if (_clean(widget.appointmentTime).isNotEmpty)
+          'appointment_time': _clean(widget.appointmentTime),
+        'diagnosis': _clean(content['diagnosis']),
+        'clinical_notes': _prescriptionClinicalNotes(content),
+      },
+    );
+  }
+
+  Future<void> _saveOpNote({
+    bool openPrescriptionAfter = false,
+    bool signAfter = false,
+  }) async {
+    if (_savingNote || _opNoteSigned) return;
+    final content = _currentOpContent();
+    if (_clean(content['chief_complaint']).isEmpty &&
+        _clean(content['diagnosis']).isEmpty &&
+        _clean(content['plan']).isEmpty) {
+      ErrorToast.show(
+        context,
+        'Enter at least a complaint, diagnosis, or plan',
+      );
+      return;
+    }
+    setState(() => _savingNote = true);
+    try {
+      if (_opNoteId != null) {
+        await MedicalApiService.updateClinicalNote(_opNoteId!, content);
+      } else {
+        final created = await MedicalApiService.createClinicalNote({
+          'patient_uid': widget.patientUid,
+          'note_type': 'op_consultation',
+          'title': 'OP consultation - $_patientTitle',
+          'content': content,
+          if (widget.appointmentId != null)
+            'appointment_id': widget.appointmentId,
+        });
+        final createdNote = _asMap(
+          created['note'] ?? created['data'] ?? created['result'],
+        );
+        _opNoteId = _asInt(
+          created['id'] ??
+              created['note_id'] ??
+              created['clinical_note_id'] ??
+              createdNote['id'] ??
+              createdNote['note_id'] ??
+              createdNote['clinical_note_id'],
+        );
+      }
+      if (signAfter && _opNoteId != null) {
+        await MedicalApiService.signNote(_opNoteId!);
+        _opNoteSigned = true;
+      }
+      if (!mounted) return;
+      setState(() => _savingNote = false);
+      SuccessToast.show(
+        context,
+        signAfter
+            ? 'Consultation note signed'
+            : (_opNoteId != null ? 'Consultation note saved' : 'Note saved'),
+      );
+      if (openPrescriptionAfter) _openPrescriptionFromContent(content);
+      _loadTimeline();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _savingNote = false);
+      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
   void _openPatientRecords() {
     final query = <String>[
       if (widget.patientId != null) 'patient_id=${widget.patientId}',
@@ -261,6 +454,116 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                   ],
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConsultationNotePanel() {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _SectionTitle(
+                    icon: _opNoteSigned
+                        ? Icons.lock_outline
+                        : Icons.edit_note_outlined,
+                    title: 'OP consultation note',
+                    subtitle: _opNoteSigned
+                        ? 'Signed and locked'
+                        : 'Editable until this consultation is signed',
+                  ),
+                ),
+                if (_opNoteId != null)
+                  _StatusPill(
+                    label: _opNoteSigned ? 'SIGNED' : 'DRAFT',
+                    color: _opNoteSigned
+                        ? AppTheme.successOnSurface
+                        : AppTheme.warningOnSurface,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _ClinicalTextField(
+              controller: _chiefCtrl,
+              label: 'Chief complaint',
+              hint: 'Main complaint or visit reason',
+              minLines: 2,
+              enabled: !_opNoteSigned,
+            ),
+            const SizedBox(height: 10),
+            _ClinicalTextField(
+              controller: _historyCtrl,
+              label: 'History',
+              hint: 'Relevant history, negatives, risk factors',
+              minLines: 3,
+              enabled: !_opNoteSigned,
+            ),
+            const SizedBox(height: 10),
+            _ClinicalTextField(
+              controller: _examCtrl,
+              label: 'Examination',
+              hint: 'Vitals, examination findings, bedside observations',
+              minLines: 3,
+              enabled: !_opNoteSigned,
+            ),
+            const SizedBox(height: 10),
+            _ClinicalTextField(
+              controller: _diagnosisCtrl,
+              label: 'Diagnosis',
+              hint: 'Working diagnosis or differential',
+              minLines: 2,
+              enabled: !_opNoteSigned,
+            ),
+            const SizedBox(height: 10),
+            _ClinicalTextField(
+              controller: _planCtrl,
+              label: 'Plan',
+              hint: 'Medicines, investigations, advice, follow-up',
+              minLines: 3,
+              enabled: !_opNoteSigned,
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _savingNote || _opNoteSigned
+                      ? null
+                      : () => _saveOpNote(),
+                  icon: _savingNote
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined, size: 18),
+                  label: const Text('Save note'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _savingNote || _opNoteSigned
+                      ? null
+                      : () => _saveOpNote(openPrescriptionAfter: true),
+                  icon: const Icon(Icons.medication_outlined, size: 18),
+                  label: const Text('Save & prescribe'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _savingNote || _opNoteSigned || _opNoteId == null
+                      ? null
+                      : () => _saveOpNote(signAfter: true),
+                  icon: const Icon(Icons.verified_outlined, size: 18),
+                  label: const Text('Sign note'),
+                ),
+              ],
             ),
           ],
         ),
@@ -406,6 +709,76 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     );
   }
 
+  Widget _buildCockpitSummaryPanel() {
+    final latestPrescription = _latestEvent({'medication', 'prescription'});
+    final latestInvestigation = _latestEvent({'investigation', 'lab_result'});
+    final latestNote = _latestEvent({'note', 'clinical_note', 'doctor_note'});
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionTitle(
+              icon: Icons.dashboard_customize_outlined,
+              title: 'Consultation cockpit',
+              subtitle: 'Records, prescription, investigation and follow-up',
+            ),
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 900 ? 4 : 2;
+                return GridView.count(
+                  crossAxisCount: columns,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: columns == 4 ? 2.5 : 2.1,
+                  children: [
+                    _CockpitTile(
+                      icon: Icons.medication_outlined,
+                      title: 'Prescription',
+                      value: _eventTitle(latestPrescription) ?? 'Create Rx',
+                      action: 'Open',
+                      onTap: _openPrescription,
+                    ),
+                    _CockpitTile(
+                      icon: Icons.biotech_outlined,
+                      title: 'Investigations',
+                      value: _eventTitle(latestInvestigation) ?? 'Review/order',
+                      action: 'Open',
+                      onTap: () => context.push(
+                        '/investigations?patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
+                      ),
+                    ),
+                    _CockpitTile(
+                      icon: Icons.folder_shared_outlined,
+                      title: 'Old records',
+                      value: _eventTitle(latestNote) ?? 'Timeline ready',
+                      action: 'Open',
+                      onTap: _openPatientRecords,
+                    ),
+                    _CockpitTile(
+                      icon: Icons.event_repeat_outlined,
+                      title: 'Follow-up',
+                      value: _isTerminalStatus(_status)
+                          ? 'Visit complete'
+                          : 'Set in Rx/plan',
+                      action: _canComplete ? 'Complete' : 'Status',
+                      onTap: _canComplete ? _completeAppointment : () {},
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildVisitChecklist() {
     return Card(
       margin: EdgeInsets.zero,
@@ -453,6 +826,28 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     });
   }
 
+  Map<String, dynamic>? _latestEvent(Set<String> types) {
+    for (final event in _events) {
+      final type = _clean(event['event_type']).toLowerCase();
+      if (types.contains(type)) return event;
+    }
+    return null;
+  }
+
+  String? _eventTitle(Map<String, dynamic>? event) {
+    if (event == null) return null;
+    for (final key in ['title', 'summary', 'label', 'name', 'description']) {
+      final text = _clean(event[key]);
+      if (text.isNotEmpty) return text;
+    }
+    final payload = _asMap(event['payload'] ?? event['data'] ?? event['meta']);
+    for (final key in ['title', 'summary', 'diagnosis', 'test_name']) {
+      final text = _clean(payload[key]);
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
   Widget _buildContent() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -464,7 +859,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
             _buildVisitChecklist(),
           ],
         );
-        final timelinePanel = _buildTimelineSummary();
+        final mainPanel = Column(
+          children: [
+            _buildConsultationNotePanel(),
+            const SizedBox(height: 16),
+            _buildCockpitSummaryPanel(),
+            const SizedBox(height: 16),
+            _buildTimelineSummary(),
+          ],
+        );
 
         return RefreshIndicator(
           onRefresh: _loadTimeline,
@@ -480,7 +883,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(flex: 3, child: timelinePanel),
+                      Expanded(flex: 4, child: mainPanel),
                       const SizedBox(width: 16),
                       SizedBox(width: 360, child: actionPanel),
                     ],
@@ -488,9 +891,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                 else
                   Column(
                     children: [
-                      actionPanel,
+                      mainPanel,
                       const SizedBox(height: 16),
-                      timelinePanel,
+                      actionPanel,
                     ],
                   ),
                 const SizedBox(height: 24),
@@ -621,6 +1024,117 @@ class _SectionTitle extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ClinicalTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final int minLines;
+  final bool enabled;
+
+  const _ClinicalTextField({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    this.minLines = 2,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      minLines: minLines,
+      maxLines: minLines + 4,
+      enabled: enabled,
+      style: TextStyle(color: AppTheme.textPrimary),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        alignLabelWithHint: true,
+        filled: true,
+        fillColor: enabled
+            ? AppTheme.cardSurface
+            : AppTheme.divider.withValues(alpha: 0.45),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+}
+
+class _CockpitTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final String action;
+  final VoidCallback onTap;
+
+  const _CockpitTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.action,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.divider.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppTheme.primaryBlue, size: 24),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              action,
+              style: const TextStyle(
+                color: AppTheme.primaryBlue,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -951,6 +1465,33 @@ Map<String, dynamic> _asMap(dynamic value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
   return const {};
+}
+
+Map<String, dynamic> _contentMap(Map<String, dynamic> note) {
+  final content = note['content'];
+  if (content is Map<String, dynamic>) return content;
+  if (content is Map) return Map<String, dynamic>.from(content);
+  return note;
+}
+
+int? _asInt(Object? value) {
+  if (value is int) return value;
+  return int.tryParse(value?.toString() ?? '');
+}
+
+String _firstContentText(Map<String, dynamic> content, List<String> keys) {
+  for (final key in keys) {
+    final text = _clean(content[key]);
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  return '';
+}
+
+String _joinNonEmpty(Iterable<String> values, {String separator = ' | '}) {
+  return values
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .join(separator);
 }
 
 String _formatKey(String key) {

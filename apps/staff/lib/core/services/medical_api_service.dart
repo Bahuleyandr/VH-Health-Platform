@@ -385,6 +385,19 @@ class MedicalApiService {
     return _get('/prescriptions/$id');
   }
 
+  /// PUT /prescriptions/:id — edit an unsigned draft prescription.
+  static Future<Map<String, dynamic>> updateEPrescription(
+    int id,
+    Map<String, dynamic> data,
+  ) async {
+    return _put('/prescriptions/$id', data);
+  }
+
+  /// POST /prescriptions/:id/sign — sign and lock a prescription.
+  static Future<Map<String, dynamic>> signEPrescription(int id) async {
+    return _post('/prescriptions/$id/sign', {});
+  }
+
   /// POST /prescriptions/safety-check — run CDS preview. Returns
   /// `{ safe, warnings, blockers }`. Staff app calls this before create so we
   /// can drive the hard-block UX without the user losing their form state.
@@ -513,21 +526,38 @@ class MedicalApiService {
     });
   }
 
-  /// GET /pharmacy-orders/catalog — medication catalog suggestions for
-  /// inpatient drug chart type-ahead.
+  /// GET /prescriptions/catalog — shared formulary suggestions for inpatient
+  /// and outpatient prescription type-ahead. The backend also exposes the
+  /// same handler at /pharmacy-orders/catalog for pharmacy screens.
   static Future<List<Map<String, dynamic>>> searchMedicationCatalog(
     String search, {
     int minLength = 2,
   }) async {
     final q = search.trim();
     if (q.length < minLength) return const [];
-    final data = await _get('/pharmacy-orders/catalog', query: {'search': q});
+    final data = await _get('/prescriptions/catalog', query: {'search': q});
     final rows = data['data'];
     if (rows is! List) return const [];
     return rows
         .whereType<Map>()
         .map((row) => row.cast<String, dynamic>())
         .toList();
+  }
+
+  static Future<Map<String, dynamic>> orderPrescriptionToPharmacy(
+    int prescriptionId, {
+    String deliveryType = 'counter',
+    List<Map<String, dynamic>>? medications,
+  }) async {
+    return _post('/prescriptions/$prescriptionId/order-pharmacy', {
+      'delivery_type': deliveryType,
+      'medications': ?medications,
+    });
+  }
+
+  static Future<String?> getPrescriptionPdfUrl(int prescriptionId) async {
+    final data = await _get('/prescriptions/pdf/$prescriptionId');
+    return data['url']?.toString();
   }
 
   // ─── Ward Referrals ─────────────────────────────────────────────────────

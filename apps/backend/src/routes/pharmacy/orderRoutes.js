@@ -87,6 +87,7 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     ['/:id/dispense-counter', [], pharmacyOrderController.markCounterDispensed],
     // D57: documented short alias used by the swarm/client contract.
     ['/:id/dispense', [], pharmacyOrderController.markCounterDispensed],
+    ['/:id/unavailable', [], pharmacyOrderController.markUnavailable],
     ['/:id/cancel', [], pharmacyOrderController.cancelOrder]
   ]
 });

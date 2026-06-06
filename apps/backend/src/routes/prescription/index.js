@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as ePrescriptionController from '../../controllers/prescription/ePrescriptionController.js';
+import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
@@ -23,6 +24,13 @@ const upload = multer({
 });
 
 // Static paths BEFORE /:id
+
+// Shared formulary type-ahead for clinical prescribing screens. This reuses
+// the pharmacy catalog controller, but keeps OP/IP prescription screens away
+// from the broader /pharmacy-orders route surface.
+wrapAutoRBAC(router, 'pharmacyCatalogRoutes', {
+  get: [['/catalog', [], pharmacyOrderController.getCatalog]]
+});
 
 // Staff/admin create prescription — idempotency-key middleware on
 // /create so retries don't duplicate scripts. Header-driven, optional.
@@ -67,7 +75,11 @@ wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {
     ['/:id', [], ePrescriptionController.getPrescription],
     ['/:id/safety', [], ePrescriptionController.getPrescriptionSafety]
   ],
+  put: [
+    ['/:id', [], ePrescriptionController.updatePrescription]
+  ],
   post: [
+    ['/:id/sign', [], ePrescriptionController.signPrescription],
     ['/:id/order-pharmacy',
       [requireIdempotencyKey({ required: false, scope: 'prescription_order_pharmacy' })],
       ePrescriptionController.orderPharmacyFromPrescription],

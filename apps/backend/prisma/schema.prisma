@@ -4420,6 +4420,12 @@ model e_prescriptions {
   medications                   Json?
   notes                         String?
   status                        String?                         @default("active") @db.VarChar(50)
+  lifecycle_status              String                          @default("draft") @db.VarChar(30)
+  revision                      Int                             @default(1)
+  signed_at                     DateTime?                       @db.Timestamptz(6)
+  signed_by                     String?                         @db.Uuid
+  locked_at                     DateTime?                       @db.Timestamptz(6)
+  locked_by                     String?                         @db.Uuid
   prescription_number           String?                         @default(dbgenerated("('RX-'::text || replace((gen_random_uuid())::text, '-'::text, ''::text))")) @db.VarChar(80)
   follow_up_date                DateTime?                       @db.Date
   follow_up_notes               String?
@@ -4440,7 +4446,9 @@ model e_prescriptions {
 
   @@index([pharmacy_order_id], map: "idx_e_prescriptions_pharmacy_order")
   @@index([tenant_id], map: "idx_e_prescriptions_tenant_id")
+  @@index([lifecycle_status, created_at(sort: Desc)], map: "idx_e_prescriptions_lifecycle")
   @@index([admission_id], map: "idx_e_prescriptions_admission_id", where: raw("(admission_id IS NOT NULL)"))
+  @@index([signed_at(sort: Desc)], map: "idx_e_prescriptions_signed_at", where: raw("(signed_at IS NOT NULL)"))
   @@index([doctor_uid], map: "idx_eprescriptions_doctor_uid", where: raw("(doctor_uid IS NOT NULL)"))
   @@index([patient_uid], map: "idx_eprescriptions_patient_uid", where: raw("(patient_uid IS NOT NULL)"))
 }
