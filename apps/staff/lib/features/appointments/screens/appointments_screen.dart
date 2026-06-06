@@ -167,6 +167,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   late DateTime _selectedDate;
   String _scopeLabel = 'All OP queues';
   bool _doctorScoped = false;
+  bool _queuePanelCollapsed = false;
+  bool _queuePanelManuallyToggled = false;
 
   bool get _canBookAppointments => !_doctorScoped;
 
@@ -264,6 +266,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           _appointmentsByDate = byDate;
           _doctorScoped = doctorScoped;
           _scopeLabel = doctorScoped ? 'My OP queue' : 'All OP queues';
+          if (!_queuePanelManuallyToggled) {
+            _queuePanelCollapsed = doctorScoped;
+          }
         });
       }
     } catch (e) {
@@ -291,6 +296,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _shiftMonth(int delta) async {
     final next = DateTime(_selectedDate.year, _selectedDate.month + delta, 1);
     await _selectDate(next);
+  }
+
+  void _toggleQueuePanel() {
+    setState(() {
+      _queuePanelCollapsed = !_queuePanelCollapsed;
+      _queuePanelManuallyToggled = true;
+    });
   }
 
   Future<void> _updateStatus(String id, String status) async {
@@ -1196,6 +1208,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           onPreviousMonth: () => _shiftMonth(-1),
           onNextMonth: () => _shiftMonth(1),
           onAppointmentTap: _openAppointmentActions,
+          onCollapse: wide ? _toggleQueuePanel : null,
         );
         final board = _WeekCalendarBoard(
           days: weekDays,
@@ -1226,10 +1239,22 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(
-                  width: constraints.maxWidth >= 1280 ? 286 : 254,
-                  child: SingleChildScrollView(child: sidebar),
-                ),
+                if (_queuePanelCollapsed)
+                  SizedBox(
+                    width: 72,
+                    child: _SchedulerCollapsedRail(
+                      selectedDate: _selectedDate,
+                      scopeLabel: _scopeLabel,
+                      visibleCount: _filtered.length,
+                      selectedDayCount: selectedDayAppointments.length,
+                      onExpand: _toggleQueuePanel,
+                    ),
+                  )
+                else
+                  SizedBox(
+                    width: constraints.maxWidth >= 1280 ? 286 : 254,
+                    child: SingleChildScrollView(child: sidebar),
+                  ),
                 const SizedBox(width: 12),
                 Expanded(child: board),
               ],
@@ -1475,6 +1500,7 @@ class _SchedulerSidebar extends StatelessWidget {
   final VoidCallback onPreviousMonth;
   final VoidCallback onNextMonth;
   final ValueChanged<StaffAppointment> onAppointmentTap;
+  final VoidCallback? onCollapse;
 
   const _SchedulerSidebar({
     required this.selectedDate,
@@ -1486,6 +1512,7 @@ class _SchedulerSidebar extends StatelessWidget {
     required this.onPreviousMonth,
     required this.onNextMonth,
     required this.onAppointmentTap,
+    this.onCollapse,
   });
 
   @override
@@ -1537,6 +1564,12 @@ class _SchedulerSidebar extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onCollapse != null)
+                IconButton(
+                  tooltip: 'Collapse queue panel',
+                  onPressed: onCollapse,
+                  icon: const Icon(Icons.keyboard_double_arrow_left),
+                ),
             ],
           ),
           const SizedBox(height: 18),
@@ -1612,6 +1645,112 @@ class _SchedulerSidebar extends StatelessWidget {
                 ),
             ],
         ],
+      ),
+    );
+  }
+}
+
+class _SchedulerCollapsedRail extends StatelessWidget {
+  final DateTime selectedDate;
+  final String scopeLabel;
+  final int visibleCount;
+  final int selectedDayCount;
+  final VoidCallback onExpand;
+
+  const _SchedulerCollapsedRail({
+    required this.selectedDate,
+    required this.scopeLabel,
+    required this.visibleCount,
+    required this.selectedDayCount,
+    required this.onExpand,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Show queue panel',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onExpand,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppTheme.cardSurface,
+            border: Border.all(color: AppTheme.divider),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.event_note_outlined,
+                  color: AppTheme.primaryBlue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                DateFormat('d MMM').format(selectedDate),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$selectedDayCount',
+                style: const TextStyle(
+                  color: AppTheme.primaryBlue,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                'day',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              ),
+              const Divider(height: 24),
+              Text(
+                '$visibleCount',
+                style: const TextStyle(
+                  color: AppTheme.primaryTeal,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                'week',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.keyboard_double_arrow_right,
+                color: AppTheme.textSecondary,
+              ),
+              const SizedBox(height: 6),
+              RotatedBox(
+                quarterTurns: 3,
+                child: Text(
+                  scopeLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

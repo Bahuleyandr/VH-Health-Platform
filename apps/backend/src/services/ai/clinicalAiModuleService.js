@@ -2335,7 +2335,8 @@ function applyTenantOverride(module, overrideRow, tenantId) {
 
 async function upsertMissingModules(client = prisma) {
   for (const module of CLINICAL_AI_MODULES) {
-    await client.$queryRawUnsafe(
+    await executeRawWrite(
+      client,
       `INSERT INTO clinical_ai_modules
          (module_key, display_name, description, enabled, settings, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
@@ -2352,6 +2353,13 @@ async function upsertMissingModules(client = prisma) {
       JSON.stringify(module.settings || {})
     );
   }
+}
+
+async function executeRawWrite(client, sql, ...params) {
+  if (typeof client.$executeRawUnsafe === 'function') {
+    return client.$executeRawUnsafe(sql, ...params);
+  }
+  return client.$queryRawUnsafe(sql, ...params);
 }
 
 async function seedMissingModules() {
