@@ -2,6 +2,8 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const getClinicalAiModuleMock = jest.fn();
+const listClinicalAiModulesMock = jest.fn();
+const listClinicalAiTenantModulesMock = jest.fn();
 const runExplainerPipelineMock = jest.fn();
 const reviewPolypharmacyMock = jest.fn();
 
@@ -11,6 +13,8 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
   getClinicalAiModule: getClinicalAiModuleMock,
+  listClinicalAiModules: listClinicalAiModulesMock,
+  listClinicalAiTenantModules: listClinicalAiTenantModulesMock,
 }));
 
 jest.unstable_mockModule('../../services/ai/patientExplainersService.js', () => ({
@@ -46,18 +50,24 @@ function moduleRow(moduleKey, overrides = {}) {
 beforeEach(() => {
   queryRawUnsafeMock.mockReset();
   getClinicalAiModuleMock.mockReset();
+  listClinicalAiModulesMock.mockReset();
+  listClinicalAiTenantModulesMock.mockReset();
   runExplainerPipelineMock.mockReset();
   reviewPolypharmacyMock.mockReset();
 
   getClinicalAiModuleMock.mockImplementation(async (moduleKey) => moduleRow(moduleKey));
+  listClinicalAiModulesMock.mockResolvedValue(OPD_AI_MODULES.map((module) => moduleRow(module.key)));
+  listClinicalAiTenantModulesMock.mockResolvedValue(OPD_AI_MODULES.map((module) => moduleRow(module.key)));
 });
 
 describe('opdClinicalAssistService module governance', () => {
   it('lists tenant-effective OP AI modules for Staff/Admin controls', async () => {
-    getClinicalAiModuleMock.mockImplementation(async (moduleKey, options) => moduleRow(moduleKey, {
-      enabled: moduleKey !== 'op_referral_draft',
-      settings: { tenant_id: options?.tenantId },
-    }));
+    listClinicalAiTenantModulesMock.mockResolvedValue(
+      OPD_AI_MODULES.map((module) => moduleRow(module.key, {
+        enabled: module.key !== 'op_referral_draft',
+        settings: { tenant_id: TENANT_ID },
+      })),
+    );
 
     const result = await listOpdAiModules({ tenantId: TENANT_ID });
 
@@ -71,7 +81,9 @@ describe('opdClinicalAssistService module governance', () => {
         settings: { tenant_id: TENANT_ID },
       }),
     );
-    expect(getClinicalAiModuleMock).toHaveBeenCalledWith('op_visit_prep', { tenantId: TENANT_ID });
+    expect(listClinicalAiTenantModulesMock).toHaveBeenCalledTimes(1);
+    expect(listClinicalAiTenantModulesMock).toHaveBeenCalledWith({ tenantId: TENANT_ID });
+    expect(getClinicalAiModuleMock).not.toHaveBeenCalled();
   });
 
   it('blocks disabled OP visit prep before appointment or chart context is loaded', async () => {

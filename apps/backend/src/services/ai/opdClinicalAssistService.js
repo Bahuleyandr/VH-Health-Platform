@@ -2,7 +2,11 @@ import crypto from 'crypto';
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { getClinicalAiModule } from './clinicalAiModuleService.js';
+import {
+  getClinicalAiModule,
+  listClinicalAiModules,
+  listClinicalAiTenantModules,
+} from './clinicalAiModuleService.js';
 import { runExplainerPipeline } from './patientExplainersService.js';
 import { reviewPolypharmacy } from './polypharmacyAiService.js';
 
@@ -206,19 +210,21 @@ async function requireOpdModuleEnabled(moduleKey, { tenantId = null } = {}) {
 }
 
 export async function listOpdAiModules({ tenantId = null } = {}) {
-  const modules = await Promise.all(
-    OPD_AI_MODULES.map(async (config) => {
-      const module = await getClinicalAiModule(config.key, { tenantId });
-      return {
-        ...config,
-        module_key: config.key,
-        enabled: Boolean(module.enabled),
-        display_name: module.display_name || config.label,
-        description: module.description || config.purpose,
-        settings: module.settings || {},
-      };
-    }),
-  );
+  const registry = tenantId
+    ? await listClinicalAiTenantModules({ tenantId })
+    : await listClinicalAiModules();
+  const registryByKey = new Map(registry.map((module) => [module.module_key, module]));
+  const modules = OPD_AI_MODULES.map((config) => {
+    const module = registryByKey.get(config.key) || {};
+    return {
+      ...config,
+      module_key: config.key,
+      enabled: Boolean(module.enabled),
+      display_name: module.display_name || config.label,
+      description: module.description || config.purpose,
+      settings: module.settings || {},
+    };
+  });
   return { modules, count: modules.length };
 }
 

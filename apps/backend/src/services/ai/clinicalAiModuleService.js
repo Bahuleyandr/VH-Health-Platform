@@ -1851,6 +1851,7 @@ const DEFAULT_EVAL_GATE_MODEL = 'llama3.1:8b';
 const EVAL_GATE_BLOCKING_RECOMMENDATIONS = new Set(['rollback', 'retire', 'quarantine']);
 const EVAL_GATE_BLOCKING_SEVERITIES = new Set(['high', 'critical']);
 const MODULE_APPROVAL_TYPE = 'module_governance_change';
+const MODULE_SEED_LOCK_KEY = 7427132401;
 const RISKY_MODULE_FIELDS = [
   'enabled',
   'external_allowed',
@@ -1863,6 +1864,7 @@ let moduleCache = null;
 let moduleCacheAt = 0;
 let guardrailCache = null;
 let guardrailCacheAt = 0;
+let moduleSeedPromise = null;
 
 function isMissingSchemaError(err) {
   return /does not exist|column .* does not exist|relation .* does not exist|invalid_schema_name/i.test(
@@ -2331,9 +2333,9 @@ function applyTenantOverride(module, overrideRow, tenantId) {
   };
 }
 
-async function seedMissingModules() {
+async function upsertMissingModules(client = prisma) {
   for (const module of CLINICAL_AI_MODULES) {
-    await prisma.$queryRawUnsafe(
+    await client.$queryRawUnsafe(
       `INSERT INTO clinical_ai_modules
          (module_key, display_name, description, enabled, settings, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
@@ -2349,6 +2351,31 @@ async function seedMissingModules() {
       module.enabled,
       JSON.stringify(module.settings || {})
     );
+  }
+}
+
+async function seedMissingModules() {
+  if (moduleSeedPromise) return moduleSeedPromise;
+
+  moduleSeedPromise = (async () => {
+    if (typeof prisma.$transaction === 'function') {
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(
+          'SELECT pg_advisory_xact_lock($1::bigint)',
+          MODULE_SEED_LOCK_KEY,
+        );
+        await upsertMissingModules(tx);
+      });
+      return;
+    }
+
+    await upsertMissingModules(prisma);
+  })();
+
+  try {
+    await moduleSeedPromise;
+  } finally {
+    moduleSeedPromise = null;
   }
 }
 
