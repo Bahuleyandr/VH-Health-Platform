@@ -21,6 +21,7 @@ import 'package:vhhealth/l10n/app_localizations_ext.dart';
 import 'package:vhhealth/features/your_health/widgets/prescriptions_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/consultations_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/health_summary_tab.dart';
+import 'package:vhhealth/features/your_health/widgets/health_timeline_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/hospital_documents_tab.dart';
 import 'package:vhhealth/features/your_health/widgets/my_uploads_tab.dart';
 
@@ -53,7 +54,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     super.initState();
     _phone = context.read<UserProvider>().phone;
     _tabController = TabController(
-      length: 6,
+      length: 7,
       vsync: this,
       initialIndex: widget.initialTab,
     );
@@ -73,7 +74,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     // Allow tab override from route extra
     final tabIndex = extra?['tab'] as int?;
-    if (tabIndex != null && tabIndex >= 0 && tabIndex < 6) {
+    if (tabIndex != null && tabIndex >= 0 && tabIndex < 7) {
       _tabController.index = tabIndex;
     }
 
@@ -257,8 +258,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    // Show upload FAB only on My Uploads tab (index 2)
-    final showUploadFab = !_isGuest && _tabController.index == 2;
+    // Show upload FAB only on My Uploads tab (index 3)
+    final showUploadFab = !_isGuest && _tabController.index == 3;
 
     if (_isGuest) {
       return Scaffold(
@@ -330,6 +331,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
               tabAlignment: TabAlignment.start,
               onTap: (_) => setState(() {}), // Rebuild to toggle FAB
               tabs: [
+                const Tab(text: 'Timeline'),
                 Tab(text: l10n.yourHealthTabRecords),
                 const Tab(text: 'Hospital Docs'),
                 const Tab(text: 'My Uploads'),
@@ -342,6 +344,17 @@ class _YourHealthScreenState extends State<YourHealthScreen>
               child: TabBarView(
                 controller: _tabController,
                 children: [
+                  HealthTimelineTab(
+                    onOpenTab: (index) {
+                      setState(() => _tabController.index = index);
+                    },
+                    onUploadRecord: () {
+                      setState(() => _tabController.index = 3);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _myUploadsKey.currentState?.showUploadSheet();
+                      });
+                    },
+                  ),
                   _buildRecordsTab(theme, cs, l10n),
                   const HospitalDocumentsTab(),
                   MyUploadsTab(key: _myUploadsKey),

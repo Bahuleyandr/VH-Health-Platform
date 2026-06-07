@@ -80,12 +80,16 @@ class RecordCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final docType = record['document_type']?.toString() ?? 'other';
-    final title = record['title'] ?? docType.replaceAll('_', ' ').toUpperCase();
+    final title = _recordTitle(record, docType);
     final doctorName = record['doctor_name'];
     final department = record['doctor_department'] ?? record['department'];
     final fileUrl = record['file_url'];
     final sourceHospital = record['source_hospital'];
+    final source = record['source']?.toString();
+    final extraction = _asMap(record['ai_extraction']);
+    final extractionLabel = _extractionLabel(extraction);
     final appointmentDate = record['appointment_date']
         ?.toString()
         .split('T')
@@ -121,7 +125,7 @@ class RecordCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title.toString(),
+                      title,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -133,7 +137,7 @@ class RecordCard extends StatelessWidget {
                       Text(
                         '$doctorName${department != null ? ' • $department' : ''}',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
+                          color: cs.onSurfaceVariant,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -142,13 +146,16 @@ class RecordCard extends StatelessWidget {
                       Text(
                         sourceHospital.toString(),
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
+                          color: cs.onSurfaceVariant,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -160,7 +167,7 @@ class RecordCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            docType.replaceAll('_', ' ').toUpperCase(),
+                            _compactType(docType).toUpperCase(),
                             style: TextStyle(
                               color: typeColor,
                               fontSize: 10,
@@ -168,23 +175,34 @@ class RecordCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (appointmentDate != null) ...[
-                          const SizedBox(width: 8),
+                        if (showSource || source != null)
+                          _MiniChip(
+                            label: source == 'appointment'
+                                ? 'HOSPITAL'
+                                : 'MY UPLOAD',
+                            color: source == 'appointment'
+                                ? Colors.teal
+                                : Colors.orange,
+                          ),
+                        if (extractionLabel != null)
+                          _MiniChip(
+                            label: extractionLabel.toUpperCase(),
+                            color: _trustColor(extractionLabel, cs),
+                          ),
+                        if (appointmentDate != null)
                           Text(
                             appointmentDate,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[500],
+                              color: cs.onSurfaceVariant,
                             ),
-                          ),
-                        ] else if (createdAt != null) ...[
-                          const SizedBox(width: 8),
+                          )
+                        else if (createdAt != null)
                           Text(
                             createdAt,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[500],
+                              color: cs.onSurfaceVariant,
                             ),
                           ),
-                        ],
                       ],
                     ),
                   ],
@@ -192,9 +210,15 @@ class RecordCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Icon(
-                fileUrl != null ? Icons.open_in_new : Icons.lock,
+                onTap != null
+                    ? Icons.fact_check_outlined
+                    : fileUrl != null
+                    ? Icons.open_in_new
+                    : Icons.lock,
                 size: 18,
-                color: fileUrl != null ? typeColor : Colors.grey,
+                color: fileUrl != null || onTap != null
+                    ? typeColor
+                    : cs.onSurfaceVariant,
               ),
             ],
           ),
@@ -202,4 +226,86 @@ class RecordCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MiniChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _MiniChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.11),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+String _recordTitle(Map<String, dynamic> record, String docType) {
+  final title = record['title']?.toString().trim();
+  if (title != null && title.isNotEmpty) return title;
+
+  final extraction = _asMap(record['ai_extraction']);
+  final extractedType = extraction['document_type']?.toString().trim();
+  if (extractedType != null && extractedType.isNotEmpty) {
+    return _compactType(extractedType);
+  }
+
+  return _compactType(docType);
+}
+
+Map<String, dynamic> _asMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return {};
+}
+
+String? _extractionLabel(Map<String, dynamic> extraction) {
+  if (extraction.isEmpty) return null;
+  final status = (extraction['extraction_status'] ?? '')
+      .toString()
+      .toLowerCase();
+  final reviewer = (extraction['reviewer_decision'] ?? '')
+      .toString()
+      .toLowerCase();
+  if (reviewer == 'approved' || reviewer == 'accepted') {
+    return 'reviewed';
+  }
+  if (status == 'completed') return 'ai draft';
+  if (status == 'needs_review') return 'needs review';
+  if (status == 'failed' || status == 'unavailable') return 'ai unavailable';
+  if (status.isEmpty) return null;
+  return _compactType(status);
+}
+
+Color _trustColor(String label, ColorScheme cs) {
+  final lower = label.toLowerCase();
+  if (lower.contains('reviewed')) return Colors.teal;
+  if (lower.contains('unavailable') || lower.contains('failed')) {
+    return cs.error;
+  }
+  return Colors.orange;
+}
+
+String _compactType(String value) {
+  final normalized = value.replaceAll('-', '_').trim();
+  if (normalized.isEmpty) return 'Record';
+  return normalized
+      .split('_')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
 }

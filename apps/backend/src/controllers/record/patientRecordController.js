@@ -152,6 +152,18 @@ export async function getConsultationsByUid(req, res) {
   }
 }
 
+// Authenticated patient convenience endpoint. Keeps the patient app from
+// guessing whether a local storage key contains an int ID, Firebase UID, or
+// backend UUID.
+export async function getMyConsultations(req, res) {
+  const uid = req.user?.uid;
+  if (!uid) {
+    return error(res, 'Patient UID not available in token', HTTP_STATUS.BAD_REQUEST);
+  }
+  req.params.uid = uid;
+  return getConsultationsByUid(req, res);
+}
+
 // Legacy endpoint
 export async function getConsultationsByPhone(req, res) {
   // Redirect to new endpoint

@@ -61,6 +61,19 @@ class AppRouter {
     return parts.length == 3 && parts.every((part) => part.isNotEmpty);
   }
 
+  static String? _safeReturnTo(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) return null;
+    if (!value.startsWith('/')) return null;
+    if (value == '/' ||
+        value.startsWith('/login') ||
+        value.startsWith('/terms') ||
+        value.startsWith('/profile-setup')) {
+      return null;
+    }
+    return value;
+  }
+
   /// Wraps a page in a [CustomTransitionPage] with a short cross-fade.
   /// Used for the splash → login / login → profile-setup transitions so
   /// they don't appear as a hard cut.
@@ -163,7 +176,13 @@ class AppRouter {
       if (!isLoggedIn &&
           !isAuthRoute &&
           !(isGuestSession && isGuestAllowedRoute)) {
-        return '/login';
+        final returnTo = _safeReturnTo(state.uri.toString());
+        return returnTo == null
+            ? '/login'
+            : Uri(
+                path: '/login',
+                queryParameters: {'returnTo': returnTo},
+              ).toString();
       }
 
       // If logged in and on login, ensure identity is hydrated, then go home.
@@ -178,7 +197,8 @@ class AppRouter {
         if (userProvider != null && userProvider.phone.isEmpty) {
           await userProvider.loadFromStorage();
         }
-        return '/home';
+        final returnTo = _safeReturnTo(state.uri.queryParameters['returnTo']);
+        return returnTo ?? '/home';
       }
 
       // User is logged in and on a protected page — ensure timer is running
@@ -202,8 +222,18 @@ class AppRouter {
       // Auth routes
       GoRoute(
         path: '/login',
-        pageBuilder: (context, state) =>
-            _fadePage(state: state, child: const LoginScreen()),
+        pageBuilder: (context, state) {
+          final rawExtra = state.extra;
+          final extra = rawExtra is Map<String, dynamic> ? rawExtra : null;
+          final returnTo = _safeReturnTo(
+            extra?['returnTo']?.toString() ??
+                state.uri.queryParameters['returnTo'],
+          );
+          return _fadePage(
+            state: state,
+            child: LoginScreen(returnTo: returnTo),
+          );
+        },
       ),
       GoRoute(
         path: '/terms',

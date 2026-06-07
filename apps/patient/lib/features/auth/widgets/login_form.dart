@@ -21,7 +21,9 @@ import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/features/auth/widgets/otp_widget.dart';
 
 class LoginForm extends StatefulWidget {
-  const LoginForm({super.key});
+  final String? returnTo;
+
+  const LoginForm({super.key, this.returnTo});
 
   @override
   State<LoginForm> createState() => _LoginFormState();
@@ -54,6 +56,22 @@ class _LoginFormState extends State<LoginForm> {
 
   bool get _showDevLogin => kDebugMode || _devLoginEnabled;
 
+  String get _postLoginRoute => widget.returnTo ?? '/home';
+
+  String get _guestRoute {
+    final returnTo = widget.returnTo;
+    const publicGuestRoutes = {
+      '/home',
+      '/settings',
+      '/about-us',
+      '/departments',
+      '/trivia',
+    };
+    return returnTo != null && publicGuestRoutes.contains(returnTo)
+        ? returnTo
+        : '/home';
+  }
+
   void _showSnackBar(String message, Color bgColor) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -74,7 +92,7 @@ class _LoginFormState extends State<LoginForm> {
     sessionProvider.pauseForGuest();
     await userProvider.setGuest();
     if (!mounted) return;
-    context.go('/home');
+    context.go(_guestRoute);
   }
 
   /// Debug-only shortcut that skips Firebase OTP. Calls the backend's
@@ -181,7 +199,7 @@ class _LoginFormState extends State<LoginForm> {
       if (isNewUser) {
         context.go('/profile-setup', extra: phone);
       } else {
-        context.go('/home');
+        context.go(_postLoginRoute);
       }
     } catch (e, st) {
       developer.log('Dev login error: $e', name: 'Auth', stackTrace: st);
@@ -300,7 +318,7 @@ class _LoginFormState extends State<LoginForm> {
         if (targetRoute == '/profile-setup') {
           context.go('/profile-setup', extra: phoneNumber);
         } else {
-          context.go('/home');
+          context.go(_postLoginRoute);
         }
       }
     } catch (e) {

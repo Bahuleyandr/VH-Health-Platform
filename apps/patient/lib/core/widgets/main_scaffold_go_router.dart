@@ -59,8 +59,12 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
     return 0;
   }
 
-  void _showSignInPrompt(String featureLabel) {
-    showGuestSignInPrompt(context, featureLabel: featureLabel);
+  void _showSignInPrompt(String featureLabel, String returnTo) {
+    showGuestSignInPrompt(
+      context,
+      featureLabel: featureLabel,
+      returnTo: returnTo,
+    );
   }
 
   void _onItemTapped(int index) {
@@ -71,14 +75,14 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
         break;
       case 1:
         if (isGuest) {
-          _showSignInPrompt('Your Health');
+          _showSignInPrompt('Your Health', '/health');
           break;
         }
         context.go('/health');
         break;
       case 2:
         if (isGuest) {
-          _showSignInPrompt('Notifications');
+          _showSignInPrompt('Notifications', '/notifications');
           break;
         }
         context.go('/notifications');

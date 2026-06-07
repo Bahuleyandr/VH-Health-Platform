@@ -76,6 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Features list
   late final List<FeatureIconData> _features;
+  Color _dialAccentColor = DashboardAccents.explore;
 
   @override
   void initState() {
@@ -469,6 +470,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       showGuestSignInPrompt(
         context,
         featureLabel: _featureLabelForRoute(routeName),
+        returnTo: routeName == '/your-health' ? '/health' : routeName,
       );
       return;
     }
@@ -476,8 +478,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (routeName == '/your-health') {
       context.push('/health');
     } else if (routeName == '/records') {
-      // Records merged into Your Health — open Hospital Docs tab (index 1)
-      context.push('/health', extra: {'tab': 1});
+      // Records merged into Your Health — open Hospital Docs tab (index 2)
+      context.push('/health', extra: {'tab': 2});
     } else {
       context.push(routeName);
     }
@@ -627,6 +629,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ),
 
+                        if (!isGuest)
+                          stagger(
+                            DashboardSection(
+                              label: 'Next Step',
+                              accent: const Color(0xFFFFC857),
+                              tinted: true,
+                              child: _NextStepCard(
+                                todayAppointment: _todayAppointment,
+                                nextAppointmentLabel: nextApptLabel,
+                                stepsToday: _stepsToday,
+                                stepGoal: _stepGoal,
+                                onAppointments: () =>
+                                    _openFeature(context, '/appointments'),
+                                onSteps: () => _openFeature(context, '/steps'),
+                                onHealth: () =>
+                                    _openFeature(context, '/your-health'),
+                              ),
+                            ),
+                          ),
+
                         // ── Wellness (score ring + insights) ─────────────
                         // Children self-hide on no-data; render the section
                         // wrapper anyway so the user sees the heading
@@ -655,10 +677,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         stagger(
                           DashboardSection(
                             label: 'Explore',
-                            accent: DashboardAccents.explore,
+                            accent: _dialAccentColor,
                             tinted: false,
                             child: CircularFeatureDial(
                               features: _features,
+                              onFocusColorChanged: (color) {
+                                if (mounted) {
+                                  setState(() => _dialAccentColor = color);
+                                }
+                              },
                               onCenterDoubleTap: () =>
                                   _openFeature(context, '/health-points'),
                             ),
@@ -748,4 +775,140 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_wellnessScore == null) return null;
     return 'Wellness $_wellnessScore/100';
   }
+}
+
+class _NextStepCard extends StatelessWidget {
+  final Map<String, dynamic>? todayAppointment;
+  final String? nextAppointmentLabel;
+  final int? stepsToday;
+  final int? stepGoal;
+  final VoidCallback onAppointments;
+  final VoidCallback onSteps;
+  final VoidCallback onHealth;
+
+  const _NextStepCard({
+    required this.todayAppointment,
+    required this.nextAppointmentLabel,
+    required this.stepsToday,
+    required this.stepGoal,
+    required this.onAppointments,
+    required this.onSteps,
+    required this.onHealth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final step = _resolveStep();
+
+    return Row(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: step.color.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(step.icon, color: step.color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                step.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                step.subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        FilledButton(onPressed: step.onTap, child: Text(step.action)),
+      ],
+    );
+  }
+
+  _NextStep _resolveStep() {
+    if (todayAppointment != null) {
+      final doctor = todayAppointment!['doctor_name']?.toString();
+      return _NextStep(
+        title: 'Visit today',
+        subtitle: doctor == null || doctor.isEmpty
+            ? 'Your appointment is active for today.'
+            : 'Your appointment with Dr. $doctor is active today.',
+        action: 'Open',
+        icon: LucideIcons.calendarClock,
+        color: Colors.orange,
+        onTap: onAppointments,
+      );
+    }
+
+    final nextVisit = nextAppointmentLabel;
+    if (nextVisit != null && nextVisit.isNotEmpty) {
+      return _NextStep(
+        title: nextVisit,
+        subtitle: 'Review appointment details and prepare your questions.',
+        action: 'View',
+        icon: LucideIcons.calendarCheck,
+        color: Colors.blue,
+        onTap: onAppointments,
+      );
+    }
+
+    final today = stepsToday;
+    final goal = stepGoal;
+    if (today != null && goal != null && goal > today) {
+      return _NextStep(
+        title: '${goal - today} steps to goal',
+        subtitle: 'A short walk can keep today on track.',
+        action: 'Steps',
+        icon: LucideIcons.footprints,
+        color: Colors.green,
+        onTap: onSteps,
+      );
+    }
+
+    return _NextStep(
+      title: 'Keep records updated',
+      subtitle: 'Upload reports or review newly added hospital records.',
+      action: 'Health',
+      icon: LucideIcons.heartPulse,
+      color: Colors.teal,
+      onTap: onHealth,
+    );
+  }
+}
+
+class _NextStep {
+  final String title;
+  final String subtitle;
+  final String action;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _NextStep({
+    required this.title,
+    required this.subtitle,
+    required this.action,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
 }

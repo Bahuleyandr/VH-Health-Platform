@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 Future<void> showGuestSignInPrompt(
   BuildContext context, {
   String featureLabel = 'this feature',
+  String? returnTo,
 }) {
   return showDialog<void>(
     context: context,
@@ -26,10 +27,21 @@ Future<void> showGuestSignInPrompt(
           FilledButton.icon(
             onPressed: () {
               Navigator.of(dialogContext).pop();
-              if (context.mounted) context.go('/login');
+              if (!context.mounted) return;
+              final safeReturnTo = returnTo?.trim();
+              if (safeReturnTo != null && safeReturnTo.startsWith('/')) {
+                context.go(
+                  Uri(
+                    path: '/login',
+                    queryParameters: {'returnTo': safeReturnTo},
+                  ).toString(),
+                );
+              } else {
+                context.go('/login');
+              }
             },
             icon: const Icon(Icons.login),
-            label: const Text('Sign in'),
+            label: const Text('Sign in and return'),
           ),
         ],
       );

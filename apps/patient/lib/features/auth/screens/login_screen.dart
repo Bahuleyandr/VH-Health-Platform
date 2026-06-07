@@ -6,7 +6,9 @@ import 'package:vhhealth/core/widgets/language_dropdown.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final String? returnTo;
+
+  const LoginScreen({super.key, this.returnTo});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -20,7 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SafeArea(
           child: Stack(
             children: [
-              const LoginForm(),
+              LoginForm(returnTo: widget.returnTo),
               // ── Top-right theme + language controls ──
               Positioned(top: 8, right: 8, child: const _LoginToolbar()),
             ],

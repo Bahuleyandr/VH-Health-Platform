@@ -379,6 +379,8 @@ class _ExtractionPanel extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _ExtractionStatusHeader(extraction: extraction, processing: processing),
+        const SizedBox(height: 10),
+        _ReviewBanner(extraction: extraction),
         const SizedBox(height: 12),
         if (safetyFlags.isNotEmpty)
           _SectionCard(
@@ -443,6 +445,59 @@ class _ExtractionPanel extends StatelessWidget {
           label: const Text('Refresh extraction'),
         ),
       ],
+    );
+  }
+}
+
+class _ReviewBanner extends StatelessWidget {
+  final Map<String, dynamic> extraction;
+
+  const _ReviewBanner({required this.extraction});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final reviewerDecision = extraction['reviewer_decision']?.toString().trim();
+    final reviewed =
+        reviewerDecision != null &&
+        reviewerDecision.isNotEmpty &&
+        reviewerDecision.toLowerCase() != 'pending';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: reviewed
+            ? Colors.teal.withValues(alpha: 0.10)
+            : Colors.orange.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: reviewed
+              ? Colors.teal.withValues(alpha: 0.35)
+              : Colors.orange.withValues(alpha: 0.36),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            reviewed ? Icons.verified_user_outlined : Icons.fact_check_outlined,
+            color: reviewed ? Colors.teal : Colors.orange.shade800,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              reviewed
+                  ? 'Extraction reviewed: ${_compactType(reviewerDecision)}'
+                  : 'AI draft - cross-check every extracted value against the original document before relying on it.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: reviewed ? Colors.teal.shade800 : cs.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
