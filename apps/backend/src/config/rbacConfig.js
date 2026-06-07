@@ -134,7 +134,9 @@ export default {
   // Pharmacy formulary write access is intentionally narrower.
   pharmacyCatalogAdminRoutes: [PHARMACY_INCHARGE, ADMIN],
 
-  recordRoutes: [ADMIN, GENERAL_STAFF, DOCTOR, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, OT_NURSE, OT_INCHARGE, CATH_LAB_STAFF],
+  // Patient self-service record routes (/records/health-records/my,
+  // /records/consultations/my) self-scope from the JWT before returning data.
+  recordRoutes: [PATIENT, ADMIN, GENERAL_STAFF, DOCTOR, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, OT_NURSE, OT_INCHARGE, CATH_LAB_STAFF],
   // ✅ Fix: use NURSING_STAFF constant instead of string 'NURSE'
   healthRecordsRoutes: [PATIENT, ADMIN, DOCTOR, NURSING_STAFF, IP_STAFF_NURSE, OP_STAFF_NURSE, OT_NURSE, OT_INCHARGE, CATH_LAB_STAFF],
 

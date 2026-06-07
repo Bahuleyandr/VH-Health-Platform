@@ -37,6 +37,7 @@ class CircularFeatureDial extends StatefulWidget {
   final bool autoRotateToTop;
   final bool enableParticles;
   final bool enableAccessibility;
+  final double iconScale;
 
   const CircularFeatureDial({
     super.key,
@@ -48,6 +49,7 @@ class CircularFeatureDial extends StatefulWidget {
     this.autoRotateToTop = true,
     this.enableParticles = false,
     this.enableAccessibility = true,
+    this.iconScale = 1.0,
   });
 
   @override
@@ -210,7 +212,8 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
         shortestSide.clamp(320.0, 430.0) *
             (screenSize.width >= 700 ? 0.92 : 0.98);
     final radius = diameter * 0.36;
-    final itemSize = (diameter * 0.19).clamp(64.0, 82.0);
+    final iconScale = widget.iconScale.clamp(1.0, 1.2).toDouble();
+    final itemSize = (diameter * 0.19).clamp(64.0, 82.0) * iconScale;
 
     return Center(
       child: GestureDetector(
@@ -245,7 +248,10 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
                   ),
                 ),
               ),
-              _CenterLogoButton(onDoubleTap: _onCenterDoubleTap),
+              _CenterLogoButton(
+                onDoubleTap: _onCenterDoubleTap,
+                iconScale: iconScale,
+              ),
               Positioned(
                 top: diameter * 0.035,
                 child: Container(
@@ -324,6 +330,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
                 child: _FeatureDialButton(
                   feature: feature,
                   isHighlighted: isSelected || isHovered || isTopItem,
+                  iconScale: widget.iconScale,
                 ),
               ),
             ),
@@ -367,10 +374,12 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
 class _FeatureDialButton extends StatelessWidget {
   final FeatureIconData feature;
   final bool isHighlighted;
+  final double iconScale;
 
   const _FeatureDialButton({
     required this.feature,
     required this.isHighlighted,
+    required this.iconScale,
   });
 
   @override
@@ -380,6 +389,9 @@ class _FeatureDialButton extends StatelessWidget {
     final foreground = _strongColor(feature.color, isLight);
     final surface = theme.colorScheme.surface;
     final labelColor = isHighlighted ? foreground : theme.colorScheme.onSurface;
+    final scale = iconScale.clamp(1.0, 1.2).toDouble();
+    final iconBubbleSize = 30.0 * scale;
+    final iconSize = 20.0 * scale;
 
     return Semantics(
       button: true,
@@ -424,8 +436,8 @@ class _FeatureDialButton extends StatelessWidget {
               alignment: Alignment.center,
               children: [
                 Container(
-                  width: 30,
-                  height: 30,
+                  width: iconBubbleSize,
+                  height: iconBubbleSize,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
@@ -434,14 +446,14 @@ class _FeatureDialButton extends StatelessWidget {
                   child: feature.svgAsset != null
                       ? SvgPicture.asset(
                           feature.svgAsset!,
-                          width: 20,
-                          height: 20,
+                          width: iconSize,
+                          height: iconSize,
                           colorFilter: ColorFilter.mode(
                             foreground,
                             BlendMode.srcIn,
                           ),
                         )
-                      : Icon(feature.icon, size: 20, color: foreground),
+                      : Icon(feature.icon, size: iconSize, color: foreground),
                 ),
                 if (feature.badge != null)
                   Positioned(
@@ -481,13 +493,18 @@ class _FeatureDialButton extends StatelessWidget {
 
 class _CenterLogoButton extends StatelessWidget {
   final VoidCallback onDoubleTap;
+  final double iconScale;
 
-  const _CenterLogoButton({required this.onDoubleTap});
+  const _CenterLogoButton({required this.onDoubleTap, required this.iconScale});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isLight = theme.brightness == Brightness.light;
+    final scale = iconScale.clamp(1.0, 1.2).toDouble();
+    final buttonSize = 110.0 * scale;
+    final progressSize = 94.0 * scale;
+    final logoSize = 82.0 * scale;
 
     return Tooltip(
       message: 'Health Points',
@@ -498,8 +515,8 @@ class _CenterLogoButton extends StatelessWidget {
           onDoubleTap: onDoubleTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
-            width: 110,
-            height: 110,
+            width: buttonSize,
+            height: buttonSize,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -536,8 +553,8 @@ class _CenterLogoButton extends StatelessWidget {
               alignment: Alignment.center,
               children: [
                 SizedBox(
-                  width: 94,
-                  height: 94,
+                  width: progressSize,
+                  height: progressSize,
                   child: CircularProgressIndicator(
                     value: 0.72,
                     strokeWidth: 3,
@@ -549,7 +566,11 @@ class _CenterLogoButton extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 82, height: 82, child: HeartbeatLogo()),
+                SizedBox(
+                  width: logoSize,
+                  height: logoSize,
+                  child: const HeartbeatLogo(),
+                ),
               ],
             ),
           ),

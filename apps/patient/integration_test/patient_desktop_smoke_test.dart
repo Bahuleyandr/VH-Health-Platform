@@ -101,13 +101,25 @@ void main() {
       await waitFor(tester, find.text('Guest'));
       expect(find.byTooltip('Toggle theme'), findsOneWidget);
       expect(find.byTooltip('Toggle font size'), findsOneWidget);
-      expect(find.text('Messages'), findsOneWidget);
+      expect(find.byTooltip('Exit guest'), findsOneWidget);
       final viewHeight =
           tester.view.physicalSize.height / tester.view.devicePixelRatio;
-      expect(
-        tester.getBottomRight(find.text('Messages')).dy,
-        lessThan(viewHeight),
-      );
+      for (final label in const [
+        'Your Health',
+        'Appointments',
+        'Pharmacy',
+        'Investigations',
+        'Ask a Doubt',
+        'Trivia',
+        'Departments',
+        'About Us',
+      ]) {
+        expect(find.text(label), findsAtLeastNWidgets(1));
+        expect(
+          tester.getBottomRight(find.text(label).first).dy,
+          lessThan(viewHeight),
+        );
+      }
       await tester.pump(const Duration(seconds: 5));
       expect(find.text('Login to your account'), findsNothing);
 
@@ -138,21 +150,21 @@ void main() {
 
       await tapVisible(tester, find.text('Your Health').last);
       await waitFor(tester, find.text('Sign in to continue'));
-      await tester.tap(find.text('Sign in'));
+      await tester.tap(find.text('Sign in and return'));
       await waitFor(tester, find.text('Login to your account'));
 
       debugPrint('SMOKE: dev login');
       await tapVisible(tester, find.text('Dev login 1234567890'));
-      await waitFor(tester, find.textContaining('Hospital ID'));
+      await waitFor(tester, find.text('Your Health'));
       await waitUntilAbsent(tester, find.text('Login to your account'));
 
       debugPrint('SMOKE: prescriptions and consultations');
-      AppRouter.router.go('/health', extra: {'tab': 3});
+      AppRouter.router.go('/health', extra: {'tab': 4});
       await tester.pump(const Duration(milliseconds: 500));
       await waitFor(tester, find.textContaining('RX-'));
       AppRouter.router.go('/home');
       await waitFor(tester, find.textContaining('Hospital ID'));
-      AppRouter.router.go('/health', extra: {'tab': 4});
+      AppRouter.router.go('/health', extra: {'tab': 5});
       await tester.pump(const Duration(milliseconds: 500));
       await waitFor(tester, find.textContaining('test diagnosis'));
       expect(find.textContaining('Chief complaint: new test'), findsOneWidget);

@@ -134,6 +134,8 @@ class _LoginFormState extends State<LoginForm> {
         final hint = resp.statusCode == 401 || resp.statusCode == 404
             ? 'Dev login is disabled on the backend. Set '
                   'ENABLE_DEV_AUTH=true on the backend and restart.'
+            : resp.statusCode == 403
+            ? 'Dev login secret is missing or invalid for this backend.'
             : 'Dev login failed (${resp.statusCode}).';
         _showSnackBar(hint, Theme.of(context).colorScheme.error);
         return;

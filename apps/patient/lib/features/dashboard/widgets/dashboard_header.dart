@@ -149,13 +149,12 @@ class DashboardHeader extends StatelessWidget {
                 icon: Icons.format_size,
                 onPressed: () => themeProvider.toggleFontSize(),
               ),
-              if (!isGuest)
-                _HeaderIconButton(
-                  tooltip: 'Logout',
-                  icon: Icons.logout,
-                  foregroundColor: colorsForLogout(cs),
-                  onPressed: () => LogoutButton.confirmAndLogout(context),
-                ),
+              _HeaderIconButton(
+                tooltip: isGuest ? 'Exit guest' : 'Logout',
+                icon: Icons.logout,
+                foregroundColor: colorsForLogout(cs),
+                onPressed: () => LogoutButton.confirmAndLogout(context),
+              ),
             ],
           ),
         ),
@@ -191,10 +190,16 @@ class _HeaderIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final iconScale = context.watch<ThemeProvider>().iconScale;
+    final buttonSize = 40.0 * iconScale;
+    final iconSize = 20.0 * iconScale;
     return Tooltip(
       message: tooltip,
       child: IconButton(
-        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+        constraints: BoxConstraints.tightFor(
+          width: buttonSize,
+          height: buttonSize,
+        ),
         visualDensity: VisualDensity.compact,
         style: IconButton.styleFrom(
           backgroundColor: colors.surfaceContainerHighest.withValues(
@@ -204,7 +209,7 @@ class _HeaderIconButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         onPressed: onPressed,
-        icon: Icon(icon, size: 20),
+        icon: Icon(icon, size: iconSize),
       ),
     );
   }

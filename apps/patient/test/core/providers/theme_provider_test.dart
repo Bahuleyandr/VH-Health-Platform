@@ -28,6 +28,11 @@ void main() {
       expect(provider.fontSize, 16.0);
     });
 
+    test('default iconScale is 1.0', () {
+      final provider = ThemeProvider();
+      expect(provider.iconScale, 1.0);
+    });
+
     test('default dynamicAccentColor is null', () {
       final provider = ThemeProvider();
       expect(provider.dynamicAccentColor, isNull);
@@ -146,19 +151,23 @@ void main() {
     test('toggleFontSize cycles through 16, 18, 20', () async {
       final provider = ThemeProvider();
       expect(provider.fontSize, 16.0);
+      expect(provider.iconScale, 1.0);
 
       provider.toggleFontSize();
       // Allow async persistence to complete.
       await Future<void>.delayed(Duration.zero);
       expect(provider.fontSize, 18.0);
+      expect(provider.iconScale, 1.1);
 
       provider.toggleFontSize();
       await Future<void>.delayed(Duration.zero);
       expect(provider.fontSize, 20.0);
+      expect(provider.iconScale, 1.2);
 
       provider.toggleFontSize();
       await Future<void>.delayed(Duration.zero);
       expect(provider.fontSize, 16.0);
+      expect(provider.iconScale, 1.0);
     });
   });
 

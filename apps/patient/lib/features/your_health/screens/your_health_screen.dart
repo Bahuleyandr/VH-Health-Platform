@@ -43,7 +43,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
   late final bool _isGuest;
   late final String _phone;
-  late final Color _color;
+  Color _color = FeatureScreenScaffold.featureColors['your-health']!;
   late TabController _tabController;
 
   /// GlobalKey for the My Uploads tab so we can call showUploadSheet from the FAB.

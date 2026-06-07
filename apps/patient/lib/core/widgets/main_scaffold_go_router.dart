@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/widgets/guest_sign_in_prompt.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
@@ -99,6 +100,9 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
   Widget build(BuildContext context) {
     final unread = context.watch<NotificationProvider>().unreadCount;
     final selectedIndex = _calculateSelectedIndex(context);
+    final iconScale = context.watch<ThemeProvider>().iconScale;
+    final iconSize = 24.0 * iconScale;
+    final activeIconSize = 28.0 * iconScale;
 
     return Scaffold(
       body: widget.child,
@@ -116,14 +120,14 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
           selectedFontSize: 12,
           unselectedFontSize: 12,
           items: [
-            const BottomNavigationBarItem(
-              icon: Icon(LucideIcons.home),
-              activeIcon: Icon(LucideIcons.home, size: 28),
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.home, size: iconSize),
+              activeIcon: Icon(LucideIcons.home, size: activeIconSize),
               label: 'Home',
             ),
-            const BottomNavigationBarItem(
-              icon: Icon(LucideIcons.heartPulse),
-              activeIcon: Icon(LucideIcons.heartPulse, size: 28),
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.heartPulse, size: iconSize),
+              activeIcon: Icon(LucideIcons.heartPulse, size: activeIconSize),
               label: 'Your Health',
             ),
             BottomNavigationBarItem(
@@ -143,7 +147,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                child: const Icon(LucideIcons.bell),
+                child: Icon(LucideIcons.bell, size: iconSize),
               ),
               activeIcon: badges.Badge(
                 position: badges.BadgePosition.topEnd(top: -8, end: -4),
@@ -161,13 +165,13 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                child: const Icon(LucideIcons.bell, size: 28),
+                child: Icon(LucideIcons.bell, size: activeIconSize),
               ),
               label: 'Notifications',
             ),
-            const BottomNavigationBarItem(
-              icon: Icon(LucideIcons.settings),
-              activeIcon: Icon(LucideIcons.settings, size: 28),
+            BottomNavigationBarItem(
+              icon: Icon(LucideIcons.settings, size: iconSize),
+              activeIcon: Icon(LucideIcons.settings, size: activeIconSize),
               label: 'Settings',
             ),
           ],

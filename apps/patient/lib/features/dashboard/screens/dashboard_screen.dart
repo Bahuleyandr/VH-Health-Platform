@@ -15,6 +15,7 @@ import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/guest_sign_in_prompt.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -532,6 +533,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final l10n = AppLocalizations.of(context)!;
     final nameToShow = cachedName ?? _name;
     final isGuest = context.watch<UserProvider>().isGuest;
+    final iconScale = context.watch<ThemeProvider>().iconScale;
     final unread = !isGuest
         ? context.watch<NotificationProvider>().unreadCount
         : 0;
@@ -681,6 +683,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             tinted: false,
                             child: CircularFeatureDial(
                               features: _features,
+                              iconScale: iconScale,
                               onFocusColorChanged: (color) {
                                 if (mounted) {
                                   setState(() => _dialAccentColor = color);

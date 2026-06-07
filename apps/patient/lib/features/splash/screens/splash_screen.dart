@@ -95,18 +95,23 @@ class _SplashScreenState extends State<SplashScreen>
       // or the fresh-user → profile-setup flow by pointing at a
       // never-seen phone like +919999999997.
       const devPhone = String.fromEnvironment(
-        'VH_DEV_PHONE',
-        defaultValue: '+919999999999',
+        'VH_DEV_LOGIN_PHONE',
+        defaultValue: '1234567890',
       );
       const devName = String.fromEnvironment(
-        'VH_DEV_NAME',
+        'VH_DEV_LOGIN_NAME',
         defaultValue: 'Dev Patient',
       );
+      const devLoginSecret = String.fromEnvironment('VH_DEV_LOGIN_SECRET');
       final url = Uri.parse('${ApiConfig.baseUrl}/auth/dev/patient-login');
       final resp = await http
           .post(
             url,
-            headers: ApiConfig.jsonHeaders,
+            headers: {
+              ...ApiConfig.jsonHeaders,
+              if (devLoginSecret.isNotEmpty)
+                'x-dev-login-secret': devLoginSecret,
+            },
             body: jsonEncode({
               'phone': devPhone,
               'name': devName,

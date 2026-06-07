@@ -27,6 +27,11 @@ class ThemeProvider extends ChangeNotifier {
   // --- Getters ---
   ThemeMode get themeMode => _themeMode;
   double get fontSize => _fontSize;
+  double get iconScale {
+    final scale = 1.0 + ((_fontSize - 16.0) / 20.0);
+    return scale.clamp(1.0, 1.2).toDouble();
+  }
+
   Color? get dynamicAccentColor => _dynamicAccentColor;
   bool get enableDynamicColors => _enableDynamicColors;
 
