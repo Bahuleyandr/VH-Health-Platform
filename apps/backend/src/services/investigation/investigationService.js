@@ -360,12 +360,25 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
     take: parseInt(limit),
   });
 
+  // Get patient info
+  const patient = await prisma.users.findUnique({
+    where: { id: parseInt(patientId) },
+    select:
+      userRole === 'PATIENT'
+        ? { name: true, birthday: true, gender: true }
+        : userRole === 'ADMIN' || userRole === 'SUPER_ADMIN'
+        ? { name: true, phone: true, email: true, birthday: true, gender: true }
+        : { name: true, phone: true, birthday: true, gender: true },
+  });
+
   const investigations = rows.map((r) => {
     const doctor = r[REL_DOCTOR] ?? null;
     const profile = doctor?.doctors?.[0] ?? null;
     const requesterIsDoctor = Boolean(profile?.id);
     const flat = { ...r };
     delete flat[REL_DOCTOR];
+    flat.patient_name = patient?.name ?? null;
+    flat.patient_phone = patient?.phone ?? null;
     flat.requested_by_name = doctor?.name ?? null;
     flat.requested_by_uid = doctor?.uid ?? r.requested_by ?? null;
     flat.requested_by_role = doctor?.role ?? null;
@@ -373,15 +386,6 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
     flat.doctor_id = requesterIsDoctor ? doctor?.id ?? null : null;
     flat.specialization = requesterIsDoctor ? profile?.specialty ?? null : null;
     return flat;
-  });
-
-  // Get patient info
-  const patient = await prisma.users.findUnique({
-    where: { id: parseInt(patientId) },
-    select:
-      userRole === 'ADMIN'
-        ? { name: true, phone: true, email: true, birthday: true, gender: true }
-        : { name: true, birthday: true, gender: true },
   });
 
   return {

@@ -69,4 +69,41 @@ void main() {
       expect(investigationPhoneMatches('1234566789', '123456789'), isFalse);
     });
   });
+
+  group('investigation row normalization', () {
+    test('uses test name as the visible title instead of generic type', () {
+      expect(
+        investigationTestTitle({
+          'test_name': 'ECG',
+          'test_type': 'LAB',
+        }),
+        'ECG',
+      );
+    });
+
+    test('falls back to selected patient context when row omits patient name', () {
+      expect(
+        investigationPatientLabel(
+          {'patient_id': 42, 'phone': '+911234567890'},
+          fallbackName: 'Test Patient',
+        ),
+        'Test Patient',
+      );
+    });
+
+    test('keeps requested rows pending and completed rows in recent', () {
+      expect(investigationIsPending({'status': 'REQUESTED'}), isTrue);
+      expect(investigationBelongsInRecent({'status': 'REQUESTED'}), isFalse);
+      expect(investigationBelongsInRecent({'status': 'IN_PROGRESS'}), isTrue);
+      expect(investigationBelongsInRecent({'status': 'COMPLETED'}), isTrue);
+      expect(investigationIsResultReady({'status': 'COMPLETED'}), isTrue);
+      expect(
+        investigationIsResultReady({
+          'status': 'IN_PROGRESS',
+          'result_summary': 'Hb 13 g/dL',
+        }),
+        isTrue,
+      );
+    });
+  });
 }

@@ -66,6 +66,111 @@ bool investigationPhoneMatches(String? candidate, String? expected) {
   return false;
 }
 
+String _textValue(dynamic value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty || text.toLowerCase() == 'null') return '';
+  return text;
+}
+
+String _firstText(List<dynamic> values) {
+  for (final value in values) {
+    final text = _textValue(value);
+    if (text.isNotEmpty) return text;
+  }
+  return '';
+}
+
+Map<String, dynamic>? _mapValue(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return null;
+}
+
+@visibleForTesting
+String investigationStatus(Map<String, dynamic> investigation) {
+  return _firstText([investigation['status']]).toUpperCase();
+}
+
+@visibleForTesting
+bool investigationIsPending(Map<String, dynamic> investigation) {
+  final status = investigationStatus(investigation);
+  return status == 'REQUESTED' || status == 'PENDING';
+}
+
+@visibleForTesting
+bool investigationIsResultReady(Map<String, dynamic> investigation) {
+  final status = investigationStatus(investigation);
+  return status == 'COMPLETED' ||
+      status == 'RESULT_READY' ||
+      _textValue(investigation['result_summary']).isNotEmpty ||
+      _textValue(investigation['interpretation']).isNotEmpty ||
+      investigation['results'] != null ||
+      investigation['result'] != null ||
+      _textValue(investigation['file_url']).isNotEmpty ||
+      _textValue(investigation['report_url']).isNotEmpty;
+}
+
+@visibleForTesting
+bool investigationBelongsInRecent(Map<String, dynamic> investigation) {
+  final status = investigationStatus(investigation);
+  if (status == 'CANCELLED') return false;
+  return !investigationIsPending(investigation) ||
+      investigationIsResultReady(investigation);
+}
+
+@visibleForTesting
+String investigationTestTitle(Map<String, dynamic> investigation) {
+  final name = _firstText([
+        investigation['test_name'],
+        investigation['testName'],
+        investigation['investigation_name'],
+        investigation['investigationName'],
+        investigation['name'],
+      ]);
+  if (name.isNotEmpty) return name;
+  final type = _investigationType(investigation);
+  return type.isNotEmpty ? type : 'Investigation';
+}
+
+@visibleForTesting
+String investigationPatientLabel(
+  Map<String, dynamic> investigation, {
+  String? fallbackName,
+  String? fallbackPhone,
+}) {
+  final patient = _mapValue(investigation['patient']);
+  return _firstText([
+    investigation['patient_name'],
+    investigation['patientName'],
+    patient?['name'],
+    fallbackName,
+    investigation['hospital_number'],
+    investigation['hospitalNumber'],
+    investigation['patient_phone'],
+    investigation['phone'],
+    patient?['phone'],
+    fallbackPhone,
+  ]);
+}
+
+String _investigationType(Map<String, dynamic> investigation) {
+  return _firstText([
+    investigation['test_type'],
+    investigation['testType'],
+    investigation['type'],
+  ]);
+}
+
+String _formatInvestigationDate(dynamic value) {
+  final raw = _textValue(value);
+  if (raw.isEmpty) return '';
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  return DateFormat('dd/MM HH:mm').format(parsed.toLocal());
+}
+
 class _InvestigationsScreenState extends State<InvestigationsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -400,18 +505,30 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
               key: ValueKey(_pendingReloadKey),
               initialPatientId: widget.initialPatientId,
               initialPatientPhone: widget.initialPatientPhone,
+              initialPatientName: widget.initialPatientName,
               canManageStatus: _canManagePendingStatus,
             ),
-            _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
+            _RecentUploadsTab(
+              key: ValueKey(_recentReloadKey),
+              initialPatientId: widget.initialPatientId,
+              initialPatientPhone: widget.initialPatientPhone,
+              initialPatientName: widget.initialPatientName,
+            ),
           ]
         : [
             _PendingTab(
               key: ValueKey(_pendingReloadKey),
               initialPatientId: widget.initialPatientId,
               initialPatientPhone: widget.initialPatientPhone,
+              initialPatientName: widget.initialPatientName,
               canManageStatus: _canManagePendingStatus,
             ),
-            _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
+            _RecentUploadsTab(
+              key: ValueKey(_recentReloadKey),
+              initialPatientId: widget.initialPatientId,
+              initialPatientPhone: widget.initialPatientPhone,
+              initialPatientName: widget.initialPatientName,
+            ),
           ];
     return StaffScaffold(
       title: s.investigationsTitle,
@@ -792,12 +909,14 @@ class _UploadTabState extends State<_UploadTab> {
 class _PendingTab extends StatefulWidget {
   final String? initialPatientId;
   final String? initialPatientPhone;
+  final String? initialPatientName;
   final bool canManageStatus;
 
   const _PendingTab({
     super.key,
     this.initialPatientId,
     this.initialPatientPhone,
+    this.initialPatientName,
     required this.canManageStatus,
   });
 
@@ -955,18 +1074,17 @@ class _PendingTabState extends State<_PendingTab> {
         itemBuilder: (_, i) {
           final inv = _pending[i] as Map<String, dynamic>;
           final id = inv['_id']?.toString() ?? inv['id']?.toString() ?? '';
-          final testType =
-              inv['test_type']?.toString() ??
-              inv['testType']?.toString() ??
-              'Unknown';
-          final patientName =
-              inv['patient_name']?.toString() ??
-              inv['patient']?['name']?.toString() ??
-              inv['phone']?.toString() ??
-              'Unknown';
-          final date =
-              inv['created_at']?.toString() ?? inv['date']?.toString() ?? '';
-          final status = inv['status']?.toString() ?? 'pending';
+          final testName = investigationTestTitle(inv);
+          final testType = _investigationType(inv);
+          final patientName = investigationPatientLabel(
+            inv,
+            fallbackName: widget.initialPatientName,
+            fallbackPhone: widget.initialPatientPhone,
+          );
+          final date = _formatInvestigationDate(
+            inv['requested_at'] ?? inv['created_at'] ?? inv['date'],
+          );
+          final status = investigationStatus(inv);
 
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -993,14 +1111,17 @@ class _PendingTabState extends State<_PendingTab> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              testType,
+                              testName,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: AppTheme.textPrimary,
                               ),
                             ),
                             Text(
-                              patientName,
+                              [
+                                if (patientName.isNotEmpty) patientName,
+                                if (testType.isNotEmpty) testType,
+                              ].join(' • '),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: AppTheme.textSecondary,
@@ -1019,7 +1140,7 @@ class _PendingTabState extends State<_PendingTab> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          status.toUpperCase(),
+                          status.isEmpty ? 'PENDING' : status,
                           style: const TextStyle(
                             fontSize: 10,
                             color: AppTheme.warningAmber,
@@ -1073,7 +1194,16 @@ class _PendingTabState extends State<_PendingTab> {
 }
 
 class _RecentUploadsTab extends StatefulWidget {
-  const _RecentUploadsTab({super.key});
+  final String? initialPatientId;
+  final String? initialPatientPhone;
+  final String? initialPatientName;
+
+  const _RecentUploadsTab({
+    super.key,
+    this.initialPatientId,
+    this.initialPatientPhone,
+    this.initialPatientName,
+  });
 
   @override
   State<_RecentUploadsTab> createState() => _RecentUploadsTabState();
@@ -1096,12 +1226,44 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
       _error = null;
     });
     try {
-      final data = await MedicalApiService.listInvestigations();
-      final list =
+      final scopedPatientId = widget.initialPatientId?.trim();
+      final scopedPhone = widget.initialPatientPhone?.trim();
+      Map<String, dynamic> data;
+      if (scopedPatientId != null && scopedPatientId.isNotEmpty) {
+        data = await MedicalApiService.getPatientInvestigations(
+          scopedPatientId,
+        );
+      } else {
+        data = await MedicalApiService.listInvestigations();
+      }
+      var list =
           data['investigations'] as List? ??
           data['records'] as List? ??
           data['data'] as List? ??
           [];
+      if (scopedPatientId != null && scopedPatientId.isNotEmpty) {
+        list = list
+            .where(
+              (entry) =>
+                  entry is Map<String, dynamic> &&
+                  investigationBelongsInRecent(entry),
+            )
+            .toList();
+      } else if (scopedPhone != null && scopedPhone.isNotEmpty) {
+        list = list
+            .where(
+              (entry) =>
+                  entry is Map<String, dynamic> &&
+                  investigationPhoneMatches(
+                    entry['patient_phone']?.toString() ??
+                        entry['phone']?.toString() ??
+                        _mapValue(entry['patient'])?['phone']?.toString(),
+                    scopedPhone,
+                  ) &&
+                  investigationBelongsInRecent(entry),
+            )
+            .toList();
+      }
       if (mounted) setState(() => _investigations = list);
     } catch (e) {
       if (mounted) {
@@ -1164,29 +1326,38 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
         itemCount: _investigations.length,
         itemBuilder: (_, i) {
           final inv = _investigations[i] as Map<String, dynamic>;
-          final testType =
-              inv['test_type']?.toString() ??
-              inv['testType']?.toString() ??
-              'Unknown';
-          final patientName =
-              inv['patient_name']?.toString() ??
-              inv['patient']?['name']?.toString() ??
-              inv['phone']?.toString() ??
-              'Unknown';
-          final date =
-              inv['created_at']?.toString() ?? inv['date']?.toString() ?? '';
-          final status = inv['status']?.toString().toLowerCase() ?? '';
+          final testName = investigationTestTitle(inv);
+          final testType = _investigationType(inv);
+          final patientName = investigationPatientLabel(
+            inv,
+            fallbackName: widget.initialPatientName,
+            fallbackPhone: widget.initialPatientPhone,
+          );
+          final date = _formatInvestigationDate(
+            inv['completed_at'] ??
+                inv['verified_at'] ??
+                inv['updated_at'] ??
+                inv['requested_at'] ??
+                inv['created_at'] ??
+                inv['date'],
+          );
+          final status = investigationStatus(inv);
+          final resultReady = investigationIsResultReady(inv);
 
           Color statusColor = switch (status) {
-            'completed' => AppTheme.successGreen,
-            'in_progress' => AppTheme.primaryBlue,
-            'pending' => AppTheme.warningAmber,
+            'COMPLETED' || 'RESULT_READY' => AppTheme.successGreen,
+            'IN_PROGRESS' || 'COLLECTED' || 'SCHEDULED' =>
+              AppTheme.primaryBlue,
+            'PENDING' || 'REQUESTED' => AppTheme.warningAmber,
             _ => AppTheme.textSecondary,
           };
 
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
+              onTap: resultReady
+                  ? () => _showInvestigationResultDetail(context, inv)
+                  : null,
               leading: CircleAvatar(
                 backgroundColor: AppTheme.accentCyan.withValues(alpha: 0.1),
                 child: const Icon(
@@ -1195,13 +1366,20 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
                   size: 20,
                 ),
               ),
-              title: Text(testType),
+              title: Text(testName),
               subtitle: Text(
-                '$patientName${date.isNotEmpty ? ' • $date' : ''}',
+                [
+                  if (patientName.isNotEmpty) patientName,
+                  if (testType.isNotEmpty) testType,
+                  if (date.isNotEmpty) date,
+                ].join(' • '),
                 style: const TextStyle(fontSize: 12),
               ),
-              trailing: status.isNotEmpty
-                  ? Container(
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (status.isNotEmpty)
+                    Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 4,
@@ -1211,19 +1389,257 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        status.toUpperCase(),
+                        resultReady ? 'RESULT READY' : status,
                         style: TextStyle(
                           fontSize: 10,
                           color: statusColor,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                    )
-                  : const Icon(Icons.chevron_right),
+                    ),
+                  if (resultReady) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+                  ],
+                ],
+              ),
             ),
           );
         },
       ),
     );
   }
+
+  void _showInvestigationResultDetail(
+    BuildContext context,
+    Map<String, dynamic> investigation,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => _InvestigationResultSheet(
+        investigation: investigation,
+        patientName: investigationPatientLabel(
+          investigation,
+          fallbackName: widget.initialPatientName,
+          fallbackPhone: widget.initialPatientPhone,
+        ),
+      ),
+    );
+  }
+}
+
+class _InvestigationResultSheet extends StatelessWidget {
+  final Map<String, dynamic> investigation;
+  final String patientName;
+
+  const _InvestigationResultSheet({
+    required this.investigation,
+    required this.patientName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = investigationTestTitle(investigation);
+    final status = investigationStatus(investigation);
+    final resultSummary = _firstText([
+      investigation['result_summary'],
+      investigation['summary'],
+      investigation['result'],
+    ]);
+    final interpretation = _textValue(investigation['interpretation']);
+    final results = investigation['results'];
+    final completedAt = _formatInvestigationDate(
+      investigation['completed_at'] ??
+          investigation['verified_at'] ??
+          investigation['updated_at'],
+    );
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ResultChip(
+                    icon: Icons.person_outline,
+                    label: patientName.isEmpty ? 'Selected patient' : patientName,
+                  ),
+                  _ResultChip(
+                    icon: Icons.verified_outlined,
+                    label: status.isEmpty ? 'Result ready' : status,
+                  ),
+                  if (completedAt.isNotEmpty)
+                    _ResultChip(
+                      icon: Icons.event_available_outlined,
+                      label: completedAt,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (resultSummary.isNotEmpty)
+                _ResultBlock(title: 'Result summary', body: resultSummary),
+              if (interpretation.isNotEmpty)
+                _ResultBlock(title: 'Interpretation', body: interpretation),
+              if (resultSummary.isEmpty &&
+                  interpretation.isEmpty &&
+                  results != null)
+                _ResultBlock(title: 'Results', body: _stringifyResults(results)),
+              if (resultSummary.isEmpty &&
+                  interpretation.isEmpty &&
+                  results == null)
+                Text(
+                  'Result has been marked ready, but no structured summary is attached yet.',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _ResultChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: AppTheme.primaryBlue),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(color: AppTheme.textPrimary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultBlock extends StatelessWidget {
+  final String title;
+  final String body;
+
+  const _ResultBlock({required this.title, required this.body});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.cardSurface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.divider),
+            ),
+            child: Text(body, style: TextStyle(color: AppTheme.textPrimary)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _stringifyResults(dynamic results) {
+  if (results is Map) {
+    final lines = <String>[];
+    for (final entry in results.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        final resultText = _firstText([value['value'], value['result']]);
+        final unit = _textValue(value['unit']);
+        final flag = _textValue(value['flag'] ?? value['abnormal_flag']);
+        if (resultText.isNotEmpty) {
+          lines.add(
+            '${entry.key}: $resultText${unit.isNotEmpty ? ' $unit' : ''}${flag.isNotEmpty ? ' [$flag]' : ''}',
+          );
+        }
+      } else {
+        final text = _textValue(value);
+        if (text.isNotEmpty) lines.add('${entry.key}: $text');
+      }
+    }
+    if (lines.isNotEmpty) return lines.join('\n');
+  }
+  if (results is List) {
+    final lines = results
+        .map((value) {
+          if (value is Map) {
+            final name = _firstText([
+              value['name'],
+              value['test_name'],
+              value['analyte'],
+              value['parameter'],
+            ]);
+            final resultText = _firstText([value['value'], value['result']]);
+            final unit = _textValue(value['unit']);
+            final flag = _textValue(value['flag'] ?? value['abnormal_flag']);
+            if (resultText.isEmpty) return '';
+            return '${name.isEmpty ? 'Result' : name}: $resultText${unit.isNotEmpty ? ' $unit' : ''}${flag.isNotEmpty ? ' [$flag]' : ''}';
+          }
+          return _textValue(value);
+        })
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isNotEmpty) return lines.join('\n');
+  }
+  return _textValue(results);
 }

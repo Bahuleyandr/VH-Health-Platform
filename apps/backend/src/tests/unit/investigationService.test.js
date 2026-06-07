@@ -131,6 +131,47 @@ describe('investigationService pending worklists', () => {
     }));
     expect(result.count).toBe(0);
   });
+
+  it('adds patient display fields to patient-scoped investigation rows', async () => {
+    findManyMock.mockResolvedValueOnce([
+      {
+        id: 81,
+        test_name: 'ECG',
+        test_type: 'CARDIOLOGY',
+        status: 'REQUESTED',
+        requested_by: '22222222-2222-4222-8222-222222222222',
+        users_investigations_requested_byTousers: {
+          id: 99,
+          uid: '22222222-2222-4222-8222-222222222222',
+          name: 'Test Doctor',
+          role: 'DOCTOR',
+          doctors: [{ id: 11, specialty: 'Cardiology' }],
+        },
+      },
+    ]);
+    findUniqueMock.mockResolvedValueOnce({
+      name: 'OP Doctor Flow Test',
+      phone: '+911234567890',
+      birthday: null,
+      gender: null,
+    });
+
+    const result = await getPatientInvestigations(
+      77,
+      { status: 'PENDING', limit: 50 },
+      'DOCTOR',
+      'doctor-uid'
+    );
+
+    expect(result.investigations[0]).toEqual(expect.objectContaining({
+      test_name: 'ECG',
+      patient_name: 'OP Doctor Flow Test',
+      patient_phone: '+911234567890',
+      requested_by_name: 'Test Doctor',
+      doctor_name: 'Test Doctor',
+      specialization: 'Cardiology',
+    }));
+  });
 });
 
 describe('investigationService requester provenance', () => {
