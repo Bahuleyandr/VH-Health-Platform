@@ -14,7 +14,7 @@ import {
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2Storage.js';
+import { uploadFileToR2, getSignedFileUrl, getFileFromR2, deleteObject } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 function asJsonObject(value, fallback = null) {
@@ -689,6 +689,102 @@ export const getPatientRecordExtraction = async (req, res) => {
     }
     logger.error('Get Patient Record Extraction Error:', err);
     error(res, 'Failed to fetch extraction', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * Run AI/OCR extraction for an already-uploaded patient record.
+ *
+ * This covers records uploaded before Document Intelligence was enabled, or
+ * rows where the first extraction attempt was unavailable. It returns an
+ * existing draft when one is already linked to the record so normal "refresh"
+ * taps don't create duplicate intake rows.
+ */
+export const processPatientRecordExtraction = async (req, res) => {
+  try {
+    const row = await findPatientRecordWithExtraction(req, req.params.id, {
+      includeRawText: true,
+    });
+    const hasAccess = await ensurePatientRecordAccess(req, res, {
+      patientId: row.patient_id,
+      patientUid: row.patient_uid,
+      policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_EXTRACTION_VIEW,
+      recordType: 'PATIENT_RECORD_EXTRACTION',
+    });
+    if (!hasAccess) return;
+
+    if (row.ai_intake_id) {
+      if (row.file_key) {
+        row.file_url = await getSignedFileUrl(row.file_key, 3600, {
+          baseUrl: `${req.protocol}://${req.get('host')}`,
+        }).catch(() => row.file_url || null);
+      }
+      const record = attachPatientRecordExtraction(row, { includeRawText: true });
+      return success(res, {
+        record,
+        ai_extraction: record.ai_extraction,
+        processed: false,
+      }, 'Record extraction fetched');
+    }
+
+    if (!row.file_key) {
+      return error(res, 'Record file is missing', HTTP_STATUS.CONFLICT);
+    }
+
+    const buffer = Buffer.from(await getFileFromR2(row.file_key));
+    let aiExtraction = null;
+    try {
+      aiExtraction = await ingestClinicalDocumentUpload({
+        req,
+        file: {
+          buffer,
+          originalname: row.file_name || `record-${row.id}`,
+          mimetype: row.file_mime || 'application/octet-stream',
+          size: row.file_size || buffer.length,
+        },
+        patientUid: row.patient_uid || null,
+        sourceType: row.document_type || 'other',
+        title: row.title || null,
+        storageKey: row.file_key,
+      });
+    } catch (extractErr) {
+      const disabled = extractErr?.statusCode === HTTP_STATUS.FORBIDDEN &&
+        /Clinical AI module is disabled/i.test(String(extractErr?.message || ''));
+      logger.warn('Patient record AI extraction process skipped', {
+        record_id: row.id?.toString?.() || row.id,
+        reason: disabled ? 'document_intelligence_disabled' : 'extraction_failed',
+        error: extractErr?.message,
+      });
+      aiExtraction = extractionUnavailable(
+        disabled ? 'document_intelligence_disabled' : 'extraction_failed',
+        extractErr
+      );
+    }
+
+    const refreshed = await findPatientRecordWithExtraction(req, req.params.id, {
+      includeRawText: true,
+    });
+    if (refreshed.file_key) {
+      refreshed.file_url = await getSignedFileUrl(refreshed.file_key, 3600, {
+        baseUrl: `${req.protocol}://${req.get('host')}`,
+      }).catch(() => refreshed.file_url || null);
+    }
+    const record = refreshed.ai_intake_id
+      ? attachPatientRecordExtraction(refreshed, { includeRawText: true })
+      : { ...refreshed, ai_extraction: aiExtraction };
+
+    return success(res, {
+      record,
+      ai_extraction: record.ai_extraction,
+      processed: Boolean(refreshed.ai_intake_id),
+    }, refreshed.ai_intake_id ? 'Record extraction processed' : 'Record extraction unavailable');
+  } catch (err) {
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
+    if (isMissingSchemaError(err)) {
+      return error(res, 'Extraction draft not found for this record', HTTP_STATUS.NOT_FOUND);
+    }
+    logger.error('Process Patient Record Extraction Error:', err);
+    error(res, 'Failed to process extraction', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

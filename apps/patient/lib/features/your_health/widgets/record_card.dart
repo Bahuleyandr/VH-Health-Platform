@@ -68,8 +68,14 @@ Future<void> openDocument(
 class RecordCard extends StatelessWidget {
   final Map<String, dynamic> record;
   final bool showSource;
+  final VoidCallback? onTap;
 
-  const RecordCard({super.key, required this.record, this.showSource = false});
+  const RecordCard({
+    super.key,
+    required this.record,
+    this.showSource = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -90,7 +96,7 @@ class RecordCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: InkWell(
-        onTap: () => openDocument(context, record),
+        onTap: onTap ?? () => openDocument(context, record),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(14),

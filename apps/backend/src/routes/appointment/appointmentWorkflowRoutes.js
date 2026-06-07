@@ -68,6 +68,7 @@ router.post('/walk-in', validate, workflowController.registerWalkIn);
 router.get('/patient/records/all', patientAccessGuard('MEDICAL_RECORD'), docController.getPatientAllRecords);
 router.post('/patient/records/upload', upload.single('file'), patientAccessGuard('MEDICAL_RECORD', { policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_UPLOAD }), validateFileContent, validatePatientUpload, docController.uploadPatientRecord);
 router.get('/patient/records/:id/extraction', docController.getPatientRecordExtraction);
+router.post('/patient/records/:id/extraction/process', docController.processPatientRecordExtraction);
 router.patch('/patient/records/:id/extraction-review', docController.reviewPatientRecordExtraction);
 router.delete('/patient/records/:id', docController.deletePatientRecord);
 

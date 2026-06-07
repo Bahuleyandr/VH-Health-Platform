@@ -13,7 +13,7 @@ RUN npx prisma generate
 # ---- Production Stage ----
 FROM ${NODE_IMAGE} AS production
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl poppler-utils tesseract-ocr tesseract-ocr-data-eng
 
 WORKDIR /app
 

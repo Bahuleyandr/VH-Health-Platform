@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/features/your_health/widgets/patient_record_extraction_sheet.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -141,6 +142,25 @@ class MyUploadsTabState extends State<MyUploadsTab> {
     }
   }
 
+  void _openExtractionReview(Map<String, dynamic> record) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => PatientRecordExtractionSheet(
+        record: record,
+        onRecordUpdated: (updated) {
+          if (!mounted) return;
+          final id = updated['id'];
+          setState(() {
+            final index = _myUploads.indexWhere((item) => item['id'] == id);
+            if (index >= 0) {
+              _myUploads[index] = {..._myUploads[index], ...updated};
+            }
+          });
+        },
+      ),
+    );
+  }
+
   /// Show the upload bottom sheet. Called externally from the parent FAB.
   void showUploadSheet() {
     final titleCtrl = TextEditingController();
@@ -202,6 +222,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                 ],
               );
               if (response.isSuccess) {
+                final uploadedRecord = response.dataAsMap();
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -211,6 +232,9 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                     ),
                   );
                   _fetchRecords();
+                  if (uploadedRecord.isNotEmpty) {
+                    _openExtractionReview(uploadedRecord);
+                  }
                 }
               } else {
                 throw Exception(response.message ?? 'Upload failed');
@@ -419,7 +443,11 @@ class MyUploadsTabState extends State<MyUploadsTab> {
               await _deleteUploadedRecord(record);
               return false;
             },
-            child: RecordCard(record: record, showSource: true),
+            child: RecordCard(
+              record: record,
+              showSource: true,
+              onTap: () => _openExtractionReview(record),
+            ),
           );
         },
       ),
