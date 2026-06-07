@@ -1,6 +1,7 @@
 // src/middleware/uploadMiddleware.js - Hospital File Upload Middleware
 
 import multer from 'multer';
+import path from 'path';
 import { HOSPITAL_UPLOAD_CONFIG, MULTER_CONFIG } from '../config/uploadConfig.js';
 import logger from '../logging/logger.js';
 
@@ -22,11 +23,57 @@ const PATIENT_ALLOWED_MIMES = [
   'image/jpeg', 'image/jpg', 'image/png', 'application/pdf'
 ];
 
+const FALLBACK_MIME_BY_EXTENSION = new Map([
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['png', 'image/png'],
+  ['gif', 'image/gif'],
+  ['webp', 'image/webp'],
+  ['tif', 'image/tiff'],
+  ['tiff', 'image/tiff'],
+  ['bmp', 'image/bmp'],
+  ['svg', 'image/svg+xml'],
+  ['pdf', 'application/pdf'],
+  ['doc', 'application/msword'],
+  ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  ['xls', 'application/vnd.ms-excel'],
+  ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['txt', 'text/plain'],
+  ['csv', 'text/csv'],
+  ['rtf', 'text/rtf'],
+  ['dcm', 'application/dicom'],
+  ['hl7', 'application/hl7-v2+er7'],
+  ['mp3', 'audio/mpeg'],
+  ['wav', 'audio/wav'],
+  ['m4a', 'audio/mp4'],
+  ['mp4', 'video/mp4'],
+  ['avi', 'video/avi'],
+  ['mov', 'video/quicktime'],
+]);
+
+const FALLBACK_MIME_CANDIDATES = new Set([
+  '',
+  'application/octet-stream',
+  'binary/octet-stream',
+]);
+
 // Patient upload: file size limits
 const PATIENT_FILE_SIZE_LIMITS = {
   image: 10 * 1024 * 1024,  // 10MB for images
   pdf: 25 * 1024 * 1024,    // 25MB for PDFs
 };
+
+export function normalizeUploadMimeType(file) {
+  const declared = String(file?.mimetype || '').toLowerCase().split(';')[0].trim();
+  if (!FALLBACK_MIME_CANDIDATES.has(declared)) return declared;
+
+  const ext = path.extname(String(file?.originalname || '')).slice(1).toLowerCase();
+  const inferred = FALLBACK_MIME_BY_EXTENSION.get(ext);
+  if (!inferred) return declared;
+
+  file.mimetype = inferred;
+  return inferred;
+}
 
 /**
  * P1 Security: Validate file content against magic bytes (not just Content-Type header).
@@ -75,8 +122,9 @@ function validateMagicBytes(buffer, claimedMime) {
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  if (!HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.includes(file.mimetype)) {
-    const err = new Error(`File type ${file.mimetype} not allowed in hospital system. Allowed types: ${HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.join(', ')}`);
+  const mimetype = normalizeUploadMimeType(file);
+  if (!HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.includes(mimetype)) {
+    const err = new Error(`File type ${mimetype} not allowed in hospital system. Allowed types: ${HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.join(', ')}`);
     err.statusCode = 400;
     err.code = 'INVALID_FILE_TYPE';
     return cb(err);

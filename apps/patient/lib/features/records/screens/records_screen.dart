@@ -3,10 +3,24 @@ import 'package:file_picker/file_picker.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+
+MediaType? _mediaTypeForFileName(String? fileName) {
+  final ext = fileName?.split('.').last.toLowerCase();
+  final mime = switch (ext) {
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'pdf' => 'application/pdf',
+    _ => null,
+  };
+  if (mime == null) return null;
+  final parts = mime.split('/');
+  return MediaType(parts.first, parts.last);
+}
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
@@ -234,18 +248,17 @@ class _RecordsScreenState extends State<RecordsScreen>
         builder: (ctx, setSheet) {
           Future<void> upload() async {
             final lInner = AppLocalizations.of(ctx)!;
-            if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
+            if (pickedFilePath == null) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                SnackBar(content: Text(lInner.recordsPickFileFirst)),
+                const SnackBar(content: Text('Please pick a file')),
               );
               return;
             }
             setSheet(() => uploading = true);
             try {
-              final fields = <String, String>{
-                'title': titleCtrl.text.trim(),
-                'document_type': docType,
-              };
+              final fields = <String, String>{'document_type': docType};
+              final title = titleCtrl.text.trim();
+              if (title.isNotEmpty) fields['title'] = title;
               if (hospitalCtrl.text.trim().isNotEmpty) {
                 fields['source_hospital'] = hospitalCtrl.text.trim();
               }
@@ -261,6 +274,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                     'file',
                     pickedFilePath!,
                     filename: pickedFileName,
+                    contentType: _mediaTypeForFileName(pickedFileName),
                   ),
                 ],
               );
@@ -314,7 +328,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                   TextField(
                     controller: titleCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Title *',
+                      labelText: 'Title (optional)',
                       border: OutlineInputBorder(),
                     ),
                   ),

@@ -2,10 +2,24 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+
+MediaType? _mediaTypeForFileName(String? fileName) {
+  final ext = fileName?.split('.').last.toLowerCase();
+  final mime = switch (ext) {
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'pdf' => 'application/pdf',
+    _ => null,
+  };
+  if (mime == null) return null;
+  final parts = mime.split('/');
+  return MediaType(parts.first, parts.last);
+}
 
 class MyUploadsTab extends StatefulWidget {
   /// Called when the upload sheet visibility changes, so the parent can
@@ -157,18 +171,17 @@ class MyUploadsTabState extends State<MyUploadsTab> {
         builder: (ctx, setSheet) {
           Future<void> upload() async {
             final lInner = AppLocalizations.of(ctx)!;
-            if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
+            if (pickedFilePath == null) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                SnackBar(content: Text(lInner.recordsPickFileFirst)),
+                const SnackBar(content: Text('Please pick a file')),
               );
               return;
             }
             setSheet(() => uploading = true);
             try {
-              final fields = <String, String>{
-                'title': titleCtrl.text.trim(),
-                'document_type': docType,
-              };
+              final fields = <String, String>{'document_type': docType};
+              final title = titleCtrl.text.trim();
+              if (title.isNotEmpty) fields['title'] = title;
               if (hospitalCtrl.text.trim().isNotEmpty) {
                 fields['source_hospital'] = hospitalCtrl.text.trim();
               }
@@ -184,6 +197,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                     'file',
                     pickedFilePath!,
                     filename: pickedFileName,
+                    contentType: _mediaTypeForFileName(pickedFileName),
                   ),
                 ],
               );
@@ -237,7 +251,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                   TextField(
                     controller: titleCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Title *',
+                      labelText: 'Title (optional)',
                       border: OutlineInputBorder(),
                     ),
                   ),

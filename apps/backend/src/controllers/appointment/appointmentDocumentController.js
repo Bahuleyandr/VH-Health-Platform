@@ -588,8 +588,10 @@ export const uploadPatientRecord = async (req, res) => {
     });
     const { document_type, title, source_hospital, record_date, notes } = req.body;
     const normalizedRecordDate = normalizeOptionalIsoDate(record_date, 'record_date');
+    const normalizedDocumentType = String(document_type || 'other').trim() || 'other';
+    const normalizedTitle = String(title || '').trim() || null;
 
-    if (!req.file || !title) return error(res, 'file and title are required', HTTP_STATUS.BAD_REQUEST);
+    if (!req.file) return error(res, 'file is required', HTTP_STATUS.BAD_REQUEST);
 
     const timestamp = Date.now();
     const ext = req.file.originalname.split('.').pop();
@@ -610,7 +612,7 @@ export const uploadPatientRecord = async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::date,$11,$12::uuid)
       RETURNING id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, tenant_id
     `,
-      patientId, document_type || 'other', title,
+      patientId, normalizedDocumentType, normalizedTitle,
       fileKey, fileUrl, req.file.originalname, req.file.size, req.file.mimetype,
       source_hospital || null, normalizedRecordDate, notes || null,
       req.tenantId || DEFAULT_TENANT_ID,
@@ -626,8 +628,8 @@ export const uploadPatientRecord = async (req, res) => {
         req,
         file: req.file,
         patientUid: patientRows[0]?.uid || null,
-        sourceType: document_type || 'other',
-        title,
+        sourceType: normalizedDocumentType,
+        title: normalizedTitle,
         storageKey: fileKey,
       });
     } catch (extractErr) {
