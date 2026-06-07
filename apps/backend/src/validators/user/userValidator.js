@@ -11,44 +11,56 @@ const optionalPhoneValidation = body('phone')
   .matches(/^\+?[1-9]\d{9,14}$/)
   .withMessage('Phone number must be 10-15 digits');
 
+const optionalProfileField = { values: 'null' };
+
 const profileFieldValidation = [
   body('name')
-    .optional()
+    .optional(optionalProfileField)
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters')
     .trim(),
-  body('email').optional().isEmail().normalizeEmail().withMessage('Please provide a valid email'),
+  body('email')
+    .optional(optionalProfileField)
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email'),
   body('gender')
-    .optional()
+    .optional(optionalProfileField)
     .isIn(['MALE', 'FEMALE', 'OTHER'])
     .withMessage('Gender must be MALE, FEMALE, or OTHER'),
-  body('birthday').optional().isISO8601().withMessage('Birthday must be a valid date (YYYY-MM-DD)'),
+  body('birthday')
+    .optional(optionalProfileField)
+    .isISO8601()
+    .withMessage('Birthday must be a valid date (YYYY-MM-DD)'),
   body('anniversary')
-    .optional()
+    .optional(optionalProfileField)
     .isISO8601()
     .withMessage('Anniversary must be a valid date (YYYY-MM-DD)'),
   body('address')
-    .optional()
+    .optional(optionalProfileField)
     .isLength({ max: 500 })
     .withMessage('Address must be less than 500 characters')
     .trim(),
-  body('emergency_contact').optional().isString().withMessage('Emergency contact is invalid'),
+  body('emergency_contact')
+    .optional(optionalProfileField)
+    .isString()
+    .withMessage('Emergency contact is invalid'),
   body('blood_group')
-    .optional()
+    .optional(optionalProfileField)
     .isIn(['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'])
     .withMessage('Blood group must be one of: A+, A-, B+, B-, O+, O-, AB+, AB-'),
   body('allergies')
-    .optional()
+    .optional(optionalProfileField)
     .isLength({ max: 1000 })
     .withMessage('Allergies must be less than 1000 characters')
     .trim(),
   body('insurance_details')
-    .optional()
+    .optional(optionalProfileField)
     .isLength({ max: 500 })
     .withMessage('Insurance details must be less than 500 characters')
     .trim(),
   body('preferred_hospital')
-    .optional()
+    .optional(optionalProfileField)
     .isLength({ max: 200 })
     .withMessage('Preferred hospital must be less than 200 characters')
     .trim()

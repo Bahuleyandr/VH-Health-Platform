@@ -147,6 +147,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     setState(() => _isSubmitting = true);
     bool success = false;
+    String? errorMessage;
 
     try {
       // Build emergency_contact as string (backend accepts string or object)
@@ -186,9 +187,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       );
       success = response.isSuccess;
       if (!success) {
+        errorMessage =
+            _profileUpdateErrorMessage(response) ?? l10n.networkError;
         debugPrint('API error: ${response.statusCode} – ${response.message}');
       }
     } catch (e) {
+      errorMessage = l10n.networkError;
       debugPrint('Network error: $e');
     }
 
@@ -197,7 +201,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          success ? l10n.profileUpdatedSuccessfully : l10n.networkError,
+          success
+              ? l10n.profileUpdatedSuccessfully
+              : (errorMessage ?? l10n.networkError),
         ),
         backgroundColor: success
             ? theme.colorScheme.primary
@@ -211,6 +217,30 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       return;
     }
     setState(() => _isSubmitting = false);
+  }
+
+  String? _profileUpdateErrorMessage(ApiResponse response) {
+    final raw = response.raw;
+    if (raw is Map) {
+      final errors = raw['errors'];
+      if (errors is List && errors.isNotEmpty) {
+        final messages = <String>[];
+        for (final error in errors) {
+          if (error is Map) {
+            final message = error['msg']?.toString().trim();
+            if (message != null && message.isNotEmpty) {
+              messages.add(message);
+            }
+          }
+        }
+        if (messages.isNotEmpty) {
+          return messages.take(2).join('\n');
+        }
+      }
+    }
+
+    final message = response.message?.trim();
+    return message == null || message.isEmpty ? null : message;
   }
 
   // ─────────────────────────────── Birthday picker ──────────────────────────
