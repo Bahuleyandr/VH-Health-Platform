@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:vhhealth/core/widgets/health_charts.dart';
 
-/// Horizontal scrolling strip of small stat cards. Each card is a
-/// glance-worthy KPI for the patient (steps today, wellness score,
-/// health points + tier, streak). Tapping a card optionally routes to
-/// the related feature.
-///
-/// Each entry self-renders an empty-data placeholder so the strip
-/// always shows something rather than collapsing to zero entries.
+/// Three-card glance strip for the patient's top daily signals. The cards
+/// intentionally fit the available screen width instead of scrolling so the
+/// right edge never looks clipped on phones.
 class StatsStrip extends StatelessWidget {
-  final int? wellnessScore; // 0-100, null = unknown
+  final int? wellnessScore;
   final int? healthPoints;
-  final String? healthTier; // 'BRONZE' | 'SILVER' | 'GOLD' | etc
+  final String? healthTier;
   final int? stepsToday;
   final int? stepGoal;
-  final int? streakDays;
+  final bool wellnessExpanded;
 
   final VoidCallback? onWellnessTap;
   final VoidCallback? onPointsTap;
@@ -27,7 +24,7 @@ class StatsStrip extends StatelessWidget {
     this.healthTier,
     this.stepsToday,
     this.stepGoal,
-    this.streakDays,
+    this.wellnessExpanded = false,
     this.onWellnessTap,
     this.onPointsTap,
     this.onStepsTap,
@@ -35,61 +32,51 @@ class StatsStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 88,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          _StatCard(
-            icon: LucideIcons.activity,
-            tint: Colors.tealAccent.shade400,
-            label: 'Wellness',
-            value: wellnessScore != null ? '$wellnessScore' : '—',
-            subValue: '/100',
-            onTap: onWellnessTap,
-          ),
-          const SizedBox(width: 10),
-          _StatCard(
-            icon: LucideIcons.footprints,
-            tint: Colors.lightBlueAccent,
-            label: 'Steps today',
-            value: stepsToday != null ? _formatThousands(stepsToday!) : '—',
-            subValue: stepGoal != null
-                ? '/${_formatThousands(stepGoal!)}'
-                : null,
-            progress: (stepsToday != null && stepGoal != null && stepGoal! > 0)
-                ? (stepsToday! / stepGoal!).clamp(0, 1).toDouble()
-                : null,
-            onTap: onStepsTap,
-          ),
-          const SizedBox(width: 10),
-          _StatCard(
-            icon: LucideIcons.award,
-            tint: Colors.amber,
-            label: healthTier != null
-                ? '${healthTier![0]}${healthTier!.substring(1).toLowerCase()}'
-                : 'Points',
-            value: healthPoints != null ? '$healthPoints' : '—',
-            subValue: 'pts',
-            onTap: onPointsTap,
-          ),
-          // Streak card hides when there's no streak yet — "0 days"
-          // reads as broken rather than informative. Resurfaces the
-          // moment the user logs a step day or completes a daily
-          // check-in (gamification ledger then has STEP_DAILY_GOAL or
-          // DAILY_CHECKIN entries).
-          if (streakDays != null && streakDays! > 0) ...[
-            const SizedBox(width: 10),
-            _StatCard(
-              icon: LucideIcons.flame,
-              tint: Colors.deepOrangeAccent,
-              label: 'Streak',
-              value: '$streakDays',
-              subValue: streakDays == 1 ? 'day' : 'days',
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: SizedBox(
+        height: 106,
+        child: Row(
+          children: [
+            Expanded(
+              child: _WellnessStatCard(
+                score: wellnessScore,
+                expanded: wellnessExpanded,
+                onTap: onWellnessTap,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _StatCard(
+                icon: LucideIcons.footprints,
+                tint: Colors.lightBlueAccent,
+                label: 'Steps today',
+                value: stepsToday != null ? _formatThousands(stepsToday!) : '-',
+                subValue: stepGoal != null
+                    ? '/${_formatThousands(stepGoal!)}'
+                    : null,
+                progress:
+                    (stepsToday != null && stepGoal != null && stepGoal! > 0)
+                    ? (stepsToday! / stepGoal!).clamp(0, 1).toDouble()
+                    : null,
+                onTap: onStepsTap,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _StatCard(
+                icon: LucideIcons.award,
+                tint: Colors.amber,
+                label: healthTier != null
+                    ? '${healthTier![0]}${healthTier!.substring(1).toLowerCase()}'
+                    : 'Points',
+                value: healthPoints != null ? '$healthPoints' : '-',
+                subValue: 'pts',
+                onTap: onPointsTap,
+              ),
             ),
           ],
-        ],
+        ),
       ),
     );
   }
@@ -97,6 +84,134 @@ class StatsStrip extends StatelessWidget {
   String _formatThousands(int n) {
     if (n < 1000) return '$n';
     return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 1)}k';
+  }
+}
+
+class _WellnessStatCard extends StatelessWidget {
+  final int? score;
+  final bool expanded;
+  final VoidCallback? onTap;
+
+  const _WellnessStatCard({
+    required this.score,
+    required this.expanded,
+    this.onTap,
+  });
+
+  Color _scoreColor(int? score) {
+    if (score == null) return Colors.tealAccent.shade400;
+    if (score >= 80) return Colors.green.shade500;
+    if (score >= 55) return Colors.amber.shade600;
+    return Colors.redAccent.shade200;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tint = _scoreColor(score);
+    final isLight = theme.brightness == Brightness.light;
+    final progress = score == null ? 0.0 : (score!.clamp(0, 100) / 100);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: double.infinity,
+          padding: const EdgeInsets.fromLTRB(9, 8, 9, 8),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: tint.withValues(alpha: expanded ? 0.82 : 0.50),
+              width: expanded ? 1.4 : 1.1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                tint.withValues(alpha: isLight ? 0.45 : 0.20),
+                tint.withValues(alpha: isLight ? 0.16 : 0.05),
+              ],
+            ),
+            boxShadow: [
+              if (expanded)
+                BoxShadow(
+                  color: tint.withValues(alpha: isLight ? 0.18 : 0.10),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(LucideIcons.activity, size: 14, color: tint),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      'Wellness',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.72),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                    size: 14,
+                    color: cs.onSurface.withValues(alpha: 0.62),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Align(
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: 50,
+                  height: 50,
+                  child: CustomPaint(
+                    painter: RingProgressPainter(
+                      progress: progress,
+                      color: tint,
+                      backgroundColor: tint.withValues(alpha: 0.14),
+                      strokeWidth: 5,
+                    ),
+                    child: Center(
+                      child: Text(
+                        score != null ? '$score' : '-',
+                        maxLines: 1,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: tint,
+                          fontWeight: FontWeight.w900,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'out of 100',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurface.withValues(alpha: 0.56),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -124,24 +239,22 @@ class _StatCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isLight = theme.brightness == Brightness.light;
-    // Light mode needs stronger fills against a white scaffold; dark
-    // mode keeps the subtle glow over a dark surface.
     final gradStart = tint.withValues(alpha: isLight ? 0.45 : 0.20);
     final gradEnd = tint.withValues(alpha: isLight ? 0.18 : 0.05);
     final borderC = tint.withValues(alpha: isLight ? 0.55 : 0.32);
 
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(8),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Container(
-          width: 130,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          height: double.infinity,
+          padding: const EdgeInsets.fromLTRB(9, 8, 9, 8),
           decoration: BoxDecoration(
             border: Border.all(color: borderC, width: 1.1),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(8),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -162,7 +275,7 @@ class _StatCard extends StatelessWidget {
               Row(
                 children: [
                   Icon(icon, size: 14, color: tint),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 5),
                   Expanded(
                     child: Text(
                       label,
@@ -177,23 +290,33 @@ class _StatCard extends StatelessWidget {
                 ],
               ),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    value,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: tint,
-                      height: 1,
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.bottomLeft,
+                      child: Text(
+                        value,
+                        maxLines: 1,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: tint,
+                          height: 1,
+                        ),
+                      ),
                     ),
                   ),
                   if (subValue != null) ...[
                     const SizedBox(width: 2),
-                    Text(
-                      subValue!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.onSurface.withValues(alpha: 0.55),
+                    Expanded(
+                      child: Text(
+                        subValue!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withValues(alpha: 0.55),
+                        ),
                       ),
                     ),
                   ],

@@ -287,3 +287,235 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
     );
   }
 }
+
+class WellnessBreakdownPanel extends StatefulWidget {
+  const WellnessBreakdownPanel({super.key});
+
+  @override
+  State<WellnessBreakdownPanel> createState() => _WellnessBreakdownPanelState();
+}
+
+class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
+  bool _loading = true;
+  Map<String, dynamic>? _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await ApiClient.get('/gamification/wellness-score');
+      if (!mounted) return;
+      setState(() {
+        _data = res.isSuccess ? res.dataAsMap() : null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('WellnessBreakdownPanel: load error: $e');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Color _bandColor(String band) {
+    switch (band) {
+      case 'excellent':
+        return Colors.green.shade600;
+      case 'good':
+        return Colors.amber.shade700;
+      default:
+        return Colors.red.shade600;
+    }
+  }
+
+  String _bandLabel(String band) {
+    switch (band) {
+      case 'excellent':
+        return "You're doing great";
+      case 'good':
+        return 'Keep it up';
+      default:
+        return 'Some attention needed';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_loading) {
+      return _skeleton(theme);
+    }
+    final data = _data;
+    if (data == null) {
+      return const SizedBox.shrink();
+    }
+
+    final score = (data['score'] as num?)?.toInt() ?? 0;
+    final band = (data['band'] as String?) ?? 'needs_attention';
+    final dims = (data['dimensions'] as List?) ?? const [];
+    final color = _bandColor(band);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: theme.cardColor.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.30), width: 1.1),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.monitor_heart_outlined,
+                  color: color,
+                  size: 19,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Wellness breakdown',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _bandLabel(band),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '$score/100',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (dims.isEmpty)
+            Text(
+              'No wellness split is available yet.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            for (final dim in dims.whereType<Map>()) _dimensionBar(theme, dim),
+        ],
+      ),
+    );
+  }
+
+  Widget _dimensionBar(ThemeData theme, Map dim) {
+    final label = dim['label'] ?? '';
+    final s = (dim['score'] as num?)?.toInt() ?? 0;
+    final m = (dim['max'] as num?)?.toInt() ?? 20;
+    final ratio = m > 0 ? (s / m).clamp(0.0, 1.0) : 0.0;
+    final color = ratio >= 0.8
+        ? Colors.green.shade600
+        : ratio >= 0.5
+        ? Colors.amber.shade700
+        : Colors.red.shade600;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  '$label',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$s / $m',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.hintColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 6,
+              backgroundColor: color.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation(color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _skeleton(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.cardColor.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 14,
+            width: 160,
+            color: theme.hintColor.withValues(alpha: 0.12),
+          ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < 3; i++) ...[
+            Container(
+              height: 8,
+              width: double.infinity,
+              color: theme.hintColor.withValues(alpha: 0.10),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}

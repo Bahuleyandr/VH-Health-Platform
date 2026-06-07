@@ -67,6 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _commandCenterError;
   List<Map<String, dynamic>> _todayCards = [];
   bool _todayExpanded = false;
+  bool _wellnessExpanded = false;
 
   // Stats-strip data (lifted from individual widgets so the strip can
   // render at the top with the same numbers without each widget
@@ -74,7 +75,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int? _wellnessScore;
   int? _stepsToday;
   int? _stepGoal;
-  int? _streakDays;
 
   // Features list
   late final List<FeatureIconData> _features;
@@ -230,13 +230,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final today =
               data['steps_today'] ?? data['stepsToday'] ?? data['today'];
           final goal = data['daily_goal'] ?? data['dailyGoal'] ?? data['goal'];
-          final streak =
-              data['streak_days'] ?? data['streakDays'] ?? data['streak'];
           if (mounted) {
             setState(() {
               _stepsToday = today is num ? today.toInt() : _stepsToday;
               _stepGoal = goal is num ? goal.toInt() : _stepGoal;
-              _streakDays = streak is num ? streak.toInt() : _streakDays;
             });
           }
         }
@@ -563,10 +560,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         : 0;
 
     final hasTodaySection = !isGuest;
-    // Only render the Wellness section once we have at least one signal,
-    // otherwise the tinted card would show an empty body (the inner
-    // widgets self-hide on no-data and the section header would orphan).
-    final hasWellnessSection = !isGuest && _wellnessScore != null;
     final hasStatsSection = !isGuest;
 
     // Build the snapshot row labels.
@@ -628,38 +621,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ?.toString(),
                               stepsToday: _stepsToday,
                               stepGoal: _stepGoal,
-                              streakDays: _streakDays,
-                              onWellnessTap: () =>
-                                  _openFeature(context, '/health-points'),
+                              wellnessExpanded: _wellnessExpanded,
+                              onWellnessTap: () => setState(
+                                () => _wellnessExpanded = !_wellnessExpanded,
+                              ),
                               onPointsTap: () =>
                                   _openFeature(context, '/health-points'),
                               onStepsTap: () => _openFeature(context, '/steps'),
                             ),
                           ),
 
-                        // ── Wellness (score ring + insights) ─────────────
-                        // Children self-hide on no-data; render the section
-                        // wrapper anyway so the user sees the heading
-                        // (with a subtle "Loading…" feel via empty card).
-                        if (hasWellnessSection)
-                          stagger(
-                            DashboardSection(
-                              label: 'Wellness',
-                              accent: DashboardAccents.wellness,
-                              contentPadding: const EdgeInsets.fromLTRB(
-                                4,
-                                4,
-                                4,
-                                4,
-                              ),
-                              child: const Column(
-                                children: [
-                                  WellnessScoreWidget(),
-                                  HealthInsightsStrip(),
-                                ],
-                              ),
-                            ),
-                          ),
+                        // ── Wellness details ─────────────────────────────
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          child: _wellnessExpanded
+                              ? const Column(
+                                  children: [
+                                    WellnessBreakdownPanel(),
+                                    HealthInsightsStrip(),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
+                        ),
 
                         // ── Explore ──────────────────────────────────────
                         stagger(
