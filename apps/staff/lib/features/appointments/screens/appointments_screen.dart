@@ -91,6 +91,7 @@ Color _appointmentStatusColor(String status) {
       AppTheme.brightness == Brightness.dark
           ? const Color(0xFF80CBC4)
           : AppTheme.primaryTeal,
+    'rescheduled' => AppTheme.warningOnSurface,
     'no_show' => AppTheme.textSecondary,
     _ => AppTheme.warningOnSurface,
   };
@@ -150,8 +151,13 @@ String _doctorLabel(Map<String, dynamic> doctor) {
 
 class AppointmentsScreen extends StatefulWidget {
   final DateTime? initialDate;
+  final bool workspaceMode;
 
-  const AppointmentsScreen({super.key, this.initialDate});
+  const AppointmentsScreen({
+    super.key,
+    this.initialDate,
+    this.workspaceMode = false,
+  });
 
   @override
   State<AppointmentsScreen> createState() => _AppointmentsScreenState();
@@ -169,8 +175,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   bool _doctorScoped = false;
   bool _queuePanelCollapsed = false;
   bool _queuePanelManuallyToggled = false;
+  late final ScrollController _queuePanelScrollController;
 
   bool get _canBookAppointments => !_doctorScoped;
+  bool get _doctorWorkspaceMode => widget.workspaceMode && _doctorScoped;
+  String get _screenTitle =>
+      _doctorWorkspaceMode ? 'OP Workspace' : 'Appointments';
 
   List<StaffAppointment> get _filtered => _appointmentsByDate.values
       .expand((rows) => rows)
@@ -193,14 +203,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     );
   }
 
-  static const _statuses = [
-    'all',
-    'scheduled',
-    'confirmed',
-    'completed',
-    'no_show',
-    'cancelled',
-  ];
+  static const _statuses = appointmentCalendarStatusFilters;
 
   StreamSubscription<RealtimeEvent>? _appointmentsSub;
   Timer? _refreshDebounce;
@@ -208,6 +211,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   @override
   void initState() {
     super.initState();
+    _queuePanelScrollController = ScrollController();
     _selectedDate = _dateOnly(widget.initialDate ?? DateTime.now());
     _load();
     _attachRealtime();
@@ -231,6 +235,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   void dispose() {
     _appointmentsSub?.cancel();
     _refreshDebounce?.cancel();
+    _queuePanelScrollController.dispose();
     super.dispose();
   }
 
@@ -265,7 +270,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         setState(() {
           _appointmentsByDate = byDate;
           _doctorScoped = doctorScoped;
-          _scopeLabel = doctorScoped ? 'My OP queue' : 'All OP queues';
+          _scopeLabel = doctorScoped
+              ? (widget.workspaceMode ? 'My OP workspace queue' : 'My OP queue')
+              : 'All OP queues';
           if (!_queuePanelManuallyToggled) {
             _queuePanelCollapsed = doctorScoped;
           }
@@ -983,7 +990,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       children: [
         for (final status in _statuses)
           ChoiceChip(
-            label: Text(status.replaceAll('_', ' ').toUpperCase()),
+            label: Text(appointmentStatusFilterLabel(status)),
             selected: status == _selectedStatus,
             onSelected: (_) {
               setState(() => _selectedStatus = status);
@@ -1253,7 +1260,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 else
                   SizedBox(
                     width: constraints.maxWidth >= 1280 ? 286 : 254,
-                    child: SingleChildScrollView(child: sidebar),
+                    child: Scrollbar(
+                      controller: _queuePanelScrollController,
+                      thumbVisibility: true,
+                      interactive: true,
+                      child: SingleChildScrollView(
+                        controller: _queuePanelScrollController,
+                        child: sidebar,
+                      ),
+                    ),
                   ),
                 const SizedBox(width: 12),
                 Expanded(child: board),
@@ -1268,7 +1283,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   @override
   Widget build(BuildContext context) {
     return StaffScaffold(
-      title: 'Appointments',
+      title: _screenTitle,
       body: Column(
         children: [
           _buildToolbar(),
@@ -1872,7 +1887,7 @@ class _MiniMonthDay extends StatelessWidget {
   }
 }
 
-class _WeekCalendarBoard extends StatelessWidget {
+class _WeekCalendarBoard extends StatefulWidget {
   final List<DateTime> days;
   final DateTime selectedDate;
   final Map<String, List<StaffAppointment>> appointmentsByDate;
@@ -1891,13 +1906,35 @@ class _WeekCalendarBoard extends StatelessWidget {
     required this.onAppointmentTap,
   });
 
+  @override
+  State<_WeekCalendarBoard> createState() => _WeekCalendarBoardState();
+}
+
+class _WeekCalendarBoardState extends State<_WeekCalendarBoard> {
+  late final ScrollController _horizontalController;
+  late final ScrollController _verticalController;
+
+  @override
+  void initState() {
+    super.initState();
+    _horizontalController = ScrollController();
+    _verticalController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    _verticalController.dispose();
+    super.dispose();
+  }
+
   List<StaffAppointment> _appointmentsFor(DateTime day) =>
-      (appointmentsByDate[_dateParam(day)] ?? const [])
+      (widget.appointmentsByDate[_dateParam(day)] ?? const [])
           .where(
             (appointment) => appointmentMatchesCalendarFilters(
               appointment,
-              patientQuery: patientQuery,
-              doctorDepartmentQuery: doctorDepartmentQuery,
+              patientQuery: widget.patientQuery,
+              doctorDepartmentQuery: widget.doctorDepartmentQuery,
             ),
           )
           .toList(growable: false);
@@ -1930,16 +1967,18 @@ class _WeekCalendarBoard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = _dateOnly(selectedDate);
+    final selected = _dateOnly(widget.selectedDate);
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 960;
         final minDayWidth = compact ? 96.0 : 118.0;
-        final minWidth = _calendarTimeGutterWidth + (minDayWidth * days.length);
+        final minWidth =
+            _calendarTimeGutterWidth + (minDayWidth * widget.days.length);
         final boardWidth = constraints.maxWidth > minWidth
             ? constraints.maxWidth
             : minWidth;
-        final dayWidth = (boardWidth - _calendarTimeGutterWidth) / days.length;
+        final dayWidth =
+            (boardWidth - _calendarTimeGutterWidth) / widget.days.length;
         final hourHeight = _calendarHourHeightForWidth(constraints.maxWidth);
         final headerHeight = _calendarHeaderHeightForWidth(
           constraints.maxWidth,
@@ -1947,44 +1986,50 @@ class _WeekCalendarBoard extends StatelessWidget {
         final floatingHeight = compact ? 96.0 : 112.0;
         final content = SizedBox(
           width: boardWidth,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _WeekHeader(
-                  days: days,
-                  selectedDate: selected,
-                  dayWidth: dayWidth,
-                  height: headerHeight,
-                  onDateSelected: onDateSelected,
-                  appointmentCountFor: (day) => _appointmentsFor(day).length,
-                ),
-                _FloatingAppointmentRow(
-                  days: days,
-                  dayWidth: dayWidth,
-                  height: floatingHeight,
-                  selectedDate: selected,
-                  appointmentsFor: _floatingAppointments,
-                  onDateSelected: onDateSelected,
-                  onAppointmentTap: onAppointmentTap,
-                ),
-                for (
-                  var hour = _calendarStartHour;
-                  hour < _calendarEndHour;
-                  hour += 1
-                )
-                  _HourRow(
-                    hour: hour,
-                    days: days,
-                    dayWidth: dayWidth,
-                    hourHeight: hourHeight,
+          child: Scrollbar(
+            controller: _verticalController,
+            thumbVisibility: true,
+            interactive: true,
+            child: SingleChildScrollView(
+              controller: _verticalController,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _WeekHeader(
+                    days: widget.days,
                     selectedDate: selected,
-                    appointmentsForHour: (day) =>
-                        _appointmentsForHour(day, hour),
-                    onDateSelected: onDateSelected,
-                    onAppointmentTap: onAppointmentTap,
+                    dayWidth: dayWidth,
+                    height: headerHeight,
+                    onDateSelected: widget.onDateSelected,
+                    appointmentCountFor: (day) => _appointmentsFor(day).length,
                   ),
-              ],
+                  _FloatingAppointmentRow(
+                    days: widget.days,
+                    dayWidth: dayWidth,
+                    height: floatingHeight,
+                    selectedDate: selected,
+                    appointmentsFor: _floatingAppointments,
+                    onDateSelected: widget.onDateSelected,
+                    onAppointmentTap: widget.onAppointmentTap,
+                  ),
+                  for (
+                    var hour = _calendarStartHour;
+                    hour < _calendarEndHour;
+                    hour += 1
+                  )
+                    _HourRow(
+                      hour: hour,
+                      days: widget.days,
+                      dayWidth: dayWidth,
+                      hourHeight: hourHeight,
+                      selectedDate: selected,
+                      appointmentsForHour: (day) =>
+                          _appointmentsForHour(day, hour),
+                      onDateSelected: widget.onDateSelected,
+                      onAppointmentTap: widget.onAppointmentTap,
+                    ),
+                ],
+              ),
             ),
           ),
         );
@@ -1994,9 +2039,17 @@ class _WeekCalendarBoard extends StatelessWidget {
             border: Border.all(color: AppTheme.divider),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: content,
+          child: Scrollbar(
+            controller: _horizontalController,
+            thumbVisibility: true,
+            interactive: true,
+            notificationPredicate: (notification) =>
+                notification.metrics.axis == Axis.horizontal,
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: content,
+            ),
           ),
         );
       },

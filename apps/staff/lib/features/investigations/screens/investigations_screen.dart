@@ -17,6 +17,11 @@ class InvestigationsScreen extends StatefulWidget {
   final String? initialPatientPhone;
   final String? initialPatientName;
   final String? initialHospitalNumber;
+  final String? initialAppointmentId;
+  final String? initialDoctorName;
+  final String? initialDepartment;
+  final String? initialAppointmentDate;
+  final String? initialAppointmentTime;
 
   const InvestigationsScreen({
     super.key,
@@ -26,6 +31,11 @@ class InvestigationsScreen extends StatefulWidget {
     this.initialPatientPhone,
     this.initialPatientName,
     this.initialHospitalNumber,
+    this.initialAppointmentId,
+    this.initialDoctorName,
+    this.initialDepartment,
+    this.initialAppointmentDate,
+    this.initialAppointmentTime,
   });
 
   @override
@@ -123,12 +133,12 @@ bool investigationBelongsInRecent(Map<String, dynamic> investigation) {
 @visibleForTesting
 String investigationTestTitle(Map<String, dynamic> investigation) {
   final name = _firstText([
-        investigation['test_name'],
-        investigation['testName'],
-        investigation['investigation_name'],
-        investigation['investigationName'],
-        investigation['name'],
-      ]);
+    investigation['test_name'],
+    investigation['testName'],
+    investigation['investigation_name'],
+    investigation['investigationName'],
+    investigation['name'],
+  ]);
   if (name.isNotEmpty) return name;
   final type = _investigationType(investigation);
   return type.isNotEmpty ? type : 'Investigation';
@@ -220,6 +230,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   Future<void> _orderInvestigation() async {
     final formKey = GlobalKey<FormState>();
     final scopedPatientId = int.tryParse(widget.initialPatientId ?? '');
+    final scopedAppointmentId = int.tryParse(widget.initialAppointmentId ?? '');
     final patientIdCtrl = TextEditingController(
       text: scopedPatientId == null ? '' : scopedPatientId.toString(),
     );
@@ -248,6 +259,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                 await MedicalApiService.orderInvestigation(
                   patientId: int.parse(patientIdCtrl.text.trim()),
                   testName: testNameCtrl.text.trim(),
+                  appointmentId: scopedAppointmentId,
                   type: type,
                   priority: priority,
                   notes: notesCtrl.text.trim().isEmpty
@@ -324,6 +336,60 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                               child: Icon(Icons.phone_outlined),
                             ),
                             suffixIcon: const Icon(Icons.lock_outline),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (scopedAppointmentId != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppTheme.primaryBlue.withValues(
+                                alpha: 0.2,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.event_note_outlined,
+                                color: AppTheme.primaryBlue,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  [
+                                    'Linked to OP visit #$scopedAppointmentId',
+                                    if ((widget.initialAppointmentDate ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      widget.initialAppointmentDate!.trim(),
+                                    if ((widget.initialAppointmentTime ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      widget.initialAppointmentTime!.trim(),
+                                    if ((widget.initialDoctorName ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      widget.initialDoctorName!.trim(),
+                                    if ((widget.initialDepartment ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      widget.initialDepartment!.trim(),
+                                  ].join(' - '),
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1346,8 +1412,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
 
           Color statusColor = switch (status) {
             'COMPLETED' || 'RESULT_READY' => AppTheme.successGreen,
-            'IN_PROGRESS' || 'COLLECTED' || 'SCHEDULED' =>
-              AppTheme.primaryBlue,
+            'IN_PROGRESS' || 'COLLECTED' || 'SCHEDULED' => AppTheme.primaryBlue,
             'PENDING' || 'REQUESTED' => AppTheme.warningAmber,
             _ => AppTheme.textSecondary,
           };
@@ -1497,7 +1562,9 @@ class _InvestigationResultSheet extends StatelessWidget {
                 children: [
                   _ResultChip(
                     icon: Icons.person_outline,
-                    label: patientName.isEmpty ? 'Selected patient' : patientName,
+                    label: patientName.isEmpty
+                        ? 'Selected patient'
+                        : patientName,
                   ),
                   _ResultChip(
                     icon: Icons.verified_outlined,
@@ -1518,7 +1585,10 @@ class _InvestigationResultSheet extends StatelessWidget {
               if (resultSummary.isEmpty &&
                   interpretation.isEmpty &&
                   results != null)
-                _ResultBlock(title: 'Results', body: _stringifyResults(results)),
+                _ResultBlock(
+                  title: 'Results',
+                  body: _stringifyResults(results),
+                ),
               if (resultSummary.isEmpty &&
                   interpretation.isEmpty &&
                   results == null)

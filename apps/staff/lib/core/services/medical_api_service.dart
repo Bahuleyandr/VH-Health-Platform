@@ -81,12 +81,14 @@ class MedicalApiService {
   static Future<Map<String, dynamic>> orderInvestigation({
     required int patientId,
     required String testName,
+    int? appointmentId,
     String type = 'LAB',
     String priority = 'NORMAL',
     String? notes,
   }) async {
     return _post('/investigations/order', {
       'patient_id': patientId,
+      'appointment_id': ?appointmentId,
       'test_name': testName,
       'type': type,
       'priority': priority,

@@ -246,6 +246,7 @@ async function getTimelineNotes(patientUid, dateFrom, dateTo) {
     sub_type: row.note_type,
     id: row.id,
     encounter_id: row.encounter_id,
+    appointment_id: row.appointment_id,
     summary: `${String(row.note_type || 'note').toUpperCase()}: ${stringifySummary(row.content, row.title || 'Clinical note')}`,
     timestamp: normalizeTime(row.created_at),
     payload: row,
@@ -471,6 +472,7 @@ async function getTimelineInvestigations(patientUid, dateFrom, dateTo) {
     where,
     select: {
       id: true,
+      appointment_id: true,
       uid: true,
       phone: true,
       test_name: true,
@@ -500,6 +502,7 @@ async function getTimelineInvestigations(patientUid, dateFrom, dateTo) {
       event_type: 'investigation',
       sub_type: row.status,
       id: row.id,
+      appointment_id: row.appointment_id,
       summary: `${row.test_name || row.test_type || row.investigation_type || 'Investigation'} - ${row.status || 'status unknown'}`,
       timestamp: normalizeTime(ts),
       payload: row,
@@ -579,6 +582,58 @@ async function getTimelineHandovers(patientUid, dateFrom, dateTo) {
     timestamp: normalizeTime(row.created_at),
     payload: row,
   }));
+}
+
+async function getTimelineReferrals(patientUid, dateFrom, dateTo) {
+  const where = { patient_uid: patientUid };
+  const dateFilter = buildDateFilter(dateFrom, dateTo);
+  if (dateFilter) where.created_at = dateFilter;
+
+  const rows = await optionalFindMany('referrals', () => prisma.referrals.findMany({
+    where,
+    select: {
+      id: true,
+      referral_number: true,
+      patient_uid: true,
+      encounter_id: true,
+      referring_doctor: true,
+      referred_to_doctor: true,
+      referred_to_department: true,
+      referral_type: true,
+      reason: true,
+      urgency: true,
+      clinical_summary: true,
+      status: true,
+      accepted_by: true,
+      accepted_at: true,
+      completed_at: true,
+      response_notes: true,
+      first_seen_at: true,
+      first_seen_by: true,
+      request_context: true,
+      source: true,
+      created_at: true,
+      updated_at: true,
+    },
+    orderBy: { created_at: 'desc' },
+  }));
+
+  return rows.map((row) => {
+    const requestContext = parseJsonObject(row.request_context);
+    const appointmentId = Number.parseInt(requestContext.appointment_id || requestContext.appointmentId, 10);
+    const timestamp = row.completed_at || row.accepted_at || row.first_seen_at || row.created_at;
+    const toLabel = row.referred_to_department || row.referred_to_doctor || 'specialist';
+    return {
+      event_type: 'referral',
+      sub_type: row.status || row.urgency || row.referral_type,
+      id: row.id,
+      encounter_id: row.encounter_id,
+      appointment_id: Number.isInteger(appointmentId) ? appointmentId : null,
+      summary: `Referral to ${toLabel}: ${row.reason || row.clinical_summary || row.status || 'reason not documented'}`,
+      timestamp: normalizeTime(timestamp),
+      payload: row,
+    };
+  });
 }
 
 // Pre-ORM admission-context allergy lookup did `allergies UNION ALL
@@ -739,6 +794,7 @@ export async function getPatientTimeline(patientUid, {
     investigations,
     orders,
     handovers,
+    referrals,
   ] = await Promise.all([
     getTimelineAdmissions(patientUid, dateFrom, dateTo),
     getTimelineNotes(patientUid, dateFrom, dateTo),
@@ -750,6 +806,7 @@ export async function getPatientTimeline(patientUid, {
     getTimelineInvestigations(patientUid, dateFrom, dateTo),
     getTimelineOrders(patientUid, dateFrom, dateTo),
     getTimelineHandovers(patientUid, dateFrom, dateTo),
+    getTimelineReferrals(patientUid, dateFrom, dateTo),
   ]);
 
   const sorter = sort === 'asc' ? oldestFirst : newestFirst;
@@ -764,6 +821,7 @@ export async function getPatientTimeline(patientUid, {
     ...investigations,
     ...orders,
     ...handovers,
+    ...referrals,
   ]
     .filter((event) => event.timestamp)
     .sort(sorter)

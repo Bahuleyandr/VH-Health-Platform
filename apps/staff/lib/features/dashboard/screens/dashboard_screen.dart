@@ -854,7 +854,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'patient_records',
       },
-      StaffRole.doctor => {
+      StaffRole.doctor || StaffRole.dutyDoctor => {
         'op_doctor_workspace',
         'clinical_ai_review_queue',
         'op_ai_assist',
@@ -1094,7 +1094,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ],
-      StaffRole.doctor => [
+      StaffRole.doctor || StaffRole.dutyDoctor => [
         _ClinicalServiceGroup(
           label: s.dashboardOpServices,
           emptyLabel: s.dashboardNoOpServices,
@@ -1106,9 +1106,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'op_ai_assist',
               'patient_records',
             ],
-            titleOverrides: {
-              'patient_records': s.dashboardOpPatientRecords,
-            },
+            titleOverrides: {'patient_records': s.dashboardOpPatientRecords},
             routeOverrides: _serviceContextRoutes('op'),
           ),
         ),
@@ -1125,9 +1123,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'discharge_hub',
               'patient_records',
             ],
-            titleOverrides: {
-              'patient_records': s.dashboardIpPatientRecords,
-            },
+            titleOverrides: {'patient_records': s.dashboardIpPatientRecords},
             routeOverrides: _serviceContextRoutes('ip'),
           ),
         ),

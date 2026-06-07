@@ -598,7 +598,7 @@ class RoleFeatures {
     id: 'op_doctor_workspace',
     title: 'OP Workspace',
     icon: Icons.fact_check_outlined,
-    route: '/appointments?context=op&scope=my',
+    route: '/appointments?context=op&scope=my&workspace=doctor',
     color: Color(0xFF00838F),
   );
   static const DashboardFeature _schedule = DashboardFeature(
@@ -649,6 +649,13 @@ class RoleFeatures {
     icon: Icons.manage_search,
     route: '/audit-logs',
     color: Color(0xFFC62828),
+  );
+  static const DashboardFeature _staffDiagnostics = DashboardFeature(
+    id: 'staff_diagnostics',
+    title: 'Diagnostics',
+    icon: Icons.monitor_heart_outlined,
+    route: '/staff-diagnostics',
+    color: Color(0xFF546E7A),
   );
   static const DashboardFeature _bedBoard = DashboardFeature(
     id: 'bed_board',
@@ -983,6 +990,7 @@ class RoleFeatures {
         _housekeepingTasks,
         _messaging,
         _auditLogs,
+        _staffDiagnostics,
         _profile,
         _settings,
       ],
@@ -1147,7 +1155,7 @@ class RoleFeatures {
   /// Returns role-specific bottom nav items with their routes.
   static List<BottomNavItem> getBottomNavForRole(StaffRole role) {
     return switch (role) {
-      StaffRole.doctor || StaffRole.dutyDoctor || StaffRole.anaesthetist => [
+      StaffRole.doctor || StaffRole.dutyDoctor => [
         const BottomNavItem(
           item: BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
@@ -1158,11 +1166,53 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month_outlined),
-            activeIcon: Icon(Icons.calendar_month),
-            label: 'Appointments',
+            icon: Icon(Icons.fact_check_outlined),
+            activeIcon: Icon(Icons.fact_check),
+            label: 'OP Workspace',
           ),
-          route: '/appointments',
+          route: '/appointments?context=op&scope=my&workspace=doctor',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.folder_shared_outlined),
+            activeIcon: Icon(Icons.folder_shared),
+            label: 'Records',
+          ),
+          route: '/patient-records',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.anaesthetist => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.local_hospital_outlined),
+            activeIcon: Icon(Icons.local_hospital),
+            label: 'Theatre',
+          ),
+          route: '/theatre',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -2071,10 +2121,10 @@ class RoleFeatures {
     if (role == StaffRole.doctor || role == StaffRole.dutyDoctor) {
       items.add(
         const WorkbenchNavItem(
-          label: 'Appointments',
-          icon: Icons.calendar_month_outlined,
-          selectedIcon: Icons.calendar_month,
-          route: '/appointments',
+          label: 'OP Workspace',
+          icon: Icons.fact_check_outlined,
+          selectedIcon: Icons.fact_check,
+          route: '/appointments?context=op&scope=my&workspace=doctor',
         ),
       );
     }
@@ -2158,14 +2208,20 @@ class RoleFeatures {
     ]);
 
     if (role.isAdminTier) {
-      items.add(
-        const WorkbenchNavItem(
+      items.addAll(const [
+        WorkbenchNavItem(
           label: 'Audit Logs',
           icon: Icons.manage_search_outlined,
           selectedIcon: Icons.manage_search,
           route: '/audit-logs',
         ),
-      );
+        WorkbenchNavItem(
+          label: 'Diagnostics',
+          icon: Icons.monitor_heart_outlined,
+          selectedIcon: Icons.monitor_heart,
+          route: '/staff-diagnostics',
+        ),
+      ]);
     }
 
     items.addAll(const [

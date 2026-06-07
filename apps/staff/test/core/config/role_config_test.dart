@@ -126,7 +126,14 @@ void main() {
     test('doctor gets clinical features but NOT HR dashboard', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.doctor);
       final ids = feats.map((f) => f.id).toSet();
+      final opWorkspace = feats.singleWhere(
+        (feature) => feature.id == 'op_doctor_workspace',
+      );
       expect(ids, contains('op_doctor_workspace'));
+      expect(
+        opWorkspace.route,
+        '/appointments?context=op&scope=my&workspace=doctor',
+      );
       expect(ids, contains('patient_records'));
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('op_ai_assist'));
@@ -206,17 +213,20 @@ void main() {
       expect(ids, isNot(contains('hr_dashboard')));
     });
 
-    test('stores/purchase role sees inventory workspace without clinical tools', () {
-      final feats = RoleFeatures.getFeaturesForRole(
-        StaffRole.storesPurchaseIncharge,
-      );
-      final ids = feats.map((f) => f.id).toSet();
-      expect(ids, contains('pharmacy_orders'));
-      expect(ids, contains('staff_directory'));
-      expect(ids, isNot(contains('patient_command_board')));
-      expect(ids, isNot(contains('clinical_ai_review_queue')));
-      expect(ids, isNot(contains('patient_records')));
-    });
+    test(
+      'stores/purchase role sees inventory workspace without clinical tools',
+      () {
+        final feats = RoleFeatures.getFeaturesForRole(
+          StaffRole.storesPurchaseIncharge,
+        );
+        final ids = feats.map((f) => f.id).toSet();
+        expect(ids, contains('pharmacy_orders'));
+        expect(ids, contains('staff_directory'));
+        expect(ids, isNot(contains('patient_command_board')));
+        expect(ids, isNot(contains('clinical_ai_review_queue')));
+        expect(ids, isNot(contains('patient_records')));
+      },
+    );
 
     test(
       'lab role sees investigations upload + lab bookings, nothing clinical',
@@ -264,6 +274,7 @@ void main() {
         expect(ids, contains('clinical_ai_review_queue'));
         expect(ids, isNot(contains('op_ai_assist')));
         expect(ids, isNot(contains('staff_directory')));
+        expect(ids, contains('staff_diagnostics'));
         expect(ids, contains('theatre'));
         expect(ids, contains('blood_bank'));
         expect(ids, contains('front_office_workbench'));
@@ -430,6 +441,11 @@ void main() {
           role == StaffRole.admin || role == StaffRole.superAdmin,
           reason: '$role audit log visibility drifted',
         );
+        expect(
+          ids.contains('staff_diagnostics'),
+          role == StaffRole.admin || role == StaffRole.superAdmin,
+          reason: '$role diagnostics visibility drifted',
+        );
       }
     });
   });
@@ -513,6 +529,30 @@ void main() {
       );
       expect(
         RoleFeatures.getBottomNavForRole(
+          StaffRole.doctor,
+        ).map((item) => item.route),
+        contains('/appointments?context=op&scope=my&workspace=doctor'),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
+          StaffRole.doctor,
+        ).map((item) => item.route),
+        isNot(contains('/appointments')),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
+          StaffRole.anaesthetist,
+        ).map((item) => item.route),
+        contains('/theatre'),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
+          StaffRole.anaesthetist,
+        ).map((item) => item.route),
+        isNot(contains('/appointments')),
+      );
+      expect(
+        RoleFeatures.getBottomNavForRole(
           StaffRole.billingStaff,
         ).map((item) => item.route),
         containsAll(['/billing-desk', '/front-office']),
@@ -551,6 +591,9 @@ void main() {
           .map((item) => item.route)
           .toSet();
       final doctorRoutes = doctorNav.map((item) => item.route).toSet();
+      final doctorLabels = {
+        for (final item in doctorNav) item.route: item.label,
+      };
       final admissionsLabel = receptionistNav
           .singleWhere((item) => item.route == '/emr/admissions')
           .label;
@@ -565,7 +608,15 @@ void main() {
       expect(admissionsLabel, 'IP Admissions');
       expect(receptionistRoutes, isNot(contains('/appointment-queue')));
       expect(doctorRoutes, contains('/patient-records'));
-      expect(doctorRoutes, contains('/appointments'));
+      expect(
+        doctorRoutes,
+        contains('/appointments?context=op&scope=my&workspace=doctor'),
+      );
+      expect(
+        doctorLabels['/appointments?context=op&scope=my&workspace=doctor'],
+        'OP Workspace',
+      );
+      expect(doctorRoutes, isNot(contains('/appointments')));
       expect(doctorRoutes, isNot(contains('/front-office')));
       expect(patientRecordsLabel, 'Patient Records');
       expect(doctorRoutes, isNot(contains('/appointment-queue')));
@@ -605,6 +656,11 @@ void main() {
           routes.contains('/audit-logs'),
           role == StaffRole.admin || role == StaffRole.superAdmin,
           reason: '$role audit side bar visibility drifted',
+        );
+        expect(
+          routes.contains('/staff-diagnostics'),
+          role == StaffRole.admin || role == StaffRole.superAdmin,
+          reason: '$role diagnostics side bar visibility drifted',
         );
       }
     });

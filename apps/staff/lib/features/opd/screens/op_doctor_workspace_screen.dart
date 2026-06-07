@@ -143,6 +143,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
             ? 'op_consultation'
             : _clean(note['note_type']),
         'id': note['id'],
+        'appointment_id':
+            _asInt(note['appointment_id']) ?? _asInt(content['appointment_id']),
         'title': _clean(note['title']).isEmpty
             ? 'OP consultation note'
             : _clean(note['title']),
@@ -183,6 +185,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
             ? _clean(rx['lifecycle_status'])
             : _clean(rx['status']),
         'id': rx['id'],
+        'appointment_id': _asInt(rx['appointment_id']) ?? appointmentId,
         'title': _clean(rx['prescription_number']).isNotEmpty
             ? 'Prescription ${_clean(rx['prescription_number'])}'
             : 'OP prescription',
@@ -319,11 +322,22 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   String get _investigationsRoute {
     final params = <String>[
       'patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
+      if (widget.appointmentId != null)
+        'appointment_id=${widget.appointmentId}',
       if (widget.patientId != null) 'patient_id=${widget.patientId}',
       if (_clean(widget.patientPhone).isNotEmpty)
         'phone=${Uri.encodeQueryComponent(_clean(widget.patientPhone))}',
       if (_clean(widget.patientName).isNotEmpty)
         'name=${Uri.encodeQueryComponent(_clean(widget.patientName))}',
+      if (widget.doctorId != null) 'doctor_id=${widget.doctorId}',
+      if (_clean(widget.doctorName).isNotEmpty)
+        'doctor_name=${Uri.encodeQueryComponent(_clean(widget.doctorName))}',
+      if (_clean(widget.department).isNotEmpty)
+        'department=${Uri.encodeQueryComponent(_clean(widget.department))}',
+      if (_clean(widget.appointmentDate).isNotEmpty)
+        'appointment_date=${Uri.encodeQueryComponent(_clean(widget.appointmentDate))}',
+      if (_clean(widget.appointmentTime).isNotEmpty)
+        'appointment_time=${Uri.encodeQueryComponent(_clean(widget.appointmentTime))}',
       'context=op',
     ];
     return '/investigations?${params.join('&')}';
@@ -1013,16 +1027,38 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   bool _hasEventType(Set<String> types) {
     return _events.any((event) {
       final type = _clean(event['event_type']).toLowerCase();
-      return types.contains(type);
+      return types.contains(type) && _eventBelongsToCurrentVisit(event);
     });
   }
 
   Map<String, dynamic>? _latestEvent(Set<String> types) {
     for (final event in _events) {
       final type = _clean(event['event_type']).toLowerCase();
-      if (types.contains(type)) return event;
+      if (types.contains(type) && _eventBelongsToCurrentVisit(event)) {
+        return event;
+      }
     }
     return null;
+  }
+
+  bool _eventBelongsToCurrentVisit(Map<String, dynamic> event) {
+    final appointmentId = widget.appointmentId;
+    if (appointmentId == null) return true;
+
+    final payload = _asMap(event['payload'] ?? event['data'] ?? event['meta']);
+    final content = _asMap(payload['content']);
+    final details = _asMap(payload['details']);
+    final candidateIds = <int?>[
+      _asInt(event['appointment_id']),
+      _asInt(event['appointmentId']),
+      _asInt(payload['appointment_id']),
+      _asInt(payload['appointmentId']),
+      _asInt(content['appointment_id']),
+      _asInt(content['appointmentId']),
+      _asInt(details['appointment_id']),
+      _asInt(details['appointmentId']),
+    ];
+    return candidateIds.any((id) => id == appointmentId);
   }
 
   String? _eventTitle(Map<String, dynamic>? event) {

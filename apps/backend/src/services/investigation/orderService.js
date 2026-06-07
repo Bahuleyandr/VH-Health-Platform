@@ -22,6 +22,7 @@ const INVESTIGATION_SELECT = {
   phone: true,
   patient_id: true,
   patient_uid: true,
+  appointment_id: true,
   test_name: true,
   test_type: true,
   status: true,
@@ -40,7 +41,7 @@ const INVESTIGATION_SELECT = {
 
 export const createInvestigationOrder = async (orderData) => {
   const {
-    patient_id, doctor_uid, test_name, test_code, type,
+    patient_id, appointment_id, doctor_uid, test_name, test_code, type,
     priority = 'NORMAL', notes, orderedBy,
     collection_location, collection_deadline_at,
     fasting_required, fasting_instructions,
@@ -90,6 +91,33 @@ export const createInvestigationOrder = async (orderData) => {
     e.statusCode = 404;
     e.code = 'PATIENT_NOT_FOUND';
     throw e;
+  }
+
+  let appointmentIdNum = null;
+  if (appointment_id !== undefined && appointment_id !== null && String(appointment_id).trim() !== '') {
+    appointmentIdNum = Number(appointment_id);
+    if (!Number.isInteger(appointmentIdNum) || appointmentIdNum < 1) {
+      const e = new Error('INVALID_APPOINTMENT_ID');
+      e.statusCode = 400;
+      e.code = 'INVALID_APPOINTMENT_ID';
+      throw e;
+    }
+    const appointment = await prisma.appointments.findUnique({
+      where: { id: appointmentIdNum },
+      select: { id: true, patient_id: true, doctor_id: true, status: true },
+    });
+    if (!appointment) {
+      const e = new Error('APPOINTMENT_NOT_FOUND');
+      e.statusCode = 404;
+      e.code = 'APPOINTMENT_NOT_FOUND';
+      throw e;
+    }
+    if (appointment.patient_id !== patient.id) {
+      const e = new Error('APPOINTMENT_PATIENT_MISMATCH');
+      e.statusCode = 400;
+      e.code = 'APPOINTMENT_PATIENT_MISMATCH';
+      throw e;
+    }
   }
 
   // E-6 — validate test_code against the catalog when supplied.
@@ -226,6 +254,7 @@ export const createInvestigationOrder = async (orderData) => {
       phone: patient.phone || 'unknown',
       patient_id: parseInt(patient_id),
       patient_uid: patient.uid || null,
+      appointment_id: appointmentIdNum,
       test_name,
       test_code: resolvedTestCode,
       test_type: typeUpper,

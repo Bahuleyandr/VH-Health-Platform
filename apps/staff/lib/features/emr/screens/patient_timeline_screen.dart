@@ -48,6 +48,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     'drug_chart',
     'medication',
     'investigation',
+    'referral',
     'discharge',
   ];
 
@@ -114,6 +115,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       case 'prescription':
       case 'op_prescription':
         return 'medication';
+      case 'referral':
+      case 'ward_referral':
+      case 'cross_referral':
+        return 'referral';
       default:
         return value.isEmpty ? 'event' : value;
     }
@@ -135,6 +140,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         return Icons.medication;
       case 'investigation':
         return Icons.biotech;
+      case 'referral':
+        return Icons.call_split_outlined;
       case 'discharge':
         return Icons.exit_to_app;
       default:
@@ -158,6 +165,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         return const Color(0xFFE65100); // Deep orange
       case 'investigation':
         return const Color(0xFF558B2F); // Light green dark
+      case 'referral':
+        return AppTheme.warningOnSurface;
       case 'discharge':
         return AppTheme.successGreen;
       default:
@@ -193,6 +202,15 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
               .toString()
               .trim();
       return 'Drug chart - $med';
+    }
+    if (type == 'referral') {
+      final dept =
+          (payload['referred_to_department'] ??
+                  payload['department'] ??
+                  'specialist')
+              .toString()
+              .trim();
+      return 'Referral - $dept';
     }
     return AppStrings.of(context).timelineEventTitle(type);
   }
@@ -452,6 +470,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
         return s.timelineFilterMedication;
       case 'investigation':
         return s.timelineFilterInvestigation;
+      case 'referral':
+        return 'Referrals';
       case 'discharge':
         return s.timelineFilterDischarge;
       default:

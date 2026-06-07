@@ -82,6 +82,7 @@ export const orderInvestigation = async (req, res) => {
     await logAudit(req, 'investigation-ordered', { 
       investigation_id: result.investigation.id,
       patient_id: result.investigation.patient_id,
+      appointment_id: result.investigation.appointment_id || null,
       test_name: result.investigation.test_name,
       type: result.investigation.type
     });
@@ -115,6 +116,18 @@ export const orderInvestigation = async (req, res) => {
         400,
         { code: 'MISSING_REQUIRED_FIELDS' },
       );
+    } else if (err.message === 'INVALID_APPOINTMENT_ID') {
+      return error(res, 'appointment_id must be a valid appointment id', 400, {
+        code: 'INVALID_APPOINTMENT_ID',
+      });
+    } else if (err.message === 'APPOINTMENT_NOT_FOUND') {
+      return error(res, 'Appointment not found', 404, {
+        code: 'APPOINTMENT_NOT_FOUND',
+      });
+    } else if (err.message === 'APPOINTMENT_PATIENT_MISMATCH') {
+      return error(res, 'Appointment does not belong to this patient', 400, {
+        code: 'APPOINTMENT_PATIENT_MISMATCH',
+      });
     }
 
     error(res, 'Failed to order investigation', HTTP_STATUS.INTERNAL_SERVER_ERROR);

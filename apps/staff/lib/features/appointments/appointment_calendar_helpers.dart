@@ -1,5 +1,18 @@
 import 'models/staff_appointment.dart';
 
+const List<String> appointmentCalendarStatusFilters = [
+  'all',
+  'scheduled',
+  'confirmed',
+  'completed',
+  'rescheduled',
+  'no_show',
+  'cancelled',
+];
+
+String appointmentStatusFilterLabel(String status) =>
+    status.replaceAll('_', ' ').toUpperCase();
+
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);
 

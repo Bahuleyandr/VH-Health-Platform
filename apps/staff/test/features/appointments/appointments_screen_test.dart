@@ -4,6 +4,23 @@ import 'package:vhhealth_staff/features/appointments/screens/appointments_screen
 
 void main() {
   group('appointment calendar helpers', () {
+    test(
+      'status filters include rescheduled visits for same-day traceability',
+      () {
+        expect(appointmentCalendarStatusFilters, [
+          'all',
+          'scheduled',
+          'confirmed',
+          'completed',
+          'rescheduled',
+          'no_show',
+          'cancelled',
+        ]);
+        expect(appointmentStatusFilterLabel('rescheduled'), 'RESCHEDULED');
+        expect(appointmentStatusFilterLabel('no_show'), 'NO SHOW');
+      },
+    );
+
     test('uses Monday as the start of the displayed week', () {
       expect(appointmentWeekStart(DateTime(2026, 6, 2)), DateTime(2026, 6, 1));
       expect(appointmentWeekStart(DateTime(2026, 6, 7)), DateTime(2026, 6, 1));

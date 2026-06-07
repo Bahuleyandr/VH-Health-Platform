@@ -5514,6 +5514,7 @@ model investigations {
   uid                                      String?                             @db.Uuid
   phone                                    String                              @db.VarChar(15)
   patient_id                               Int?
+  appointment_id                           Int?
   test_name                                String                              @db.VarChar(255)
   test_type                                String?                             @db.VarChar(100)
   status                                   String                              @default("REQUESTED") @db.VarChar(50)
@@ -5581,6 +5582,7 @@ model investigations {
   @@index([scheduled_date], map: "idx_investigations_scheduled_date")
   @@index([structured_results], map: "idx_investigations_structured", type: Gin)
   @@index([patient_id])
+  @@index([appointment_id], map: "idx_investigations_appointment_id", where: raw("(appointment_id IS NOT NULL)"))
   @@index([phone])
   @@index([priority])
   @@index([status])

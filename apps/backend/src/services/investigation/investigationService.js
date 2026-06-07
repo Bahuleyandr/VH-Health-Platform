@@ -42,6 +42,7 @@ const INV_LIST_SELECT_BASE = {
   completed_at: true,
   notes: true,
   patient_id: true,
+  appointment_id: true,
   requested_by: true,
   created_at: true,
   updated_at: true,

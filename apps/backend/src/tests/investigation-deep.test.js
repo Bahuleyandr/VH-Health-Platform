@@ -62,10 +62,15 @@ describe('Investigation order workflow — deep integration', () => {
   const lab = labAs();
   let patientIntId;
   let doctorIntId;
+  let visitAppointmentId;
+  let mismatchAppointmentId;
+  let otherPatientIntId;
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE);
     await prisma.$executeRawUnsafe(`DELETE FROM notifications WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE);
+    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE phone IN ($1, '9000050999')`, PATIENT_PHONE);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE phone = '9000050999'`);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DOCTOR_UID, LAB_UID);
 
     const p = await prisma.$queryRawUnsafe(
@@ -85,11 +90,52 @@ describe('Investigation order workflow — deep integration', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, '9000050003', 'Investigation Test Lab Staff', 'LAB_STAFF', true, NOW())`,
       LAB_UID);
+
+    const a = await prisma.$queryRawUnsafe(
+      `INSERT INTO appointments
+         (phone, patient_id, doctor_id, doctor_name, patient_name,
+          appointment_date, appointment_time, status, department, reason,
+          created_at, updated_at)
+       VALUES
+         ($1, $2::int, $3::int, 'Investigation Test Doctor',
+          'Investigation Test Patient', CURRENT_DATE, '12:45',
+          'CONFIRMED', 'Cardiology', 'OP investigation visit', NOW(), NOW())
+       RETURNING id`,
+      PATIENT_PHONE,
+      patientIntId,
+      doctorIntId,
+    );
+    visitAppointmentId = a[0].id;
+
+    const other = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, updated_at)
+       VALUES ('9000050999', 'Other Investigation Patient', 'PATIENT', true, NOW())
+       RETURNING id`);
+    otherPatientIntId = other[0].id;
+    const mismatch = await prisma.$queryRawUnsafe(
+      `INSERT INTO appointments
+         (phone, patient_id, doctor_id, doctor_name, patient_name,
+          appointment_date, appointment_time, status, department, reason,
+          created_at, updated_at)
+       VALUES
+         ('9000050999', $1::int, $2::int, 'Investigation Test Doctor',
+          'Other Investigation Patient', CURRENT_DATE, '13:15',
+          'CONFIRMED', 'Cardiology', 'Mismatch appointment', NOW(), NOW())
+       RETURNING id`,
+      otherPatientIntId,
+      doctorIntId,
+    );
+    mismatchAppointmentId = mismatch[0].id;
   });
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM notifications WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE phone IN ($1, '9000050999')`, PATIENT_PHONE).catch(() => {});
+    if (otherPatientIntId) {
+      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE id = $1::int`, otherPatientIntId).catch(() => {});
+    }
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE phone = '9000050999'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DOCTOR_UID, LAB_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -157,6 +203,37 @@ describe('Investigation order workflow — deep integration', () => {
       expect(row[0].status).toBe('REQUESTED');
       expect(row[0].requested_by).toBe(DOCTOR_UID);
       expect(row[0].requested_at).toBeTruthy();
+    });
+
+    it('binds OP investigation orders to the current appointment visit', async () => {
+      const res = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        appointment_id: visitAppointmentId,
+        test_name: 'ECG visit scoped',
+        type: 'CARDIOLOGY',
+        priority: 'NORMAL',
+      });
+      expect(res.statusCode).toBe(200);
+      const inv = res.body.data.investigation;
+      expect(inv.appointment_id).toBe(visitAppointmentId);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT appointment_id FROM investigations WHERE id = $1::int`,
+        inv.id,
+      );
+      expect(Number(rows[0].appointment_id)).toBe(visitAppointmentId);
+    });
+
+    it('rejects appointment context that belongs to a different patient', async () => {
+      const res = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        appointment_id: mismatchAppointmentId,
+        test_name: 'ECG mismatch should fail',
+        type: 'CARDIOLOGY',
+        priority: 'NORMAL',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/does not belong/i);
     });
 
     it('shows newly requested investigations in pending worklists', async () => {

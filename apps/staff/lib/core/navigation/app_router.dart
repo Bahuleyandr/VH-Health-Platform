@@ -64,6 +64,7 @@ import '../../features/directory/screens/staff_directory_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/audit/screens/audit_logs_screen.dart';
 import '../../features/safety/screens/safety_center_screen.dart';
+import '../../features/diagnostics/screens/staff_diagnostics_screen.dart';
 
 // Schedule
 import '../../features/schedule/screens/schedule_screen.dart';
@@ -228,11 +229,16 @@ final GoRouter appRouter = GoRouter(
           path: '/appointments',
           name: 'appointments',
           pageBuilder: (context, state) {
-            final initialDate = DateTime.tryParse(
-              state.uri.queryParameters['date'] ?? '',
-            );
+            final q = state.uri.queryParameters;
+            final initialDate = DateTime.tryParse(q['date'] ?? '');
+            final workspaceMode =
+                q['workspace'] == 'doctor' ||
+                (q['context'] == 'op' && q['scope'] == 'my');
             return NoTransitionPage(
-              child: AppointmentsScreen(initialDate: initialDate),
+              child: AppointmentsScreen(
+                initialDate: initialDate,
+                workspaceMode: workspaceMode,
+              ),
             );
           },
         ),
@@ -249,6 +255,11 @@ final GoRouter appRouter = GoRouter(
                 initialPatientPhone: q['phone'],
                 initialPatientName: q['name'],
                 initialHospitalNumber: q['hospital_number'],
+                initialAppointmentId: q['appointment_id'],
+                initialDoctorName: q['doctor_name'],
+                initialDepartment: q['department'],
+                initialAppointmentDate: q['appointment_date'],
+                initialAppointmentTime: q['appointment_time'],
               ),
             );
           },
@@ -705,6 +716,12 @@ final GoRouter appRouter = GoRouter(
           name: 'audit-logs',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: AuditLogsScreen()),
+        ),
+        GoRoute(
+          path: '/staff-diagnostics',
+          name: 'staff-diagnostics',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: StaffDiagnosticsScreen()),
         ),
 
         // About
