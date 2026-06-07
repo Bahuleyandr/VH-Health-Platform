@@ -52,7 +52,10 @@ export const idValidator = [
 
 export const updateStatusValidator = [
   param('id').isInt({ min: 1 }).withMessage('Valid ID required'),
-  body('status').isIn(Object.values(INVESTIGATION_STATUS)).withMessage('Invalid status'),
+  body('status')
+    .customSanitizer((v) => v?.toString().trim().toUpperCase())
+    .isIn(Object.values(INVESTIGATION_STATUS))
+    .withMessage('Invalid status'),
   body('notes').optional().trim().isLength({ max: 1000 }).withMessage('Notes too long')
 ];
 
@@ -71,7 +74,11 @@ export const listInvestigationsValidator = [
   query('patient_uid').optional().isUUID().withMessage('Valid patient UID required'),
   query('doctor_id').optional().isInt({ min: 1 }).withMessage('Valid doctor ID required'),
   query('type').optional().isIn(Object.values(INVESTIGATION_TYPES)).withMessage('Invalid type'),
-  query('status').optional().isIn(Object.values(INVESTIGATION_STATUS)).withMessage('Invalid status'),
+  query('status')
+    .optional()
+    .customSanitizer((v) => v?.toString().trim().toUpperCase())
+    .isIn(Object.values(INVESTIGATION_STATUS))
+    .withMessage('Invalid status'),
   query('date').optional().isISO8601().withMessage('Valid date required')
 ];
 

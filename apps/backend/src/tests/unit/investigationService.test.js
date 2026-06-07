@@ -19,7 +19,12 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   },
 }));
 
-const { getInvestigations, updateStatus } = await import('../../services/investigation/investigationService.js');
+const {
+  getDoctorInvestigations,
+  getInvestigations,
+  getPendingInvestigations,
+  updateStatus,
+} = await import('../../services/investigation/investigationService.js');
 
 const LAB_TECH_UID = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-05-15T10:00:00.000Z');
@@ -73,6 +78,37 @@ describe('investigationService.updateStatus', () => {
     expect(result.collected_at).toEqual(NOW);
     expect(result.collected_by).toBe(LAB_TECH_UID);
     expect(result.sample_barcode).toMatch(/^INV-K-/);
+  });
+});
+
+describe('investigationService pending worklists', () => {
+  it('treats PENDING as a queue alias for REQUESTED and legacy PENDING rows', async () => {
+    findManyMock.mockResolvedValueOnce([]);
+
+    const result = await getPendingInvestigations({});
+
+    expect(findManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        status: { in: ['REQUESTED', 'PENDING'] },
+      },
+    }));
+    expect(result.count).toBe(0);
+  });
+
+  it('uses the same PENDING alias for doctor-scoped investigation queues', async () => {
+    const doctorUid = '22222222-2222-4222-8222-222222222222';
+    findUniqueMock.mockResolvedValueOnce({ uid: doctorUid });
+    findManyMock.mockResolvedValueOnce([]);
+
+    const result = await getDoctorInvestigations(99, { status: 'PENDING' });
+
+    expect(findManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        requested_by: doctorUid,
+        status: { in: ['REQUESTED', 'PENDING'] },
+      },
+    }));
+    expect(result.count).toBe(0);
   });
 });
 

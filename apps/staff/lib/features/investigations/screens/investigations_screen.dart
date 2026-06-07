@@ -965,12 +965,12 @@ class _PendingTabState extends State<_PendingTab> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => _updateStatus(id, 'in_progress'),
+                        onPressed: () => _updateStatus(id, 'IN_PROGRESS'),
                         child: Text(s.investigationsStartButton),
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: () => _updateStatus(id, 'completed'),
+                        onPressed: () => _updateStatus(id, 'COMPLETED'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.successGreen,
                         ),

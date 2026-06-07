@@ -61,6 +61,7 @@ describe('Investigation order workflow — deep integration', () => {
   const doctor = doctorAs();
   const lab = labAs();
   let patientIntId;
+  let doctorIntId;
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE);
@@ -74,10 +75,12 @@ describe('Investigation order workflow — deep integration', () => {
       PATIENT_UID, PATIENT_PHONE);
     patientIntId = p[0].id;
 
-    await prisma.$executeRawUnsafe(
+    const d = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9000050002', 'Investigation Test Doctor', 'DOCTOR', true, NOW())`,
+       VALUES ($1::uuid, '9000050002', 'Investigation Test Doctor', 'DOCTOR', true, NOW())
+       RETURNING id`,
       DOCTOR_UID);
+    doctorIntId = d[0].id;
     await prisma.$executeRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, '9000050003', 'Investigation Test Lab Staff', 'LAB_STAFF', true, NOW())`,
@@ -154,6 +157,27 @@ describe('Investigation order workflow — deep integration', () => {
       expect(row[0].status).toBe('REQUESTED');
       expect(row[0].requested_by).toBe(DOCTOR_UID);
       expect(row[0].requested_at).toBeTruthy();
+    });
+
+    it('shows newly requested investigations in pending worklists', async () => {
+      const res = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        test_name: 'ECG Pending Visibility',
+        type: 'CARDIOLOGY',
+        priority: 'NORMAL',
+      });
+      expect(res.statusCode).toBe(200);
+      const invId = res.body.data.investigation.id;
+      expect(res.body.data.investigation.status).toBe('REQUESTED');
+
+      const pending = await lab.get('/api/v1/investigations/status/pending');
+      expect(pending.statusCode).toBe(200);
+      expect(pending.body.data.investigations.map((i) => i.id)).toContain(invId);
+
+      const doctorQueue = await doctor.get(`/api/v1/investigations/doctor/${doctorIntId}`);
+      expect(doctorQueue.statusCode).toBe(200);
+      expect(doctorQueue.body.data.investigations.map((i) => i.id)).toContain(invId);
+      expect(doctorQueue.body.data.filters.status).toBe('PENDING');
     });
 
     it('defaults actionable collection instructions for doctor-created lab orders', async () => {
@@ -239,6 +263,23 @@ describe('Investigation order workflow — deep integration', () => {
       expect(rows[0].collected_at).toBeTruthy();
       expect(rows[0].sample_barcode).toBeTruthy();
       expect(rows[0].verified_at).toBeTruthy();
+    });
+
+    it('accepts lowercase status updates from legacy staff clients', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        test_name: 'Legacy lowercase status ECG',
+        type: 'CARDIOLOGY',
+        priority: 'NORMAL',
+      });
+      expect(order.statusCode).toBe(200);
+      const invId = order.body.data.investigation.id;
+
+      const started = await lab.put(`/api/v1/investigations/${invId}/status`).send({
+        status: 'in_progress',
+      });
+      expect(started.statusCode).toBe(200);
+      expect(started.body.data.investigation.status).toBe('IN_PROGRESS');
     });
 
     it('exposes lab sample collect, barcode lookup, and rejection APIs', async () => {

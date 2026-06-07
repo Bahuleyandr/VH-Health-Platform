@@ -16,6 +16,19 @@ import { buildPagination } from '../../utils/listQuery.js';
 const REL_PATIENT = 'users_investigations_patient_idTousers';
 const REL_DOCTOR = 'users_investigations_requested_byTousers';
 
+const PENDING_INVESTIGATION_STATUSES = [
+  INVESTIGATION_STATUS.REQUESTED,
+  INVESTIGATION_STATUS.PENDING,
+];
+
+function statusFilterForQueue(status) {
+  const normalizedStatus = status?.toString().trim().toUpperCase();
+  if (!normalizedStatus || normalizedStatus === INVESTIGATION_STATUS.PENDING) {
+    return { in: PENDING_INVESTIGATION_STATUSES };
+  }
+  return normalizedStatus;
+}
+
 // Shape of the investigation columns the list views select. Kept as
 // Prisma-select objects rather than SELECT-strings so column renames in
 // schema.prisma surface as PrismaClientValidationError at query construction.
@@ -403,7 +416,7 @@ export const getDoctorInvestigations = async (doctorId, filters) => {
 
   const where = {
     requested_by: doctorRow.uid,
-    status: status.toUpperCase(),
+    status: statusFilterForQueue(status),
   };
   if (date) where.requested_at = dateRangeFilter(date);
 
@@ -482,7 +495,7 @@ export const getInvestigationsByType = async (type, filters) => {
 export const getPendingInvestigations = async (filters) => {
   const { type, priority } = filters;
 
-  const where = { status: 'PENDING' };
+  const where = { status: { in: PENDING_INVESTIGATION_STATUSES } };
   if (type) where.test_type = type.toUpperCase();
   if (priority) where.priority = priority.toUpperCase();
 
