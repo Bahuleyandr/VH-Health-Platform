@@ -66,6 +66,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _commandCenterLoading = false;
   String? _commandCenterError;
   List<Map<String, dynamic>> _todayCards = [];
+  bool _todayExpanded = false;
 
   // Stats-strip data (lifted from individual widgets so the strip can
   // render at the top with the same numbers without each widget
@@ -609,7 +610,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     physics: isGuest
                         ? const NeverScrollableScrollPhysics()
                         : const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.only(bottom: isGuest ? 8 : 32),
+                    padding: EdgeInsets.only(bottom: isGuest ? 96 : 128),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -633,23 +634,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               onPointsTap: () =>
                                   _openFeature(context, '/health-points'),
                               onStepsTap: () => _openFeature(context, '/steps'),
-                            ),
-                          ),
-
-                        // ── Today ────────────────────────────────────────
-                        if (hasTodaySection)
-                          stagger(
-                            DashboardSection(
-                              label: 'Today',
-                              accent: DashboardAccents.today,
-                              tinted: true,
-                              child: CommandCenterToday(
-                                cards: _todayCards,
-                                loading: _commandCenterLoading,
-                                error: _commandCenterError,
-                                onRetry: _fetchAndStoreDashboard,
-                                onOpenCard: _openTodayCard,
-                              ),
                             ),
                           ),
 
@@ -696,6 +680,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ),
                         ),
+
+                        // ── Today ────────────────────────────────────────
+                        if (hasTodaySection)
+                          stagger(
+                            DashboardSection(
+                              label: 'Today',
+                              accent: DashboardAccents.today,
+                              tinted: true,
+                              child: _TodayCommandPanel(
+                                expanded: _todayExpanded,
+                                cards: _todayCards,
+                                loading: _commandCenterLoading,
+                                error: _commandCenterError,
+                                onToggle: () => setState(
+                                  () => _todayExpanded = !_todayExpanded,
+                                ),
+                                onRetry: _fetchAndStoreDashboard,
+                                onOpenCard: _openTodayCard,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -705,13 +710,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'sos',
-        tooltip: l10n.authSosTooltip,
-        backgroundColor: Colors.red,
-        onPressed: _triggerSOS,
-        child: const Icon(Icons.favorite),
-      ),
+      floatingActionButton: _todayExpanded
+          ? FloatingActionButton.small(
+              heroTag: 'sos',
+              tooltip: l10n.authSosTooltip,
+              backgroundColor: Colors.red,
+              onPressed: _triggerSOS,
+              child: const Icon(Icons.favorite),
+            )
+          : FloatingActionButton(
+              heroTag: 'sos',
+              tooltip: l10n.authSosTooltip,
+              backgroundColor: Colors.red,
+              onPressed: _triggerSOS,
+              child: const Icon(Icons.favorite),
+            ),
+      floatingActionButtonLocation: _todayExpanded
+          ? const _LiftedEndFloatLocation(220)
+          : FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -761,5 +777,130 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _formatLastVitalsLabel() {
     if (_wellnessScore == null) return null;
     return 'Wellness $_wellnessScore/100';
+  }
+}
+
+class _LiftedEndFloatLocation extends StandardFabLocation
+    with FabEndOffsetX, FabFloatOffsetY {
+  final double lift;
+
+  const _LiftedEndFloatLocation(this.lift);
+
+  @override
+  double getOffsetY(
+    ScaffoldPrelayoutGeometry scaffoldGeometry,
+    double adjustment,
+  ) {
+    return super.getOffsetY(scaffoldGeometry, adjustment) - lift;
+  }
+}
+
+class _TodayCommandPanel extends StatelessWidget {
+  final bool expanded;
+  final List<Map<String, dynamic>> cards;
+  final bool loading;
+  final String? error;
+  final VoidCallback onToggle;
+  final VoidCallback onRetry;
+  final ValueChanged<Map<String, dynamic>> onOpenCard;
+
+  const _TodayCommandPanel({
+    required this.expanded,
+    required this.cards,
+    required this.loading,
+    required this.error,
+    required this.onToggle,
+    required this.onRetry,
+    required this.onOpenCard,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final count = cards.length;
+    final summary = loading && count == 0
+        ? 'Refreshing your next steps'
+        : error != null && count == 0
+        ? 'Tap to retry Today'
+        : count == 0
+        ? 'No urgent items right now'
+        : count == 1
+        ? '1 item waiting'
+        : '$count items waiting';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: DashboardAccents.today.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    loading ? LucideIcons.refreshCw : LucideIcons.calendarDays,
+                    size: 22,
+                    color: DashboardAccents.today,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        expanded ? 'Hide Today' : 'Show Today',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        summary,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  color: cs.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: expanded
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: CommandCenterToday(
+                    cards: cards,
+                    loading: loading,
+                    error: error,
+                    onRetry: onRetry,
+                    onOpenCard: onOpenCard,
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
   }
 }

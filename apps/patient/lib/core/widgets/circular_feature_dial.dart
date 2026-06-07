@@ -206,76 +206,90 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
 
     final theme = Theme.of(context);
     final screenSize = MediaQuery.sizeOf(context);
-    final shortestSide = min(screenSize.width, screenSize.height);
-    final diameter =
-        widget.size ??
-        shortestSide.clamp(320.0, 430.0) *
-            (screenSize.width >= 700 ? 0.92 : 0.98);
-    final radius = diameter * 0.36;
-    final iconScale = widget.iconScale.clamp(1.0, 1.2).toDouble();
-    final itemSize = (diameter * 0.19).clamp(64.0, 82.0) * iconScale;
 
-    return Center(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: (details) => _startDrag(details, diameter),
-        onPanUpdate: (details) => _updateDrag(details, diameter),
-        onPanEnd: (_) => _endDrag(),
-        onPanCancel: _endDrag,
-        child: SizedBox(
-          width: diameter,
-          height: diameter,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              CustomPaint(
-                size: Size.square(diameter),
-                painter: _DialPlatePainter(
-                  colorScheme: theme.colorScheme,
-                  brightness: theme.brightness,
-                  itemCount: _reorderedFeatures.length,
-                ),
-              ),
-              Transform.rotate(
-                angle: _rotation,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: _buildFeatureItems(
-                    diameter,
-                    radius,
-                    itemSize,
-                    theme,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : screenSize.width;
+        final baseWidth = min(availableWidth, screenSize.width);
+        final targetDiameter =
+            widget.size ??
+            baseWidth.clamp(320.0, 430.0) * (baseWidth >= 700 ? 0.92 : 0.98);
+        final diameter = min(
+          targetDiameter,
+          availableWidth,
+        ).clamp(300.0, 430.0);
+        final radius = diameter * 0.36;
+        final iconScale = widget.iconScale.clamp(1.0, 1.2).toDouble();
+        final itemSize = (diameter * 0.19).clamp(64.0, 82.0) * iconScale;
+
+        return Center(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (details) => _startDrag(details, diameter),
+            onPanUpdate: (details) => _updateDrag(details, diameter),
+            onPanEnd: (_) => _endDrag(),
+            onPanCancel: _endDrag,
+            child: SizedBox(
+              width: diameter,
+              height: diameter,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: Size.square(diameter),
+                    painter: _DialPlatePainter(
+                      colorScheme: theme.colorScheme,
+                      brightness: theme.brightness,
+                      itemCount: _reorderedFeatures.length,
+                    ),
                   ),
-                ),
-              ),
-              _CenterLogoButton(
-                onDoubleTap: _onCenterDoubleTap,
-                iconScale: iconScale,
-              ),
-              Positioned(
-                top: diameter * 0.035,
-                child: Container(
-                  width: 52,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.35,
+                  Transform.rotate(
+                    angle: _rotation,
+                    child: SizedBox.square(
+                      dimension: diameter,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: _buildFeatureItems(
+                          diameter,
+                          radius,
+                          itemSize,
+                          theme,
                         ),
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  _CenterLogoButton(
+                    onDoubleTap: _onCenterDoubleTap,
+                    iconScale: iconScale,
+                  ),
+                  Positioned(
+                    top: diameter * 0.035,
+                    child: Container(
+                      width: 52,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.35,
+                            ),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
