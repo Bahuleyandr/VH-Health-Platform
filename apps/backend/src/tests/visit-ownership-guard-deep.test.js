@@ -48,6 +48,24 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
     await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
   }
 
+  async function clearPriorVisitRows() {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM patient_encounters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM appointment_status_history
+       WHERE appointment_id IN (
+         SELECT id FROM appointments WHERE patient_id = $1::int OR phone = '9020200201'
+       )`,
+      patientId,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM appointments WHERE patient_id = $1::int OR phone = '9020200201'`,
+      patientId,
+    ).catch(() => {});
+  }
+
   beforeAll(async () => {
     await clearCareTeam();
 
@@ -57,6 +75,7 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
        ON CONFLICT (uid) DO UPDATE SET updated_at = NOW()
        RETURNING id`, PATIENT_UID);
     patientId = patient[0].id;
+    await clearPriorVisitRows();
 
     const assigned = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)

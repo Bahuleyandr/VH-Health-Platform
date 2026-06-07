@@ -260,6 +260,24 @@ export async function createNote(data) {
     }
     assertOpenOpAppointmentSession(appt, 'created');
 
+    // H2 RBAC — a note bound to a specific OPD appointment may only be
+    // authored by the appointment's assigned doctor (or an authorized
+    // supervisor). Previously any clinician with the /emr role could write a
+    // signed note onto another doctor's visit. Resolve the assigned doctor's
+    // uid so the guard can match either the caller's int id or uid.
+    let assignedDoctorUid = null;
+    if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
+      const doctor = await prisma.users.findUnique({
+        where: { id: appt.doctor_id },
+        select: { uid: true }
+      });
+      assignedDoctorUid = doctor?.uid ?? null;
+    }
+    assertCanWriteAppointmentClinical(actingUser, {
+      doctor_id: appt.doctor_id,
+      assigned_doctor_uid: assignedDoctorUid
+    });
+
     if (OP_APPOINTMENT_NOTE_TYPES.includes(note_type)) {
       const existingOpNote = await prisma.clinical_notes.findFirst({
         where: {
@@ -278,24 +296,6 @@ export async function createNote(data) {
         );
       }
     }
-
-    // H2 RBAC — a note bound to a specific OPD appointment may only be
-    // authored by the appointment's assigned doctor (or an authorized
-    // supervisor). Previously any clinician with the /emr role could write a
-    // signed note onto another doctor's visit. Resolve the assigned doctor's
-    // uid so the guard can match either the caller's int id or uid.
-    let assignedDoctorUid = null;
-    if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
-      const doctor = await prisma.users.findUnique({
-        where: { id: appt.doctor_id },
-        select: { uid: true }
-      });
-      assignedDoctorUid = doctor?.uid ?? null;
-    }
-    assertCanWriteAppointmentClinical(actingUser, {
-      doctor_id: appt.doctor_id,
-      assigned_doctor_uid: assignedDoctorUid
-    });
   }
 
   // Schema defaults: version=1, is_addendum=false, is_signed=false, created_at=now().

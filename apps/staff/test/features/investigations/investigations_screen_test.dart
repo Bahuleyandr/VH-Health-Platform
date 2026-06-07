@@ -44,21 +44,27 @@ void main() {
       );
     });
 
-    test('allows lab, radiology, and admin teams to progress pending status', () {
-      expect(investigationsCanManagePendingStatusForRole(StaffRole.lab), isTrue);
-      expect(
-        investigationsCanManagePendingStatusForRole(StaffRole.radiologyStaff),
-        isTrue,
-      );
-      expect(
-        investigationsCanManagePendingStatusForRole(StaffRole.admin),
-        isTrue,
-      );
-      expect(
-        investigationsCanManagePendingStatusForRole(StaffRole.superAdmin),
-        isTrue,
-      );
-    });
+    test(
+      'allows lab, radiology, and admin teams to progress pending status',
+      () {
+        expect(
+          investigationsCanManagePendingStatusForRole(StaffRole.lab),
+          isTrue,
+        );
+        expect(
+          investigationsCanManagePendingStatusForRole(StaffRole.radiologyStaff),
+          isTrue,
+        );
+        expect(
+          investigationsCanManagePendingStatusForRole(StaffRole.admin),
+          isTrue,
+        );
+        expect(
+          investigationsCanManagePendingStatusForRole(StaffRole.superAdmin),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('investigation patient context matching', () {
@@ -73,23 +79,23 @@ void main() {
   group('investigation row normalization', () {
     test('uses test name as the visible title instead of generic type', () {
       expect(
-        investigationTestTitle({
-          'test_name': 'ECG',
-          'test_type': 'LAB',
-        }),
+        investigationTestTitle({'test_name': 'ECG', 'test_type': 'LAB'}),
         'ECG',
       );
     });
 
-    test('falls back to selected patient context when row omits patient name', () {
-      expect(
-        investigationPatientLabel(
-          {'patient_id': 42, 'phone': '+911234567890'},
-          fallbackName: 'Test Patient',
-        ),
-        'Test Patient',
-      );
-    });
+    test(
+      'falls back to selected patient context when row omits patient name',
+      () {
+        expect(
+          investigationPatientLabel({
+            'patient_id': 42,
+            'phone': '+911234567890',
+          }, fallbackName: 'Test Patient'),
+          'Test Patient',
+        );
+      },
+    );
 
     test('keeps requested rows pending and completed rows in recent', () {
       expect(investigationIsPending({'status': 'REQUESTED'}), isTrue);
