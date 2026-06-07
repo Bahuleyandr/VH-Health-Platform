@@ -20,6 +20,7 @@ class DashboardHeader extends StatelessWidget {
   final String? nextAppointmentLabel;
   final String? lastVitalsLabel;
   final String? hospitalNumber;
+  final VoidCallback? onProfileTap;
 
   const DashboardHeader({
     super.key,
@@ -29,6 +30,7 @@ class DashboardHeader extends StatelessWidget {
     this.nextAppointmentLabel,
     this.lastVitalsLabel,
     this.hospitalNumber,
+    this.onProfileTap,
   });
 
   String _greetingFor(DateTime now) {
@@ -63,38 +65,49 @@ class DashboardHeader extends StatelessWidget {
           child: Row(
             children: [
               // Avatar bubble with a soft outer glow — gives the header
-              // a focal point and makes it feel less institutional.
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      cs.primary.withValues(alpha: 0.30),
-                      cs.primary.withValues(alpha: 0.10),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: cs.primary.withValues(alpha: 0.45),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: cs.primary.withValues(alpha: 0.18),
-                      blurRadius: 12,
-                      spreadRadius: 1,
+              // a focal point and doubles as the profile entry point.
+              Tooltip(
+                message: isGuest ? 'Sign in to edit profile' : 'Edit profile',
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onProfileTap,
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            cs.primary.withValues(alpha: 0.30),
+                            cs.primary.withValues(alpha: 0.10),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: cs.primary.withValues(alpha: 0.45),
+                          width: 1.2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cs.primary.withValues(alpha: 0.18),
+                            blurRadius: 12,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        _initialFor(displayName),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
-                  ],
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  _initialFor(displayName),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: cs.primary,
-                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),

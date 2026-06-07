@@ -608,6 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       '/vitals' => 'Vitals',
       '/refill' => 'Refills',
       '/family' => 'Family',
+      '/profile-edit' => 'Profile',
       '/health-points' => 'Health Points',
       '/period-tracker' => 'Period Tracker',
       '/portal/maternity/timeline' => 'Maternity',
@@ -705,6 +706,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 unreadNotifications: unread,
                 nextAppointmentLabel: nextApptLabel,
                 lastVitalsLabel: lastVitalsLabel,
+                onProfileTap: () => _openFeature(context, '/profile-edit'),
               ),
 
               // Profile switcher (guardian → minor dependents). Self-hides
