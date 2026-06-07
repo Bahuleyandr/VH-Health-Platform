@@ -126,12 +126,14 @@ void main() {
     test('doctor gets clinical features but NOT HR dashboard', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.doctor);
       final ids = feats.map((f) => f.id).toSet();
-      expect(ids, contains('appointments'));
-      expect(ids, contains('prescriptions'));
+      expect(ids, contains('op_doctor_workspace'));
       expect(ids, contains('patient_records'));
       expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('op_ai_assist'));
       expect(ids, contains('ward_mode'));
+      expect(ids, isNot(contains('appointments')));
+      expect(ids, isNot(contains('prescriptions')));
+      expect(ids, isNot(contains('investigation_results')));
       expect(ids, isNot(contains('front_office_workbench')));
       expect(ids, isNot(contains('queue')));
       expect(ids, isNot(contains('cath_lab')));

@@ -634,11 +634,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'op_doctor_workspace',
         'clinical_ai_review_queue',
         'op_ai_assist',
-        'appointments',
         'patient_records',
-        'prescriptions',
         'referrals',
-        'investigation_results',
         'patient_command_board',
         'bed_board',
         'ward_mode',
@@ -861,11 +858,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'op_doctor_workspace',
         'clinical_ai_review_queue',
         'op_ai_assist',
-        'appointments',
         'patient_records',
-        'prescriptions',
         'referrals',
-        'investigation_results',
         'patient_command_board',
         'bed_board',
         'ward_mode',
@@ -1110,14 +1104,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'op_doctor_workspace',
               'clinical_ai_review_queue',
               'op_ai_assist',
-              'appointments',
               'patient_records',
-              'prescriptions',
-              'investigation_results',
             ],
             titleOverrides: {
               'patient_records': s.dashboardOpPatientRecords,
-              'investigation_results': s.dashboardOpLabResults,
             },
             routeOverrides: _serviceContextRoutes('op'),
           ),
@@ -1134,12 +1124,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'ward_mode',
               'discharge_hub',
               'patient_records',
-              'prescriptions',
-              'investigation_results',
             ],
             titleOverrides: {
               'patient_records': s.dashboardIpPatientRecords,
-              'investigation_results': s.dashboardIpLabResults,
             },
             routeOverrides: _serviceContextRoutes('ip'),
           ),
@@ -1716,24 +1703,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     // Role-specific
-    if (_role == StaffRole.doctor) {
-      actions.add(
-        _QuickAction(
-          icon: Icons.medication_liquid,
-          label: s.dashboardActionPrescriptions,
-          route: '/prescriptions',
-          color: const Color(0xFF00838F),
-        ),
-      );
-      actions.add(
-        _QuickAction(
-          icon: Icons.biotech,
-          label: s.dashboardActionInvestigations,
-          route: '/investigations',
-          color: const Color(0xFF0097A7),
-        ),
-      );
-    } else if (_role == StaffRole.nurse) {
+    if (_role == StaffRole.nurse) {
       actions.add(
         _QuickAction(
           icon: Icons.swap_horiz,
