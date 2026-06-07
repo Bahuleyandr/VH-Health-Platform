@@ -5,7 +5,7 @@ plugins {
     // Updated to the version required by your environment
     id("com.android.application") version "8.10.1" apply false
     // Updated Kotlin version for compatibility
-    id("org.jetbrains.kotlin.android") version "2.1.21" apply false
+    id("org.jetbrains.kotlin.android") version "2.3.0" apply false
     // This line for the Google Services plugin is correct
     id("com.google.gms.google-services") version "4.4.2" apply false
 }

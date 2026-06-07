@@ -79,7 +79,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
           _showSignInPrompt('Your Health', '/health');
           break;
         }
-        context.go('/health');
+        context.go('/health', extra: {'tab': 0});
         break;
       case 2:
         if (isGuest) {
