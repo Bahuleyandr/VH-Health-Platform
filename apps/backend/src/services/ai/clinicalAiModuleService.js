@@ -1872,6 +1872,15 @@ function isMissingSchemaError(err) {
   );
 }
 
+function isDuplicateClinicalAiModuleError(err) {
+  const message = String(err?.message || '');
+  return (
+    err?.code === '23505'
+    || /Code:\s*`?23505`?/i.test(message)
+    || /duplicate key value violates unique constraint ["`]?clinical_ai_modules_pkey/i.test(message)
+  );
+}
+
 function emptySafetyReviewSummary(windowDays, reason = null) {
   return {
     window_days: windowDays,
@@ -2335,23 +2344,43 @@ function applyTenantOverride(module, overrideRow, tenantId) {
 
 async function upsertMissingModules(client = prisma) {
   for (const module of CLINICAL_AI_MODULES) {
-    await executeRawWrite(
-      client,
-      `INSERT INTO clinical_ai_modules
-         (module_key, display_name, description, enabled, settings, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
-       ON CONFLICT (module_key)
-       DO UPDATE SET
-         display_name = EXCLUDED.display_name,
-         description = EXCLUDED.description,
-         settings = clinical_ai_modules.settings || EXCLUDED.settings,
-         updated_at = NOW()`,
-      module.module_key,
-      module.display_name,
-      module.description,
-      module.enabled,
-      JSON.stringify(module.settings || {})
-    );
+    try {
+      await executeRawWrite(
+        client,
+        `INSERT INTO clinical_ai_modules
+           (module_key, display_name, description, enabled, settings, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
+         ON CONFLICT (module_key)
+         DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           description = EXCLUDED.description,
+           settings = clinical_ai_modules.settings || EXCLUDED.settings,
+           updated_at = NOW()`,
+        module.module_key,
+        module.display_name,
+        module.description,
+        module.enabled,
+        JSON.stringify(module.settings || {})
+      );
+    } catch (err) {
+      if (!isDuplicateClinicalAiModuleError(err)) throw err;
+      logger.warn('Clinical AI module seed hit duplicate key; applying update fallback', {
+        module_key: module.module_key,
+      });
+      await executeRawWrite(
+        client,
+        `UPDATE clinical_ai_modules
+            SET display_name = $2,
+                description = $3,
+                settings = settings || $4::jsonb,
+                updated_at = NOW()
+          WHERE module_key = $1`,
+        module.module_key,
+        module.display_name,
+        module.description,
+        JSON.stringify(module.settings || {})
+      );
+    }
   }
 }
 
