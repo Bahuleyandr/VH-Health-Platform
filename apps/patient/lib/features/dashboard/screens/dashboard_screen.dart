@@ -98,7 +98,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     _connectivitySub = ConnectivityService.onChange.listen((isOnline) {
       if (isOnline && mounted && !_isGuestSession) {
-        _fetchAndStoreDashboard();
+        _fetchAndStoreDashboardFresh();
       }
     });
 
@@ -351,7 +351,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_isGuestSession) return;
     try {
       await Future.delayed(const Duration(seconds: 1));
-      if (mounted) _fetchAndStoreDashboard();
+      if (mounted) _fetchAndStoreDashboardFresh();
     } catch (e) {
       debugPrint('Dashboard error: $e');
     }
@@ -392,6 +392,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       debugPrint('Dashboard error: $e');
+      if (mounted) {
+        setState(() {
+          _commandCenterLoading = false;
+          _commandCenterError = 'Today could not refresh right now.';
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchAndStoreDashboardFresh() async {
+    if (_isGuestSession) return;
+    if (mounted) {
+      setState(() {
+        _commandCenterLoading = true;
+        _commandCenterError = null;
+      });
+    }
+    try {
+      final response = await ApiClient.get(
+        '/portal/command-center',
+        timeout: const Duration(seconds: 10),
+      );
+      if (!mounted) return;
+
+      if (response.isSuccess) {
+        _applyCommandCenter(_asStringMap(response.data), staleLabel: null);
+      } else {
+        setState(() {
+          _commandCenterLoading = false;
+          _commandCenterError =
+              response.message ?? 'Today could not refresh right now.';
+        });
+      }
+    } catch (e) {
+      debugPrint('Dashboard fresh fetch error: $e');
       if (mounted) {
         setState(() {
           _commandCenterLoading = false;
@@ -515,6 +550,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return parts.isEmpty ? 'Upcoming appointment' : parts;
   }
 
+  Future<void> _openProfileEdit(BuildContext context) async {
+    if (_isGuestSession) {
+      showGuestSignInPrompt(
+        context,
+        featureLabel: _featureLabelForRoute('/profile-edit'),
+        returnTo: '/profile-edit',
+      );
+      return;
+    }
+
+    final changed = await context.push<bool>('/profile-edit');
+    if (!mounted || changed != true) return;
+    await _fetchAndStoreDashboardFresh();
+  }
+
   void _openFeature(BuildContext context, String routeName) {
     final publicGuestRoutes = {'/about-us', '/departments', '/trivia'};
     if (_isGuestSession && !publicGuestRoutes.contains(routeName)) {
@@ -526,7 +576,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    if (routeName == '/your-health') {
+    if (routeName == '/profile-edit') {
+      unawaited(_openProfileEdit(context));
+    } else if (routeName == '/your-health') {
       context.push('/health');
     } else if (routeName == '/records') {
       // Records merged into Your Health — open Hospital Docs tab (index 2)
@@ -635,7 +687,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _refreshAll() async {
     if (_isGuestSession) return;
     await Future.wait([
-      _fetchAndStoreDashboard(),
+      _fetchAndStoreDashboardFresh(),
       _fetchSmartWidgetData(),
       _pollAppointments(),
     ]);
@@ -666,7 +718,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _expandedStatPanel = null;
           }
         });
-        _fetchAndStoreDashboard();
+        _fetchAndStoreDashboardFresh();
         _fetchSmartWidgetData();
         _pollAppointments();
       });
@@ -706,7 +758,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 unreadNotifications: unread,
                 nextAppointmentLabel: nextApptLabel,
                 lastVitalsLabel: lastVitalsLabel,
-                onProfileTap: () => _openFeature(context, '/profile-edit'),
+                onProfileTap: () => _openProfileEdit(context),
               ),
 
               // Profile switcher (guardian → minor dependents). Self-hides
