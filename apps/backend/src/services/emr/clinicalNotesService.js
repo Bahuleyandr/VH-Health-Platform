@@ -258,8 +258,6 @@ export async function createNote(data) {
     if (!appt) {
       throw AppError.notFound('Appointment not found');
     }
-    assertOpenOpAppointmentSession(appt, 'created');
-
     // H2 RBAC — a note bound to a specific OPD appointment may only be
     // authored by the appointment's assigned doctor (or an authorized
     // supervisor). Previously any clinician with the /emr role could write a
@@ -277,6 +275,7 @@ export async function createNote(data) {
       doctor_id: appt.doctor_id,
       assigned_doctor_uid: assignedDoctorUid
     });
+    assertOpenOpAppointmentSession(appt, 'created');
 
     if (OP_APPOINTMENT_NOTE_TYPES.includes(note_type)) {
       const existingOpNote = await prisma.clinical_notes.findFirst({

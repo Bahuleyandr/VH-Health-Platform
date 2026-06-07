@@ -23,6 +23,12 @@ const PATIENT_UID = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b20201';
 const ASSIGNED_DOCTOR_UID = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b20202';
 const OTHER_DOCTOR_UID = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b20203';
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const TODAY_HOSPITAL_DATE = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 
 const PROGRESS_NOTE_CONTENT = {
   summary: 'Follow-up: BP controlled.',
@@ -95,9 +101,9 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
       `INSERT INTO appointments
          (patient_id, doctor_id, appointment_date, appointment_time, phone, reason,
           status, department, updated_at)
-       VALUES ($1, $2, CURRENT_DATE, '10:30', '9020200201', 'OPD follow-up',
+       VALUES ($1, $2, $3::date, '10:30', '9020200201', 'OPD follow-up',
                'CONFIRMED', 'General Medicine', NOW())
-       RETURNING id`, patientId, assignedDoctorId);
+       RETURNING id`, patientId, assignedDoctorId, TODAY_HOSPITAL_DATE);
     appointmentId = appt[0].id;
 
     assignedDoctorToken = generateTestToken('DOCTOR', { uid: ASSIGNED_DOCTOR_UID, id: assignedDoctorId });
