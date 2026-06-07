@@ -151,6 +151,18 @@ class MedicalApiService {
     return _get('/investigations/doctor/$doctorId');
   }
 
+  /// GET /investigations/patient/:patient_id — investigations for one patient.
+  static Future<Map<String, dynamic>> getPatientInvestigations(
+    String patientId, {
+    String? status,
+  }) async {
+    final query = <String, String>{};
+    if (status != null && status.trim().isNotEmpty) {
+      query['status'] = status.trim();
+    }
+    return _get('/investigations/patient/$patientId', query: query);
+  }
+
   /// PUT /investigations/:id/results — add results to an investigation
   static Future<Map<String, dynamic>> addInvestigationResults(
     String investigationId,

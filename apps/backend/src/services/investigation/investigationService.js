@@ -334,7 +334,7 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
 
   const where = { patient_id: parseInt(patientId) };
   if (type) where.test_type = type.toUpperCase();
-  if (status) where.status = status.toUpperCase();
+  if (status) where.status = statusFilterForQueue(status);
   if (userRole === 'PATIENT' && !status) {
     where.status = { not: INVESTIGATION_STATUS.CANCELLED };
   }

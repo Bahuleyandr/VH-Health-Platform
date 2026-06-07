@@ -28,5 +28,45 @@ void main() {
         isTrue,
       );
     });
+
+    test('keeps pending status workflow away from doctor roles', () {
+      expect(
+        investigationsCanManagePendingStatusForRole(StaffRole.doctor),
+        isFalse,
+      );
+      expect(
+        investigationsCanManagePendingStatusForRole(StaffRole.dutyDoctor),
+        isFalse,
+      );
+      expect(
+        investigationsCanManagePendingStatusForRole(StaffRole.anaesthetist),
+        isFalse,
+      );
+    });
+
+    test('allows lab, radiology, and admin teams to progress pending status', () {
+      expect(investigationsCanManagePendingStatusForRole(StaffRole.lab), isTrue);
+      expect(
+        investigationsCanManagePendingStatusForRole(StaffRole.radiologyStaff),
+        isTrue,
+      );
+      expect(
+        investigationsCanManagePendingStatusForRole(StaffRole.admin),
+        isTrue,
+      );
+      expect(
+        investigationsCanManagePendingStatusForRole(StaffRole.superAdmin),
+        isTrue,
+      );
+    });
+  });
+
+  group('investigation patient context matching', () {
+    test('accepts exact Indian country-code equivalents only', () {
+      expect(investigationPhoneMatches('+911234567890', '1234567890'), isTrue);
+      expect(investigationPhoneMatches('1234567890', '+911234567890'), isTrue);
+      expect(investigationPhoneMatches('1123456789', '+911234567890'), isFalse);
+      expect(investigationPhoneMatches('1234566789', '123456789'), isFalse);
+    });
   });
 }

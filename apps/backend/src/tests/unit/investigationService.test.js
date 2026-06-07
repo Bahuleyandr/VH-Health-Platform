@@ -22,6 +22,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 const {
   getDoctorInvestigations,
   getInvestigations,
+  getPatientInvestigations,
   getPendingInvestigations,
   updateStatus,
 } = await import('../../services/investigation/investigationService.js');
@@ -105,6 +106,26 @@ describe('investigationService pending worklists', () => {
     expect(findManyMock).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         requested_by: doctorUid,
+        status: { in: ['REQUESTED', 'PENDING'] },
+      },
+    }));
+    expect(result.count).toBe(0);
+  });
+
+  it('uses the same PENDING alias for patient-scoped investigation queues', async () => {
+    findManyMock.mockResolvedValueOnce([]);
+    findUniqueMock.mockResolvedValueOnce({ name: 'Patient', birthday: null, gender: null });
+
+    const result = await getPatientInvestigations(
+      77,
+      { status: 'PENDING', limit: 50 },
+      'DOCTOR',
+      'doctor-uid'
+    );
+
+    expect(findManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        patient_id: 77,
         status: { in: ['REQUESTED', 'PENDING'] },
       },
     }));

@@ -39,12 +39,40 @@ bool investigationsCanUploadResultsForRole(StaffRole role) {
       role != StaffRole.anaesthetist;
 }
 
+@visibleForTesting
+bool investigationsCanManagePendingStatusForRole(StaffRole role) {
+  return role == StaffRole.lab ||
+      role == StaffRole.radiologyStaff ||
+      role == StaffRole.admin ||
+      role == StaffRole.superAdmin;
+}
+
+@visibleForTesting
+bool investigationPhoneMatches(String? candidate, String? expected) {
+  final candidateDigits = candidate?.replaceAll(RegExp(r'\D'), '') ?? '';
+  final expectedDigits = expected?.replaceAll(RegExp(r'\D'), '') ?? '';
+  if (candidateDigits.isEmpty || expectedDigits.isEmpty) return false;
+  if (candidateDigits == expectedDigits) return true;
+  if (candidateDigits.length == 12 &&
+      candidateDigits.startsWith('91') &&
+      expectedDigits.length == 10) {
+    return candidateDigits.substring(2) == expectedDigits;
+  }
+  if (expectedDigits.length == 12 &&
+      expectedDigits.startsWith('91') &&
+      candidateDigits.length == 10) {
+    return expectedDigits.substring(2) == candidateDigits;
+  }
+  return false;
+}
+
 class _InvestigationsScreenState extends State<InvestigationsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _pendingReloadKey = 0;
   int _recentReloadKey = 0;
   bool _canUploadResults = false;
+  bool _canManagePendingStatus = false;
 
   @override
   void initState() {
@@ -62,6 +90,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   Future<void> _loadRolePermissions() async {
     final role = StaffRole.fromString(await ApiConfig.getRole());
     final canUpload = investigationsCanUploadResultsForRole(role);
+    final canManagePendingStatus = investigationsCanManagePendingStatusForRole(
+      role,
+    );
     if (!mounted) return;
     if (canUpload != _canUploadResults) {
       final oldIndex = _tabController.index;
@@ -77,6 +108,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     }
     setState(() {
       _canUploadResults = canUpload;
+      _canManagePendingStatus = canManagePendingStatus;
     });
   }
 
@@ -364,11 +396,21 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     final tabViews = _canUploadResults
         ? [
             _UploadTab(initialPatientPhone: widget.initialPatientPhone),
-            _PendingTab(key: ValueKey(_pendingReloadKey)),
+            _PendingTab(
+              key: ValueKey(_pendingReloadKey),
+              initialPatientId: widget.initialPatientId,
+              initialPatientPhone: widget.initialPatientPhone,
+              canManageStatus: _canManagePendingStatus,
+            ),
             _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
           ]
         : [
-            _PendingTab(key: ValueKey(_pendingReloadKey)),
+            _PendingTab(
+              key: ValueKey(_pendingReloadKey),
+              initialPatientId: widget.initialPatientId,
+              initialPatientPhone: widget.initialPatientPhone,
+              canManageStatus: _canManagePendingStatus,
+            ),
             _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
           ];
     return StaffScaffold(
@@ -748,7 +790,16 @@ class _UploadTabState extends State<_UploadTab> {
 }
 
 class _PendingTab extends StatefulWidget {
-  const _PendingTab({super.key});
+  final String? initialPatientId;
+  final String? initialPatientPhone;
+  final bool canManageStatus;
+
+  const _PendingTab({
+    super.key,
+    this.initialPatientId,
+    this.initialPatientPhone,
+    required this.canManageStatus,
+  });
 
   @override
   State<_PendingTab> createState() => _PendingTabState();
@@ -765,29 +816,57 @@ class _PendingTabState extends State<_PendingTab> {
     _load();
   }
 
+  List<dynamic> _extractInvestigations(Map<String, dynamic> data) {
+    return data['investigations'] as List? ??
+        data['records'] as List? ??
+        data['data'] as List? ??
+        [];
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      // Try doctor-specific first, fall back to all pending
-      final staffId = await ApiConfig.getStaffId();
-      Map<String, dynamic> data;
-      if (staffId != null) {
-        try {
-          data = await MedicalApiService.getDoctorInvestigations(staffId);
-        } catch (e) {
+      final scopedPatientId = widget.initialPatientId?.trim();
+      final scopedPhone = widget.initialPatientPhone?.trim();
+      List<dynamic> list;
+      if (scopedPatientId != null && scopedPatientId.isNotEmpty) {
+        final data = await MedicalApiService.getPatientInvestigations(
+          scopedPatientId,
+          status: 'PENDING',
+        );
+        list = _extractInvestigations(data);
+      } else {
+        // Try doctor-specific first, fall back to all pending.
+        final staffId = await ApiConfig.getStaffId();
+        Map<String, dynamic> data;
+        if (staffId != null) {
+          try {
+            data = await MedicalApiService.getDoctorInvestigations(staffId);
+          } catch (e) {
+            data = await MedicalApiService.getPendingInvestigations();
+          }
+        } else {
           data = await MedicalApiService.getPendingInvestigations();
         }
-      } else {
-        data = await MedicalApiService.getPendingInvestigations();
+        list = _extractInvestigations(data);
+        if (scopedPhone != null && scopedPhone.isNotEmpty) {
+          list = list
+              .where(
+                (entry) =>
+                    entry is Map<String, dynamic> &&
+                    investigationPhoneMatches(
+                      entry['patient_phone']?.toString() ??
+                          entry['phone']?.toString() ??
+                          entry['patient']?['phone']?.toString(),
+                      scopedPhone,
+                    ),
+              )
+              .toList();
+        }
       }
-      final list =
-          data['investigations'] as List? ??
-          data['records'] as List? ??
-          data['data'] as List? ??
-          [];
       if (mounted) setState(() => _pending = list);
     } catch (e) {
       if (mounted) {
@@ -960,27 +1039,29 @@ class _PendingTabState extends State<_PendingTab> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => _updateStatus(id, 'IN_PROGRESS'),
-                        child: Text(s.investigationsStartButton),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: () => _updateStatus(id, 'COMPLETED'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.successGreen,
+                  if (widget.canManageStatus) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => _updateStatus(id, 'IN_PROGRESS'),
+                          child: Text(s.investigationsStartButton),
                         ),
-                        child: Text(
-                          s.investigationsCompleteButton,
-                          style: const TextStyle(color: Colors.white),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => _updateStatus(id, 'COMPLETED'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.successGreen,
+                          ),
+                          child: Text(
+                            s.investigationsCompleteButton,
+                            style: const TextStyle(color: Colors.white),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
