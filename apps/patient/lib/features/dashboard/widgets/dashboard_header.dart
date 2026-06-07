@@ -9,9 +9,8 @@ import 'package:vhhealth/generated/app_localizations.dart';
 /// Greeting header that replaces the default AppBar on the dashboard.
 ///
 /// Shows a time-of-day greeting + user name + avatar bubble on one row,
-/// with the four quick-actions (theme / accessibility / language / logout)
-/// collapsed into a single overflow popup so the top of the screen feels
-/// less cluttered. Optionally renders a [HeroSnapshotRow] underneath
+/// with language, theme, accessibility, and logout actions grouped on
+/// the right. Optionally renders a [HeroSnapshotRow] underneath
 /// with "about you right now" facts (next appointment, unread count,
 /// last vitals).
 class DashboardHeader extends StatelessWidget {
@@ -49,9 +48,12 @@ class DashboardHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final themeProvider = context.watch<ThemeProvider>();
     final greeting = _greetingFor(DateTime.now());
-    final displayName = isGuest ? 'there' : name;
+    final displayName = isGuest ? 'Guest' : name;
     final hospitalId = (hospitalNumber ?? '').trim();
+    final isDark = themeProvider.isDarkMode;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -134,11 +136,26 @@ class DashboardHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              // Language stays as its own button (it shows a sub-menu of
-              // languages, which doesn't fit naturally inside the overflow).
               const LanguageMenuButton(),
-              // Theme + accessibility + logout collapsed into one overflow.
-              _DashboardOverflowMenu(),
+              _HeaderIconButton(
+                tooltip: l10n.dashboardToggleTheme,
+                icon: isDark
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+                onPressed: () => themeProvider.toggleTheme(),
+              ),
+              _HeaderIconButton(
+                tooltip: l10n.dashboardToggleFontSize,
+                icon: Icons.format_size,
+                onPressed: () => themeProvider.toggleFontSize(),
+              ),
+              if (!isGuest)
+                _HeaderIconButton(
+                  tooltip: 'Logout',
+                  icon: Icons.logout,
+                  foregroundColor: colorsForLogout(cs),
+                  onPressed: () => LogoutButton.confirmAndLogout(context),
+                ),
             ],
           ),
         ),
@@ -156,53 +173,39 @@ class DashboardHeader extends StatelessWidget {
   }
 }
 
-class _DashboardOverflowMenu extends StatelessWidget {
+Color colorsForLogout(ColorScheme colors) => colors.error;
+
+class _HeaderIconButton extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final Color? foregroundColor;
+
+  const _HeaderIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.foregroundColor,
+  });
+
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'More',
-      icon: const Icon(Icons.more_vert),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      onSelected: (value) async {
-        switch (value) {
-          case 'theme':
-            Provider.of<ThemeProvider>(context, listen: false).toggleTheme();
-            break;
-          case 'a11y':
-            Provider.of<ThemeProvider>(context, listen: false).toggleFontSize();
-            break;
-          case 'logout':
-            await LogoutButton.confirmAndLogout(context);
-            break;
-        }
-      },
-      itemBuilder: (ctx) => [
-        PopupMenuItem<String>(
-          value: 'theme',
-          child: ListTile(
-            dense: true,
-            leading: const Icon(Icons.brightness_6),
-            title: Text(AppLocalizations.of(ctx)!.dashboardToggleTheme),
+    final colors = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+        visualDensity: VisualDensity.compact,
+        style: IconButton.styleFrom(
+          backgroundColor: colors.surfaceContainerHighest.withValues(
+            alpha: 0.55,
           ),
+          foregroundColor: foregroundColor ?? colors.onSurfaceVariant,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        PopupMenuItem<String>(
-          value: 'a11y',
-          child: ListTile(
-            dense: true,
-            leading: const Icon(Icons.accessibility),
-            title: Text(AppLocalizations.of(ctx)!.dashboardToggleFontSize),
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem<String>(
-          value: 'logout',
-          child: ListTile(
-            dense: true,
-            leading: Icon(Icons.logout, color: Colors.red),
-            title: Text('Logout', style: TextStyle(color: Colors.red)),
-          ),
-        ),
-      ],
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20),
+      ),
     );
   }
 }

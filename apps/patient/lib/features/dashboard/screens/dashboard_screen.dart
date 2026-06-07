@@ -16,6 +16,7 @@ import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
+import 'package:vhhealth/core/widgets/guest_sign_in_prompt.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
@@ -621,13 +622,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _openFeature(BuildContext context, String routeName) {
     final publicGuestRoutes = {'/about-us', '/departments', '/trivia'};
     if (_isGuestSession && !publicGuestRoutes.contains(routeName)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please sign in to use this feature.'),
-          behavior: SnackBarBehavior.floating,
-        ),
+      showGuestSignInPrompt(
+        context,
+        featureLabel: _featureLabelForRoute(routeName),
       );
-      context.go('/login');
       return;
     }
 
@@ -639,6 +637,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else {
       context.push(routeName);
     }
+  }
+
+  String _featureLabelForRoute(String routeName) {
+    return switch (routeName) {
+      '/your-health' || '/health' || '/records' => 'Your health records',
+      '/appointments' => 'Appointments',
+      '/pharmacy' => 'Pharmacy',
+      '/investigations' => 'Investigations',
+      '/ask-a-doubt' => 'Ask a Doubt',
+      '/steps' => 'Step Challenge',
+      '/vitals' => 'Vitals',
+      '/refill' => 'Refills',
+      '/family' => 'Family',
+      '/health-points' => 'Health Points',
+      '/portal/maternity/timeline' => 'Maternity',
+      '/portal/bills' => 'Bills',
+      '/portal/lab-results' => 'Lab Results',
+      '/portal/tpa/claims' => 'Insurance Claims',
+      '/portal/messages' => 'Messages',
+      _ => 'This feature',
+    };
   }
 
   Future<void> _triggerSOS() async {
@@ -922,6 +941,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             child: FeatureGrid(
                               features: _features,
                               badges: featureBadges,
+                              compact: isGuest,
                             ),
                           ),
                         ),

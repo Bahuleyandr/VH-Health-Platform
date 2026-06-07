@@ -16,6 +16,7 @@ import 'package:vhhealth/core/widgets/circular_feature_dial.dart'
 /// territory rather than a flat badge.
 class FeatureGrid extends StatelessWidget {
   final List<FeatureIconData> features;
+  final bool compact;
 
   /// Per-feature badge labels keyed by [FeatureIconData.label]. Pass an
   /// empty map (or omit) for no badges. Keep labels short — they render
@@ -26,26 +27,161 @@ class FeatureGrid extends StatelessWidget {
     super.key,
     required this.features,
     this.badges = const {},
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 14,
-        crossAxisSpacing: 14,
-        // Slightly taller than wide — leaves room for icon + label + badge
-        childAspectRatio: 1.3,
-      ),
-      itemCount: features.length,
-      itemBuilder: (context, i) {
-        final f = features[i];
-        return _FeatureCard(feature: f, badge: badges[f.label]);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = compact ? 12.0 : 16.0;
+        final spacing = compact ? 8.0 : 14.0;
+        final availableWidth = constraints.maxWidth - (horizontalPadding * 2);
+
+        final columns = compact ? _compactColumnCount(availableWidth) : 2;
+        final tileWidth =
+            (availableWidth - (spacing * (columns - 1))) / columns;
+        final tileHeight = compact
+            ? (tileWidth < 132 ? 88.0 : 82.0)
+            : tileWidth / 1.3;
+        final aspectRatio = tileWidth / tileHeight;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: spacing,
+            crossAxisSpacing: spacing,
+            childAspectRatio: aspectRatio,
+          ),
+          itemCount: features.length,
+          itemBuilder: (context, i) {
+            final f = features[i];
+            return compact
+                ? _CompactFeatureTile(feature: f, badge: badges[f.label])
+                : _FeatureCard(feature: f, badge: badges[f.label]);
+          },
+        );
       },
+    );
+  }
+
+  int _compactColumnCount(double width) {
+    if (width >= 1160) return 6;
+    if (width >= 920) return 5;
+    if (width >= 640) return 4;
+    if (width >= 430) return 3;
+    return 2;
+  }
+}
+
+class _CompactFeatureTile extends StatelessWidget {
+  final FeatureIconData feature;
+  final String? badge;
+
+  const _CompactFeatureTile({required this.feature, this.badge});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final isLight = theme.brightness == Brightness.light;
+    final tint = feature.color;
+    final foreground = isLight
+        ? HSLColor.fromColor(tint)
+              .withSaturation(
+                (HSLColor.fromColor(tint).saturation + 0.18).clamp(0.0, 1.0),
+              )
+              .withLightness(0.42)
+              .toColor()
+        : tint;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => feature.onTap(context),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          decoration: BoxDecoration(
+            color: tint.withValues(alpha: isLight ? 0.20 : 0.10),
+            border: Border.all(
+              color: tint.withValues(alpha: isLight ? 0.45 : 0.30),
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Stack(
+            children: [
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: tint.withValues(alpha: isLight ? 0.30 : 0.18),
+                        shape: BoxShape.circle,
+                      ),
+                      child: feature.svgAsset != null
+                          ? SvgPicture.asset(
+                              feature.svgAsset!,
+                              width: 20,
+                              height: 20,
+                              colorFilter: ColorFilter.mode(
+                                foreground,
+                                BlendMode.srcIn,
+                              ),
+                            )
+                          : Icon(feature.icon, size: 19, color: foreground),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      feature.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colors.onSurface,
+                        fontWeight: FontWeight.w700,
+                        height: 1.05,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (badge != null)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: foreground,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

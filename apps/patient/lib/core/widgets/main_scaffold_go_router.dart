@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/widgets/guest_sign_in_prompt.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 
@@ -58,14 +59,8 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
     return 0;
   }
 
-  void _showSignInPrompt() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please sign in to use this feature.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    context.go('/login');
+  void _showSignInPrompt(String featureLabel) {
+    showGuestSignInPrompt(context, featureLabel: featureLabel);
   }
 
   void _onItemTapped(int index) {
@@ -76,14 +71,14 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
         break;
       case 1:
         if (isGuest) {
-          _showSignInPrompt();
+          _showSignInPrompt('Your Health');
           break;
         }
         context.go('/health');
         break;
       case 2:
         if (isGuest) {
-          _showSignInPrompt();
+          _showSignInPrompt('Notifications');
           break;
         }
         context.go('/notifications');

@@ -98,7 +98,16 @@ void main() {
 
       debugPrint('SMOKE: guest login');
       await tapVisible(tester, find.text('Continue as Guest'));
-      await waitFor(tester, find.text('there'));
+      await waitFor(tester, find.text('Guest'));
+      expect(find.byTooltip('Toggle theme'), findsOneWidget);
+      expect(find.byTooltip('Toggle font size'), findsOneWidget);
+      expect(find.text('Messages'), findsOneWidget);
+      final viewHeight =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
+      expect(
+        tester.getBottomRight(find.text('Messages')).dy,
+        lessThan(viewHeight),
+      );
       await tester.pump(const Duration(seconds: 5));
       expect(find.text('Login to your account'), findsNothing);
 
@@ -107,7 +116,7 @@ void main() {
       await waitFor(tester, find.text('Health Trivia'));
       expect(find.text('Did you know?'), findsOneWidget);
       AppRouter.router.go('/home');
-      await waitFor(tester, find.text('there'));
+      await waitFor(tester, find.text('Guest'));
 
       debugPrint('SMOKE: guest departments');
       await tapVisible(tester, find.text('Departments').first);
@@ -117,10 +126,19 @@ void main() {
         findsNothing,
       );
       AppRouter.router.go('/home');
-      await waitFor(tester, find.text('there'));
+      await waitFor(tester, find.text('Guest'));
 
-      debugPrint('SMOKE: guest protected nav returns to login');
+      debugPrint('SMOKE: guest protected nav opens sign-in dialog');
       await tapVisible(tester, find.text('Your Health').last);
+      await waitFor(tester, find.text('Sign in to continue'));
+      expect(find.text('Keep browsing'), findsOneWidget);
+      await tester.tap(find.text('Keep browsing'));
+      await waitFor(tester, find.text('Guest'));
+      expect(find.text('Login to your account'), findsNothing);
+
+      await tapVisible(tester, find.text('Your Health').last);
+      await waitFor(tester, find.text('Sign in to continue'));
+      await tester.tap(find.text('Sign in'));
       await waitFor(tester, find.text('Login to your account'));
 
       debugPrint('SMOKE: dev login');
