@@ -16,6 +16,12 @@ import { API_KEY, generateTestToken } from './testClient.js';
 
 const PATIENT_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90901';
 const DOCTOR_UID = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a90902';
+const TODAY_HOSPITAL_DATE = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
 
 describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
   let patientId;
@@ -35,9 +41,9 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
       `INSERT INTO appointments
          (patient_id, doctor_id, appointment_date, appointment_time, phone, reason,
           status, department, updated_at)
-       VALUES ($1, NULL, CURRENT_DATE, '11:00', '9009090901', 'OPD follow-up',
+       VALUES ($1, NULL, $2::date, '11:00', '9009090901', 'OPD follow-up',
                'CONFIRMED', 'General Medicine', NOW())
-       RETURNING id`, patientId);
+       RETURNING id`, patientId, TODAY_HOSPITAL_DATE);
     appointmentId = a[0].id;
   });
 
