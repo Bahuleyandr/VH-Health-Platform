@@ -117,7 +117,7 @@ class AppRouter {
       // dev-login or Firebase-token-expired session (where currentUser is
       // null but the JWT is still valid).
       if (!isLoggedIn && (userProvider?.phone.isNotEmpty ?? false)) {
-        isLoggedIn = true;
+        isLoggedIn = userProvider?.phone != 'guest';
       }
       // Cold-start / partial-storage backstop: when neither in-memory signal
       // said yes, confirm against the JWT in secure storage.
@@ -132,6 +132,7 @@ class AppRouter {
         }
       }
       final location = state.matchedLocation;
+      final isGuestSession = userProvider?.phone == 'guest';
 
       // Skip redirect on splash screen to let it handle navigation
       if (location == '/') {
@@ -143,15 +144,25 @@ class AppRouter {
           location == '/terms' ||
           location == '/profile-setup';
 
+      final isGuestAllowedRoute =
+          location == '/home' ||
+          location == '/settings' ||
+          location == '/about-us' ||
+          location == '/departments' ||
+          location == '/trivia';
+
       // Session idle timeout — force logout if expired
       if (sessionProvider != null &&
           sessionProvider.isSessionExpired &&
-          !isAuthRoute) {
+          !isAuthRoute &&
+          !(isGuestSession && isGuestAllowedRoute)) {
         return '/login';
       }
 
       // If not logged in and not on auth route, redirect to login
-      if (!isLoggedIn && !isAuthRoute) {
+      if (!isLoggedIn &&
+          !isAuthRoute &&
+          !(isGuestSession && isGuestAllowedRoute)) {
         return '/login';
       }
 

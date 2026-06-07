@@ -49,6 +49,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   late final String _phone;
   late final String _name;
   late final String _hospitalNumber;
+  late final bool _isGuestSession;
   String? lastAppointment;
   String? nextAppointment;
   String? cachedName;
@@ -92,22 +93,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _phone = user.phone;
     _name = user.name;
     _hospitalNumber = user.hospitalNumber;
+    _isGuestSession = user.isGuest;
     _features = _initializeFeatures();
     cachedName = _name;
 
     _connectivitySub = ConnectivityService.onChange.listen((isOnline) {
-      if (isOnline && mounted) {
+      if (isOnline && mounted && !_isGuestSession) {
         _fetchAndStoreDashboard();
       }
     });
 
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      _loadCachedData();
-      _maybeFetchFromBackend();
-      _startAppointmentPolling();
-      _startSmartWidgetPolling();
+      if (!_isGuestSession) {
+        _loadCachedData();
+        _maybeFetchFromBackend();
+        _startAppointmentPolling();
+        _startSmartWidgetPolling();
+      }
       // Daily mood check-in prompt — only shows if not already done today.
-      if (mounted && cachedName != 'Guest') {
+      if (mounted && !_isGuestSession) {
         maybeShowDailyCheckIn(context);
       }
     });
@@ -139,6 +143,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _pollAppointments() async {
+    if (_isGuestSession) return;
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null || uid.isEmpty) return;
@@ -247,6 +252,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchSmartWidgetData() async {
+    if (_isGuestSession) return;
     try {
       // 1. Active pharmacy order
       try {
@@ -517,6 +523,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _loadCachedData() async {
+    if (_isGuestSession) return;
     try {
       final results = await Future.wait([
         _secureStorage.read(key: 'lastAppointment'),
@@ -536,6 +543,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _maybeFetchFromBackend() async {
+    if (_isGuestSession) return;
     try {
       final fetched = await _secureStorage.read(key: 'fetched_dashboard');
       if (!mounted || fetched == 'true') return;
@@ -547,6 +555,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchAndStoreDashboard() async {
+    if (_isGuestSession) return;
     try {
       final result = await ApiClient.cachedGet(
         '/dashboard',
@@ -610,6 +619,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _openFeature(BuildContext context, String routeName) {
+    final publicGuestRoutes = {'/about-us', '/departments', '/trivia'};
+    if (_isGuestSession && !publicGuestRoutes.contains(routeName)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please sign in to use this feature.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      context.push('/login');
+      return;
+    }
+
     if (routeName == '/your-health') {
       context.push('/health');
     } else if (routeName == '/records') {
@@ -633,6 +654,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// three settle so the RefreshIndicator spinner stays up exactly long
   /// enough to feel intentional.
   Future<void> _refreshAll() async {
+    if (_isGuestSession) return;
     await Future.wait([
       _fetchAndStoreDashboard(),
       _fetchSmartWidgetData(),
@@ -644,7 +666,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final nameToShow = cachedName ?? _name;
-    final isGuest = nameToShow == 'Guest';
+    final isGuest = context.watch<UserProvider>().isGuest;
     final unread = !isGuest
         ? context.watch<NotificationProvider>().unreadCount
         : 0;

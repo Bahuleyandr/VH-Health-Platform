@@ -71,6 +71,9 @@ Future<void> main() async {
 
   // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
   ApiClient.onSessionExpired = (message) {
+    if (UserProvider.instance?.isGuest ?? false) {
+      return;
+    }
     UserProvider.instance?.clear();
     AppRouter.router.go('/login');
   };
@@ -187,7 +190,10 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
           // Track user activity for idle timeout
           return Listener(
             onPointerDown: (_) {
-              context.read<SessionTimeoutProvider>().recordActivity();
+              final user = context.read<UserProvider>();
+              if (!user.isGuest) {
+                context.read<SessionTimeoutProvider>().recordActivity();
+              }
             },
             child: MaterialApp.router(
               debugShowCheckedModeBanner: false,

@@ -58,15 +58,34 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
     return 0;
   }
 
+  void _showSignInPrompt() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please sign in to use this feature.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    context.push('/login');
+  }
+
   void _onItemTapped(int index) {
+    final isGuest = context.read<UserProvider>().isGuest;
     switch (index) {
       case 0:
         context.go('/home');
         break;
       case 1:
+        if (isGuest) {
+          _showSignInPrompt();
+          break;
+        }
         context.go('/health');
         break;
       case 2:
+        if (isGuest) {
+          _showSignInPrompt();
+          break;
+        }
         context.go('/notifications');
         // Mark notifications as read
         context.read<NotificationProvider>().markAllAsRead(_phone);

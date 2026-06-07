@@ -19,7 +19,9 @@ const String kSosEmergencyNumber = String.fromEnvironment(
 /// `null` when calling from a background isolate.
 Future<void> triggerSOS([BuildContext? ctx]) async {
   const storage = FlutterSecureStorage();
-  final phone = await storage.read(key: 'phone') ?? 'unknown';
+  final storedPhone =
+      await storage.read(key: 'user_phone') ?? await storage.read(key: 'phone');
+  final phone = storedPhone?.trim();
 
   // ── 1. Location ──────────────────────────────────────────────────────────
   double? lat, lng;
@@ -46,24 +48,26 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
   }
 
   // ── 2. Backend POST (fire-and-forget) ────────────────────────────────────
-  unawaited(
-    VHHttpClient.post(
-      '/sos/',
-      body: {
-        'phone': phone,
-        'latitude': lat,
-        'longitude': lng,
-        'emergencyType': 'medical',
-      },
-    ).catchError((Object e) {
-      debugPrint('SOS POST error: $e');
-      return const ApiResponse(
-        statusCode: 0,
-        isSuccess: false,
-        message: 'SOS POST failed',
-      );
-    }),
-  );
+  if (phone != null && phone.isNotEmpty && phone != 'guest') {
+    unawaited(
+      VHHttpClient.post(
+        '/sos/',
+        body: {
+          'phone': phone,
+          'latitude': lat,
+          'longitude': lng,
+          'emergencyType': 'medical',
+        },
+      ).catchError((Object e) {
+        debugPrint('SOS POST error: $e');
+        return const ApiResponse(
+          statusCode: 0,
+          isSuccess: false,
+          message: 'SOS POST failed',
+        );
+      }),
+    );
+  }
 
   // ── 3. Open dialer ───────────────────────────────────────────────────────
   final telUri = Uri.parse('tel:$kSosEmergencyNumber');

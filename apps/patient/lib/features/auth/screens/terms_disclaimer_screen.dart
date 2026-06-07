@@ -6,6 +6,7 @@ import 'package:markdown_widget/markdown_widget.dart';
 
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/generated/app_localizations_en.dart';
 
 class TermsDisclaimerScreen extends StatefulWidget {
   final String? section;
@@ -71,7 +72,7 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
 
   Widget _buildMarkdownSection(String? data) {
     final content = (data ?? '').trim();
-    return MarkdownWidget(
+    return MarkdownBlock(
       data: content.isNotEmpty ? content : 'No content available.',
       config: MarkdownConfig(
         configs: [
@@ -84,6 +85,24 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
         ],
       ),
     );
+  }
+
+  String _legalBody(String section, AppLocalizations l10n) {
+    final fallback = AppLocalizationsEn();
+    final value = switch (section) {
+      'terms' => l10n.termsBody,
+      'conditions' => l10n.conditionsBody,
+      'privacy' => l10n.privacyBody,
+      _ => '',
+    }.trim();
+    if (value.isNotEmpty) return value;
+
+    return switch (section) {
+      'terms' => fallback.termsBody,
+      'conditions' => fallback.conditionsBody,
+      'privacy' => fallback.privacyBody,
+      _ => '',
+    };
   }
 
   Widget _navigationChip(String label, String section) {
@@ -134,11 +153,11 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
                     _sectionHeader(l10n.commonTermsOfUse, key: _termsKey),
-                    _buildMarkdownSection(l10n.termsBody),
+                    _buildMarkdownSection(_legalBody('terms', l10n)),
                     _sectionHeader(l10n.commonConditions, key: _conditionsKey),
-                    _buildMarkdownSection(l10n.conditionsBody),
+                    _buildMarkdownSection(_legalBody('conditions', l10n)),
                     _sectionHeader(l10n.commonPrivacyPolicy, key: _privacyKey),
-                    _buildMarkdownSection(l10n.privacyBody),
+                    _buildMarkdownSection(_legalBody('privacy', l10n)),
                     const SizedBox(height: 40),
                     Center(
                       child: ElevatedButton.icon(

@@ -22,7 +22,7 @@ class NotificationProvider extends ChangeNotifier {
   /// The [phone] parameter is kept for API compatibility but is no longer
   /// sent to the backend — the `/my` endpoint derives the user from the JWT.
   Future<void> fetchUnreadCount(String phone) async {
-    if (phone.isEmpty) {
+    if (phone.isEmpty || phone == 'guest') {
       _unreadCount = 0;
       notifyListeners();
       return;
@@ -58,7 +58,7 @@ class NotificationProvider extends ChangeNotifier {
 
   /// Mark all notifications as read for the authenticated user.
   Future<void> markAllRead(String phone) async {
-    if (phone.isEmpty) return;
+    if (phone.isEmpty || phone == 'guest') return;
 
     try {
       final response = await ApiClient.patch(

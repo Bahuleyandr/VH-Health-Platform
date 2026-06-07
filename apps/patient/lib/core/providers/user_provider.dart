@@ -61,6 +61,23 @@ class UserProvider extends ChangeNotifier {
     }
   }
 
+  /// Start an explicit guest session. Guest sessions can see public app
+  /// surfaces, but never carry a JWT or patient identifiers.
+  Future<void> setGuest() async {
+    _phone = 'guest';
+    _name = 'Guest';
+    _hospitalNumber = '';
+    notifyListeners();
+    await Future.wait([
+      _storage.delete(key: 'jwt'),
+      _storage.write(key: 'user_phone', value: 'guest'),
+      _storage.write(key: 'user_name', value: 'Guest'),
+      _storage.delete(key: 'hospital_number'),
+      _storage.delete(key: 'isNewUser'),
+      _storage.delete(key: 'fetched_dashboard'),
+    ]);
+  }
+
   /// Clear user data on logout.
   Future<void> clear() async {
     _phone = '';

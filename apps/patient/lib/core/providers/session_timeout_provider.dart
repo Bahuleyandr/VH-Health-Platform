@@ -37,6 +37,17 @@ class SessionTimeoutProvider extends ChangeNotifier {
     _timer = null;
   }
 
+  /// Stop authenticated-session tracking without marking the session expired.
+  /// Used for public guest mode, which has no credentials to expire.
+  void pauseForGuest() {
+    _timer?.cancel();
+    _timer = null;
+    if (_expired) {
+      _expired = false;
+      notifyListeners();
+    }
+  }
+
   /// Reset after re-login.
   void resetSession() {
     _expired = false;

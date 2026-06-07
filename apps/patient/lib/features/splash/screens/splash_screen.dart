@@ -241,6 +241,11 @@ class _SplashScreenState extends State<SplashScreen>
         await context.read<UserProvider>().loadFromStorage();
       }
 
+      if (phone == 'guest' && mounted) {
+        context.go('/home');
+        return;
+      }
+
       // ── 1. Firebase + JWT available → check profile, then dashboard ──
       if (firebaseUser != null && jwt != null && mounted) {
         final name = await _secureStorage.read(key: 'user_name');

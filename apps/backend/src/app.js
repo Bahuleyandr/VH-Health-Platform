@@ -104,6 +104,7 @@ import configRoutes from './routes/configRoutes.js';
 import dashboardRoutes from './routes/dashboard/index.js';
 import deliveryRoutes from './routes/delivery/index.js';
 import departmentRoutes from './routes/department/index.js';
+import { getDepartmentsWithDoctors } from './controllers/department/departmentController.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
 import healthRoutes from './routes/health/index.js';
@@ -463,6 +464,15 @@ app.use('/api/v1/config', configRoutes);
 // HL7v2 messaging — mounted before global JWT auth so /receive works with API key only.
 // JWT is enforced on /generate within the route file itself.
 app.use('/api/v1/hl7', hl7Routes);
+
+// Guest patient directory: the login/dashboard UI exposes Departments before a
+// patient JWT exists. Keep this exact read-only surface API-key-only while the
+// broader department router below remains behind jwtAuth.
+app.get(
+  '/api/v1/departments/departments-with-doctors',
+  publicCache(300),
+  getDepartmentsWithDoctors
+);
 
 app.use(jwtAuth);  // Single JWT middleware for all authenticated routes
 // Narrow-scope tokens (e.g. mfa_setup) must never reach non-auth routes.

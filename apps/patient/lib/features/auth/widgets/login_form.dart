@@ -12,6 +12,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/phone_input_field.dart';
@@ -27,6 +28,22 @@ class LoginForm extends StatefulWidget {
 }
 
 class _LoginFormState extends State<LoginForm> {
+  static const bool _devLoginEnabled = bool.fromEnvironment(
+    'VH_DEV_LOGIN_ENABLED',
+    defaultValue: false,
+  );
+  static const String _devLoginPhone = String.fromEnvironment(
+    'VH_DEV_LOGIN_PHONE',
+    defaultValue: '1234567890',
+  );
+  static const String _devLoginName = String.fromEnvironment(
+    'VH_DEV_LOGIN_NAME',
+    defaultValue: 'Dev Patient',
+  );
+  static const String _devLoginSecret = String.fromEnvironment(
+    'VH_DEV_LOGIN_SECRET',
+  );
+
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _secureStorage = const FlutterSecureStorage();
@@ -34,6 +51,8 @@ class _LoginFormState extends State<LoginForm> {
   final bool _isLoading = false;
   bool _showOtpWidget = false;
   String? _submittedPhone;
+
+  bool get _showDevLogin => kDebugMode || _devLoginEnabled;
 
   void _showSnackBar(String message, Color bgColor) {
     if (!mounted) return;
@@ -46,12 +65,16 @@ class _LoginFormState extends State<LoginForm> {
     );
   }
 
-  void _continueAsGuest() {
+  Future<void> _continueAsGuest() async {
     if (_isLoading) return;
-    // Guest mode navigates to About Us (public info only).
-    // Do NOT set user data — guest has no JWT and cannot call
-    // authenticated endpoints.
-    context.go('/about-us');
+    FocusScope.of(context).unfocus();
+    final userProvider = context.read<UserProvider>();
+    final sessionProvider = context.read<SessionTimeoutProvider>();
+    await FirebaseAuth.instance.signOut();
+    sessionProvider.pauseForGuest();
+    await userProvider.setGuest();
+    if (!mounted) return;
+    context.go('/home');
   }
 
   /// Debug-only shortcut that skips Firebase OTP. Calls the backend's
@@ -60,7 +83,7 @@ class _LoginFormState extends State<LoginForm> {
   /// to the dashboard. Used for emulator / CI runs where a real phone-OTP
   /// round-trip cannot complete.
   Future<void> _devLogin() async {
-    if (!kDebugMode) return;
+    if (!_showDevLogin) return;
     if (_isLoading) return;
 
     try {
@@ -68,11 +91,15 @@ class _LoginFormState extends State<LoginForm> {
       final resp = await http
           .post(
             url,
-            headers: ApiConfig.jsonHeaders,
+            headers: {
+              ...ApiConfig.jsonHeaders,
+              if (_devLoginSecret.isNotEmpty)
+                'x-dev-login-secret': _devLoginSecret,
+            },
             body: jsonEncode({
-              'phone': '+919999999999',
-              'name': 'Dev Patient',
-              'deviceType': 'mobile',
+              'phone': _devLoginPhone,
+              'name': _devLoginName,
+              'deviceType': 'desktop',
             }),
           )
           .timeout(const Duration(seconds: 10));
@@ -88,7 +115,7 @@ class _LoginFormState extends State<LoginForm> {
         // by the auth router. Steer the operator at the actual fix.
         final hint = resp.statusCode == 401 || resp.statusCode == 404
             ? 'Dev login is disabled on the backend. Set '
-                  'ENABLE_DEV_AUTH=true in apps/backend/.env and restart.'
+                  'ENABLE_DEV_AUTH=true on the backend and restart.'
             : 'Dev login failed (${resp.statusCode}).';
         _showSnackBar(hint, Theme.of(context).colorScheme.error);
         return;
@@ -98,8 +125,8 @@ class _LoginFormState extends State<LoginForm> {
       final data = body['data'] as Map<String, dynamic>?;
       final token = data?['accessToken'] as String?;
       final user = data?['user'] as Map<String, dynamic>?;
-      final phone = (user?['phone'] as String?) ?? '+919999999999';
-      final name = (user?['name'] as String?) ?? 'Dev Patient';
+      final phone = (user?['phone'] as String?) ?? _devLoginPhone;
+      final name = (user?['name'] as String?) ?? _devLoginName;
       final hospitalNumber =
           (user?['hospital_number'] ?? user?['hospitalNumber'] ?? '')
               .toString();
@@ -442,7 +469,7 @@ class _LoginFormState extends State<LoginForm> {
                                   ),
                                 ),
                               ),
-                              if (kDebugMode) ...[
+                              if (_showDevLogin) ...[
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   width: double.infinity,
@@ -463,9 +490,7 @@ class _LoginFormState extends State<LoginForm> {
                                       size: 20,
                                     ),
                                     label: Text(
-                                      AppLocalizations.of(
-                                        context,
-                                      )!.authDevLoginSkipOtp,
+                                      'Dev login $_devLoginPhone',
                                       style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w500,

@@ -4,10 +4,10 @@
 // without a working Firebase OTP flow - needed because emulators / CI
 // environments cannot complete a real phone-OTP round-trip.
 //
-// SECURITY: must never be reachable unless explicitly enabled. The mount-time guard
-// in routes/auth/index.js is the single source of truth; this file does
-// not re-check NODE_ENV because the import itself only happens after the
-// ENABLE_DEV_AUTH gate passes.
+// SECURITY: must never be reachable unless explicitly enabled. The mount-time
+// guard in routes/auth/index.js controls exposure; this file also requires a
+// temporary shared secret in production so the route fails closed if someone
+// enables it without configuring the companion desktop build.
 
 import express from 'express';
 
@@ -22,6 +22,28 @@ import { ensureHospitalNumber } from '../../services/patient/patientIdentifierSe
 const router = express.Router();
 
 const DEFAULT_DEV_PHONE = '+919999999999';
+const DEV_LOGIN_SECRET_HEADER = 'x-dev-login-secret';
+
+function requireProductionSecret(req, res) {
+  const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return true;
+
+  const expected = process.env.PATIENT_DEV_LOGIN_SECRET;
+  if (!expected) {
+    return error(
+      res,
+      'Dev login secret is not configured',
+      HTTP_STATUS.FORBIDDEN,
+    );
+  }
+
+  const supplied = req.get(DEV_LOGIN_SECRET_HEADER) || req.body?.devLoginSecret;
+  if (supplied !== expected) {
+    return error(res, 'Dev login secret is invalid', HTTP_STATUS.FORBIDDEN);
+  }
+
+  return true;
+}
 
 /**
  * POST /api/v1/auth/dev/patient-login
@@ -35,6 +57,8 @@ const DEFAULT_DEV_PHONE = '+919999999999';
  */
 router.post('/patient-login', async (req, res) => {
   try {
+    if (!requireProductionSecret(req, res)) return;
+
     const rawPhone = req.body?.phone || DEFAULT_DEV_PHONE;
     const name = req.body?.name || 'Dev Patient';
     const phone = normalizePhone(rawPhone);
