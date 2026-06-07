@@ -43,6 +43,10 @@ import 'package:vhhealth/generated/app_localizations.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  const crashlyticsEnabled = !bool.fromEnvironment(
+    'VH_DISABLE_CRASHLYTICS',
+    defaultValue: false,
+  );
 
   // When running in debug mode against a non-production backend
   // (e.g. http://127.0.0.1:5206 for local QA), disable Firebase phone-auth
@@ -64,10 +68,12 @@ Future<void> main() async {
 
   // Install the Firebase-backed crash reporter so core + app code all route
   // non-fatal errors through the same abstraction.
-  CrashReporter.install(const FirebaseCrashReporter());
+  if (crashlyticsEnabled) {
+    CrashReporter.install(const FirebaseCrashReporter());
 
-  // Pass all uncaught Flutter framework errors to Crashlytics.
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    // Pass all uncaught Flutter framework errors to Crashlytics.
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  }
 
   // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
   ApiClient.onSessionExpired = (message) {
@@ -118,7 +124,11 @@ Future<void> main() async {
       runApp(const VHRoot());
     },
     (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      if (crashlyticsEnabled) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      } else if (kDebugMode) {
+        debugPrint('Uncaught app error: $error');
+      }
     },
   );
 }

@@ -65,7 +65,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
         behavior: SnackBarBehavior.floating,
       ),
     );
-    context.push('/login');
+    context.go('/login');
   }
 
   void _onItemTapped(int index) {

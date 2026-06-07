@@ -76,6 +76,7 @@ class DependentsProvider extends ChangeNotifier {
   bool _loading = false;
   String? _error;
   bool _loadedOnce = false;
+  bool _disposed = false;
 
   List<Dependent> get dependents => _dependents;
   Dependent? get activeDependent => _active;
@@ -90,6 +91,7 @@ class DependentsProvider extends ChangeNotifier {
   /// flag. The active selection is preserved across reloads when the
   /// previously-active dependent is still in the new list.
   Future<void> loadDependents({bool force = false}) async {
+    if (_disposed) return;
     if (_loading) return;
     if (_loadedOnce && !force) return;
     _loading = true;
@@ -98,6 +100,7 @@ class DependentsProvider extends ChangeNotifier {
 
     try {
       final response = await ApiClient.get('/users/dependents');
+      if (_disposed) return;
       if (response.isSuccess) {
         final raw = response.data;
         List<dynamic> list = const [];
@@ -125,17 +128,21 @@ class DependentsProvider extends ChangeNotifier {
         _error = response.message ?? 'Failed to load dependents';
       }
     } catch (e) {
+      if (_disposed) return;
       if (kDebugMode) debugPrint('DependentsProvider.loadDependents: $e');
       _error = 'Failed to load dependents';
     } finally {
-      _loading = false;
-      notifyListeners();
+      if (!_disposed) {
+        _loading = false;
+        notifyListeners();
+      }
     }
   }
 
   /// Switch the active profile. Pass `null` to revert to the guardian's
   /// own profile.
   void switchTo(Dependent? dep) {
+    if (_disposed) return;
     if (dep != null && !_dependents.any((d) => d.uid == dep.uid)) {
       // Refuse to switch to a dependent not in the loaded list — protects
       // against stale UI state after an unlink.
@@ -153,6 +160,9 @@ class DependentsProvider extends ChangeNotifier {
     required String dependentUidOrPhone,
     String? relationship,
   }) async {
+    if (_disposed) {
+      throw const DependentApiException('Dependents provider is disposed');
+    }
     final response = await ApiClient.post(
       '/users/dependents/link',
       body: {
@@ -169,6 +179,9 @@ class DependentsProvider extends ChangeNotifier {
     }
 
     final raw = response.data;
+    if (_disposed) {
+      throw const DependentApiException('Dependents provider is disposed');
+    }
     Map<String, dynamic>? depJson;
     if (raw is Map<String, dynamic>) {
       final inner = raw['dependent'];
@@ -194,7 +207,9 @@ class DependentsProvider extends ChangeNotifier {
 
   /// Unlink a dependent and remove it from the local list.
   Future<void> unlinkDependent(int dependentId) async {
+    if (_disposed) return;
     final response = await ApiClient.delete('/users/dependents/$dependentId');
+    if (_disposed) return;
     if (!response.isSuccess) {
       throw DependentApiException(
         response.message ?? 'Failed to unlink dependent',
@@ -210,6 +225,7 @@ class DependentsProvider extends ChangeNotifier {
   }
 
   void clear() {
+    if (_disposed) return;
     _dependents = const [];
     _active = null;
     _loading = false;
@@ -220,6 +236,7 @@ class DependentsProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     // Tear down the resolver so a torn-down provider doesn't keep
     // returning a stale uid into a still-running HTTP client (matters
     // mainly for tests; the production app keeps one provider alive).

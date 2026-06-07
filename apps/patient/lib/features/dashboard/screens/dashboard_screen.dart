@@ -627,7 +627,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      context.push('/login');
+      context.go('/login');
       return;
     }
 
