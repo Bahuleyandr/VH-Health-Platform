@@ -340,6 +340,210 @@ export async function getMedicalRecords(filters = {}, _userRole) {
   }
 }
 
+const PATIENT_CONSULTATION_NOTE_TYPES = ['op_consultation', 'consultation_note', 'soap'];
+
+function asObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function noteTextFromContent(content, fallback = '') {
+  const parts = [
+    content.chief_complaint ? `Chief complaint: ${content.chief_complaint}` : null,
+    content.history ? `History: ${content.history}` : null,
+    content.examination ? `Examination: ${content.examination}` : null,
+    content.plan ? `Plan: ${content.plan}` : null,
+    fallback,
+  ].filter((part) => typeof part === 'string' && part.trim());
+  return parts.join('\n');
+}
+
+async function getMedicalConsultationsByUid(uid, take) {
+  const rows = await prisma.medical_records.findMany({
+    where: {
+      patient_id: String(uid),
+      record_type: 'CONSULTATION',
+      is_active: true,
+    },
+    select: {
+      id: true,
+      patient_id: true,
+      doctor_id: true,
+      record_type: true,
+      title: true,
+      description: true,
+      diagnosis: true,
+      treatment: true,
+      medications: true,
+      lab_results: true,
+      attachments: true,
+      privacy_level: true,
+      created_at: true,
+      updated_at: true,
+      [REL_DOCTOR]: {
+        select: { id: true, name: true, phone: true, email: true },
+      },
+    },
+    orderBy: { created_at: 'desc' },
+    take,
+  });
+
+  const records = await enrichMedicalRecords(rows);
+  return records.map((record) => ({
+    ...record,
+    source: 'medical_records',
+    patient_uid: record.patient_uid ?? record.patient_id,
+    patient_id: record.patient_uid ?? record.patient_id,
+    doctor_specialization: record.specialization ?? null,
+    consultation_date:
+      record.attachments?.consultationDate ??
+      record.attachments?.consultation_date ??
+      record.created_at,
+    date: record.created_at,
+    notes: record.description ?? record.treatment ?? '',
+  }));
+}
+
+async function getClinicalNoteConsultationsByUid(uid, take) {
+  const notes = await prisma.clinical_notes.findMany({
+    where: {
+      patient_uid: String(uid),
+      note_type: { in: PATIENT_CONSULTATION_NOTE_TYPES },
+      is_signed: true,
+      status: { not: 'deleted' },
+    },
+    select: {
+      id: true,
+      patient_uid: true,
+      author_uid: true,
+      note_type: true,
+      title: true,
+      content: true,
+      notes: true,
+      is_signed: true,
+      signed_at: true,
+      created_at: true,
+      updated_at: true,
+      appointment_id: true,
+      appointments: {
+        select: {
+          id: true,
+          doctor_id: true,
+          appointment_date: true,
+          reason: true,
+          users_appointments_doctor_idTousers: {
+            select: { id: true, name: true, phone: true, email: true },
+          },
+        },
+      },
+    },
+    orderBy: { created_at: 'desc' },
+    take,
+  });
+
+  if (notes.length === 0) return [];
+
+  const authorUids = [...new Set(notes.map((note) => note.author_uid).filter(Boolean))];
+  const appointmentDoctorIds = [
+    ...new Set(notes.map((note) => note.appointments?.doctor_id).filter(Boolean)),
+  ];
+
+  const [authors, doctorProfiles] = await Promise.all([
+    authorUids.length
+      ? prisma.users.findMany({
+          where: { uid: { in: authorUids } },
+          select: { uid: true, id: true, name: true, phone: true, email: true },
+        })
+      : [],
+    appointmentDoctorIds.length
+      ? prisma.doctors.findMany({
+          where: { user_id: { in: appointmentDoctorIds } },
+          select: { user_id: true, specialty: true, department: true },
+        })
+      : [],
+  ]);
+
+  const authorMap = new Map(authors.map((author) => [author.uid, author]));
+  const profileMap = new Map(doctorProfiles.map((profile) => [profile.user_id, profile]));
+
+  return notes.map((note) => {
+    const content = asObject(note.content);
+    const appointment = note.appointments ?? null;
+    const appointmentDoctor = appointment?.users_appointments_doctor_idTousers ?? null;
+    const author = note.author_uid ? authorMap.get(note.author_uid) ?? null : null;
+    const doctor = appointmentDoctor ?? author;
+    const doctorId = appointment?.doctor_id ?? author?.id ?? null;
+    const profile = doctorId ? profileMap.get(doctorId) ?? null : null;
+    const diagnosis = firstText(content.diagnosis, content.assessment);
+    const notesText = noteTextFromContent(content, note.notes ?? content.summary ?? '');
+
+    return {
+      id: note.id,
+      source: 'clinical_notes',
+      patient_uid: note.patient_uid,
+      patient_id: note.patient_uid,
+      doctor_id: doctorId != null ? String(doctorId) : null,
+      doctor_name: doctor?.name ?? null,
+      doctor_phone: doctor?.phone ?? null,
+      doctor_email: doctor?.email ?? null,
+      doctor_specialization: profile?.specialty ?? null,
+      specialization: profile?.specialty ?? null,
+      department: profile?.department ?? null,
+      record_type: 'CONSULTATION',
+      note_type: note.note_type,
+      title: note.title ?? 'OP consultation',
+      diagnosis,
+      description: notesText,
+      notes: notesText,
+      treatment: firstText(content.plan),
+      privacy_level: 'RESTRICTED',
+      consultation_date: appointment?.appointment_date ?? note.signed_at ?? note.created_at,
+      date: appointment?.appointment_date ?? note.created_at,
+      created_at: note.created_at,
+      updated_at: note.updated_at,
+      appointment_id: note.appointment_id,
+      appointment_reason: appointment?.reason ?? null,
+      is_signed: note.is_signed,
+    };
+  });
+}
+
+export async function getConsultationsByUid(uid, filters = {}) {
+  try {
+    const {
+      limit = DEFAULT_PAGINATION.DEFAULT_LIMIT,
+      offset = DEFAULT_PAGINATION.DEFAULT_OFFSET,
+    } = filters;
+    const parsedLimit = parseInt(limit);
+    const parsedOffset = parseInt(offset);
+    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? parsedLimit
+      : DEFAULT_PAGINATION.DEFAULT_LIMIT;
+    const safeOffset = Number.isFinite(parsedOffset) && parsedOffset >= 0
+      ? parsedOffset
+      : DEFAULT_PAGINATION.DEFAULT_OFFSET;
+    const take = safeLimit + safeOffset;
+
+    const [medicalRecords, clinicalNotes] = await Promise.all([
+      getMedicalConsultationsByUid(uid, take),
+      getClinicalNoteConsultationsByUid(uid, take),
+    ]);
+
+    return [...medicalRecords, ...clinicalNotes]
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+      .slice(safeOffset, safeOffset + safeLimit);
+  } catch (error) {
+    logger.error(`[RecordService] Error getting consultations by UID: ${error.message}`);
+    throw error;
+  }
+}
+
 export async function getMedicalRecordById(id) {
   try {
     // findFirst + is_active filter rather than findUnique, so soft-

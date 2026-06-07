@@ -114,6 +114,13 @@ class OtpService {
             value: userId.toString(),
           );
         }
+        final userUid = user?['uid'];
+        if (userUid != null) {
+          await secureStorage.write(
+            key: 'firebase_uid',
+            value: userUid.toString(),
+          );
+        }
 
         if (kDebugMode) {
           developer.log('✅ Backend login completed successfully', name: 'Auth');

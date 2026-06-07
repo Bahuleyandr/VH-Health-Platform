@@ -6,8 +6,19 @@ import {
   LAB_STAFF, DOCTOR 
 } from '../../utils/roles.js';
 
+function normalizePrivacyLevel(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+    const named = PRIVACY_LEVELS[value.trim().toUpperCase()];
+    if (typeof named === 'number') return named;
+  }
+  return PRIVACY_LEVELS.RESTRICTED;
+}
+
 export function checkDataAccess(userRole, patientData, recordData) {
-  const privacyLevel = recordData?.privacy_level || 0;
+  const privacyLevel = normalizePrivacyLevel(recordData?.privacy_level);
   
   switch (userRole) {
     case ADMIN:

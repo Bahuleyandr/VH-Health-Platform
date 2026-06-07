@@ -130,6 +130,8 @@ class _LoginFormState extends State<LoginForm> {
       final hospitalNumber =
           (user?['hospital_number'] ?? user?['hospitalNumber'] ?? '')
               .toString();
+      final userId = (user?['id'] ?? '').toString();
+      final userUid = (user?['uid'] ?? '').toString();
       final isNewUser = data?['isNewUser'] == true;
 
       if (token == null || token.isEmpty) {
@@ -144,6 +146,18 @@ class _LoginFormState extends State<LoginForm> {
       await _secureStorage.write(key: 'jwt', value: token);
       await _secureStorage.write(key: 'user_phone', value: phone);
       await _secureStorage.write(key: 'user_name', value: name);
+      if (userId.isNotEmpty) {
+        await _secureStorage.write(key: 'user_id', value: userId);
+        await _secureStorage.write(key: 'patient_id', value: userId);
+      } else {
+        await _secureStorage.delete(key: 'user_id');
+        await _secureStorage.delete(key: 'patient_id');
+      }
+      if (userUid.isNotEmpty) {
+        await _secureStorage.write(key: 'firebase_uid', value: userUid);
+      } else {
+        await _secureStorage.delete(key: 'firebase_uid');
+      }
       if (hospitalNumber.isNotEmpty) {
         await _secureStorage.write(
           key: 'hospital_number',

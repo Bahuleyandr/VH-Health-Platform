@@ -755,8 +755,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: RefreshIndicator(
                   onRefresh: _refreshAll,
                   child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.only(bottom: 32),
+                    physics: isGuest
+                        ? const NeverScrollableScrollPhysics()
+                        : const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.only(bottom: isGuest ? 8 : 32),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,

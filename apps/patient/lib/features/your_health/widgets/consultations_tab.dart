@@ -1,4 +1,6 @@
 // Consultations tab — self-contained widget with its own state and data fetching
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
@@ -27,12 +29,48 @@ class _ConsultationsTabState extends State<ConsultationsTab> {
     _loadPatientUid();
   }
 
+  String? _nonEmpty(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
+  bool _looksLikeUuid(String? value) {
+    if (value == null) return false;
+    return RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    ).hasMatch(value);
+  }
+
+  String? _uidFromJwt(String? token) {
+    final jwt = _nonEmpty(token);
+    if (jwt == null) return null;
+    try {
+      final parts = jwt.split('.');
+      if (parts.length < 2) return null;
+      final payload = utf8.decode(
+        base64Url.decode(base64Url.normalize(parts[1])),
+      );
+      final claims = jsonDecode(payload) as Map<String, dynamic>;
+      for (final key in const ['uid', 'userUid', 'firebase_uid', 'sub']) {
+        final value = _nonEmpty(claims[key]?.toString());
+        if (_looksLikeUuid(value)) return value;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   Future<void> _loadPatientUid() async {
     const storage = FlutterSecureStorage();
-    final pid = await storage.read(key: 'patient_id');
     final uid = await storage.read(key: 'firebase_uid');
+    final jwtUid = _uidFromJwt(await storage.read(key: 'jwt'));
+    final pid = await storage.read(key: 'patient_id');
+    final pidAsUid = _looksLikeUuid(pid) ? pid : null;
+    final patientUid = _nonEmpty(uid) ?? jwtUid ?? _nonEmpty(pidAsUid);
     if (mounted) {
-      setState(() => _patientUid = pid ?? uid);
+      setState(() => _patientUid = patientUid);
       if (_patientUid != null) {
         _fetchConsultations();
       } else {

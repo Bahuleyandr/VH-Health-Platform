@@ -128,7 +128,7 @@ export async function getConsultationsByUid(req, res) {
       }
     }
 
-    const records = await recordService.getHealthRecordsByUid(uid, { type, limit, offset });
+    const records = await recordService.getConsultationsByUid(uid, { type, limit, offset });
 
     const filteredRecords = accessControl.filterRecordsByAccess(
       records,
