@@ -4,6 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
@@ -116,6 +118,13 @@ bool patientRecordHasReviewableAiDraft(dynamic record) {
   return id.isNotEmpty && status != 'unavailable';
 }
 
+@visibleForTesting
+bool patientRecordsCanUploadPriorRecordsForRole(StaffRole role) {
+  return role != StaffRole.doctor &&
+      role != StaffRole.dutyDoctor &&
+      role != StaffRole.anaesthetist;
+}
+
 class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   List<dynamic> _appointments = [];
   bool _loading = true;
@@ -123,6 +132,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String _scopedSearchQuery = '';
+  bool _canUploadPriorRecords = false;
   bool get _isIpContext => widget.contextMode?.toLowerCase() == 'ip';
 
   @override
@@ -144,7 +154,15 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       }
     }
     _loadInitial();
-    if (widget.initialAction?.toLowerCase() == 'upload') {
+    _loadRolePermissions();
+  }
+
+  Future<void> _loadRolePermissions() async {
+    final role = StaffRole.fromString(await ApiConfig.getRole());
+    final canUpload = patientRecordsCanUploadPriorRecordsForRole(role);
+    if (!mounted) return;
+    setState(() => _canUploadPriorRecords = canUpload);
+    if (canUpload && widget.initialAction?.toLowerCase() == 'upload') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showUploadRecordSheet();
       });
@@ -691,7 +709,10 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
             child: TabBarView(
               children: [
                 const _CurrentAdmissionNotesTab(),
-                _IpPriorRecordsTab(onUpload: _showUploadRecordSheet),
+                _IpPriorRecordsTab(
+                  canUpload: _canUploadPriorRecords,
+                  onUpload: _showUploadRecordSheet,
+                ),
               ],
             ),
           ),
@@ -733,31 +754,37 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                   if (digits.length == 10) _searchByPhone(digits);
                 },
               );
-              final uploadButton = ElevatedButton.icon(
-                onPressed: _showUploadRecordSheet,
-                icon: const Icon(Icons.upload_file, color: Colors.white),
-                label: const Text('Upload Prior Record'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryBlue,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(0, 50),
-                ),
-              );
+              final uploadButton = _canUploadPriorRecords
+                  ? ElevatedButton.icon(
+                      onPressed: _showUploadRecordSheet,
+                      icon: const Icon(Icons.upload_file, color: Colors.white),
+                      label: const Text('Upload Prior Record'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryBlue,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 50),
+                      ),
+                    )
+                  : null;
               if (constraints.maxWidth < 560) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     searchField,
-                    const SizedBox(height: 10),
-                    uploadButton,
+                    if (uploadButton != null) ...[
+                      const SizedBox(height: 10),
+                      uploadButton,
+                    ],
                   ],
                 );
               }
               return Row(
                 children: [
                   Expanded(child: searchField),
-                  const SizedBox(width: 12),
-                  uploadButton,
+                  if (uploadButton != null) ...[
+                    const SizedBox(width: 12),
+                    uploadButton,
+                  ],
                 ],
               );
             },
@@ -1093,9 +1120,10 @@ class _AdmissionNoteRow extends StatelessWidget {
 }
 
 class _IpPriorRecordsTab extends StatefulWidget {
+  final bool canUpload;
   final Future<void> Function() onUpload;
 
-  const _IpPriorRecordsTab({required this.onUpload});
+  const _IpPriorRecordsTab({required this.canUpload, required this.onUpload});
 
   @override
   State<_IpPriorRecordsTab> createState() => _IpPriorRecordsTabState();
@@ -1183,21 +1211,22 @@ class _IpPriorRecordsTabState extends State<_IpPriorRecordsTab> {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _uploadAndRefresh,
-              icon: const Icon(Icons.upload_file, color: Colors.white),
-              label: const Text('Upload Prior Record'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryBlue,
-                foregroundColor: Colors.white,
+        if (widget.canUpload)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _uploadAndRefresh,
+                icon: const Icon(Icons.upload_file, color: Colors.white),
+                label: const Text('Upload Prior Record'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ),
           ),
-        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,

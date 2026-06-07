@@ -16,6 +16,7 @@ class OpDoctorWorkspaceScreen extends StatefulWidget {
   final String? patientName;
   final int? appointmentId;
   final int? patientId;
+  final String? patientPhone;
   final int? doctorId;
   final String? doctorName;
   final String? department;
@@ -30,6 +31,7 @@ class OpDoctorWorkspaceScreen extends StatefulWidget {
     this.patientName,
     this.appointmentId,
     this.patientId,
+    this.patientPhone,
     this.doctorId,
     this.doctorName,
     this.department,
@@ -289,6 +291,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
       if (_clean(widget.patientName).isNotEmpty)
         'name=${Uri.encodeQueryComponent(_clean(widget.patientName))}',
       if (widget.patientId != null) 'patient_id=${widget.patientId}',
+      if (_clean(widget.patientPhone).isNotEmpty)
+        'phone=${Uri.encodeQueryComponent(_clean(widget.patientPhone))}',
       if (widget.appointmentId != null)
         'appointment_id=${widget.appointmentId}',
       if (widget.doctorId != null) 'doctor_id=${widget.doctorId}',
@@ -311,6 +315,19 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
 
   String get _timelineRoute =>
       '/emr/timeline/${widget.patientUid}$_patientQuery';
+
+  String get _investigationsRoute {
+    final params = <String>[
+      'patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
+      if (widget.patientId != null) 'patient_id=${widget.patientId}',
+      if (_clean(widget.patientPhone).isNotEmpty)
+        'phone=${Uri.encodeQueryComponent(_clean(widget.patientPhone))}',
+      if (_clean(widget.patientName).isNotEmpty)
+        'name=${Uri.encodeQueryComponent(_clean(widget.patientName))}',
+      'context=op',
+    ];
+    return '/investigations?${params.join('&')}';
+  }
 
   bool get _canComplete =>
       widget.appointmentId != null &&
@@ -526,6 +543,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   void _openPatientRecords() {
     final query = <String>[
       if (widget.patientId != null) 'patient_id=${widget.patientId}',
+      if (_clean(widget.patientPhone).isNotEmpty)
+        'phone=${Uri.encodeQueryComponent(_clean(widget.patientPhone))}',
       if (_clean(widget.patientName).isNotEmpty)
         'name=${Uri.encodeQueryComponent(_clean(widget.patientName))}',
       'context=op',
@@ -755,9 +774,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         icon: Icons.biotech_outlined,
         label: 'Investigations',
         detail: 'Review or request investigations',
-        onTap: () => context.push(
-          '/investigations?patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
-        ),
+        onTap: () => context.push(_investigationsRoute),
       ),
       _WorkspaceAction(
         icon: Icons.folder_shared_outlined,
@@ -915,9 +932,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                       title: 'Investigations',
                       value: _eventTitle(latestInvestigation) ?? 'Review/order',
                       action: 'Open',
-                      onTap: () => context.push(
-                        '/investigations?patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
-                      ),
+                      onTap: () => context.push(_investigationsRoute),
                     ),
                     _CockpitTile(
                       icon: Icons.folder_shared_outlined,

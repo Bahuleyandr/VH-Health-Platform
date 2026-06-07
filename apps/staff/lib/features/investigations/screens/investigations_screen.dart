@@ -4,16 +4,39 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
 class InvestigationsScreen extends StatefulWidget {
-  const InvestigationsScreen({super.key});
+  final String? contextMode;
+  final String? initialPatientUid;
+  final String? initialPatientId;
+  final String? initialPatientPhone;
+  final String? initialPatientName;
+  final String? initialHospitalNumber;
+
+  const InvestigationsScreen({
+    super.key,
+    this.contextMode,
+    this.initialPatientUid,
+    this.initialPatientId,
+    this.initialPatientPhone,
+    this.initialPatientName,
+    this.initialHospitalNumber,
+  });
 
   @override
   State<InvestigationsScreen> createState() => _InvestigationsScreenState();
+}
+
+@visibleForTesting
+bool investigationsCanUploadResultsForRole(StaffRole role) {
+  return role != StaffRole.doctor &&
+      role != StaffRole.dutyDoctor &&
+      role != StaffRole.anaesthetist;
 }
 
 class _InvestigationsScreenState extends State<InvestigationsScreen>
@@ -21,11 +44,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   late TabController _tabController;
   int _pendingReloadKey = 0;
   int _recentReloadKey = 0;
+  bool _canUploadResults = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
+    _loadRolePermissions();
   }
 
   @override
@@ -34,9 +59,36 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     super.dispose();
   }
 
+  Future<void> _loadRolePermissions() async {
+    final role = StaffRole.fromString(await ApiConfig.getRole());
+    final canUpload = investigationsCanUploadResultsForRole(role);
+    if (!mounted) return;
+    if (canUpload != _canUploadResults) {
+      final oldIndex = _tabController.index;
+      _tabController.dispose();
+      final nextIndex = canUpload
+          ? oldIndex.clamp(0, 2).toInt()
+          : oldIndex.clamp(0, 1).toInt();
+      _tabController = TabController(
+        length: canUpload ? 3 : 2,
+        vsync: this,
+        initialIndex: nextIndex,
+      );
+    }
+    setState(() {
+      _canUploadResults = canUpload;
+    });
+  }
+
   Future<void> _orderInvestigation() async {
     final formKey = GlobalKey<FormState>();
-    final patientIdCtrl = TextEditingController();
+    final scopedPatientId = int.tryParse(widget.initialPatientId ?? '');
+    final patientIdCtrl = TextEditingController(
+      text: scopedPatientId == null ? '' : scopedPatientId.toString(),
+    );
+    final patientPhoneCtrl = TextEditingController(
+      text: widget.initialPatientPhone?.trim() ?? '',
+    );
     final testNameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     var type = 'LAB';
@@ -114,14 +166,46 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                         ],
                       ),
                       const SizedBox(height: 12),
+                      if (patientPhoneCtrl.text.trim().isNotEmpty) ...[
+                        TextFormField(
+                          controller: patientPhoneCtrl,
+                          readOnly: true,
+                          keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            labelText: 'Patient phone',
+                            helperText: [
+                              if ((widget.initialPatientName ?? '')
+                                  .trim()
+                                  .isNotEmpty)
+                                widget.initialPatientName!.trim(),
+                              if ((widget.initialHospitalNumber ?? '')
+                                  .trim()
+                                  .isNotEmpty)
+                                widget.initialHospitalNumber!.trim(),
+                            ].join(' - '),
+                            prefixIcon: const ExcludeSemantics(
+                              child: Icon(Icons.phone_outlined),
+                            ),
+                            suffixIcon: const Icon(Icons.lock_outline),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       TextFormField(
                         controller: patientIdCtrl,
+                        readOnly: scopedPatientId != null,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Patient ID',
-                          prefixIcon: ExcludeSemantics(
+                          helperText: scopedPatientId != null
+                              ? 'Using selected OP patient'
+                              : null,
+                          prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.badge_outlined),
                           ),
+                          suffixIcon: scopedPatientId != null
+                              ? const Icon(Icons.lock_outline)
+                              : null,
                         ),
                         validator: (value) {
                           final id = int.tryParse(value?.trim() ?? '');
@@ -253,11 +337,12 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         setState(() {
           _pendingReloadKey++;
           _recentReloadKey++;
-          _tabController.index = 1;
+          _tabController.index = _canUploadResults ? 1 : 0;
         });
       }
     } finally {
       patientIdCtrl.dispose();
+      patientPhoneCtrl.dispose();
       testNameCtrl.dispose();
       notesCtrl.dispose();
     }
@@ -266,6 +351,26 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final tabs = _canUploadResults
+        ? [
+            Tab(text: s.investigationsTabUpload),
+            Tab(text: s.investigationsTabPending),
+            Tab(text: s.investigationsTabRecent),
+          ]
+        : [
+            Tab(text: s.investigationsTabPending),
+            Tab(text: s.investigationsTabRecent),
+          ];
+    final tabViews = _canUploadResults
+        ? [
+            _UploadTab(initialPatientPhone: widget.initialPatientPhone),
+            _PendingTab(key: ValueKey(_pendingReloadKey)),
+            _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
+          ]
+        : [
+            _PendingTab(key: ValueKey(_pendingReloadKey)),
+            _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
+          ];
     return StaffScaffold(
       title: s.investigationsTitle,
       body: Column(
@@ -297,22 +402,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
               labelColor: AppTheme.primaryBlue,
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.primaryBlue,
-              tabs: [
-                Tab(text: s.investigationsTabUpload),
-                Tab(text: s.investigationsTabPending),
-                Tab(text: s.investigationsTabRecent),
-              ],
+              tabs: tabs,
             ),
           ),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                const _UploadTab(),
-                _PendingTab(key: ValueKey(_pendingReloadKey)),
-                _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
-              ],
-            ),
+            child: TabBarView(controller: _tabController, children: tabViews),
           ),
         ],
       ),
@@ -321,7 +415,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 }
 
 class _UploadTab extends StatefulWidget {
-  const _UploadTab();
+  final String? initialPatientPhone;
+
+  const _UploadTab({this.initialPatientPhone});
 
   @override
   State<_UploadTab> createState() => _UploadTabState();
@@ -361,6 +457,12 @@ class _UploadTabState extends State<_UploadTab> {
     _notesCtrl.dispose();
     _resultCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneCtrl.text = widget.initialPatientPhone?.trim() ?? '';
   }
 
   Future<void> _submit() async {

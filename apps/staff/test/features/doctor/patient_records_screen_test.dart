@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:vhhealth_staff/core/config/role_config.dart';
 import 'package:vhhealth_staff/features/doctor/screens/patient_records_screen.dart';
 
 void main() {
@@ -93,6 +94,26 @@ void main() {
           },
         }),
         isFalse,
+      );
+    });
+
+    test('hides prior-record upload for doctor-style roles', () {
+      expect(
+        patientRecordsCanUploadPriorRecordsForRole(StaffRole.doctor),
+        isFalse,
+      );
+      expect(
+        patientRecordsCanUploadPriorRecordsForRole(StaffRole.dutyDoctor),
+        isFalse,
+      );
+      expect(
+        patientRecordsCanUploadPriorRecordsForRole(StaffRole.anaesthetist),
+        isFalse,
+      );
+      expect(patientRecordsCanUploadPriorRecordsForRole(StaffRole.lab), isTrue);
+      expect(
+        patientRecordsCanUploadPriorRecordsForRole(StaffRole.receptionist),
+        isTrue,
       );
     });
   });

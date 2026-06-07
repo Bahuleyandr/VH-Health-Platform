@@ -10,6 +10,7 @@ void main() {
         patientName: 'OP Doctor Flow Test',
         appointmentId: 371,
         patientId: 42,
+        patientPhone: '+91 12345 67890',
         doctorId: 1004,
         doctorName: 'Dr Test',
         department: 'General Medicine',
@@ -24,6 +25,7 @@ void main() {
       expect(uri.queryParameters['name'], 'OP Doctor Flow Test');
       expect(uri.queryParameters['appointment_id'], '371');
       expect(uri.queryParameters['patient_id'], '42');
+      expect(uri.queryParameters['phone'], '+91 12345 67890');
       expect(uri.queryParameters['doctor_id'], '1004');
       expect(uri.queryParameters['department'], 'General Medicine');
       expect(uri.queryParameters['context'], 'op');
@@ -33,6 +35,7 @@ void main() {
       final appointment = StaffAppointment.fromJson({
         'id': 371,
         'patient_name': 'Nested Patient',
+        'patient_phone': '1234567890',
         'patient': {'id': 42, 'uid': 'nested-patient-uid'},
         'doctor': {
           'user_id': 1004,
@@ -50,6 +53,7 @@ void main() {
       final uri = Uri.parse(opDoctorWorkspaceRouteFromAppointment(appointment));
       expect(uri.path, '/op/doctor-workspace/nested-patient-uid');
       expect(uri.queryParameters['patient_id'], '42');
+      expect(uri.queryParameters['phone'], '1234567890');
       expect(uri.queryParameters['doctor_id'], '1004');
       expect(uri.queryParameters['doctor_name'], 'Dr Nested');
       expect(uri.queryParameters['department'], 'Cardiology');
@@ -58,7 +62,11 @@ void main() {
     test('maps dashboard appointment rows into the same workspace route', () {
       final route = opDoctorWorkspaceRouteFromMap({
         'appointment_id': '55',
-        'patient': {'id': '12', 'patient_uid': 'dash-uid'},
+        'patient': {
+          'id': '12',
+          'patient_uid': 'dash-uid',
+          'phone': '+911234567890',
+        },
         'doctor_id': '1004',
         'doctor_display_name': 'Dr Dashboard',
         'appointment_department': 'ENT',
@@ -70,6 +78,7 @@ void main() {
       expect(uri.queryParameters['name'], 'Dashboard Patient');
       expect(uri.queryParameters['appointment_id'], '55');
       expect(uri.queryParameters['patient_id'], '12');
+      expect(uri.queryParameters['phone'], '+911234567890');
       expect(uri.queryParameters['doctor_id'], '1004');
       expect(uri.queryParameters['department'], 'ENT');
     });

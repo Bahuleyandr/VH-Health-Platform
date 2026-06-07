@@ -239,8 +239,19 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/investigations',
           name: 'investigations',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: InvestigationsScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: InvestigationsScreen(
+                contextMode: q['context'],
+                initialPatientUid: q['patient_uid'],
+                initialPatientId: q['patient_id'],
+                initialPatientPhone: q['phone'],
+                initialPatientName: q['name'],
+                initialHospitalNumber: q['hospital_number'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/lab-bookings',
@@ -363,6 +374,7 @@ final GoRouter appRouter = GoRouter(
                 patientName: q['name'],
                 appointmentId: intParam('appointment_id'),
                 patientId: intParam('patient_id'),
+                patientPhone: q['phone'],
                 doctorId: intParam('doctor_id'),
                 doctorName: q['doctor_name'],
                 department: q['department'],

@@ -5,6 +5,7 @@ String opDoctorWorkspaceRoute({
   String? patientName,
   int? appointmentId,
   int? patientId,
+  String? patientPhone,
   int? doctorId,
   String? doctorName,
   String? department,
@@ -24,6 +25,7 @@ String opDoctorWorkspaceRoute({
   add('name', patientName);
   add('appointment_id', appointmentId);
   add('patient_id', patientId);
+  add('phone', patientPhone);
   add('doctor_id', doctorId);
   add('doctor_name', doctorName);
   add('department', department);
@@ -45,6 +47,7 @@ String opDoctorWorkspaceRouteFromAppointment(StaffAppointment appointment) {
     patientName: appointment.patientName,
     appointmentId: appointment.id,
     patientId: appointment.patientId,
+    patientPhone: appointment.patientPhone,
     doctorId: appointment.doctorId,
     doctorName: appointment.doctorName,
     department: appointment.department,
@@ -86,6 +89,12 @@ String opDoctorWorkspaceRouteFromMap(
     patientId: _intFrom(
       appointment['patient_id'] ?? appointment['patientId'] ?? patient?['id'],
     ),
+    patientPhone: _firstText([
+      appointment['patient_phone'],
+      appointment['patientPhone'],
+      patient?['phone'],
+      appointment['phone'],
+    ]),
     doctorId: _intFrom(
       appointment['doctor_id'] ??
           appointment['doctorId'] ??
