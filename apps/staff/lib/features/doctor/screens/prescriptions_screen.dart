@@ -1461,17 +1461,35 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         '';
   }
 
+  List<String> _catalogSearchTokens(Object? value) {
+    final text = value?.toString().toLowerCase() ?? '';
+    return RegExp(r'[a-z0-9]+')
+        .allMatches(text)
+        .map((match) => match.group(0) ?? '')
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+  }
+
   bool _catalogRowMatchesQuery(Map<String, dynamic> row, String query) {
-    final needle = _normalizedCatalogSearchText(_stripDrugDisplayPrefix(query));
-    if (needle.isEmpty) return true;
+    final cleanQuery = _stripDrugDisplayPrefix(query);
+    final queryTokens = _catalogSearchTokens(cleanQuery);
+    if (queryTokens.isEmpty) return true;
+    final needle = _normalizedCatalogSearchText(cleanQuery);
     final fields = [
       _extractDrugNameFromCatalog(row),
       _rowText(row, const ['generic_name', 'generic']),
       _rowText(row, const ['name', 'drug_name', 'medicine_name']),
     ];
     return fields.any((field) {
-      final normalized = _normalizedCatalogSearchText(field);
-      return normalized.contains(needle);
+      final normalized = _normalizedCatalogSearchText(
+        _stripDrugDisplayPrefix(field),
+      );
+      final fieldTokens = _catalogSearchTokens(_stripDrugDisplayPrefix(field));
+      if (normalized.startsWith(needle)) return true;
+      return queryTokens.every(
+        (queryToken) =>
+            fieldTokens.any((fieldToken) => fieldToken.startsWith(queryToken)),
+      );
     });
   }
 
@@ -2339,7 +2357,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         optionsBuilder: (textEditingValue) {
           final q = textEditingValue.text.trim();
           if (q.isEmpty) return const <Map<String, dynamic>>[];
-          return _drugSuggestions[medication] ?? const <Map<String, dynamic>>[];
+          return (_drugSuggestions[medication] ??
+                  const <Map<String, dynamic>>[])
+              .where((row) => _catalogRowMatchesQuery(row, q));
         },
         onSelected: (row) => _applyCatalogRowToMedication(medication, row),
         fieldViewBuilder:
