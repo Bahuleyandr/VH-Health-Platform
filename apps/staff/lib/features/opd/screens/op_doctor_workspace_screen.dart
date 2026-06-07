@@ -136,13 +136,24 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     Map<String, dynamic>? selected;
     if (widget.appointmentId != null) {
       for (final note in notes) {
-        if (_asInt(note['appointment_id']) == widget.appointmentId) {
+        final content = _contentMap(note);
+        final noteAppointmentId =
+            _asInt(note['appointment_id']) ?? _asInt(content['appointment_id']);
+        if (noteAppointmentId == widget.appointmentId) {
           selected = note;
           break;
         }
       }
+      if (selected == null) {
+        if (_chiefCtrl.text.trim().isEmpty &&
+            _clean(widget.reason).isNotEmpty) {
+          _chiefCtrl.text = _clean(widget.reason);
+        }
+        return;
+      }
+    } else {
+      selected = notes.first;
     }
-    selected ??= notes.first;
     final content = _contentMap(selected);
     _opNoteId = _asInt(selected['id']);
     _opNoteSigned = selected['is_signed'] == true;
@@ -745,7 +756,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   Widget _buildCockpitSummaryPanel() {
     final latestPrescription = _latestEvent({'medication', 'prescription'});
     final latestInvestigation = _latestEvent({'investigation', 'lab_result'});
-    final latestNote = _latestEvent({'note', 'clinical_note', 'doctor_note'});
+    final latestNote = _latestEvent({
+      'note',
+      'clinical_note',
+      'doctor_note',
+      'op_consultation',
+      'consultation_note',
+      'soap',
+      'progress',
+    });
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -827,7 +846,15 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
             ),
             const SizedBox(height: 12),
             _ChecklistRow(
-              complete: _hasEventType({'note', 'clinical_note', 'doctor_note'}),
+              complete: _hasEventType({
+                'note',
+                'clinical_note',
+                'doctor_note',
+                'op_consultation',
+                'consultation_note',
+                'soap',
+                'progress',
+              }),
               label: 'Clinical note entered',
             ),
             _ChecklistRow(
@@ -1389,6 +1416,11 @@ String _eventDescription(Map<String, dynamic> event) {
   final content = payload['content'];
   if (content is Map) {
     final parts = [
+      content['chief_complaint'],
+      content['chief_complaints'],
+      content['history'],
+      content['examination'],
+      content['diagnosis'],
       content['subjective'],
       content['objective'],
       content['assessment'],
@@ -1417,6 +1449,10 @@ String _normalizedEventType(dynamic value) {
     case 'clinical_note':
     case 'doctor_note':
     case 'nursing_note':
+    case 'op_consultation':
+    case 'consultation_note':
+    case 'soap':
+    case 'progress':
       return 'note';
     case 'clinical_order':
       return 'order';

@@ -186,12 +186,13 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       ),
     ]);
     final notes = responses.expand(_listFromNoteResponse).toList();
-    if (_isOpConsultation && widget.appointmentId != null) {
-      notes.removeWhere(
-        (note) => _noteAppointmentId(note) != widget.appointmentId,
-      );
-    }
     notes.sort((a, b) {
+      final appointmentId = widget.appointmentId;
+      if (_isOpConsultation && appointmentId != null) {
+        final aCurrent = _noteAppointmentId(a) == appointmentId;
+        final bCurrent = _noteAppointmentId(b) == appointmentId;
+        if (aCurrent != bCurrent) return aCurrent ? -1 : 1;
+      }
       final aTime = DateTime.tryParse('${a['created_at']}') ?? DateTime(1970);
       final bTime = DateTime.tryParse('${b['created_at']}') ?? DateTime(1970);
       return bTime.compareTo(aTime);

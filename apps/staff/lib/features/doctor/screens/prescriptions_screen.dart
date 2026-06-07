@@ -1,6 +1,8 @@
 // ignore_for_file: unused_element_parameter
+
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -92,6 +94,7 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
 
 class _MedicationEntry {
   String name;
+  String displayName;
   String? genericName;
   int? catalogId;
   List<Map<String, dynamic>> catalogRows;
@@ -116,6 +119,7 @@ class _MedicationEntry {
 
   _MedicationEntry({
     this.name = '',
+    this.displayName = '',
     this.genericName,
     this.catalogId,
     List<Map<String, dynamic>>? catalogRows,
@@ -143,33 +147,48 @@ class _MedicationEntry {
            (strength.trim().isEmpty ? <String>[] : <String>[strength.trim()]),
        doseTimes = doseTimes ?? <String>{'morning', 'night'};
 
-  Map<String, dynamic> toJson() => {
-    'name': name,
-    if (genericName != null) 'generic_name': genericName,
-    if (catalogId != null) 'catalog_id': catalogId,
-    if (strength.trim().isNotEmpty) 'strength': strength.trim(),
-    'dosage': dosage.trim().isNotEmpty ? dosage.trim() : strength.trim(),
-    'frequency': frequency,
-    if (doseTimes.isNotEmpty) 'dose_times': doseTimes.toList(growable: false),
-    if (foodTiming.trim().isNotEmpty) 'food_timing': foodTiming.trim(),
-    'duration': duration.trim().isNotEmpty ? duration.trim() : '$days days',
-    'days': days,
-    'route': route,
-    'instructions': instructions,
-    'quantity': quantity,
-    'refills': refills,
-    if (prn) 'prn': true,
-    if (nte) 'nte': true,
-    if (daw) 'do_not_substitute': true,
-    if (type.trim().isNotEmpty) 'type': type.trim(),
-    if (category.trim().isNotEmpty) 'category': category.trim(),
-    if (pharmacy.trim().isNotEmpty) 'pharmacy': pharmacy.trim(),
-  };
+  Map<String, dynamic> toJson() {
+    final baseName = name.trim();
+    final visibleName = displayName.trim().isNotEmpty
+        ? displayName.trim()
+        : baseName;
+    return {
+      'name': baseName,
+      if (baseName.isNotEmpty) 'medication_name': baseName,
+      if (baseName.isNotEmpty) 'base_name': baseName,
+      if (visibleName.isNotEmpty) 'display_name': visibleName,
+      if (genericName != null) 'generic_name': genericName,
+      if (catalogId != null) 'catalog_id': catalogId,
+      if (strength.trim().isNotEmpty) 'strength': strength.trim(),
+      'dosage': dosage.trim().isNotEmpty ? dosage.trim() : strength.trim(),
+      'frequency': frequency,
+      if (doseTimes.isNotEmpty) 'dose_times': doseTimes.toList(growable: false),
+      if (foodTiming.trim().isNotEmpty) 'food_timing': foodTiming.trim(),
+      'duration': duration.trim().isNotEmpty ? duration.trim() : '$days days',
+      'days': days,
+      'route': route,
+      'instructions': instructions,
+      'quantity': quantity,
+      'refills': refills,
+      if (prn) 'prn': true,
+      if (nte) 'nte': true,
+      if (daw) 'do_not_substitute': true,
+      if (type.trim().isNotEmpty) 'type': type.trim(),
+      if (category.trim().isNotEmpty) 'category': category.trim(),
+      if (pharmacy.trim().isNotEmpty) 'pharmacy': pharmacy.trim(),
+    };
+  }
 
   factory _MedicationEntry.fromJson(Map<String, dynamic> json) {
     final doseTimes = json['dose_times'] ?? json['doseTimes'];
     return _MedicationEntry(
-      name: json['name']?.toString() ?? '',
+      name:
+          json['base_name']?.toString() ??
+          json['drug_name']?.toString() ??
+          json['name']?.toString() ??
+          '',
+      displayName:
+          json['display_name']?.toString() ?? json['name']?.toString() ?? '',
       genericName: json['generic_name']?.toString(),
       catalogId: json['catalog_id'] is int
           ? json['catalog_id'] as int
@@ -261,6 +280,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   final Map<_MedicationEntry, String> _drugSuggestionQuery = {};
   final Map<_MedicationEntry, TextEditingController> _drugTextControllers = {};
   final Map<_MedicationEntry, FocusNode> _drugFocusNodes = {};
+  final ScrollController _medicationTableHorizontalCtrl = ScrollController();
   final List<_MedicationEntry> _favorites = [];
 
   // Follow-up
@@ -334,6 +354,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   @override
   void dispose() {
     _disposeMedicationEditors();
+    _medicationTableHorizontalCtrl.dispose();
     _diagnosisCtrl.dispose();
     _clinicalNotesCtrl.dispose();
     _followUpNotesCtrl.dispose();
@@ -368,7 +389,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   TextEditingController _drugControllerFor(_MedicationEntry med) {
     return _drugTextControllers.putIfAbsent(
       med,
-      () => TextEditingController(text: med.name),
+      () => TextEditingController(
+        text: med.displayName.trim().isNotEmpty ? med.displayName : med.name,
+      ),
     );
   }
 
@@ -453,6 +476,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     setState(() {
       target
         ..name = favorite.name
+        ..displayName = favorite.displayName
         ..genericName = favorite.genericName
         ..catalogId = favorite.catalogId
         ..strength = favorite.strength
@@ -479,7 +503,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             ? _preferredPharmacy
             : favorite.pharmacy;
       _syncMedicationDerivedFields(target);
-      _drugControllerFor(target).text = target.name;
+      _updateDrugControllerText(target);
     });
   }
 
@@ -772,38 +796,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         }
         // Reset form
         _formKey.currentState!.reset();
-        for (final med in _medications) {
-          _disposeMedicationEditor(med);
-        }
         setState(() {
           _lastCreatedPrescriptionId = createdId;
           _lastCreatedPrescriptionPdfUrl = pdfUrl;
           _lastPharmacyOrderMessage = pharmacyMessage;
           _lastCreatedPrescriptionSigned = false;
-          _medications.clear();
-          _medications.add(_MedicationEntry());
-          _diagnosisCtrl.clear();
-          _clinicalNotesCtrl.clear();
-          _followUpNotesCtrl.clear();
-          _followUpDate = null;
-          _handwrittenPhoto = null;
-          _bpSysCtrl.clear();
-          _bpDiaCtrl.clear();
-          _pulseCtrl.clear();
-          _tempCtrl.clear();
-          _spo2Ctrl.clear();
-          _weightCtrl.clear();
-          _heightCtrl.clear();
-          _respRateCtrl.clear();
-          _temperatureRoute = null;
-          _bsCtrl.clear();
-          if (widget.prefilledAppointment == null) {
-            _patientId = null;
-            _doctorId = null;
-            _appointmentId = null;
-            _patientName = null;
-            _doctorName = null;
-          }
+          _resetPrescriptionDraft(
+            keepPatientContext: widget.prefilledAppointment != null,
+          );
         });
       }
     } catch (e) {
@@ -869,6 +869,94 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return slots.map((slot) => _doseSlotNames[slot] ?? slot).join(' + ');
   }
 
+  String _routeForMedicineType(String type) {
+    final text = type.trim().toLowerCase();
+    if (text.contains('inj') ||
+        text.contains('injection') ||
+        text.contains('infusion') ||
+        text.contains('vial') ||
+        text.contains('ampoule')) {
+      return 'IV';
+    }
+    if (text.contains('cream') ||
+        text.contains('ointment') ||
+        text.contains('gel') ||
+        text.contains('lotion')) {
+      return 'Topical';
+    }
+    if (text.contains('inhaler') || text.contains('nebul')) {
+      return 'Inhalation';
+    }
+    return 'Oral';
+  }
+
+  String _drugFormPrefix({required String type, required String route}) {
+    final combined = '$type $route'.trim().toLowerCase();
+    if (combined.contains('inj') ||
+        combined.contains('injection') ||
+        combined.contains('infusion') ||
+        combined.contains('vial') ||
+        combined.contains('ampoule') ||
+        route.toUpperCase() == 'IV' ||
+        route.toUpperCase() == 'IM') {
+      return 'Inj.';
+    }
+    if (combined.contains('cap') || combined.contains('capsule')) {
+      return 'Cap.';
+    }
+    if (combined.contains('syrup') || combined.contains('suspension')) {
+      return 'Syp.';
+    }
+    if (combined.contains('drops')) return 'Drops';
+    if (combined.contains('inhaler')) return 'Inh.';
+    if (combined.contains('cream')) return 'Cream';
+    if (combined.contains('ointment')) return 'Oint.';
+    if (combined.contains('sachet')) return 'Sachet';
+    return 'Tab.';
+  }
+
+  String _stripDrugDisplayPrefix(String value) {
+    return value
+        .replaceFirst(
+          RegExp(
+            r'^\s*(tab\.?|tablet|inj\.?|injection|cap\.?|capsule|syp\.?|syrup|drops?|inh\.?|inhaler|cream|oint\.?|ointment|sachet)\s+',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+  }
+
+  bool _hasDrugDisplayPrefix(String value) {
+    return RegExp(
+      r'^\s*(tab\.?|tablet|inj\.?|injection|cap\.?|capsule|syp\.?|syrup|drops?|inh\.?|inhaler|cream|oint\.?|ointment|sachet)\b',
+      caseSensitive: false,
+    ).hasMatch(value);
+  }
+
+  String _drugDisplayName(
+    String name, {
+    required String type,
+    required String route,
+  }) {
+    final clean = name.trim();
+    if (clean.isEmpty) return '';
+    if (_hasDrugDisplayPrefix(clean)) return clean;
+    final prefix = _drugFormPrefix(type: type, route: route);
+    return '$prefix $clean'.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  void _updateDrugControllerText(_MedicationEntry med) {
+    final controller = _drugControllerFor(med);
+    final text = med.displayName.trim().isNotEmpty
+        ? med.displayName.trim()
+        : med.name.trim();
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
   void _syncMedicationDerivedFields(_MedicationEntry med) {
     final strength = med.strength.trim();
     if (strength.isNotEmpty && !med.strengthOptions.contains(strength)) {
@@ -887,6 +975,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (med.pharmacy.trim().isEmpty) {
       med.pharmacy = _preferredPharmacy;
     }
+    med.displayName = _drugDisplayName(
+      _stripDrugDisplayPrefix(med.name),
+      type: med.type,
+      route: med.route,
+    );
   }
 
   void _syncCatalogIdForStrength(_MedicationEntry med) {
@@ -896,6 +989,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       if (_extractStrengthFromCatalog(row).toLowerCase() == selected) {
         med.catalogId = _rowInt(row, 'id') ?? med.catalogId;
         med.type = _extractMedicineTypeFromCatalog(row);
+        med.route = _routeForMedicineType(med.type);
         med.category = _rowText(row, const ['category', 'drug_class']);
         return;
       }
@@ -920,6 +1014,92 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _medications.removeAt(index);
     });
     _disposeMedicationEditor(med);
+  }
+
+  bool get _hasPrescriptionDraft {
+    final hasMedication = _medications.any(
+      (med) =>
+          med.name.trim().isNotEmpty ||
+          med.displayName.trim().isNotEmpty ||
+          med.strength.trim().isNotEmpty ||
+          med.instructions.trim().isNotEmpty,
+    );
+    return hasMedication ||
+        _diagnosisCtrl.text.trim().isNotEmpty ||
+        _clinicalNotesCtrl.text.trim().isNotEmpty ||
+        _followUpNotesCtrl.text.trim().isNotEmpty ||
+        _followUpDate != null ||
+        _handwrittenPhoto != null;
+  }
+
+  void _resetPrescriptionDraft({
+    bool keepPatientContext = true,
+    bool keepLastCreated = true,
+  }) {
+    _disposeMedicationEditors();
+    _drugSuggestions.clear();
+    _drugSuggestionLoading.clear();
+    _drugSuggestionQuery.clear();
+    final med = _MedicationEntry(pharmacy: _preferredPharmacy);
+    _syncMedicationDerivedFields(med);
+    _medications
+      ..clear()
+      ..add(med);
+    _diagnosisCtrl.clear();
+    _clinicalNotesCtrl.clear();
+    _followUpNotesCtrl.clear();
+    _followUpDate = null;
+    _handwrittenPhoto = null;
+    _bpSysCtrl.clear();
+    _bpDiaCtrl.clear();
+    _pulseCtrl.clear();
+    _tempCtrl.clear();
+    _spo2Ctrl.clear();
+    _weightCtrl.clear();
+    _heightCtrl.clear();
+    _respRateCtrl.clear();
+    _temperatureRoute = null;
+    _bsCtrl.clear();
+    if (!keepPatientContext) {
+      _patientId = null;
+      _doctorId = null;
+      _appointmentId = null;
+      _patientName = null;
+      _doctorName = null;
+    }
+    if (!keepLastCreated) {
+      _lastCreatedPrescriptionId = null;
+      _lastCreatedPrescriptionPdfUrl = null;
+      _lastPharmacyOrderMessage = null;
+      _lastCreatedPrescriptionSigned = false;
+      _signingLastPrescription = false;
+    }
+  }
+
+  Future<void> _clearPrescriptionDraft() async {
+    if (!_hasPrescriptionDraft) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear prescription draft?'),
+        content: const Text(
+          'This removes the medicines, notes, vitals and follow-up currently on this draft. Created prescriptions are not deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Clear draft'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _resetPrescriptionDraft(keepLastCreated: false));
   }
 
   String _rowText(Map<String, dynamic> row, List<String> keys) {
@@ -1126,6 +1306,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     final name = _extractDrugNameFromCatalog(row);
     final strength = _extractStrengthFromCatalog(row);
     final type = _extractMedicineTypeFromCatalog(row);
+    final route = _routeForMedicineType(type);
     final category = _rowText(row, const ['category', 'drug_class']);
     final catalogRows = row['__rows'] is List
         ? (row['__rows'] as List)
@@ -1146,7 +1327,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       frequency: 'BD',
       days: 5,
       duration: _durationForDays(5),
-      route: 'Oral',
+      route: route,
       quantity: 1,
       type: type,
       category: category,
@@ -1158,8 +1339,16 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
 
   String _catalogDrugLabel(Map<String, dynamic> row) {
     final name = _extractDrugNameFromCatalog(row);
-    if (name.isNotEmpty) return name;
-    return _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    final raw = name.isNotEmpty
+        ? name
+        : _rowText(row, const ['name', 'drug_name', 'medicine_name']);
+    if (raw.isEmpty) return raw;
+    final type = _extractMedicineTypeFromCatalog(row);
+    return _drugDisplayName(
+      raw,
+      type: type,
+      route: _routeForMedicineType(type),
+    );
   }
 
   void _applyCatalogRowToMedication(
@@ -1174,6 +1363,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     setState(() {
       target
         ..name = selected.name
+        ..displayName = selected.displayName
         ..genericName = selected.genericName
         ..catalogId = selected.catalogId
         ..catalogRows = selected.catalogRows
@@ -1197,11 +1387,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _drugSuggestions[target] = [];
       _drugSuggestionLoading.remove(target);
       _drugSuggestionQuery.remove(target);
-      final controller = _drugControllerFor(target);
-      controller.value = TextEditingValue(
-        text: target.name,
-        selection: TextSelection.collapsed(offset: target.name.length),
-      );
+      _syncMedicationDerivedFields(target);
+      _updateDrugControllerText(target);
     });
   }
 
@@ -1549,6 +1736,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       icon: const Icon(Icons.add),
       label: Text(s.prescriptionsAddButton),
     );
+    final clearButton = TextButton.icon(
+      onPressed: _submitting ? null : _clearPrescriptionDraft,
+      icon: const Icon(Icons.delete_outline),
+      label: const Text('Clear draft'),
+      style: TextButton.styleFrom(foregroundColor: AppTheme.errorOnSurface),
+    );
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -1572,6 +1765,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   ),
                   pharmacyPicker,
                   const SizedBox(width: 8),
+                  clearButton,
+                  const SizedBox(width: 4),
                   addButton,
                 ],
               )
@@ -1595,6 +1790,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                           ),
                         ),
                       ),
+                      clearButton,
+                      const SizedBox(width: 6),
                       addButton,
                     ],
                   ),
@@ -1623,6 +1820,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final med = _favorites[index];
+          final drugName = med.displayName.trim().isNotEmpty
+              ? med.displayName.trim()
+              : med.name.trim();
           final subtitle = [
             if (med.strength.trim().isNotEmpty) med.strength.trim(),
             med.frequency,
@@ -1630,7 +1830,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           return InputChip(
             avatar: const Icon(Icons.star, size: 16),
             label: Text(
-              subtitle.isEmpty ? med.name : '${med.name} ($subtitle)',
+              subtitle.isEmpty ? drugName : '$drugName ($subtitle)',
               overflow: TextOverflow.ellipsis,
             ),
             tooltip: 'Use favorite',
@@ -1643,76 +1843,119 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   }
 
   Widget _buildMedicationTable() {
-    return Scrollbar(
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowHeight: 38,
-          dataRowMinHeight: 86,
-          dataRowMaxHeight: 116,
-          columnSpacing: 8,
-          columns: const [
-            DataColumn(label: Text('Drug*')),
-            DataColumn(label: Text('Dose')),
-            DataColumn(label: Text('Route')),
-            DataColumn(label: Text('M')),
-            DataColumn(label: Text('A')),
-            DataColumn(label: Text('E')),
-            DataColumn(label: Text('N')),
-            DataColumn(label: Text('Food')),
-            DataColumn(label: Text('Days')),
-            DataColumn(label: Text('Notes / safety')),
-            DataColumn(label: Text('')),
-          ],
-          rows: _medications.asMap().entries.map((entry) {
-            final index = entry.key;
-            final med = entry.value;
-            return DataRow(
-              cells: [
-                DataCell(_drugAutocompleteField(width: 280, medication: med)),
-                DataCell(_strengthDropdown(width: 130, medication: med)),
-                DataCell(
-                  _tableDropdown(
-                    width: 118,
-                    value: med.route.isEmpty ? 'Oral' : med.route,
-                    options: _routes,
-                    onChanged: (value) {
-                      setState(() => med.route = value);
-                    },
-                  ),
-                ),
-                ..._doseSlotLabels.keys.map(
-                  (slot) =>
-                      DataCell(_doseTickCell(slot: slot, medication: med)),
-                ),
-                DataCell(_foodTimingDropdown(width: 132, medication: med)),
-                DataCell(
-                  _tableNumberField(
-                    width: 64,
-                    value: med.days,
-                    onChanged: (value) {
-                      setState(() {
-                        med.days = value;
-                        med.duration = _durationForDays(value);
-                        _syncMedicationDerivedFields(med);
-                      });
-                    },
-                  ),
-                ),
-                DataCell(
-                  _tableTextField(
-                    width: 280,
-                    value: med.instructions,
-                    hint: 'PRN reason, warning, special advice',
-                    onChanged: (value) => med.instructions = value,
-                  ),
-                ),
-                DataCell(_rowActionCell(index, med)),
-              ],
-            );
-          }).toList(),
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 980;
+        final tableWidth = math.max(
+          constraints.maxWidth,
+          compact ? 1180.0 : 1320.0,
+        );
+        final drugWidth = compact ? 250.0 : 300.0;
+        final notesWidth = compact ? 210.0 : 280.0;
+        return Scrollbar(
+          controller: _medicationTableHorizontalCtrl,
+          thumbVisibility: true,
+          trackVisibility: true,
+          interactive: true,
+          child: SingleChildScrollView(
+            controller: _medicationTableHorizontalCtrl,
+            scrollDirection: Axis.horizontal,
+            primary: false,
+            child: SizedBox(
+              width: tableWidth,
+              child: DataTable(
+                headingRowHeight: 38,
+                dataRowMinHeight: 86,
+                dataRowMaxHeight: 116,
+                columnSpacing: compact ? 6 : 8,
+                horizontalMargin: compact ? 8 : 12,
+                columns: const [
+                  DataColumn(label: Text('Drug / form*')),
+                  DataColumn(label: Text('Dose')),
+                  DataColumn(label: Text('Route')),
+                  DataColumn(label: Text('M')),
+                  DataColumn(label: Text('A')),
+                  DataColumn(label: Text('E')),
+                  DataColumn(label: Text('N')),
+                  DataColumn(label: Text('Food')),
+                  DataColumn(label: Text('Days')),
+                  DataColumn(label: Text('Notes / safety')),
+                  DataColumn(label: Text('')),
+                ],
+                rows: _medications.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final med = entry.value;
+                  return DataRow(
+                    cells: [
+                      DataCell(
+                        _drugAutocompleteField(
+                          width: drugWidth,
+                          medication: med,
+                        ),
+                      ),
+                      DataCell(
+                        _strengthDropdown(
+                          width: compact ? 112 : 130,
+                          medication: med,
+                        ),
+                      ),
+                      DataCell(
+                        _tableDropdown(
+                          width: compact ? 104 : 118,
+                          value: med.route.isEmpty ? 'Oral' : med.route,
+                          options: _routes,
+                          onChanged: (value) {
+                            setState(() {
+                              med.route = value;
+                              _syncMedicationDerivedFields(med);
+                              if (med.catalogId != null) {
+                                _updateDrugControllerText(med);
+                              }
+                            });
+                          },
+                        ),
+                      ),
+                      ..._doseSlotLabels.keys.map(
+                        (slot) => DataCell(
+                          _doseTickCell(slot: slot, medication: med),
+                        ),
+                      ),
+                      DataCell(
+                        _foodTimingDropdown(
+                          width: compact ? 118 : 132,
+                          medication: med,
+                        ),
+                      ),
+                      DataCell(
+                        _tableNumberField(
+                          width: compact ? 56 : 64,
+                          value: med.days,
+                          onChanged: (value) {
+                            setState(() {
+                              med.days = value;
+                              med.duration = _durationForDays(value);
+                              _syncMedicationDerivedFields(med);
+                            });
+                          },
+                        ),
+                      ),
+                      DataCell(
+                        _tableTextField(
+                          width: notesWidth,
+                          value: med.instructions,
+                          hint: 'PRN reason, warning, special advice',
+                          onChanged: (value) => med.instructions = value,
+                        ),
+                      ),
+                      DataCell(_rowActionCell(index, med)),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1755,6 +1998,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               ..dosage = value;
             _syncCatalogIdForStrength(medication);
             _syncMedicationDerivedFields(medication);
+            if (medication.catalogId != null) {
+              _updateDrugControllerText(medication);
+            }
           });
         },
       ),
@@ -1881,8 +2127,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 validator: (value) =>
                     value == null || value.trim().isEmpty ? 'Required' : null,
                 onChanged: (value) {
+                  final cleanName = _stripDrugDisplayPrefix(value);
                   medication
-                    ..name = value
+                    ..name = cleanName
+                    ..displayName = ''
                     ..catalogId = null
                     ..catalogRows = const []
                     ..strength = ''

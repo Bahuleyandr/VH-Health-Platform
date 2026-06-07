@@ -23,7 +23,7 @@ const FREQ_LABELS = {
   QID: 'Four times daily',
   SOS: 'As needed (SOS)',
   HS: 'At bedtime',
-  STAT: 'Immediately',
+  STAT: 'Immediately'
 };
 
 // Visit-type discriminator on e_prescriptions (migration 229). An IPD
@@ -67,7 +67,7 @@ function collectCatalogSelections(body = {}) {
     body.catalog_selections,
     body.catalogSelections,
     body.items,
-    body.medications,
+    body.medications
   ]) {
     if (!source) continue;
     if (Array.isArray(source)) {
@@ -81,9 +81,10 @@ function collectCatalogSelections(body = {}) {
     }
     if (typeof source === 'object') {
       for (const [key, value] of Object.entries(source)) {
-        const id = value && typeof value === 'object'
-          ? value.catalog_id ?? value.catalogId ?? value.id
-          : value;
+        const id =
+          value && typeof value === 'object'
+            ? (value.catalog_id ?? value.catalogId ?? value.id)
+            : value;
         put(key, id);
       }
     }
@@ -93,13 +94,7 @@ function collectCatalogSelections(body = {}) {
 }
 
 function findCatalogSelection(selections, med, medName, index) {
-  for (const key of [
-    index,
-    medName,
-    med?.name,
-    med?.medication_name,
-    med?.drug_name,
-  ]) {
+  for (const key of [index, medName, med?.name, med?.medication_name, med?.drug_name]) {
     const normalizedKey = catalogSelectionKey(key);
     if (normalizedKey && selections.has(normalizedKey)) {
       return selections.get(normalizedKey);
@@ -138,7 +133,7 @@ function parseWeightKgFromText(...values) {
     // "for/in a" so an unrelated "60 kg bag" style token can't be misread.
     // Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
     const contextual = s.match(
-      /(?:for|in)\s*(?:a|an)?\s*(\d+(?:\.\d+)?)\s*kg\b|(\d+(?:\.\d+)?)\s*kg\s*(?:child|infant|baby|toddler|neonate|kid|paediatric|pediatric|patient)/i,
+      /(?:for|in)\s*(?:a|an)?\s*(\d+(?:\.\d+)?)\s*kg\b|(\d+(?:\.\d+)?)\s*kg\s*(?:child|infant|baby|toddler|neonate|kid|paediatric|pediatric|patient)/i
     );
     if (contextual) {
       const kg = Number.parseFloat(contextual[1] ?? contextual[2]);
@@ -160,8 +155,10 @@ function defaultMeasuringInstruction(ml) {
 // warning is appropriate. A solid oral form (tablet/capsule/etc.) must never
 // receive that wording. Returns true (liquid), false (solid), or null (no
 // form signal at all). Pure — no DB. Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24.
-const LIQUID_FORM_RE = /\b(syrup|suspension|solution|soln|elixir|drops?|liquid|oral\s*liquid|tonic|emulsion|mixture|sachet|syr\b)/i;
-const SOLID_FORM_RE = /\b(tab(?:let)?s?|cap(?:sule)?s?|pill|caplet|chewable|lozenge|troche|powder|granules?|sachet\s*powder|patch|suppositor(?:y|ies)|pessar(?:y|ies)|cream|ointment|gel|inhaler|puff|spray|drops?\s*\(eye\))/i;
+const LIQUID_FORM_RE =
+  /\b(syrup|suspension|solution|soln|elixir|drops?|liquid|oral\s*liquid|tonic|emulsion|mixture|sachet|syr\b)/i;
+const SOLID_FORM_RE =
+  /\b(tab(?:let)?s?|cap(?:sule)?s?|pill|caplet|chewable|lozenge|troche|powder|granules?|sachet\s*powder|patch|suppositor(?:y|ies)|pessar(?:y|ies)|cream|ointment|gel|inhaler|puff|spray|drops?\s*\(eye\))/i;
 
 export function isLiquidForm(...values) {
   let sawSolid = false;
@@ -253,7 +250,7 @@ export function deriveDispenseQuantity({ frequency, duration, unitsPerDose = 1 }
 function parseConcentrationMgPerMl(...values) {
   for (const value of values) {
     const match = String(value || '').match(
-      /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/i,
+      /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/i
     );
     if (match) {
       const mg = Number.parseFloat(match[1]);
@@ -273,7 +270,7 @@ function parseConcentrationMgPerMl(...values) {
 function parseConcentrationMl(...values) {
   for (const value of values) {
     const match = String(value || '').match(
-      /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/i,
+      /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/i
     );
     if (match) {
       const ml = Number.parseFloat(match[2]);
@@ -312,11 +309,20 @@ function isPrescriptionOwner(req, rx) {
 
 function assertPrescriptionEditable(req, rx) {
   if (!rx) return 'Prescription not found';
-  if (!isPrescriptionOwner(req, rx)) return 'Only the prescribing doctor or Admin/SuperAdmin can edit this prescription';
-  if (rx.signed_at || rx.locked_at || String(rx.lifecycle_status || '').toLowerCase() === 'signed') {
+  if (!isPrescriptionOwner(req, rx))
+    return 'Only the prescribing doctor or Admin/SuperAdmin can edit this prescription';
+  if (
+    rx.signed_at ||
+    rx.locked_at ||
+    String(rx.lifecycle_status || '').toLowerCase() === 'signed'
+  ) {
     return 'Prescription is signed and locked';
   }
-  if (rx.pharmacy_opted || rx.pharmacy_order_id || String(rx.status || '').toLowerCase() === 'pharmacy_linked') {
+  if (
+    rx.pharmacy_opted ||
+    rx.pharmacy_order_id ||
+    String(rx.status || '').toLowerCase() === 'pharmacy_linked'
+  ) {
     return 'Prescription has already been sent to pharmacy and cannot be edited';
   }
   if (TERMINAL_PRESCRIPTION_STATUSES.has(String(rx.status || '').toLowerCase())) {
@@ -327,8 +333,13 @@ function assertPrescriptionEditable(req, rx) {
 
 function assertPrescriptionSignable(req, rx) {
   if (!rx) return 'Prescription not found';
-  if (!isPrescriptionOwner(req, rx)) return 'Only the prescribing doctor or Admin/SuperAdmin can sign this prescription';
-  if (rx.signed_at || rx.locked_at || String(rx.lifecycle_status || '').toLowerCase() === 'signed') {
+  if (!isPrescriptionOwner(req, rx))
+    return 'Only the prescribing doctor or Admin/SuperAdmin can sign this prescription';
+  if (
+    rx.signed_at ||
+    rx.locked_at ||
+    String(rx.lifecycle_status || '').toLowerCase() === 'signed'
+  ) {
     return 'Prescription is already signed';
   }
   if (TERMINAL_PRESCRIPTION_STATUSES.has(String(rx.status || '').toLowerCase())) {
@@ -338,27 +349,34 @@ function assertPrescriptionSignable(req, rx) {
 }
 
 async function loadPrescriptionRow(id) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM e_prescriptions WHERE id = $1`,
-    id,
-  );
+  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM e_prescriptions WHERE id = $1`, id);
   return rows[0] || null;
 }
 
 async function regeneratePrescriptionPdf(req, prescription) {
   if (!prescription?.id) return prescription;
   const [patientRes, doctorRes] = await Promise.all([
-    prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1', prescription.patient_id),
-    prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
+    prisma.$queryRawUnsafe(
+      'SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1',
+      prescription.patient_id
+    ),
+    prisma.$queryRawUnsafe(
+      `SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
               FROM users u LEFT JOIN doctors d ON d.user_id = u.id
-              WHERE u.id=$1`, prescription.doctor_id),
+              WHERE u.id=$1`,
+      prescription.doctor_id
+    )
   ]);
   const patient = patientRes[0] || {};
   const doctor = doctorRes[0] || {};
   const pdfBuffer = await generatePrescriptionPDF(prescription, patient, doctor);
   const pdfKey = `prescriptions/pdf/${prescription.prescription_number || `RX-${prescription.id}`}-rev${prescription.revision || 1}.pdf`;
   await uploadFileToR2(pdfBuffer, pdfKey, 'application/pdf');
-  await prisma.$queryRawUnsafe('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', pdfKey, prescription.id);
+  await prisma.$queryRawUnsafe(
+    'UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2',
+    pdfKey,
+    prescription.id
+  );
   prescription.pdf_key = pdfKey;
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   try {
@@ -428,11 +446,11 @@ export function deriveLiquidDoseMl({
   instructionText = '',
   concentrationMgPerMl = null,
   concentrationMl = null,
-  weightKg = null,
+  weightKg = null
 } = {}) {
   const conc = Number(concentrationMgPerMl);
   const hasConc = Number.isFinite(conc) && conc > 0;
-  const round2 = (n) => Math.round(n * 100) / 100;
+  const round2 = n => Math.round(n * 100) / 100;
 
   // Strip the "mg/mL" concentration token(s) out of the dose/instruction text
   // before scanning for the absolute mg dose or the dose mL. In a string like
@@ -440,7 +458,7 @@ export function deriveLiquidDoseMl({
   // only the standalone "3.75 mL" is the dose; likewise "187.5mg = 7.5ml of
   // 125mg/5ml" has the dose mg/ml first and the strength last. Removing the
   // concentration substring leaves only dose-bearing tokens.
-  const stripConc = (s) => String(s || '').replace(CONCENTRATION_TOKEN_RE, ' ');
+  const stripConc = s => String(s || '').replace(CONCENTRATION_TOKEN_RE, ' ');
   const doseNoConc = stripConc(doseText);
 
   // 1. Weight-based — the authoritative path. (mg/kg × weight) ÷ concentration.
@@ -482,7 +500,7 @@ export function deriveLiquidDoseMl({
       const ml = Number.parseFloat(match[1]);
       if (Number.isFinite(ml) && ml > 0) tokens.push(ml);
     }
-    const candidate = tokens.find((ml) => !hasConcMl || Math.abs(ml - concMl) > 0.001);
+    const candidate = tokens.find(ml => !hasConcMl || Math.abs(ml - concMl) > 0.001);
     if (candidate != null) {
       return { ml: round2(candidate), source: 'dose_text_ml' };
     }
@@ -496,7 +514,7 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       margins: { top: 40, bottom: 40, left: 40, right: 40 },
-      size: 'A4',
+      size: 'A4'
     });
     const buffers = [];
     doc.on('data', chunk => buffers.push(chunk));
@@ -508,26 +526,43 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
 
     // ─── Header ──────────────────────────────────────────────────────────
     doc.rect(leftX, 30, pageWidth, 55).fill('#007A64');
-    doc.fillColor('white').fontSize(18).font('Helvetica-Bold')
+    doc
+      .fillColor('white')
+      .fontSize(18)
+      .font('Helvetica-Bold')
       .text('VENKATAESWARA HOSPITALS', leftX + 10, 38, { align: 'center', width: pageWidth });
-    doc.fontSize(8).font('Helvetica')
-      .text('Nandanam, Chennai – 600 035 | Tel: 044-24334455', leftX + 10, 58, { align: 'center', width: pageWidth });
+    doc
+      .fontSize(8)
+      .font('Helvetica')
+      .text('Nandanam, Chennai – 600 035 | Tel: 044-24334455', leftX + 10, 58, {
+        align: 'center',
+        width: pageWidth
+      });
 
     // ─── Rx Title ────────────────────────────────────────────────────────
-    doc.fillColor('#007A64').fontSize(22).font('Helvetica-Bold')
-      .text('℞', leftX, 100);
-    doc.fillColor('#333').fontSize(12).font('Helvetica-Bold')
+    doc.fillColor('#007A64').fontSize(22).font('Helvetica-Bold').text('℞', leftX, 100);
+    doc
+      .fillColor('#333')
+      .fontSize(12)
+      .font('Helvetica-Bold')
       .text('PRESCRIPTION', leftX + 30, 104);
-    doc.fontSize(10).font('Helvetica')
+    doc
+      .fontSize(10)
+      .font('Helvetica')
       .text(prescription.prescription_number, leftX + 140, 104);
 
     const prescDate = new Date(prescription.created_at).toLocaleDateString('en-IN', {
-      day: '2-digit', month: 'short', year: 'numeric'
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
     });
     doc.text(`Date: ${prescDate}`, leftX + pageWidth - 150, 104, { width: 150, align: 'right' });
 
     // ─── Divider ─────────────────────────────────────────────────────────
-    doc.moveTo(leftX, 125).lineTo(leftX + pageWidth, 125).stroke('#007A64');
+    doc
+      .moveTo(leftX, 125)
+      .lineTo(leftX + pageWidth, 125)
+      .stroke('#007A64');
 
     // ─── Patient Info ────────────────────────────────────────────────────
     let y = 135;
@@ -536,7 +571,11 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
     doc.font('Helvetica').text(patient.name || 'N/A', leftX + 55, y);
 
     doc.font('Helvetica-Bold').text('Age/Gender:', leftX + 250, y);
-    const age = patient.birthday ? Math.floor((Date.now() - new Date(patient.birthday).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : '-';
+    const age = patient.birthday
+      ? Math.floor(
+          (Date.now() - new Date(patient.birthday).getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+        )
+      : '-';
     const gender = patient.gender ? patient.gender.charAt(0).toUpperCase() : '-';
     doc.font('Helvetica').text(`${age} / ${gender}`, leftX + 320, y);
 
@@ -548,7 +587,8 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
     // visit-recorded vital, fall back to the registered weight. Surfaced
     // here so the weight-based dose calc below is verifiable.
     // Finding 2026-05-21-pediatric-opd-patient-ffea3aba.
-    const patientWeightKg = Number(prescription?.vitals?.weight) || Number(patient?.weight_kg) || null;
+    const patientWeightKg =
+      Number(prescription?.vitals?.weight) || Number(patient?.weight_kg) || null;
     if (patientWeightKg) {
       doc.font('Helvetica-Bold').text('Weight:', leftX + 250, y);
       doc.font('Helvetica').text(`${patientWeightKg} kg`, leftX + 320, y);
@@ -571,14 +611,21 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
 
     // ─── Divider ─────────────────────────────────────────────────────────
     y += 20;
-    doc.moveTo(leftX, y).lineTo(leftX + pageWidth, y).stroke('#ddd');
+    doc
+      .moveTo(leftX, y)
+      .lineTo(leftX + pageWidth, y)
+      .stroke('#ddd');
 
     // ─── Diagnosis ───────────────────────────────────────────────────────
     if (prescription.diagnosis) {
       y += 10;
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Diagnosis:', leftX, y);
       y += 14;
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(prescription.diagnosis, leftX, y, { width: pageWidth });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(prescription.diagnosis, leftX, y, { width: pageWidth });
       y += doc.heightOfString(prescription.diagnosis, { width: pageWidth }) + 8;
     }
 
@@ -588,14 +635,19 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Vitals:', leftX, y);
       y += 14;
       const vitalParts = [];
-      if (vitals.bp_systolic && vitals.bp_diastolic) vitalParts.push(`BP: ${vitals.bp_systolic}/${vitals.bp_diastolic} mmHg`);
+      if (vitals.bp_systolic && vitals.bp_diastolic)
+        vitalParts.push(`BP: ${vitals.bp_systolic}/${vitals.bp_diastolic} mmHg`);
       if (vitals.pulse) vitalParts.push(`Pulse: ${vitals.pulse} bpm`);
       const tempDisplay = formatTemperatureForDisplay(vitals.temperature, vitals.temperature_unit);
       if (tempDisplay) vitalParts.push(`Temp: ${tempDisplay}`);
       if (vitals.spo2) vitalParts.push(`SpO2: ${vitals.spo2}%`);
       if (vitals.weight) vitalParts.push(`Weight: ${vitals.weight} kg`);
       if (vitals.blood_sugar) vitalParts.push(`Blood Sugar: ${vitals.blood_sugar} mg/dL`);
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(vitalParts.join('  |  '), leftX, y, { width: pageWidth });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(vitalParts.join('  |  '), leftX, y, { width: pageWidth });
       y += 18;
     }
 
@@ -633,21 +685,21 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
 
         doc.fillColor('#333').fontSize(7).font('Helvetica');
         cx = leftX + 3;
-        const doseSlots = Array.isArray(med.dose_times) && med.dose_times.length
-          ? ` (${med.dose_times.map((slot) => String(slot).charAt(0).toUpperCase()).join('/')})`
-          : '';
-        const instructionParts = [
-          med.food_timing || null,
-          med.instructions || null,
-        ].filter(Boolean);
+        const doseSlots =
+          Array.isArray(med.dose_times) && med.dose_times.length
+            ? ` (${med.dose_times.map(slot => String(slot).charAt(0).toUpperCase()).join('/')})`
+            : '';
+        const instructionParts = [med.food_timing || null, med.instructions || null].filter(
+          Boolean
+        );
         const rowData = [
           `${idx + 1}`,
-          `${med.name}${med.generic_name ? ` (${med.generic_name})` : ''}`,
+          `${med.display_name || med.displayName || med.name}${med.generic_name ? ` (${med.generic_name})` : ''}`,
           med.dosage || '-',
           `${FREQ_LABELS[med.frequency] || med.frequency || '-'}${doseSlots}`,
           med.duration || '-',
           med.route || 'Oral',
-          instructionParts.join('; ') || '-',
+          instructionParts.join('; ') || '-'
         ];
         rowData.forEach((val, i) => {
           doc.text(val, cx, y + 5, { width: colWidths[i], lineBreak: false });
@@ -657,7 +709,10 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
       });
 
       // Bottom border
-      doc.moveTo(leftX, y).lineTo(leftX + pageWidth, y).stroke('#ddd');
+      doc
+        .moveTo(leftX, y)
+        .lineTo(leftX + pageWidth, y)
+        .stroke('#ddd');
 
       // ─── Weight-based dosing (pediatric) ───────────────────────────────
       // Pediatric lines are dosed per kg (e.g. "15 mg/kg"); the table shows
@@ -667,24 +722,35 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
       // Finding 2026-05-21-pediatric-opd-patient-ffea3aba.
       const weightDoseLines = [];
       for (const med of medications) {
-        const lineWeightKg = (med.child_weight_kg != null && Number(med.child_weight_kg) > 0)
-          ? Number(med.child_weight_kg)
-          : patientWeightKg;
+        const lineWeightKg =
+          med.child_weight_kg != null && Number(med.child_weight_kg) > 0
+            ? Number(med.child_weight_kg)
+            : patientWeightKg;
         const calc = computeWeightBasedDose(med.dose || med.dosage || med.strength, lineWeightKg);
         if (calc) {
           weightDoseLines.push(
-            `${med.name}: ${calc.mgPerKg} mg/kg × ${calc.weightKg} kg = ${calc.totalMg} mg per dose`,
+            `${med.display_name || med.displayName || med.name}: ${calc.mgPerKg} mg/kg × ${calc.weightKg} kg = ${calc.totalMg} mg per dose`
           );
         }
       }
       if (weightDoseLines.length) {
         y += 15;
-        if (y > 720) { doc.addPage(); y = 40; }
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Weight-based dosing:', leftX, y);
+        if (y > 720) {
+          doc.addPage();
+          y = 40;
+        }
+        doc
+          .fontSize(10)
+          .font('Helvetica-Bold')
+          .fillColor('#007A64')
+          .text('Weight-based dosing:', leftX, y);
         y += 14;
         doc.fontSize(8).font('Helvetica').fillColor('#333');
         for (const line of weightDoseLines) {
-          if (y > 740) { doc.addPage(); y = 40; }
+          if (y > 740) {
+            doc.addPage();
+            y = 40;
+          }
           doc.text(line, leftX, y, { width: pageWidth });
           y += 12;
         }
@@ -695,10 +761,16 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
     if (prescription.follow_up_date) {
       y += 15;
       const fuDate = new Date(prescription.follow_up_date).toLocaleDateString('en-IN', {
-        day: '2-digit', month: 'short', year: 'numeric'
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
       });
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Follow-up:', leftX, y);
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(fuDate, leftX + 65, y);
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(fuDate, leftX + 65, y);
       if (prescription.follow_up_notes) {
         y += 14;
         doc.text(prescription.follow_up_notes, leftX, y, { width: pageWidth });
@@ -709,9 +781,17 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
     // ─── Clinical Notes ──────────────────────────────────────────────────
     if (prescription.clinical_notes) {
       y += 15;
-      doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Clinical Notes:', leftX, y);
+      doc
+        .fontSize(10)
+        .font('Helvetica-Bold')
+        .fillColor('#007A64')
+        .text('Clinical Notes:', leftX, y);
       y += 14;
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(prescription.clinical_notes, leftX, y, { width: pageWidth });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(prescription.clinical_notes, leftX, y, { width: pageWidth });
       y += doc.heightOfString(prescription.clinical_notes, { width: pageWidth });
     }
 
@@ -721,19 +801,38 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
       doc.addPage();
       y = 40;
     }
-    doc.moveTo(leftX + pageWidth - 200, y).lineTo(leftX + pageWidth, y).stroke('#333');
+    doc
+      .moveTo(leftX + pageWidth - 200, y)
+      .lineTo(leftX + pageWidth, y)
+      .stroke('#333');
     y += 5;
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#333')
-      .text(`Dr. ${doctor.name || 'N/A'}`, leftX + pageWidth - 200, y, { width: 200, align: 'center' });
+    doc
+      .fontSize(9)
+      .font('Helvetica-Bold')
+      .fillColor('#333')
+      .text(`Dr. ${doctor.name || 'N/A'}`, leftX + pageWidth - 200, y, {
+        width: 200,
+        align: 'center'
+      });
     y += 12;
     if (doctor.specialization) {
-      doc.fontSize(8).font('Helvetica')
+      doc
+        .fontSize(8)
+        .font('Helvetica')
         .text(doctor.specialization, leftX + pageWidth - 200, y, { width: 200, align: 'center' });
     }
 
     // ─── Disclaimer ──────────────────────────────────────────────────────
-    doc.fontSize(7).font('Helvetica').fillColor('#999')
-      .text('This is a computer-generated prescription. Valid only with doctor\'s signature.', leftX, 790, { width: pageWidth, align: 'center' });
+    doc
+      .fontSize(7)
+      .font('Helvetica')
+      .fillColor('#999')
+      .text(
+        "This is a computer-generated prescription. Valid only with doctor's signature.",
+        leftX,
+        790,
+        { width: pageWidth, align: 'center' }
+      );
 
     doc.end();
   });
@@ -755,7 +854,7 @@ export const createPrescription = async (req, res) => {
       medications: rawMedications,
       follow_up_date,
       follow_up_notes,
-      vitals: rawVitals,
+      vitals: rawVitals
     } = req.body;
 
     const patientId = parseIntegerField(patient_id);
@@ -780,9 +879,13 @@ export const createPrescription = async (req, res) => {
     }
     const rawVisitType = visit_type ? String(visit_type).toLowerCase().trim() : null;
     if (rawVisitType && !VALID_VISIT_TYPES.includes(rawVisitType)) {
-      return error(res, `visit_type must be one of: ${VALID_VISIT_TYPES.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
+      return error(
+        res,
+        `visit_type must be one of: ${VALID_VISIT_TYPES.join(', ')}`,
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
-    const resolvedVisitType = admissionId ? 'inpatient' : (rawVisitType || 'outpatient');
+    const resolvedVisitType = admissionId ? 'inpatient' : rawVisitType || 'outpatient';
     if (!medications || !Array.isArray(medications) || medications.length === 0) {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -794,21 +897,23 @@ export const createPrescription = async (req, res) => {
     const safety = await validatePrescriptionSafety(patientId, medications);
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
-        return error(
-          res,
-          'Prescription blocked by clinical safety check',
-          HTTP_STATUS.CONFLICT,
-          { blockers: safety.blockers, warnings: safety.warnings, requiresOverride: true },
-        );
+        return error(res, 'Prescription blocked by clinical safety check', HTTP_STATUS.CONFLICT, {
+          blockers: safety.blockers,
+          warnings: safety.warnings,
+          requiresOverride: true
+        });
       }
       logger.warn(
-        `CDS override used by user=${req.user?.id} patient=${patientId} blockers=${safety.blockers.length}`,
+        `CDS override used by user=${req.user?.id} patient=${patientId} blockers=${safety.blockers.length}`
       );
     }
 
     // Validate appointment if provided
     if (appointmentId) {
-      const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', appointmentId);
+      const apptCheck = await prisma.$queryRawUnsafe(
+        'SELECT id FROM appointments WHERE id=$1',
+        appointmentId
+      );
       if (apptCheck.length === 0) {
         return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
       }
@@ -841,7 +946,7 @@ export const createPrescription = async (req, res) => {
     //   2026-05-10-surgical-day-care-discharge-prescription-create-500.
     const [patientRow, doctorRow] = await Promise.all([
       prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', patientId),
-      prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', doctorId),
+      prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', doctorId)
     ]);
     if (!patientRow?.length) {
       return error(res, `Patient ${patientId} not found`, HTTP_STATUS.NOT_FOUND);
@@ -858,13 +963,16 @@ export const createPrescription = async (req, res) => {
     if (admissionId) {
       const admCheck = await prisma.$queryRawUnsafe(
         'SELECT id, patient_uid FROM admissions WHERE id=$1',
-        admissionId,
+        admissionId
       );
       if (admCheck.length === 0) {
         return error(res, 'Admission not found', HTTP_STATUS.NOT_FOUND);
       }
-      if (admCheck[0].patient_uid && patientUid
-          && String(admCheck[0].patient_uid) !== String(patientUid)) {
+      if (
+        admCheck[0].patient_uid &&
+        patientUid &&
+        String(admCheck[0].patient_uid) !== String(patientUid)
+      ) {
         return error(res, 'admission_id belongs to a different patient', HTTP_STATUS.BAD_REQUEST);
       }
     }
@@ -900,7 +1008,7 @@ export const createPrescription = async (req, res) => {
       handwritten_photo_key,
       created_by,
       admissionId || null,
-      resolvedVisitType,
+      resolvedVisitType
     );
 
     const prescription = insertResult[0];
@@ -919,10 +1027,10 @@ export const createPrescription = async (req, res) => {
         admission_id: admissionId || null,
         visit_type: resolvedVisitType,
         medication_count: medications.length,
-        pharmacy: medications[0]?.pharmacy || null,
+        pharmacy: medications[0]?.pharmacy || null
       },
-      { resource: 'e_prescriptions', resourceId: prescription.id },
-    ).catch((auditErr) => {
+      { resource: 'e_prescriptions', resourceId: prescription.id }
+    ).catch(auditErr => {
       logger.warn(`Prescription create audit failed for ${prescription.id}: ${auditErr.message}`);
     });
 
@@ -939,7 +1047,7 @@ export const createPrescription = async (req, res) => {
           JSON.stringify(safety.blockers),
           override.reason.trim(),
           override.approvedBy || null,
-          created_by,
+          created_by
         );
       } catch (auditErr) {
         logger.error('Failed to persist CDS override audit row:', auditErr.message);
@@ -948,10 +1056,16 @@ export const createPrescription = async (req, res) => {
 
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
-      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1', patientId),
-      prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
+      prisma.$queryRawUnsafe(
+        'SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1',
+        patientId
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
                 FROM users u LEFT JOIN doctors d ON d.user_id = u.id
-                WHERE u.id=$1`, doctorId),
+                WHERE u.id=$1`,
+        doctorId
+      )
     ]);
     const patient = patientRes[0] || {};
     const doctor = doctorRes[0] || {};
@@ -961,7 +1075,11 @@ export const createPrescription = async (req, res) => {
       const pdfBuffer = await generatePrescriptionPDF(prescription, patient, doctor);
       const pdfKey = `prescriptions/pdf/${prescription.prescription_number}.pdf`;
       await uploadFileToR2(pdfBuffer, pdfKey, 'application/pdf');
-      await prisma.$queryRawUnsafe('UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2', pdfKey, prescription.id);
+      await prisma.$queryRawUnsafe(
+        'UPDATE e_prescriptions SET pdf_key=$1 WHERE id=$2',
+        pdfKey,
+        prescription.id
+      );
       prescription.pdf_key = pdfKey;
     } catch (pdfErr) {
       logger.error('Failed to generate prescription PDF:', pdfErr);
@@ -975,7 +1093,7 @@ export const createPrescription = async (req, res) => {
       body: `Your prescription ${prescription.prescription_number} is ready. Open the app to view and order medicines.`,
       channels: ['push', 'inapp'],
       data: { type: 'prescription', prescriptionId: String(prescription.id) },
-      type: 'prescription',
+      type: 'prescription'
     }).catch(err => logger.error('Prescription notification failed:', err));
 
     // Phase 1.5 — best-effort follow-up appointment auto-booking. The
@@ -1000,7 +1118,9 @@ export const createPrescription = async (req, res) => {
               AND DATE(appointment_date) = $3::date
               AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
             LIMIT 1`,
-          patientId, doctorId, follow_up_date,
+          patientId,
+          doctorId,
+          follow_up_date
         );
         let followUpApptId = existing[0]?.id ?? null;
         if (!followUpApptId) {
@@ -1011,7 +1131,9 @@ export const createPrescription = async (req, res) => {
              VALUES ($1::int, $2::int, $3::date, $4, $5, $6, $7,
                      'SCHEDULED', 'FOLLOW_UP', $8, $9::uuid, NOW())
              RETURNING id`,
-            patientId, doctorId, follow_up_date,
+            patientId,
+            doctorId,
+            follow_up_date,
             // appointment_time is VARCHAR(10) NOT NULL. The Rx didn't
             // capture a slot time — the receptionist will assign one
             // when the day comes. Use the 'Follow-up' literal as a
@@ -1021,7 +1143,7 @@ export const createPrescription = async (req, res) => {
             `Follow-up for prescription ${prescription.prescription_number}`,
             follow_up_notes || null,
             appointmentId || null,
-            req.user?.uid || null,
+            req.user?.uid || null
           );
           followUpApptId = created[0]?.id ?? null;
         }
@@ -1039,7 +1161,8 @@ export const createPrescription = async (req, res) => {
             `UPDATE e_prescriptions
                 SET appointment_id = $1::int, updated_at = NOW()
               WHERE id = $2::int AND appointment_id IS NULL`,
-            followUpApptId, prescription.id,
+            followUpApptId,
+            prescription.id
           );
           prescription.appointment_id = followUpApptId;
         }
@@ -1047,7 +1170,7 @@ export const createPrescription = async (req, res) => {
         // Non-blocking — the prescription is already saved.
         logger.warn('Follow-up appointment auto-booking failed:', {
           prescription_id: prescription.id,
-          err: followUpErr?.message,
+          err: followUpErr?.message
         });
       }
     }
@@ -1064,34 +1187,39 @@ export const createPrescription = async (req, res) => {
         tenantId: req.user?.tenantId || '00000000-0000-4000-8000-000000000001',
         patient_uid: patientUid,
         medications,
-        prescribed_by: doctorUid,
+        prescribed_by: doctorUid
       });
     } catch (suppErr) {
       logger.warn('ANC supplement propagation failed:', {
         prescription_id: prescription.id,
-        err: suppErr?.message,
+        err: suppErr?.message
       });
     }
 
     try {
       const reminderRows = await createPrescriptionReminders(patientUid, medications, {
-        prescriptionNumber: prescription.prescription_number,
+        prescriptionNumber: prescription.prescription_number
       });
       if (reminderRows.length > 0) {
         logger.info('Prescription medication reminders synced', {
           prescription_id: prescription.id,
           patient_uid: patientUid,
-          reminder_count: reminderRows.length,
+          reminder_count: reminderRows.length
         });
       }
     } catch (reminderErr) {
       logger.warn('Prescription medication reminder sync failed:', {
         prescription_id: prescription.id,
-        err: reminderErr?.message,
+        err: reminderErr?.message
       });
     }
 
-    success(res, prescription, `Prescription ${prescription.prescription_number} created`, HTTP_STATUS.CREATED);
+    success(
+      res,
+      prescription,
+      `Prescription ${prescription.prescription_number} created`,
+      HTTP_STATUS.CREATED
+    );
   } catch (err) {
     // Log enough context to actually diagnose the next swarm 500. The
     // previous catch logged the bare Error and surfaced a generic
@@ -1104,7 +1232,7 @@ export const createPrescription = async (req, res) => {
       message: err?.message,
       code: err?.code,
       meta: err?.meta,
-      stack: err?.stack,
+      stack: err?.stack
     });
     error(res, 'Failed to create prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -1126,9 +1254,10 @@ export const updatePrescription = async (req, res) => {
     const editError = assertPrescriptionEditable(req, existing);
     if (editError) return error(res, editError, HTTP_STATUS.FORBIDDEN);
 
-    const medications = req.body.medications !== undefined
-      ? normalizeMedicationList(req.body.medications)
-      : normalizeMedicationList(existing.medications);
+    const medications =
+      req.body.medications !== undefined
+        ? normalizeMedicationList(req.body.medications)
+        : normalizeMedicationList(existing.medications);
     if (!Array.isArray(medications) || medications.length === 0) {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -1137,20 +1266,23 @@ export const updatePrescription = async (req, res) => {
     const safety = await validatePrescriptionSafety(existing.patient_id, medications);
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
-        return error(
-          res,
-          'Prescription blocked by clinical safety check',
-          HTTP_STATUS.CONFLICT,
-          { blockers: safety.blockers, warnings: safety.warnings, requiresOverride: true },
-        );
+        return error(res, 'Prescription blocked by clinical safety check', HTTP_STATUS.CONFLICT, {
+          blockers: safety.blockers,
+          warnings: safety.warnings,
+          requiresOverride: true
+        });
       }
     }
 
     const diagnosis = req.body.diagnosis !== undefined ? req.body.diagnosis : existing.diagnosis;
-    const clinicalNotes = req.body.clinical_notes !== undefined ? req.body.clinical_notes : existing.clinical_notes;
-    const followUpDate = req.body.follow_up_date !== undefined ? req.body.follow_up_date : existing.follow_up_date;
-    const followUpNotes = req.body.follow_up_notes !== undefined ? req.body.follow_up_notes : existing.follow_up_notes;
-    const vitals = req.body.vitals !== undefined ? parseJsonField(req.body.vitals, null) : existing.vitals;
+    const clinicalNotes =
+      req.body.clinical_notes !== undefined ? req.body.clinical_notes : existing.clinical_notes;
+    const followUpDate =
+      req.body.follow_up_date !== undefined ? req.body.follow_up_date : existing.follow_up_date;
+    const followUpNotes =
+      req.body.follow_up_notes !== undefined ? req.body.follow_up_notes : existing.follow_up_notes;
+    const vitals =
+      req.body.vitals !== undefined ? parseJsonField(req.body.vitals, null) : existing.vitals;
 
     const result = await prisma.$queryRawUnsafe(
       `UPDATE e_prescriptions
@@ -1171,7 +1303,7 @@ export const updatePrescription = async (req, res) => {
       followUpDate || null,
       followUpNotes || null,
       vitals ? JSON.stringify(vitals) : null,
-      id,
+      id
     );
 
     const updated = result[0];
@@ -1188,7 +1320,7 @@ export const updatePrescription = async (req, res) => {
           JSON.stringify(safety.blockers),
           override.reason.trim(),
           override.approvedBy || null,
-          req.user?.id || req.user?.userId || null,
+          req.user?.id || req.user?.userId || null
         );
       } catch (auditErr) {
         logger.error('Failed to persist edit CDS override audit row:', auditErr.message);
@@ -1214,10 +1346,10 @@ export const updatePrescription = async (req, res) => {
         appointment_id: updated.appointment_id || null,
         admission_id: updated.admission_id || null,
         revision: updated.revision,
-        medication_count: medications.length,
+        medication_count: medications.length
       },
-      { resource: 'e_prescriptions', resourceId: updated.id },
-    ).catch((auditErr) => {
+      { resource: 'e_prescriptions', resourceId: updated.id }
+    ).catch(auditErr => {
       logger.warn(`Prescription edit audit failed for ${updated.id}: ${auditErr.message}`);
     });
 
@@ -1256,7 +1388,7 @@ export const signPrescription = async (req, res) => {
         WHERE id=$2
         RETURNING *`,
       actorUid,
-      id,
+      id
     );
     const signed = result[0];
 
@@ -1272,10 +1404,10 @@ export const signPrescription = async (req, res) => {
         doctor_uid: signed.doctor_uid,
         appointment_id: signed.appointment_id || null,
         admission_id: signed.admission_id || null,
-        revision: signed.revision,
+        revision: signed.revision
       },
-      { resource: 'e_prescriptions', resourceId: signed.id },
-    ).catch((auditErr) => {
+      { resource: 'e_prescriptions', resourceId: signed.id }
+    ).catch(auditErr => {
       logger.warn(`Prescription sign audit failed for ${signed.id}: ${auditErr.message}`);
     });
 
@@ -1318,7 +1450,7 @@ export const getPrescriptionSafety = async (req, res) => {
     }
     const rx = await prisma.$queryRawUnsafe(
       'SELECT patient_id, medications, diagnosis FROM e_prescriptions WHERE id = $1',
-      id,
+      id
     );
     if (rx.length === 0) return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
 
@@ -1329,24 +1461,30 @@ export const getPrescriptionSafety = async (req, res) => {
 
     const meds = Array.isArray(rx[0].medications)
       ? rx[0].medications
-      : (typeof rx[0].medications === 'string' ? JSON.parse(rx[0].medications) : []);
+      : typeof rx[0].medications === 'string'
+        ? JSON.parse(rx[0].medications)
+        : [];
     const safety = await validatePrescriptionSafety(rx[0].patient_id, meds);
 
     const overrides = await prisma.$queryRawUnsafe(
       `SELECT reason, created_at FROM prescription_safety_overrides
        WHERE prescription_id = $1 ORDER BY created_at DESC`,
-      id,
+      id
     );
 
-    success(res, {
-      warnings: safety.warnings,
-      blockers: safety.blockers,
-      overrides: overrides.map(o => ({
-        reason: o.reason,
-        at: o.created_at,
-      })),
-      indication: rx[0].diagnosis || null,
-    }, 'Prescription safety context');
+    success(
+      res,
+      {
+        warnings: safety.warnings,
+        blockers: safety.blockers,
+        overrides: overrides.map(o => ({
+          reason: o.reason,
+          at: o.created_at
+        })),
+        indication: rx[0].diagnosis || null
+      },
+      'Prescription safety context'
+    );
   } catch (err) {
     logger.error('Get prescription safety error:', err);
     error(res, 'Failed to fetch safety context', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -1390,8 +1528,15 @@ export const getPrescription = async (req, res) => {
     // routing because the route-level RBAC already allows PATIENT (and
     // we need PATIENT to reach /:id for their OWN script).
     const role = String(req.user?.role || '').toUpperCase();
-    const isPrivileged = ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
-      'PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'BILLING_STAFF'].includes(role);
+    const isPrivileged = [
+      'ADMIN',
+      'SUPER_ADMIN',
+      'DOCTOR',
+      'NURSING_STAFF',
+      'PHARMACY_STAFF',
+      'PHARMACY_INCHARGE',
+      'BILLING_STAFF'
+    ].includes(role);
     if (!isPrivileged) {
       const callerId = req.user?.id ?? req.user?.userId;
       if (!callerId || String(rx.patient_id) !== String(callerId)) {
@@ -1407,10 +1552,20 @@ export const getPrescription = async (req, res) => {
     // 2026-05-09-follow-up-opd-patient-pdf-url-wrong-base.
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     if (rx.pdf_key) {
-      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
+      try {
+        rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl });
+      } catch (e) {
+        logger.warn('Signed URL generation failed for PDF:', e.message);
+      }
     }
     if (rx.handwritten_photo_key) {
-      try { rx.handwritten_photo_url = await getSignedFileUrl(rx.handwritten_photo_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for handwritten photo:', e.message); }
+      try {
+        rx.handwritten_photo_url = await getSignedFileUrl(rx.handwritten_photo_key, 3600, {
+          baseUrl
+        });
+      } catch (e) {
+        logger.warn('Signed URL generation failed for handwritten photo:', e.message);
+      }
     }
 
     success(res, rx, 'Prescription detail');
@@ -1454,7 +1609,11 @@ export const getPrescriptionByAppointment = async (req, res) => {
     const rx = result[0];
     if (rx.pdf_key) {
       const baseUrl = `${req.protocol}://${req.get('host')}`;
-      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
+      try {
+        rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl });
+      } catch (e) {
+        logger.warn('Signed URL generation failed for PDF:', e.message);
+      }
     }
 
     success(res, rx, 'Prescription for appointment');
@@ -1502,7 +1661,11 @@ export const getMyPrescriptions = async (req, res) => {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     for (const rx of result) {
       if (rx.pdf_key) {
-        try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
+        try {
+          rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl });
+        } catch (e) {
+          logger.warn('Signed URL generation failed for PDF:', e.message);
+        }
       }
     }
 
@@ -1519,9 +1682,16 @@ export const getMyPrescriptions = async (req, res) => {
 export const getAllPrescriptions = async (req, res) => {
   try {
     const {
-      doctor_id, phone, from_date, to_date, status,
-      prescription_number, patient_id, visit_no,
-      page = 1, limit = 50,
+      doctor_id,
+      phone,
+      from_date,
+      to_date,
+      status,
+      prescription_number,
+      patient_id,
+      visit_no,
+      page = 1,
+      limit = 50
     } = req.query;
     const params = [];
     let where = 'WHERE 1=1';
@@ -1677,14 +1847,18 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         return error(
           res,
           'Refill not allowed: original pharmacy order is not yet fulfilled. Use /order-pharmacy for first-time dispense or wait for the in-flight order to complete.',
-          HTTP_STATUS.BAD_REQUEST,
+          HTTP_STATUS.BAD_REQUEST
         );
       }
       // Refill proceeds — pharmacy_opted stays true on the row (it has
       // already been opted in once); the UPDATE below repoints
       // pharmacy_order_id to the new repeat order.
     } else if (rx.pharmacy_opted) {
-      return error(res, 'Pharmacy order already placed for this prescription. Use /refill for a repeat dispense.', HTTP_STATUS.BAD_REQUEST);
+      return error(
+        res,
+        'Pharmacy order already placed for this prescription. Use /refill for a repeat dispense.',
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
     // Build items list from medications + catalog prices.
@@ -1729,7 +1903,8 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     const suggestions = {};
 
     for (const [medIndex, med] of medications.entries()) {
-      const medName = med.name || med.medication_name || med.drug_name || '';
+      const medName = med.base_name || med.medication_name || med.name || med.drug_name || '';
+      const medDisplayName = med.display_name || med.displayName || medName;
       let price = 0;
       let catalogName = null;
       const selectedCatalogId = findCatalogSelection(catalogSelections, med, medName, medIndex);
@@ -1740,7 +1915,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
              FROM pharmacy_catalog
             WHERE id=$1
               AND COALESCE(is_active, true) = true`,
-          catalogId,
+          catalogId
         );
         if (catRes.length > 0) {
           price = parseFloat(catRes[0].unit_price) || 0;
@@ -1752,7 +1927,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       if (!catalogId && medName) {
         const catRes = await prisma.$queryRawUnsafe(
           'SELECT id, name, unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
-          medName,
+          medName
         );
         if (catRes.length > 0) {
           catalogId = catRes[0].id;
@@ -1780,21 +1955,24 @@ export const orderPharmacyFromPrescription = async (req, res) => {
                            COALESCE(stock_quantity, 0) DESC,
                            name ASC
                   LIMIT 6`,
-                firstToken,
+                firstToken
               );
               if (altRes.length > 0) {
-                suggestions[medName] = altRes.map((r) => ({
+                suggestions[medName] = altRes.map(r => ({
                   id: r.id,
                   name: r.name,
                   unit_price: parseFloat(r.unit_price) || 0,
                   stock_quantity: r.stock_quantity ?? 0,
-                  in_stock: Boolean(r.in_stock) && (r.stock_quantity ?? 0) > 0,
+                  in_stock: Boolean(r.in_stock) && (r.stock_quantity ?? 0) > 0
                 }));
               }
             } catch (suggestErr) {
               // Best-effort — failure to build alternatives should not
               // mask the underlying ITEM_NOT_IN_CATALOG error.
-              logger.warn(`pharmacy alt-suggest lookup failed for "${medName}":`, suggestErr.message);
+              logger.warn(
+                `pharmacy alt-suggest lookup failed for "${medName}":`,
+                suggestErr.message
+              );
             }
           }
         }
@@ -1804,7 +1982,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       const foodTiming = med.food_timing || med.foodTiming || null;
       const doseTimes = Array.isArray(med.dose_times)
         ? med.dose_times
-        : (Array.isArray(med.doseTimes) ? med.doseTimes : []);
+        : Array.isArray(med.doseTimes)
+          ? med.doseTimes
+          : [];
 
       // Child weight for weight-based (mg/kg) liquid dosing. Explicit field
       // wins; then a weight named in the dose/instruction free-text; then the
@@ -1813,10 +1993,11 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // that says "15mg/kg for 12.5kg child" but uses no "weight:" keyword
       // left child_weight_kg null on the label.
       // Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
-      const childWeightKg = med.child_weight_kg != null
-        ? Number(med.child_weight_kg)
-        : (parseWeightKgFromText(doseText, instructionText)
-          ?? (Number(rx.patient_weight_kg) > 0 ? Number(rx.patient_weight_kg) : null));
+      const childWeightKg =
+        med.child_weight_kg != null
+          ? Number(med.child_weight_kg)
+          : (parseWeightKgFromText(doseText, instructionText) ??
+            (Number(rx.patient_weight_kg) > 0 ? Number(rx.patient_weight_kg) : null));
 
       // Concentration of the liquid AS PRESCRIBED (mg/mL + its mL
       // denominator), parsed from the clinician's own strength / dosage /
@@ -1826,11 +2007,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // recalculated) separately below. Needed so the dose VOLUME is derived
       // from the prescribed mg, not copied from the concentration denominator.
       const concentrationMgPerMl = parseConcentrationMgPerMl(
-        med.strength, med.dosage, doseText, medName,
+        med.strength,
+        med.dosage,
+        doseText,
+        medName
       );
-      const concentrationMl = parseConcentrationMl(
-        med.strength, med.dosage, doseText, medName,
-      );
+      const concentrationMl = parseConcentrationMl(med.strength, med.dosage, doseText, medName);
 
       // Per-dose volume for the label. An explicitly-supplied value wins.
       // Otherwise derive it weight-first: (mg/kg × weight) ÷ concentration,
@@ -1851,7 +2033,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
           instructionText,
           concentrationMgPerMl,
           concentrationMl,
-          weightKg: childWeightKg,
+          weightKg: childWeightKg
         });
         dispensedQuantityMl = doseMlMeta
           ? doseMlMeta.ml
@@ -1866,10 +2048,17 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // supplied dispensed_quantity_ml also counts as a liquid signal.
       // Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24.
       const formSignal = isLiquidForm(
-        catalogName, medName, med.form, med.dosage_form, doseText, med.strength, instructionText,
+        catalogName,
+        medName,
+        med.form,
+        med.dosage_form,
+        doseText,
+        med.strength,
+        instructionText
       );
-      const lineIsLiquid = formSignal === true
-        || (formSignal === null && Number.isFinite(dispensedQuantityMl) && dispensedQuantityMl > 0);
+      const lineIsLiquid =
+        formSignal === true ||
+        (formSignal === null && Number.isFinite(dispensedQuantityMl) && dispensedQuantityMl > 0);
 
       // A solid form never carries an mL measuring volume — drop any value
       // parsed incidentally from free text so it can't leak onto the label.
@@ -1917,7 +2106,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // a "confirm the volume" dose-conversion warning. Finding: 1646bc24.
       let substitutionMeta = null;
       const isExplicitSubstitution = Boolean(
-        selectedCatalogId && catalogName && catalogName.toLowerCase() !== medName.toLowerCase(),
+        selectedCatalogId && catalogName && catalogName.toLowerCase() !== medName.toLowerCase()
       );
       if (isExplicitSubstitution && !lineIsLiquid) {
         // Solid-form substitution: record it for traceability, but never
@@ -1934,7 +2123,8 @@ export const orderPharmacyFromPrescription = async (req, res) => {
             catalog_name: catalogName,
             explicit: true,
             original_dispensed_quantity_ml: origVol,
-            recalculated_dispensed_quantity_ml: Number.isFinite(recalcVol) && recalcVol > 0 ? recalcVol : null,
+            recalculated_dispensed_quantity_ml:
+              Number.isFinite(recalcVol) && recalcVol > 0 ? recalcVol : null
           };
           dispensedQuantityMl = Number.isFinite(recalcVol) && recalcVol > 0 ? recalcVol : null;
         } else if (origConc && newConc && Math.abs(origConc - newConc) <= 0.001) {
@@ -1945,7 +2135,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
             requested_name: medName,
             catalog_name: catalogName,
             explicit: true,
-            dose_conversion_required: true,
+            dose_conversion_required: true
           };
           dispensedQuantityMl = null;
         }
@@ -1963,18 +2153,20 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       if (!lineIsLiquid) {
         measuringInstruction = med.measuring_instruction || null;
       } else if (substitutionMeta?.dose_conversion_required) {
-        measuringInstruction = 'Dose conversion required — pharmacist to confirm the volume for the substituted concentration before dispensing.';
+        measuringInstruction =
+          'Dose conversion required — pharmacist to confirm the volume for the substituted concentration before dispensing.';
       } else if (substitutionMeta && substitutionMeta.recalculated_dispensed_quantity_ml != null) {
         measuringInstruction = defaultMeasuringInstruction(dispensedQuantityMl);
       } else {
-        measuringInstruction = med.measuring_instruction
-          || defaultMeasuringInstruction(dispensedQuantityMl);
+        measuringInstruction =
+          med.measuring_instruction || defaultMeasuringInstruction(dispensedQuantityMl);
       }
       totalCost += lineTotal;
       itemsList.push({
         catalog_id: catalogId,
         name: medName,
         medication_name: medName,
+        display_name: medDisplayName,
         catalog_name: catalogName,
         substitution: substitutionMeta,
         strength: med.strength || med.dosage || null,
@@ -1988,7 +2180,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         dispensed_quantity_ml: Number.isFinite(dispensedQuantityMl) ? dispensedQuantityMl : null,
         child_weight_kg: Number.isFinite(childWeightKg) ? childWeightKg : null,
         measuring_instruction: measuringInstruction,
-        label_instruction: [foodTiming, instructionText || null, measuringInstruction].filter(Boolean).join(' ') || null,
+        label_instruction:
+          [foodTiming, instructionText || null, measuringInstruction].filter(Boolean).join(' ') ||
+          null,
         qty,
         prescribed_qty: qty,
         quantity_source: quantitySource,
@@ -1997,7 +2191,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         // to confirm/correct the count rather than silently honour 1.
         quantity_needs_confirmation: quantityNeedsConfirmation,
         price,
-        line_total: lineTotal,
+        line_total: lineTotal
       });
     }
     totalCost = Number(totalCost.toFixed(2));
@@ -2007,14 +2201,15 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       if (Object.keys(suggestions).length > 0) {
         detail.suggestions = suggestions;
       }
-      const hint = Object.keys(suggestions).length > 0
-        ? ' Available alternatives included in `suggestions` — re-submit with the chosen catalog_id.'
-        : ' Add the catalog entry (correct formulation/strength) and retry.';
+      const hint =
+        Object.keys(suggestions).length > 0
+          ? ' Available alternatives included in `suggestions` — re-submit with the chosen catalog_id.'
+          : ' Add the catalog entry (correct formulation/strength) and retry.';
       return error(
         res,
         `Cannot create pharmacy order — items not in catalog: ${unmatched.join('; ')}.${hint}`,
         HTTP_STATUS.BAD_REQUEST,
-        detail,
+        detail
       );
     }
 
@@ -2051,7 +2246,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       delivery_phone || phone,
       JSON.stringify(itemsList),
       totalCost,
-      orderNumber,
+      orderNumber
     );
     const pharmacyOrder = orderResult[0];
 
@@ -2063,7 +2258,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
        SET pharmacy_order_id = $1, pharmacy_opted = TRUE, pharmacy_opt_type = $2,
            status = 'pharmacy_linked', updated_at = NOW()
        WHERE id = $3`,
-      pharmacyOrder.id, delivery_type, id
+      pharmacyOrder.id,
+      delivery_type,
+      id
     );
 
     logAudit(
@@ -2079,10 +2276,10 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         patient_name: rx.patient_name,
         delivery_type,
         item_count: itemsList.length,
-        total_amount: totalCost,
+        total_amount: totalCost
       },
-      { resource: 'pharmacy_orders', resourceId: pharmacyOrder.id },
-    ).catch((auditErr) => {
+      { resource: 'pharmacy_orders', resourceId: pharmacyOrder.id }
+    ).catch(auditErr => {
       logger.warn(`Prescription pharmacy audit failed for rx ${id}: ${auditErr.message}`);
     });
 
@@ -2092,13 +2289,13 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       title: isRefill ? '🔁 Rx Refill Order' : '🛒 New Rx Pharmacy Order',
       body: `Order ${pharmacyOrder.order_number}${isRefill ? ' (refill)' : ''} from prescription ${rx.prescription_number}`,
       channels: ['inapp'],
-      type: 'pharmacy_order',
+      type: 'pharmacy_order'
     }).catch(e => logger.warn('Pharmacy staff notification failed:', e.message));
 
     success(
       res,
       pharmacyOrder,
-      `Pharmacy ${isRefill ? 'refill order' : 'order'} ${pharmacyOrder.order_number} created from prescription`,
+      `Pharmacy ${isRefill ? 'refill order' : 'order'} ${pharmacyOrder.order_number} created from prescription`
     );
   } catch (err) {
     logger.error('Order pharmacy from prescription error:', err);
@@ -2117,7 +2314,10 @@ export const downloadPrescriptionPDF = async (req, res) => {
     if (!Number.isInteger(id)) {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
-    const result = await prisma.$queryRawUnsafe('SELECT pdf_key FROM e_prescriptions WHERE id=$1', id);
+    const result = await prisma.$queryRawUnsafe(
+      'SELECT pdf_key FROM e_prescriptions WHERE id=$1',
+      id
+    );
     if (result.length === 0 || !result[0].pdf_key) {
       return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);
     }

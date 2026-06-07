@@ -45,7 +45,7 @@ const FREQ_LABELS = {
   QID: 'Four times daily',
   SOS: 'As needed (SOS)',
   HS: 'At bedtime',
-  STAT: 'Immediately',
+  STAT: 'Immediately'
 };
 
 function normaliseMedications(value) {
@@ -87,10 +87,10 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       margins: { top: 40, bottom: 40, left: 40, right: 40 },
-      size: 'A4',
+      size: 'A4'
     });
     const buffers = [];
-    doc.on('data', (chunk) => buffers.push(chunk));
+    doc.on('data', chunk => buffers.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', reject);
 
@@ -99,28 +99,46 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
 
     // Header band
     doc.rect(leftX, 30, pageWidth, 55).fill('#007A64');
-    doc.fillColor('white').fontSize(18).font('Helvetica-Bold')
+    doc
+      .fillColor('white')
+      .fontSize(18)
+      .font('Helvetica-Bold')
       .text('VENKATAESWARA HOSPITALS', leftX + 10, 38, { align: 'center', width: pageWidth });
-    doc.fontSize(8).font('Helvetica')
-      .text('Nandanam, Chennai – 600 035 | Tel: 044-24334455', leftX + 10, 58, { align: 'center', width: pageWidth });
+    doc
+      .fontSize(8)
+      .font('Helvetica')
+      .text('Nandanam, Chennai – 600 035 | Tel: 044-24334455', leftX + 10, 58, {
+        align: 'center',
+        width: pageWidth
+      });
 
     // Rx title
     doc.fillColor('#007A64').fontSize(22).font('Helvetica-Bold').text('Rx', leftX, 100);
-    doc.fillColor('#333').fontSize(12).font('Helvetica-Bold')
+    doc
+      .fillColor('#333')
+      .fontSize(12)
+      .font('Helvetica-Bold')
       .text('PRESCRIPTION', leftX + 30, 104);
-    doc.fontSize(10).font('Helvetica')
+    doc
+      .fontSize(10)
+      .font('Helvetica')
       .text(prescription.prescription_number || `Rx-${prescription.id || ''}`, leftX + 140, 104);
 
     const prescDate = prescription.created_at
       ? new Date(prescription.created_at).toLocaleDateString('en-IN', {
-        day: '2-digit', month: 'short', year: 'numeric',
-      })
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        })
       : '';
     if (prescDate) {
       doc.text(`Date: ${prescDate}`, leftX + pageWidth - 150, 104, { width: 150, align: 'right' });
     }
 
-    doc.moveTo(leftX, 125).lineTo(leftX + pageWidth, 125).stroke('#007A64');
+    doc
+      .moveTo(leftX, 125)
+      .lineTo(leftX + pageWidth, 125)
+      .stroke('#007A64');
 
     // Patient block
     let y = 135;
@@ -129,7 +147,9 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
     doc.font('Helvetica').text(patient.name || 'N/A', leftX + 55, y);
     doc.font('Helvetica-Bold').text('Age/Gender:', leftX + 250, y);
     const age = patient.birthday
-      ? Math.floor((Date.now() - new Date(patient.birthday).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      ? Math.floor(
+          (Date.now() - new Date(patient.birthday).getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+        )
       : '-';
     const gender = patient.gender ? String(patient.gender).charAt(0).toUpperCase() : '-';
     doc.font('Helvetica').text(`${age} / ${gender}`, leftX + 320, y);
@@ -152,14 +172,21 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
     }
 
     y += 20;
-    doc.moveTo(leftX, y).lineTo(leftX + pageWidth, y).stroke('#ddd');
+    doc
+      .moveTo(leftX, y)
+      .lineTo(leftX + pageWidth, y)
+      .stroke('#ddd');
 
     // Diagnosis
     if (prescription.diagnosis) {
       y += 10;
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Diagnosis:', leftX, y);
       y += 14;
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(prescription.diagnosis, leftX, y, { width: pageWidth });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(prescription.diagnosis, leftX, y, { width: pageWidth });
       y += doc.heightOfString(prescription.diagnosis, { width: pageWidth }) + 8;
     }
 
@@ -169,14 +196,19 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Vitals:', leftX, y);
       y += 14;
       const parts = [];
-      if (vitals.bp_systolic && vitals.bp_diastolic) parts.push(`BP: ${vitals.bp_systolic}/${vitals.bp_diastolic} mmHg`);
+      if (vitals.bp_systolic && vitals.bp_diastolic)
+        parts.push(`BP: ${vitals.bp_systolic}/${vitals.bp_diastolic} mmHg`);
       if (vitals.pulse) parts.push(`Pulse: ${vitals.pulse} bpm`);
       const tempDisplay = formatTemperatureForDisplay(vitals.temperature, vitals.temperature_unit);
       if (tempDisplay) parts.push(`Temp: ${tempDisplay}`);
       if (vitals.spo2) parts.push(`SpO2: ${vitals.spo2}%`);
       if (vitals.weight) parts.push(`Weight: ${vitals.weight} kg`);
       if (vitals.blood_sugar) parts.push(`Blood Sugar: ${vitals.blood_sugar} mg/dL`);
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(parts.join('  |  '), leftX, y, { width: pageWidth });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(parts.join('  |  '), leftX, y, { width: pageWidth });
       y += 18;
     }
 
@@ -199,19 +231,24 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
       y += 16;
 
       medications.forEach((med, idx) => {
-        if (y > 720) { doc.addPage(); y = 40; }
+        if (y > 720) {
+          doc.addPage();
+          y = 40;
+        }
         const bg = idx % 2 === 0 ? '#f8f8f8' : '#ffffff';
         doc.rect(leftX, y, pageWidth, 18).fill(bg);
         doc.fillColor('#333').fontSize(7).font('Helvetica');
         cx = leftX + 3;
+        const medicineName =
+          med.display_name || med.displayName || med.name || med.medication_name || '';
         const row = [
           `${idx + 1}`,
-          `${med.name || ''}${med.generic_name ? ` (${med.generic_name})` : ''}`,
+          `${medicineName}${med.generic_name ? ` (${med.generic_name})` : ''}`,
           med.dosage || '-',
           FREQ_LABELS[med.frequency] || med.frequency || '-',
           med.duration || '-',
           med.route || 'Oral',
-          med.instructions || '-',
+          med.instructions || '-'
         ];
         row.forEach((val, i) => {
           doc.text(String(val), cx, y + 5, { width: colWidths[i], lineBreak: false });
@@ -220,9 +257,15 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
         y += 18;
       });
 
-      doc.moveTo(leftX, y).lineTo(leftX + pageWidth, y).stroke('#ddd');
+      doc
+        .moveTo(leftX, y)
+        .lineTo(leftX + pageWidth, y)
+        .stroke('#ddd');
     } else {
-      doc.fontSize(9).font('Helvetica').fillColor('#999')
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#999')
         .text('No structured medications recorded.', leftX, y);
       y += 16;
     }
@@ -231,10 +274,16 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
     if (prescription.follow_up_date) {
       y += 15;
       const fuDate = new Date(prescription.follow_up_date).toLocaleDateString('en-IN', {
-        day: '2-digit', month: 'short', year: 'numeric',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
       });
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Follow-up:', leftX, y);
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(fuDate, leftX + 65, y);
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(fuDate, leftX + 65, y);
       if (prescription.follow_up_notes) {
         y += 14;
         doc.text(prescription.follow_up_notes, leftX, y, { width: pageWidth });
@@ -245,27 +294,57 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
     // Clinical notes
     if (prescription.clinical_notes) {
       y += 15;
-      doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Clinical Notes:', leftX, y);
+      doc
+        .fontSize(10)
+        .font('Helvetica-Bold')
+        .fillColor('#007A64')
+        .text('Clinical Notes:', leftX, y);
       y += 14;
-      doc.fontSize(9).font('Helvetica').fillColor('#333').text(prescription.clinical_notes, leftX, y, { width: pageWidth });
+      doc
+        .fontSize(9)
+        .font('Helvetica')
+        .fillColor('#333')
+        .text(prescription.clinical_notes, leftX, y, { width: pageWidth });
       y += doc.heightOfString(prescription.clinical_notes, { width: pageWidth });
     }
 
     // Footer / signature
     y = Math.max(y + 40, 680);
-    if (y > 750) { doc.addPage(); y = 40; }
-    doc.moveTo(leftX + pageWidth - 200, y).lineTo(leftX + pageWidth, y).stroke('#333');
+    if (y > 750) {
+      doc.addPage();
+      y = 40;
+    }
+    doc
+      .moveTo(leftX + pageWidth - 200, y)
+      .lineTo(leftX + pageWidth, y)
+      .stroke('#333');
     y += 5;
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#333')
-      .text(`Dr. ${doctor.name || 'N/A'}`, leftX + pageWidth - 200, y, { width: 200, align: 'center' });
+    doc
+      .fontSize(9)
+      .font('Helvetica-Bold')
+      .fillColor('#333')
+      .text(`Dr. ${doctor.name || 'N/A'}`, leftX + pageWidth - 200, y, {
+        width: 200,
+        align: 'center'
+      });
     y += 12;
     if (doctor.specialization) {
-      doc.fontSize(8).font('Helvetica')
+      doc
+        .fontSize(8)
+        .font('Helvetica')
         .text(doctor.specialization, leftX + pageWidth - 200, y, { width: 200, align: 'center' });
     }
 
-    doc.fontSize(7).font('Helvetica').fillColor('#999')
-      .text('This is a computer-generated prescription. Valid only with doctor\'s signature.', leftX, 790, { width: pageWidth, align: 'center' });
+    doc
+      .fontSize(7)
+      .font('Helvetica')
+      .fillColor('#999')
+      .text(
+        "This is a computer-generated prescription. Valid only with doctor's signature.",
+        leftX,
+        790,
+        { width: pageWidth, align: 'center' }
+      );
 
     doc.end();
   });

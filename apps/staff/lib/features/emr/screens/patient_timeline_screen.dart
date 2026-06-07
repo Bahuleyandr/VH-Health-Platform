@@ -100,6 +100,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       case 'clinical_note':
       case 'doctor_note':
       case 'nursing_note':
+      case 'op_consultation':
+      case 'consultation_note':
+      case 'soap':
+      case 'progress':
         return 'note';
       case 'clinical_order':
         return 'order';
@@ -200,6 +204,11 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     if (content is Map) {
       final parts =
           [
+                content['chief_complaint'],
+                content['chief_complaints'],
+                content['history'],
+                content['examination'],
+                content['diagnosis'],
                 content['subjective'],
                 content['objective'],
                 content['assessment'],
