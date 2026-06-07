@@ -22,18 +22,11 @@ import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_header.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_section.dart';
-import 'package:vhhealth/features/dashboard/widgets/feature_grid.dart';
-import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
-import 'package:vhhealth/features/dashboard/widgets/health_points_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/health_insight_card.dart';
 import 'package:vhhealth/features/dashboard/widgets/daily_checkin_sheet.dart';
-import 'package:vhhealth/features/dashboard/widgets/quick_action_button.dart';
 import 'package:vhhealth/features/dashboard/widgets/today_appointment_card.dart';
 import 'package:vhhealth/features/dashboard/widgets/appointment_card.dart';
-import 'package:vhhealth/features/dashboard/widgets/smart_pharmacy_card.dart';
-import 'package:vhhealth/features/dashboard/widgets/smart_investigation_card.dart';
-import 'package:vhhealth/features/dashboard/widgets/smart_prescription_card.dart';
 import 'package:vhhealth/features/dashboard/widgets/stagger_entry.dart';
 import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
@@ -65,12 +58,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _appointmentStatus = '';
   int _apptPollFailures = 0;
 
-  // Smart widget data
+  // Smart stat data
   Timer? _smartWidgetPoller;
   int _smartPollFailures = 0;
-  Map<String, dynamic>? _activePharmacyOrder;
-  Map<String, dynamic>? _activeInvestigationBooking;
-  Map<String, dynamic>? _recentPrescription;
 
   // Gamification data
   Map<String, dynamic>? _nextAppointmentDetail;
@@ -255,76 +245,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _fetchSmartWidgetData() async {
     if (_isGuestSession) return;
     try {
-      // 1. Active pharmacy order
-      try {
-        final pharmaRes = await ApiClient.get(
-          '/pharmacy-orders/orders/my',
-          timeout: const Duration(seconds: 8),
-        );
-        if (mounted && pharmaRes.isSuccess) {
-          final List<dynamic> orders = pharmaRes.data ?? [];
-          Map<String, dynamic>? active;
-          for (final o in orders) {
-            final status = o['status']?.toString().toUpperCase() ?? '';
-            if (status != 'DELIVERED' && status != 'CANCELLED') {
-              active = Map<String, dynamic>.from(o);
-              break;
-            }
-          }
-          if (mounted) setState(() => _activePharmacyOrder = active);
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('Smart poll (pharmacy) failed: $e');
-      }
-
-      // 2. Active investigation booking
-      try {
-        final invRes = await ApiClient.get(
-          '/investigations/bookings/my',
-          timeout: const Duration(seconds: 8),
-        );
-        if (mounted && invRes.isSuccess) {
-          final List<dynamic> bookings = invRes.data ?? [];
-          Map<String, dynamic>? active;
-          for (final b in bookings) {
-            final status = b['status']?.toString().toUpperCase() ?? '';
-            if (status != 'COMPLETED' &&
-                status != 'CANCELLED' &&
-                status != 'REPORT_READY') {
-              active = Map<String, dynamic>.from(b);
-              break;
-            }
-          }
-          if (mounted) setState(() => _activeInvestigationBooking = active);
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('Smart poll (investigations) failed: $e');
-      }
-
-      // 3. Recent prescription (not yet ordered via pharmacy)
-      try {
-        final rxRes = await ApiClient.get(
-          '/prescriptions/patient/my',
-          timeout: const Duration(seconds: 8),
-        );
-        if (mounted && rxRes.isSuccess) {
-          final List<dynamic> prescriptions = rxRes.data ?? [];
-          Map<String, dynamic>? recent;
-          for (final rx in prescriptions) {
-            final pharmacyOpted =
-                rx['pharmacy_opted'] ?? rx['pharmacyOpted'] ?? false;
-            if (pharmacyOpted == false || pharmacyOpted == 'false') {
-              recent = Map<String, dynamic>.from(rx);
-              break;
-            }
-          }
-          if (mounted) setState(() => _recentPrescription = recent);
-        }
-      } catch (e) {
-        if (kDebugMode) debugPrint('Smart poll (prescriptions) failed: $e');
-      }
-
-      // 4. Wellness score (for the stats strip header)
+      // 1. Wellness score (for the stats strip header)
       try {
         final wsRes = await ApiClient.get(
           '/gamification/wellness-score',
@@ -341,7 +262,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (kDebugMode) debugPrint('Smart poll (wellness) failed: $e');
       }
 
-      // 5. Steps profile (today + goal for the stats strip)
+      // 2. Steps profile (today + goal for the stats strip)
       try {
         final stepsRes = await ApiClient.get(
           '/steps/profile',
@@ -380,145 +301,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<FeatureIconData> _initializeFeatures() {
     return [
       FeatureIconData(
-        icon: LucideIcons.stethoscope,
+        icon: LucideIcons.heartPulse,
         svgAsset: 'assets/images/features/your-health.svg',
         label: 'Your Health',
-        color: const Color(0xFFA8E6CF),
+        color: const Color(0xFF15B8A6),
+        description: 'Records, prescriptions, consultations, and uploads',
         onTap: (ctx) => _openFeature(ctx, '/your-health'),
       ),
       FeatureIconData(
         icon: LucideIcons.calendarCheck,
         svgAsset: 'assets/images/features/appointments.svg',
         label: 'Appointments',
-        color: const Color(0xFFB3E5FC),
+        color: const Color(0xFF3D8BFF),
+        description: 'Book and manage visits',
         onTap: (ctx) => _openFeature(ctx, '/appointments'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.folderOpen,
-        svgAsset: 'assets/images/features/records.svg',
-        label: 'Records',
-        color: const Color(0xFFB2DFDB),
-        onTap: (ctx) => _openFeature(ctx, '/records'),
       ),
       FeatureIconData(
         icon: LucideIcons.pill,
         svgAsset: 'assets/images/features/pharmacy.svg',
         label: 'Pharmacy',
-        color: const Color(0xFFD1C4E9),
+        color: const Color(0xFF61B15A),
+        description: 'Medicines, refills, and delivery',
         onTap: (ctx) => _openFeature(ctx, '/pharmacy'),
       ),
       FeatureIconData(
         icon: LucideIcons.flaskConical,
         svgAsset: 'assets/images/features/investigations.svg',
         label: 'Investigations',
-        color: const Color(0xFF80DEEA),
+        color: const Color(0xFF00A7C8),
+        description: 'Labs, scans, reports, and bookings',
         onTap: (ctx) => _openFeature(ctx, '/investigations'),
       ),
       FeatureIconData(
         icon: LucideIcons.helpCircle,
         svgAsset: 'assets/images/features/ask-a-doubt.svg',
         label: 'Ask a Doubt',
-        color: const Color(0xFFFFE082),
+        color: const Color(0xFFF4A261),
+        description: 'Send a question to the hospital team',
         onTap: (ctx) => _openFeature(ctx, '/ask-a-doubt'),
       ),
       FeatureIconData(
         icon: LucideIcons.brainCircuit,
         svgAsset: 'assets/images/features/trivia.svg',
         label: 'Trivia',
-        color: const Color(0xFF9FA8DA),
+        color: const Color(0xFF8E5CF7),
+        description: 'Learn something useful and fun',
         onTap: (ctx) => _openFeature(ctx, '/trivia'),
       ),
       FeatureIconData(
         icon: LucideIcons.building2,
         svgAsset: 'assets/images/features/departments.svg',
         label: 'Departments',
-        color: const Color(0xFFC5E1A5),
+        color: const Color(0xFF2F9E44),
+        description: 'Find departments and doctors',
         onTap: (ctx) => _openFeature(ctx, '/departments'),
       ),
       FeatureIconData(
         icon: LucideIcons.info,
         svgAsset: 'assets/images/features/about-us.svg',
         label: 'About Us',
-        color: const Color(0xFFFFCCBC),
+        color: const Color(0xFFE76F51),
+        description: 'Hospital information and contact details',
         onTap: (ctx) => _openFeature(ctx, '/about-us'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.footprints,
-        svgAsset: 'assets/images/features/step-challenge.svg',
-        label: 'Step Challenge',
-        color: const Color(0xFFA5D6A7),
-        onTap: (ctx) => _openFeature(ctx, '/steps'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.heartPulse,
-        svgAsset: 'assets/images/features/vitals.svg',
-        label: 'Vitals',
-        color: const Color(0xFFEF9A9A),
-        description:
-            'Log and track daily vitals like blood pressure, heart rate, and SpO2',
-        onTap: (ctx) => _openFeature(ctx, '/vitals'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.refreshCw,
-        svgAsset: 'assets/images/features/refills.svg',
-        label: 'Refills',
-        color: const Color(0xFF81D4FA),
-        description:
-            'Request prescription refills from your active medications',
-        onTap: (ctx) => _openFeature(ctx, '/refill'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.users,
-        svgAsset: 'assets/images/features/family.svg',
-        label: 'Family',
-        color: const Color(0xFFCE93D8),
-        description: 'Manage family members linked to your account',
-        onTap: (ctx) => _openFeature(ctx, '/family'),
-      ),
-      FeatureIconData(
-        icon: Icons.emoji_events,
-        svgAsset: 'assets/images/features/health-points.svg',
-        label: 'Health Points',
-        color: const Color(0xFFFFD54F),
-        onTap: (ctx) => _openFeature(ctx, '/health-points'),
-      ),
-      FeatureIconData(
-        icon: Icons.pregnant_woman,
-        label: 'Maternity',
-        color: const Color(0xFFF8BBD0),
-        description: 'Track ANC visits, kick counts, advice, and packages',
-        onTap: (ctx) => _openFeature(ctx, '/portal/maternity/timeline'),
-      ),
-      // Patient self-service portal — Sprint 10. SVG assets not yet
-      // designed; falls back to the Lucide icon glyph.
-      FeatureIconData(
-        icon: LucideIcons.receipt,
-        label: 'Bills',
-        color: const Color(0xFFB3E5FC),
-        description: 'View hospital bills, see what is due, and pay via UPI',
-        onTap: (ctx) => _openFeature(ctx, '/portal/bills'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.testTube,
-        label: 'Lab Results',
-        color: const Color(0xFF80DEEA),
-        description: 'View signed-off lab results with reference ranges',
-        onTap: (ctx) => _openFeature(ctx, '/portal/lab-results'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.shieldCheck,
-        label: 'Insurance Claims',
-        color: const Color(0xFFB2DFDB),
-        description:
-            'View TPA/cashless claim status, amounts, and disallowance reasons',
-        onTap: (ctx) => _openFeature(ctx, '/portal/tpa/claims'),
-      ),
-      FeatureIconData(
-        icon: LucideIcons.messageSquare,
-        label: 'Messages',
-        color: const Color(0xFFFFE082),
-        description: 'Secure messages with your hospital care team',
-        onTap: (ctx) => _openFeature(ctx, '/portal/messages'),
       ),
     ];
   }
@@ -690,36 +534,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? context.watch<NotificationProvider>().unreadCount
         : 0;
 
-    final hasUpdates =
-        !isGuest &&
-        (_nextAppointmentDetail != null ||
-            _healthPoints != null ||
-            _activePharmacyOrder != null ||
-            _activeInvestigationBooking != null ||
-            _recentPrescription != null);
-
     final hasTodaySection = !isGuest && _todayAppointment != null;
     // Only render the Wellness section once we have at least one signal,
     // otherwise the tinted card would show an empty body (the inner
     // widgets self-hide on no-data and the section header would orphan).
     final hasWellnessSection = !isGuest && _wellnessScore != null;
     final hasStatsSection = !isGuest;
-    final hasQuickActionsSection = !isGuest;
     final hasAppointmentsSection =
         !isGuest && (lastAppointment != null || nextAppointment != null);
 
     // Build the snapshot row labels.
     final nextApptLabel = _formatNextApptLabel();
     final lastVitalsLabel = _formatLastVitalsLabel();
-
-    // Per-feature badges for the FeatureGrid. Only the categories that
-    // currently have user-relevant state get a badge.
-    final featureBadges = <String, String>{
-      if (_activePharmacyOrder != null) 'Pharmacy': '1 active',
-      if (_activeInvestigationBooking != null) 'Investigations': '1 active',
-      if (_recentPrescription != null) 'Your Health': 'New rx',
-      if (_todayAppointment != null) 'Appointments': 'Today',
-    };
 
     // Each top-level child gets a stagger index so the page assembles
     // with a brief cascade. Using a counter so we don't have to renumber
@@ -825,125 +651,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ),
 
-                        // ── Updates (gamification + smart contextual) ────
-                        if (hasUpdates)
-                          stagger(
-                            DashboardSection(
-                              label: 'Updates',
-                              accent: DashboardAccents.updates,
-                              contentPadding: const EdgeInsets.fromLTRB(
-                                4,
-                                4,
-                                4,
-                                4,
-                              ),
-                              child: Column(
-                                children: [
-                                  if (_nextAppointmentDetail != null)
-                                    NextVisitProgressWidget(
-                                      detail: _nextAppointmentDetail,
-                                      onTap: () => _openFeature(
-                                        context,
-                                        '/appointments',
-                                      ),
-                                      onSchedule: () => _openFeature(
-                                        context,
-                                        '/appointments',
-                                      ),
-                                    ),
-                                  if (_healthPoints != null)
-                                    HealthPointsWidget(
-                                      data: _healthPoints,
-                                      onTap: () => _openFeature(
-                                        context,
-                                        '/health-points',
-                                      ),
-                                    ),
-                                  if (_activePharmacyOrder != null)
-                                    SmartPharmacyCard(
-                                      order: _activePharmacyOrder!,
-                                      onTap: () =>
-                                          _openFeature(context, '/pharmacy'),
-                                    ),
-                                  if (_activeInvestigationBooking != null)
-                                    SmartInvestigationCard(
-                                      booking: _activeInvestigationBooking!,
-                                      onTap: () => _openFeature(
-                                        context,
-                                        '/investigations',
-                                      ),
-                                    ),
-                                  if (_recentPrescription != null)
-                                    SmartPrescriptionCard(
-                                      prescription: _recentPrescription!,
-                                      onOrderTap: () =>
-                                          _openFeature(context, '/pharmacy'),
-                                      onViewTap: () =>
-                                          _openFeature(context, '/records'),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                        // ── Quick actions ────────────────────────────────
-                        if (hasQuickActionsSection)
-                          stagger(
-                            DashboardSection(
-                              label: 'Quick actions',
-                              accent: DashboardAccents.quickActions,
-                              tinted: false,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(0, 0, 0, 4),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    QuickActionButton(
-                                      icon: LucideIcons.calendarPlus,
-                                      label: 'Book',
-                                      color: DashboardAccents.appointments,
-                                      onTap: () => _openFeature(
-                                        context,
-                                        '/appointments',
-                                      ),
-                                    ),
-                                    QuickActionButton(
-                                      icon: LucideIcons.fileText,
-                                      label: 'Records',
-                                      color: DashboardAccents.wellness,
-                                      onTap: () =>
-                                          _openFeature(context, '/records'),
-                                    ),
-                                    QuickActionButton(
-                                      icon: LucideIcons.pill,
-                                      label: 'Pharmacy',
-                                      color: DashboardAccents.updates,
-                                      onTap: () =>
-                                          _openFeature(context, '/pharmacy'),
-                                    ),
-                                    QuickActionButton(
-                                      icon: Icons.favorite,
-                                      label: 'SOS',
-                                      color: Colors.red,
-                                      onTap: _triggerSOS,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        // ── Explore (feature grid replaces the dial) ─────
+                        // ── Explore ──────────────────────────────────────
                         stagger(
                           DashboardSection(
                             label: 'Explore',
                             accent: DashboardAccents.explore,
                             tinted: false,
-                            child: FeatureGrid(
+                            child: CircularFeatureDial(
                               features: _features,
-                              badges: featureBadges,
-                              compact: isGuest,
+                              onCenterDoubleTap: () =>
+                                  _openFeature(context, '/health-points'),
                             ),
                           ),
                         ),

@@ -1,12 +1,11 @@
-// Static circular_feature_dial.dart - No rotation, fixed positions
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:vhhealth/core/widgets/heartbeat_logo.dart';
-import 'package:vhhealth/core/theme/theme_colors.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
-// Feature Icon Data
 class FeatureIconData {
   final IconData icon;
   final String label;
@@ -15,11 +14,6 @@ class FeatureIconData {
   final bool hasNew;
   final String? badge;
   final String? description;
-
-  /// Optional asset path to a hand-drawn SVG illustration. When set,
-  /// the [FeatureGrid] renders the SVG instead of [icon] for a richer
-  /// per-category look. Falls back to [icon] when null (so legacy code
-  /// + the circular dial keep working unchanged).
   final String? svgAsset;
 
   FeatureIconData({
@@ -34,23 +28,24 @@ class FeatureIconData {
   });
 }
 
-// Static Circular Feature Dial - No rotation
 class CircularFeatureDial extends StatefulWidget {
   final List<FeatureIconData> features;
+  final VoidCallback? onCenterDoubleTap;
   final void Function(Color)? onFocusColorChanged;
   final double? size;
   final bool enableHaptics;
-  final bool autoRotateToTop; // Kept for API compatibility but unused
+  final bool autoRotateToTop;
   final bool enableParticles;
   final bool enableAccessibility;
 
   const CircularFeatureDial({
     super.key,
     required this.features,
+    this.onCenterDoubleTap,
     this.onFocusColorChanged,
     this.size,
     this.enableHaptics = true,
-    this.autoRotateToTop = true, // Ignored in static version
+    this.autoRotateToTop = true,
     this.enableParticles = false,
     this.enableAccessibility = true,
   });
@@ -60,94 +55,143 @@ class CircularFeatureDial extends StatefulWidget {
 }
 
 class _CircularFeatureDialState extends State<CircularFeatureDial>
-    with SingleTickerProviderStateMixin {
-  // State
+    with TickerProviderStateMixin {
   int? selectedIndex;
   int? hoveredIndex;
-  late AnimationController _animationController;
-  late List<Animation<double>> _scaleAnimations;
+  double _rotation = 0;
+  double? _lastPanAngle;
 
-  // Reordered features
+  late AnimationController _tapController;
+  late AnimationController _snapController;
   late List<FeatureIconData> _reorderedFeatures;
 
   @override
   void initState() {
     super.initState();
-
-    // Reorder features to put "health" first
     _reorderedFeatures = _getReordered();
-
-    // Initialize animation controller for tap feedback
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+    _tapController = AnimationController(
+      duration: const Duration(milliseconds: 260),
+      vsync: this,
+    );
+    _snapController = AnimationController(
+      duration: const Duration(milliseconds: 620),
       vsync: this,
     );
 
-    // Create scale animations for each feature
-    _scaleAnimations = List.generate(
-      _reorderedFeatures.length,
-      (index) => Tween<double>(begin: 1.0, end: 1.2).animate(
-        CurvedAnimation(
-          parent: _animationController,
-          curve: Curves.easeOutBack,
-        ),
-      ),
-    );
-
-    // Set initial color if callback provided
     if (widget.onFocusColorChanged != null && _reorderedFeatures.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // "Your Health" is at top, so it's the default focus
-        widget.onFocusColorChanged!(_reorderedFeatures[0].color);
+        if (mounted) widget.onFocusColorChanged!(_reorderedFeatures[0].color);
       });
     }
   }
 
   @override
+  void didUpdateWidget(CircularFeatureDial oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.features != widget.features) {
+      _reorderedFeatures = _getReordered();
+      selectedIndex = null;
+      hoveredIndex = null;
+      _rotation = 0;
+    }
+  }
+
+  @override
   void dispose() {
-    _animationController.dispose();
+    _tapController.dispose();
+    _snapController.dispose();
     super.dispose();
   }
 
   List<FeatureIconData> _getReordered() {
     if (widget.features.isEmpty) return [];
-
-    // Find "health" feature and put it first (at top position)
     final healthIndex = widget.features.indexWhere(
       (f) => f.label.toLowerCase().contains('health'),
     );
-
-    if (healthIndex > 0) {
-      final reordered = List<FeatureIconData>.from(widget.features);
-      final healthFeature = reordered.removeAt(healthIndex);
-      reordered.insert(0, healthFeature);
-      return reordered;
-    }
-
-    return widget.features;
+    if (healthIndex <= 0) return List<FeatureIconData>.from(widget.features);
+    final reordered = List<FeatureIconData>.from(widget.features);
+    final healthFeature = reordered.removeAt(healthIndex);
+    reordered.insert(0, healthFeature);
+    return reordered;
   }
 
   void _onFeatureTap(int index, FeatureIconData feature) {
-    // Haptic feedback
-    if (widget.enableHaptics) {
-      HapticFeedback.selectionClick();
+    if (widget.enableHaptics) HapticFeedback.selectionClick();
+    setState(() => selectedIndex = index);
+    _tapController
+      ..reset()
+      ..forward().then((_) {
+        if (mounted) _tapController.reverse();
+      });
+    widget.onFocusColorChanged?.call(feature.color);
+    feature.onTap(context);
+  }
+
+  void _onCenterDoubleTap() {
+    if (widget.enableHaptics) HapticFeedback.mediumImpact();
+    widget.onCenterDoubleTap?.call();
+  }
+
+  double _angleForLocalPosition(Offset localPosition, double diameter) {
+    final center = Offset(diameter / 2, diameter / 2);
+    final delta = localPosition - center;
+    return atan2(delta.dy, delta.dx);
+  }
+
+  double _shortestAngleDelta(double from, double to) {
+    var delta = to - from;
+    while (delta > pi) {
+      delta -= 2 * pi;
+    }
+    while (delta < -pi) {
+      delta += 2 * pi;
+    }
+    return delta;
+  }
+
+  void _startDrag(DragStartDetails details, double diameter) {
+    _snapController.stop();
+    _lastPanAngle = _angleForLocalPosition(details.localPosition, diameter);
+    if (widget.enableHaptics) HapticFeedback.lightImpact();
+  }
+
+  void _updateDrag(DragUpdateDetails details, double diameter) {
+    final nextAngle = _angleForLocalPosition(details.localPosition, diameter);
+    final previousAngle = _lastPanAngle;
+    if (previousAngle == null) {
+      _lastPanAngle = nextAngle;
+      return;
+    }
+    final delta = _shortestAngleDelta(previousAngle, nextAngle);
+    setState(() => _rotation += delta);
+    _lastPanAngle = nextAngle;
+  }
+
+  void _endDrag() {
+    _lastPanAngle = null;
+    if (!widget.autoRotateToTop || _rotation.abs() < 0.002) {
+      return;
     }
 
-    // Update selected index
-    setState(() {
-      selectedIndex = index;
+    final start = _rotation;
+    _snapController
+      ..stop()
+      ..reset();
+    final animation = CurvedAnimation(
+      parent: _snapController,
+      curve: Curves.easeOutBack,
+    );
+    void listener() {
+      if (!mounted) return;
+      setState(() => _rotation = start * (1 - animation.value));
+    }
+
+    animation.addListener(listener);
+    _snapController.forward().whenComplete(() {
+      animation.removeListener(listener);
+      if (mounted) setState(() => _rotation = 0);
     });
-
-    // Trigger scale animation
-    _animationController.forward().then((_) {
-      _animationController.reverse();
-    });
-
-    // Call color change callback
-    widget.onFocusColorChanged?.call(feature.color);
-
-    // Navigate to feature
-    feature.onTap(context);
+    if (widget.enableHaptics) HapticFeedback.selectionClick();
   }
 
   @override
@@ -159,78 +203,64 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     }
 
     final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-    final size = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.sizeOf(context);
+    final shortestSide = min(screenSize.width, screenSize.height);
     final diameter =
-        widget.size ?? min(size.width * 0.8, 380.0); // Reduced max size
-    final radius = diameter * 0.35; // Conservative radius to ensure no cutoff
+        widget.size ??
+        shortestSide.clamp(320.0, 430.0) *
+            (screenSize.width >= 700 ? 0.92 : 0.98);
+    final radius = diameter * 0.36;
+    final itemSize = (diameter * 0.19).clamp(64.0, 82.0);
 
     return Center(
-      child: SizedBox(
-        width: diameter,
-        height: diameter,
-        child: ClipRect(
-          // Add clipping to ensure nothing overflows
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (details) => _startDrag(details, diameter),
+        onPanUpdate: (details) => _updateDrag(details, diameter),
+        onPanEnd: (_) => _endDrag(),
+        onPanCancel: _endDrag,
+        child: SizedBox(
+          width: diameter,
+          height: diameter,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Background gradient (static)
-              Container(
-                width: diameter * 1.1,
-                height: diameter * 1.1,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      theme.colorScheme.primary.withAlpha(
-                        isDarkMode ? 25 : 13, // ✅ More visible in dark mode
-                      ),
-                      Colors.transparent,
-                    ],
-                    radius: 1.2,
+              CustomPaint(
+                size: Size.square(diameter),
+                painter: _DialPlatePainter(
+                  colorScheme: theme.colorScheme,
+                  brightness: theme.brightness,
+                  itemCount: _reorderedFeatures.length,
+                ),
+              ),
+              Transform.rotate(
+                angle: _rotation,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: _buildFeatureItems(
+                    diameter,
+                    radius,
+                    itemSize,
+                    theme,
                   ),
                 ),
               ),
-
-              // Center logo
-              Container(
-                width: 85,
-                height: 85,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: theme.colorScheme.surface,
-                  boxShadow: [
-                    BoxShadow(
-                      color: isDarkMode
-                          ? Colors.black.withAlpha(
-                              64,
-                            ) // ✅ Stronger shadow in dark
-                          : Colors.black.withAlpha(38),
-                      blurRadius: 15,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: const HeartbeatLogo(),
-              ),
-
-              // Feature items in fixed positions
-              ..._buildFeatureItems(diameter, radius, theme, isDarkMode),
-
-              // Top indicator (static)
+              _CenterLogoButton(onDoubleTap: _onCenterDoubleTap),
               Positioned(
-                top: 15,
+                top: diameter * 0.035,
                 child: Container(
-                  width: 36,
-                  height: 3,
+                  width: 52,
+                  height: 5,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                    borderRadius: BorderRadius.circular(1.5),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(999),
                     boxShadow: [
                       BoxShadow(
-                        color: theme.colorScheme.primary.withAlpha(102),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.35,
+                        ),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -246,212 +276,61 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   List<Widget> _buildFeatureItems(
     double diameter,
     double radius,
+    double itemSize,
     ThemeData theme,
-    bool isDarkMode,
   ) {
     final itemCount = _reorderedFeatures.length;
     final angleStep = (2 * pi) / itemCount;
 
     return List.generate(itemCount, (index) {
-      // Calculate position - start from top (-pi/2) and go clockwise
       final angle = -pi / 2 + (angleStep * index);
       final x = radius * cos(angle);
       final y = radius * sin(angle);
       final feature = _reorderedFeatures[index];
       final isSelected = index == selectedIndex;
       final isHovered = index == hoveredIndex;
-
-      // Items at top are slightly larger
-      // ignore: unused_local_variable
-      final distanceFromTop = (angle + pi / 2).abs();
-      final positionScale = index == 0
-          ? 1.05
-          : 1.0; // Reduced from 1.1 to prevent cutoff
+      final isTopItem = index == 0;
 
       return Positioned(
-        left: diameter / 2 + x - 38, // Center the 76px containers
-        top: diameter / 2 + y - 38, // Center the 76px containers
-        child: MouseRegion(
-          onEnter: (_) => setState(() => hoveredIndex = index),
-          onExit: (_) => setState(() => hoveredIndex = null),
-          child: GestureDetector(
-            onTap: () => _onFeatureTap(index, feature),
-            onLongPress: widget.enableAccessibility
-                ? () {
-                    if (widget.enableHaptics) {
-                      HapticFeedback.mediumImpact();
+        left: diameter / 2 + x - itemSize / 2,
+        top: diameter / 2 + y - itemSize / 2,
+        width: itemSize,
+        height: itemSize,
+        child: Transform.rotate(
+          angle: -_rotation,
+          child: MouseRegion(
+            onEnter: (_) => setState(() => hoveredIndex = index),
+            onExit: (_) => setState(() => hoveredIndex = null),
+            child: GestureDetector(
+              onTap: () => _onFeatureTap(index, feature),
+              onLongPress: widget.enableAccessibility
+                  ? () {
+                      if (widget.enableHaptics) HapticFeedback.mediumImpact();
+                      _showFeatureDescription(feature);
                     }
-                    _showFeatureDescription(feature);
-                  }
-                : null,
-            child: AnimatedBuilder(
-              animation: _scaleAnimations[index],
-              builder: (context, child) {
-                final animScale = isSelected
-                    ? _scaleAnimations[index].value
-                    : 1.0;
-                return Transform.scale(
-                  scale: positionScale * animScale * (isHovered ? 1.05 : 1.0),
-                  child: child,
-                );
-              },
-              child: _buildFeatureItem(
-                feature,
-                isSelected,
-                isHovered,
-                index == 0, // First item (health) is always highlighted
-                theme,
-                isDarkMode,
+                  : null,
+              child: AnimatedBuilder(
+                animation: _tapController,
+                builder: (context, child) {
+                  final tapScale = isSelected
+                      ? 1 + (_tapController.value * 0.12)
+                      : 1.0;
+                  final hoverScale = isHovered ? 1.06 : 1.0;
+                  return Transform.scale(
+                    scale: tapScale * hoverScale * (isTopItem ? 1.05 : 1.0),
+                    child: child,
+                  );
+                },
+                child: _FeatureDialButton(
+                  feature: feature,
+                  isHighlighted: isSelected || isHovered || isTopItem,
+                ),
               ),
             ),
           ),
         ),
       );
     });
-  }
-
-  Widget _buildFeatureItem(
-    FeatureIconData feature,
-    bool isSelected,
-    bool isHovered,
-    bool isTopItem,
-    ThemeData theme,
-    bool isDarkMode,
-  ) {
-    final shadowOpacity = ThemeColors.getShadowOpacity(
-      context,
-    ); // ✅ Use theme utility
-    final isHighlighted = isSelected || isHovered || isTopItem;
-
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Glow effect for highlighted items
-        if (isHighlighted)
-          Container(
-            width: 85, // Reduced to match button size
-            height: 85, // Reduced to match button size
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  feature.color.withValues(
-                    alpha: isDarkMode ? 0.15 : 0.25, // ✅ Subtler in dark mode
-                  ),
-                  feature.color.withValues(alpha: 0.0),
-                ],
-              ),
-            ),
-          ),
-
-        // Main container
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: isHighlighted ? 80 : 76, // Slightly reduced
-          height: isHighlighted ? 80 : 76, // Slightly reduced
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: theme.colorScheme.surface,
-            border: Border.all(
-              color: isHighlighted
-                  ? feature.color
-                  : theme.colorScheme.outline.withValues(alpha: 0.2),
-              width: isHighlighted ? 2.5 : 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: feature.color.withValues(
-                  alpha: isHighlighted ? shadowOpacity : shadowOpacity * 0.5,
-                ),
-                blurRadius: isHighlighted ? 12 : 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Icon with badge
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(
-                    feature.icon,
-                    size: isHighlighted
-                        ? 28
-                        : 26, // Adjusted for smaller containers
-                    color: isHighlighted
-                        ? feature.color
-                        : theme.colorScheme.primary,
-                  ),
-                  if (feature.badge != null)
-                    Positioned(
-                      right: -6, // Reduced from -8
-                      top: -6, // Reduced from -8
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: theme.colorScheme.surface,
-                            width: 2,
-                          ),
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 20,
-                          minHeight: 20,
-                        ),
-                        child: Text(
-                          feature.badge!,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                  if (feature.hasNew)
-                    Positioned(
-                      right: -2, // Reduced from -4
-                      top: -2, // Reduced from -4
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: Colors.orange,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: theme.colorScheme.surface,
-                            width: 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 4), // Reduced from 6
-              // Label
-              Text(
-                feature.label,
-                style: TextStyle(
-                  fontSize: isHighlighted ? 10.5 : 9.5, // Slightly smaller text
-                  fontWeight: isHighlighted ? FontWeight.bold : FontWeight.w500,
-                  color: isHighlighted
-                      ? feature.color
-                      : theme.colorScheme.onSurface,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 
   void _showFeatureDescription(FeatureIconData feature) {
@@ -462,7 +341,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
           children: [
             Icon(feature.icon, color: feature.color),
             const SizedBox(width: 8),
-            Text(feature.label),
+            Flexible(child: Text(feature.label)),
           ],
         ),
         content: Text(feature.description ?? 'Tap to access ${feature.label}'),
@@ -485,5 +364,332 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   }
 }
 
-// Haptic feedback types
+class _FeatureDialButton extends StatelessWidget {
+  final FeatureIconData feature;
+  final bool isHighlighted;
+
+  const _FeatureDialButton({
+    required this.feature,
+    required this.isHighlighted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+    final foreground = _strongColor(feature.color, isLight);
+    final surface = theme.colorScheme.surface;
+    final labelColor = isHighlighted ? foreground : theme.colorScheme.onSurface;
+
+    return Semantics(
+      button: true,
+      label: feature.label,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            center: Alignment.topLeft,
+            radius: 1.15,
+            colors: [
+              feature.color.withValues(alpha: isLight ? 0.72 : 0.34),
+              surface.withValues(alpha: isLight ? 0.98 : 0.88),
+            ],
+          ),
+          border: Border.all(
+            color: isHighlighted
+                ? foreground
+                : feature.color.withValues(alpha: isLight ? 0.42 : 0.28),
+            width: isHighlighted ? 2.2 : 1.1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: feature.color.withValues(
+                alpha: isHighlighted
+                    ? (isLight ? 0.32 : 0.25)
+                    : (isLight ? 0.16 : 0.10),
+              ),
+              blurRadius: isHighlighted ? 16 : 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: foreground.withValues(alpha: isLight ? 0.12 : 0.18),
+                  ),
+                  child: feature.svgAsset != null
+                      ? SvgPicture.asset(
+                          feature.svgAsset!,
+                          width: 20,
+                          height: 20,
+                          colorFilter: ColorFilter.mode(
+                            foreground,
+                            BlendMode.srcIn,
+                          ),
+                        )
+                      : Icon(feature.icon, size: 20, color: foreground),
+                ),
+                if (feature.badge != null)
+                  Positioned(
+                    right: -7,
+                    top: -7,
+                    child: _Badge(text: feature.badge!),
+                  ),
+                if (feature.hasNew)
+                  Positioned(
+                    right: -1,
+                    top: -1,
+                    child: _NewDot(borderColor: surface),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Flexible(
+              child: Text(
+                feature.label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: labelColor,
+                  fontWeight: isHighlighted ? FontWeight.w800 : FontWeight.w700,
+                  fontSize: 9.2,
+                  height: 1.02,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CenterLogoButton extends StatelessWidget {
+  final VoidCallback onDoubleTap;
+
+  const _CenterLogoButton({required this.onDoubleTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+
+    return Tooltip(
+      message: 'Health Points',
+      child: Semantics(
+        button: true,
+        label: 'Health Points',
+        child: GestureDetector(
+          onDoubleTap: onDoubleTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: 110,
+            height: 110,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  theme.colorScheme.surface,
+                  theme.colorScheme.primaryContainer.withValues(
+                    alpha: isLight ? 0.88 : 0.34,
+                  ),
+                ],
+              ),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.36),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withValues(
+                    alpha: isLight ? 0.20 : 0.30,
+                  ),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isLight ? 0.08 : 0.26),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 94,
+                  height: 94,
+                  child: CircularProgressIndicator(
+                    value: 0.72,
+                    strokeWidth: 3,
+                    backgroundColor: theme.colorScheme.primary.withValues(
+                      alpha: 0.10,
+                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 82, height: 82, child: HeartbeatLogo()),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DialPlatePainter extends CustomPainter {
+  final ColorScheme colorScheme;
+  final Brightness brightness;
+  final int itemCount;
+
+  const _DialPlatePainter({
+    required this.colorScheme,
+    required this.brightness,
+    required this.itemCount,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final outerRadius = size.shortestSide / 2;
+    final isLight = brightness == Brightness.light;
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = colorScheme.primary.withValues(alpha: isLight ? 0.18 : 0.24);
+    final softRingPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 18
+      ..color = colorScheme.primary.withValues(alpha: isLight ? 0.035 : 0.06);
+    final fillPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          colorScheme.primary.withValues(alpha: isLight ? 0.08 : 0.13),
+          colorScheme.secondary.withValues(alpha: isLight ? 0.035 : 0.08),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: outerRadius));
+
+    canvas.drawCircle(center, outerRadius * 0.49, softRingPaint);
+    canvas.drawCircle(center, outerRadius * 0.92, fillPaint);
+    canvas.drawCircle(center, outerRadius * 0.42, ringPaint);
+    canvas.drawCircle(center, outerRadius * 0.66, ringPaint);
+    canvas.drawCircle(center, outerRadius * 0.87, ringPaint);
+
+    final tickPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 3
+      ..color = colorScheme.primary.withValues(alpha: isLight ? 0.26 : 0.36);
+    final dotPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = colorScheme.secondary.withValues(alpha: isLight ? 0.18 : 0.30);
+
+    for (var i = 0; i < itemCount; i++) {
+      final angle = -pi / 2 + ((2 * pi) / itemCount) * i;
+      final start =
+          center + Offset(cos(angle), sin(angle)) * (outerRadius * 0.73);
+      final end =
+          center + Offset(cos(angle), sin(angle)) * (outerRadius * 0.79);
+      canvas.drawLine(start, end, tickPaint);
+
+      final dot =
+          center +
+          Offset(cos(angle + pi / itemCount), sin(angle + pi / itemCount)) *
+              (outerRadius * 0.535);
+      canvas.drawCircle(dot, 2.4, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DialPlatePainter oldDelegate) {
+    return oldDelegate.colorScheme != colorScheme ||
+        oldDelegate.brightness != brightness ||
+        oldDelegate.itemCount != itemCount;
+  }
+}
+
+class _Badge extends StatelessWidget {
+  final String text;
+
+  const _Badge({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.redAccent,
+        shape: BoxShape.circle,
+        border: Border.all(color: Theme.of(context).colorScheme.surface),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _NewDot extends StatelessWidget {
+  final Color borderColor;
+
+  const _NewDot({required this.borderColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 9,
+      height: 9,
+      decoration: BoxDecoration(
+        color: Colors.orangeAccent,
+        shape: BoxShape.circle,
+        border: Border.all(color: borderColor, width: 1.2),
+      ),
+    );
+  }
+}
+
+Color _strongColor(Color color, bool isLight) {
+  final hsl = HSLColor.fromColor(color);
+  if (!isLight) {
+    return hsl
+        .withSaturation((hsl.saturation + 0.10).clamp(0.0, 1.0))
+        .withLightness(0.72)
+        .toColor();
+  }
+  return hsl
+      .withSaturation((hsl.saturation + 0.22).clamp(0.0, 1.0))
+      .withLightness(0.38)
+      .toColor();
+}
+
 enum HapticType { light, selection, medium }
