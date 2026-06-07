@@ -1,6 +1,7 @@
 // settings_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
@@ -50,11 +51,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     // ✅ Guard against uninitialized controller
     if (!_initialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(onPressed: () => context.go('/home')),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(controller.loc.settingsTitle), elevation: 0),
+      appBar: AppBar(
+        title: Text(controller.loc.settingsTitle),
+        elevation: 0,
+        leading: BackButton(onPressed: () => context.go('/home')),
+      ),
       body: LogoBackground(
         child: SafeArea(
           child: ListView(

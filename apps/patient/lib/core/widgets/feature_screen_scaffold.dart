@@ -65,6 +65,14 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
     super.dispose();
   }
 
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 600;
@@ -103,7 +111,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                       // Back button
                       IconButton(
                         icon: const Icon(Icons.arrow_back),
-                        onPressed: () => context.pop(),
+                        onPressed: _goBack,
                         color: widget.color,
                       ),
                       const SizedBox(width: 8),

@@ -294,6 +294,10 @@ class _YourHealthScreenState extends State<YourHealthScreen>
               padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
               child: Row(
                 children: [
+                  BackButton(
+                    color: _color,
+                    onPressed: () => context.go('/home'),
+                  ),
                   Hero(
                     tag: 'yourHealth',
                     child: Material(
