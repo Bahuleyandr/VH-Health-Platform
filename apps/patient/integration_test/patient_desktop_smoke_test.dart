@@ -164,6 +164,22 @@ void main() {
       await waitFor(tester, find.textContaining('RX-'));
       AppRouter.router.go('/home');
       await waitFor(tester, find.textContaining('Hospital ID'));
+      await waitFor(tester, find.text('TODAY'));
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Today could not refresh'), findsNothing);
+      final hasTodayCard = [
+        find.textContaining('Prescription'),
+        find.textContaining('Investigation'),
+        find.textContaining('Lab result'),
+        find.textContaining('Bill'),
+        find.textContaining('Upload'),
+        find.textContaining('Health points'),
+        find.textContaining('Visit'),
+        find.text('Book your next visit'),
+        find.text('Upload a health record'),
+        find.text('Find a department'),
+      ].any((finder) => finder.evaluate().isNotEmpty);
+      expect(hasTodayCard, isTrue, reason: 'Home should show Today cards');
       AppRouter.router.go('/health', extra: {'tab': 5});
       await tester.pump(const Duration(milliseconds: 500));
       await waitFor(tester, find.textContaining('test diagnosis'));

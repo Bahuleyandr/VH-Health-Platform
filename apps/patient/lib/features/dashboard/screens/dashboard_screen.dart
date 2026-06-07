@@ -26,8 +26,7 @@ import 'package:vhhealth/features/dashboard/widgets/dashboard_section.dart';
 import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
 import 'package:vhhealth/features/dashboard/widgets/health_insight_card.dart';
 import 'package:vhhealth/features/dashboard/widgets/daily_checkin_sheet.dart';
-import 'package:vhhealth/features/dashboard/widgets/today_appointment_card.dart';
-import 'package:vhhealth/features/dashboard/widgets/appointment_card.dart';
+import 'package:vhhealth/features/dashboard/widgets/command_center_today.dart';
 import 'package:vhhealth/features/dashboard/widgets/stagger_entry.dart';
 import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
@@ -41,7 +40,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _secureStorage = const FlutterSecureStorage();
-  late final String _phone;
   late final String _name;
   late final String _hospitalNumber;
   late final bool _isGuestSession;
@@ -56,7 +54,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Real-time appointment polling
   Timer? _appointmentPoller;
   Map<String, dynamic>? _todayAppointment;
-  String _appointmentStatus = '';
   int _apptPollFailures = 0;
 
   // Smart stat data
@@ -66,6 +63,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Gamification data
   Map<String, dynamic>? _nextAppointmentDetail;
   Map<String, dynamic>? _healthPoints;
+  bool _commandCenterLoading = false;
+  String? _commandCenterError;
+  List<Map<String, dynamic>> _todayCards = [];
 
   // Stats-strip data (lifted from individual widgets so the strip can
   // render at the top with the same numbers without each widget
@@ -83,7 +83,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     final user = context.read<UserProvider>();
-    _phone = user.phone;
     _name = user.name;
     _hospitalNumber = user.hospitalNumber;
     _isGuestSession = user.isGuest;
@@ -170,7 +169,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _todayAppointment = todayAppt;
-            _appointmentStatus = todayAppt?['status']?.toString() ?? '';
           });
         }
       }
@@ -180,50 +178,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (kDebugMode) {
         debugPrint('Appointment poll failed (#$_apptPollFailures): $e');
       }
-    }
-  }
-
-  String _statusLabel(String status) {
-    switch (status.toUpperCase()) {
-      case 'SCHEDULED':
-      case 'CONFIRMED':
-        return 'Waiting';
-      case 'IN_PROGRESS':
-        return 'In Consultation';
-      case 'COMPLETED':
-        return 'Completed';
-      case 'RESCHEDULED':
-        return 'Rescheduled';
-      default:
-        return status;
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status.toUpperCase()) {
-      case 'SCHEDULED':
-      case 'CONFIRMED':
-        return Colors.orange;
-      case 'IN_PROGRESS':
-        return Colors.blue;
-      case 'COMPLETED':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _statusIcon(String status) {
-    switch (status.toUpperCase()) {
-      case 'SCHEDULED':
-      case 'CONFIRMED':
-        return LucideIcons.clock;
-      case 'IN_PROGRESS':
-        return LucideIcons.stethoscope;
-      case 'COMPLETED':
-        return LucideIcons.checkCircle;
-      default:
-        return LucideIcons.alertCircle;
     }
   }
 
@@ -392,8 +346,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _maybeFetchFromBackend() async {
     if (_isGuestSession) return;
     try {
-      final fetched = await _secureStorage.read(key: 'fetched_dashboard');
-      if (!mounted || fetched == 'true') return;
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _fetchAndStoreDashboard();
     } catch (e) {
@@ -403,66 +355,115 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchAndStoreDashboard() async {
     if (_isGuestSession) return;
+    if (mounted) {
+      setState(() {
+        _commandCenterLoading = true;
+        _commandCenterError = null;
+      });
+    }
     try {
       final result = await ApiClient.cachedGet(
-        '/dashboard',
-        queryParameters: {'phone': _phone},
+        '/portal/command-center',
         timeout: const Duration(seconds: 10),
       );
       if (!mounted) return;
 
       if (result.isSuccess) {
-        final data = result.data ?? {};
-        final name = data['name'] ?? _name;
-        final last = data['lastAppointment'];
-        final next = data['nextAppointment'];
-        final nextDetail =
-            data['nextAppointmentDetail'] as Map<String, dynamic>?;
-        final healthPts = data['healthPoints'] as Map<String, dynamic>?;
-
-        setState(() {
-          _staleLabel = result.staleLabel;
-          cachedName = name;
-          lastAppointment = last;
-          nextAppointment = next;
-          _nextAppointmentDetail = nextDetail;
-          _healthPoints = healthPts;
-        });
-
-        // Persist to secure storage
-        await Future.wait([
-          _secureStorage.write(key: 'userName', value: name),
-          _secureStorage.write(key: 'lastAppointment', value: last),
-          _secureStorage.write(key: 'nextAppointment', value: next),
-          _secureStorage.write(key: 'fetched_dashboard', value: 'true'),
-        ]);
+        final data = _asStringMap(result.data);
+        _applyCommandCenter(data, staleLabel: result.staleLabel);
 
         // Listen for fresh network data if cache was served first
         result.onFresh?.then((fresh) {
           if (!mounted) return;
           if (fresh.isSuccess) {
-            final freshData = fresh.data ?? {};
-            final freshName = freshData['name'] ?? _name;
-            final freshLast = freshData['lastAppointment'];
-            final freshNext = freshData['nextAppointment'];
-            final nextDetail =
-                freshData['nextAppointmentDetail'] as Map<String, dynamic>?;
-            final healthPts =
-                freshData['healthPoints'] as Map<String, dynamic>?;
-            setState(() {
-              _staleLabel = null;
-              cachedName = freshName;
-              lastAppointment = freshLast;
-              nextAppointment = freshNext;
-              _nextAppointmentDetail = nextDetail;
-              _healthPoints = healthPts;
-            });
+            _applyCommandCenter(_asStringMap(fresh.data), staleLabel: null);
           }
+        });
+      } else {
+        setState(() {
+          _commandCenterLoading = false;
+          _commandCenterError =
+              result.message ?? 'Today could not refresh right now.';
         });
       }
     } catch (e) {
       debugPrint('Dashboard error: $e');
+      if (mounted) {
+        setState(() {
+          _commandCenterLoading = false;
+          _commandCenterError = 'Today could not refresh right now.';
+        });
+      }
     }
+  }
+
+  void _applyCommandCenter(
+    Map<String, dynamic> data, {
+    required String? staleLabel,
+  }) {
+    final profile = _asStringMap(data['profile']);
+    final services = _asStringMap(data['services']);
+    final today = _asMapList(data['today']);
+    final nextAppointmentData = _asStringMap(services['next_appointment']);
+    final healthPoints = _asStringMap(services['health_points']);
+
+    final nextAppointmentLabel = _appointmentSummary(nextAppointmentData);
+    setState(() {
+      _staleLabel = staleLabel;
+      _commandCenterLoading = false;
+      _commandCenterError = null;
+      _todayCards = today;
+      if (profile['name']?.toString().trim().isNotEmpty == true) {
+        cachedName = profile['name'].toString();
+      }
+      _todayAppointment = nextAppointmentData.isEmpty
+          ? null
+          : nextAppointmentData;
+      _nextAppointmentDetail = nextAppointmentData;
+      _healthPoints = healthPoints.isEmpty ? null : healthPoints;
+      nextAppointment = nextAppointmentLabel;
+    });
+
+    final name = profile['name']?.toString();
+    if (name != null && name.isNotEmpty) {
+      _secureStorage.write(key: 'userName', value: name);
+    }
+    if (nextAppointmentLabel != null && nextAppointmentLabel.isNotEmpty) {
+      _secureStorage.write(key: 'nextAppointment', value: nextAppointmentLabel);
+    }
+  }
+
+  Map<String, dynamic> _asStringMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return {};
+  }
+
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    if (value is! List) return [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  String? _appointmentSummary(Map<String, dynamic> appointment) {
+    if (appointment.isEmpty) return null;
+    final doctor = appointment['doctor_name']?.toString();
+    final time = appointment['appointment_time']?.toString();
+    final date = appointment['appointment_date']?.toString();
+    final day = date == null || date.isEmpty
+        ? null
+        : DateTime.tryParse(date)?.toLocal();
+    final label = day == null ? null : DateFormat.MMMd().format(day);
+    final parts = [
+      ?label,
+      if (time != null && time.isNotEmpty) time,
+    ].join(' at ');
+    if (doctor != null && doctor.isNotEmpty) {
+      return parts.isEmpty ? 'Dr. $doctor' : 'Dr. $doctor - $parts';
+    }
+    return parts.isEmpty ? 'Upcoming appointment' : parts;
   }
 
   void _openFeature(BuildContext context, String routeName) {
@@ -484,6 +485,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else {
       context.push(routeName);
     }
+  }
+
+  void _openTodayCard(Map<String, dynamic> card) {
+    final route = card['route']?.toString().trim();
+    if (route == null || route.isEmpty) return;
+
+    if (_isGuestSession) {
+      showGuestSignInPrompt(
+        context,
+        featureLabel: card['title']?.toString() ?? 'This feature',
+        returnTo: route,
+      );
+      return;
+    }
+
+    final tabValue = card['tab'];
+    final tab = tabValue is num ? tabValue.toInt() : int.tryParse('$tabValue');
+    if (route == '/health' && tab != null) {
+      context.push(route, extra: {'tab': tab});
+      return;
+    }
+    context.push(route);
   }
 
   String _featureLabelForRoute(String routeName) {
@@ -538,14 +561,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? context.watch<NotificationProvider>().unreadCount
         : 0;
 
-    final hasTodaySection = !isGuest && _todayAppointment != null;
+    final hasTodaySection = !isGuest;
     // Only render the Wellness section once we have at least one signal,
     // otherwise the tinted card would show an empty body (the inner
     // widgets self-hide on no-data and the section header would orphan).
     final hasWellnessSection = !isGuest && _wellnessScore != null;
     final hasStatsSection = !isGuest;
-    final hasAppointmentsSection =
-        !isGuest && (lastAppointment != null || nextAppointment != null);
 
     // Build the snapshot row labels.
     final nextApptLabel = _formatNextApptLabel();
@@ -621,32 +642,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             DashboardSection(
                               label: 'Today',
                               accent: DashboardAccents.today,
-                              tinted: false,
-                              child: TodayAppointmentCard(
-                                appointment: _todayAppointment!,
-                                statusLabel: _statusLabel(_appointmentStatus),
-                                statusColor: _statusColor(_appointmentStatus),
-                                statusIcon: _statusIcon(_appointmentStatus),
-                              ),
-                            ),
-                          ),
-
-                        if (!isGuest)
-                          stagger(
-                            DashboardSection(
-                              label: 'Next Step',
-                              accent: const Color(0xFFFFC857),
                               tinted: true,
-                              child: _NextStepCard(
-                                todayAppointment: _todayAppointment,
-                                nextAppointmentLabel: nextApptLabel,
-                                stepsToday: _stepsToday,
-                                stepGoal: _stepGoal,
-                                onAppointments: () =>
-                                    _openFeature(context, '/appointments'),
-                                onSteps: () => _openFeature(context, '/steps'),
-                                onHealth: () =>
-                                    _openFeature(context, '/your-health'),
+                              child: CommandCenterToday(
+                                cards: _todayCards,
+                                loading: _commandCenterLoading,
+                                error: _commandCenterError,
+                                onRetry: _fetchAndStoreDashboard,
+                                onOpenCard: _openTodayCard,
                               ),
                             ),
                           ),
@@ -694,24 +696,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ),
                         ),
-
-                        // ── Appointments summary ─────────────────────────
-                        if (hasAppointmentsSection)
-                          stagger(
-                            DashboardSection(
-                              label: 'Appointments',
-                              accent: DashboardAccents.appointments,
-                              tinted: false,
-                              child: AppointmentCard(
-                                lastAppointment: lastAppointment,
-                                nextAppointment: nextAppointment,
-                                onViewHistory: () =>
-                                    _openFeature(context, '/appointments'),
-                                onScheduleNew: () =>
-                                    _openFeature(context, '/appointments'),
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                   ),
@@ -778,140 +762,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_wellnessScore == null) return null;
     return 'Wellness $_wellnessScore/100';
   }
-}
-
-class _NextStepCard extends StatelessWidget {
-  final Map<String, dynamic>? todayAppointment;
-  final String? nextAppointmentLabel;
-  final int? stepsToday;
-  final int? stepGoal;
-  final VoidCallback onAppointments;
-  final VoidCallback onSteps;
-  final VoidCallback onHealth;
-
-  const _NextStepCard({
-    required this.todayAppointment,
-    required this.nextAppointmentLabel,
-    required this.stepsToday,
-    required this.stepGoal,
-    required this.onAppointments,
-    required this.onSteps,
-    required this.onHealth,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final step = _resolveStep();
-
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: step.color.withValues(alpha: 0.14),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(step.icon, color: step.color),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                step.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                step.subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 10),
-        FilledButton(onPressed: step.onTap, child: Text(step.action)),
-      ],
-    );
-  }
-
-  _NextStep _resolveStep() {
-    if (todayAppointment != null) {
-      final doctor = todayAppointment!['doctor_name']?.toString();
-      return _NextStep(
-        title: 'Visit today',
-        subtitle: doctor == null || doctor.isEmpty
-            ? 'Your appointment is active for today.'
-            : 'Your appointment with Dr. $doctor is active today.',
-        action: 'Open',
-        icon: LucideIcons.calendarClock,
-        color: Colors.orange,
-        onTap: onAppointments,
-      );
-    }
-
-    final nextVisit = nextAppointmentLabel;
-    if (nextVisit != null && nextVisit.isNotEmpty) {
-      return _NextStep(
-        title: nextVisit,
-        subtitle: 'Review appointment details and prepare your questions.',
-        action: 'View',
-        icon: LucideIcons.calendarCheck,
-        color: Colors.blue,
-        onTap: onAppointments,
-      );
-    }
-
-    final today = stepsToday;
-    final goal = stepGoal;
-    if (today != null && goal != null && goal > today) {
-      return _NextStep(
-        title: '${goal - today} steps to goal',
-        subtitle: 'A short walk can keep today on track.',
-        action: 'Steps',
-        icon: LucideIcons.footprints,
-        color: Colors.green,
-        onTap: onSteps,
-      );
-    }
-
-    return _NextStep(
-      title: 'Keep records updated',
-      subtitle: 'Upload reports or review newly added hospital records.',
-      action: 'Health',
-      icon: LucideIcons.heartPulse,
-      color: Colors.teal,
-      onTap: onHealth,
-    );
-  }
-}
-
-class _NextStep {
-  final String title;
-  final String subtitle;
-  final String action;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _NextStep({
-    required this.title,
-    required this.subtitle,
-    required this.action,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
 }

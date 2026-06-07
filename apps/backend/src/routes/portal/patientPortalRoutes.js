@@ -21,7 +21,7 @@ import { success, error } from '../../utils/responseHelper.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.user?.tenantId || req?.user?.tenant_id || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -74,6 +74,15 @@ function useAuthenticatedPatientPhone(req, res, next) {
 }
 
 // ── Standard patient mobile contract ─────────────────────────────────
+router.get('/command-center', requirePatient, wrap(async (req) =>
+  portal.getPatientCommandCenter({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    patient_id: req.user?.id || req.user?.userId || null,
+    acting: req.acting || null,
+  }),
+));
+
 router.get('/appointments', requirePatient, useAuthenticatedPatientId, getPatientAppointments);
 
 router.get('/records', requirePatient, useAuthenticatedPatientPhone, getHealthRecordsByPhone);

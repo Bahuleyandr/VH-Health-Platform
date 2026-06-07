@@ -12,7 +12,263 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import * as paymentLinkService from '../billing/paymentLinkService.js';
+import * as pointService from '../gamification/pointService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+
+const ACTIVE_APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'CHECKED_IN'];
+const PENDING_LAB_ORDER_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'SAMPLE_COLLECTED', 'PROCESSING'];
+const OPEN_CLAIM_STATUSES = ['draft', 'submitted', 'in_review', 'query', 'approved', 'partially_approved'];
+
+function asInt(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+function asMoney(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+}
+
+function first(items) {
+  return Array.isArray(items) && items.length > 0 ? items[0] : null;
+}
+
+async function safeCommandSection(label, fn, fallback) {
+  try {
+    const result = await fn();
+    return result == null ? fallback : result;
+  } catch (err) {
+    logger.warn('patient command center section skipped', {
+      section: label,
+      error: err?.message,
+    });
+    return fallback;
+  }
+}
+
+function buildCard({
+  type,
+  title,
+  status = null,
+  priority,
+  route,
+  ctaLabel,
+  sourceId = null,
+  subtitle = null,
+  tab = null,
+}) {
+  return {
+    type,
+    title,
+    status,
+    priority,
+    route,
+    cta_label: ctaLabel,
+    source_id: sourceId == null ? null : String(sourceId),
+    subtitle,
+    tab,
+  };
+}
+
+function dateLabel(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function appointmentCard(appt) {
+  if (!appt) return null;
+  const doctor = appt.doctor_name ? `Dr. ${appt.doctor_name}` : 'your doctor';
+  const when = [dateLabel(appt.appointment_date), appt.appointment_time]
+    .filter(Boolean)
+    .join(' at ');
+  const status = String(appt.status || 'scheduled');
+  const isToday = dateLabel(appt.appointment_date) === dateLabel(new Date());
+  return buildCard({
+    type: 'next_appointment',
+    title: isToday ? 'Visit today' : 'Next appointment',
+    subtitle: `${doctor}${when ? ` - ${when}` : ''}`,
+    status,
+    priority: isToday ? 10 : 30,
+    route: '/appointments',
+    ctaLabel: isToday ? 'Open visit' : 'View',
+    sourceId: appt.id,
+  });
+}
+
+function prescriptionCard(rx) {
+  if (!rx) return null;
+  const number = rx.prescription_number || `RX-${rx.id}`;
+  const doctor = rx.doctor_name ? ` from Dr. ${rx.doctor_name}` : '';
+  const orderStatus = rx.pharmacy_order_status || rx.pharmacy_payment_status;
+  return buildCard({
+    type: orderStatus ? 'pharmacy_order' : 'prescription_ready',
+    title: orderStatus ? 'Medicine order update' : 'Prescription ready',
+    subtitle: `${number}${doctor}`,
+    status: orderStatus || 'ready',
+    priority: orderStatus ? 45 : 35,
+    route: '/health',
+    tab: 4,
+    ctaLabel: orderStatus ? 'Track' : 'View Rx',
+    sourceId: rx.id,
+  });
+}
+
+function labOrderCard(order) {
+  if (!order) return null;
+  const testName = order.test_name || order.test_code || 'Investigation';
+  const fasting = order.fasting_required ? 'Fasting required' : null;
+  return buildCard({
+    type: 'pending_lab_order',
+    title: 'Investigation pending',
+    subtitle: [testName, fasting].filter(Boolean).join(' - '),
+    status: order.status || 'pending',
+    priority: 40,
+    route: '/portal/lab-orders',
+    ctaLabel: 'Prepare',
+    sourceId: order.id,
+  });
+}
+
+function labResultCard(result) {
+  if (!result) return null;
+  return buildCard({
+    type: 'lab_result_ready',
+    title: 'Lab result ready',
+    subtitle: result.test_name || result.test_code || 'View signed result',
+    status: result.abnormal_flag ? `Flag: ${result.abnormal_flag}` : 'signed',
+    priority: result.abnormal_flag ? 18 : 42,
+    route: '/portal/lab-results',
+    ctaLabel: 'View result',
+    sourceId: result.id,
+  });
+}
+
+function billCard(bill) {
+  if (!bill) return null;
+  const due = asMoney(bill.patient_amount_due ?? bill.amount_due);
+  return buildCard({
+    type: 'bill_due',
+    title: 'Bill pending',
+    subtitle: due > 0 ? `Amount due: INR ${due}` : bill.invoice_number || 'Review bill',
+    status: bill.status || 'pending',
+    priority: 25,
+    route: '/portal/bills',
+    ctaLabel: 'Pay / view',
+    sourceId: bill.id,
+  });
+}
+
+function claimCard(claim) {
+  if (!claim) return null;
+  return buildCard({
+    type: 'claim_update',
+    title: 'Insurance claim update',
+    subtitle: claim.claim_number || claim.tpa_reference_id || 'Track claim status',
+    status: claim.status || 'open',
+    priority: 55,
+    route: '/portal/tpa/claims',
+    ctaLabel: 'Track',
+    sourceId: claim.id,
+  });
+}
+
+function messageCard(thread) {
+  if (!thread) return null;
+  return buildCard({
+    type: 'unread_message',
+    title: 'Hospital message',
+    subtitle: thread.subject || 'Unread message from hospital team',
+    status: `${asInt(thread.patient_unread_count)} unread`,
+    priority: 15,
+    route: `/portal/messages/${thread.id}`,
+    ctaLabel: 'Reply',
+    sourceId: thread.id,
+  });
+}
+
+function uploadCard(upload) {
+  if (!upload) return null;
+  const extraction = upload.ai_extraction_status || upload.extraction_status;
+  const title = upload.title || upload.file_name || 'Uploaded record';
+  return buildCard({
+    type: 'upload_review',
+    title: extraction === 'needs_review' ? 'Upload needs review' : 'Check uploaded record',
+    subtitle: title,
+    status: extraction || 'AI pending',
+    priority: extraction === 'needs_review' ? 20 : 60,
+    route: '/health',
+    tab: 3,
+    ctaLabel: 'Cross-check',
+    sourceId: upload.id,
+  });
+}
+
+function pointsCard(summary) {
+  if (!summary?.unclaimedCount) return null;
+  return buildCard({
+    type: 'health_points',
+    title: 'Health points reward ready',
+    subtitle: `${summary.unclaimedCount} milestone${summary.unclaimedCount === 1 ? '' : 's'} to claim`,
+    status: `${summary.totalPoints || 0} points`,
+    priority: 70,
+    route: '/health-points',
+    ctaLabel: 'Claim',
+  });
+}
+
+function fallbackCards() {
+  return [
+    buildCard({
+      type: 'book_appointment',
+      title: 'Book your next visit',
+      subtitle: 'Choose a department and preferred slot.',
+      status: 'available',
+      priority: 80,
+      route: '/appointments',
+      ctaLabel: 'Book',
+    }),
+    buildCard({
+      type: 'upload_record',
+      title: 'Upload a health record',
+      subtitle: 'AI will draft the title and details for review.',
+      status: 'ready',
+      priority: 81,
+      route: '/health',
+      tab: 3,
+      ctaLabel: 'Upload',
+    }),
+    buildCard({
+      type: 'departments',
+      title: 'Find a department',
+      subtitle: 'Browse hospital departments and doctors.',
+      status: 'open',
+      priority: 82,
+      route: '/departments',
+      ctaLabel: 'Browse',
+    }),
+    buildCard({
+      type: 'contact_hospital',
+      title: 'Ask the hospital team',
+      subtitle: 'Send a question or service request.',
+      status: 'available',
+      priority: 83,
+      route: '/portal/messages',
+      ctaLabel: 'Message',
+    }),
+  ];
+}
+
+function activeDependentContext(acting) {
+  if (!acting) return null;
+  return {
+    acting_as_dependent: true,
+    actor_uid: acting.actorUid || null,
+    actor_id: acting.actorId || null,
+    actor_role: acting.actorRole || null,
+  };
+}
 
 // Fetch active FCM tokens for a patient. Returns [] when the patient
 // has no registered devices — caller should treat the missing notif
@@ -32,6 +288,324 @@ async function fcmTokensForPatient(patient_uid) {
     logger.warn('fcmTokensForPatient failed', { error: err.message });
     return [];
   }
+}
+
+async function getPatientProfile({ patient_uid }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT u.id, u.uid, u.name, u.phone, u.email, u.gender, u.birthday,
+            COALESCE(
+              hn.identifier_value,
+              NULLIF(u.hospital_number, ''),
+              'VH-' || LPAD(u.id::text, 6, '0')
+            ) AS hospital_number
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT pi.identifier_value
+           FROM patient_identifiers pi
+          WHERE pi.patient_uid = u.uid
+            AND pi.status = 'active'
+            AND lower(pi.identifier_type) IN ('hospital_number', 'mrn')
+          ORDER BY CASE WHEN lower(pi.identifier_type) = 'hospital_number' THEN 0 ELSE 1 END,
+                   pi.created_at DESC NULLS LAST,
+                   pi.id DESC
+          LIMIT 1
+       ) hn ON TRUE
+      WHERE u.uid = $1::uuid
+      LIMIT 1`,
+    String(patient_uid),
+  );
+  if (!rows.length) throw AppError.notFound('Patient profile not found');
+  return rows[0];
+}
+
+async function listUpcomingAppointments({ patient_id }) {
+  if (!patient_id) return [];
+  return prisma.$queryRawUnsafe(
+    `SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date,
+            a.appointment_time, a.status, a.reason, a.visit_type,
+            a.token_number, a.queue_position, a.created_at,
+            d.name AS doctor_name,
+            doc.specialty AS doctor_specialization,
+            doc.department AS doctor_department
+       FROM appointments a
+       LEFT JOIN users d ON d.id = a.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+      WHERE a.patient_id = $1::int
+        AND UPPER(COALESCE(a.status, '')) = ANY($2::text[])
+        AND COALESCE(a.appointment_date::date, a.created_at::date) >= CURRENT_DATE - INTERVAL '1 day'
+      ORDER BY COALESCE(a.appointment_date::date, a.created_at::date) ASC,
+               a.appointment_time ASC NULLS LAST,
+               a.id ASC
+      LIMIT 10`,
+    Number(patient_id),
+    ACTIVE_APPOINTMENT_STATUSES,
+  );
+}
+
+async function listLatestPrescriptions({ patient_id }) {
+  if (!patient_id) return [];
+  return prisma.$queryRawUnsafe(
+    `SELECT ep.id, ep.prescription_number, ep.diagnosis, ep.created_at,
+            ep.follow_up_date, ep.pharmacy_order_id,
+            d.name AS doctor_name,
+            doc.specialty AS doctor_specialization,
+            po.order_number AS pharmacy_order_number,
+            po.status AS pharmacy_order_status,
+            po.payment_status AS pharmacy_payment_status,
+            po.total_amount AS pharmacy_total_amount
+       FROM e_prescriptions ep
+       LEFT JOIN users d ON d.id = ep.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
+       LEFT JOIN pharmacy_orders po ON po.id = ep.pharmacy_order_id
+      WHERE ep.patient_id = $1::int
+      ORDER BY ep.created_at DESC NULLS LAST, ep.id DESC
+      LIMIT 20`,
+    Number(patient_id),
+  );
+}
+
+async function listPatientUploadsForCommandCenter({ patient_id }) {
+  if (!patient_id) return [];
+  return prisma.$queryRawUnsafe(
+    `SELECT pr.id, pr.document_type, pr.title, pr.file_name, pr.file_mime,
+            pr.source_hospital, pr.record_date, pr.created_at,
+            cdi.extraction_status AS ai_extraction_status,
+            cdi.document_type AS ai_document_type,
+            cdi.reviewer_decision AS ai_reviewer_decision
+       FROM patient_records pr
+       LEFT JOIN LATERAL (
+         SELECT extraction_status, document_type, reviewer_decision, created_at
+           FROM clinical_document_intake cdi
+          WHERE cdi.storage_key = pr.file_key
+            AND cdi.tenant_id = pr.tenant_id
+          ORDER BY cdi.created_at DESC
+          LIMIT 1
+       ) cdi ON TRUE
+      WHERE pr.patient_id = $1::int
+      ORDER BY pr.created_at DESC NULLS LAST, pr.id DESC
+      LIMIT 50`,
+    Number(patient_id),
+  );
+}
+
+async function countHospitalDocuments({ patient_id }) {
+  if (!patient_id) return 0;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS count
+       FROM appointment_documents
+      WHERE patient_id = $1::int
+        AND is_visible_to_patient = TRUE`,
+    Number(patient_id),
+  );
+  return rows[0]?.count || 0;
+}
+
+async function getMedicationReminderSummary({ patient_uid }) {
+  if (!patient_uid) return { count: 0, next: null };
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id::text AS id, medication_name, dosage, frequency, reminder_times,
+            start_date, end_date, is_active, created_at
+       FROM medication_reminders
+      WHERE patient_uid = $1::uuid
+        AND COALESCE(is_active, TRUE) = TRUE
+        AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+      ORDER BY start_date ASC, created_at DESC NULLS LAST
+      LIMIT 20`,
+    String(patient_uid),
+  );
+  return { count: rows.length, next: first(rows) };
+}
+
+function decorateBillRows(bills) {
+  return (bills || []).map((bill) => ({
+    ...bill,
+    patient_amount_due: asMoney(bill.patient_amount_due ?? bill.amount_due),
+  }));
+}
+
+function dueBills(bills) {
+  return decorateBillRows(bills)
+    .filter((bill) => asMoney(bill.patient_amount_due ?? bill.amount_due) > 0)
+    .filter((bill) => !['paid', 'waived', 'cancelled', 'void'].includes(String(bill.status || '').toLowerCase()));
+}
+
+function pendingLabOrders(orders) {
+  return (orders || []).filter((order) =>
+    PENDING_LAB_ORDER_STATUSES.includes(String(order.status || '').toUpperCase())
+  );
+}
+
+function openClaims(claims) {
+  return (claims || []).filter((claim) =>
+    OPEN_CLAIM_STATUSES.includes(String(claim.status || '').toLowerCase())
+  );
+}
+
+function pendingUploads(uploads) {
+  return (uploads || []).filter((upload) => {
+    const status = String(upload.ai_extraction_status || '').toLowerCase();
+    const reviewer = String(upload.ai_reviewer_decision || '').toLowerCase();
+    return !reviewer || reviewer === 'pending' ||
+      status === 'needs_review' || status === 'pending' || !status;
+  });
+}
+
+function unreadThreads(threads) {
+  return (threads || []).filter((thread) => asInt(thread.patient_unread_count) > 0);
+}
+
+function buildTodayCards({
+  nextAppointment,
+  latestPrescription,
+  pendingLabOrder,
+  latestLabResult,
+  openBill,
+  openClaim,
+  unreadMessage,
+  latestPendingUpload,
+  healthPoints,
+}) {
+  const cards = [
+    appointmentCard(nextAppointment),
+    messageCard(unreadMessage),
+    billCard(openBill),
+    labResultCard(latestLabResult),
+    labOrderCard(pendingLabOrder),
+    prescriptionCard(latestPrescription),
+    claimCard(openClaim),
+    uploadCard(latestPendingUpload),
+    pointsCard(healthPoints),
+  ].filter(Boolean);
+
+  const withFallback = cards.length ? cards : fallbackCards();
+  return withFallback.sort((a, b) => a.priority - b.priority).slice(0, 8);
+}
+
+export async function getPatientCommandCenter({
+  tenantId,
+  patient_uid,
+  patient_id,
+  acting = null,
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+
+  const profile = await safeCommandSection('profile', () => getPatientProfile({ patient_uid }), {
+    id: patient_id || null,
+    uid: patient_uid,
+    name: null,
+    phone: null,
+    hospital_number: null,
+  });
+  const patientId = patient_id || profile?.id || null;
+
+  const [
+    appointments,
+    prescriptions,
+    labOrders,
+    labResults,
+    bills,
+    claims,
+    threads,
+    uploads,
+    hospitalDocCount,
+    clinicalNotes,
+    healthPoints,
+    reminders,
+  ] = await Promise.all([
+    safeCommandSection('appointments', () => listUpcomingAppointments({ patient_id: patientId }), []),
+    safeCommandSection('prescriptions', () => listLatestPrescriptions({ patient_id: patientId }), []),
+    safeCommandSection('lab_orders', () => listMyLabOrders({ patient_uid, limit: 25 }), []),
+    safeCommandSection('lab_results', () => listMyLabResults({ tenantId, patient_uid, limit: 25 }), []),
+    safeCommandSection('bills', () => listMyBills({ tenantId, patient_uid }), []),
+    safeCommandSection('claims', () => listMyClaims({ tenantId, patient_uid }), []),
+    safeCommandSection('messages', () => listMyThreads({ tenantId, patient_uid, limit: 25 }), []),
+    safeCommandSection('uploads', () => listPatientUploadsForCommandCenter({ patient_id: patientId }), []),
+    safeCommandSection('hospital_docs', () => countHospitalDocuments({ patient_id: patientId }), 0),
+    safeCommandSection('clinical_notes', () => listMyClinicalNotes({ patient_uid, limit: 25 }), []),
+    safeCommandSection('health_points', () => pointService.getUserPointSummary(patient_uid), {
+      totalPoints: 0,
+      currentTier: null,
+      unclaimedCount: 0,
+      recentActivity: [],
+    }),
+    safeCommandSection('medication_reminders', () => getMedicationReminderSummary({ patient_uid }), {
+      count: 0,
+      next: null,
+    }),
+  ]);
+
+  const pendingOrders = pendingLabOrders(labOrders);
+  const billsDue = dueBills(bills);
+  const activeClaims = openClaims(claims);
+  const unread = unreadThreads(threads);
+  const reviewUploads = pendingUploads(uploads);
+  const latestResult = first(labResults);
+  const latestRx = first(prescriptions);
+  const nextAppointment = first(appointments);
+  const openBill = first(billsDue);
+  const openClaim = first(activeClaims);
+  const unreadMessage = first(unread);
+  const pendingLabOrder = first(pendingOrders);
+  const latestPendingUpload = first(reviewUploads);
+
+  const timelineCount =
+    asInt(hospitalDocCount) +
+    uploads.length +
+    prescriptions.length +
+    clinicalNotes.length +
+    labResults.length;
+
+  const today = buildTodayCards({
+    nextAppointment,
+    latestPrescription: latestRx,
+    pendingLabOrder,
+    latestLabResult: latestResult,
+    openBill,
+    openClaim,
+    unreadMessage,
+    latestPendingUpload,
+    healthPoints,
+  });
+
+  return {
+    profile: {
+      id: profile?.id ?? patientId,
+      uid: String(patient_uid),
+      name: profile?.name || null,
+      phone: profile?.phone || null,
+      email: profile?.email || null,
+      gender: profile?.gender || null,
+      birthday: profile?.birthday || null,
+      hospital_number: profile?.hospital_number || null,
+      active_dependent: activeDependentContext(acting),
+    },
+    today,
+    counters: {
+      timeline_count: timelineCount,
+      pending_uploads: reviewUploads.length,
+      prescriptions: prescriptions.length,
+      lab_results: labResults.length,
+      lab_orders_pending: pendingOrders.length,
+      bills_due: billsDue.length,
+      unread_messages: unread.reduce((sum, thread) => sum + asInt(thread.patient_unread_count), 0),
+      open_claims: activeClaims.length,
+      active_reminders: reminders.count || 0,
+      health_points: healthPoints?.totalPoints || 0,
+    },
+    services: {
+      next_appointment: nextAppointment,
+      latest_prescription: latestRx,
+      pending_lab_order: pendingLabOrder,
+      latest_result: latestResult,
+      open_bill: openBill,
+      open_claim: openClaim,
+      unread_message: unreadMessage,
+      active_reminders: reminders,
+      latest_upload: first(uploads),
+      pending_upload: latestPendingUpload,
+      health_points: healthPoints,
+    },
+  };
 }
 
 // ── Bills ────────────────────────────────────────────────────────────

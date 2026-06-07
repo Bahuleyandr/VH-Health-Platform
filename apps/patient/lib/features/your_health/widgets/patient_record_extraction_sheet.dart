@@ -23,6 +23,7 @@ class _PatientRecordExtractionSheetState
   Map<String, dynamic>? _extraction;
   bool _loading = true;
   bool _processing = false;
+  bool _messageSending = false;
   String? _error;
 
   @override
@@ -145,7 +146,13 @@ class _PatientRecordExtractionSheetState
         ),
         child: Column(
           children: [
-            _DialogHeader(record: _record, onRefresh: _loadExtraction),
+            _DialogHeader(
+              record: _record,
+              refreshing: _loading,
+              messageSending: _messageSending,
+              onMessage: _messageHospitalAboutRecord,
+              onRefresh: _loadExtraction,
+            ),
             const Divider(height: 1),
             Expanded(
               child: LayoutBuilder(
@@ -184,13 +191,78 @@ class _PatientRecordExtractionSheetState
       ),
     );
   }
+
+  Future<void> _messageHospitalAboutRecord() async {
+    if (_messageSending) return;
+    setState(() => _messageSending = true);
+    final title = _recordTitle(_record);
+    final recordId = _recordId;
+    final fileName = _record['file_name']?.toString();
+    final documentType =
+        _compactType(_record['document_type']?.toString()) ?? 'Uploaded record';
+    try {
+      final response = await ApiClient.post(
+        '/portal/messages',
+        body: {
+          'category': 'records',
+          'subject': 'Question about $title',
+          'body': [
+            'I need help with this uploaded health record.',
+            'Record: $title',
+            'Type: $documentType',
+            if (fileName != null && fileName.trim().isNotEmpty)
+              'File: $fileName',
+            if (recordId != null) 'Record ID: $recordId',
+          ].join('\n'),
+          'attachments': [
+            {
+              'record_id': recordId,
+              'file_key': _record['file_key'],
+              'file_name': fileName,
+              'document_type': _record['document_type'],
+            },
+          ],
+        },
+      );
+      if (!mounted) return;
+      if (response.isSuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Message sent to the hospital team'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception(response.message ?? 'Message could not be sent');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Message failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _messageSending = false);
+    }
+  }
 }
 
 class _DialogHeader extends StatelessWidget {
   final Map<String, dynamic> record;
+  final bool refreshing;
+  final bool messageSending;
+  final Future<void> Function() onMessage;
   final Future<void> Function({bool autoProcess}) onRefresh;
 
-  const _DialogHeader({required this.record, required this.onRefresh});
+  const _DialogHeader({
+    required this.record,
+    required this.refreshing,
+    required this.messageSending,
+    required this.onMessage,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -220,9 +292,20 @@ class _DialogHeader extends StatelessWidget {
               ],
             ),
           ),
+          TextButton.icon(
+            onPressed: messageSending ? null : onMessage,
+            icon: messageSending
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.forum_outlined, size: 18),
+            label: const Text('Message hospital'),
+          ),
           IconButton(
             tooltip: 'Refresh extraction',
-            onPressed: () => onRefresh(autoProcess: true),
+            onPressed: refreshing ? null : () => onRefresh(autoProcess: true),
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
