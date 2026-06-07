@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -43,10 +44,12 @@ import 'package:vhhealth/generated/app_localizations.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  const crashlyticsEnabled = !bool.fromEnvironment(
-    'VH_DISABLE_CRASHLYTICS',
-    defaultValue: false,
-  );
+  final crashlyticsEnabled =
+      !const bool.fromEnvironment(
+        'VH_DISABLE_CRASHLYTICS',
+        defaultValue: false,
+      ) &&
+      (Platform.isAndroid || Platform.isIOS);
 
   // When running in debug mode against a non-production backend
   // (e.g. http://127.0.0.1:5206 for local QA), disable Firebase phone-auth

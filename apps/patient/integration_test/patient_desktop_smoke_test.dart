@@ -145,6 +145,17 @@ void main() {
       await tapVisible(tester, find.text('Dev login 1234567890'));
       await waitFor(tester, find.textContaining('Hospital ID'));
       await waitUntilAbsent(tester, find.text('Login to your account'));
+
+      debugPrint('SMOKE: prescriptions and consultations');
+      AppRouter.router.go('/health', extra: {'tab': 3});
+      await tester.pump(const Duration(milliseconds: 500));
+      await waitFor(tester, find.textContaining('RX-'));
+      AppRouter.router.go('/home');
+      await waitFor(tester, find.textContaining('Hospital ID'));
+      AppRouter.router.go('/health', extra: {'tab': 4});
+      await tester.pump(const Duration(milliseconds: 500));
+      await waitFor(tester, find.textContaining('test diagnosis'));
+      expect(find.textContaining('Chief complaint: new test'), findsOneWidget);
       debugPrint('SMOKE: complete');
     },
     timeout: const Timeout(Duration(minutes: 3)),

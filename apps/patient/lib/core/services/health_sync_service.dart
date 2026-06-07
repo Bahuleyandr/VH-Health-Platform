@@ -55,11 +55,14 @@ class HealthSyncService {
   // (OS will suppress re-prompts anyway, but this avoids the channel round-trip).
   bool _writePermissionsAsked = false;
 
+  static bool get _isSupportedPlatform => Platform.isIOS || Platform.isAndroid;
+
   String get _sourceTag => Platform.isIOS ? 'healthkit' : 'google_fit';
 
   /// Request read permissions for all six tracked types. Call from an
   /// explicit user action (the Settings tile) — not from background code.
   Future<bool> requestPermissions() async {
+    if (!_isSupportedPlatform) return false;
     await _health.configure();
     final permissions = List<HealthDataAccess>.filled(
       _types.length,
@@ -78,6 +81,7 @@ class HealthSyncService {
   /// narrow permission surface. Call from the vitals-entry screen just before
   /// the user saves — iOS surfaces a single combined HealthKit sheet either way.
   Future<bool> requestWritePermissions() async {
+    if (!_isSupportedPlatform) return false;
     await _health.configure();
     final permissions = List<HealthDataAccess>.filled(
       _writableTypes.length,
@@ -93,6 +97,7 @@ class HealthSyncService {
 
   /// Schedule a 30-min foreground sync tick and run one immediately.
   Future<void> startForegroundSync() async {
+    if (!_isSupportedPlatform) return;
     _periodicTimer?.cancel();
     _periodicTimer = Timer.periodic(_foregroundInterval, (_) => syncNow());
     await syncNow();
@@ -108,6 +113,7 @@ class HealthSyncService {
   /// Silent path — does **not** prompt for permissions. Background/resume
   /// callers rely on this behaviour to avoid spurious prompts.
   Future<int> syncNow() async {
+    if (!_isSupportedPlatform) return 0;
     if (!_permissionsGranted) {
       await _health.configure();
       final has = await _health.hasPermissions(_types) ?? false;
@@ -247,6 +253,7 @@ class HealthSyncService {
     int? bloodGlucose,
     DateTime? recordedAt,
   }) async {
+    if (!_isSupportedPlatform) return;
     if (!_writePermissionsGranted) {
       if (_writePermissionsAsked) {
         return; // user previously declined this session
@@ -359,6 +366,7 @@ class HealthSyncService {
   /// Must be called after permissions are granted — scheduling succeeds either
   /// way, but the background isolate will read zero samples without permission.
   static Future<void> enableBackgroundSync() async {
+    if (!_isSupportedPlatform) return;
     await Workmanager().initialize(healthSyncBackgroundDispatcher);
     await Workmanager().registerPeriodicTask(
       backgroundTaskName,
@@ -373,6 +381,7 @@ class HealthSyncService {
   }
 
   static Future<void> disableBackgroundSync() async {
+    if (!_isSupportedPlatform) return;
     await Workmanager().cancelByUniqueName(backgroundTaskName);
   }
 }
