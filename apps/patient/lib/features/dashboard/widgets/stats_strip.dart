@@ -12,6 +12,8 @@ class StatsStrip extends StatelessWidget {
   final int? stepsToday;
   final int? stepGoal;
   final bool wellnessExpanded;
+  final bool stepsExpanded;
+  final bool pointsExpanded;
 
   final VoidCallback? onWellnessTap;
   final VoidCallback? onPointsTap;
@@ -25,6 +27,8 @@ class StatsStrip extends StatelessWidget {
     this.stepsToday,
     this.stepGoal,
     this.wellnessExpanded = false,
+    this.stepsExpanded = false,
+    this.pointsExpanded = false,
     this.onWellnessTap,
     this.onPointsTap,
     this.onStepsTap,
@@ -50,11 +54,12 @@ class StatsStrip extends StatelessWidget {
               child: _StatCard(
                 icon: LucideIcons.footprints,
                 tint: Colors.lightBlueAccent,
-                label: 'Steps today',
+                label: 'Steps',
                 value: stepsToday != null ? _formatThousands(stepsToday!) : '-',
                 subValue: stepGoal != null
                     ? '/${_formatThousands(stepGoal!)}'
                     : null,
+                expanded: stepsExpanded,
                 progress:
                     (stepsToday != null && stepGoal != null && stepGoal! > 0)
                     ? (stepsToday! / stepGoal!).clamp(0, 1).toDouble()
@@ -72,6 +77,7 @@ class StatsStrip extends StatelessWidget {
                     : 'Points',
                 value: healthPoints != null ? '$healthPoints' : '-',
                 subValue: 'pts',
+                expanded: pointsExpanded,
                 onTap: onPointsTap,
               ),
             ),
@@ -221,6 +227,7 @@ class _StatCard extends StatelessWidget {
   final String label;
   final String value;
   final String? subValue;
+  final bool expanded;
   final double? progress;
   final VoidCallback? onTap;
 
@@ -230,6 +237,7 @@ class _StatCard extends StatelessWidget {
     required this.label,
     required this.value,
     this.subValue,
+    this.expanded = false,
     this.progress,
     this.onTap,
   });
@@ -241,7 +249,6 @@ class _StatCard extends StatelessWidget {
     final isLight = theme.brightness == Brightness.light;
     final gradStart = tint.withValues(alpha: isLight ? 0.45 : 0.20);
     final gradEnd = tint.withValues(alpha: isLight ? 0.18 : 0.05);
-    final borderC = tint.withValues(alpha: isLight ? 0.55 : 0.32);
 
     return Material(
       color: Colors.transparent,
@@ -253,7 +260,10 @@ class _StatCard extends StatelessWidget {
           height: double.infinity,
           padding: const EdgeInsets.fromLTRB(9, 8, 9, 8),
           decoration: BoxDecoration(
-            border: Border.all(color: borderC, width: 1.1),
+            border: Border.all(
+              color: tint.withValues(alpha: expanded ? 0.82 : 0.55),
+              width: expanded ? 1.4 : 1.1,
+            ),
             borderRadius: BorderRadius.circular(8),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -286,6 +296,11 @@ class _StatCard extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                  ),
+                  Icon(
+                    expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                    size: 14,
+                    color: cs.onSurface.withValues(alpha: 0.62),
                   ),
                 ],
               ),

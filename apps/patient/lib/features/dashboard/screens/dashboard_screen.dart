@@ -29,7 +29,10 @@ import 'package:vhhealth/features/dashboard/widgets/daily_checkin_sheet.dart';
 import 'package:vhhealth/features/dashboard/widgets/command_center_today.dart';
 import 'package:vhhealth/features/dashboard/widgets/stagger_entry.dart';
 import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
+import 'package:vhhealth/features/dashboard/widgets/stat_detail_panels.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
+
+enum _DashboardStatPanel { wellness, steps, points }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -67,7 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _commandCenterError;
   List<Map<String, dynamic>> _todayCards = [];
   bool _todayExpanded = false;
-  bool _wellnessExpanded = false;
+  _DashboardStatPanel? _expandedStatPanel;
 
   // Stats-strip data (lifted from individual widgets so the strip can
   // render at the top with the same numbers without each widget
@@ -445,6 +448,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
         .toList();
   }
 
+  int? _healthPointsTotal() {
+    final data = _healthPoints;
+    if (data == null) return null;
+    final value = data['totalPoints'] ?? data['total'];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  String? _healthTierLabel() {
+    final data = _healthPoints;
+    if (data == null) return null;
+    final tier = data['currentTier'];
+    if (tier is Map) return tier['name']?.toString();
+    final text = tier?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
   String? _appointmentSummary(Map<String, dynamic> appointment) {
     if (appointment.isEmpty) return null;
     final doctor = appointment['doctor_name']?.toString();
@@ -507,6 +527,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     context.push(route);
   }
 
+  void _toggleStatPanel(_DashboardStatPanel panel) {
+    setState(() {
+      _expandedStatPanel = _expandedStatPanel == panel ? null : panel;
+    });
+  }
+
+  Widget _buildExpandedStatPanel(BuildContext context) {
+    final panel = _expandedStatPanel;
+    if (panel == null) return const SizedBox.shrink();
+
+    switch (panel) {
+      case _DashboardStatPanel.wellness:
+        return const Column(
+          children: [WellnessBreakdownPanel(), HealthInsightsStrip()],
+        );
+      case _DashboardStatPanel.steps:
+        return StepsBreakdownPanel(
+          stepsToday: _stepsToday,
+          stepGoal: _stepGoal,
+          onOpenFull: () => _openFeature(context, '/steps'),
+        );
+      case _DashboardStatPanel.points:
+        return PointsBreakdownPanel(
+          summary: _healthPoints,
+          onOpenFull: () => _openFeature(context, '/health-points'),
+        );
+    }
+  }
+
   String _featureLabelForRoute(String routeName) {
     return switch (routeName) {
       '/your-health' || '/health' || '/records' => 'Your health records',
@@ -561,6 +610,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final hasTodaySection = !isGuest;
     final hasStatsSection = !isGuest;
+    final activeStatPanel = _expandedStatPanel;
+    final healthPointsTotal = _healthPointsTotal();
+    final healthTierLabel = _healthTierLabel();
 
     // Build the snapshot row labels.
     final nextApptLabel = _formatNextApptLabel();
@@ -613,36 +665,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           stagger(
                             StatsStrip(
                               wellnessScore: _wellnessScore,
-                              healthPoints: _healthPoints?['totalPoints'] is num
-                                  ? (_healthPoints!['totalPoints'] as num)
-                                        .toInt()
-                                  : null,
-                              healthTier: _healthPoints?['currentTier']
-                                  ?.toString(),
+                              healthPoints: healthPointsTotal,
+                              healthTier: healthTierLabel,
                               stepsToday: _stepsToday,
                               stepGoal: _stepGoal,
-                              wellnessExpanded: _wellnessExpanded,
-                              onWellnessTap: () => setState(
-                                () => _wellnessExpanded = !_wellnessExpanded,
+                              wellnessExpanded:
+                                  activeStatPanel ==
+                                  _DashboardStatPanel.wellness,
+                              stepsExpanded:
+                                  activeStatPanel == _DashboardStatPanel.steps,
+                              pointsExpanded:
+                                  activeStatPanel == _DashboardStatPanel.points,
+                              onWellnessTap: () => _toggleStatPanel(
+                                _DashboardStatPanel.wellness,
                               ),
                               onPointsTap: () =>
-                                  _openFeature(context, '/health-points'),
-                              onStepsTap: () => _openFeature(context, '/steps'),
+                                  _toggleStatPanel(_DashboardStatPanel.points),
+                              onStepsTap: () =>
+                                  _toggleStatPanel(_DashboardStatPanel.steps),
                             ),
                           ),
 
-                        // ── Wellness details ─────────────────────────────
+                        // ── Expanded stat details ────────────────────────
                         AnimatedSize(
                           duration: const Duration(milliseconds: 220),
                           curve: Curves.easeOutCubic,
-                          child: _wellnessExpanded
-                              ? const Column(
-                                  children: [
-                                    WellnessBreakdownPanel(),
-                                    HealthInsightsStrip(),
-                                  ],
-                                )
-                              : const SizedBox.shrink(),
+                          child: _buildExpandedStatPanel(context),
                         ),
 
                         // ── Explore ──────────────────────────────────────
