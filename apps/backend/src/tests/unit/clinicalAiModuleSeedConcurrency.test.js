@@ -68,6 +68,38 @@ describe('clinicalAiModuleService module registry seeding', () => {
     expect(txQueryRawUnsafeMock.mock.calls[0][0]).toMatch(/pg_advisory_xact_lock/);
     expect(txQueryRawUnsafeMock).toHaveBeenCalledTimes(1);
     expect(txExecuteRawUnsafeMock).toHaveBeenCalledTimes(CLINICAL_AI_MODULES.length);
-    expect(txExecuteRawUnsafeMock.mock.calls[0][0]).toMatch(/ON CONFLICT \(module_key\)/);
+    expect(txExecuteRawUnsafeMock.mock.calls[0][0]).toMatch(/UPDATE clinical_ai_modules/);
+    expect(txExecuteRawUnsafeMock.mock.calls[0][0]).toMatch(/WHERE module_key = \$1/);
+  });
+
+  it('updates existing module rows before attempting inserts', async () => {
+    txQueryRawUnsafeMock.mockResolvedValue([]);
+    txExecuteRawUnsafeMock.mockResolvedValue(1);
+    transactionMock.mockImplementation(async (callback) => callback({
+      $queryRawUnsafe: txQueryRawUnsafeMock,
+      $executeRawUnsafe: txExecuteRawUnsafeMock,
+    }));
+
+    await listClinicalAiModules({ refresh: true });
+
+    expect(txExecuteRawUnsafeMock).toHaveBeenCalledTimes(CLINICAL_AI_MODULES.length);
+    expect(txExecuteRawUnsafeMock.mock.calls.every(([sql]) => /UPDATE clinical_ai_modules/i.test(sql))).toBe(true);
+  });
+
+  it('inserts missing module rows with a primary-key conflict target', async () => {
+    txQueryRawUnsafeMock.mockResolvedValue([]);
+    txExecuteRawUnsafeMock
+      .mockResolvedValueOnce(0)
+      .mockResolvedValue(1);
+    transactionMock.mockImplementation(async (callback) => callback({
+      $queryRawUnsafe: txQueryRawUnsafeMock,
+      $executeRawUnsafe: txExecuteRawUnsafeMock,
+    }));
+
+    await listClinicalAiModules({ refresh: true });
+
+    expect(txExecuteRawUnsafeMock.mock.calls[0][0]).toMatch(/UPDATE clinical_ai_modules/i);
+    expect(txExecuteRawUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO clinical_ai_modules/i);
+    expect(txExecuteRawUnsafeMock.mock.calls[1][0]).toMatch(/ON CONFLICT ON CONSTRAINT clinical_ai_modules_pkey/i);
   });
 });
