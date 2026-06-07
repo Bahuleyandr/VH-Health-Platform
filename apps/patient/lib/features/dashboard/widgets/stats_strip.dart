@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:vhhealth/core/widgets/health_charts.dart';
 
-/// Three-card glance strip for the patient's top daily signals. The cards
-/// intentionally fit the available screen width instead of scrolling so the
-/// right edge never looks clipped on phones.
+/// Glance strip for the patient's top daily signals. It intentionally fits
+/// the available screen width instead of scrolling so the right edge never
+/// looks clipped on phones.
 class StatsStrip extends StatelessWidget {
   final int? wellnessScore;
   final int? healthPoints;
@@ -14,10 +14,13 @@ class StatsStrip extends StatelessWidget {
   final bool wellnessExpanded;
   final bool stepsExpanded;
   final bool pointsExpanded;
+  final bool periodExpanded;
+  final bool showPeriodTracker;
 
   final VoidCallback? onWellnessTap;
   final VoidCallback? onPointsTap;
   final VoidCallback? onStepsTap;
+  final VoidCallback? onPeriodTap;
 
   const StatsStrip({
     super.key,
@@ -29,62 +32,69 @@ class StatsStrip extends StatelessWidget {
     this.wellnessExpanded = false,
     this.stepsExpanded = false,
     this.pointsExpanded = false,
+    this.periodExpanded = false,
+    this.showPeriodTracker = false,
     this.onWellnessTap,
     this.onPointsTap,
     this.onStepsTap,
+    this.onPeriodTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final cards = <Widget>[
+      _WellnessStatCard(
+        score: wellnessScore,
+        expanded: wellnessExpanded,
+        onTap: onWellnessTap,
+      ),
+      _StatCard(
+        icon: LucideIcons.footprints,
+        tint: Colors.lightBlueAccent,
+        label: 'Steps',
+        value: stepsToday != null ? _formatThousands(stepsToday!) : '-',
+        subValue: stepGoal != null ? '/${_formatThousands(stepGoal!)}' : null,
+        expanded: stepsExpanded,
+        progress: (stepsToday != null && stepGoal != null && stepGoal! > 0)
+            ? (stepsToday! / stepGoal!).clamp(0, 1).toDouble()
+            : null,
+        onTap: onStepsTap,
+      ),
+      _StatCard(
+        icon: LucideIcons.award,
+        tint: Colors.amber,
+        label: healthTier != null
+            ? '${healthTier![0]}${healthTier!.substring(1).toLowerCase()}'
+            : 'Points',
+        value: healthPoints != null ? '$healthPoints' : '-',
+        subValue: 'pts',
+        expanded: pointsExpanded,
+        onTap: onPointsTap,
+      ),
+      if (showPeriodTracker)
+        _StatCard(
+          icon: LucideIcons.calendarHeart,
+          tint: Colors.pinkAccent,
+          label: 'Period',
+          value: 'Track',
+          expanded: periodExpanded,
+          onTap: onPeriodTap,
+        ),
+    ];
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: SizedBox(
-        height: 106,
-        child: Row(
-          children: [
-            Expanded(
-              child: _WellnessStatCard(
-                score: wellnessScore,
-                expanded: wellnessExpanded,
-                onTap: onWellnessTap,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StatCard(
-                icon: LucideIcons.footprints,
-                tint: Colors.lightBlueAccent,
-                label: 'Steps',
-                value: stepsToday != null ? _formatThousands(stepsToday!) : '-',
-                subValue: stepGoal != null
-                    ? '/${_formatThousands(stepGoal!)}'
-                    : null,
-                expanded: stepsExpanded,
-                progress:
-                    (stepsToday != null && stepGoal != null && stepGoal! > 0)
-                    ? (stepsToday! / stepGoal!).clamp(0, 1).toDouble()
-                    : null,
-                onTap: onStepsTap,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StatCard(
-                icon: LucideIcons.award,
-                tint: Colors.amber,
-                label: healthTier != null
-                    ? '${healthTier![0]}${healthTier!.substring(1).toLowerCase()}'
-                    : 'Points',
-                value: healthPoints != null ? '$healthPoints' : '-',
-                subValue: 'pts',
-                expanded: pointsExpanded,
-                onTap: onPointsTap,
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: SizedBox(height: 106, child: Row(children: _spacedCards(cards))),
     );
+  }
+
+  List<Widget> _spacedCards(List<Widget> cards) {
+    return [
+      for (var i = 0; i < cards.length; i++) ...[
+        Expanded(child: cards[i]),
+        if (i != cards.length - 1) const SizedBox(width: 8),
+      ],
+    ];
   }
 
   String _formatThousands(int n) {

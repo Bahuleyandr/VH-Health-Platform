@@ -194,6 +194,76 @@ class PointsBreakdownPanel extends StatelessWidget {
   }
 }
 
+class CycleBreakdownPanel extends StatelessWidget {
+  final VoidCallback onOpenFull;
+
+  const CycleBreakdownPanel({super.key, required this.onOpenFull});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    const accent = Colors.pinkAccent;
+
+    return _DetailShell(
+      accent: accent,
+      icon: LucideIcons.calendarHeart,
+      title: 'Cycle tracker',
+      subtitle: 'Private cycle dates and reminders',
+      trailing: 'Period',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: const [
+              Expanded(
+                child: _MetricChip(
+                  label: 'Cycle',
+                  value: '28d',
+                  accent: accent,
+                ),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: _MetricChip(
+                  label: 'Period',
+                  value: '5d',
+                  accent: accent,
+                ),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: _MetricChip(
+                  label: 'Storage',
+                  value: 'Local',
+                  accent: accent,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Add your last period start date to estimate the next period and fertile window.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withValues(alpha: 0.68),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onOpenFull,
+              icon: const Icon(LucideIcons.arrowRight, size: 16),
+              label: const Text('Open period tracker'),
+              style: TextButton.styleFrom(foregroundColor: cs.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailShell extends StatelessWidget {
   final Color accent;
   final IconData icon;

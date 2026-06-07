@@ -21,6 +21,7 @@ import 'package:vhhealth/core/widgets/guest_sign_in_prompt.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_header.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_section.dart';
 import 'package:vhhealth/features/dashboard/widgets/wellness_score_widget.dart';
@@ -32,7 +33,7 @@ import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/dashboard/widgets/stat_detail_panels.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
 
-enum _DashboardStatPanel { wellness, steps, points }
+enum _DashboardStatPanel { wellness, steps, points, period }
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -68,9 +69,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _healthPoints;
   bool _commandCenterLoading = false;
   String? _commandCenterError;
+  Map<String, dynamic>? _commandCenterProfile;
   List<Map<String, dynamic>> _todayCards = [];
   bool _todayExpanded = false;
   _DashboardStatPanel? _expandedStatPanel;
+  String? _lastActingAsUid;
 
   // Stats-strip data (lifted from individual widgets so the strip can
   // render at the top with the same numbers without each widget
@@ -414,6 +417,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _commandCenterLoading = false;
       _commandCenterError = null;
       _todayCards = today;
+      _commandCenterProfile = profile.isEmpty ? null : profile;
       if (profile['name']?.toString().trim().isNotEmpty == true) {
         cachedName = profile['name'].toString();
       }
@@ -465,6 +469,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return text == null || text.isEmpty ? null : text;
   }
 
+  bool _canShowPeriodTracker(Dependent? activeDependent) {
+    final profile = activeDependent == null ? _commandCenterProfile : null;
+    final gender =
+        activeDependent?.gender?.toString() ?? profile?['gender']?.toString();
+    final birthday =
+        activeDependent?.birthday?.toString() ??
+        profile?['birthday']?.toString();
+    final age = _ageYears(birthday);
+    if (age == null || age < 10 || age > 55) return false;
+    final normalizedGender = gender?.trim().toLowerCase();
+    return normalizedGender == 'female' || normalizedGender == 'f';
+  }
+
+  int? _ageYears(String? birthday) {
+    final raw = birthday?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return null;
+    final today = DateTime.now();
+    var age = today.year - parsed.year;
+    final hadBirthdayThisYear =
+        today.month > parsed.month ||
+        (today.month == parsed.month && today.day >= parsed.day);
+    if (!hadBirthdayThisYear) age -= 1;
+    return age < 0 ? null : age;
+  }
+
   String? _appointmentSummary(Map<String, dynamic> appointment) {
     if (appointment.isEmpty) return null;
     final doctor = appointment['doctor_name']?.toString();
@@ -500,6 +531,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } else if (routeName == '/records') {
       // Records merged into Your Health — open Hospital Docs tab (index 2)
       context.push('/health', extra: {'tab': 2});
+    } else if (routeName == '/period-tracker') {
+      final activeDependent = context
+          .read<DependentsProvider>()
+          .activeDependent;
+      if (!_canShowPeriodTracker(activeDependent)) return;
+      context.push(routeName, extra: {'eligible': true});
     } else {
       context.push(routeName);
     }
@@ -553,6 +590,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           summary: _healthPoints,
           onOpenFull: () => _openFeature(context, '/health-points'),
         );
+      case _DashboardStatPanel.period:
+        return CycleBreakdownPanel(
+          onOpenFull: () => _openFeature(context, '/period-tracker'),
+        );
     }
   }
 
@@ -568,6 +609,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       '/refill' => 'Refills',
       '/family' => 'Family',
       '/health-points' => 'Health Points',
+      '/period-tracker' => 'Period Tracker',
       '/portal/maternity/timeline' => 'Maternity',
       '/portal/bills' => 'Bills',
       '/portal/lab-results' => 'Lab Results',
@@ -607,12 +649,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final unread = !isGuest
         ? context.watch<NotificationProvider>().unreadCount
         : 0;
+    final activeDependent = !isGuest
+        ? context.watch<DependentsProvider>().activeDependent
+        : null;
+    final activeDependentUid = activeDependent?.uid;
+    final activeProfileChanged =
+        !_isGuestSession && _lastActingAsUid != activeDependentUid;
+    if (activeProfileChanged) {
+      _lastActingAsUid = activeDependentUid;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _commandCenterProfile = null;
+          if (_expandedStatPanel == _DashboardStatPanel.period) {
+            _expandedStatPanel = null;
+          }
+        });
+        _fetchAndStoreDashboard();
+        _fetchSmartWidgetData();
+        _pollAppointments();
+      });
+    }
 
     final hasTodaySection = !isGuest;
     final hasStatsSection = !isGuest;
     final activeStatPanel = _expandedStatPanel;
     final healthPointsTotal = _healthPointsTotal();
     final healthTierLabel = _healthTierLabel();
+    final showPeriodTracker = activeProfileChanged && activeDependent == null
+        ? false
+        : _canShowPeriodTracker(activeDependent);
 
     // Build the snapshot row labels.
     final nextApptLabel = _formatNextApptLabel();
@@ -676,6 +742,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   activeStatPanel == _DashboardStatPanel.steps,
                               pointsExpanded:
                                   activeStatPanel == _DashboardStatPanel.points,
+                              periodExpanded:
+                                  activeStatPanel == _DashboardStatPanel.period,
+                              showPeriodTracker: showPeriodTracker,
                               onWellnessTap: () => _toggleStatPanel(
                                 _DashboardStatPanel.wellness,
                               ),
@@ -683,6 +752,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   _toggleStatPanel(_DashboardStatPanel.points),
                               onStepsTap: () =>
                                   _toggleStatPanel(_DashboardStatPanel.steps),
+                              onPeriodTap: () =>
+                                  _toggleStatPanel(_DashboardStatPanel.period),
                             ),
                           ),
 
@@ -807,8 +878,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   /// history). Until that endpoint is queryable from here we return a
   /// gentle nudge so the chip surfaces *something* useful.
   String? _formatLastVitalsLabel() {
-    if (_wellnessScore == null) return null;
-    return 'Wellness $_wellnessScore/100';
+    return null;
   }
 }
 

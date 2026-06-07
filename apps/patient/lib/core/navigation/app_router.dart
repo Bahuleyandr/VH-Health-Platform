@@ -36,6 +36,7 @@ import 'package:vhhealth/features/family/screens/family_screen.dart';
 import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
 import 'package:vhhealth/features/gamification/screens/health_points_screen.dart';
+import 'package:vhhealth/features/period_tracker/screens/period_tracker_screen.dart';
 import 'package:vhhealth/features/maternity/screens/anc_timeline_screen.dart';
 import 'package:vhhealth/features/portal/screens/bills_screen.dart';
 import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
@@ -405,6 +406,16 @@ class AppRouter {
       GoRoute(
         path: '/health-points',
         builder: (context, state) => const HealthPointsScreen(),
+      ),
+      GoRoute(
+        path: '/period-tracker',
+        redirect: (context, state) {
+          final extra = state.extra;
+          final allowed =
+              extra is Map<String, dynamic> && extra['eligible'] == true;
+          return allowed ? null : '/home';
+        },
+        builder: (context, state) => const PeriodTrackerScreen(),
       ),
       GoRoute(path: '/records', redirect: (_, _) => '/health'),
 
