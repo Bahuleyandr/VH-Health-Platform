@@ -53,6 +53,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   late String _status;
   int? _opNoteId;
   bool _opNoteSigned = false;
+  bool _hasAppointmentPrescription = false;
 
   final _chiefCtrl = TextEditingController();
   final _historyCtrl = TextEditingController();
@@ -100,10 +101,20 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                 .map((item) => Map<String, dynamic>.from(item))
                 .toList()
           : <Map<String, dynamic>>[];
+      final rawDataList = data['data'];
+      if (rawDataList is List) {
+        events.addAll(
+          rawDataList.whereType<Map>().map(
+            (item) => Map<String, dynamic>.from(item),
+          ),
+        );
+      }
       _hydrateLatestOpNote(notesData);
+      _mergeClinicalNotesIntoTimeline(events, notesData);
+      await _mergeAppointmentPrescriptionIntoTimeline(events);
       if (!mounted) return;
       setState(() {
-        _events = events;
+        _events = _dedupeAndSortEvents(events);
         _loading = false;
       });
     } catch (e) {
@@ -113,6 +124,100 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         _loading = false;
       });
     }
+  }
+
+  void _mergeClinicalNotesIntoTimeline(
+    List<Map<String, dynamic>> events,
+    Map<String, dynamic> notesData,
+  ) {
+    final raw = notesData['notes'] ?? notesData['data'] ?? notesData['items'];
+    if (raw is! List) return;
+    for (final item in raw.whereType<Map>()) {
+      final note = Map<String, dynamic>.from(item);
+      final content = _contentMap(note);
+      events.add({
+        'event_type': 'clinical_note',
+        'sub_type': _clean(note['note_type']).isEmpty
+            ? 'op_consultation'
+            : _clean(note['note_type']),
+        'id': note['id'],
+        'title': _clean(note['title']).isEmpty
+            ? 'OP consultation note'
+            : _clean(note['title']),
+        'summary': _clean(content['summary']).isNotEmpty
+            ? _clean(content['summary'])
+            : _joinNonEmpty([
+                if (_clean(content['chief_complaint']).isNotEmpty)
+                  'CC: ${_clean(content['chief_complaint'])}',
+                if (_clean(content['diagnosis']).isNotEmpty)
+                  'Dx: ${_clean(content['diagnosis'])}',
+                if (_clean(content['plan']).isNotEmpty)
+                  'Plan: ${_clean(content['plan'])}',
+              ]),
+        'timestamp': _clean(note['updated_at']).isNotEmpty
+            ? _clean(note['updated_at'])
+            : _clean(note['created_at']),
+        'payload': note,
+      });
+    }
+  }
+
+  Future<void> _mergeAppointmentPrescriptionIntoTimeline(
+    List<Map<String, dynamic>> events,
+  ) async {
+    final appointmentId = widget.appointmentId;
+    if (appointmentId == null) {
+      _hasAppointmentPrescription = false;
+      return;
+    }
+    try {
+      final rx = await MedicalApiService.getEPrescriptionByAppointment(
+        appointmentId,
+      );
+      _hasAppointmentPrescription = true;
+      events.add({
+        'event_type': 'prescription',
+        'sub_type': _clean(rx['lifecycle_status']).isNotEmpty
+            ? _clean(rx['lifecycle_status'])
+            : _clean(rx['status']),
+        'id': rx['id'],
+        'title': _clean(rx['prescription_number']).isNotEmpty
+            ? 'Prescription ${_clean(rx['prescription_number'])}'
+            : 'OP prescription',
+        'summary': _clean(rx['diagnosis']).isNotEmpty
+            ? _clean(rx['diagnosis'])
+            : 'Prescription entered for this OP visit',
+        'timestamp': _clean(rx['updated_at']).isNotEmpty
+            ? _clean(rx['updated_at'])
+            : _clean(rx['created_at']),
+        'payload': rx,
+      });
+    } catch (_) {
+      _hasAppointmentPrescription = false;
+    }
+  }
+
+  List<Map<String, dynamic>> _dedupeAndSortEvents(
+    List<Map<String, dynamic>> events,
+  ) {
+    final byKey = <String, Map<String, dynamic>>{};
+    for (final event in events) {
+      final type = _clean(event['event_type']).toLowerCase();
+      final id = _clean(event['id']);
+      final timestamp = _clean(event['timestamp']);
+      final key = id.isNotEmpty ? '$type:$id' : '$type:$timestamp';
+      byKey[key] = event;
+    }
+    final list = byKey.values.toList();
+    list.sort((a, b) {
+      final aTime = DateTime.tryParse(_clean(a['timestamp']));
+      final bTime = DateTime.tryParse(_clean(b['timestamp']));
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+    return list;
   }
 
   void _hydrateLatestOpNote(Map<String, dynamic> notesData) {
@@ -262,8 +367,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     }
   }
 
-  void _openPrescription() {
-    context.push(
+  Future<void> _openPrescription() async {
+    final content = _currentOpContent();
+    await context.push(
       '/prescriptions',
       extra: {
         if (widget.appointmentId != null) 'id': widget.appointmentId,
@@ -280,8 +386,11 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
           'appointment_date': _clean(widget.appointmentDate),
         if (_clean(widget.appointmentTime).isNotEmpty)
           'appointment_time': _clean(widget.appointmentTime),
+        'diagnosis': _clean(content['diagnosis']),
+        'clinical_notes': _prescriptionClinicalNotes(content),
       },
     );
+    if (mounted) _loadTimeline();
   }
 
   Map<String, dynamic> _currentOpContent() {
@@ -320,8 +429,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     return parts.join('\n\n');
   }
 
-  void _openPrescriptionFromContent(Map<String, dynamic> content) {
-    context.push(
+  Future<void> _openPrescriptionFromContent(
+    Map<String, dynamic> content,
+  ) async {
+    await context.push(
       '/prescriptions',
       extra: {
         if (widget.appointmentId != null) 'id': widget.appointmentId,
@@ -342,6 +453,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         'clinical_notes': _prescriptionClinicalNotes(content),
       },
     );
+    if (mounted) _loadTimeline();
   }
 
   Future<void> _saveOpNote({
@@ -400,7 +512,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
             ? 'Consultation note signed'
             : (_opNoteId != null ? 'Consultation note saved' : 'Note saved'),
       );
-      if (openPrescriptionAfter) _openPrescriptionFromContent(content);
+      if (openPrescriptionAfter) {
+        await _openPrescriptionFromContent(content);
+      }
       _loadTimeline();
     } catch (e) {
       if (!mounted) return;
@@ -866,7 +980,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               label: 'Orders or investigations reviewed',
             ),
             _ChecklistRow(
-              complete: _hasEventType({'medication', 'prescription'}),
+              complete:
+                  _hasAppointmentPrescription ||
+                  _hasEventType({'medication', 'prescription'}),
               label: 'Prescription reviewed if needed',
             ),
             _ChecklistRow(

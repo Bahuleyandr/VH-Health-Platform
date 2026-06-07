@@ -227,6 +227,7 @@ async function getTimelineNotes(patientUid, dateFrom, dateTo) {
     select: {
       id: true,
       encounter_id: true,
+      appointment_id: true,
       note_type: true,
       title: true,
       content: true,
@@ -407,6 +408,53 @@ async function getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo
       timestamp: normalizeTime(ts),
       payload: row,
     }));
+}
+
+async function getTimelinePrescriptions(patientUid, dateFrom, dateTo) {
+  const where = { patient_uid: patientUid };
+  const dateFilter = buildDateFilter(dateFrom, dateTo);
+  if (dateFilter) where.created_at = dateFilter;
+
+  const rows = await optionalFindMany('e_prescriptions', () => prisma.e_prescriptions.findMany({
+    where,
+    select: {
+      id: true,
+      appointment_id: true,
+      admission_id: true,
+      visit_type: true,
+      prescription_number: true,
+      diagnosis: true,
+      clinical_notes: true,
+      medications: true,
+      status: true,
+      lifecycle_status: true,
+      revision: true,
+      signed_at: true,
+      locked_at: true,
+      created_at: true,
+      updated_at: true,
+    },
+    orderBy: { created_at: 'desc' },
+  }));
+
+  return rows.map((row) => {
+    const meds = Array.isArray(row.medications) ? row.medications : [];
+    const medNames = meds
+      .slice(0, 3)
+      .map((med) => med?.display_name || med?.medication_name || med?.name)
+      .filter(Boolean)
+      .join(', ');
+    return {
+      event_type: 'prescription',
+      sub_type: row.lifecycle_status || row.status || row.visit_type || 'e_prescription',
+      id: row.id,
+      appointment_id: row.appointment_id,
+      admission_id: row.admission_id,
+      summary: `${row.prescription_number || 'Prescription'}${row.diagnosis ? `: ${row.diagnosis}` : ''}${medNames ? ` — ${medNames}` : ''}`,
+      timestamp: normalizeTime(row.updated_at || row.created_at),
+      payload: row,
+    };
+  });
 }
 
 async function getTimelineInvestigations(patientUid, dateFrom, dateTo) {
@@ -687,6 +735,7 @@ export async function getPatientTimeline(patientUid, {
     news2,
     vitals,
     medications,
+    prescriptions,
     investigations,
     orders,
     handovers,
@@ -697,6 +746,7 @@ export async function getPatientTimeline(patientUid, {
     getTimelineNews2(patientUid, dateFrom, dateTo),
     getTimelineVitals(patientUid, dateFrom, dateTo),
     getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo),
+    getTimelinePrescriptions(patientUid, dateFrom, dateTo),
     getTimelineInvestigations(patientUid, dateFrom, dateTo),
     getTimelineOrders(patientUid, dateFrom, dateTo),
     getTimelineHandovers(patientUid, dateFrom, dateTo),
@@ -710,6 +760,7 @@ export async function getPatientTimeline(patientUid, {
     ...news2,
     ...vitals,
     ...medications,
+    ...prescriptions,
     ...investigations,
     ...orders,
     ...handovers,

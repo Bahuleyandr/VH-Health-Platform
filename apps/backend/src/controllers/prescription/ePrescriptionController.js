@@ -917,6 +917,31 @@ export const createPrescription = async (req, res) => {
       if (apptCheck.length === 0) {
         return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
       }
+      if (resolvedVisitType === 'outpatient') {
+        const existingForVisit = await prisma.$queryRawUnsafe(
+          `SELECT id, prescription_number, status, lifecycle_status, signed_at, locked_at
+             FROM e_prescriptions
+            WHERE appointment_id = $1::int
+              AND COALESCE(visit_type, 'outpatient') = 'outpatient'
+              AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'canceled')
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          appointmentId
+        );
+        if (existingForVisit.length > 0) {
+          return error(
+            res,
+            'This OP visit already has a prescription; edit the existing draft or create a new appointment for a new prescription',
+            HTTP_STATUS.CONFLICT,
+            {
+              prescription_id: existingForVisit[0].id,
+              prescription_number: existingForVisit[0].prescription_number,
+              lifecycle_status: existingForVisit[0].lifecycle_status,
+              status: existingForVisit[0].status
+            }
+          );
+        }
+      }
     }
 
     // Upload handwritten photo if present (multer file)

@@ -385,6 +385,14 @@ class MedicalApiService {
     return _get('/prescriptions/$id');
   }
 
+  /// GET /prescriptions/appointment/:appointmentId — the single OP
+  /// prescription linked to a consultation visit.
+  static Future<Map<String, dynamic>> getEPrescriptionByAppointment(
+    int appointmentId,
+  ) async {
+    return _get('/prescriptions/appointment/$appointmentId');
+  }
+
   /// PUT /prescriptions/:id — edit an unsigned draft prescription.
   static Future<Map<String, dynamic>> updateEPrescription(
     int id,

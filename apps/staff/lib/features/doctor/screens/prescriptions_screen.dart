@@ -256,6 +256,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   int? _patientId;
   int? _doctorId;
   int? _appointmentId;
+  String? _patientUid;
   String? _patientName;
   String? _doctorName;
 
@@ -290,6 +291,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   String? _lastPharmacyOrderMessage;
   bool _signingLastPrescription = false;
   bool _lastCreatedPrescriptionSigned = false;
+  int? _appointmentPrescriptionId;
+  bool _appointmentPrescriptionLocked = false;
+  bool _loadingAppointmentPrescription = false;
 
   // Photo
   File? _handwrittenPhoto;
@@ -339,6 +343,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _appointmentId = a['id'] as int?;
       _patientId = a['patient_id'] as int?;
       _doctorId = a['doctor_id'] as int?;
+      final nestedPatient = a['patient'];
+      _patientUid = _cleanAppointmentText(
+        a['patient_uid'] ??
+            a['patientUid'] ??
+            a['patient_uuid'] ??
+            (nestedPatient is Map ? nestedPatient['uid'] : null),
+      );
       _patientName = a['patient_name']?.toString();
       _doctorName = a['doctor_name']?.toString();
       _setControllerIfEmpty(_diagnosisCtrl, a['diagnosis']);
@@ -347,6 +358,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         a['clinical_notes'] ?? a['clinicalNotes'],
       );
       _prefillLatestVitals();
+      _loadAppointmentPrescriptionAndNoteContext();
     }
     _loadFavorites();
   }
@@ -526,6 +538,161 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     ctrl.text = value.toString();
   }
 
+  String? _cleanAppointmentText(Object? value) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty || text.toLowerCase() == 'null') return null;
+    return text;
+  }
+
+  Future<void> _loadAppointmentPrescriptionAndNoteContext() async {
+    final appointmentId = _appointmentId;
+    if (appointmentId == null) return;
+    setState(() => _loadingAppointmentPrescription = true);
+    try {
+      final rx = await MedicalApiService.getEPrescriptionByAppointment(
+        appointmentId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _populateFromExistingPrescription(rx);
+        _loadingAppointmentPrescription = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingAppointmentPrescription = false);
+    }
+    await _prefillOpNoteContext();
+  }
+
+  Future<void> _prefillOpNoteContext() async {
+    final uid = _patientUid;
+    final appointmentId = _appointmentId;
+    if (uid == null || appointmentId == null) return;
+    try {
+      final data = await MedicalApiService.getPatientNotes(
+        uid,
+        noteType: 'op_consultation',
+      );
+      final raw = data['notes'] ?? data['data'] ?? data['items'];
+      if (raw is! List) return;
+      for (final item in raw.whereType<Map>()) {
+        final note = Map<String, dynamic>.from(item);
+        final content = _asStringMap(note['content']);
+        final noteAppointmentId =
+            _asInt(note['appointment_id']) ?? _asInt(content['appointment_id']);
+        if (noteAppointmentId != appointmentId) continue;
+        if (!mounted) return;
+        setState(() {
+          _setControllerIfEmpty(
+            _diagnosisCtrl,
+            content['diagnosis'] ?? content['assessment'],
+          );
+          _setControllerIfEmpty(
+            _clinicalNotesCtrl,
+            _clinicalNotesFromOpContent(content),
+          );
+        });
+        return;
+      }
+    } catch (_) {
+      // OP note context is a convenience prefill; prescribing still works.
+    }
+  }
+
+  Map<String, dynamic> _asStringMap(Object? value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return value.cast<String, dynamic>();
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        final parsed = jsonDecode(value);
+        if (parsed is Map<String, dynamic>) return parsed;
+        if (parsed is Map) return parsed.cast<String, dynamic>();
+      } catch (_) {
+        return const {};
+      }
+    }
+    return const {};
+  }
+
+  int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  String _clinicalNotesFromOpContent(Map<String, dynamic> content) {
+    final parts = <String>[];
+    void add(String label, Object? value) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') {
+        parts.add('$label: $text');
+      }
+    }
+
+    add(
+      'Chief complaints',
+      content['chief_complaint'] ?? content['chief_complaints'],
+    );
+    add('History', content['history']);
+    add('Examination', content['examination']);
+    add('Diagnosis', content['diagnosis'] ?? content['assessment']);
+    add('Plan', content['plan']);
+    return parts.join('\n\n');
+  }
+
+  bool _isPrescriptionLocked(Map<String, dynamic> rx) {
+    final lifecycle = rx['lifecycle_status']?.toString().toLowerCase() ?? '';
+    final status = rx['status']?.toString().toLowerCase() ?? '';
+    return rx['signed_at'] != null ||
+        rx['locked_at'] != null ||
+        lifecycle == 'signed' ||
+        status == 'fulfilled' ||
+        status == 'dispensed' ||
+        status == 'cancelled' ||
+        status == 'canceled';
+  }
+
+  void _populateFromExistingPrescription(Map<String, dynamic> rx) {
+    final id = _asInt(rx['id']);
+    _appointmentPrescriptionId = id;
+    _lastCreatedPrescriptionId = id;
+    _lastCreatedPrescriptionPdfUrl = rx['pdf_url']?.toString();
+    _appointmentPrescriptionLocked = _isPrescriptionLocked(rx);
+    _lastCreatedPrescriptionSigned = _appointmentPrescriptionLocked;
+    _setControllerIfEmpty(_diagnosisCtrl, rx['diagnosis']);
+    _setControllerIfEmpty(_clinicalNotesCtrl, rx['clinical_notes']);
+    _setControllerIfEmpty(_followUpNotesCtrl, rx['follow_up_notes']);
+    final followUp = rx['follow_up_date']?.toString();
+    if (followUp != null && followUp.isNotEmpty) {
+      _followUpDate ??= DateTime.tryParse(followUp);
+    }
+
+    final rawMeds = rx['medications'];
+    Object medList = const [];
+    if (rawMeds is List) {
+      medList = rawMeds;
+    } else if (rawMeds is String && rawMeds.trim().isNotEmpty) {
+      try {
+        medList = jsonDecode(rawMeds);
+      } catch (_) {
+        medList = const [];
+      }
+    }
+    if (medList is List && medList.isNotEmpty) {
+      _disposeMedicationEditors();
+      _medications
+        ..clear()
+        ..addAll(
+          medList.whereType<Map>().map(
+            (item) => _MedicationEntry.fromJson(item.cast<String, dynamic>()),
+          ),
+        );
+      for (final med in _medications) {
+        _syncMedicationDerivedFields(med);
+      }
+    }
+  }
+
   Future<void> _prefillLatestVitals() async {
     final patient = _patientIdentifierForVitals();
     if (patient == null) return;
@@ -685,6 +852,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       );
       return;
     }
+    if (_appointmentPrescriptionLocked) {
+      ErrorToast.show(
+        context,
+        'This visit already has a signed prescription; create a new OP visit for changes.',
+      );
+      return;
+    }
     for (final med in _medications) {
       _syncMedicationDerivedFields(med);
     }
@@ -750,18 +924,26 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       final vitals = _buildVitals();
       if (vitals != null) body['vitals'] = vitals;
 
-      final result = await MedicalApiService.createEPrescription(
-        body,
-        photo: _handwrittenPhoto,
-      );
+      final editingPrescriptionId = _appointmentPrescriptionId;
+      final result = editingPrescriptionId != null
+          ? await MedicalApiService.updateEPrescription(
+              editingPrescriptionId,
+              body,
+            )
+          : await MedicalApiService.createEPrescription(
+              body,
+              photo: _handwrittenPhoto,
+            );
       final createdId = _createdPrescriptionId(result);
       String? pdfUrl;
       String? pharmacyMessage;
-      if (createdId != null) {
+      if (createdId != null && editingPrescriptionId == null) {
         pharmacyMessage = await _orderInHousePharmacyIfNeeded(
           prescriptionId: createdId,
           medications: meds,
         );
+        pdfUrl = await _loadPrescriptionPdfUrl(createdId);
+      } else if (createdId != null) {
         pdfUrl = await _loadPrescriptionPdfUrl(createdId);
       }
       final rxNum =
@@ -800,10 +982,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           _lastCreatedPrescriptionId = createdId;
           _lastCreatedPrescriptionPdfUrl = pdfUrl;
           _lastPharmacyOrderMessage = pharmacyMessage;
+          _appointmentPrescriptionId = createdId ?? _appointmentPrescriptionId;
           _lastCreatedPrescriptionSigned = false;
-          _resetPrescriptionDraft(
-            keepPatientContext: widget.prefilledAppointment != null,
-          );
+          if (widget.prefilledAppointment == null) {
+            _resetPrescriptionDraft(keepPatientContext: false);
+          }
         });
       }
     } catch (e) {
@@ -1064,6 +1247,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _patientId = null;
       _doctorId = null;
       _appointmentId = null;
+      _patientUid = null;
       _patientName = null;
       _doctorName = null;
     }
@@ -1072,6 +1256,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _lastCreatedPrescriptionPdfUrl = null;
       _lastPharmacyOrderMessage = null;
       _lastCreatedPrescriptionSigned = false;
+      _appointmentPrescriptionId = null;
+      _appointmentPrescriptionLocked = false;
       _signingLastPrescription = false;
     }
   }
@@ -1266,6 +1452,29 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     return grouped.take(12).toList(growable: false);
   }
 
+  String _normalizedCatalogSearchText(Object? value) {
+    return value
+            ?.toString()
+            .toLowerCase()
+            .replaceAll(RegExp(r'[^a-z0-9]+'), '')
+            .trim() ??
+        '';
+  }
+
+  bool _catalogRowMatchesQuery(Map<String, dynamic> row, String query) {
+    final needle = _normalizedCatalogSearchText(_stripDrugDisplayPrefix(query));
+    if (needle.isEmpty) return true;
+    final fields = [
+      _extractDrugNameFromCatalog(row),
+      _rowText(row, const ['generic_name', 'generic']),
+      _rowText(row, const ['name', 'drug_name', 'medicine_name']),
+    ];
+    return fields.any((field) {
+      final normalized = _normalizedCatalogSearchText(field);
+      return normalized.contains(needle);
+    });
+  }
+
   List<String> _strengthOptionsForCatalogRow(
     Map<String, dynamic> row,
     Iterable<Map<String, dynamic>> candidates,
@@ -1422,8 +1631,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       );
       if (!mounted) return;
       if (_drugSuggestionQuery[med] != q) return;
+      final relevantRows = rows
+          .where((row) => _catalogRowMatchesQuery(row, q))
+          .toList(growable: false);
       setState(() {
-        _drugSuggestions[med] = _groupCatalogRows(rows);
+        _drugSuggestions[med] = _groupCatalogRows(relevantRows);
       });
     } catch (e) {
       if (!mounted) return;
@@ -1617,6 +1829,34 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             if (_showVitals) ...[
               const SizedBox(height: 12),
               _buildVitalsPanel(s),
+            ],
+            if (_loadingAppointmentPrescription ||
+                _appointmentPrescriptionId != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(
+                    _appointmentPrescriptionLocked
+                        ? Icons.lock_outline
+                        : Icons.receipt_long_outlined,
+                    size: 18,
+                    color: _appointmentPrescriptionLocked
+                        ? AppTheme.warningOnSurface
+                        : AppTheme.successOnSurface,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _loadingAppointmentPrescription
+                          ? 'Checking whether this OP visit already has a prescription...'
+                          : _appointmentPrescriptionLocked
+                          ? 'This visit prescription is signed and locked.'
+                          : 'Editing the existing prescription for this OP visit.',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ],
         ),
@@ -2347,8 +2587,13 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             : s.prescriptionsAttachHandwritten,
       ),
     );
+    final submitLabel = _appointmentPrescriptionLocked
+        ? 'Prescription locked'
+        : _appointmentPrescriptionId != null
+        ? 'Update prescription'
+        : s.prescriptionsCreate;
     final submitButton = ElevatedButton.icon(
-      onPressed: _submitting ? null : _submit,
+      onPressed: _submitting || _appointmentPrescriptionLocked ? null : _submit,
       icon: _submitting
           ? const SizedBox(
               width: 18,
@@ -2359,9 +2604,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               ),
             )
           : const Icon(Icons.save, color: Colors.white),
-      label: Text(
-        _submitting ? s.prescriptionsCreating : s.prescriptionsCreate,
-      ),
+      label: Text(_submitting ? s.prescriptionsCreating : submitLabel),
       style: ElevatedButton.styleFrom(
         backgroundColor: const Color(0xFF00838F),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),

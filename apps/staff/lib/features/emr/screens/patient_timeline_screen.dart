@@ -70,7 +70,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       final data = await MedicalApiService.getPatientTimeline(
         widget.patientUid,
       );
-      final list = data['events'] ?? data['timeline'];
+      final list = data['events'] ?? data['timeline'] ?? data['data'];
       setState(() {
         _events = list is List
             ? list.map((e) => Map<String, dynamic>.from(e as Map)).toList()
@@ -110,6 +110,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       case 'drug_chart':
       case 'medication_order':
         return 'drug_chart';
+      case 'e_prescription':
+      case 'prescription':
+      case 'op_prescription':
+        return 'medication';
       default:
         return value.isEmpty ? 'event' : value;
     }
