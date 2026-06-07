@@ -290,29 +290,34 @@ async function fcmTokensForPatient(patient_uid) {
   }
 }
 
-async function getPatientProfile({ patient_uid }) {
+async function getPatientProfile({ tenantId, patient_uid }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT u.id, u.uid, u.name, u.phone, u.email, u.gender, u.birthday,
             COALESCE(
               hn.identifier_value,
-              NULLIF(u.hospital_number, ''),
               'VH-' || LPAD(u.id::text, 6, '0')
             ) AS hospital_number
        FROM users u
        LEFT JOIN LATERAL (
          SELECT pi.identifier_value
            FROM patient_identifiers pi
-          WHERE pi.patient_uid = u.uid
+          WHERE pi.tenant_id = u.tenant_id
+            AND pi.patient_uid = u.uid
             AND pi.status = 'active'
-            AND lower(pi.identifier_type) IN ('hospital_number', 'mrn')
-          ORDER BY CASE WHEN lower(pi.identifier_type) = 'hospital_number' THEN 0 ELSE 1 END,
-                   pi.created_at DESC NULLS LAST,
+            AND pi.identifier_type IN ('mrn', 'uhid')
+          ORDER BY pi.is_primary DESC,
+                   CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                   pi.created_at ASC,
                    pi.id DESC
           LIMIT 1
        ) hn ON TRUE
       WHERE u.uid = $1::uuid
+        AND u.tenant_id = $2::uuid
+        AND u.role = 'PATIENT'
+        AND u.is_active = TRUE
       LIMIT 1`,
     String(patient_uid),
+    tenantId,
   );
   if (!rows.length) throw AppError.notFound('Patient profile not found');
   return rows[0];
@@ -323,7 +328,7 @@ async function listUpcomingAppointments({ patient_id }) {
   return prisma.$queryRawUnsafe(
     `SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date,
             a.appointment_time, a.status, a.reason, a.visit_type,
-            a.token_number, a.queue_position, a.created_at,
+            a.token_number, a.created_at,
             d.name AS doctor_name,
             doc.specialty AS doctor_specialization,
             doc.department AS doctor_department
@@ -489,7 +494,7 @@ export async function getPatientCommandCenter({
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
 
-  const profile = await safeCommandSection('profile', () => getPatientProfile({ patient_uid }), {
+  const profile = await safeCommandSection('profile', () => getPatientProfile({ tenantId, patient_uid }), {
     id: patient_id || null,
     uid: patient_uid,
     name: null,
