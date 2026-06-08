@@ -7,8 +7,6 @@ const PATIENT_UID = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d401';
 const NURSE_UID = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d402';
 const PAEDIATRIC_DEEP_TEST_TIMEOUT_MS = 30000;
 
-jest.setTimeout(PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
-
 function twoYearOldDob() {
   return new Date(Date.now() - 760 * 86400000).toISOString().slice(0, 10);
 }
@@ -62,7 +60,7 @@ describe('Paediatric immunisation schedule reads', () => {
     );
     nurseId = nurseRow[0].id;
     nurse = nurseClient(nurseId);
-  });
+  }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(
@@ -78,7 +76,7 @@ describe('Paediatric immunisation schedule reads', () => {
       patientId, nurseId,
     ).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
   it('lazily seeds a DOB-based schedule instead of returning an empty patient list', async () => {
     const catalogue = await nurse.get('/api/v1/paediatric/immunisations/catalogue');
@@ -96,14 +94,14 @@ describe('Paediatric immunisation schedule reads', () => {
       PATIENT_UID,
     );
     expect(Number(dbCount[0].count)).toBe(list.body.data.length);
-  });
+  }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
   it('returns due/overdue rows after lazy seeding', async () => {
     const due = await nurse.get(`/api/v1/paediatric/immunisations/patient/${PATIENT_UID}/due`);
     expect(due.statusCode).toBe(200);
     expect(due.body.data.length).toBeGreaterThan(0);
     expect(due.body.data.every((row) => row.status === 'scheduled')).toBe(true);
-  });
+  }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
   it('does not show already-reviewed doses in the due list', async () => {
     const reviewAsOf = todayIso();
@@ -126,5 +124,5 @@ describe('Paediatric immunisation schedule reads', () => {
     expect(after.statusCode).toBe(200);
     expect(after.body.data.some((row) => row.bucket === 'due_or_overdue')).toBe(false);
     expect(after.body.data.every((row) => String(row.due_date).slice(0, 10) > reviewAsOf)).toBe(true);
-  });
+  }, PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 });
