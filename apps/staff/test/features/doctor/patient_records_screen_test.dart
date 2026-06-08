@@ -116,5 +116,75 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+      'adapts canonical timeline prescriptions into patient record rows',
+      () {
+        final records = patientRecordsFromTimelineResponse(
+          {
+            'data': [
+              {
+                'id': 'signed-1',
+                'event_type': 'prescription.signed',
+                'event_status': 'signed',
+                'resource_type': 'prescription',
+                'resource_id': '63',
+                'occurred_at': '2026-06-08T14:31:22.652Z',
+                'clinical_summary': 'Prescription RX-123 signed',
+                'payload': {'prescription_number': 'RX-123'},
+              },
+              {
+                'id': 'created-1',
+                'event_type': 'prescription.created',
+                'event_status': 'draft',
+                'resource_type': 'prescription',
+                'resource_id': '63',
+                'occurred_at': '2026-06-08T14:31:17.236Z',
+                'clinical_summary': 'Prescription RX-123 created',
+                'payload': {'diagnosis': 'CAD - UA'},
+              },
+            ],
+          },
+          patient: {'name': 'test'},
+        );
+
+        expect(records, hasLength(1));
+        expect(records.single['record_type'], 'OP Prescription');
+        expect(records.single['status'], 'signed');
+        expect(records.single['patientName'], 'test');
+        expect(records.single['summary'], contains('Prescription RX-123'));
+      },
+    );
+
+    test('keeps OP note and investigation timeline events visible', () {
+      final note = patientRecordFromTimelineEvent({
+        'event_type': 'note.created',
+        'event_subtype': 'op_consultation',
+        'event_status': 'draft',
+        'resource_type': 'clinical_note',
+        'resource_id': '104',
+        'title': 'OP consultation - test',
+        'clinical_summary': 'CC: Chest pain | Dx: CAD',
+      });
+      final investigation = patientRecordFromTimelineEvent({
+        'event_type': 'investigation.ordered',
+        'event_status': 'REQUESTED',
+        'resource_type': 'investigation',
+        'resource_id': '176',
+        'clinical_summary': 'ECG ordered',
+        'payload': {'test_name': 'ECG', 'test_type': 'LAB'},
+      });
+      final edited = patientRecordFromTimelineEvent({
+        'event_type': 'note.edited',
+        'resource_type': 'clinical_note',
+        'resource_id': '104',
+      });
+
+      expect(note?['record_type'], 'Clinical Note');
+      expect(note?['title'], 'OP consultation - test');
+      expect(investigation?['record_type'], 'Investigation');
+      expect(investigation?['title'], 'Investigation - ECG');
+      expect(edited, isNull);
+    });
   });
 }

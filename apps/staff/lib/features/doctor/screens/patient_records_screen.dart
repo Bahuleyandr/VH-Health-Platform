@@ -127,6 +127,267 @@ bool patientRecordsCanUploadPriorRecordsForRole(StaffRole role) {
       role != StaffRole.anaesthetist;
 }
 
+@visibleForTesting
+String patientRecordsTimelineFamily(Map<String, dynamic> event) {
+  final eventType = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  final resourceType = (event['resource_type'] ?? event['type'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  if (eventType.contains('prescription') || resourceType == 'prescription') {
+    return 'prescription';
+  }
+  if (eventType.contains('investigation') || resourceType == 'investigation') {
+    return 'investigation';
+  }
+  if (eventType.contains('note') ||
+      resourceType == 'clinical_note' ||
+      resourceType == 'note') {
+    return 'note';
+  }
+  if (eventType.contains('vital')) return 'vitals';
+  if (eventType.contains('referral')) return 'referral';
+  if (eventType.contains('admission')) return 'admission';
+  if (eventType.contains('discharge')) return 'discharge';
+  return resourceType.isNotEmpty ? resourceType : eventType;
+}
+
+@visibleForTesting
+bool patientRecordsShouldShowTimelineEvent(Map<String, dynamic> event) {
+  final family = patientRecordsTimelineFamily(event);
+  if (family.isEmpty) return false;
+  final eventType = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  if (eventType.contains('.edited')) return false;
+  return const {
+    'prescription',
+    'investigation',
+    'note',
+    'vitals',
+    'referral',
+    'admission',
+    'discharge',
+  }.contains(family);
+}
+
+@visibleForTesting
+String patientRecordsTimelineTitle(Map<String, dynamic> event) {
+  final family = patientRecordsTimelineFamily(event);
+  final payload = event['payload'] is Map
+      ? Map<String, dynamic>.from(event['payload'] as Map)
+      : const <String, dynamic>{};
+  final explicit = (event['title'] ?? payload['title'] ?? '').toString().trim();
+  if (explicit.isNotEmpty &&
+      !explicit.toLowerCase().startsWith('prescription.') &&
+      explicit != 'op_consultation') {
+    return explicit;
+  }
+  switch (family) {
+    case 'prescription':
+      final number = (payload['prescription_number'] ?? '').toString().trim();
+      return number.isEmpty ? 'OP prescription' : 'OP prescription - $number';
+    case 'investigation':
+      final name = (payload['test_name'] ?? event['clinical_summary'] ?? '')
+          .toString()
+          .trim();
+      return name.isEmpty ? 'Investigation' : 'Investigation - $name';
+    case 'note':
+      final noteType =
+          (event['event_subtype'] ?? payload['note_type'] ?? 'note')
+              .toString()
+              .replaceAll('_', ' ')
+              .trim();
+      return noteType.isEmpty ? 'Clinical note' : noteType;
+    case 'vitals':
+      return 'Vitals';
+    case 'referral':
+      return 'Referral';
+    case 'admission':
+      return 'Admission';
+    case 'discharge':
+      return 'Discharge';
+    default:
+      return explicit.isNotEmpty ? explicit : 'Clinical record';
+  }
+}
+
+@visibleForTesting
+Map<String, dynamic>? patientRecordFromTimelineEvent(
+  Map<String, dynamic> event, {
+  Map<String, dynamic>? patient,
+}) {
+  if (!patientRecordsShouldShowTimelineEvent(event)) return null;
+  final family = patientRecordsTimelineFamily(event);
+  final payload = event['payload'] is Map
+      ? Map<String, dynamic>.from(event['payload'] as Map)
+      : const <String, dynamic>{};
+  final resourceId = _firstText([
+    event['resource_id'],
+    event['source_id'],
+    event['id'],
+  ]);
+  final eventType = _firstText([event['event_type'], event['type']]);
+  final status = _timelineStatus(event);
+  final summary = _firstText([
+    event['clinical_summary'],
+    event['summary'],
+    payload['summary'],
+    payload['diagnosis'],
+    payload['test_name'],
+  ]);
+  final patientName = _firstText([
+    patient?['name'],
+    patient?['patient_name'],
+    event['patient_name'],
+    payload['patient_name'],
+  ], fallback: 'Patient');
+
+  return {
+    'id': _firstText([event['id']], fallback: resourceId),
+    '_timeline': true,
+    '_timelineKey': '$family:$resourceId',
+    'patientName': patientName,
+    'title': patientRecordsTimelineTitle(event),
+    'record_type': _timelineTypeLabel(family),
+    'type': _timelineTypeLabel(family),
+    'status': status,
+    'created_at': _firstText([
+      event['occurred_at'],
+      event['timestamp'],
+      event['created_at'],
+    ]),
+    'doctorName': _firstText([payload['doctor_name'], event['actor_name']]),
+    'department': _firstText([
+      payload['department'],
+      payload['test_type'],
+      event['event_subtype'],
+    ]),
+    'summary': summary,
+    'event_type': eventType,
+    'resource_type': family,
+    'resource_id': resourceId,
+    'payload': payload,
+  };
+}
+
+@visibleForTesting
+List<Map<String, dynamic>> patientRecordsFromTimelineResponse(
+  Map<String, dynamic> data, {
+  Map<String, dynamic>? patient,
+}) {
+  final raw = data['events'] ?? data['timeline'] ?? data['data'];
+  if (raw is! List) return const [];
+
+  final byKey = <String, Map<String, dynamic>>{};
+  final keys = <String>[];
+  for (final item in raw.whereType<Map>()) {
+    final record = patientRecordFromTimelineEvent(
+      Map<String, dynamic>.from(item),
+      patient: patient,
+    );
+    if (record == null) continue;
+    final key = record['_timelineKey']?.toString() ?? record['id'].toString();
+    final existing = byKey[key];
+    if (existing == null) {
+      byKey[key] = record;
+      keys.add(key);
+      continue;
+    }
+    _mergeTimelineRecord(existing, record);
+  }
+  return keys
+      .map((key) => byKey[key])
+      .whereType<Map<String, dynamic>>()
+      .toList();
+}
+
+String _timelineTypeLabel(String family) {
+  switch (family) {
+    case 'prescription':
+      return 'OP Prescription';
+    case 'investigation':
+      return 'Investigation';
+    case 'note':
+      return 'Clinical Note';
+    case 'vitals':
+      return 'Vitals';
+    case 'referral':
+      return 'Referral';
+    case 'admission':
+      return 'Admission';
+    case 'discharge':
+      return 'Discharge';
+    default:
+      return 'Clinical Timeline';
+  }
+}
+
+String _timelineStatus(Map<String, dynamic> event) {
+  final explicit = _firstText([event['event_status'], event['status']]);
+  if (explicit.isNotEmpty) return explicit.toLowerCase();
+  final eventType = _firstText([
+    event['event_type'],
+    event['type'],
+  ]).toLowerCase();
+  if (eventType.contains('signed')) return 'signed';
+  if (eventType.contains('created')) return 'created';
+  if (eventType.contains('ordered')) return 'requested';
+  return 'recorded';
+}
+
+int _statusRank(String status) {
+  switch (status.toLowerCase()) {
+    case 'locked':
+      return 7;
+    case 'signed':
+      return 6;
+    case 'completed':
+    case 'complete':
+      return 5;
+    case 'result_ready':
+    case 'ready':
+      return 4;
+    case 'requested':
+    case 'ordered':
+      return 3;
+    case 'created':
+      return 2;
+    case 'draft':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+void _mergeTimelineRecord(
+  Map<String, dynamic> existing,
+  Map<String, dynamic> incoming,
+) {
+  final existingStatus = _firstText([existing['status']]);
+  final incomingStatus = _firstText([incoming['status']]);
+  if (_statusRank(incomingStatus) > _statusRank(existingStatus)) {
+    existing['status'] = incomingStatus;
+  }
+  for (final key in const ['title', 'summary', 'department', 'doctorName']) {
+    final current = _firstText([existing[key]]);
+    final next = _firstText([incoming[key]]);
+    if (next.length > current.length) existing[key] = next;
+  }
+  final currentPayload = existing['payload'];
+  final nextPayload = incoming['payload'];
+  if (currentPayload is Map && nextPayload is Map) {
+    existing['payload'] = {
+      ...Map<String, dynamic>.from(currentPayload),
+      ...Map<String, dynamic>.from(nextPayload),
+    };
+  }
+}
+
 class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   List<dynamic> _appointments = [];
   bool _loading = true;
@@ -252,9 +513,23 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           break;
         }
       }
+      var timelineRecords = const <Map<String, dynamic>>[];
+      final patientUid = exactPatient?['uid']?.toString().trim() ?? '';
+      if (patientUid.isNotEmpty) {
+        final timelineData = await MedicalApiService.getPatientTimeline(
+          patientUid,
+        );
+        timelineRecords = patientRecordsFromTimelineResponse(
+          timelineData,
+          patient: exactPatient,
+        );
+      }
       if (mounted) {
         setState(() {
-          _appointments = _recordsFromResponse(records);
+          _appointments = [
+            ...timelineRecords,
+            ..._recordsFromResponse(records),
+          ];
           _matchedPatient = exactPatient;
         });
       }
@@ -1306,9 +1581,9 @@ class _IpPriorRecordsTabState extends State<_IpPriorRecordsTab> {
             child: _records.isEmpty
                 ? const _SimpleEmptyState(
                     icon: Icons.folder_copy_outlined,
-                    title: 'No prior records uploaded',
+                    title: 'No clinical records or prior uploads',
                     body:
-                        'Photos and PDFs uploaded for admitted patients appear here.',
+                        'Photos, PDFs, and timeline-linked clinical records appear here.',
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
@@ -2203,11 +2478,18 @@ class _PatientCard extends StatelessWidget {
     final status = record['status']?.toString().toLowerCase() ?? 'active';
     final doctor =
         record['doctorName']?.toString() ?? record['doctor']?.toString() ?? '';
+    final summary =
+        record['summary']?.toString() ??
+        record['clinical_summary']?.toString() ??
+        '';
     final extraction = patientRecordAiExtractionFrom(record);
 
     Color statusColor = switch (status) {
+      'signed' => AppTheme.successGreen,
       'confirmed' => AppTheme.successGreen,
       'completed' => AppTheme.primaryTeal,
+      'requested' => AppTheme.primaryBlue,
+      'ordered' => AppTheme.primaryBlue,
       'cancelled' => AppTheme.errorRed,
       _ => AppTheme.warningAmber,
     };
@@ -2281,6 +2563,19 @@ class _PatientCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (summary.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  summary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.25,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+              ],
               if (department.isNotEmpty ||
                   doctor.isNotEmpty ||
                   dateTime.isNotEmpty) ...[
@@ -2510,7 +2805,7 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             patientFound
-                ? 'Patient found, no prior records uploaded'
+                ? 'Patient found, no clinical records or prior uploads'
                 : hasSearch
                 ? s.patientRecordsNoFound
                 : s.patientRecordsEmpty,
