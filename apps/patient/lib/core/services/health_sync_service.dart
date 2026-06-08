@@ -86,6 +86,18 @@ class HealthSyncService {
     return granted;
   }
 
+  /// Check whether HealthKit / Health Connect read permissions are already
+  /// available without opening the OS permission sheet.
+  Future<bool> hasReadPermissions() async {
+    if (!_isSupportedPlatform) return false;
+    await _health.configure();
+    final types = _availableReadTypes();
+    if (types.isEmpty) return false;
+    final has = await _health.hasPermissions(types) ?? false;
+    _permissionsGranted = has;
+    return has;
+  }
+
   /// Request WRITE permissions for the vitals we push back after manual entry.
   /// Separate from [requestPermissions] so the read-only sync flow keeps a
   /// narrow permission surface. Call from the vitals-entry screen just before

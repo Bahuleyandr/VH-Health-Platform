@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
+import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/core/widgets/circular_feature_dial.dart';
@@ -83,6 +84,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int? _stepGoal;
   double? _distanceTodayMeters;
   String? _activityLevelLabel;
+  bool _stepsHealthSyncInFlight = false;
 
   // Features list
   late final List<FeatureIconData> _features;
@@ -655,6 +657,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  void _handleStepsStatTap() {
+    final openingSteps = _expandedStatPanel != _DashboardStatPanel.steps;
+    _toggleStatPanel(_DashboardStatPanel.steps);
+    if (!openingSteps || _isGuestSession) return;
+    unawaited(_promptHealthConnectForSteps());
+  }
+
+  Future<void> _promptHealthConnectForSteps() async {
+    if (_stepsHealthSyncInFlight) return;
+    _stepsHealthSyncInFlight = true;
+
+    try {
+      final healthSync = HealthSyncService.instance;
+      var granted = await healthSync.hasReadPermissions();
+      if (!mounted) return;
+
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Allow Health Connect so VH Health can sync steps counted while the app is closed.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        granted = await healthSync.requestPermissions();
+        if (!mounted) return;
+      }
+
+      if (!granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Health Connect permission was not granted. In-app walk tracking still works.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final synced = await healthSync.syncNow();
+      await healthSync.startForegroundSync();
+      await HealthSyncService.enableBackgroundSync();
+      if (!mounted) return;
+
+      await _fetchSmartWidgetData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            synced > 0
+                ? 'Health Connect synced. Steps updated.'
+                : 'Health Connect is connected. No new step samples yet.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('Steps Health Connect prompt failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open Health Connect right now.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      _stepsHealthSyncInFlight = false;
+    }
+  }
+
   Widget _buildExpandedStatPanel(BuildContext context) {
     final panel = _expandedStatPanel;
     if (panel == null) return const SizedBox.shrink();
@@ -839,8 +913,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               onPointsTap: () =>
                                   _toggleStatPanel(_DashboardStatPanel.points),
-                              onStepsTap: () =>
-                                  _toggleStatPanel(_DashboardStatPanel.steps),
+                              onStepsTap: _handleStepsStatTap,
                               onPeriodTap: () =>
                                   _toggleStatPanel(_DashboardStatPanel.period),
                             ),
