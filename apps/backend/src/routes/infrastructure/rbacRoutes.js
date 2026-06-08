@@ -1,7 +1,8 @@
 // routes/infrastructure/rbacRoutes.js
 import express from 'express';
-import { wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
+import { wrapAsync, wrapAutoRBAC, wrapRoutes } from '../../config/routeWrapper.js';
 import * as rbacController from '../../controllers/infrastructure/rbacController.js';
+import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { ADMIN } from '../../utils/roles.js';
 import { 
   roleAssignmentValidator,
@@ -15,6 +16,11 @@ import {
 } from '../../validators/infrastructure/rbacValidator.js';
 
 const router = express.Router();
+
+// Canonical role policy graph for authenticated Staff/Admin consumers.
+// Infrastructure routes are mounted before the app-level jwtAuth middleware,
+// so this route must authenticate itself while staying outside HR/Admin RBAC.
+router.get('/policy', jwtAuth, wrapAsync(rbacController.getPolicy));
 
 // PUBLIC INFO ROUTES (No authentication required)
 wrapRoutes(
@@ -104,10 +110,6 @@ wrapRoutes(
   [], // Any authenticated user
   {
     get: [
-      // Canonical role policy graph for authenticated Staff/Admin consumers.
-      // This powers role-driven Staff UI visibility; it must not be HR/Admin-only.
-      ['/policy', rbacController.getPolicy],
-
       // 📋 Get My Role Information
       ['/my-role', rbacController.getMyRole],
       

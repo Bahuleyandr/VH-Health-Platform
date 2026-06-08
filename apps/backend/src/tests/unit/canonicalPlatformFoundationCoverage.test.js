@@ -116,9 +116,11 @@ describe('canonical clinical platform foundation coverage guard', () => {
     expect(mainScaffold).toContain('getRolePolicySnapshot');
     expect(mainScaffold).toContain('policyFeatureIds: _policyFeatureIds');
 
-    const selfServiceMarker = rbacRoutes.indexOf('SELF-SERVICE ROUTES');
-    const policyRoute = rbacRoutes.indexOf("['/policy', rbacController.getPolicy]", selfServiceMarker);
-    expect(selfServiceMarker).toBeGreaterThan(-1);
-    expect(policyRoute).toBeGreaterThan(selfServiceMarker);
+    const autoRbacMarker = rbacRoutes.indexOf('BASIC RBAC ROUTES');
+    const policyRoute = rbacRoutes.indexOf(
+      "router.get('/policy', jwtAuth, wrapAsync(rbacController.getPolicy))",
+    );
+    expect(policyRoute).toBeGreaterThan(-1);
+    expect(autoRbacMarker).toBeGreaterThan(policyRoute);
   });
 });
