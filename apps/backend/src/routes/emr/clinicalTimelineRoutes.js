@@ -19,6 +19,7 @@ router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'pat
       date_to: date_to || null,
       limit,
       includeLegacy: req.query.include_legacy === 'true',
+      include_patient_generated: req.query.include_patient_generated !== 'false',
     });
 
     logPhiAccess({

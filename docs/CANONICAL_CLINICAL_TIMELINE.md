@@ -179,6 +179,11 @@ These workflows should emit canonical timeline and audit events:
   alert, acknowledgement, and signoff events.
 - Bed allocation, transfer, cleaning requested, cleaning started, cleaning
   completed, and bed made available.
+- Patient-app activity and wearable summaries such as steps, walking distance,
+  sleep, active energy, home vitals, symptoms, and device observations. These
+  must be labelled as patient-generated or device-synced and unverified until a
+  clinician reviews them. Continuous activity streams should be aggregated by
+  day for the Staff timeline instead of writing one timeline row per raw sample.
 - Access decisions and break-glass actions that affect PHI access.
 
 ## Access And Audit Relationship

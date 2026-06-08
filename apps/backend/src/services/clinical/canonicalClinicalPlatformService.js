@@ -281,6 +281,124 @@ function normalizeCanonicalEvent(row) {
   };
 }
 
+function formatIsoDay(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().split('T')[0];
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+}
+
+function normalizePatientActivityEvent(row = {}) {
+  const day = formatIsoDay(row.source_day);
+  if (!day) return null;
+  const steps = Number(row.steps || 0);
+  const distanceMeters = Number(row.distance_meters || 0);
+  const sleepMinutes = Number(row.sleep_minutes || 0);
+  const activeEnergyKcal = Number(row.active_energy_kcal || 0);
+  const distanceKm = Number((distanceMeters / 1000).toFixed(2));
+  const sleepHours = Number((sleepMinutes / 60).toFixed(1));
+  const sourceLabel = cleanText(row.sources, 'patient app');
+  const occurredAt = `${day}T12:00:00.000Z`;
+  const summaryParts = [];
+  if (steps > 0) summaryParts.push(`${steps.toLocaleString('en-IN')} steps`);
+  if (distanceMeters > 0) summaryParts.push(`${distanceKm} km walked`);
+  if (sleepMinutes > 0) summaryParts.push(`${sleepHours} h sleep`);
+  if (activeEnergyKcal > 0) summaryParts.push(`${Math.round(activeEnergyKcal)} kcal active energy`);
+
+  return {
+    id: `patient-activity-${row.user_uid}-${day}`,
+    canonical: false,
+    patient_generated: true,
+    event_type: 'patient_activity.daily_summary',
+    event_subtype: 'activity_summary',
+    event_status: 'unverified',
+    source_table: 'step_sessions',
+    source_id: day,
+    resource_type: 'patient_activity',
+    resource_id: day,
+    occurred_at: occurredAt,
+    timestamp: occurredAt,
+    title: 'Patient app activity',
+    clinical_summary: summaryParts.length
+      ? summaryParts.join(' • ')
+      : 'Patient app activity summary',
+    visible_to_patient: true,
+    payload: {
+      title: 'Patient app activity',
+      source_kind: 'patient_generated',
+      verification_status: 'unverified',
+      source: sourceLabel,
+      source_app: cleanText(row.source_apps),
+      source_device: cleanText(row.source_devices),
+      source_day: day,
+      steps,
+      distance_meters: distanceMeters,
+      distance_km: distanceKm,
+      sleep_minutes: sleepMinutes,
+      sleep_hours: sleepHours,
+      active_energy_kcal: activeEnergyKcal,
+      recorded_at_source: row.recorded_at_source || null,
+    },
+    tags: ['patient_generated', 'unverified', 'activity'],
+  };
+}
+
+async function readPatientGeneratedActivityTimeline(uid, filters = {}, options = {}) {
+  const db = dbClient(options.db);
+  if (!hasRawClient(db)) return [];
+
+  const limit = Math.max(1, Math.min(Number.parseInt(filters.limit, 10) || 100, 120));
+  const dayExpr = "COALESCE(source_day, DATE(started_at AT TIME ZONE 'UTC'))";
+  const params = [uid];
+  const where = [
+    'user_uid = $1::uuid',
+    'is_active = false',
+    `${dayExpr} IS NOT NULL`,
+  ];
+  let idx = 2;
+  if (filters.date_from) {
+    where.push(`${dayExpr} >= $${idx++}::date`);
+    params.push(filters.date_from);
+  }
+  if (filters.date_to) {
+    where.push(`${dayExpr} <= $${idx++}::date`);
+    params.push(filters.date_to);
+  }
+
+  try {
+    const rows = await db.$queryRawUnsafe(
+      `SELECT
+          user_uid,
+          ${dayExpr} AS source_day,
+          COALESCE(SUM(steps), 0)::int AS steps,
+          COALESCE(SUM(distance_meters), 0)::float AS distance_meters,
+          COALESCE(SUM(sleep_minutes), 0)::int AS sleep_minutes,
+          COALESCE(SUM(active_energy_kcal), 0)::float AS active_energy_kcal,
+          STRING_AGG(DISTINCT NULLIF(source, ''), ', ') AS sources,
+          STRING_AGG(DISTINCT NULLIF(source_app, ''), ', ') AS source_apps,
+          STRING_AGG(DISTINCT NULLIF(source_device, ''), ', ') AS source_devices,
+          MAX(recorded_at_source) AS recorded_at_source
+        FROM step_sessions
+       WHERE ${where.join(' AND ')}
+       GROUP BY user_uid, ${dayExpr}
+      HAVING COALESCE(SUM(steps), 0) > 0
+          OR COALESCE(SUM(distance_meters), 0) > 0
+          OR COALESCE(SUM(sleep_minutes), 0) > 0
+          OR COALESCE(SUM(active_energy_kcal), 0) > 0
+       ORDER BY ${dayExpr} DESC
+       LIMIT $${idx}::int`,
+      ...params,
+      limit,
+    );
+    return rows.map(normalizePatientActivityEvent).filter(Boolean);
+  } catch (err) {
+    logCanonicalFailure('patient-generated activity timeline read', err);
+    return [];
+  }
+}
+
 export async function recordTimelineEvent(input = {}, options = {}) {
   const db = dbClient(options.db);
   if (!hasRawClient(db)) return null;
@@ -595,6 +713,13 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
     }
   }
 
+  const includePatientGenerated = filters.includePatientGenerated !== false
+    && filters.include_patient_generated !== false
+    && String(filters.include_patient_generated || '').toLowerCase() !== 'false';
+  const patientGenerated = includePatientGenerated
+    ? await readPatientGeneratedActivityTimeline(uid, filters, { db })
+    : [];
+
   let legacy = [];
   if (includeLegacy) {
     try {
@@ -615,6 +740,12 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
   const seen = new Set(canonical.map((event) => `${event.source_table || event.resource_type}:${event.source_id || event.resource_id}:${event.event_type}`));
   const merged = [
     ...canonical,
+    ...patientGenerated.filter((event) => {
+      const key = `${event.source_table || event.resource_type}:${event.source_id || event.resource_id}:${event.event_type}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }),
     ...legacy.filter((event) => {
       const key = `${event.resource_type || 'legacy'}:${event.resource_id || event.id}:${event.event_type}`;
       if (seen.has(key)) return false;
@@ -631,6 +762,7 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
     events: merged,
     counts: {
       canonical: canonical.length,
+      patient_generated: patientGenerated.length,
       legacy: legacy.length,
       returned: merged.length,
     },

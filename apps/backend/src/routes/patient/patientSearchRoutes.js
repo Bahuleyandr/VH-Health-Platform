@@ -44,6 +44,7 @@ router.get(
         date_to: req.query.date_to || null,
         limit: req.query.limit,
         includeLegacy: req.query.include_legacy === 'true',
+        include_patient_generated: req.query.include_patient_generated !== 'false',
       });
 
       logPhiAccess({

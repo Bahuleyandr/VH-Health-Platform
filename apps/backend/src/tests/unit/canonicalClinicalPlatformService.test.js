@@ -47,7 +47,7 @@ const ENCOUNTER = '22222222-2222-4222-8222-222222222222';
 const ACTOR = '33333333-3333-4333-8333-333333333333';
 
 beforeEach(() => {
-  queryUnsafeMock.mockReset();
+  queryUnsafeMock.mockReset().mockResolvedValue([]);
   loggerWarnMock.mockReset();
   validatePrescriptionSafetyMock.mockReset().mockResolvedValue({ safe: true, warnings: [], blockers: [] });
   getLegacyPatientTimelineMock.mockReset().mockResolvedValue([]);
@@ -126,7 +126,12 @@ describe('canonical clinical platform service', () => {
     expect(timeline.patient_uid).toBe(PATIENT);
     expect(timeline.source).toBe('canonical');
     expect(timeline.legacy_included).toBe(false);
-    expect(timeline.counts).toEqual({ canonical: 1, legacy: 0, returned: 1 });
+    expect(timeline.counts).toEqual({
+      canonical: 1,
+      patient_generated: 0,
+      legacy: 0,
+      returned: 1,
+    });
     expect(timeline.events.map((event) => event.event_type)).toEqual([
       'prescription.created',
     ]);
@@ -170,12 +175,57 @@ describe('canonical clinical platform service', () => {
     const timeline = await readCanonicalPatientTimeline(PATIENT, { limit: 20, includeLegacy: true });
 
     expect(timeline.legacy_included).toBe(true);
-    expect(timeline.counts).toEqual({ canonical: 1, legacy: 2, returned: 3 });
+    expect(timeline.counts).toEqual({
+      canonical: 1,
+      patient_generated: 0,
+      legacy: 2,
+      returned: 3,
+    });
     expect(timeline.events.map((event) => event.event_type)).toEqual([
       'prescription.created',
       'vitals.recorded',
       'clinical_note',
     ]);
+  });
+
+  it('adds patient-generated activity summaries to the canonical timeline read', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        user_uid: PATIENT,
+        source_day: new Date('2026-06-06T00:00:00.000Z'),
+        steps: 8420,
+        distance_meters: 6315,
+        sleep_minutes: 415,
+        active_energy_kcal: 302.4,
+        sources: 'health_connect',
+        source_apps: 'Google Fit',
+        source_devices: 'Pixel Watch',
+        recorded_at_source: new Date('2026-06-06T22:30:00.000Z'),
+      }]);
+
+    const timeline = await readCanonicalPatientTimeline(PATIENT, { limit: 20 });
+
+    expect(timeline.counts).toEqual({
+      canonical: 0,
+      patient_generated: 1,
+      legacy: 0,
+      returned: 1,
+    });
+    expect(timeline.events[0]).toMatchObject({
+      event_type: 'patient_activity.daily_summary',
+      event_status: 'unverified',
+      patient_generated: true,
+      resource_type: 'patient_activity',
+      payload: {
+        source_kind: 'patient_generated',
+        verification_status: 'unverified',
+        steps: 8420,
+        distance_meters: 6315,
+        sleep_minutes: 415,
+      },
+    });
+    expect(timeline.events[0].clinical_summary).toContain('8,420 steps');
   });
 
   it('rejects invalid encounter lifecycle transitions', async () => {

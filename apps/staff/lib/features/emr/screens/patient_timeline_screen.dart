@@ -5,6 +5,9 @@ import '../../../core/services/recent_patients_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../widgets/patient_health_journey_panel.dart';
+
+enum _TimelineView { healthJourney, eventLog }
 
 class _TimelineAction {
   final IconData icon;
@@ -38,6 +41,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   bool _loading = true;
   String? _error;
   String? _filterType;
+  _TimelineView _view = _TimelineView.healthJourney;
 
   static const _eventTypes = [
     'all',
@@ -510,6 +514,38 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
     );
   }
 
+  Widget _buildViewToggle() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: SegmentedButton<_TimelineView>(
+        segments: const [
+          ButtonSegment<_TimelineView>(
+            value: _TimelineView.healthJourney,
+            icon: Icon(Icons.insights_outlined, size: 18),
+            label: Text('Health journey'),
+          ),
+          ButtonSegment<_TimelineView>(
+            value: _TimelineView.eventLog,
+            icon: Icon(Icons.list_alt_outlined, size: 18),
+            label: Text('Event log'),
+          ),
+        ],
+        selected: {_view},
+        onSelectionChanged: (selection) {
+          setState(() => _view = selection.first);
+        },
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? AppTheme.primaryBlue
+                : AppTheme.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
   String _patientRouteQuery() {
     final params = <String>[
       if ((widget.patientName ?? '').trim().isNotEmpty)
@@ -746,10 +782,22 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                 const SizedBox(height: 8),
                 _buildClinicalActionStrip(),
                 const SizedBox(height: 4),
-                _buildFilterChips(),
+                _buildViewToggle(),
                 const SizedBox(height: 8),
+                if (_view == _TimelineView.eventLog) ...[
+                  _buildFilterChips(),
+                  const SizedBox(height: 8),
+                ],
                 Expanded(
-                  child: filtered.isEmpty
+                  child: _view == _TimelineView.healthJourney
+                      ? RefreshIndicator(
+                          onRefresh: _loadTimeline,
+                          child: PatientHealthJourneyPanel(
+                            events: _events,
+                            onEventTap: _showEventDetail,
+                          ),
+                        )
+                      : filtered.isEmpty
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
