@@ -42,88 +42,92 @@ import 'package:vhhealth/core/offline/mutation_queue.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  final crashlyticsEnabled =
-      !const bool.fromEnvironment(
-        'VH_DISABLE_CRASHLYTICS',
-        defaultValue: false,
-      ) &&
-      (Platform.isAndroid || Platform.isIOS);
+  var crashlyticsEnabled = false;
 
-  // When running in debug mode against a non-production backend
-  // (e.g. http://127.0.0.1:5206 for local QA), disable Firebase phone-auth
-  // reCAPTCHA verification. The dev hostname is not in the Firebase project's
-  // authorised-domains list, so reCAPTCHA Enterprise config calls return 403
-  // and the OTP entry screen stalls indefinitely.
-  // appVerificationDisabledForTesting lets test phone numbers (configured
-  // in the Firebase console) skip the reCAPTCHA path entirely; it is a
-  // strict no-op against api.vhhealth.app where the domain is authorised.
-  if (kDebugMode && ApiConfig.baseUrl.startsWith('http://')) {
-    try {
-      await FirebaseAuth.instance.setSettings(
-        appVerificationDisabledForTesting: true,
+  await runZonedGuarded<Future<void>>(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
       );
-    } catch (e) {
-      debugPrint('Firebase test-mode setSettings skipped: $e');
-    }
-  }
+      crashlyticsEnabled =
+          !const bool.fromEnvironment(
+            'VH_DISABLE_CRASHLYTICS',
+            defaultValue: false,
+          ) &&
+          (Platform.isAndroid || Platform.isIOS);
 
-  // Install the Firebase-backed crash reporter so core + app code all route
-  // non-fatal errors through the same abstraction.
-  if (crashlyticsEnabled) {
-    CrashReporter.install(const FirebaseCrashReporter());
-
-    // Pass all uncaught Flutter framework errors to Crashlytics.
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-  }
-
-  // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
-  ApiClient.onSessionExpired = (message) {
-    if (UserProvider.instance?.isGuest ?? false) {
-      return;
-    }
-    UserProvider.instance?.clear();
-    AppRouter.router.go('/login');
-  };
-
-  // Local notifications: initialize the scheduler, then sync medication
-  // reminders from the backend. Both run off the critical path — neither is
-  // needed for the first frame (the splash screen), and even with a JWT in
-  // storage a slow / unreachable backend would otherwise stall the splash for
-  // the full VHHttpClient retry budget (~30s). NotificationScheduler's public
-  // methods self-initialize, so any later caller (dashboard reschedule,
-  // logout cancelAll) is safe even before this block finishes.
-  unawaited(() async {
-    try {
-      await NotificationScheduler.initialize();
-      final jwt = await const FlutterSecureStorage().read(key: 'jwt');
-      if (jwt == null || jwt.isEmpty) return;
-      final remindersResp = await ApiClient.get('/reminders/medication');
-      if (remindersResp.isSuccess && remindersResp.data is List) {
-        final reminders = (remindersResp.data as List)
-            .cast<Map<String, dynamic>>();
-        await NotificationScheduler.rescheduleAll(reminders);
+      // When running in debug mode against a non-production backend
+      // (e.g. http://127.0.0.1:5206 for local QA), disable Firebase phone-auth
+      // reCAPTCHA verification. The dev hostname is not in the Firebase
+      // project's authorised-domains list, so reCAPTCHA Enterprise config calls
+      // return 403 and the OTP entry screen stalls indefinitely.
+      // appVerificationDisabledForTesting lets test phone numbers (configured
+      // in the Firebase console) skip the reCAPTCHA path entirely; it is a
+      // strict no-op against api.vhhealth.app where the domain is authorised.
+      if (kDebugMode && ApiConfig.baseUrl.startsWith('http://')) {
+        try {
+          await FirebaseAuth.instance.setSettings(
+            appVerificationDisabledForTesting: true,
+          );
+        } catch (e) {
+          debugPrint('Firebase test-mode setSettings skipped: $e');
+        }
       }
-    } catch (e) {
-      debugPrint('Medication reminder setup skipped: $e');
-    }
-  }());
 
-  // Start network connectivity monitoring.
-  ConnectivityService.startMonitoring();
+      // Install the Firebase-backed crash reporter so core + app code all route
+      // non-fatal errors through the same abstraction.
+      if (crashlyticsEnabled) {
+        CrashReporter.install(const FirebaseCrashReporter());
 
-  // Auto-replay queued mutations when connectivity is restored.
-  ConnectivityService.onChange.listen((online) {
-    if (online) MutationQueue.replayQueue();
-  });
+        // RenderFlex overflow is a layout defect, not a process crash. Keep it
+        // visible in Crashlytics without inflating the fatal crash trend email.
+        FlutterError.onError = _recordFlutterFrameworkError;
+      }
 
-  // Connect the WebSocket service for real-time updates.
-  WebSocketService.instance.connect();
+      // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
+      ApiClient.onSessionExpired = (message) {
+        if (UserProvider.instance?.isGuest ?? false) {
+          return;
+        }
+        UserProvider.instance?.clear();
+        AppRouter.router.go('/login');
+      };
 
-  // Catch async errors not handled by Flutter framework.
-  runZonedGuarded(
-    () {
+      // Local notifications: initialize the scheduler, then sync medication
+      // reminders from the backend. Both run off the critical path — neither is
+      // needed for the first frame (the splash screen), and even with a JWT in
+      // storage a slow / unreachable backend would otherwise stall the splash for
+      // the full VHHttpClient retry budget (~30s). NotificationScheduler's public
+      // methods self-initialize, so any later caller (dashboard reschedule,
+      // logout cancelAll) is safe even before this block finishes.
+      unawaited(() async {
+        try {
+          await NotificationScheduler.initialize();
+          final jwt = await const FlutterSecureStorage().read(key: 'jwt');
+          if (jwt == null || jwt.isEmpty) return;
+          final remindersResp = await ApiClient.get('/reminders/medication');
+          if (remindersResp.isSuccess && remindersResp.data is List) {
+            final reminders = (remindersResp.data as List)
+                .cast<Map<String, dynamic>>();
+            await NotificationScheduler.rescheduleAll(reminders);
+          }
+        } catch (e) {
+          debugPrint('Medication reminder setup skipped: $e');
+        }
+      }());
+
+      // Start network connectivity monitoring.
+      ConnectivityService.startMonitoring();
+
+      // Auto-replay queued mutations when connectivity is restored.
+      ConnectivityService.onChange.listen((online) {
+        if (online) MutationQueue.replayQueue();
+      });
+
+      // Connect the WebSocket service for real-time updates.
+      WebSocketService.instance.connect();
+
       runApp(const VHRoot());
     },
     (error, stack) {
@@ -133,6 +137,18 @@ Future<void> main() async {
         debugPrint('Uncaught app error: $error');
       }
     },
+  );
+}
+
+void _recordFlutterFrameworkError(FlutterErrorDetails details) {
+  final exception = details.exceptionAsString();
+  final isLayoutOverflow =
+      exception.contains('RenderFlex overflowed') ||
+      exception.contains('overflowed by');
+
+  FirebaseCrashlytics.instance.recordFlutterError(
+    details,
+    fatal: !isLayoutOverflow,
   );
 }
 
