@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
@@ -14,6 +15,8 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const LONG_CLINICAL_AI_TEST_TIMEOUT_MS = 60000;
 const DEFAULT_EVAL_MODEL = 'llama3.1:8b';
 const acceptedEvalSeeds = new Set();
+
+jest.setTimeout(LONG_CLINICAL_AI_TEST_TIMEOUT_MS);
 
 function authed(role, uid) {
   const token = generateTestToken(role, { uid, id: role === 'PATIENT' ? 7001 : 7002 });
