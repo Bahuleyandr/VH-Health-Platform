@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -40,6 +41,15 @@ class HealthSyncService {
       HealthDataType.DISTANCE_DELTA,
   ];
 
+  static List<HealthDataType> get _activityReadTypes => [
+    HealthDataType.STEPS,
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    if (Platform.isIOS)
+      HealthDataType.DISTANCE_WALKING_RUNNING
+    else
+      HealthDataType.DISTANCE_DELTA,
+  ];
+
   /// Subset of [_readTypes] we also write back to HealthKit / Health Connect
   /// after the user records them manually in-app. Kept narrower than [_readTypes]
   /// because some types (STEPS, SLEEP_ASLEEP) are passively sensor-derived
@@ -70,9 +80,25 @@ class HealthSyncService {
   /// Request read permissions for all six tracked types. Call from an
   /// explicit user action (the Settings tile) — not from background code.
   Future<bool> requestPermissions() async {
+    return _requestReadPermissions(_readTypes);
+  }
+
+  /// Request only activity-related reads for the Home steps card. This keeps
+  /// the first wearable prompt focused on steps instead of asking for every
+  /// vitals permission at once.
+  Future<bool> requestActivityPermissions() async {
+    return _requestReadPermissions(_activityReadTypes);
+  }
+
+  Future<bool> _requestReadPermissions(
+    List<HealthDataType> requestedTypes,
+  ) async {
     if (!_isSupportedPlatform) return false;
     await _health.configure();
-    final types = _availableReadTypes();
+    final ready = await _ensureAndroidPermissionPrerequisites();
+    if (!ready) return false;
+
+    final types = _availableTypes(requestedTypes);
     if (types.isEmpty) return false;
     final permissions = List<HealthDataAccess>.filled(
       types.length,
@@ -82,20 +108,61 @@ class HealthSyncService {
       types,
       permissions: permissions,
     );
-    _permissionsGranted = granted;
+    _permissionsGranted = granted && _isFullReadSet(types);
     return granted;
   }
 
   /// Check whether HealthKit / Health Connect read permissions are already
   /// available without opening the OS permission sheet.
   Future<bool> hasReadPermissions() async {
+    return _hasReadPermissions(_readTypes);
+  }
+
+  Future<bool> hasActivityReadPermissions() async {
+    return _hasReadPermissions(_activityReadTypes);
+  }
+
+  Future<bool> _hasReadPermissions(List<HealthDataType> requestedTypes) async {
     if (!_isSupportedPlatform) return false;
     await _health.configure();
-    final types = _availableReadTypes();
+    final types = _availableTypes(requestedTypes);
     if (types.isEmpty) return false;
+
+    if (Platform.isAndroid && _containsStepData(types)) {
+      final activity = await Permission.activityRecognition.status;
+      if (!activity.isGranted) return false;
+    }
+
     final has = await _health.hasPermissions(types) ?? false;
-    _permissionsGranted = has;
+    _permissionsGranted = has && _isFullReadSet(types);
     return has;
+  }
+
+  /// Health Connect can sync while the app is backgrounded only when Android
+  /// grants this extra permission. We keep it separate from the main read
+  /// permission so a denial does not block foreground/manual syncing.
+  Future<bool> requestBackgroundReadPermissionIfAvailable() async {
+    if (!_isSupportedPlatform) return false;
+    if (Platform.isIOS) return true;
+
+    await _health.configure();
+    try {
+      final status = await _health.getHealthConnectSdkStatus();
+      if (status != HealthConnectSdkStatus.sdkAvailable) return false;
+
+      final available = await _health.isHealthDataInBackgroundAvailable();
+      if (!available) return false;
+
+      final alreadyGranted = await _health.isHealthDataInBackgroundAuthorized();
+      if (alreadyGranted) return true;
+
+      return _health.requestHealthDataInBackgroundAuthorization();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('HealthSyncService: background permission failed: $e');
+      }
+      return false;
+    }
   }
 
   /// Request WRITE permissions for the vitals we push back after manual entry.
@@ -136,13 +203,18 @@ class HealthSyncService {
   /// callers rely on this behaviour to avoid spurious prompts.
   Future<int> syncNow() async {
     if (!_isSupportedPlatform) return 0;
-    final types = _availableReadTypes();
+    var types = _availableReadTypes();
     if (types.isEmpty) return 0;
     if (!_permissionsGranted) {
       await _health.configure();
-      final has = await _health.hasPermissions(types) ?? false;
-      if (!has) return 0;
-      _permissionsGranted = true;
+      if (Platform.isAndroid) {
+        types = await _grantedReadTypes(types);
+        if (types.isEmpty) return 0;
+      } else {
+        final has = await _health.hasPermissions(types) ?? false;
+        if (!has) return 0;
+        _permissionsGranted = true;
+      }
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -329,8 +401,65 @@ class HealthSyncService {
     return null;
   }
 
-  List<HealthDataType> _availableReadTypes() =>
-      _readTypes.where(_health.isDataTypeAvailable).toList();
+  List<HealthDataType> _availableReadTypes() => _availableTypes(_readTypes);
+
+  List<HealthDataType> _availableTypes(List<HealthDataType> types) =>
+      types.where(_health.isDataTypeAvailable).toList();
+
+  bool _isFullReadSet(List<HealthDataType> types) {
+    final available = _availableReadTypes().toSet();
+    return types.toSet().containsAll(available);
+  }
+
+  bool _containsStepData(List<HealthDataType> types) =>
+      types.contains(HealthDataType.STEPS);
+
+  Future<bool> _ensureAndroidPermissionPrerequisites() async {
+    if (!Platform.isAndroid) return true;
+
+    final status = await _health.getHealthConnectSdkStatus();
+    if (status != HealthConnectSdkStatus.sdkAvailable) {
+      await _health.installHealthConnect();
+      return false;
+    }
+
+    final activity = await Permission.activityRecognition.status;
+    if (activity.isGranted) return true;
+
+    final requested = await Permission.activityRecognition.request();
+    return requested.isGranted;
+  }
+
+  Future<List<HealthDataType>> _grantedReadTypes(
+    List<HealthDataType> types,
+  ) async {
+    final canReadSteps =
+        !types.contains(HealthDataType.STEPS) ||
+        (await Permission.activityRecognition.status).isGranted;
+    final granted = <HealthDataType>[];
+
+    for (final type in types) {
+      if (type == HealthDataType.STEPS && !canReadSteps) continue;
+      try {
+        final has =
+            await _health.hasPermissions(
+              [type],
+              permissions: [HealthDataAccess.READ],
+            ) ??
+            false;
+        if (has) granted.add(type);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            'HealthSyncService: permission check failed for $type: $e',
+          );
+        }
+      }
+    }
+
+    _permissionsGranted = granted.length == types.length;
+    return granted;
+  }
 
   bool _isSleepType(HealthDataType type) =>
       type == HealthDataType.SLEEP_ASLEEP ||

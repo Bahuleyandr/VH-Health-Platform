@@ -670,7 +670,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     try {
       final healthSync = HealthSyncService.instance;
-      var granted = await healthSync.hasReadPermissions();
+      var granted = await healthSync.hasActivityReadPermissions();
       if (!mounted) return;
 
       if (!granted) {
@@ -682,7 +682,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-        granted = await healthSync.requestPermissions();
+        granted = await healthSync.requestActivityPermissions();
         if (!mounted) return;
       }
 
@@ -700,7 +700,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final synced = await healthSync.syncNow();
       await healthSync.startForegroundSync();
-      await HealthSyncService.enableBackgroundSync();
+      final backgroundGranted = await healthSync
+          .requestBackgroundReadPermissionIfAvailable();
+      if (backgroundGranted) {
+        await HealthSyncService.enableBackgroundSync();
+      }
       if (!mounted) return;
 
       await _fetchSmartWidgetData();

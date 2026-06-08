@@ -111,7 +111,11 @@ List<Widget> buildSettingsSections(SettingsController c) {
               // Register the 15-min background task so sync keeps running when
               // the app is backgrounded. Safe to call every time — existingWork
               // policy is `keep`, so re-registration is a no-op.
-              await HealthSyncService.enableBackgroundSync();
+              final backgroundGranted = await HealthSyncService.instance
+                  .requestBackgroundReadPermissionIfAvailable();
+              if (backgroundGranted) {
+                await HealthSyncService.enableBackgroundSync();
+              }
               messenger.showSnackBar(
                 SnackBar(
                   content: Text(
