@@ -8209,6 +8209,7 @@ model step_sessions {
   source_app         String?   @db.VarChar(120)
   recorded_at_source DateTime? @db.Timestamptz(6)
 
+  @@unique([user_uid, source, source_day], map: "idx_step_sessions_user_source_day", where: raw("(source_day IS NOT NULL)"))
   @@index([started_at])
   @@index([user_uid])
   @@index([user_uid, started_at])
