@@ -40,9 +40,6 @@ wrapAutoRBAC(
     get: [
       // 📋 Get All Available Roles with Details
       ['/roles', rbacController.getRoles],
-
-      // Canonical role policy graph for Staff/Admin consumers
-      ['/policy', rbacController.getPolicy],
       
       // 👥 Get Users Grouped by Role
       ['/users', usersQueryValidator, rbacController.getUsersByRole],
@@ -107,6 +104,10 @@ wrapRoutes(
   [], // Any authenticated user
   {
     get: [
+      // Canonical role policy graph for authenticated Staff/Admin consumers.
+      // This powers role-driven Staff UI visibility; it must not be HR/Admin-only.
+      ['/policy', rbacController.getPolicy],
+
       // 📋 Get My Role Information
       ['/my-role', rbacController.getMyRole],
       

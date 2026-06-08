@@ -93,6 +93,7 @@ describe('canonical clinical platform foundation coverage guard', () => {
 
   it('keeps role policy feature catalog tied to Staff sidebar fallback', () => {
     const policy = readRepo('apps/backend/src/config/rolePolicyGraph.js');
+    const rbacRoutes = readRepo('apps/backend/src/routes/infrastructure/rbacRoutes.js');
     const roleConfig = readRepo('apps/staff/lib/core/config/role_config.dart');
     const mainScaffold = readRepo('apps/staff/lib/core/widgets/main_scaffold.dart');
 
@@ -114,5 +115,10 @@ describe('canonical clinical platform foundation coverage guard', () => {
     expect(roleConfig).toContain('policyFeatureIds');
     expect(mainScaffold).toContain('getRolePolicySnapshot');
     expect(mainScaffold).toContain('policyFeatureIds: _policyFeatureIds');
+
+    const selfServiceMarker = rbacRoutes.indexOf('SELF-SERVICE ROUTES');
+    const policyRoute = rbacRoutes.indexOf("['/policy', rbacController.getPolicy]", selfServiceMarker);
+    expect(selfServiceMarker).toBeGreaterThan(-1);
+    expect(policyRoute).toBeGreaterThan(selfServiceMarker);
   });
 });
