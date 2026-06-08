@@ -8192,19 +8192,27 @@ model step_rewards {
 }
 
 model step_sessions {
-  id               Int       @id @default(autoincrement())
-  user_uid         String    @db.Uuid
-  started_at       DateTime  @db.Timestamp(6)
-  ended_at         DateTime? @db.Timestamp(6)
-  steps            Int       @default(0)
-  distance_meters  Float     @default(0)
-  duration_seconds Int       @default(0)
-  is_active        Boolean   @default(true)
-  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  id                 Int       @id @default(autoincrement())
+  user_uid           String    @db.Uuid
+  started_at         DateTime  @db.Timestamp(6)
+  ended_at           DateTime? @db.Timestamp(6)
+  steps              Int       @default(0)
+  distance_meters    Float     @default(0)
+  duration_seconds   Int       @default(0)
+  is_active          Boolean   @default(true)
+  created_at         DateTime  @default(now()) @db.Timestamp(6)
+  source             String    @default("manual") @db.VarChar(30)
+  source_day         DateTime? @db.Date
+  sleep_minutes      Int       @default(0)
+  active_energy_kcal Decimal?  @db.Decimal(8, 2)
+  source_device      String?   @db.VarChar(120)
+  source_app         String?   @db.VarChar(120)
+  recorded_at_source DateTime? @db.Timestamptz(6)
 
   @@index([started_at])
   @@index([user_uid])
   @@index([user_uid, started_at])
+  @@index([source, source_day(sort: Desc)], map: "idx_step_sessions_source_day")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

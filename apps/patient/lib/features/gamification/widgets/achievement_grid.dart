@@ -234,9 +234,9 @@ class _AchievementGridState extends State<AchievementGrid> {
             crossAxisCount: 3,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 10,
+            mainAxisSpacing: 12,
             crossAxisSpacing: 10,
-            childAspectRatio: 0.85,
+            childAspectRatio: 0.68,
             children: [
               for (final a in kAchievements)
                 _badgeTile(context, a, _isUnlocked(a), _earnedAt(a)),
@@ -280,27 +280,41 @@ class _AchievementGridState extends State<AchievementGrid> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.14),
                 shape: BoxShape.circle,
               ),
-              child: Icon(a.icon, color: color, size: 28),
+              child: Icon(a.icon, color: color, size: 25),
             ),
-            const SizedBox(height: 8),
-            Text(
-              a.title,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: unlocked ? null : theme.hintColor,
+            const SizedBox(height: 7),
+            Expanded(
+              child: Center(
+                child: Text(
+                  a.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                    height: 1.05,
+                    letterSpacing: 0,
+                    color: unlocked ? null : theme.hintColor,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             Text(
               unlocked ? 'Earned' : 'Locked',
-              style: theme.textTheme.labelSmall?.copyWith(color: color),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: color,
+                letterSpacing: 0,
+              ),
             ),
           ],
         ),

@@ -521,11 +521,13 @@ class _CenterLogoButton extends StatelessWidget {
     final logoSize = 82.0 * scale;
 
     return Tooltip(
-      message: 'Health Points',
+      message: 'Health Hub',
       child: Semantics(
         button: true,
-        label: 'Health Points',
+        label: 'Health Hub',
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onDoubleTap,
           onDoubleTap: onDoubleTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),

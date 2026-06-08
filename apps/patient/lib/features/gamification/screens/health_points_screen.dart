@@ -29,17 +29,24 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
   bool _loadingSummary = true;
   Map<String, dynamic>? _summary;
 
+  // ── Central health hub stats ──
+  bool _loadingHubStats = true;
+  Map<String, dynamic>? _stepProfile;
+  Map<String, dynamic>? _stepHistory;
+  Map<String, dynamic>? _wellnessScore;
+  Map<String, dynamic>? _syncStatus;
+
   // ── Milestones data ──
-  bool _loadingMilestones = true;
+  bool _loadingMilestones = false;
   List<Map<String, dynamic>> _milestones = [];
   final Set<String> _claimingIds = {};
 
   // ── Rewards (My Rewards) ──
-  bool _loadingRewards = true;
+  bool _loadingRewards = false;
   List<Map<String, dynamic>> _rewards = [];
 
   // ── History data ──
-  bool _loadingHistory = true;
+  bool _loadingHistory = false;
   List<Map<String, dynamic>> _history = [];
   int _historyPage = 1;
   bool _hasMoreHistory = true;
@@ -51,6 +58,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
     _tabController = TabController(length: 5, vsync: this);
     _tabController.addListener(_onTabChanged);
     _fetchSummary();
+    _fetchHubStats();
   }
 
   @override
@@ -82,6 +90,38 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
   }
 
   // ─── Data fetching ───────────────────────────────────────────────────────
+
+  Future<void> _fetchHubStats() async {
+    setState(() => _loadingHubStats = true);
+    try {
+      final results = await Future.wait([
+        ApiClient.get('/steps/profile'),
+        ApiClient.get('/steps/history'),
+        ApiClient.get('/gamification/wellness-score'),
+        ApiClient.get('/steps/sync-status'),
+      ]);
+      if (!mounted) return;
+
+      setState(() {
+        _stepProfile = results[0].isSuccess
+            ? Map<String, dynamic>.from(results[0].dataAsMap())
+            : null;
+        _stepHistory = results[1].isSuccess
+            ? Map<String, dynamic>.from(results[1].dataAsMap())
+            : null;
+        _wellnessScore = results[2].isSuccess
+            ? Map<String, dynamic>.from(results[2].dataAsMap())
+            : null;
+        _syncStatus = results[3].isSuccess
+            ? Map<String, dynamic>.from(results[3].dataAsMap())
+            : null;
+      });
+    } catch (e) {
+      debugPrint('fetchHubStats error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingHubStats = false);
+    }
+  }
 
   Future<void> _fetchSummary() async {
     setState(() => _loadingSummary = true);
@@ -197,6 +237,10 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
     }
   }
 
+  Future<void> _refreshOverview() async {
+    await Future.wait([_fetchSummary(), _fetchHubStats()]);
+  }
+
   Future<void> _claimMilestone(String milestoneId) async {
     setState(() => _claimingIds.add(milestoneId));
     try {
@@ -217,6 +261,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         _showVoucherDialog(voucherCode, rewardDesc);
         _fetchMilestones();
         _fetchSummary();
+        _fetchHubStats();
       } else {
         _showError(resp.message ?? 'Failed to claim milestone');
       }
@@ -321,12 +366,22 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
   @override
   Widget build(BuildContext context) {
     return FeatureScreenScaffold(
-      title: 'Health Points',
-      icon: Icons.emoji_events,
-      color: const Color(0xFFFFD54F),
+      title: 'Health Hub',
+      icon: Icons.health_and_safety_outlined,
+      color: const Color(0xFF80CBC4),
       heroTag: 'health-points',
       child: Column(
         children: [
+          _HealthHubStatsPanel(
+            loading: _loadingHubStats,
+            summary: _summary,
+            stepProfile: _stepProfile,
+            stepHistory: _stepHistory,
+            wellnessScore: _wellnessScore,
+            syncStatus: _syncStatus,
+            onRefresh: _refreshOverview,
+          ),
+          const SizedBox(height: 12),
           TabBar(
             controller: _tabController,
             isScrollable: true,
@@ -340,15 +395,14 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
             ],
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.65,
+          Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
                 OverviewTab(
                   summary: _summary,
                   loading: _loadingSummary,
-                  onRefresh: _fetchSummary,
+                  onRefresh: _refreshOverview,
                 ),
                 MilestonesTab(
                   milestones: _milestones,
@@ -374,6 +428,357 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HealthHubStatsPanel extends StatelessWidget {
+  final bool loading;
+  final Map<String, dynamic>? summary;
+  final Map<String, dynamic>? stepProfile;
+  final Map<String, dynamic>? stepHistory;
+  final Map<String, dynamic>? wellnessScore;
+  final Map<String, dynamic>? syncStatus;
+  final Future<void> Function() onRefresh;
+
+  const _HealthHubStatsPanel({
+    required this.loading,
+    required this.summary,
+    required this.stepProfile,
+    required this.stepHistory,
+    required this.wellnessScore,
+    required this.syncStatus,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final profile = _mapValue(stepProfile?['profile']) ?? const {};
+    final totalPoints =
+        _asInt(summary?['totalPoints']) ?? _asInt(summary?['total']) ?? 0;
+    final wellness = _asInt(wellnessScore?['score']);
+    final goal = _asInt(profile['daily_goal']) ?? 8000;
+    final today = _todayStepRow(stepHistory);
+    final syncedToday = _mapValue(syncStatus?['today']) ?? const {};
+    final latestSync = _mapValue(syncStatus?['latest']);
+    final syncedSteps = _asInt(syncedToday['steps']) ?? 0;
+    final syncedDistance = _asDouble(syncedToday['distanceMeters']) ?? 0;
+    final steps = syncedSteps > 0 ? syncedSteps : _asInt(today?['steps']) ?? 0;
+    final distanceMeters = syncedDistance > 0
+        ? syncedDistance
+        : _asDouble(today?['distanceMeters']) ?? 0;
+    final sleepMinutes =
+        _asInt(syncedToday['sleepMinutes']) ??
+        _asInt(latestSync?['sleepMinutes']) ??
+        0;
+    final syncSource = _sourceLabel(latestSync?['source']?.toString());
+    final progress = goal > 0 ? (steps / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.sports_score_outlined,
+                  color: cs.primary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Central stats',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      loading
+                          ? 'Refreshing your activity'
+                          : syncSource == null
+                          ? 'Walking, points, wellness, and sleep readiness'
+                          : 'Walking, sleep, and points from $syncSource',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh stats',
+                onPressed: loading ? null : onRefresh,
+                icon: const Icon(Icons.refresh, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 430;
+              final columns = isCompact ? 2 : 3;
+              return GridView.count(
+                crossAxisCount: columns,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: isCompact ? 1.65 : 1.45,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _HubMetricTile(
+                    icon: Icons.directions_walk,
+                    tint: Colors.lightBlueAccent,
+                    label: 'Walking',
+                    value: loading ? '-' : _formatThousands(steps),
+                    caption: syncSource == null
+                        ? '$goal-step goal'
+                        : '$goal-step goal · $syncSource',
+                    progress: progress,
+                  ),
+                  _HubMetricTile(
+                    icon: Icons.route_outlined,
+                    tint: Colors.tealAccent,
+                    label: 'Distance',
+                    value: loading ? '-' : _formatKm(distanceMeters),
+                    caption: 'today',
+                  ),
+                  _HubMetricTile(
+                    icon: Icons.nightlight_round,
+                    tint: Colors.deepPurpleAccent,
+                    label: 'Sleep',
+                    value: loading
+                        ? '-'
+                        : sleepMinutes > 0
+                        ? _formatSleep(sleepMinutes)
+                        : 'No data',
+                    caption: syncSource == null
+                        ? 'Connect Health data'
+                        : '$syncSource sync',
+                  ),
+                  _HubMetricTile(
+                    icon: Icons.monitor_heart_outlined,
+                    tint: _wellnessColor(wellness),
+                    label: 'Wellness',
+                    value: wellness == null ? '-' : '$wellness',
+                    caption: 'out of 100',
+                    progress: wellness == null
+                        ? null
+                        : (wellness / 100).clamp(0.0, 1.0).toDouble(),
+                  ),
+                  _HubMetricTile(
+                    icon: Icons.emoji_events_outlined,
+                    tint: Colors.amber,
+                    label: 'Points',
+                    value: '$totalPoints',
+                    caption: 'current balance',
+                  ),
+                  _HubMetricTile(
+                    icon: Icons.flag_outlined,
+                    tint: Colors.greenAccent,
+                    label: 'Goal',
+                    value: '${(progress * 100).round()}%',
+                    caption: 'steps today',
+                    progress: progress,
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Map<String, dynamic>? _todayStepRow(Map<String, dynamic>? history) {
+    final daily = history?['daily'];
+    if (daily is! List || daily.isEmpty) return null;
+    final todayIso = DateTime.now().toIso8601String().split('T').first;
+    for (final row in daily) {
+      if (row is Map && row['date']?.toString() == todayIso) {
+        return Map<String, dynamic>.from(row);
+      }
+    }
+    final first = daily.first;
+    return first is Map ? Map<String, dynamic>.from(first) : null;
+  }
+
+  static Map<String, dynamic>? _mapValue(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  static double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  static String _formatThousands(int n) {
+    if (n < 1000) return '$n';
+    return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 1)}k';
+  }
+
+  static String _formatKm(double meters) {
+    final km = meters / 1000;
+    return '${km.toStringAsFixed(km >= 10 ? 1 : 2)} km';
+  }
+
+  static String _formatSleep(int minutes) {
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    if (hours <= 0) return '${mins}m';
+    if (mins == 0) return '${hours}h';
+    return '${hours}h ${mins}m';
+  }
+
+  static String? _sourceLabel(String? source) {
+    switch (source) {
+      case 'health_connect':
+        return 'Health Connect';
+      case 'healthkit':
+        return 'Apple Health';
+      case 'strava':
+        return 'Strava';
+      case 'fitbit':
+        return 'Fitbit';
+      case 'garmin':
+        return 'Garmin';
+      case 'oura':
+        return 'Oura';
+      case 'withings':
+        return 'Withings';
+      case 'samsung_health':
+        return 'Samsung Health';
+      case 'polar':
+        return 'Polar';
+      case 'wearable':
+        return 'Wearable';
+      default:
+        return null;
+    }
+  }
+
+  static Color _wellnessColor(int? score) {
+    if (score == null) return Colors.tealAccent;
+    if (score >= 80) return Colors.greenAccent;
+    if (score >= 55) return Colors.amberAccent;
+    return Colors.redAccent;
+  }
+}
+
+class _HubMetricTile extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+  final String label;
+  final String value;
+  final String caption;
+  final double? progress;
+
+  const _HubMetricTile({
+    required this.icon,
+    required this.tint,
+    required this.label,
+    required this.value,
+    required this.caption,
+    this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: tint.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: tint.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 15, color: tint),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: tint,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            caption,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          if (progress != null) ...[
+            const SizedBox(height: 5),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress!.clamp(0.0, 1.0).toDouble(),
+                minHeight: 3,
+                backgroundColor: tint.withValues(alpha: 0.14),
+                valueColor: AlwaysStoppedAnimation(tint),
+              ),
+            ),
+          ],
         ],
       ),
     );

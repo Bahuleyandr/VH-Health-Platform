@@ -23,17 +23,25 @@ class HealthSyncService {
   static const Duration _foregroundInterval = Duration(minutes: 30);
   static const String backgroundTaskName = 'vhhealth.health_sync';
 
-  static const List<HealthDataType> _types = [
+  static List<HealthDataType> get _readTypes => [
     HealthDataType.HEART_RATE,
     HealthDataType.BLOOD_OXYGEN,
     HealthDataType.STEPS,
     HealthDataType.WEIGHT,
     HealthDataType.BODY_TEMPERATURE,
     HealthDataType.SLEEP_ASLEEP,
+    HealthDataType.SLEEP_LIGHT,
+    HealthDataType.SLEEP_DEEP,
+    HealthDataType.SLEEP_REM,
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    if (Platform.isIOS)
+      HealthDataType.DISTANCE_WALKING_RUNNING
+    else
+      HealthDataType.DISTANCE_DELTA,
   ];
 
-  /// Subset of [_types] we also write back to HealthKit / Health Connect after
-  /// the user records them manually in-app. Kept narrower than [_types]
+  /// Subset of [_readTypes] we also write back to HealthKit / Health Connect
+  /// after the user records them manually in-app. Kept narrower than [_readTypes]
   /// because some types (STEPS, SLEEP_ASLEEP) are passively sensor-derived
   /// and writing them from the app would create duplicate or fake entries.
   static const List<HealthDataType> _writableTypes = [
@@ -57,19 +65,21 @@ class HealthSyncService {
 
   static bool get _isSupportedPlatform => Platform.isIOS || Platform.isAndroid;
 
-  String get _sourceTag => Platform.isIOS ? 'healthkit' : 'google_fit';
+  String get _sourceTag => Platform.isIOS ? 'healthkit' : 'health_connect';
 
   /// Request read permissions for all six tracked types. Call from an
   /// explicit user action (the Settings tile) — not from background code.
   Future<bool> requestPermissions() async {
     if (!_isSupportedPlatform) return false;
     await _health.configure();
+    final types = _availableReadTypes();
+    if (types.isEmpty) return false;
     final permissions = List<HealthDataAccess>.filled(
-      _types.length,
+      types.length,
       HealthDataAccess.READ,
     );
     final granted = await _health.requestAuthorization(
-      _types,
+      types,
       permissions: permissions,
     );
     _permissionsGranted = granted;
@@ -108,15 +118,17 @@ class HealthSyncService {
     _periodicTimer = null;
   }
 
-  /// Perform a one-shot sync. Returns 1 if vitals were posted, 0 otherwise.
+  /// Perform a one-shot sync. Returns the number of backend surfaces updated.
   ///
   /// Silent path — does **not** prompt for permissions. Background/resume
   /// callers rely on this behaviour to avoid spurious prompts.
   Future<int> syncNow() async {
     if (!_isSupportedPlatform) return 0;
+    final types = _availableReadTypes();
+    if (types.isEmpty) return 0;
     if (!_permissionsGranted) {
       await _health.configure();
-      final has = await _health.hasPermissions(_types) ?? false;
+      final has = await _health.hasPermissions(types) ?? false;
       if (!has) return 0;
       _permissionsGranted = true;
     }
@@ -124,16 +136,17 @@ class HealthSyncService {
     final prefs = await SharedPreferences.getInstance();
     final sourceKey = '$_prefsLastSyncPrefix$_sourceTag';
     final lastIso = prefs.getString(sourceKey);
-    final start = lastIso != null
-        ? DateTime.parse(lastIso)
-        : DateTime.now().subtract(const Duration(days: 7));
     final end = DateTime.now();
+    final todayStart = DateTime(end.year, end.month, end.day);
+    final start = lastIso == null
+        ? todayStart.subtract(const Duration(days: 7))
+        : todayStart.subtract(const Duration(days: 1));
     if (!end.isAfter(start)) return 0;
 
     final List<HealthDataPoint> points;
     try {
       points = await _health.getHealthDataFromTypes(
-        types: _types,
+        types: types,
         startTime: start,
         endTime: end,
       );
@@ -152,30 +165,81 @@ class HealthSyncService {
     double? temperature;
     double steps = 0;
     DateTime? latestSampleAt;
+    DateTime? latestHeartRateAt;
+    DateTime? latestSpo2At;
+    DateTime? latestWeightAt;
+    DateTime? latestTemperatureAt;
+    String? sourceApp;
+    String? sourceDevice;
+    final daily = <String, _DailyActivitySummary>{};
 
     for (final p in points) {
+      if (sourceApp == null && p.sourceName.trim().isNotEmpty) {
+        sourceApp = p.sourceName.trim();
+      }
+      if (sourceDevice == null && p.sourceDeviceId.trim().isNotEmpty) {
+        sourceDevice = p.sourceDeviceId.trim();
+      }
+      final day = _dayKey(_isSleepType(p.type) ? p.dateTo : p.dateFrom);
+      final summary = daily.putIfAbsent(
+        day,
+        () => _DailyActivitySummary(date: day),
+      );
+      if (_isSleepType(p.type)) {
+        final minutes = p.dateTo.difference(p.dateFrom).inMinutes;
+        if (minutes > 0) {
+          summary.sleepMinutes += minutes;
+          summary.trackLatest(p.dateTo);
+        }
+        if (latestSampleAt == null || p.dateTo.isAfter(latestSampleAt)) {
+          latestSampleAt = p.dateTo;
+        }
+        continue;
+      }
+
       final v = _numeric(p.value);
       if (v == null) continue;
       switch (p.type) {
         case HealthDataType.HEART_RATE:
-          if (latestSampleAt == null || p.dateFrom.isAfter(latestSampleAt)) {
+          if (latestHeartRateAt == null ||
+              p.dateFrom.isAfter(latestHeartRateAt)) {
             heartRate = v;
+            latestHeartRateAt = p.dateFrom;
           }
           break;
         case HealthDataType.BLOOD_OXYGEN:
           final pct = v <= 1.0 ? v * 100 : v;
-          if (spo2 == null || p.dateFrom.isAfter(latestSampleAt ?? start)) {
+          if (latestSpo2At == null || p.dateFrom.isAfter(latestSpo2At)) {
             spo2 = pct;
+            latestSpo2At = p.dateFrom;
           }
           break;
         case HealthDataType.STEPS:
           steps += v;
+          summary.steps += v.round();
+          summary.trackLatest(p.dateTo);
+          break;
+        case HealthDataType.DISTANCE_DELTA:
+        case HealthDataType.DISTANCE_WALKING_RUNNING:
+          summary.distanceMeters += v;
+          summary.trackLatest(p.dateTo);
+          break;
+        case HealthDataType.ACTIVE_ENERGY_BURNED:
+          summary.activeEnergyKcal += v;
+          summary.trackLatest(p.dateTo);
           break;
         case HealthDataType.WEIGHT:
-          weight = v;
+          if (latestWeightAt == null || p.dateFrom.isAfter(latestWeightAt)) {
+            weight = v;
+            latestWeightAt = p.dateFrom;
+          }
           break;
         case HealthDataType.BODY_TEMPERATURE:
-          temperature = v;
+          if (latestTemperatureAt == null ||
+              p.dateFrom.isAfter(latestTemperatureAt)) {
+            temperature = v;
+            latestTemperatureAt = p.dateFrom;
+          }
           break;
         default:
           break;
@@ -185,16 +249,7 @@ class HealthSyncService {
       }
     }
 
-    if (heartRate == null &&
-        spo2 == null &&
-        weight == null &&
-        temperature == null) {
-      await prefs.setString(
-        sourceKey,
-        (latestSampleAt ?? end).toIso8601String(),
-      );
-      return 0;
-    }
+    var updatedSurfaces = 0;
 
     final body = <String, dynamic>{
       if (heartRate != null) 'heartRate': heartRate.round(),
@@ -205,31 +260,79 @@ class HealthSyncService {
       'recordedAtSource': (latestSampleAt ?? end).toIso8601String(),
     };
 
-    try {
-      final resp = await ApiClient.post('/health/patient/vitals', body: body);
-      if (!resp.isSuccess) {
-        if (kDebugMode) {
-          debugPrint('HealthSyncService: POST failed ${resp.statusCode}');
+    if (heartRate != null ||
+        spo2 != null ||
+        weight != null ||
+        temperature != null) {
+      try {
+        final resp = await ApiClient.post('/health/patient/vitals', body: body);
+        if (resp.isSuccess) {
+          updatedSurfaces += 1;
+        } else if (kDebugMode) {
+          debugPrint(
+            'HealthSyncService: vitals POST failed ${resp.statusCode}',
+          );
         }
-        return 0;
+      } catch (e) {
+        if (kDebugMode) debugPrint('HealthSyncService: vitals POST error $e');
       }
-    } catch (e) {
-      if (kDebugMode) debugPrint('HealthSyncService: POST error $e');
-      return 0;
+    }
+
+    final days = daily.values.where((d) => d.hasActivity).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    if (days.isNotEmpty) {
+      try {
+        final resp = await ApiClient.post(
+          '/steps/health-sync',
+          body: {
+            'source': _sourceTag,
+            'sourceApp': sourceApp,
+            'sourceDevice': sourceDevice,
+            'days': days.map((d) => d.toJson()).toList(),
+          },
+        );
+        if (resp.isSuccess) {
+          updatedSurfaces += 1;
+        } else if (kDebugMode) {
+          debugPrint(
+            'HealthSyncService: activity POST failed ${resp.statusCode}',
+          );
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('HealthSyncService: activity POST error $e');
+      }
     }
 
     await prefs.setString(sourceKey, (latestSampleAt ?? end).toIso8601String());
     if (kDebugMode) {
       debugPrint(
-        'HealthSyncService: synced ${points.length} points, steps=$steps',
+        'HealthSyncService: synced ${points.length} points, steps=$steps, days=${days.length}, surfaces=$updatedSurfaces',
       );
     }
-    return 1;
+    return updatedSurfaces;
   }
 
   double? _numeric(HealthValue v) {
     if (v is NumericHealthValue) return v.numericValue.toDouble();
     return null;
+  }
+
+  List<HealthDataType> _availableReadTypes() =>
+      _readTypes.where(_health.isDataTypeAvailable).toList();
+
+  bool _isSleepType(HealthDataType type) =>
+      type == HealthDataType.SLEEP_ASLEEP ||
+      type == HealthDataType.SLEEP_LIGHT ||
+      type == HealthDataType.SLEEP_DEEP ||
+      type == HealthDataType.SLEEP_REM;
+
+  String _dayKey(DateTime value) {
+    final local = value.toLocal();
+    return DateTime(
+      local.year,
+      local.month,
+      local.day,
+    ).toIso8601String().split('T').first;
   }
 
   // ── Write-back: push manually-recorded vitals into HealthKit / Health Connect ───
@@ -384,6 +487,38 @@ class HealthSyncService {
     if (!_isSupportedPlatform) return;
     await Workmanager().cancelByUniqueName(backgroundTaskName);
   }
+}
+
+class _DailyActivitySummary {
+  final String date;
+  int steps = 0;
+  double distanceMeters = 0;
+  int sleepMinutes = 0;
+  double activeEnergyKcal = 0;
+  DateTime? lastSampleAt;
+
+  _DailyActivitySummary({required this.date});
+
+  bool get hasActivity =>
+      steps > 0 ||
+      distanceMeters > 0 ||
+      sleepMinutes > 0 ||
+      activeEnergyKcal > 0;
+
+  void trackLatest(DateTime value) {
+    if (lastSampleAt == null || value.isAfter(lastSampleAt!)) {
+      lastSampleAt = value;
+    }
+  }
+
+  Map<String, dynamic> toJson() => {
+    'date': date,
+    'steps': steps,
+    'distanceMeters': distanceMeters,
+    'sleepMinutes': sleepMinutes,
+    'activeEnergyKcal': activeEnergyKcal,
+    if (lastSampleAt != null) 'lastSampleAt': lastSampleAt!.toIso8601String(),
+  };
 }
 
 /// Top-level entry point invoked by workmanager in a background isolate. Must

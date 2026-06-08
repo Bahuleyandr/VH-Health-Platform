@@ -116,7 +116,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
                 SnackBar(
                   content: Text(
                     synced > 0
-                        ? 'Health data synced — vitals updated'
+                        ? 'Health data synced — activity and vitals updated'
                         : 'No new samples to sync',
                   ),
                 ),

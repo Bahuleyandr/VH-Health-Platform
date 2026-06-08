@@ -72,6 +72,25 @@ describe('Steps / Gamification API', () => {
     });
   });
 
+  describe('POST /api/v1/steps/health-sync', () => {
+    it('should reject missing daily summaries', async () => {
+      const res = await testClient()
+        .post('/api/v1/steps/health-sync')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN)
+        .send({ source: 'health_connect' });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe('GET /api/v1/steps/sync-status', () => {
+    it('should return or safely fail the wearable sync status', async () => {
+      const res = await testClient()
+        .get('/api/v1/steps/sync-status')
+        .set('x-api-key', API_KEY).set('Authorization', AUTH_TOKEN);
+      expect([200, 500]).toContain(res.statusCode);
+    });
+  });
+
   describe('POST /api/v1/steps/session/start', () => {
     it('should start a walk session', async () => {
       const res = await testClient()

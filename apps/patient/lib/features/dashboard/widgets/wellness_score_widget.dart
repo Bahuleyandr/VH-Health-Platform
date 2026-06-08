@@ -203,7 +203,8 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
   }
 
   Widget _dimensionBar(ThemeData theme, Map dim) {
-    final label = dim['label'] ?? '';
+    final label = _wellnessDimensionLabel(dim);
+    final caption = _wellnessDimensionCaption(dim);
     final s = (dim['score'] as num?)?.toInt() ?? 0;
     final m = (dim['max'] as num?)?.toInt() ?? 20;
     final ratio = m > 0 ? (s / m).clamp(0.0, 1.0) : 0.0;
@@ -240,6 +241,17 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
               valueColor: AlwaysStoppedAnimation(color),
             ),
           ),
+          if (caption != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              caption,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -438,7 +450,8 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
   }
 
   Widget _dimensionBar(ThemeData theme, Map dim) {
-    final label = dim['label'] ?? '';
+    final label = _wellnessDimensionLabel(dim);
+    final caption = _wellnessDimensionCaption(dim);
     final s = (dim['score'] as num?)?.toInt() ?? 0;
     final m = (dim['max'] as num?)?.toInt() ?? 20;
     final ratio = m > 0 ? (s / m).clamp(0.0, 1.0) : 0.0;
@@ -458,7 +471,7 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
             children: [
               Flexible(
                 child: Text(
-                  '$label',
+                  label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium,
@@ -484,6 +497,17 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
               valueColor: AlwaysStoppedAnimation(color),
             ),
           ),
+          if (caption != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              caption,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -518,4 +542,26 @@ class _WellnessBreakdownPanelState extends State<WellnessBreakdownPanel> {
       ),
     );
   }
+}
+
+String _wellnessDimensionLabel(Map dim) {
+  final key = dim['key']?.toString();
+  if (key == 'medication') return 'Medication status';
+  return dim['label']?.toString() ?? '';
+}
+
+String? _wellnessDimensionCaption(Map dim) {
+  if (dim['key']?.toString() != 'medication') return null;
+  final detail = dim['detail'];
+  if (detail is! Map) return 'Prescription-status proxy, not dose adherence';
+
+  final active = _wellnessInt(detail['active']) ?? 0;
+  final total = _wellnessInt(detail['total']) ?? 0;
+  if (total == 0) return 'No prescriptions to track yet';
+  return '$active of $total prescriptions active/unexpired';
+}
+
+int? _wellnessInt(dynamic value) {
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
 }
