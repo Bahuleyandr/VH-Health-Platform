@@ -1084,7 +1084,7 @@ class MedicalApiService {
   }
 
   /// GET /patients/:uid/timeline — canonical patient timeline.
-  /// Falls back to `/emr/timeline/:uid` while backend rollout catches up.
+  /// Falls back to `/emr/timeline/:uid`, which is a canonical compatibility alias.
   static Future<Map<String, dynamic>> getPatientTimeline(String uid) async {
     try {
       final timeline = await ClinicalPlatformApiService.getPatientTimeline(uid);

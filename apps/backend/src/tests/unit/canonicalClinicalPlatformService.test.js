@@ -30,6 +30,12 @@ jest.unstable_mockModule('../../services/emr/clinicalTimelineService.js', () => 
 }));
 
 const {
+  evaluateMedicationSafety,
+  getClinicalDocumentationTemplates,
+  getClinicalDowntimePolicy,
+  listClinicalAuditEvents,
+  listMedicationSafetyReviews,
+  listWorkflowSlaInstances,
   readCanonicalPatientTimeline,
   recordCanonicalClinicalEvent,
   transitionEncounter,
@@ -95,7 +101,39 @@ describe('canonical clinical platform service', () => {
     expect(queryUnsafeMock.mock.calls[1][0]).toContain('clinical_audit_events');
   });
 
-  it('reads the canonical patient timeline and merges legacy events for compatibility', async () => {
+  it('reads only the canonical patient timeline by default', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: '66666666-6666-4666-8666-666666666666',
+      patient_uid: PATIENT,
+      event_type: 'prescription.created',
+      event_subtype: null,
+      event_status: 'draft',
+      source_table: 'e_prescriptions',
+      source_id: '18',
+      resource_type: 'prescription',
+      resource_id: '18',
+      encounter_id: ENCOUNTER,
+      occurred_at: new Date('2026-06-07T09:00:00.000Z'),
+      clinical_summary: 'Prescription created',
+      actor_uid: ACTOR,
+      actor_role: 'DOCTOR',
+      visible_to_patient: false,
+      payload: { title: 'E-prescription' },
+      tags: ['op'],
+    }]);
+    const timeline = await readCanonicalPatientTimeline(PATIENT, { limit: 20 });
+
+    expect(timeline.patient_uid).toBe(PATIENT);
+    expect(timeline.source).toBe('canonical');
+    expect(timeline.legacy_included).toBe(false);
+    expect(timeline.counts).toEqual({ canonical: 1, legacy: 0, returned: 1 });
+    expect(timeline.events.map((event) => event.event_type)).toEqual([
+      'prescription.created',
+    ]);
+    expect(getLegacyPatientTimelineMock).not.toHaveBeenCalled();
+  });
+
+  it('merges legacy events only when compatibility mode is requested', async () => {
     queryUnsafeMock.mockResolvedValueOnce([{
       id: '66666666-6666-4666-8666-666666666666',
       patient_uid: PATIENT,
@@ -129,9 +167,9 @@ describe('canonical clinical platform service', () => {
       summary: 'Review after rounds',
     }]);
 
-    const timeline = await readCanonicalPatientTimeline(PATIENT, { limit: 20 });
+    const timeline = await readCanonicalPatientTimeline(PATIENT, { limit: 20, includeLegacy: true });
 
-    expect(timeline.patient_uid).toBe(PATIENT);
+    expect(timeline.legacy_included).toBe(true);
     expect(timeline.counts).toEqual({ canonical: 1, legacy: 2, returned: 3 });
     expect(timeline.events.map((event) => event.event_type)).toEqual([
       'prescription.created',
@@ -155,5 +193,87 @@ describe('canonical clinical platform service', () => {
       statusCode: 409,
       code: 'INVALID_ENCOUNTER_TRANSITION',
     });
+  });
+
+  it('lists canonical audit, SLA, and medication safety rows for an encounter', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 'audit-1', action: 'note.signed' }])
+      .mockResolvedValueOnce([{ id: 'sla-1', rule_code: 'referral_response' }])
+      .mockResolvedValueOnce([{ id: 'safety-1', review_type: 'allergy' }]);
+
+    const audit = await listClinicalAuditEvents({
+      tenantId: TENANT,
+      encounterId: ENCOUNTER,
+      patientUid: PATIENT,
+      action: 'note',
+      limit: 20,
+    });
+    const slas = await listWorkflowSlaInstances({
+      tenantId: TENANT,
+      encounterId: ENCOUNTER,
+      status: 'active',
+    });
+    const safety = await listMedicationSafetyReviews({
+      tenantId: TENANT,
+      encounterId: ENCOUNTER,
+      severity: 'high',
+    });
+
+    expect(audit.events).toHaveLength(1);
+    expect(slas.slas).toHaveLength(1);
+    expect(safety.reviews).toHaveLength(1);
+    expect(queryUnsafeMock.mock.calls[0][0]).toContain('clinical_audit_events');
+    expect(queryUnsafeMock.mock.calls[1][0]).toContain('workflow_sla_instances');
+    expect(queryUnsafeMock.mock.calls[2][0]).toContain('medication_safety_reviews');
+  });
+
+  it('evaluates medication safety and records returned review findings', async () => {
+    validatePrescriptionSafetyMock.mockResolvedValueOnce({
+      safe: false,
+      warnings: [{ type: 'RENAL_MEDICATION_REVIEW', medication: 'Gentamicin', message: 'Renal review' }],
+      blockers: [{ type: 'ALLERGY_CONFLICT', medication: 'Penicillin', message: 'Allergy' }],
+    });
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 'review-blocker', status: 'blocked' }])
+      .mockResolvedValueOnce([{ id: 'review-warning', status: 'warning' }]);
+
+    const result = await evaluateMedicationSafety({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      encounterId: ENCOUNTER,
+      patientId: 42,
+      actorUid: ACTOR,
+      medications: [{ name: 'Penicillin' }, { name: 'Gentamicin' }],
+    });
+
+    expect(result.safe).toBe(false);
+    expect(result.blockers).toHaveLength(1);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.reviews).toHaveLength(2);
+    expect(validatePrescriptionSafetyMock).toHaveBeenCalledWith(42, [
+      { name: 'Penicillin' },
+      { name: 'Gentamicin' },
+    ]);
+  });
+
+  it('serves structured documentation templates and downtime policy guardrails', () => {
+    const opTemplates = getClinicalDocumentationTemplates({
+      context: 'op_consultation',
+    });
+    const downtime = getClinicalDowntimePolicy({ role: 'DOCTOR' });
+
+    expect(opTemplates.templates).toHaveLength(1);
+    expect(opTemplates.templates[0].sections.map((section) => section.id)).toEqual([
+      'chief_complaints',
+      'history',
+      'examination',
+      'diagnosis',
+      'plan',
+      'follow_up',
+      'safety_net',
+    ]);
+    expect(downtime.blocked_offline).toContain('prescription_sign_or_dispense');
+    expect(downtime.local_draft_only).toContain('op_prescription_draft');
+    expect(downtime.role).toBe('DOCTOR');
   });
 });

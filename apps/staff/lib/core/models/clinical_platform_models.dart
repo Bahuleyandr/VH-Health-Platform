@@ -244,6 +244,57 @@ class MedicationSafetyReview {
   }
 }
 
+class MedicationSafetyIssue {
+  const MedicationSafetyIssue({
+    required this.type,
+    required this.message,
+    this.severity,
+    this.medication,
+    this.payload = const {},
+  });
+
+  final String type;
+  final String message;
+  final String? severity;
+  final String? medication;
+  final Map<String, dynamic> payload;
+
+  factory MedicationSafetyIssue.fromJson(Map<String, dynamic> json) {
+    return MedicationSafetyIssue(
+      type: _string(json['type'] ?? json['code'], fallback: 'safety'),
+      message: _string(json['message'] ?? json['summary']),
+      severity: _nullableString(json['severity']),
+      medication: _nullableString(
+        json['medication'] ?? json['medication_name'] ?? json['drug_name'],
+      ),
+      payload: json,
+    );
+  }
+}
+
+class MedicationSafetyEvaluation {
+  const MedicationSafetyEvaluation({
+    required this.safe,
+    required this.warnings,
+    required this.blockers,
+    required this.reviews,
+  });
+
+  final bool safe;
+  final List<MedicationSafetyIssue> warnings;
+  final List<MedicationSafetyIssue> blockers;
+  final List<MedicationSafetyReview> reviews;
+
+  factory MedicationSafetyEvaluation.fromJson(Map<String, dynamic> json) {
+    return MedicationSafetyEvaluation(
+      safe: _bool(json['safe'], fallback: false),
+      warnings: _issueList(json['warnings']),
+      blockers: _issueList(json['blockers']),
+      reviews: _reviewList(json['reviews']),
+    );
+  }
+}
+
 class WorkflowSlaInstance {
   const WorkflowSlaInstance({
     required this.id,
@@ -281,6 +332,121 @@ class WorkflowSlaInstance {
   }
 }
 
+class ClinicalDocumentationSection {
+  const ClinicalDocumentationSection({
+    required this.id,
+    required this.label,
+    this.required = false,
+    this.multiline = true,
+  });
+
+  final String id;
+  final String label;
+  final bool required;
+  final bool multiline;
+
+  factory ClinicalDocumentationSection.fromJson(Map<String, dynamic> json) {
+    return ClinicalDocumentationSection(
+      id: _string(json['id']),
+      label: _string(json['label']),
+      required: _bool(json['required']),
+      multiline: _bool(json['multiline'], fallback: true),
+    );
+  }
+}
+
+class ClinicalDocumentationTemplate {
+  const ClinicalDocumentationTemplate({
+    required this.id,
+    required this.title,
+    required this.context,
+    required this.encounterType,
+    required this.version,
+    required this.sections,
+    this.lockScope,
+  });
+
+  final String id;
+  final String title;
+  final String context;
+  final String encounterType;
+  final int version;
+  final List<ClinicalDocumentationSection> sections;
+  final String? lockScope;
+
+  factory ClinicalDocumentationTemplate.fromJson(Map<String, dynamic> json) {
+    final sections = json['sections'] is List
+        ? (json['sections'] as List)
+              .whereType<Map>()
+              .map(
+                (section) => ClinicalDocumentationSection.fromJson(
+                  Map<String, dynamic>.from(section),
+                ),
+              )
+              .toList()
+        : const <ClinicalDocumentationSection>[];
+    return ClinicalDocumentationTemplate(
+      id: _string(json['id']),
+      title: _string(json['title']),
+      context: _string(json['context']),
+      encounterType: _string(
+        json['encounter_type'] ?? json['encounterType'],
+        fallback: 'op',
+      ),
+      version: _int(json['version']) ?? 1,
+      sections: sections,
+      lockScope: _nullableString(json['lock_scope'] ?? json['lockScope']),
+    );
+  }
+}
+
+class ClinicalDowntimePolicy {
+  const ClinicalDowntimePolicy({
+    required this.policyVersion,
+    required this.mode,
+    required this.readAllowed,
+    required this.queueableWrites,
+    required this.localDraftOnly,
+    required this.blockedOffline,
+    required this.reconciliation,
+    this.role,
+    this.generatedAt,
+  });
+
+  final String policyVersion;
+  final String mode;
+  final String? role;
+  final List<String> readAllowed;
+  final List<String> queueableWrites;
+  final List<String> localDraftOnly;
+  final List<String> blockedOffline;
+  final List<String> reconciliation;
+  final DateTime? generatedAt;
+
+  factory ClinicalDowntimePolicy.fromJson(Map<String, dynamic> json) {
+    return ClinicalDowntimePolicy(
+      policyVersion: _string(
+        json['policy_version'] ?? json['policyVersion'],
+        fallback: 'clinical-downtime-v1',
+      ),
+      mode: _string(json['mode'], fallback: 'online_first'),
+      role: _nullableString(json['role']),
+      readAllowed: _stringList(json['read_allowed'] ?? json['readAllowed']),
+      queueableWrites: _stringList(
+        json['queueable_writes'] ?? json['queueableWrites'],
+      ),
+      localDraftOnly: _stringList(
+        json['local_draft_only'] ?? json['localDraftOnly'],
+      ),
+      blockedOffline: _stringList(
+        json['blocked_offline'] ?? json['blockedOffline'],
+      ),
+      reconciliation: _stringList(json['reconciliation']),
+      generatedAt: _date(json['generated_at'] ?? json['generatedAt']),
+    );
+  }
+}
+
 class RolePolicyFeature {
   const RolePolicyFeature({
     required this.id,
@@ -311,6 +477,60 @@ class RolePolicyFeature {
   }
 }
 
+class RolePolicySnapshot {
+  const RolePolicySnapshot({
+    required this.policyVersion,
+    required this.policyHash,
+    required this.features,
+    required this.featuresByRole,
+    required this.roles,
+    this.generatedAt,
+  });
+
+  final String policyVersion;
+  final String policyHash;
+  final List<RolePolicyFeature> features;
+  final Map<String, List<String>> featuresByRole;
+  final List<Map<String, dynamic>> roles;
+  final DateTime? generatedAt;
+
+  factory RolePolicySnapshot.fromJson(Map<String, dynamic> json) {
+    final features = json['staff_features'] is List
+        ? (json['staff_features'] as List)
+              .whereType<Map>()
+              .map(
+                (feature) => RolePolicyFeature.fromJson(
+                  Map<String, dynamic>.from(feature),
+                ),
+              )
+              .toList()
+        : const <RolePolicyFeature>[];
+    final roles = json['roles'] is List
+        ? (json['roles'] as List)
+              .whereType<Map>()
+              .map((role) => Map<String, dynamic>.from(role))
+              .toList()
+        : <Map<String, dynamic>>[];
+    return RolePolicySnapshot(
+      policyVersion: _string(json['policy_version'] ?? json['policyVersion']),
+      policyHash: _string(json['policy_hash'] ?? json['policyHash']),
+      features: features,
+      featuresByRole: _stringListMap(
+        json['staff_features_by_role'] ?? json['staffFeaturesByRole'],
+      ),
+      roles: roles,
+      generatedAt: _date(json['generated_at'] ?? json['generatedAt']),
+    );
+  }
+
+  List<RolePolicyFeature> featuresForRole(String roleCode) {
+    final ids = featuresByRole[roleCode.toUpperCase()] ?? const <String>[];
+    if (ids.isEmpty) return const <RolePolicyFeature>[];
+    final byId = {for (final feature in features) feature.id: feature};
+    return ids.map((id) => byId[id]).whereType<RolePolicyFeature>().toList();
+  }
+}
+
 String _string(dynamic value, {String fallback = ''}) {
   final text = value?.toString().trim();
   return text == null || text.isEmpty ? fallback : text;
@@ -333,6 +553,15 @@ DateTime? _date(dynamic value) {
   return text == null || text.isEmpty ? null : DateTime.tryParse(text);
 }
 
+bool _bool(dynamic value, {bool fallback = false}) {
+  if (value is bool) return value;
+  if (value == null) return fallback;
+  final text = value.toString().trim().toLowerCase();
+  if (text == 'true' || text == '1' || text == 'yes') return true;
+  if (text == 'false' || text == '0' || text == 'no') return false;
+  return fallback;
+}
+
 Map<String, dynamic> _map(dynamic value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
@@ -344,4 +573,35 @@ List<String> _stringList(dynamic value) {
     return value.map((item) => item.toString()).toList();
   }
   return const [];
+}
+
+Map<String, List<String>> _stringListMap(dynamic value) {
+  if (value is! Map) return const {};
+  final out = <String, List<String>>{};
+  for (final entry in value.entries) {
+    out[entry.key.toString().toUpperCase()] = _stringList(entry.value);
+  }
+  return out;
+}
+
+List<MedicationSafetyIssue> _issueList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map(
+        (issue) =>
+            MedicationSafetyIssue.fromJson(Map<String, dynamic>.from(issue)),
+      )
+      .toList();
+}
+
+List<MedicationSafetyReview> _reviewList(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .whereType<Map>()
+      .map(
+        (review) =>
+            MedicationSafetyReview.fromJson(Map<String, dynamic>.from(review)),
+      )
+      .toList();
 }

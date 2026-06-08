@@ -348,12 +348,14 @@ class WorkbenchNavItem {
   final IconData icon;
   final IconData selectedIcon;
   final String route;
+  final String? featureId;
 
   const WorkbenchNavItem({
     required this.label,
     required this.icon,
     required this.selectedIcon,
     required this.route,
+    this.featureId,
   });
 }
 
@@ -2075,7 +2077,10 @@ class RoleFeatures {
     };
   }
 
-  static List<WorkbenchNavItem> getWorkbenchNavForRole(StaffRole role) {
+  static List<WorkbenchNavItem> getWorkbenchNavForRole(
+    StaffRole role, {
+    Set<String>? policyFeatureIds,
+  }) {
     final items = <WorkbenchNavItem>[
       const WorkbenchNavItem(
         label: 'Home',
@@ -2092,6 +2097,7 @@ class RoleFeatures {
           icon: Icons.calendar_month_outlined,
           selectedIcon: Icons.calendar_month,
           route: '/staff-rosters',
+          featureId: 'staff_roster_hub',
         ),
       );
     }
@@ -2103,6 +2109,7 @@ class RoleFeatures {
           icon: Icons.manage_accounts_outlined,
           selectedIcon: Icons.manage_accounts,
           route: '/staff-management',
+          featureId: 'staff_management',
         ),
       );
     }
@@ -2114,6 +2121,7 @@ class RoleFeatures {
           icon: Icons.space_dashboard_outlined,
           selectedIcon: Icons.space_dashboard,
           route: '/front-office',
+          featureId: 'front_office_workbench',
         ),
       );
     }
@@ -2125,6 +2133,7 @@ class RoleFeatures {
           icon: Icons.fact_check_outlined,
           selectedIcon: Icons.fact_check,
           route: '/appointments?context=op&scope=my&workspace=doctor',
+          featureId: 'appointments',
         ),
       );
     }
@@ -2136,6 +2145,7 @@ class RoleFeatures {
           icon: Icons.local_hospital_outlined,
           selectedIcon: Icons.local_hospital,
           route: '/emr/admissions',
+          featureId: 'admissions',
         ),
       );
     }
@@ -2147,6 +2157,7 @@ class RoleFeatures {
           icon: Icons.receipt_long_outlined,
           selectedIcon: Icons.receipt_long,
           route: '/billing-desk',
+          featureId: 'billing_desk',
         ),
       );
     }
@@ -2158,6 +2169,7 @@ class RoleFeatures {
           icon: Icons.folder_shared_outlined,
           selectedIcon: Icons.folder_shared,
           route: '/patient-records',
+          featureId: 'patient_records',
         ),
       );
     }
@@ -2170,12 +2182,14 @@ class RoleFeatures {
           icon: Icons.local_hotel_outlined,
           selectedIcon: Icons.local_hotel,
           route: '/beds',
+          featureId: 'bed_board',
         ),
         WorkbenchNavItem(
           label: 'Housekeeping',
           icon: Icons.cleaning_services_outlined,
           selectedIcon: Icons.cleaning_services,
           route: '/housekeeping',
+          featureId: 'housekeeping_hub',
         ),
       ]);
     }
@@ -2214,6 +2228,7 @@ class RoleFeatures {
           icon: Icons.manage_search_outlined,
           selectedIcon: Icons.manage_search,
           route: '/audit-logs',
+          featureId: 'audit_logs',
         ),
         WorkbenchNavItem(
           label: 'Diagnostics',
@@ -2233,6 +2248,12 @@ class RoleFeatures {
       ),
     ]);
 
-    return items;
+    if (policyFeatureIds == null || policyFeatureIds.isEmpty) return items;
+    return items
+        .where((item) {
+          final featureId = item.featureId;
+          return featureId == null || policyFeatureIds.contains(featureId);
+        })
+        .toList(growable: false);
   }
 }

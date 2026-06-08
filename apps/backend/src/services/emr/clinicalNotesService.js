@@ -8,9 +8,9 @@ import { isDoctor } from '../../utils/roleHelpers.js';
 import {
   ensureEncounterForAppointment,
   recordCanonicalClinicalEvent,
+  readCanonicalPatientTimeline,
   transitionEncounter,
 } from '../clinical/canonicalClinicalPlatformService.js';
-import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimelineService.js';
 
 // ===================================================================
 // Clinical Notes Service — SOAP, Progress, Procedure, Discharge, etc.
@@ -890,8 +890,15 @@ export async function getNoteDetail(noteId) {
  * @param {string|null} dateTo - ISO date string
  * @returns {Array} Chronologically sorted timeline events
  */
-export async function getPatientTimeline(patientUid, dateFrom, dateTo) {
-  return getUnifiedPatientTimeline(patientUid, { dateFrom, dateTo });
+export async function getPatientTimeline(patientUid, dateFrom, dateTo, options = {}) {
+  const timeline = await readCanonicalPatientTimeline(patientUid, {
+    tenantId: options.tenantId || options.tenant_id,
+    date_from: dateFrom || null,
+    date_to: dateTo || null,
+    limit: options.limit,
+    includeLegacy: options.includeLegacy === true || options.include_legacy === true,
+  });
+  return options.envelope ? timeline : timeline.events;
 }
 
 export default {

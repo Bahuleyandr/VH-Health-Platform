@@ -2,6 +2,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 
 // ===================================================================
@@ -28,7 +29,17 @@ const DIAGNOSIS_SELECT = {
   notes: true,
   created_at: true,
   updated_at: true,
+  tenant_id: true,
 };
+
+async function bestEffortDiagnosisTimelineEvent(label, input) {
+  try {
+    return await recordCanonicalClinicalEvent(input);
+  } catch (err) {
+    logger.warn(`Canonical diagnosis event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
 
 // Sort comparator matching the pre-ORM SQL `CASE diagnosis_type` ordering:
 // primary → admitting → secondary → other.
@@ -116,6 +127,7 @@ export async function addDiagnosis(data) {
 
   const created = await prisma.diagnoses.create({
     data: {
+      tenant_id: tenant_id || undefined,
       patient_uid,
       encounter_id: encounter_id ?? null,
       icd10_code: normalisedIcd10,
@@ -132,6 +144,31 @@ export async function addDiagnosis(data) {
   });
 
   logger.info(`Diagnosis added: id=${created.id}, patient=${patient_uid}, icd10=${normalisedIcd10 ?? 'none'}, type=${created.diagnosis_type}`);
+  await bestEffortDiagnosisTimelineEvent('diagnosis add', {
+    tenantId: created.tenant_id,
+    patientUid: created.patient_uid,
+    encounterId: created.encounter_id,
+    eventType: 'diagnosis.added',
+    eventSubtype: created.diagnosis_type,
+    eventStatus: created.status || 'active',
+    sourceTable: 'diagnoses',
+    sourceId: created.id,
+    resourceType: 'diagnosis',
+    resourceId: created.id,
+    actorUid: created.diagnosed_by,
+    summary: created.description,
+    payload: {
+      icd10_code: created.icd10_code,
+      icd10_description: created.icd10_description,
+      description: created.description,
+      diagnosis_type: created.diagnosis_type,
+      severity: created.severity,
+      notes: created.notes,
+    },
+    afterState: created,
+    timelineIdempotencyKey: `diagnoses:${created.id}:added`,
+    auditIdempotencyKey: `diagnoses:${created.id}:audit:added`,
+  });
   return created;
 }
 
@@ -158,7 +195,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
 
   const existing = await prisma.diagnoses.findUnique({
     where: { id: Number(id) },
-    select: { id: true, status: true },
+    select: { id: true, status: true, patient_uid: true },
   });
 
   if (!existing) {
@@ -179,6 +216,32 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
   });
 
   logger.info(`Diagnosis status updated: id=${id}, old_status=${existing.status}, new_status=${status}, by=${updatedBy}`);
+  await bestEffortDiagnosisTimelineEvent('diagnosis status update', {
+    tenantId: updated.tenant_id,
+    patientUid: updated.patient_uid,
+    encounterId: updated.encounter_id,
+    eventType: 'diagnosis.status_updated',
+    eventSubtype: updated.diagnosis_type,
+    eventStatus: updated.status || status,
+    sourceTable: 'diagnoses',
+    sourceId: updated.id,
+    resourceType: 'diagnosis',
+    resourceId: updated.id,
+    actorUid: updatedBy,
+    summary: `${updated.description} marked ${updated.status}`,
+    payload: {
+      icd10_code: updated.icd10_code,
+      description: updated.description,
+      diagnosis_type: updated.diagnosis_type,
+      previous_status: existing.status,
+      new_status: updated.status,
+      resolved_date: updated.resolved_date,
+    },
+    beforeState: { status: existing.status },
+    afterState: { status: updated.status, resolved_date: updated.resolved_date },
+    timelineIdempotencyKey: `diagnoses:${updated.id}:status:${updated.status}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    auditIdempotencyKey: `diagnoses:${updated.id}:audit:status:${updated.status}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+  });
   return updated;
 }
 

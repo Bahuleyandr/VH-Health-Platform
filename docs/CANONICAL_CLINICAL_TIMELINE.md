@@ -1,6 +1,6 @@
 # Canonical Clinical Timeline
 
-Last updated: 2026-06-07.
+Last updated: 2026-06-08.
 
 This document is a durable engineering note for future Codex, Claude, Cursor,
 and human contributors. VH Health now has a canonical clinical event layer. Do
@@ -40,6 +40,35 @@ GET /api/v1/patients/:uid/timeline
 
 Legacy timeline routes may remain as compatibility aliases, but new Staff and
 Admin screens should prefer the canonical endpoint.
+
+The platform support endpoints are:
+
+```text
+GET  /api/v1/encounters/:id
+POST /api/v1/encounters/:id/activate
+POST /api/v1/encounters/:id/sign
+POST /api/v1/encounters/:id/amend
+POST /api/v1/encounters/:id/lock
+GET  /api/v1/encounters/:id/audit
+GET  /api/v1/encounters/:id/slas
+GET  /api/v1/encounters/:id/medication-safety
+POST /api/v1/encounters/:id/medication-safety/evaluate
+POST /api/v1/encounters/medication-safety/evaluate
+GET  /api/v1/encounters/documentation/templates
+GET  /api/v1/encounters/downtime-policy
+GET  /api/v1/rbac/policy
+```
+
+The Staff typed model/service layer is:
+
+```text
+apps/staff/lib/core/models/clinical_platform_models.dart
+apps/staff/lib/core/services/clinical_platform_api_service.dart
+```
+
+Keep these typed models ahead of UI work. Avoid adding new Staff screens that
+parse canonical platform responses directly from ad hoc maps unless the model
+is being added in the same change.
 
 ## Non-Negotiable Invariant
 
@@ -87,6 +116,54 @@ OP consultations should not create multiple independent notes or prescriptions
 for the same visit. Prefer one active note and one active prescription per
 encounter, editable while the encounter is still open/active, then sign/lock
 with audit history.
+
+## Medication Safety
+
+Medication safety runs through `validatePrescriptionSafety(...)` and canonical
+review persistence. The first-trial local engine is expected to cover:
+
+- structured and recent-note allergy conflicts
+- duplicate active therapy
+- pediatric dose sanity checks
+- bleeding-risk antithrombotic interactions
+- pregnancy medication risk
+- renal medication review
+- antibiotic duration, reserve-drug, and duplicate-spectrum stewardship prompts
+
+Severe blockers must require a clinician override reason. Non-blocking warnings
+must still be recorded and visible in the encounter medication-safety feed.
+
+## Workflow SLA
+
+SLA-backed workflows should start or complete `workflow_sla_instances` through
+the canonical helper layer. Current SLA classes are referral response, critical
+result acknowledgement, bed cleaning, discharge blockers, and operational
+handoff blockers. Dashboards may render their own views, but the canonical SLA
+table is the normalized source for audit and escalation proof.
+
+## Downtime And Templates
+
+Downtime/offline mode is deliberately conservative:
+
+- cached reads and low-risk drafts can remain available
+- vitals, I/O, nursing notes, handover, and housekeeping status drafts can be
+  queued
+- prescriptions, drug charts, investigations, referrals, and safety-sensitive
+  actions may be local drafts only until online validation runs
+- prescription signing/dispense, medication-safety override, critical result
+  acknowledgement, break-glass, admissions, bed movement, discharge finalization,
+  billing receipt, and role changes are blocked offline
+
+Clinical documentation templates are structured prompts, not mandatory prose.
+They should guide OP consultation, IP progress, referral request, handover, and
+procedure notes without blocking necessary free text.
+
+## Role Policy UI
+
+`/api/v1/rbac/policy` owns the policy version/hash, roles, capability groups,
+and Staff feature IDs. Flutter may keep a static fallback so the app can start
+offline, but role-specific sidebar/workbench visibility should prefer backend
+policy feature IDs whenever the policy endpoint is available.
 
 ## Timeline Event Coverage
 

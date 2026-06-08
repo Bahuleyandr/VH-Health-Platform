@@ -25,6 +25,133 @@ const ENCOUNTER_TRANSITIONS = {
   cancelled: new Set([]),
 };
 
+const CLINICAL_DOCUMENTATION_TEMPLATES = Object.freeze([
+  {
+    id: 'op_consultation_v1',
+    title: 'OP Consultation',
+    encounter_type: 'op',
+    context: 'op_consultation',
+    version: 1,
+    lock_scope: 'encounter_session',
+    sections: [
+      { id: 'chief_complaints', label: 'Chief Complaints', required: true, multiline: true },
+      { id: 'history', label: 'History', required: false, multiline: true },
+      { id: 'examination', label: 'Examination', required: false, multiline: true },
+      { id: 'diagnosis', label: 'Diagnosis', required: true, multiline: true },
+      { id: 'plan', label: 'Plan', required: true, multiline: true },
+      { id: 'follow_up', label: 'Follow-up', required: false, multiline: false },
+      { id: 'safety_net', label: 'Red flags / return advice', required: false, multiline: true },
+    ],
+  },
+  {
+    id: 'ip_progress_v1',
+    title: 'IP Progress Note',
+    encounter_type: 'ip',
+    context: 'ip_progress',
+    version: 1,
+    lock_scope: 'signed_note',
+    sections: [
+      { id: 'overnight_events', label: 'Overnight / interval events', required: false, multiline: true },
+      { id: 'current_status', label: 'Current status', required: true, multiline: true },
+      { id: 'examination', label: 'Examination', required: false, multiline: true },
+      { id: 'results_reviewed', label: 'Results reviewed', required: false, multiline: true },
+      { id: 'assessment', label: 'Assessment', required: true, multiline: true },
+      { id: 'plan', label: 'Plan', required: true, multiline: true },
+    ],
+  },
+  {
+    id: 'referral_request_v1',
+    title: 'Cross Referral Request',
+    encounter_type: 'ip',
+    context: 'referral_request',
+    version: 1,
+    lock_scope: 'submitted_request',
+    sections: [
+      { id: 'reason', label: 'Reason for referral', required: true, multiline: true },
+      { id: 'clinical_summary', label: 'Clinical summary', required: true, multiline: true },
+      { id: 'specific_question', label: 'Specific question for consultant', required: true, multiline: true },
+      { id: 'urgency', label: 'Urgency', required: true, multiline: false },
+      { id: 'relevant_results', label: 'Relevant results', required: false, multiline: true },
+    ],
+  },
+  {
+    id: 'handover_v1',
+    title: 'Clinical Handover',
+    encounter_type: 'ip',
+    context: 'handover',
+    version: 1,
+    lock_scope: 'handover_shift',
+    sections: [
+      { id: 'situation', label: 'Situation', required: true, multiline: true },
+      { id: 'background', label: 'Background', required: false, multiline: true },
+      { id: 'assessment', label: 'Assessment', required: true, multiline: true },
+      { id: 'recommendation', label: 'Recommendation / tasks', required: true, multiline: true },
+      { id: 'watch_items', label: 'Watch items', required: false, multiline: true },
+    ],
+  },
+  {
+    id: 'procedure_note_v1',
+    title: 'Procedure Note',
+    encounter_type: 'procedure',
+    context: 'procedure_note',
+    version: 1,
+    lock_scope: 'signed_note',
+    sections: [
+      { id: 'procedure', label: 'Procedure', required: true, multiline: false },
+      { id: 'indication', label: 'Indication', required: true, multiline: true },
+      { id: 'consent', label: 'Consent / time-out', required: true, multiline: true },
+      { id: 'findings', label: 'Findings', required: true, multiline: true },
+      { id: 'complications', label: 'Complications', required: false, multiline: true },
+      { id: 'post_procedure_plan', label: 'Post-procedure plan', required: true, multiline: true },
+    ],
+  },
+]);
+
+const CLINICAL_DOWNTIME_POLICY = Object.freeze({
+  policy_version: 'clinical-downtime-v1',
+  mode: 'online_first',
+  read_allowed: [
+    'cached_patient_banner',
+    'cached_recent_timeline',
+    'cached_own_appointments',
+    'cached_own_roster',
+    'cached_formulary',
+    'cached_role_policy',
+    'documentation_templates',
+  ],
+  queueable_writes: [
+    'vitals_draft',
+    'intake_output_draft',
+    'nursing_note_draft',
+    'op_note_draft',
+    'handover_draft',
+    'housekeeping_task_status_draft',
+  ],
+  local_draft_only: [
+    'op_prescription_draft',
+    'ip_drug_chart_draft',
+    'investigation_order_draft',
+    'referral_request_draft',
+  ],
+  blocked_offline: [
+    'prescription_sign_or_dispense',
+    'medication_safety_override',
+    'critical_result_acknowledgement',
+    'break_glass_access',
+    'admission_creation',
+    'bed_transfer',
+    'discharge_finalization',
+    'billing_receipt',
+    'role_or_permission_change',
+  ],
+  reconciliation: [
+    'replay queued drafts with original client timestamp and actor',
+    'run server validation and medication safety before committing clinical orders',
+    'surface conflicts when patient, encounter, or source resource changed while offline',
+    'write clinical audit events for queued, replayed, rejected, and conflict outcomes',
+  ],
+});
+
 function dbClient(db) {
   return db || prisma;
 }
@@ -60,6 +187,18 @@ function cleanUuid(value) {
 function cleanText(value, fallback = null) {
   const text = value == null ? '' : String(value).trim();
   return text || fallback;
+}
+
+function truthyFlag(value) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+  return ['1', 'true', 'yes', 'y'].includes(String(value).trim().toLowerCase());
+}
+
+function normalizedLimit(value, fallback = 100, max = 500) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.max(1, Math.min(parsed, max));
 }
 
 function normalizeTenantId(value) {
@@ -425,7 +564,7 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
 
   const tenantId = normalizeTenantId(filters.tenantId || filters.tenant_id);
   const limit = Math.max(1, Math.min(Number.parseInt(filters.limit, 10) || 100, 500));
-  const includeLegacy = filters.includeLegacy !== false && filters.include_legacy !== false;
+  const includeLegacy = truthyFlag(filters.includeLegacy) || truthyFlag(filters.include_legacy);
   const params = [tenantId, uid];
   let idx = 3;
   const where = ['tenant_id = $1::uuid', 'patient_uid = $2::uuid'];
@@ -487,6 +626,8 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
 
   return {
     patient_uid: uid,
+    source: 'canonical',
+    legacy_included: includeLegacy,
     events: merged,
     counts: {
       canonical: canonical.length,
@@ -495,6 +636,136 @@ export async function readCanonicalPatientTimeline(patientUid, filters = {}, opt
     },
     generated_at: new Date().toISOString(),
   };
+}
+
+function addOptionalFilter({ clauses, params, field, value, cast = null, operator = '=', transform = null }) {
+  if (value === undefined || value === null || String(value).trim() === '') return;
+  const sqlValue = transform ? transform(value) : value;
+  params.push(sqlValue);
+  const placeholder = `$${params.length}${cast ? `::${cast}` : ''}`;
+  clauses.push(`${field} ${operator} ${placeholder}`);
+}
+
+export async function listClinicalAuditEvents(filters = {}, options = {}) {
+  const db = dbClient(options.db);
+  if (!hasRawClient(db)) return { events: [], total: 0 };
+
+  const tenantId = normalizeTenantId(filters.tenantId || filters.tenant_id);
+  const limit = normalizedLimit(filters.limit);
+  const clauses = ['tenant_id = $1::uuid'];
+  const params = [tenantId];
+
+  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'actor_uid', value: cleanUuid(filters.actorUid || filters.actor_uid), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'action_status', value: cleanText(filters.status || filters.action_status) });
+  addOptionalFilter({ clauses, params, field: 'resource_type', value: cleanText(filters.resourceType || filters.resource_type) });
+  addOptionalFilter({ clauses, params, field: 'action', value: cleanText(filters.action), operator: 'ILIKE', transform: (value) => `%${value}%` });
+  addOptionalFilter({ clauses, params, field: 'occurred_at', value: filters.from || filters.date_from, cast: 'timestamptz', operator: '>=' });
+  addOptionalFilter({ clauses, params, field: 'occurred_at', value: filters.to || filters.date_to, cast: 'timestamptz', operator: '<=' });
+
+  try {
+    const where = clauses.join(' AND ');
+    const rows = await db.$queryRawUnsafe(
+      `SELECT *
+         FROM clinical_audit_events
+        WHERE ${where}
+        ORDER BY occurred_at DESC
+        LIMIT $${params.length + 1}::int`,
+      ...params,
+      limit,
+    );
+    return {
+      events: rows,
+      total: rows.length,
+      limit,
+      filters,
+    };
+  } catch (err) {
+    logCanonicalFailure('clinical audit event list', err);
+    return { events: [], total: 0, limit, filters };
+  }
+}
+
+export async function listWorkflowSlaInstances(filters = {}, options = {}) {
+  const db = dbClient(options.db);
+  if (!hasRawClient(db)) return { slas: [], total: 0 };
+
+  const tenantId = normalizeTenantId(filters.tenantId || filters.tenant_id);
+  const limit = normalizedLimit(filters.limit);
+  const clauses = ['tenant_id = $1::uuid'];
+  const params = [tenantId];
+
+  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'rule_code', value: cleanText(filters.ruleCode || filters.rule_code) });
+  addOptionalFilter({ clauses, params, field: 'status', value: cleanText(filters.status) });
+  addOptionalFilter({ clauses, params, field: 'source_table', value: cleanText(filters.sourceTable || filters.source_table) });
+  addOptionalFilter({ clauses, params, field: 'source_id', value: cleanText(filters.sourceId || filters.source_id) });
+
+  try {
+    const where = clauses.join(' AND ');
+    const rows = await db.$queryRawUnsafe(
+      `SELECT *
+         FROM workflow_sla_instances
+        WHERE ${where}
+        ORDER BY
+          CASE status WHEN 'breached' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
+          due_at ASC
+        LIMIT $${params.length + 1}::int`,
+      ...params,
+      limit,
+    );
+    return {
+      slas: rows,
+      total: rows.length,
+      limit,
+      filters,
+    };
+  } catch (err) {
+    logCanonicalFailure('workflow SLA list', err);
+    return { slas: [], total: 0, limit, filters };
+  }
+}
+
+export async function listMedicationSafetyReviews(filters = {}, options = {}) {
+  const db = dbClient(options.db);
+  if (!hasRawClient(db)) return { reviews: [], total: 0 };
+
+  const tenantId = normalizeTenantId(filters.tenantId || filters.tenant_id);
+  const limit = normalizedLimit(filters.limit);
+  const clauses = ['tenant_id = $1::uuid'];
+  const params = [tenantId];
+
+  addOptionalFilter({ clauses, params, field: 'patient_uid', value: cleanUuid(filters.patientUid || filters.patient_uid), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'encounter_id', value: cleanUuid(filters.encounterId || filters.encounter_id), cast: 'uuid' });
+  addOptionalFilter({ clauses, params, field: 'prescription_id', value: filters.prescriptionId || filters.prescription_id, cast: 'int' });
+  addOptionalFilter({ clauses, params, field: 'clinical_order_id', value: filters.clinicalOrderId || filters.clinical_order_id, cast: 'int' });
+  addOptionalFilter({ clauses, params, field: 'status', value: cleanText(filters.status) });
+  addOptionalFilter({ clauses, params, field: 'severity', value: cleanText(filters.severity) });
+  addOptionalFilter({ clauses, params, field: 'review_type', value: cleanText(filters.reviewType || filters.review_type) });
+
+  try {
+    const where = clauses.join(' AND ');
+    const rows = await db.$queryRawUnsafe(
+      `SELECT *
+         FROM medication_safety_reviews
+        WHERE ${where}
+        ORDER BY created_at DESC
+        LIMIT $${params.length + 1}::int`,
+      ...params,
+      limit,
+    );
+    return {
+      reviews: rows,
+      total: rows.length,
+      limit,
+      filters,
+    };
+  } catch (err) {
+    logCanonicalFailure('medication safety review list', err);
+    return { reviews: [], total: 0, limit, filters };
+  }
 }
 
 export async function startWorkflowSla(input = {}, options = {}) {
@@ -671,8 +942,43 @@ export async function recordMedicationSafetyReviews(input = {}, options = {}) {
 
 export async function evaluateMedicationSafety(input = {}, options = {}) {
   const safety = await validatePrescriptionSafety(input.patientId || input.patient_id, input.medications || []);
-  await recordMedicationSafetyReviews({ ...input, safety }, options);
-  return safety;
+  const reviews = await recordMedicationSafetyReviews({ ...input, safety }, options);
+  return {
+    ...safety,
+    reviews,
+  };
+}
+
+export function getClinicalDocumentationTemplates(filters = {}) {
+  const context = cleanText(filters.context)?.toLowerCase();
+  const encounterType = cleanText(filters.encounterType || filters.encounter_type)?.toLowerCase();
+  const templates = CLINICAL_DOCUMENTATION_TEMPLATES.filter((template) => {
+    if (context && template.context !== context) return false;
+    if (encounterType && template.encounter_type !== encounterType) return false;
+    return true;
+  });
+  return {
+    templates,
+    total: templates.length,
+    generated_at: new Date().toISOString(),
+    guardrails: [
+      'Templates are structured prompts, not mandatory wording.',
+      'Signed or locked encounter documentation requires amendment workflow.',
+      'Every persisted note should emit canonical timeline and clinical audit events.',
+    ],
+  };
+}
+
+export function getClinicalDowntimePolicy(filters = {}) {
+  const role = cleanText(filters.role || filters.actorRole || filters.actor_role)?.toUpperCase();
+  return {
+    ...CLINICAL_DOWNTIME_POLICY,
+    role,
+    generated_at: new Date().toISOString(),
+    role_notes: role
+      ? [`${role} must still pass normal RBAC/ReBAC checks when queued work is replayed.`]
+      : ['Role-specific checks are applied at replay time.'],
+  };
 }
 
 export const CANONICAL_GLOBAL_TENANT_SENTINEL = GLOBAL_TENANT_SENTINEL;

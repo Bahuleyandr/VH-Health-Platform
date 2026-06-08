@@ -3,7 +3,13 @@
 
 import express from 'express';
 import {
+  evaluateMedicationSafety,
+  getClinicalDocumentationTemplates,
+  getClinicalDowntimePolicy,
   getEncounter,
+  listClinicalAuditEvents,
+  listMedicationSafetyReviews,
+  listWorkflowSlaInstances,
   transitionEncounter,
 } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { success } from '../../utils/responseHelper.js';
@@ -23,10 +29,109 @@ function actorContext(req) {
   };
 }
 
+function tenantContext(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || undefined;
+}
+
+router.get('/documentation/templates', async (req, res, next) => {
+  try {
+    return success(
+      res,
+      getClinicalDocumentationTemplates(req.query),
+      'Clinical documentation templates retrieved',
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/downtime-policy', async (req, res, next) => {
+  try {
+    return success(
+      res,
+      getClinicalDowntimePolicy({
+        ...req.query,
+        role: req.query?.role || req.user?.role,
+      }),
+      'Clinical downtime policy retrieved',
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/medication-safety/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateMedicationSafety({
+      ...req.body,
+      tenantId: tenantContext(req),
+      actorUid: req.user?.uid || null,
+      actorRole: req.user?.role || null,
+    });
+    return success(res, result, 'Medication safety evaluated');
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const encounter = await getEncounter(req.params.id);
     return success(res, encounter, 'Encounter retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/audit', async (req, res, next) => {
+  try {
+    const result = await listClinicalAuditEvents({
+      ...req.query,
+      tenantId: tenantContext(req),
+      encounterId: req.params.id,
+    });
+    return success(res, result, 'Encounter audit events retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/slas', async (req, res, next) => {
+  try {
+    const result = await listWorkflowSlaInstances({
+      ...req.query,
+      tenantId: tenantContext(req),
+      encounterId: req.params.id,
+    });
+    return success(res, result, 'Encounter workflow SLAs retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/medication-safety', async (req, res, next) => {
+  try {
+    const result = await listMedicationSafetyReviews({
+      ...req.query,
+      tenantId: tenantContext(req),
+      encounterId: req.params.id,
+    });
+    return success(res, result, 'Encounter medication safety reviews retrieved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/medication-safety/evaluate', async (req, res, next) => {
+  try {
+    const result = await evaluateMedicationSafety({
+      ...req.body,
+      tenantId: tenantContext(req),
+      encounterId: req.params.id,
+      actorUid: req.user?.uid || null,
+      actorRole: req.user?.role || null,
+    });
+    return success(res, result, 'Encounter medication safety evaluated');
   } catch (err) {
     next(err);
   }

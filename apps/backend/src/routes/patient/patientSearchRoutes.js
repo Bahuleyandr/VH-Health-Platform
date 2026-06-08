@@ -43,7 +43,7 @@ router.get(
         date_from: req.query.date_from || null,
         date_to: req.query.date_to || null,
         limit: req.query.limit,
-        includeLegacy: req.query.include_legacy !== 'false',
+        includeLegacy: req.query.include_legacy === 'true',
       });
 
       logPhiAccess({

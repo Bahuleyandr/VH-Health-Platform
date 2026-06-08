@@ -38,6 +38,7 @@ import {
   emitDischargeWorkItemCompleted,
   emitFinalDischargeCompleted,
 } from '../clinical/canonicalOperationalBridgeService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
@@ -76,6 +77,15 @@ const ICU_ALLOCATE_ROLES = new Set([
 export function canAllocateIcuBedForAdmission(role) {
   const normalizedRole = normalizeCanonicalRole(role);
   return normalizedRole ? ICU_ALLOCATE_ROLES.has(normalizedRole) : false;
+}
+
+async function bestEffortAdmissionTimelineEvent(label, input, options = {}) {
+  try {
+    return await recordCanonicalClinicalEvent(input, options);
+  } catch (err) {
+    logger.warn(`Canonical admission event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
 }
 
 function shouldMinimizeInpatientPayload(role) {
@@ -1200,6 +1210,36 @@ async function admitPatient(data) {
     logger.warn(`admitPatient: staff notification failed for admission ${admission.id}: ${e.message}`);
   }
 
+  await bestEffortAdmissionTimelineEvent('admission create', {
+    tenantId: admission.tenant_id || tenant_id,
+    patientUid: admission.patient_uid,
+    encounterId: admission.encounter_id,
+    eventType: 'admission.created',
+    eventSubtype: admission.admission_type,
+    eventStatus: admission.status,
+    sourceTable: 'admissions',
+    sourceId: admission.id,
+    resourceType: 'admission',
+    resourceId: admission.id,
+    actorUid: created_by,
+    summary: `${admission.patient_name || 'Patient'} admitted${admission.ward ? ` to ${admission.ward}` : ''}${admission.bed_number ? ` / ${admission.bed_number}` : ''}`,
+    payload: {
+      admission_id: admission.id,
+      admission_type: admission.admission_type,
+      priority: admission.priority,
+      department: admission.department,
+      ward: admission.ward,
+      bed_id: admission.bed_id,
+      bed_number: admission.bed_number,
+      admitting_doctor: admission.admitting_doctor,
+      attending_doctor: admission.attending_doctor,
+      admitting_diagnosis: admission.admitting_diagnosis,
+    },
+    afterState: admission,
+    timelineIdempotencyKey: `admissions:${admission.id}:created`,
+    auditIdempotencyKey: `admissions:${admission.id}:audit:created`,
+  });
+
   return admission;
 }
 
@@ -1395,6 +1435,31 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
     });
 
     logger.info(`Bed ${bedRows[0].bed_number} (id=${bedId}) assigned to admission #${admissionId} (was bedless since ${admission.bed_pending_since})`);
+    await bestEffortAdmissionTimelineEvent('bed assign', {
+      tenantId: updatedAdmission.tenant_id,
+      patientUid: updatedAdmission.patient_uid,
+      encounterId: updatedAdmission.encounter_id,
+      eventType: 'bed.assigned',
+      eventSubtype: updatedAdmission.ward || null,
+      eventStatus: 'occupied',
+      sourceTable: 'bed_transfers',
+      sourceId: `${admissionId}:assign:${bedId}`,
+      resourceType: 'admission',
+      resourceId: admissionId,
+      actorUid: assignedBy,
+      summary: `Bed ${bedRows[0].bed_number} assigned`,
+      payload: {
+        admission_id: admissionId,
+        bed_id: bedId,
+        bed_number: bedRows[0].bed_number,
+        bed_type: bedRows[0].bed_type,
+        ward: bedRows[0].ward_name ?? admission.ward,
+        bed_pending_since: admission.bed_pending_since,
+      },
+      afterState: updatedAdmission,
+      timelineIdempotencyKey: `admissions:${admissionId}:bed_assigned:${bedId}`,
+      auditIdempotencyKey: `admissions:${admissionId}:audit:bed_assigned:${bedId}`,
+    }, { db: tx });
     return updatedAdmission;
   });
 }
@@ -2852,6 +2917,32 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     }
   }
 
+  await bestEffortAdmissionTimelineEvent('bed transfer', {
+    tenantId: phase1.updated.tenant_id,
+    patientUid: phase1.updated.patient_uid,
+    encounterId: phase1.updated.encounter_id,
+    eventType: 'bed.transferred',
+    eventSubtype: phase1.updated.ward || null,
+    eventStatus: phase1.updated.status,
+    sourceTable: 'bed_transfers',
+    sourceId: `${admissionId}:transfer:${toBedId}`,
+    resourceType: 'admission',
+    resourceId: admissionId,
+    actorUid: transferredBy,
+    summary: `Transferred to ${phase1.updated.ward || 'ward'}${phase1.updated.bed_number ? ` / ${phase1.updated.bed_number}` : ''}`,
+    payload: {
+      admission_id: admissionId,
+      from_bed_id: phase1.bedTurnover?.bed_id || null,
+      to_bed_id: toBedId,
+      to_ward: phase1.updated.ward,
+      bed_number: phase1.updated.bed_number,
+      reason: reason || 'Transfer',
+    },
+    afterState: phase1.updated,
+    timelineIdempotencyKey: `admissions:${admissionId}:bed_transferred:${toBedId}:${phase1.updated.updated_at?.toISOString?.() || Date.now()}`,
+    auditIdempotencyKey: `admissions:${admissionId}:audit:bed_transferred:${toBedId}:${phase1.updated.updated_at?.toISOString?.() || Date.now()}`,
+  });
+
   return phase1.updated;
 }
 
@@ -3477,6 +3568,29 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
     });
 
     logger.info(`Admission #${admissionId} code status changed: ${previousStatus} -> ${codeStatus}`);
+    await bestEffortAdmissionTimelineEvent('code status update', {
+      tenantId: updated.tenant_id,
+      patientUid: updated.patient_uid,
+      encounterId: updated.encounter_id,
+      eventType: 'admission.code_status_updated',
+      eventSubtype: codeStatus,
+      eventStatus: updated.status,
+      sourceTable: 'admissions',
+      sourceId: admissionId,
+      resourceType: 'admission',
+      resourceId: admissionId,
+      actorUid: updatedBy,
+      summary: `Code status changed to ${codeStatus}`,
+      payload: {
+        admission_id: admissionId,
+        previous: previousStatus,
+        new: codeStatus,
+      },
+      beforeState: { code_status: previousStatus },
+      afterState: { code_status: codeStatus },
+      timelineIdempotencyKey: `admissions:${admissionId}:code_status:${codeStatus}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `admissions:${admissionId}:audit:code_status:${codeStatus}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    }, { db: tx });
     return updated;
   });
 }
@@ -3525,6 +3639,28 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
     });
 
     logger.info(`Admission #${admissionId} attending doctor changed: ${previousDoctor} -> ${doctorUid}`);
+    await bestEffortAdmissionTimelineEvent('attending doctor update', {
+      tenantId: updated.tenant_id,
+      patientUid: updated.patient_uid,
+      encounterId: updated.encounter_id,
+      eventType: 'admission.attending_doctor_updated',
+      eventStatus: updated.status,
+      sourceTable: 'admissions',
+      sourceId: admissionId,
+      resourceType: 'admission',
+      resourceId: admissionId,
+      actorUid: updatedBy,
+      summary: 'Attending doctor updated',
+      payload: {
+        admission_id: admissionId,
+        previous_doctor: previousDoctor,
+        new_doctor: doctorUid,
+      },
+      beforeState: { attending_doctor: previousDoctor },
+      afterState: { attending_doctor: doctorUid },
+      timelineIdempotencyKey: `admissions:${admissionId}:attending_doctor:${doctorUid}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `admissions:${admissionId}:audit:attending_doctor:${doctorUid}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    }, { db: tx });
     return updated;
   });
 }
@@ -3581,6 +3717,28 @@ async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy) {
     });
 
     logger.info(`Admission #${admissionId} next review set: ${previous ? new Date(previous).toISOString() : 'none'} -> ${parsed ? parsed.toISOString() : 'cleared'}`);
+    await bestEffortAdmissionTimelineEvent('next review update', {
+      tenantId: updated.tenant_id,
+      patientUid: updated.patient_uid,
+      encounterId: updated.encounter_id,
+      eventType: 'admission.next_review_updated',
+      eventStatus: updated.status,
+      sourceTable: 'admissions',
+      sourceId: admissionId,
+      resourceType: 'admission',
+      resourceId: admissionId,
+      actorUid: updatedBy,
+      summary: parsed ? `Next review set for ${parsed.toISOString()}` : 'Next review cleared',
+      payload: {
+        admission_id: admissionId,
+        previous: previous ? new Date(previous).toISOString() : null,
+        new: parsed ? parsed.toISOString() : null,
+      },
+      beforeState: { next_review_at: previous ? new Date(previous).toISOString() : null },
+      afterState: { next_review_at: parsed ? parsed.toISOString() : null },
+      timelineIdempotencyKey: `admissions:${admissionId}:next_review:${parsed ? parsed.toISOString() : 'cleared'}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `admissions:${admissionId}:audit:next_review:${parsed ? parsed.toISOString() : 'cleared'}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    }, { db: tx });
     return updated;
   });
 }

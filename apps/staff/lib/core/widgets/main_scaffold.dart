@@ -10,6 +10,7 @@ import '../platform_info.dart';
 import '../providers/message_unread_provider.dart';
 import '../providers/notification_provider.dart';
 import '../providers/session_timeout_provider.dart';
+import '../services/clinical_platform_api_service.dart';
 import 'message_unread_badge.dart';
 
 @visibleForTesting
@@ -42,6 +43,7 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold> {
   StaffRole _role = StaffRole.general;
+  Set<String>? _policyFeatureIds;
 
   @override
   void initState() {
@@ -51,11 +53,27 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   Future<void> _loadRole() async {
     final roleStr = await ApiConfig.getRole();
+    final role = StaffRole.fromString(roleStr);
     if (!mounted) return;
-    setState(() => _role = StaffRole.fromString(roleStr));
+    setState(() => _role = role);
+    unawaited(_loadRolePolicyFeatures(role));
     unawaited(context.read<RealtimeProvider>().ensureConnected());
     unawaited(context.read<MessageUnreadProvider>().refresh());
     unawaited(context.read<NotificationProvider>().fetchNotifications());
+  }
+
+  Future<void> _loadRolePolicyFeatures(StaffRole role) async {
+    try {
+      final policy = await ClinicalPlatformApiService.getRolePolicySnapshot();
+      final featureIds =
+          policy.featuresByRole[role.value] ??
+          policy.featuresByRole[role.value.toUpperCase()] ??
+          const <String>[];
+      if (!mounted || featureIds.isEmpty) return;
+      setState(() => _policyFeatureIds = featureIds.toSet());
+    } catch (_) {
+      // Keep the static role map as the offline/stale-policy fallback.
+    }
   }
 
   int _currentIndex(List<BottomNavItem> navItems) {
@@ -109,7 +127,10 @@ class _MainScaffoldState extends State<MainScaffold> {
     final unreadMessages = context.watch<MessageUnreadProvider>().unreadCount;
     final unreadAlerts = context.watch<NotificationProvider>().unreadCount;
     if (mode.isWorkbench) {
-      final navItems = RoleFeatures.getWorkbenchNavForRole(_role);
+      final navItems = RoleFeatures.getWorkbenchNavForRole(
+        _role,
+        policyFeatureIds: _policyFeatureIds,
+      );
       final selectedIndex = _currentRailIndex(navItems);
       return Scaffold(
         body: Row(

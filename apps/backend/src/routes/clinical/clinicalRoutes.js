@@ -488,6 +488,8 @@ router.post('/handover', requiredUUID('patient_uid'), requiredString('summary', 
   try {
     const data = {
       ...req.body,
+      tenant_id: req.tenantId,
+      patient_summary: req.body.patient_summary || req.body.summary,
       outgoing_nurse: req.body.outgoing_nurse || req.user.uid,
     };
 

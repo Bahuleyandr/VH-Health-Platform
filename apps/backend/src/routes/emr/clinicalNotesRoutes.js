@@ -364,12 +364,17 @@ router.get('/notes/:id', guardClinicalNoteResourceView, async (req, res, next) =
 router.get('/timeline/:patientUid', guardClinicalNoteView, async (req, res, next) => {
   try {
     const { patientUid } = req.params;
-    const { date_from, date_to } = req.query;
+    const { date_from, date_to, limit } = req.query;
 
     const timeline = await clinicalNotesService.getPatientTimeline(
       patientUid,
       date_from || null,
-      date_to || null
+      date_to || null,
+      {
+        tenantId: req.tenantId || req.user?.tenant_id,
+        limit,
+        includeLegacy: req.query.include_legacy === 'true',
+      },
     );
 
     // HIPAA audit — log timeline access (comprehensive PHI view)

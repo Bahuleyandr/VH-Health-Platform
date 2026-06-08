@@ -18,6 +18,7 @@ router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'pat
       date_from: date_from || null,
       date_to: date_to || null,
       limit,
+      includeLegacy: req.query.include_legacy === 'true',
     });
 
     logPhiAccess({
@@ -32,6 +33,7 @@ router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'pat
 
     return success(res, timeline.events, 'Patient timeline retrieved', 200, {
       canonical: timeline.counts,
+      legacy_included: timeline.legacy_included,
       generated_at: timeline.generated_at,
     });
   } catch (err) {

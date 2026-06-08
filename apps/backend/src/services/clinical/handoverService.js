@@ -3,7 +3,11 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateClinicalText } from '../ai/localLlmClient.js';
 import { publishEvent } from '../events/eventOutboxService.js';
-import { getPatientTimeline } from '../emr/clinicalTimelineService.js';
+import {
+  readCanonicalPatientTimeline,
+  recordCanonicalClinicalEvent,
+} from './canonicalClinicalPlatformService.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 
@@ -14,8 +18,27 @@ import { emitHandover } from '../../utils/websocket/realtimeEmitter.js';
 const VALID_SHIFTS = ['morning', 'afternoon', 'night'];
 const HANDOVER_PROMPT_VERSION = 'handover-doc-v1';
 
+function eventMatches(event, type) {
+  const eventType = String(event.event_type || event.type || '').toLowerCase();
+  const resourceType = String(event.resource_type || '').toLowerCase();
+  const subtype = String(event.sub_type || event.event_subtype || '').toLowerCase();
+  return eventType === type
+    || eventType.startsWith(`${type}.`)
+    || resourceType === type
+    || subtype === type;
+}
+
 function recent(events, type, count = 5) {
-  return events.filter((event) => event.event_type === type).slice(0, count);
+  return events.filter((event) => eventMatches(event, type)).slice(0, count);
+}
+
+async function bestEffortHandoverTimelineEvent(label, input) {
+  try {
+    return await recordCanonicalClinicalEvent(input);
+  } catch (err) {
+    logger.warn(`Canonical handover event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
 }
 
 function buildHandoverFallback(patientUid, timeline) {
@@ -90,7 +113,12 @@ async function saveHandoverAiGeneration(patientUid, draft, requestedBy, tenantId
 export async function generateHandoverDraft(patientUid, requestedBy, tenantId = null) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
 
-  const timeline = await getPatientTimeline(patientUid, { limit: 120 });
+  const timelineEnvelope = await readCanonicalPatientTimeline(patientUid, {
+    tenantId,
+    limit: 120,
+    includeLegacy: true,
+  });
+  const timeline = timelineEnvelope.events || [];
   const fallback = buildHandoverFallback(patientUid, timeline);
   const systemPrompt = [
     'You are a hospital nurse handover assistant.',
@@ -187,7 +215,10 @@ export async function createHandover(data) {
     pending_tasks = [],
     medications_due = [],
     special_instructions,
+    tenant_id,
+    tenantId: tenantIdInput,
   } = data;
+  const tenantId = tenant_id || tenantIdInput || DEFAULT_TENANT_ID;
 
   if (!patient_uid || !outgoing_nurse || !shift || !patient_summary) {
     throw AppError.badRequest('patient_uid, outgoing_nurse, shift, and patient_summary are required');
@@ -199,12 +230,15 @@ export async function createHandover(data) {
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO nurse_handovers
-       (patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
+       (tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse, shift,
         patient_summary, active_issues, pending_tasks, medications_due,
         special_instructions)
-     VALUES ($1::uuid, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11)
-     RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6::uuid, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12)
+     RETURNING id, tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
+               shift, patient_summary, summary, active_issues, pending_tasks, medications_due,
+               alerts, special_instructions, status, acknowledged, created_at, updated_at`,
     
+      tenantId,
       patient_uid,
       ward || null,
       bed_number || null,
@@ -235,6 +269,32 @@ export async function createHandover(data) {
     },
   });
 
+  await bestEffortHandoverTimelineEvent('handover create', {
+    tenantId: created.tenant_id,
+    patientUid: patient_uid,
+    eventType: 'handover.created',
+    eventSubtype: created.shift,
+    eventStatus: created.status || 'pending',
+    sourceTable: 'nurse_handovers',
+    sourceId: created.id,
+    resourceType: 'handover',
+    resourceId: created.id,
+    actorUid: outgoing_nurse,
+    summary: `Handover created for ${created.shift || shift.toLowerCase()} shift`,
+    payload: {
+      ward: created.ward,
+      bed_number: created.bed_number,
+      outgoing_nurse: created.outgoing_nurse,
+      incoming_nurse: created.incoming_nurse,
+      active_issues: active_issues || [],
+      pending_tasks: pending_tasks || [],
+      medications_due: medications_due || [],
+    },
+    afterState: created,
+    timelineIdempotencyKey: `nurse_handovers:${created.id}:created`,
+    auditIdempotencyKey: `nurse_handovers:${created.id}:audit:created`,
+  });
+
   return rows[0];
 }
 
@@ -246,7 +306,7 @@ export async function createHandover(data) {
  */
 export async function acknowledgeHandover(id, nurseUid) {
   const existing = await prisma.$queryRawUnsafe(
-    'SELECT id, acknowledged, incoming_nurse FROM nurse_handovers WHERE id = $1',
+    'SELECT id, tenant_id, patient_uid, acknowledged, incoming_nurse FROM nurse_handovers WHERE id = $1',
     id
   );
 
@@ -264,7 +324,9 @@ export async function acknowledgeHandover(id, nurseUid) {
          acknowledged_at = NOW(),
          incoming_nurse = COALESCE(incoming_nurse, $2)
      WHERE id = $1
-     RETURNING id, patient_uid, outgoing_nurse, incoming_nurse, summary, pending_tasks, alerts, status, created_at`,
+     RETURNING id, tenant_id, patient_uid, ward, bed_number, outgoing_nurse, incoming_nurse,
+               shift, patient_summary, summary, active_issues, pending_tasks, medications_due,
+               alerts, special_instructions, status, acknowledged, acknowledged_at, created_at, updated_at`,
     id, nurseUid
   );
 
@@ -275,6 +337,24 @@ export async function acknowledgeHandover(id, nurseUid) {
     aggregateId: id,
     patientUid: rows[0].patient_uid,
     payload: { acknowledged_by: nurseUid },
+  });
+  await bestEffortHandoverTimelineEvent('handover acknowledge', {
+    tenantId: rows[0].tenant_id,
+    patientUid: rows[0].patient_uid,
+    eventType: 'handover.acknowledged',
+    eventSubtype: rows[0].shift,
+    eventStatus: 'acknowledged',
+    sourceTable: 'nurse_handovers',
+    sourceId: rows[0].id,
+    resourceType: 'handover',
+    resourceId: rows[0].id,
+    actorUid: nurseUid,
+    summary: `Handover acknowledged for ${rows[0].shift || 'shift'}`,
+    payload: { acknowledged_by: nurseUid, incoming_nurse: rows[0].incoming_nurse },
+    beforeState: { acknowledged: false, incoming_nurse: existing[0].incoming_nurse },
+    afterState: { acknowledged: true, incoming_nurse: rows[0].incoming_nurse },
+    timelineIdempotencyKey: `nurse_handovers:${rows[0].id}:acknowledged`,
+    auditIdempotencyKey: `nurse_handovers:${rows[0].id}:audit:acknowledged`,
   });
   return rows[0];
 }
