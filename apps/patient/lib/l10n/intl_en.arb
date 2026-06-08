@@ -337,9 +337,9 @@
   "@pharmacy": {
     "description": "Dashboard tile: Pharmacy"
   },
-  "investigations": "Investigations",
+  "investigations": "Tests & Reports",
   "@investigations": {
-    "description": "Dashboard tile: Investigations"
+    "description": "Dashboard tile: Tests & Reports"
   },
   "askDoubt": "Ask a Doubt",
   "@askDoubt": {
@@ -590,7 +590,7 @@
   "@pharmacyPhoneNumberValidationInvalid": {
     "description": "Validation error for phone input"
   },
-  "investigationsTitle": "Request Investigation",
+  "investigationsTitle": "Tests & Reports",
   "@investigationsTitle": {
     "description": "App-bar title"
   },
@@ -1130,11 +1130,11 @@
   "@bookInvestigationCustomTests": { "description": "Heading above custom tests text" },
   "bookInvestigationSlipAttached": "Prescription slip attached",
   "@bookInvestigationSlipAttached": { "description": "Indicator that prescription slip was attached" },
-  "bookInvestigationBooked": "Investigation Booked!",
+  "bookInvestigationBooked": "Test Booked!",
   "@bookInvestigationBooked": { "description": "Success heading after booking" },
   "bookInvestigationConfirmationNote": "You will receive a confirmation call shortly.\nWe'll keep you updated on your booking status.",
   "@bookInvestigationConfirmationNote": { "description": "Success body text after booking" },
-  "bookInvestigationBackButton": "Back to Investigations",
+  "bookInvestigationBackButton": "Back to Tests & Reports",
   "@bookInvestigationBackButton": { "description": "Button to return to investigations from success screen" },
 
   "stepsSetupProfileTitle": "Set up your profile",

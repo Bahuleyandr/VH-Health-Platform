@@ -83,7 +83,7 @@ class StatsStrip extends StatelessWidget {
     ];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: SizedBox(height: 106, child: Row(children: _spacedCards(cards))),
     );
   }
@@ -92,7 +92,7 @@ class StatsStrip extends StatelessWidget {
     return [
       for (var i = 0; i < cards.length; i++) ...[
         Expanded(child: cards[i]),
-        if (i != cards.length - 1) const SizedBox(width: 8),
+        if (i != cards.length - 1) const SizedBox(width: 6),
       ],
     ];
   }
@@ -100,6 +100,34 @@ class StatsStrip extends StatelessWidget {
   String _formatThousands(int n) {
     if (n < 1000) return '$n';
     return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 1)}k';
+  }
+}
+
+class _StatHeaderLabel extends StatelessWidget {
+  final String text;
+  final TextStyle? style;
+
+  const _StatHeaderLabel({required this.text, this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 16,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            text,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.visible,
+            style: style,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -169,10 +197,8 @@ class _WellnessStatCard extends StatelessWidget {
                   Icon(LucideIcons.activity, size: 14, color: tint),
                   const SizedBox(width: 5),
                   Expanded(
-                    child: Text(
-                      'Wellness',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: _StatHeaderLabel(
+                      text: 'Wellness',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.72),
                         fontWeight: FontWeight.w700,
@@ -297,10 +323,8 @@ class _StatCard extends StatelessWidget {
                   Icon(icon, size: 14, color: tint),
                   const SizedBox(width: 5),
                   Expanded(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: _StatHeaderLabel(
+                      text: label,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.7),
                         fontWeight: FontWeight.w600,

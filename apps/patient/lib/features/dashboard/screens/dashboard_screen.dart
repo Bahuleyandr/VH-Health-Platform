@@ -320,9 +320,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       FeatureIconData(
         icon: LucideIcons.flaskConical,
         svgAsset: 'assets/images/features/investigations.svg',
-        label: 'Investigations',
+        label: 'Tests & Reports',
         color: const Color(0xFF00A7C8),
-        description: 'Labs, scans, reports, and bookings',
+        description: 'Lab tests, scans, reports, and bookings',
         onTap: (ctx) => _openFeature(ctx, '/investigations'),
       ),
       FeatureIconData(
@@ -689,7 +689,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       '/your-health' || '/health' || '/records' => 'Your health records',
       '/appointments' => 'Appointments',
       '/pharmacy' => 'Pharmacy',
-      '/investigations' => 'Investigations',
+      '/investigations' => 'Tests & Reports',
       '/ask-a-doubt' => 'Ask a Doubt',
       '/steps' => 'Step Challenge',
       '/vitals' => 'Vitals',

@@ -267,7 +267,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pharmacy => 'Pharmacy';
 
   @override
-  String get investigations => 'Investigations';
+  String get investigations => 'Tests & Reports';
 
   @override
   String get askDoubt => 'Ask a Doubt';
@@ -479,7 +479,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Enter a valid 10-digit phone number';
 
   @override
-  String get investigationsTitle => 'Request Investigation';
+  String get investigationsTitle => 'Tests & Reports';
 
   @override
   String get investigationsTestNameLabel => 'Test name';
@@ -1157,14 +1157,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookInvestigationSlipAttached => 'Prescription slip attached';
 
   @override
-  String get bookInvestigationBooked => 'Investigation Booked!';
+  String get bookInvestigationBooked => 'Test Booked!';
 
   @override
   String get bookInvestigationConfirmationNote =>
       'You will receive a confirmation call shortly.\nWe\'ll keep you updated on your booking status.';
 
   @override
-  String get bookInvestigationBackButton => 'Back to Investigations';
+  String get bookInvestigationBackButton => 'Back to Tests & Reports';
 
   @override
   String get stepsSetupProfileTitle => 'Set up your profile';

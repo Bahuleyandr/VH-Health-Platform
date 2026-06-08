@@ -492,7 +492,7 @@ class _ExtractionPanel extends StatelessWidget {
           children: _valueListWidgets(extractedFields['medications']),
         ),
         _SectionCard(
-          title: 'Investigations',
+          title: 'Tests & Reports',
           icon: Icons.science_outlined,
           children: _valueListWidgets(extractedFields['investigations']),
         ),

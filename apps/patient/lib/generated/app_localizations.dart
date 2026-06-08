@@ -608,10 +608,10 @@ abstract class AppLocalizations {
   /// **'Pharmacy'**
   String get pharmacy;
 
-  /// Dashboard tile: Investigations
+  /// Dashboard tile: Tests & Reports
   ///
   /// In en, this message translates to:
-  /// **'Investigations'**
+  /// **'Tests & Reports'**
   String get investigations;
 
   /// Dashboard tile: Ask a Doubt
@@ -1013,7 +1013,7 @@ abstract class AppLocalizations {
   /// App-bar title
   ///
   /// In en, this message translates to:
-  /// **'Request Investigation'**
+  /// **'Tests & Reports'**
   String get investigationsTitle;
 
   /// Label for investigation test name
@@ -2285,7 +2285,7 @@ abstract class AppLocalizations {
   /// Success heading after booking
   ///
   /// In en, this message translates to:
-  /// **'Investigation Booked!'**
+  /// **'Test Booked!'**
   String get bookInvestigationBooked;
 
   /// Success body text after booking
@@ -2297,7 +2297,7 @@ abstract class AppLocalizations {
   /// Button to return to investigations from success screen
   ///
   /// In en, this message translates to:
-  /// **'Back to Investigations'**
+  /// **'Back to Tests & Reports'**
   String get bookInvestigationBackButton;
 
   /// Heading on step challenge profile setup card
