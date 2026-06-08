@@ -12,6 +12,9 @@ router.get('/summary', auditQueryController.getAuditSummary);
 // GET /api/v1/admin/audit/modules
 router.get('/modules', auditQueryController.getAuditModules);
 
+// GET /api/v1/admin/audit/unified
+router.get('/unified', auditQueryController.getUnifiedAuditLogs);
+
 // GET /api/v1/admin/audit/user/:userId?days=30
 router.get('/user/:userId', auditQueryController.getUserAuditHistory);
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'api_client.dart';
+import 'clinical_platform_api_service.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
 /// health records, vitals, diagnosis, clinical notes, and CDS.
@@ -1082,9 +1083,20 @@ class MedicalApiService {
     return _get('/emr/notes/patient/$uid', query: {'note_type': ?noteType});
   }
 
-  /// GET /emr/timeline/:uid — full clinical timeline for a patient
+  /// GET /patients/:uid/timeline — canonical patient timeline.
+  /// Falls back to `/emr/timeline/:uid` while backend rollout catches up.
   static Future<Map<String, dynamic>> getPatientTimeline(String uid) async {
-    return _get('/emr/timeline/$uid');
+    try {
+      final timeline = await ClinicalPlatformApiService.getPatientTimeline(uid);
+      return {
+        'data': timeline.events.map((event) => event.toLegacyMap()).toList(),
+        'canonical': true,
+        'counts': timeline.counts,
+        'generated_at': timeline.generatedAt?.toIso8601String(),
+      };
+    } catch (_) {
+      return _get('/emr/timeline/$uid');
+    }
   }
 
   /// POST /emr/notes/:id/sign — sign a clinical note

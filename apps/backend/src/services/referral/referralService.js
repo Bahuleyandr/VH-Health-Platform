@@ -6,6 +6,11 @@ import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
+import {
+  completeWorkflowSla,
+  recordCanonicalClinicalEvent,
+  startWorkflowSla,
+} from '../clinical/canonicalClinicalPlatformService.js';
 
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
@@ -46,6 +51,15 @@ function notificationPriorityForUrgency(urgency) {
   return normalized === 'routine' ? 'MEDIUM' : 'HIGH';
 }
 
+async function bestEffortReferralCanonical(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    logger.warn(`Canonical referral event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
+
 // Shared `select` for state-transition returns (accept / complete / decline).
 // Keeping the shape consistent means callers don't need to branch on which
 // action produced the row.
@@ -53,6 +67,7 @@ const REFERRAL_STATE_SELECT = {
   id: true,
   referral_number: true,
   patient_uid: true,
+  encounter_id: true,
   referring_doctor: true,
   referred_to_doctor: true,
   referred_to_department: true,
@@ -307,6 +322,48 @@ class ReferralService {
     });
 
     const notifications = await this._notifyReferralRecipients(referral);
+    await bestEffortReferralCanonical('referral request', async () => {
+      await recordCanonicalClinicalEvent({
+        tenantId,
+        patientUid: referral.patient_uid,
+        encounterId: referral.encounter_id,
+        eventType: 'referral.requested',
+        eventSubtype: referral.referred_to_department,
+        eventStatus: referral.status,
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        resourceType: 'referral',
+        resourceId: referral.id,
+        actorUid: requesterUid,
+        actorRole: actor_role,
+        summary: `Referral requested to ${referral.referred_to_department}`,
+        payload: {
+          referral_number: referral.referral_number,
+          referred_to_doctor: referral.referred_to_doctor,
+          referred_to_department: referral.referred_to_department,
+          urgency: referral.urgency,
+          reason: referral.reason,
+          clinical_summary: referral.clinical_summary,
+          source: referral.source,
+        },
+        afterState: referral,
+      });
+      await startWorkflowSla({
+        tenantId,
+        ruleCode: 'referral_response',
+        patientUid: referral.patient_uid,
+        encounterId: referral.encounter_id,
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        priority: referral.priority || referral.urgency || 'normal',
+        assignedUserUid: referral.referred_to_doctor,
+        metadata: {
+          referral_number: referral.referral_number,
+          referred_to_department: referral.referred_to_department,
+          urgency: referral.urgency,
+        },
+      });
+    });
     logger.info(`Referral created: ${referralNumber} from ${referring_doctor} to ${referred_to_department}`);
     return { ...referral, notifications };
   }
@@ -496,6 +553,8 @@ class ReferralService {
         id: true,
         status: true,
         tenant_id: true,
+        patient_uid: true,
+        encounter_id: true,
         referred_to_doctor: true,
         referred_to_department: true,
         accepted_by: true,
@@ -527,6 +586,37 @@ class ReferralService {
     });
 
     logger.info(`Referral ${referralId} accepted by ${acceptedBy}`);
+    await bestEffortReferralCanonical('referral accept', async () => {
+      await recordCanonicalClinicalEvent({
+        tenantId: referral.tenant_id,
+        patientUid: referral.patient_uid,
+        encounterId: referral.encounter_id,
+        eventType: 'referral.accepted',
+        eventSubtype: referral.referred_to_department,
+        eventStatus: referral.status,
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        resourceType: 'referral',
+        resourceId: referral.id,
+        actorUid: acceptedBy,
+        actorRole: options.actorRole,
+        summary: `Referral ${referral.referral_number} accepted`,
+        payload: {
+          referral_number: referral.referral_number,
+          accepted_by: referral.accepted_by,
+          accepted_at: referral.accepted_at,
+        },
+        beforeState: existing,
+        afterState: referral,
+      });
+      await completeWorkflowSla({
+        tenantId: referral.tenant_id,
+        ruleCode: 'referral_response',
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        metadata: { completed_by: acceptedBy, completed_by_action: 'accepted' },
+      });
+    });
     return referral;
   }
 
@@ -545,6 +635,8 @@ class ReferralService {
         id: true,
         status: true,
         tenant_id: true,
+        patient_uid: true,
+        encounter_id: true,
         referring_doctor: true,
         referred_to_doctor: true,
         referred_to_department: true,
@@ -577,6 +669,28 @@ class ReferralService {
     });
 
     logger.info(`Referral ${referralId} completed`);
+    await bestEffortReferralCanonical('referral complete', () => recordCanonicalClinicalEvent({
+      tenantId: referral.tenant_id,
+      patientUid: referral.patient_uid,
+      encounterId: referral.encounter_id,
+      eventType: 'referral.completed',
+      eventSubtype: referral.referred_to_department,
+      eventStatus: referral.status,
+      sourceTable: 'referrals',
+      sourceId: referral.id,
+      resourceType: 'referral',
+      resourceId: referral.id,
+      actorUid: options.actorUid,
+      actorRole: options.actorRole,
+      summary: `Referral ${referral.referral_number} completed`,
+      payload: {
+        referral_number: referral.referral_number,
+        response_notes: referral.response_notes,
+        completed_at: referral.completed_at,
+      },
+      beforeState: existing,
+      afterState: referral,
+    }));
     return referral;
   }
 
@@ -595,6 +709,8 @@ class ReferralService {
         id: true,
         status: true,
         tenant_id: true,
+        patient_uid: true,
+        encounter_id: true,
         referred_to_doctor: true,
         referred_to_department: true,
         accepted_by: true,
@@ -620,6 +736,36 @@ class ReferralService {
     });
 
     logger.info(`Referral ${referralId} declined`);
+    await bestEffortReferralCanonical('referral decline', async () => {
+      await recordCanonicalClinicalEvent({
+        tenantId: referral.tenant_id,
+        patientUid: referral.patient_uid,
+        encounterId: referral.encounter_id,
+        eventType: 'referral.declined',
+        eventSubtype: referral.referred_to_department,
+        eventStatus: referral.status,
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        resourceType: 'referral',
+        resourceId: referral.id,
+        actorUid: options.actorUid,
+        actorRole: options.actorRole,
+        summary: `Referral ${referral.referral_number} declined`,
+        payload: {
+          referral_number: referral.referral_number,
+          response_notes: referral.response_notes,
+        },
+        beforeState: existing,
+        afterState: referral,
+      });
+      await completeWorkflowSla({
+        tenantId: referral.tenant_id,
+        ruleCode: 'referral_response',
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        metadata: { completed_by: options.actorUid, completed_by_action: 'declined' },
+      });
+    });
     return referral;
   }
 
@@ -641,6 +787,8 @@ class ReferralService {
         id: true,
         status: true,
         tenant_id: true,
+        patient_uid: true,
+        encounter_id: true,
         referred_to_doctor: true,
         referred_to_department: true,
         accepted_by: true,
@@ -664,11 +812,43 @@ class ReferralService {
       data.performer_id = actorUid;
     }
 
-    return prisma.referrals.update({
+    const referral = await prisma.referrals.update({
       where: { id: referralId },
       data,
       select: REFERRAL_STATE_SELECT,
     });
+    await bestEffortReferralCanonical('referral seen', async () => {
+      await recordCanonicalClinicalEvent({
+        tenantId: referral.tenant_id,
+        patientUid: referral.patient_uid,
+        encounterId: referral.encounter_id,
+        eventType: 'referral.seen',
+        eventSubtype: referral.referred_to_department,
+        eventStatus: referral.status,
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        resourceType: 'referral',
+        resourceId: referral.id,
+        actorUid,
+        actorRole: options.actorRole,
+        summary: `Referral ${referral.referral_number} seen`,
+        payload: {
+          referral_number: referral.referral_number,
+          first_seen_at: referral.first_seen_at,
+          first_seen_by: referral.first_seen_by,
+        },
+        beforeState: existing,
+        afterState: referral,
+      });
+      await completeWorkflowSla({
+        tenantId: referral.tenant_id,
+        ruleCode: 'referral_response',
+        sourceTable: 'referrals',
+        sourceId: referral.id,
+        metadata: { completed_by: actorUid, completed_by_action: 'seen' },
+      });
+    });
+    return referral;
   }
 
   async getReferralAudit(filters = {}) {

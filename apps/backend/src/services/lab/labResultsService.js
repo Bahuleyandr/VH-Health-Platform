@@ -12,6 +12,7 @@ import { AppError } from '../../utils/AppError.js';
 import { canSignOffLabResults } from '../../utils/roleHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
+import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -768,6 +769,15 @@ export async function acknowledgeAlert(alertId, {
     read_back_method || null, notes || null, Number(alertId),
   );
   if (!rows.length) throw AppError.notFound('Alert not found or already acknowledged');
+  await emitCriticalLabAlertAcknowledged({
+    alert: rows[0],
+    actorUid: acknowledged_by,
+    actorRole: 'CLINICAL',
+    payload: {
+      acknowledged_by_name: acknowledged_by_name || null,
+      read_back_method: read_back_method || null,
+    },
+  });
   return rows[0];
 }
 

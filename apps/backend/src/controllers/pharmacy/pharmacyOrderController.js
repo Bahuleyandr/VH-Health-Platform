@@ -9,6 +9,7 @@ import { success, error } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/pharmacyCapService.js';
+import { emitPharmacyOrderEvent } from '../../services/clinical/canonicalOperationalBridgeService.js';
 
 // ── Helper: attach signed URL to order ──────────────────────────────────────
 async function attachSignedUrl(order) {
@@ -37,6 +38,20 @@ function auditPharmacyOrder(req, action, order, extra = {}) {
     { resource: 'pharmacy_orders', resourceId: order.id },
   ).catch((auditErr) => {
     logger.warn(`Pharmacy audit ${action} failed for order ${order.id}: ${auditErr.message}`);
+  });
+}
+
+function canonicalPharmacyOrder(req, eventType, order, extra = {}) {
+  emitPharmacyOrderEvent({
+    order,
+    actorUid: req.user?.uid || null,
+    actorRole: req.user?.role || null,
+    eventType,
+    eventStatus: extra.to_status || order?.status || null,
+    previousStatus: extra.from_status || null,
+    payload: extra,
+  }).catch((canonicalErr) => {
+    logger.warn(`Canonical pharmacy event ${eventType} failed for order ${order?.id || 'unknown'}: ${canonicalErr.message}`);
   });
 }
 
@@ -103,6 +118,11 @@ export const placeOrder = async (req, res) => {
       } catch (e) {
         logger.warn('Pharmacist alert failed:', e.message);
       }
+    });
+
+    canonicalPharmacyOrder(req, 'pharmacy.order_created', order, {
+      to_status: 'PENDING',
+      delivery_type: order.delivery_type || delivery_type || null,
     });
 
     success(res, order, `Order placed. ${order.order_number}`);
@@ -243,6 +263,11 @@ export const confirmOrder = async (req, res) => {
       from_status: 'PENDING',
       to_status: 'CONFIRMED',
     });
+    canonicalPharmacyOrder(req, 'pharmacy.order_confirmed', { ...result[0], order_number: order[0].order_number }, {
+      from_status: 'PENDING',
+      to_status: 'CONFIRMED',
+      item_count: Array.isArray(items_list) ? items_list.length : 0,
+    });
 
     setImmediate(async () => {
       try {
@@ -305,6 +330,10 @@ export const markPreparing = async (req, res) => {
       from_status: 'CONFIRMED',
       to_status: 'PREPARING',
     });
+    canonicalPharmacyOrder(req, 'pharmacy.order_preparing', result[0], {
+      from_status: 'CONFIRMED',
+      to_status: 'PREPARING',
+    });
 
     success(res, result[0], 'Preparing');
   } catch (err) {
@@ -352,6 +381,11 @@ export const dispatchOrder = async (req, res) => {
     );
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_DISPATCHED', result[0], {
+      from_status: fromStatus,
+      to_status: 'DISPATCHED',
+      delivery_person: delivery_person || null,
+    });
+    canonicalPharmacyOrder(req, 'pharmacy.order_dispatched', result[0], {
       from_status: fromStatus,
       to_status: 'DISPATCHED',
       delivery_person: delivery_person || null,
@@ -515,6 +549,10 @@ export const markDelivered = async (req, res) => {
     }
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_DELIVERED', result, {
+      from_status: 'DISPATCHED',
+      to_status: 'DELIVERED',
+    });
+    canonicalPharmacyOrder(req, 'pharmacy.order_delivered', result, {
       from_status: 'DISPATCHED',
       to_status: 'DELIVERED',
     });
@@ -1018,6 +1056,11 @@ export const markCounterDispensed = async (req, res) => {
       partial_dispense: Boolean(result.ok?.partial_dispense),
       payment_status: result.ok?.payment_status || null,
     });
+    canonicalPharmacyOrder(req, 'pharmacy.order_dispensed', result.ok, {
+      to_status: 'DISPENSED',
+      partial_dispense: Boolean(result.ok?.partial_dispense),
+      payment_status: result.ok?.payment_status || null,
+    });
     success(res, result.ok, 'Counter dispense complete');
   } catch (err) {
     logger.error('Counter dispense error:', err);
@@ -1072,6 +1115,12 @@ export const markUnavailable = async (req, res) => {
       reason: reason || null,
       unavailable_items: Array.isArray(unavailable_items) ? unavailable_items : null,
     });
+    canonicalPharmacyOrder(req, 'pharmacy.order_unavailable', result[0], {
+      from_status: fromStatus,
+      to_status: 'UNAVAILABLE',
+      reason: reason || null,
+      unavailable_items: Array.isArray(unavailable_items) ? unavailable_items : null,
+    });
 
     success(res, result[0], 'Order marked unavailable');
   } catch (err) {
@@ -1110,6 +1159,11 @@ export const cancelOrder = async (req, res) => {
     );
 
     auditPharmacyOrder(req, 'PHARMACY_ORDER_CANCELLED', result[0], {
+      from_status: fromStatus,
+      to_status: 'CANCELLED',
+      reason: cancellation_reason || null,
+    });
+    canonicalPharmacyOrder(req, 'pharmacy.order_cancelled', result[0], {
       from_status: fromStatus,
       to_status: 'CANCELLED',
       reason: cancellation_reason || null,

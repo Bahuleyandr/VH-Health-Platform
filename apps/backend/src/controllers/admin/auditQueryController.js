@@ -64,6 +64,162 @@ export const getAuditLogs = async (req, res) => {
   }
 };
 
+// GET /api/v1/admin/audit/unified
+// Normalized clinical governance feed across request audit, patient-access
+// decisions, and canonical clinical action audit. This is additive: the
+// legacy /logs endpoint remains unchanged for API/request troubleshooting.
+export const getUnifiedAuditLogs = async (req, res) => {
+  try {
+    const {
+      source,
+      action,
+      actor_uid,
+      patient_uid,
+      status,
+      from,
+      to,
+      search,
+      limit = 100,
+      offset = 0,
+    } = req.query;
+
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
+    const conditions = [];
+    const params = [];
+    let idx = 1;
+
+    if (source) { conditions.push(`source = $${idx++}`); params.push(String(source)); }
+    if (action) { conditions.push(`action ILIKE $${idx++}`); params.push(`%${action}%`); }
+    if (actor_uid) { conditions.push(`actor_uid = $${idx++}`); params.push(String(actor_uid)); }
+    if (patient_uid) { conditions.push(`patient_uid = $${idx++}`); params.push(String(patient_uid)); }
+    if (status) { conditions.push(`action_status = $${idx++}`); params.push(String(status)); }
+    if (from) { conditions.push(`occurred_at >= $${idx++}::timestamptz`); params.push(from); }
+    if (to) { conditions.push(`occurred_at <= $${idx++}::timestamptz`); params.push(to); }
+    if (tenantId) {
+      conditions.push(`(tenant_id IS NULL OR tenant_id = $${idx++})`);
+      params.push(String(tenantId));
+    }
+    if (search) {
+      conditions.push(`(
+        action ILIKE $${idx}
+        OR COALESCE(resource_type, '') ILIKE $${idx}
+        OR COALESCE(resource_table, '') ILIKE $${idx}
+        OR COALESCE(summary, '') ILIKE $${idx}
+      )`);
+      params.push(`%${search}%`);
+      idx += 1;
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limitVal = Math.min(parseInt(limit, 10) || 100, 500);
+    const offsetVal = parseInt(offset, 10) || 0;
+    params.push(limitVal, offsetVal);
+
+    const query = `
+      WITH combined AS (
+        SELECT
+          'request'::text AS source,
+          NULL::text AS tenant_id,
+          al.id::text AS id,
+          al.created_at AS occurred_at,
+          al.user_id::text AS actor_uid,
+          al.user_role::text AS actor_role,
+          NULL::text AS patient_uid,
+          al.action::text AS action,
+          CASE WHEN al.success THEN 'success' ELSE 'failure' END::text AS action_status,
+          al.module::text AS resource_type,
+          NULL::text AS resource_table,
+          NULL::text AS resource_id,
+          CONCAT(al.method, ' ', al.path)::text AS summary,
+          jsonb_build_object(
+            'method', al.method,
+            'path', al.path,
+            'status_code', al.status_code,
+            'response_time_ms', al.response_time_ms,
+            'request_summary', al.request_summary,
+            'error_message', al.error_message
+          ) AS metadata
+        FROM audit_log al
+
+        UNION ALL
+
+        SELECT
+          'clinical'::text AS source,
+          cae.tenant_id::text AS tenant_id,
+          cae.id::text AS id,
+          cae.occurred_at AS occurred_at,
+          cae.actor_uid::text AS actor_uid,
+          cae.actor_role::text AS actor_role,
+          cae.patient_uid::text AS patient_uid,
+          cae.action::text AS action,
+          cae.action_status::text AS action_status,
+          cae.resource_type::text AS resource_type,
+          cae.resource_table::text AS resource_table,
+          cae.resource_id::text AS resource_id,
+          COALESCE(cae.metadata->>'summary', cae.action)::text AS summary,
+          jsonb_build_object(
+            'encounter_id', cae.encounter_id,
+            'request_id', cae.request_id,
+            'before_state', cae.before_state,
+            'after_state', cae.after_state,
+            'metadata', cae.metadata
+          ) AS metadata
+        FROM clinical_audit_events cae
+
+        UNION ALL
+
+        SELECT
+          'patient_access'::text AS source,
+          pa.tenant_id::text AS tenant_id,
+          pa.id::text AS id,
+          pa.created_at AS occurred_at,
+          pa.actor_uid::text AS actor_uid,
+          pa.actor_role::text AS actor_role,
+          pa.patient_uid::text AS patient_uid,
+          COALESCE(pa.action, 'patient_access')::text AS action,
+          pa.access_decision::text AS action_status,
+          'patient_access'::text AS resource_type,
+          NULL::text AS resource_table,
+          COALESCE(pa.care_team_id::text, pa.break_glass_id::text) AS resource_id,
+          COALESCE(pa.reason, pa.access_source)::text AS summary,
+          jsonb_build_object(
+            'access_source', pa.access_source,
+            'route', pa.route,
+            'request_id', pa.request_id,
+            'care_team_id', pa.care_team_id,
+            'break_glass_id', pa.break_glass_id,
+            'metadata', pa.metadata
+          ) AS metadata
+        FROM patient_access_audit_log pa
+      )
+      SELECT *
+        FROM combined
+        ${where}
+       ORDER BY occurred_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`;
+
+    const rows = await prisma.$queryRawUnsafe(query, ...params);
+    return success(res, {
+      logs: rows,
+      limit: limitVal,
+      offset: offsetVal,
+      filters: {
+        source: source || null,
+        action: action || null,
+        actor_uid: actor_uid || null,
+        patient_uid: patient_uid || null,
+        status: status || null,
+        from: from || null,
+        to: to || null,
+        search: search || null,
+      },
+    }, 'Unified audit logs fetched');
+  } catch (err) {
+    logger.error('Unified Audit Logs Error:', err);
+    error(res, 'Failed to fetch unified audit logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // GET /api/v1/admin/audit/summary
 // High-level stats for dashboard
 export const getAuditSummary = async (req, res) => {

@@ -271,7 +271,11 @@ router.post('/mar/schedule', requiredUUID('patient_uid'), validate, guardClinica
       return success(res, [], 'MAR ready (no medications scheduled yet)', 201);
     }
 
-    const records = await marService.scheduleMedications(patient_uid, prescription_id, meds);
+    const records = await marService.scheduleMedications(patient_uid, prescription_id, meds, {
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      tenantId: req.tenantId || null,
+    });
     return success(res, records, 'Medications scheduled', 201);
   } catch (err) {
     next(err);
@@ -372,7 +376,7 @@ router.post('/mar/:id/miss', paramId(), requiredString('reason', 500), validate,
       return error(res, 'Reason is required for missed medication', 400);
     }
 
-    const record = await marService.recordMissed(parseInt(id, 10), reason);
+    const record = await marService.recordMissed(parseInt(id, 10), reason, req.user?.uid);
     return success(res, record, 'Missed medication recorded');
   } catch (err) {
     next(err);

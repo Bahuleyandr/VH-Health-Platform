@@ -21,11 +21,12 @@
 5. [Authentication + authorization](#5-authentication--authorization)
 6. [Multi-tenancy](#6-multi-tenancy)
 7. [Data layer](#7-data-layer)
-8. [Clinical-AI subsystem](#8-clinical-ai-subsystem)
-9. [Deployment architecture](#9-deployment-architecture)
-10. [CI/CD + supply chain](#10-cicd--supply-chain)
-11. [Observability + ops](#11-observability--ops)
-12. [Where to look when…](#12-where-to-look-when)
+8. [Canonical clinical timeline](#8-canonical-clinical-timeline)
+9. [Clinical-AI subsystem](#9-clinical-ai-subsystem)
+10. [Deployment architecture](#10-deployment-architecture)
+11. [CI/CD + supply chain](#11-cicd--supply-chain)
+12. [Observability + ops](#12-observability--ops)
+13. [Where to look when…](#13-where-to-look-when)
 
 ---
 
@@ -501,7 +502,36 @@ in CI.
 
 ---
 
-## 8. Clinical-AI subsystem
+## 8. Canonical clinical timeline
+
+The canonical patient timeline is now a platform invariant. Feature/detail
+tables still exist, but new OP/IP clinical workflows must also emit canonical
+timeline and clinical audit events in the same transaction.
+
+Durable implementation note:
+[`docs/CANONICAL_CLINICAL_TIMELINE.md`](CANONICAL_CLINICAL_TIMELINE.md).
+
+Core tables:
+
+- `patient_encounters`
+- `clinical_timeline_events`
+- `clinical_audit_events`
+- `workflow_sla_rules`
+- `workflow_sla_instances`
+- `medication_safety_reviews`
+
+Core migration:
+[`269_canonical_clinical_platform.sql`](../apps/backend/src/migrations/269_canonical_clinical_platform.sql).
+
+Future changes to OP Workspace, Patient Command Board, Bed Board,
+prescriptions, investigations, referrals, vitals, I/O, MAR, discharge,
+housekeeping, and clinical audit must respect this model. The rendered timeline
+is not a permission bypass; PHI access still depends on RBAC plus the access
+decision service/care-team/appointment/admission/referral/break-glass context.
+
+---
+
+## 9. Clinical-AI subsystem
 
 The "40 future-proofing AI features" are all shipped at v1, and the
 current Clinical AI registry contains 92 governed modules. See
@@ -528,7 +558,7 @@ of truth and is kept up to date per feature.
 
 ---
 
-## 9. Deployment architecture
+## 10. Deployment architecture
 
 ### Cluster
 
@@ -647,7 +677,7 @@ Full end-to-end runbook: **[`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)**.
 
 ---
 
-## 10. CI/CD + supply chain
+## 11. CI/CD + supply chain
 
 ### Workflow catalogue
 
@@ -709,7 +739,7 @@ team grows past two reviewers.
 
 ---
 
-## 11. Observability + ops
+## 12. Observability + ops
 
 ### Logging
 
@@ -760,7 +790,7 @@ team grows past two reviewers.
 
 ---
 
-## 12. Where to look when…
+## 13. Where to look when…
 
 Cheatsheet for common changes. All paths relative to repo root.
 

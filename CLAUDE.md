@@ -48,6 +48,23 @@ work must use the monorepo paths above. Flutter packages resolve
 `vhhealth_core` through the root Dart pub workspace; backend and admin call each
 other over HTTP through the configured deployment URLs.
 
+## Canonical clinical timeline invariant
+
+VH Health now has a canonical clinical event layer. Future agents and humans
+must not add new OP/IP clinical workflows that only write to their
+feature-specific tables.
+
+Read [`docs/CANONICAL_CLINICAL_TIMELINE.md`](docs/CANONICAL_CLINICAL_TIMELINE.md)
+before changing OP Workspace, Patient Command Board, prescriptions,
+investigations, referrals, vitals, I/O, MAR, discharge, bed/housekeeping, or
+clinical audit flows.
+
+Minimum rule: every successful patient-facing clinical write should persist the
+detail row plus one `clinical_timeline_events` row and one
+`clinical_audit_events` row in the same transaction. SLA-backed actions should
+also create/update `workflow_sla_instances`; medication safety findings or
+overrides should create `medication_safety_reviews`.
+
 ## Cross-stack workflows
 
 ### One-time per clone

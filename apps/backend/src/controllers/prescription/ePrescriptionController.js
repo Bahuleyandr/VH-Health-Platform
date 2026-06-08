@@ -7,6 +7,11 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import {
+  ensureEncounterForAppointment,
+  recordCanonicalClinicalEvent,
+  recordMedicationSafetyReviews,
+} from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { maybePropagateAncSupplements } from '../../services/maternity/maternityService.js';
 import { createPrescriptionReminders } from '../../services/patient/medicationReminderService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
@@ -32,6 +37,15 @@ const FREQ_LABELS = {
 const VALID_VISIT_TYPES = ['outpatient', 'inpatient'];
 const TERMINAL_PRESCRIPTION_STATUSES = new Set(['fulfilled', 'cancelled', 'canceled']);
 const PRIVILEGED_PRESCRIPTION_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+async function bestEffortPrescriptionCanonical(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    logger.warn(`Canonical prescription event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
 
 function parseJsonField(value, fallback = null) {
   if (value === undefined || value === null || value === '') return fallback;
@@ -1037,6 +1051,19 @@ export const createPrescription = async (req, res) => {
     );
 
     const prescription = insertResult[0];
+    const encounter = appointmentId
+      ? await bestEffortPrescriptionCanonical('prescription encounter ensure', () => ensureEncounterForAppointment({
+        tenantId: req.user?.tenant_id || req.user?.tenantId,
+        appointmentId,
+        patientUid,
+        doctorUid,
+        actorUid: req.user?.uid,
+        metadata: {
+          source: 'prescriptions.create',
+          prescription_id: prescription.id,
+        },
+      }))
+      : null;
 
     logAudit(
       req,
@@ -1058,6 +1085,42 @@ export const createPrescription = async (req, res) => {
     ).catch(auditErr => {
       logger.warn(`Prescription create audit failed for ${prescription.id}: ${auditErr.message}`);
     });
+
+    await bestEffortPrescriptionCanonical('prescription safety review', () => recordMedicationSafetyReviews({
+      tenantId: req.user?.tenant_id || req.user?.tenantId,
+      patientUid,
+      patientId,
+      encounterId: encounter?.id || null,
+      prescriptionId: prescription.id,
+      safety,
+      override,
+      actorUid: req.user?.uid,
+    }));
+
+    await bestEffortPrescriptionCanonical('prescription create event', () => recordCanonicalClinicalEvent({
+      tenantId: req.user?.tenant_id || req.user?.tenantId,
+      patientUid,
+      encounterId: encounter?.id || null,
+      eventType: 'prescription.created',
+      eventStatus: prescription.lifecycle_status || prescription.status || 'draft',
+      sourceTable: 'e_prescriptions',
+      sourceId: prescription.id,
+      resourceType: 'prescription',
+      resourceId: prescription.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      summary: `Prescription ${prescription.prescription_number} created`,
+      payload: {
+        prescription_number: prescription.prescription_number,
+        appointment_id: appointmentId || null,
+        admission_id: admissionId || null,
+        visit_type: resolvedVisitType,
+        diagnosis: prescription.diagnosis,
+        medication_count: medications.length,
+        safety,
+      },
+      afterState: prescription,
+    }));
 
     // If CDS blockers were overridden, persist the audit row linked to the new Rx.
     if (!safety.safe && override) {
@@ -1378,6 +1441,42 @@ export const updatePrescription = async (req, res) => {
       logger.warn(`Prescription edit audit failed for ${updated.id}: ${auditErr.message}`);
     });
 
+    await bestEffortPrescriptionCanonical('prescription edit safety review', () => recordMedicationSafetyReviews({
+      tenantId: req.user?.tenant_id || req.user?.tenantId,
+      patientUid: updated.patient_uid || existing.patient_uid,
+      patientId: updated.patient_id || existing.patient_id,
+      prescriptionId: updated.id,
+      safety,
+      override,
+      actorUid: req.user?.uid,
+    }));
+
+    await bestEffortPrescriptionCanonical('prescription edit event', () => recordCanonicalClinicalEvent({
+      tenantId: req.user?.tenant_id || req.user?.tenantId,
+      patientUid: updated.patient_uid || existing.patient_uid,
+      eventType: 'prescription.edited',
+      eventStatus: updated.lifecycle_status || updated.status || 'draft',
+      sourceTable: 'e_prescriptions',
+      sourceId: updated.id,
+      resourceType: 'prescription',
+      resourceId: updated.id,
+      actorUid: req.user?.uid,
+      actorRole: req.user?.role,
+      summary: `Prescription ${updated.prescription_number} edited`,
+      payload: {
+        prescription_number: updated.prescription_number,
+        appointment_id: updated.appointment_id || null,
+        admission_id: updated.admission_id || null,
+        revision: updated.revision,
+        medication_count: medications.length,
+        safety,
+      },
+      beforeState: existing,
+      afterState: updated,
+      timelineIdempotencyKey: `e_prescriptions:${updated.id}:edited:rev${updated.revision || 1}`,
+      auditIdempotencyKey: `e_prescriptions:${updated.id}:audit:edited:rev${updated.revision || 1}`,
+    }));
+
     success(res, updated, 'Prescription updated');
   } catch (err) {
     logger.error('Update prescription error:', err);
@@ -1416,6 +1515,19 @@ export const signPrescription = async (req, res) => {
       id
     );
     const signed = result[0];
+    const encounter = signed.appointment_id
+      ? await bestEffortPrescriptionCanonical('prescription sign encounter ensure', () => ensureEncounterForAppointment({
+        tenantId: req.user?.tenant_id || req.user?.tenantId,
+        appointmentId: signed.appointment_id,
+        patientUid: signed.patient_uid,
+        doctorUid: signed.doctor_uid,
+        actorUid,
+        metadata: {
+          source: 'prescriptions.sign',
+          prescription_id: signed.id,
+        },
+      }))
+      : null;
 
     logAudit(
       req,
@@ -1435,6 +1547,32 @@ export const signPrescription = async (req, res) => {
     ).catch(auditErr => {
       logger.warn(`Prescription sign audit failed for ${signed.id}: ${auditErr.message}`);
     });
+
+    await bestEffortPrescriptionCanonical('prescription sign event', () => recordCanonicalClinicalEvent({
+      tenantId: req.user?.tenant_id || req.user?.tenantId,
+      patientUid: signed.patient_uid || existing.patient_uid,
+      encounterId: encounter?.id || null,
+      eventType: 'prescription.signed',
+      eventStatus: 'signed',
+      sourceTable: 'e_prescriptions',
+      sourceId: signed.id,
+      resourceType: 'prescription',
+      resourceId: signed.id,
+      actorUid,
+      actorRole: req.user?.role,
+      summary: `Prescription ${signed.prescription_number} signed`,
+      payload: {
+        prescription_number: signed.prescription_number,
+        appointment_id: signed.appointment_id || null,
+        admission_id: signed.admission_id || null,
+        revision: signed.revision,
+        signed_at: signed.signed_at,
+      },
+      beforeState: existing,
+      afterState: signed,
+      timelineIdempotencyKey: `e_prescriptions:${signed.id}:signed:${signed.signed_at?.toISOString?.() || 'now'}`,
+      auditIdempotencyKey: `e_prescriptions:${signed.id}:audit:signed:${signed.signed_at?.toISOString?.() || 'now'}`,
+    }));
 
     success(res, signed, 'Prescription signed and locked');
   } catch (err) {

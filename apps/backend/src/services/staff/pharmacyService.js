@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { emitPharmacyOrderEvent } from '../clinical/canonicalOperationalBridgeService.js';
 
 export const updatePharmacyOrderStatus = async (data) => {
   const {
@@ -35,6 +36,19 @@ export const updatePharmacyOrderStatus = async (data) => {
   if (result.length === 0) {
     throw new Error('ORDER_NOT_FOUND');
   }
+
+  await emitPharmacyOrderEvent({
+    order: result[0],
+    actorUid: updatedBy,
+    eventType: 'pharmacy.order_status_changed',
+    eventStatus: status,
+    payload: {
+      source: 'staff_pharmacy_service',
+      notes: notes || null,
+      pharmacist_notes: pharmacist_notes || null,
+      updated_by_name: updatedByName || null,
+    },
+  });
 
   // Create notification
   const statusMessages = {

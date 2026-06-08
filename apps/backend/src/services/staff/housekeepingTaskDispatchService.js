@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
+import { emitHousekeepingRequestRaised } from '../clinical/canonicalOperationalBridgeService.js';
 
 const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
 const DEFAULT_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'Asia/Kolkata';
@@ -430,6 +431,18 @@ export async function createBedCleaningRequest({
       },
       updateMessage: `Roster fan-out refreshed for ${bedLabel}: ${recipients.length} recipient(s).`,
     });
+    await emitHousekeepingRequestRaised({
+      request: existing,
+      actorUid: requester.uid,
+      actorRole: requester.role || null,
+      trigger,
+      payload: {
+        bed_id: context.bed_id,
+        ward_id: context.ward_id,
+        ward_name: context.ward_name,
+        created: false,
+      },
+    });
     return { request: existing, recipients, fanout, created: false };
   }
 
@@ -480,6 +493,19 @@ export async function createBedCleaningRequest({
     wardId: context.ward_id,
     trigger,
     recipientCount: recipients.length,
+  });
+
+  await emitHousekeepingRequestRaised({
+    request,
+    actorUid: requester.uid,
+    actorRole: requester.role || null,
+    trigger,
+    payload: {
+      bed_id: context.bed_id,
+      ward_id: context.ward_id,
+      ward_name: context.ward_name,
+      created: true,
+    },
   });
 
   return { request, recipients, fanout, created: true };

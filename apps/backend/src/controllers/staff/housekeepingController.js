@@ -7,6 +7,10 @@ import {
   fanOutHousekeepingRequest,
   resolveHousekeepingRecipientsForTarget,
 } from '../../services/staff/housekeepingTaskDispatchService.js';
+import {
+  emitHousekeepingRequestRaised,
+  emitHousekeepingRequestStatus,
+} from '../../services/clinical/canonicalOperationalBridgeService.js';
 
 // ─── SLA durations (minutes) ─────────────────────────────────────────────────
 const SLA_MINUTES = { urgent: 30, high: 120, normal: 240, low: 1440 };
@@ -321,6 +325,14 @@ export const raiseRequest = async (req, res) => {
       },
     });
 
+    await emitHousekeepingRequestRaised({
+      request: result[0],
+      actorUid: requester.uid,
+      actorRole: req.user?.role || null,
+      trigger: 'manual_request',
+      payload: { zone_id: zone_id || null },
+    });
+
     success(res, result[0], `Request ${result[0].request_number} raised`);
   } catch (err) {
     logger.error('Raise HK Request Error:', err);
@@ -454,6 +466,14 @@ export const startRequest = async (req, res) => {
       staff.uid
     );
 
+    await emitHousekeepingRequestStatus({
+      request: result[0],
+      actorUid: staff.uid,
+      actorRole: req.user?.role || null,
+      eventType: 'housekeeping.started',
+      previousStatus: 'assigned',
+    });
+
     success(res, result[0], 'Request started');
   } catch (err) {
     logger.error('Start HK Request Error:', err);
@@ -532,6 +552,18 @@ export const completeRequest = async (req, res) => {
       staff.uid,
       `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`
     );
+
+    await emitHousekeepingRequestStatus({
+      request: result[0],
+      actorUid: staff.uid,
+      actorRole: req.user?.role || null,
+      eventType: 'housekeeping.completed',
+      previousStatus: reqCheck[0].status || null,
+      payload: {
+        completion_notes: completion_notes || null,
+        completion_photo_key: completion_photo_key || null,
+      },
+    });
 
     success(res, result[0], 'Request marked as completed');
   } catch (err) {
@@ -1090,6 +1122,14 @@ export const verifyRequest = async (req, res) => {
       verifier.id,
       verifier.uid
     );
+
+    await emitHousekeepingRequestStatus({
+      request: result[0],
+      actorUid: verifier.uid,
+      actorRole: req.user?.role || null,
+      eventType: 'housekeeping.verified',
+      previousStatus: 'completed',
+    });
 
     success(res, result[0], 'Request verified');
   } catch (err) {

@@ -32,6 +32,12 @@ import {
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
+import {
+  emitDischargeDrugsDispensed,
+  emitDischargeWorkflowOpened,
+  emitDischargeWorkItemCompleted,
+  emitFinalDischargeCompleted,
+} from '../clinical/canonicalOperationalBridgeService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import {
   ACTIVE_ADMISSION_STATUSES,
@@ -1725,6 +1731,14 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
       },
     });
 
+    await emitDischargeWorkflowOpened({
+      db: tx,
+      admission: updated,
+      consults,
+      actorUid: requestedBy,
+      actorRole: requestedByRole,
+    });
+
     return {
       admission: updated,
       encounter_id: admission.encounter_id,
@@ -1991,6 +2005,12 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
     },
   });
 
+  await emitDischargeWorkItemCompleted({
+    consult: updated,
+    actorUid: completedBy,
+    actorRole: options.role || null,
+  });
+
   logger.info(`Discharge consult ${normalizedConsultType} completed for admission ${admissionId} by ${completedBy}`);
   return updated;
 }
@@ -2120,6 +2140,12 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
       `markDischargeDrugsDispensed: audit log skipped for admission ${admissionId} (${auditErr.message})`,
     );
   }
+
+  await emitDischargeDrugsDispensed({
+    admission: updated,
+    actorUid: dispensedBy,
+    actorRole: 'PHARMACY',
+  });
 
   logger.info(`Discharge drugs dispensed for admission ${admissionId} by ${dispensedBy}`);
   return updated;
@@ -2611,6 +2637,17 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
           discharge_type, los_days: losDays, patient_uid: admission.patient_uid,
         },
         ip_address: null,
+      },
+    });
+
+    await emitFinalDischargeCompleted({
+      db: tx,
+      admission: { ...updated, discharge_type },
+      actorUid: dischargedBy,
+      actorRole: 'DISCHARGE',
+      payload: {
+        los_days: losDays,
+        bed_turnover: bedTurnover,
       },
     });
 

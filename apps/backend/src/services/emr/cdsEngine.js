@@ -2,6 +2,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
 
 
 // ===================================================================
@@ -953,6 +954,12 @@ export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason =
     override_reason: overrideFromSource,
     created_at: updated.created_at,
   };
+
+  await emitCdsAlertAcknowledged({
+    alert: result,
+    actorUid: acknowledgedBy,
+    actorRole: 'CLINICAL',
+  });
 
   logger.info(`CDS alert acknowledged: id=${alertId}, by=${acknowledgedBy}, override=${!!overrideReason}`);
   return result;

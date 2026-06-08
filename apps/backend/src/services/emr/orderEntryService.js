@@ -26,6 +26,10 @@ import { scheduleMedications } from '../clinical/marService.js';
 import { recordFirstDrugChartEntry } from '../clinical/drugChartSlaService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
 import { createInvestigationOrder } from '../investigation/orderService.js';
+import {
+  recordCanonicalClinicalEvent,
+  recordMedicationSafetyReviews,
+} from '../clinical/canonicalClinicalPlatformService.js';
 
 
 // ===================================================================
@@ -107,6 +111,8 @@ const ORDER_RETURNING_SELECT = {
   end_date: true,
   notes: true,
   created_at: true,
+  updated_at: true,
+  tenant_id: true,
 };
 
 const CLINICAL_ORDER_PRIORITY_TO_INVESTIGATION = {
@@ -294,6 +300,94 @@ function investigationNotesFromClinicalOrder(order, details) {
     `clinical_order_number:${order.order_number}`,
   ];
   return notes.filter(Boolean).join('; ');
+}
+
+function orderClinicalSummary(order) {
+  const details = parseOrderDetails(order.details);
+  const name = firstText(
+    details.medication_name,
+    details.drug_name,
+    details.test_name,
+    details.investigation,
+    details.name,
+    details.summary,
+  );
+  return [
+    `${order.order_type || 'clinical'} order`,
+    name,
+    order.priority ? `(${order.priority})` : null,
+  ].filter(Boolean).join(' ');
+}
+
+async function recordCanonicalOrderEvent({
+  order,
+  eventType,
+  eventStatus = null,
+  actorUid = null,
+  actorRole = null,
+  previousStatus = null,
+  payload = {},
+  beforeState = null,
+  afterState = null,
+  safety = null,
+} = {}) {
+  if (!order?.id) return null;
+  const status = eventStatus || order.status || null;
+  const stamp = order.updated_at?.toISOString?.()
+    || order.created_at?.toISOString?.()
+    || Date.now();
+
+  try {
+    if (safety && order.order_type === 'medication') {
+      await recordMedicationSafetyReviews({
+        tenantId: order.tenant_id,
+        patientUid: order.patient_uid,
+        encounterId: order.encounter_id,
+        clinicalOrderId: order.id,
+        safety,
+        actorUid: actorUid || order.ordered_by,
+      });
+    }
+
+    return await recordCanonicalClinicalEvent({
+      tenantId: order.tenant_id,
+      patientUid: order.patient_uid,
+      encounterId: order.encounter_id,
+      eventType,
+      eventSubtype: order.order_type,
+      eventStatus: status,
+      sourceTable: 'clinical_orders',
+      sourceId: String(order.id),
+      resourceType: 'clinical_order',
+      resourceId: String(order.id),
+      actorUid: actorUid || order.ordered_by || order.verified_by || order.completed_by || order.cancelled_by,
+      actorRole,
+      summary: orderClinicalSummary(order),
+      payload: {
+        order_id: order.id,
+        order_number: order.order_number,
+        order_type: order.order_type,
+        priority: order.priority,
+        route: order.route,
+        previous_status: previousStatus,
+        status,
+        details: order.details,
+        notes: order.notes,
+        safety_warnings: safety?.warnings || [],
+        ...payload,
+      },
+      beforeState: beforeState || (previousStatus ? { status: previousStatus } : null),
+      afterState: afterState || { status },
+      tags: ['clinical_order', order.order_type].filter(Boolean),
+      timelineIdempotencyKey: `clinical_orders:${order.id}:${eventType}:${status || 'none'}:${stamp}`,
+      auditIdempotencyKey: `clinical_orders:${order.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
+    });
+  } catch (err) {
+    logger.warn(`Canonical clinical order event skipped for order ${order.id}`, {
+      error: err?.message || String(err),
+    });
+    return null;
+  }
 }
 
 /**
@@ -518,6 +612,14 @@ export async function createOrder(data) {
   });
 
   await dispatchPostCreateSideEffects(order);
+  await recordCanonicalOrderEvent({
+    order,
+    eventType: 'order.created',
+    eventStatus: order.status,
+    actorUid: n.ordered_by,
+    afterState: { status: order.status },
+    safety: cdsResult,
+  });
 
   logger.info(`Order created: ${orderNumber}, type=${n.order_type}, priority=${n.priority}, patient=${n.patient_uid}, by=${n.ordered_by}`);
 
@@ -606,8 +708,20 @@ export async function createOrdersBulk(items, { ordered_by } = {}) {
   });
 
   // Phase 1.5 — post-commit best-effort side effects per order.
-  for (const order of createdRows) {
+  for (let i = 0; i < createdRows.length; i += 1) {
+    const order = createdRows[i];
     await dispatchPostCreateSideEffects(order);
+    await recordCanonicalOrderEvent({
+      order,
+      eventType: 'order.created',
+      eventStatus: order.status,
+      actorUid: order.ordered_by,
+      payload: { bulk_order_count: createdRows.length },
+      afterState: { status: order.status },
+      safety: order.order_type === 'medication'
+        ? { safe: true, warnings: prepared[i].cds_warnings || [], blockers: [] }
+        : null,
+    });
   }
 
   logger.info(`Bulk order create: ${createdRows.length} orders, encounter=${createdRows[0]?.encounter_id ?? 'none'}, by=${ordered_by}`);
@@ -729,7 +843,12 @@ async function dispatchOrderIntegrations(order) {
           `order_number:${order.order_number}`,
         ].filter(Boolean).join('; '),
       }));
-      await scheduleMedications(order.patient_uid, null, marEntries);
+      await scheduleMedications(order.patient_uid, null, marEntries, {
+        tenantId: order.tenant_id,
+        actorUid: order.ordered_by,
+        sourceClinicalOrderId: order.id,
+        encounterId: order.encounter_id,
+      });
       logger.info(`MAR entries created for medication order ${order.order_number}`);
     } catch (err) {
       logger.error(`Failed to create MAR entries for order ${order.order_number}: ${err.message}`);
@@ -824,7 +943,7 @@ export async function verifyOrder(orderId, verifiedBy) {
 
   const existing = await prisma.clinical_orders.findUnique({
     where: { id: Number(orderId) },
-    select: { id: true, status: true },
+    select: ORDER_RETURNING_SELECT,
   });
 
   if (!existing) {
@@ -843,6 +962,14 @@ export async function verifyOrder(orderId, verifiedBy) {
       verified_at: new Date(),
     },
     select: ORDER_RETURNING_SELECT,
+  });
+
+  await recordCanonicalOrderEvent({
+    order: updated,
+    eventType: 'order.verified',
+    eventStatus: updated.status,
+    actorUid: verifiedBy,
+    previousStatus: existing.status,
   });
 
   logger.info(`Order ${updated.order_number} verified by ${verifiedBy}`);
@@ -866,7 +993,7 @@ export async function completeOrder(orderId, completedBy) {
 
   const existing = await prisma.clinical_orders.findUnique({
     where: { id: Number(orderId) },
-    select: { id: true, status: true },
+    select: ORDER_RETURNING_SELECT,
   });
 
   if (!existing) {
@@ -886,6 +1013,14 @@ export async function completeOrder(orderId, completedBy) {
       completed_at: new Date(),
     },
     select: ORDER_RETURNING_SELECT,
+  });
+
+  await recordCanonicalOrderEvent({
+    order: updated,
+    eventType: 'order.completed',
+    eventStatus: updated.status,
+    actorUid: completedBy,
+    previousStatus: existing.status,
   });
 
   logger.info(`Order ${updated.order_number} completed by ${completedBy}`);
@@ -910,7 +1045,7 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
 
   const existing = await prisma.clinical_orders.findUnique({
     where: { id: Number(orderId) },
-    select: { id: true, status: true },
+    select: ORDER_RETURNING_SELECT,
   });
 
   if (!existing) {
@@ -929,6 +1064,15 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
       cancel_reason: reason,
     },
     select: ORDER_RETURNING_SELECT,
+  });
+
+  await recordCanonicalOrderEvent({
+    order: updated,
+    eventType: 'order.cancelled',
+    eventStatus: updated.status,
+    actorUid: cancelledBy,
+    previousStatus: existing.status,
+    payload: { cancel_reason: reason },
   });
 
   logger.info(`Order ${updated.order_number} cancelled by ${cancelledBy}: ${reason}`);
@@ -953,7 +1097,7 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
 
   const existing = await prisma.clinical_orders.findUnique({
     where: { id: Number(orderId) },
-    select: { id: true, status: true },
+    select: ORDER_RETURNING_SELECT,
   });
 
   if (!existing) {
@@ -974,6 +1118,15 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
       end_date: new Date(),
     },
     select: ORDER_RETURNING_SELECT,
+  });
+
+  await recordCanonicalOrderEvent({
+    order: updated,
+    eventType: 'order.discontinued',
+    eventStatus: updated.status,
+    actorUid: discontinuedBy,
+    previousStatus: existing.status,
+    payload: { discontinue_reason: reason },
   });
 
   logger.info(`Order ${updated.order_number} discontinued by ${discontinuedBy}: ${reason}`);

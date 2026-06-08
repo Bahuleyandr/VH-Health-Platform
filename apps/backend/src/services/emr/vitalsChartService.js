@@ -6,6 +6,7 @@ import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { computeGrowthSnapshot } from '../clinical/growthPercentileService.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import * as news2Service from '../clinical/news2Service.js';
 
 
@@ -317,6 +318,15 @@ function auditValue(value) {
   return value;
 }
 
+async function bestEffortCanonicalVitalsEvent(label, input) {
+  try {
+    return await recordCanonicalClinicalEvent(input);
+  } catch (err) {
+    logger.warn(`Canonical vitals/I-O event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
+
 // Convert a temperature value to Celsius, given the unit hint. Default unit
 // is `C` to match the threshold table; explicit `F` triggers conversion.
 // See finding 2026-05-08-walk-in-opd-doctor-vitals-temp-ambiguity.
@@ -603,6 +613,27 @@ export async function recordVitals(data) {
   //   2026-05-22-pediatric-opd-nurse-d9b616dc (transient percentile).
   const growth = await computeGrowthForVitalsRow(record);
 
+  await bestEffortCanonicalVitalsEvent('vitals record', {
+    patientUid: record.patient_uid,
+    encounterId: record.encounter_uid || null,
+    eventType: 'vitals.recorded',
+    eventStatus: 'recorded',
+    sourceTable: 'vitals_chart',
+    sourceId: record.id,
+    resourceType: 'vitals',
+    resourceId: record.id,
+    actorUid: record.recorded_by,
+    summary: 'Vitals recorded',
+    payload: {
+      vitals: record,
+      news2: news2Result,
+      alerts: alerts || [],
+      growth,
+      triage,
+    },
+    afterState: record,
+  });
+
   logger.info(`Vitals recorded: id=${record.id}, patient=${resolvedPatientUid}, by=${recorded_by}`);
 
   return { vitals: record, news2: news2Result, alerts: alerts || [], growth, triage };
@@ -837,6 +868,22 @@ export async function recordIntakeOutput(data) {
       recorded_by,
     },
     select: IO_SELECT,
+  });
+
+  await bestEffortCanonicalVitalsEvent('I/O record', {
+    patientUid: created.patient_uid,
+    encounterId: created.encounter_uid || null,
+    eventType: 'io.recorded',
+    eventSubtype: created.io_type,
+    eventStatus: 'recorded',
+    sourceTable: 'intake_output',
+    sourceId: created.id,
+    resourceType: 'intake_output',
+    resourceId: created.id,
+    actorUid: created.recorded_by,
+    summary: `${created.io_type} ${created.amount_ml} mL recorded`,
+    payload: created,
+    afterState: created,
   });
 
   logger.info(`I/O recorded: id=${created.id}, type=${io_type}, category=${category}, amount=${amount_ml}ml, patient=${patient_uid}`);

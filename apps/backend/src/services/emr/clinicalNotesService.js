@@ -5,6 +5,11 @@ import { AppError } from '../../utils/AppError.js';
 import { assertCanWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { isDoctor } from '../../utils/roleHelpers.js';
+import {
+  ensureEncounterForAppointment,
+  recordCanonicalClinicalEvent,
+  transitionEncounter,
+} from '../clinical/canonicalClinicalPlatformService.js';
 import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimelineService.js';
 
 // ===================================================================
@@ -97,6 +102,25 @@ function assertOpenOpAppointmentSession(appt, action = 'write') {
       'OP_NOTE_SESSION_CLOSED',
       { appointment_date: appointmentDate, today }
     );
+  }
+}
+
+async function bestEffortCanonicalNoteEvent(label, input) {
+  try {
+    return await recordCanonicalClinicalEvent(input);
+  } catch (err) {
+    logger.warn(`Canonical note event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
+
+async function bestEffortEncounterTransition(label, encounterId, nextStatus, input = {}) {
+  if (!encounterId) return null;
+  try {
+    return await transitionEncounter(encounterId, nextStatus, input);
+  } catch (err) {
+    logger.warn(`Canonical encounter transition failed during ${label}: ${err?.message || err}`);
+    return null;
   }
 }
 
@@ -227,12 +251,16 @@ export async function createNote(data) {
   // emergency visit. IPD notes scope to admissions.encounter_id; ER notes
   // (er_note) scope to emergency_visits.encounter_id (migration 224).
   // Both are UUID keys.
+  let resolvedEncounterId = encounter_id || null;
   if (encounter_id) {
-    const [admissionEnc, erEnc] = await Promise.all([
+    const [admissionEnc, erEnc, canonicalEnc] = await Promise.all([
       prisma.admissions.findFirst({ where: { encounter_id }, select: { id: true } }),
-      prisma.emergency_visits.findFirst({ where: { encounter_id }, select: { id: true } })
+      prisma.emergency_visits.findFirst({ where: { encounter_id }, select: { id: true } }),
+      prisma.patient_encounters?.findFirst
+        ? prisma.patient_encounters.findFirst({ where: { id: encounter_id }, select: { id: true } }).catch(() => null)
+        : Promise.resolve(null),
     ]);
-    if (!admissionEnc && !erEnc) {
+    if (!admissionEnc && !erEnc && !canonicalEnc) {
       throw AppError.notFound('Encounter not found');
     }
   }
@@ -258,6 +286,7 @@ export async function createNote(data) {
     if (!appt) {
       throw AppError.notFound('Appointment not found');
     }
+
     // H2 RBAC — a note bound to a specific OPD appointment may only be
     // authored by the appointment's assigned doctor (or an authorized
     // supervisor). Previously any clinician with the /emr role could write a
@@ -295,13 +324,30 @@ export async function createNote(data) {
         );
       }
     }
+
+    if (!resolvedEncounterId) {
+      const encounter = await ensureEncounterForAppointment({
+        appointmentId: appointmentIdNum,
+        patientUid: patient_uid,
+        doctorUid: assignedDoctorUid,
+        actorUid: author_uid,
+        metadata: {
+          note_type,
+          source: 'clinical_notes.create',
+        },
+      }).catch((err) => {
+        logger.warn(`Canonical OP encounter ensure failed for appointment=${appointmentIdNum}: ${err?.message || err}`);
+        return null;
+      });
+      resolvedEncounterId = encounter?.id || null;
+    }
   }
 
   // Schema defaults: version=1, is_addendum=false, is_signed=false, created_at=now().
   // We pass them explicitly to mirror the pre-ORM INSERT verbatim.
   const created = await prisma.clinical_notes.create({
     data: {
-      encounter_id: encounter_id ?? null,
+      encounter_id: resolvedEncounterId ?? null,
       appointment_id: appointmentIdNum,
       patient_uid,
       author_uid,
@@ -319,6 +365,29 @@ export async function createNote(data) {
   logger.info(
     `Clinical note created: id=${created.id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`
   );
+  await bestEffortCanonicalNoteEvent('note create', {
+    tenantId: data.tenant_id || data.tenantId,
+    patientUid: created.patient_uid,
+    encounterId: created.encounter_id,
+    eventType: 'note.created',
+    eventSubtype: created.note_type,
+    eventStatus: created.is_signed ? 'signed' : 'draft',
+    sourceTable: 'clinical_notes',
+    sourceId: created.id,
+    resourceType: 'clinical_note',
+    resourceId: created.id,
+    actorUid: created.author_uid,
+    actorRole: created.author_role,
+    summary: created.title || `${created.note_type} note created`,
+    payload: {
+      title: created.title,
+      note_type: created.note_type,
+      appointment_id: created.appointment_id,
+      version: created.version,
+      content: created.content,
+    },
+    afterState: created,
+  });
   return attachAuthorNames(created);
 }
 
@@ -394,6 +463,26 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   logger.info(
     `Addendum added to note ${rootNoteId}: addendum_id=${created.id}, version=${nextVersion}, author=${authorUid}`
   );
+  await bestEffortCanonicalNoteEvent('note addendum', {
+    patientUid: created.patient_uid,
+    encounterId: created.encounter_id,
+    eventType: 'note.addendum_created',
+    eventSubtype: created.note_type,
+    eventStatus: 'draft',
+    sourceTable: 'clinical_notes',
+    sourceId: created.id,
+    resourceType: 'clinical_note',
+    resourceId: created.id,
+    actorUid: created.author_uid,
+    actorRole: created.author_role,
+    summary: `${created.note_type} addendum created`,
+    payload: {
+      parent_note_id: rootNoteId,
+      version: created.version,
+      content: created.content,
+    },
+    afterState: created,
+  });
   return attachAuthorNames(created);
 }
 
@@ -440,6 +529,8 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
       note_type: true,
       version: true,
       content: true,
+      patient_uid: true,
+      encounter_id: true,
       author_uid: true,
       author_role: true,
       is_signed: true,
@@ -528,6 +619,35 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
   logger.info(
     `Clinical note edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}, admin_override=${adminOverride}`
   );
+  await bestEffortCanonicalNoteEvent('note edit', {
+    patientUid: updated.patient_uid,
+    encounterId: updated.encounter_id,
+    eventType: 'note.edited',
+    eventSubtype: updated.note_type,
+    eventStatus: updated.is_signed ? 'signed' : 'draft',
+    sourceTable: 'clinical_notes',
+    sourceId: updated.id,
+    resourceType: 'clinical_note',
+    resourceId: updated.id,
+    actorUid: editorUid,
+    actorRole: editorRole,
+    summary: `${updated.note_type} note edited`,
+    payload: {
+      version: updated.version,
+      appointment_id: updated.appointment_id,
+      admin_override: adminOverride,
+    },
+    beforeState: {
+      version: existing.version,
+      content: existing.content,
+    },
+    afterState: {
+      version: updated.version,
+      content: updated.content,
+    },
+    timelineIdempotencyKey: `clinical_notes:${updated.id}:edited:v${updated.version}`,
+    auditIdempotencyKey: `clinical_notes:${updated.id}:audit:edited:v${updated.version}`,
+  });
   return attachAuthorNames(updated);
 }
 
@@ -553,7 +673,15 @@ export async function signNote(noteId, signerUid, actingUser = null) {
 
   const existing = await prisma.clinical_notes.findUnique({
     where: { id: Number(noteId) },
-    select: { id: true, is_signed: true, signed_at: true, appointment_id: true }
+    select: {
+      id: true,
+      patient_uid: true,
+      encounter_id: true,
+      note_type: true,
+      is_signed: true,
+      signed_at: true,
+      appointment_id: true,
+    }
   });
 
   if (!existing) {
@@ -602,6 +730,43 @@ export async function signNote(noteId, signerUid, actingUser = null) {
   });
 
   logger.info(`Clinical note signed: id=${noteId}, signed_by=${signerUid}`);
+  await bestEffortCanonicalNoteEvent('note sign', {
+    patientUid: updated.patient_uid,
+    encounterId: updated.encounter_id,
+    eventType: 'note.signed',
+    eventSubtype: updated.note_type,
+    eventStatus: 'signed',
+    sourceTable: 'clinical_notes',
+    sourceId: updated.id,
+    resourceType: 'clinical_note',
+    resourceId: updated.id,
+    actorUid: signerUid,
+    actorRole: actingUser?.role,
+    summary: `${updated.note_type} note signed`,
+    payload: {
+      appointment_id: updated.appointment_id,
+      version: updated.version,
+      signed_at: updated.signed_at,
+    },
+    beforeState: {
+      is_signed: existing.is_signed,
+      signed_at: existing.signed_at,
+    },
+    afterState: {
+      is_signed: updated.is_signed,
+      signed_at: updated.signed_at,
+    },
+    timelineIdempotencyKey: `clinical_notes:${updated.id}:signed:${updated.signed_at?.toISOString?.() || 'now'}`,
+    auditIdempotencyKey: `clinical_notes:${updated.id}:audit:signed:${updated.signed_at?.toISOString?.() || 'now'}`,
+  });
+  if (updated.encounter_id && updated.appointment_id) {
+    await bestEffortEncounterTransition('note sign', updated.encounter_id, 'signed', {
+      actorUid: signerUid,
+      actorRole: actingUser?.role,
+      reason: 'OP consultation note signed',
+      metadata: { note_id: updated.id, appointment_id: updated.appointment_id },
+    });
+  }
   return attachAuthorNames(updated);
 }
 

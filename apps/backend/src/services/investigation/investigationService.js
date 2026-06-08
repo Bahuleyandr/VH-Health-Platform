@@ -4,8 +4,13 @@ import {
   LAB_STAFF_ROLES
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination } from '../../utils/listQuery.js';
+import {
+  recordCanonicalClinicalEvent,
+  startWorkflowSla,
+} from '../clinical/canonicalClinicalPlatformService.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
 // (migration 082 declared both). Verbose because Prisma has to disambiguate
@@ -27,6 +32,35 @@ function statusFilterForQueue(status) {
     return { in: PENDING_INVESTIGATION_STATUSES };
   }
   return normalizedStatus;
+}
+
+async function bestEffortInvestigationCanonical(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    logger.warn(`Canonical investigation event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
+
+function hasCriticalResultSignal(results) {
+  let critical = false;
+  const visit = (value) => {
+    if (critical || value == null) return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    const flag = String(value.flag || value.abnormal_flag || '').toUpperCase();
+    if (value.is_critical === true || ['CRITICAL', 'HH', 'LL', 'PANIC'].includes(flag)) {
+      critical = true;
+      return;
+    }
+    Object.values(value).forEach(visit);
+  };
+  visit(results);
+  return critical;
 }
 
 // Shape of the investigation columns the list views select. Kept as
@@ -572,6 +606,7 @@ export const updateStatus = async (id, status, notes, userId) => {
   const INVESTIGATION_SELECT = {
     id: true,
     patient_id: true,
+    patient_uid: true,
     requested_by: true,
     test_name: true,
     test_type: true,
@@ -589,11 +624,33 @@ export const updateStatus = async (id, status, notes, userId) => {
   };
 
   try {
-    return await prisma.investigations.update({
+    const updated = await prisma.investigations.update({
       where: { id: parseInt(id) },
       data,
       select: INVESTIGATION_SELECT,
     });
+    await bestEffortInvestigationCanonical('investigation status', () => recordCanonicalClinicalEvent({
+      patientUid: updated.patient_uid,
+      eventType: 'investigation.status_changed',
+      eventSubtype: updated.test_type,
+      eventStatus: updated.status,
+      sourceTable: 'investigations',
+      sourceId: updated.id,
+      resourceType: 'investigation',
+      resourceId: updated.id,
+      actorUid: userId || null,
+      summary: `${updated.test_name} status changed to ${updated.status}`,
+      payload: {
+        test_name: updated.test_name,
+        test_type: updated.test_type,
+        priority: updated.priority,
+        notes,
+      },
+      afterState: updated,
+      timelineIdempotencyKey: `investigations:${updated.id}:status:${updated.status}:${updated.updated_at?.toISOString?.() || 'now'}`,
+      auditIdempotencyKey: `investigations:${updated.id}:audit:status:${updated.status}:${updated.updated_at?.toISOString?.() || 'now'}`,
+    }));
+    return updated;
   } catch (err) {
     // Prisma P2025 = record not found. Match the pre-ORM behavior of
     // returning null so callers that check `if (!result)` continue to work.
@@ -800,7 +857,7 @@ export const addResults = async (id, resultData, userId) => {
         where: { id: investId },
         data,
         select: {
-          id: true, patient_id: true, requested_by: true,
+          id: true, patient_id: true, patient_uid: true, requested_by: true,
           test_name: true, test_type: true, status: true,
           results: true, interpretation: true, result_summary: true,
           completed_at: true, verified_at: true, verified_by: true, updated_at: true,
@@ -835,6 +892,48 @@ export const addResults = async (id, resultData, userId) => {
       } catch {
         // Notification dispatch is best-effort.
       }
+      const critical = hasCriticalResultSignal(updated.results);
+      await bestEffortInvestigationCanonical('investigation result', async () => {
+        await recordCanonicalClinicalEvent({
+          patientUid: updated.patient_uid,
+          eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
+          eventSubtype: updated.test_type,
+          eventStatus: updated.status,
+          sourceTable: 'investigations',
+          sourceId: updated.id,
+          resourceType: 'investigation',
+          resourceId: updated.id,
+          actorUid: reviewed_by || userId || null,
+          summary: `${updated.test_name} result ${critical ? 'critical' : 'ready'}`,
+          payload: {
+            test_name: updated.test_name,
+            test_type: updated.test_type,
+            result_summary: updated.result_summary,
+            interpretation: updated.interpretation,
+            result_version: updated.result_version,
+            critical,
+          },
+          beforeState: existing,
+          afterState: updated,
+          tags: critical ? ['critical'] : [],
+          timelineIdempotencyKey: `investigations:${updated.id}:result:v${updated.result_version || 1}`,
+          auditIdempotencyKey: `investigations:${updated.id}:audit:result:v${updated.result_version || 1}`,
+        });
+        if (critical) {
+          await startWorkflowSla({
+            ruleCode: 'critical_result_ack',
+            patientUid: updated.patient_uid,
+            sourceTable: 'investigations',
+            sourceId: updated.id,
+            priority: 'critical',
+            metadata: {
+              test_name: updated.test_name,
+              test_type: updated.test_type,
+              result_version: updated.result_version,
+            },
+          });
+        }
+      });
       return updated;
     });
   } catch (err) {

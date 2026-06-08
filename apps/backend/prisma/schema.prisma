@@ -12760,3 +12760,166 @@ model staff_access_audit_log {
   @@index([tenant_id, actor_uid, created_at(sort: Desc)], map: "idx_staff_access_audit_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([tenant_id, target_staff_uid, created_at(sort: Desc)], map: "idx_staff_access_audit_target_time", where: raw("(target_staff_uid IS NOT NULL)"))
 }
+
+/// Canonical encounter lifecycle for OP/IP/ER/procedure clinical work.
+/// Existing appointments/admissions remain the detail source tables.
+model patient_encounters {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id              String    @db.Uuid
+  patient_uid            String    @db.Uuid
+  encounter_type         String    @default("op") @db.VarChar(40)
+  status                 String    @default("open") @db.VarChar(30)
+  appointment_id         Int?
+  admission_id           Int?
+  admission_encounter_id String?   @db.Uuid
+  primary_doctor_uid     String?   @db.Uuid
+  care_team_uids         String[]  @default([]) @db.Uuid
+  opened_at              DateTime  @default(now()) @db.Timestamptz(6)
+  activated_at           DateTime? @db.Timestamptz(6)
+  signed_at              DateTime? @db.Timestamptz(6)
+  signed_by              String?   @db.Uuid
+  amended_at             DateTime? @db.Timestamptz(6)
+  amended_by             String?   @db.Uuid
+  locked_at              DateTime? @db.Timestamptz(6)
+  locked_by              String?   @db.Uuid
+  closed_at              DateTime? @db.Timestamptz(6)
+  created_by             String?   @db.Uuid
+  updated_by             String?   @db.Uuid
+  status_history         Json      @default("[]")
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, patient_uid, status, opened_at(sort: Desc)], map: "idx_patient_encounters_patient_status")
+  @@index([tenant_id, primary_doctor_uid, status, opened_at(sort: Desc)], map: "idx_patient_encounters_doctor_status")
+}
+
+/// Append-only canonical patient timeline event stream.
+model clinical_timeline_events {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id          String    @db.Uuid
+  patient_uid        String    @db.Uuid
+  encounter_id       String?   @db.Uuid
+  event_type         String    @db.VarChar(80)
+  event_subtype      String?   @db.VarChar(80)
+  event_status       String?   @db.VarChar(40)
+  source_table       String?   @db.VarChar(100)
+  source_id          String?   @db.VarChar(120)
+  source_uid         String?   @db.Uuid
+  resource_type      String?   @db.VarChar(80)
+  resource_id        String?   @db.VarChar(120)
+  actor_uid          String?   @db.Uuid
+  actor_role         String?   @db.VarChar(80)
+  occurred_at        DateTime  @default(now()) @db.Timestamptz(6)
+  visible_to_patient Boolean   @default(false)
+  clinical_summary   String?
+  payload            Json      @default("{}")
+  tags               String[]  @default([])
+  idempotency_key    String    @unique @db.VarChar(220)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_timeline_patient_occurred")
+  @@index([tenant_id, encounter_id, occurred_at(sort: Desc)], map: "idx_clinical_timeline_encounter_occurred")
+  @@index([source_table, source_id], map: "idx_clinical_timeline_source")
+  @@index([tenant_id, event_type, occurred_at(sort: Desc)], map: "idx_clinical_timeline_event_type")
+}
+
+/// Normalized clinical-action audit stream. This complements legacy audit_log,
+/// audit_logs, patient_access_audit_log, and staff_access_audit_log.
+model clinical_audit_events {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String    @db.Uuid
+  patient_uid     String?   @db.Uuid
+  encounter_id    String?   @db.Uuid
+  action          String    @db.VarChar(100)
+  action_status   String    @default("success") @db.VarChar(40)
+  actor_uid       String?   @db.Uuid
+  actor_role      String?   @db.VarChar(80)
+  resource_type   String?   @db.VarChar(80)
+  resource_table  String?   @db.VarChar(100)
+  resource_id     String?   @db.VarChar(120)
+  request_id      String?   @db.VarChar(120)
+  ip_address      String?   @db.Inet
+  user_agent      String?
+  before_state    Json?
+  after_state     Json?
+  metadata        Json      @default("{}")
+  idempotency_key String?   @db.VarChar(220)
+  occurred_at     DateTime  @default(now()) @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time")
+  @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time")
+  @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource")
+}
+
+model workflow_sla_rules {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String?   @db.Uuid
+  rule_code             String    @db.VarChar(100)
+  title                 String    @db.VarChar(160)
+  trigger_event_type    String    @db.VarChar(100)
+  target_minutes        Int
+  severity              String    @default("medium") @db.VarChar(30)
+  owner_role_codes      String[]  @default([])
+  escalation_role_codes String[]  @default([])
+  enabled               Boolean   @default(true)
+  metadata              Json      @default("{}")
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model workflow_sla_instances {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String    @db.Uuid
+  rule_id             String?   @db.Uuid
+  rule_code           String    @db.VarChar(100)
+  patient_uid         String?   @db.Uuid
+  encounter_id        String?   @db.Uuid
+  source_table        String?   @db.VarChar(100)
+  source_id           String?   @db.VarChar(120)
+  source_uid          String?   @db.Uuid
+  status              String    @default("active") @db.VarChar(40)
+  priority            String    @default("normal") @db.VarChar(30)
+  started_at          DateTime  @default(now()) @db.Timestamptz(6)
+  due_at              DateTime  @db.Timestamptz(6)
+  completed_at        DateTime? @db.Timestamptz(6)
+  breached_at         DateTime? @db.Timestamptz(6)
+  escalated_at        DateTime? @db.Timestamptz(6)
+  assigned_role_codes String[]  @default([])
+  assigned_user_uid   String?   @db.Uuid
+  metadata            Json      @default("{}")
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, status, due_at], map: "idx_workflow_sla_instances_due")
+  @@index([tenant_id, patient_uid, started_at(sort: Desc)], map: "idx_workflow_sla_instances_patient")
+}
+
+model medication_safety_reviews {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String    @db.Uuid
+  patient_uid       String?   @db.Uuid
+  patient_id        Int?
+  encounter_id      String?   @db.Uuid
+  prescription_id   Int?
+  clinical_order_id Int?
+  review_type       String    @db.VarChar(80)
+  severity          String    @default("info") @db.VarChar(30)
+  status            String    @default("warning") @db.VarChar(40)
+  finding_code      String?   @db.VarChar(100)
+  medication_name   String?
+  message           String
+  override_required Boolean   @default(false)
+  override_reason   String?
+  overridden_by     String?   @db.Uuid
+  overridden_at     DateTime? @db.Timestamptz(6)
+  payload           Json      @default("{}")
+  created_by        String?   @db.Uuid
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_medication_safety_reviews_patient_time")
+  @@index([prescription_id, created_at(sort: Desc)], map: "idx_medication_safety_reviews_prescription")
+  @@index([tenant_id, status, severity, created_at(sort: Desc)], map: "idx_medication_safety_reviews_status")
+}

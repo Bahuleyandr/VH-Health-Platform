@@ -136,6 +136,7 @@ import patientVirtualWardRoutes from './routes/patient/virtualWardRoutes.js';
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
 import cdsHooksRoutes from './routes/clinical/cdsHooksRoutes.js';
+import encounterRoutes from './routes/clinical/encounterRoutes.js';
 
 // Clinical Document Export & Import
 import documentRoutes from './routes/documents/documentRoutes.js';
@@ -659,6 +660,7 @@ function clinicalParentPatientAccessGuard(req, res, next) {
 
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing

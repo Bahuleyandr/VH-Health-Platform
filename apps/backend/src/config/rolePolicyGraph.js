@@ -1002,6 +1002,41 @@ const UI_FEATURES_BY_ROLE = {
   HOUSEKEEPING_INCHARGE: ['housekeeping_hub', 'housekeeping_command', 'housekeeping_roster'],
 };
 
+const STAFF_FEATURE_CATALOG = [
+  { id: 'home', title: 'Home', sidebar_label: 'Home', sidebar_order: 10, capability_group: 'op_flow' },
+  { id: 'front_office_workbench', title: 'Front Office Workbench', sidebar_label: 'Front Office', sidebar_order: 20, capability_group: 'op_flow' },
+  { id: 'appointments', title: 'Appointments', sidebar_label: 'Appointments', sidebar_order: 25, capability_group: 'op_flow' },
+  { id: 'patient_records', title: 'Patient Records', sidebar_label: 'Patient Records', sidebar_order: 30, capability_group: 'op_flow' },
+  { id: 'patient_command_board', title: 'Patient Command Board', sidebar_label: 'IP Services', sidebar_order: 40, capability_group: 'ip_flow' },
+  { id: 'admissions', title: 'IP Admissions', sidebar_label: 'IP Admissions', sidebar_order: 45, capability_group: 'ip_flow' },
+  { id: 'bed_board', title: 'Bed Board', sidebar_label: 'Bed Board', sidebar_order: 50, capability_group: 'ip_flow' },
+  { id: 'nursing_notes', title: 'Nursing Notes', sidebar_label: 'Nursing Notes', sidebar_order: 55, capability_group: 'ip_flow' },
+  { id: 'handover', title: 'Shift Handover', sidebar_label: 'Handover', sidebar_order: 60, capability_group: 'ip_flow' },
+  { id: 'discharge_hub', title: 'Discharge Hub', sidebar_label: 'Discharge', sidebar_order: 65, capability_group: 'ip_flow' },
+  { id: 'prescriptions', title: 'Prescriptions', sidebar_label: 'Prescriptions', sidebar_order: 70, capability_group: 'pharmacy' },
+  { id: 'pharmacy_orders', title: 'Pharmacy Orders', sidebar_label: 'Pharmacy', sidebar_order: 75, capability_group: 'pharmacy' },
+  { id: 'investigation_results', title: 'Investigation Results', sidebar_label: 'Investigations', sidebar_order: 80, capability_group: 'diagnostics' },
+  { id: 'lab_bookings', title: 'Lab Bookings', sidebar_label: 'Lab Bookings', sidebar_order: 85, capability_group: 'diagnostics' },
+  { id: 'investigations_upload', title: 'Investigation Upload', sidebar_label: 'Lab Upload', sidebar_order: 90, capability_group: 'diagnostics' },
+  { id: 'referrals', title: 'Referrals', sidebar_label: 'Referrals', sidebar_order: 95, capability_group: 'ip_flow' },
+  { id: 'messages', title: 'Messages', sidebar_label: 'Messages', sidebar_order: 100, capability_group: 'notifications_audit' },
+  { id: 'alerts', title: 'Alerts', sidebar_label: 'Alerts', sidebar_order: 105, capability_group: 'notifications_audit' },
+  { id: 'safety_center', title: 'Safety Center', sidebar_label: 'Safety', sidebar_order: 110, capability_group: 'notifications_audit' },
+  { id: 'audit_logs', title: 'Audit Logs', sidebar_label: 'Audit', sidebar_order: 115, capability_group: 'notifications_audit' },
+  { id: 'organization_hierarchy', title: 'Hospital Hierarchy', sidebar_label: 'Hierarchy', sidebar_order: 120, capability_group: 'staff_governance' },
+  { id: 'staff_management', title: 'Staff Management', sidebar_label: 'Staff', sidebar_order: 125, capability_group: 'people_operations' },
+  { id: 'staff_directory', title: 'Staff Directory', sidebar_label: 'Directory', sidebar_order: 130, capability_group: 'people_operations' },
+  { id: 'hr_dashboard', title: 'HR Dashboard', sidebar_label: 'HR', sidebar_order: 135, capability_group: 'people_operations' },
+  { id: 'leave_approvals', title: 'Leave Approvals', sidebar_label: 'Leave', sidebar_order: 140, capability_group: 'people_operations' },
+  { id: 'reports_grievances', title: 'Reports and Grievances', sidebar_label: 'Reports', sidebar_order: 145, capability_group: 'people_operations' },
+  { id: 'theatre', title: 'Operating Theatre', sidebar_label: 'Theatre', sidebar_order: 150, capability_group: 'theatre' },
+  { id: 'cath_lab', title: 'Cath Lab', sidebar_label: 'Cath Lab', sidebar_order: 155, capability_group: 'cath_lab' },
+  { id: 'housekeeping_tasks', title: 'Housekeeping Tasks', sidebar_label: 'Housekeeping', sidebar_order: 160, capability_group: 'housekeeping' },
+  { id: 'housekeeping_hub', title: 'Housekeeping Hub', sidebar_label: 'Housekeeping', sidebar_order: 165, capability_group: 'housekeeping' },
+  { id: 'housekeeping_command', title: 'Housekeeping Command', sidebar_label: 'Housekeeping', sidebar_order: 170, capability_group: 'housekeeping' },
+  { id: 'housekeeping_roster', title: 'Housekeeping Roster', sidebar_label: 'Roster', sidebar_order: 175, capability_group: 'housekeeping' },
+];
+
 const ROLE_POLICY_ROLES = ROLE_CODES.map((roleCode) => buildRoleEntry(roleCode));
 
 export const ROLE_POLICY_GRAPH = Object.freeze({
@@ -1020,6 +1055,8 @@ export const ROLE_POLICY_GRAPH = Object.freeze({
   ],
   capability_groups: ROLE_POLICY_CAPABILITY_GROUPS,
   phi_levels: PHI_ACCESS_LEVELS,
+  staff_features: STAFF_FEATURE_CATALOG,
+  staff_features_by_role: UI_FEATURES_BY_ROLE,
 });
 
 const ROLE_POLICY_HASH = crypto

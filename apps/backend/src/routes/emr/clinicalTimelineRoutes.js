@@ -1,7 +1,7 @@
 // src/routes/emr/clinicalTimelineRoutes.js
 import express from 'express';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
-import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
+import { readCanonicalPatientTimeline } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success } from '../../utils/responseHelper.js';
 
@@ -11,13 +11,14 @@ const router = express.Router();
 router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'patient.timeline.view' }), async (req, res, next) => {
   try {
     const { patientUid } = req.params;
-    const { date_from, date_to } = req.query;
+    const { date_from, date_to, limit } = req.query;
 
-    const timeline = await clinicalNotesService.getPatientTimeline(
-      patientUid,
-      date_from || null,
-      date_to || null,
-    );
+    const timeline = await readCanonicalPatientTimeline(patientUid, {
+      tenantId: req.tenantId || req.user?.tenant_id,
+      date_from: date_from || null,
+      date_to: date_to || null,
+      limit,
+    });
 
     logPhiAccess({
       userId: req.user.uid,
@@ -29,7 +30,10 @@ router.get('/:patientUid', patientAccessGuard('EMR_TIMELINE', { policyCode: 'pat
       requestId: req.id,
     });
 
-    return success(res, timeline, 'Patient timeline retrieved');
+    return success(res, timeline.events, 'Patient timeline retrieved', 200, {
+      canonical: timeline.counts,
+      generated_at: timeline.generated_at,
+    });
   } catch (err) {
     next(err);
   }

@@ -127,6 +127,7 @@ Schema is managed by Prisma migrations plus raw SQL migrations under
 Important DB docs:
 
 - [`docs/DB_SCHEMA_GUARDRAILS.md`](docs/DB_SCHEMA_GUARDRAILS.md)
+- [`docs/CANONICAL_CLINICAL_TIMELINE.md`](docs/CANONICAL_CLINICAL_TIMELINE.md)
 - [`apps/backend/docs/DB-REBUILD-GUIDE.md`](apps/backend/docs/DB-REBUILD-GUIDE.md)
 - [`apps/backend/docs/DB-MIGRATION-MANIFEST.md`](apps/backend/docs/DB-MIGRATION-MANIFEST.md)
 - [`apps/backend/docs/DB-SCHEMA-REFERENCE.md`](apps/backend/docs/DB-SCHEMA-REFERENCE.md)
@@ -194,6 +195,7 @@ Smoke journey coverage is documented in
 | Topic | Document |
 | --- | --- |
 | Architecture | [`docs/SYSTEM-ARCHITECTURE.md`](docs/SYSTEM-ARCHITECTURE.md) |
+| Canonical clinical timeline | [`docs/CANONICAL_CLINICAL_TIMELINE.md`](docs/CANONICAL_CLINICAL_TIMELINE.md) |
 | Deployment | [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) |
 | Release gate | [`docs/RELEASE_READINESS.md`](docs/RELEASE_READINESS.md) |
 | Remediation tracker | [`docs/PLATFORM_REMEDIATION_PLAN.md`](docs/PLATFORM_REMEDIATION_PLAN.md) |

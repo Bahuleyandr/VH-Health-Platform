@@ -9,6 +9,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
+import { emitBedMarkedReady } from '../clinical/canonicalOperationalBridgeService.js';
 
 class BedManagementService {
   // =========================================================================
@@ -596,6 +597,15 @@ class BedManagementService {
     });
 
     logger.info(`Bed ${bedId} marked as available by ${actorUid || 'unknown'}`);
+    await emitBedMarkedReady({
+      bed: rows[0],
+      bedId,
+      actorUid,
+      actorRole: 'HOUSEKEEPING',
+      cleaningTicketId,
+      cleanerId,
+      notes,
+    });
     return rows[0];
   }
 

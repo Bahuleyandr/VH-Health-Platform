@@ -25,6 +25,8 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import logger from '../../logging/logger.js';
+import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 
 const DEFAULT_WINDOW_MINUTES = 60;
 
@@ -98,6 +100,7 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
       dose: ma.dose || ma.dosage || null,
       route: ma.route,
       scheduled_time: ma.scheduled_time,
+      status: ma.status,
     },
     rights,
     allPassed,
@@ -133,7 +136,8 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
            all_rights_passed   = $6,
            override_reason     = $7
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, status,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+               status, notes, tenant_id, created_at, updated_at,
                administered_at, administered_by, rights_passed,
                all_rights_passed, override_reason`,
     ma_id,
@@ -144,7 +148,49 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     evaluation.allPassed,
     overrideReason,
   );
-  return rows[0];
+
+  const record = rows[0];
+  if (record?.id) {
+    try {
+      await recordCanonicalClinicalEvent({
+        tenantId: record.tenant_id,
+        patientUid: record.patient_uid,
+        eventType: 'mar.administered',
+        eventStatus: record.status,
+        sourceTable: 'medication_administrations',
+        sourceId: String(record.id),
+        resourceType: 'mar',
+        resourceId: String(record.id),
+        actorUid: administeredBy,
+        summary: `${record.medication_name || 'Medication'} administered with scan`,
+        payload: {
+          medication_administration_id: record.id,
+          medication_name: record.medication_name || null,
+          dose: record.dose || record.dosage || null,
+          route: record.route || null,
+          scheduled_time: record.scheduled_time || null,
+          administered_at: record.administered_at || null,
+          rights_passed: record.rights_passed || evaluation.rights,
+          all_rights_passed: record.all_rights_passed,
+          override_reason: record.override_reason || null,
+          scanner_used: true,
+        },
+        beforeState: { status: evaluation.ma?.status || 'scheduled' },
+        afterState: {
+          status: record.status,
+          rights_passed: record.rights_passed || evaluation.rights,
+        },
+        tags: ['mar', 'medication', 'barcode'],
+        timelineIdempotencyKey: `medication_administrations:${record.id}:mar.administered:scan:${record.administered_at?.toISOString?.() || Date.now()}`,
+        auditIdempotencyKey: `medication_administrations:${record.id}:audit:mar.administered:scan:${record.administered_at?.toISOString?.() || Date.now()}`,
+      });
+    } catch (err) {
+      logger.warn(`Canonical scanned MAR event skipped for row ${record.id}`, {
+        error: err?.message || String(err),
+      });
+    }
+  }
+  return record;
 }
 
 export default { evaluate5Rights, administerWithScan };

@@ -13,6 +13,16 @@ import {
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+
+async function bestEffortInvestigationCanonical(label, input) {
+  try {
+    return await recordCanonicalClinicalEvent(input);
+  } catch (err) {
+    logger.warn(`Canonical investigation event failed during ${label}: ${err?.message || err}`);
+    return null;
+  }
+}
 
 // Subset of investigations columns the caller gets back. Shared between the
 // clinical + legacy paths so the API surface stays consistent.
@@ -286,6 +296,28 @@ export const createInvestigationOrder = async (orderData) => {
       updated_at: now,
     },
   }).catch((err) => logger.warn(`investigation notification insert failed: ${err.message}`));
+
+  await bestEffortInvestigationCanonical('investigation order', {
+    patientUid: investigation.patient_uid,
+    eventType: 'investigation.ordered',
+    eventSubtype: investigation.test_type,
+    eventStatus: investigation.status,
+    sourceTable: 'investigations',
+    sourceId: investigation.id,
+    resourceType: 'investigation',
+    resourceId: investigation.id,
+    actorUid: investigation.requested_by,
+    summary: `${investigation.test_name} ordered`,
+    payload: {
+      test_name: investigation.test_name,
+      test_code: resolvedTestCode,
+      test_type: investigation.test_type,
+      priority: investigation.priority,
+      appointment_id: investigation.appointment_id,
+      duplicate_warning: duplicateWarning,
+    },
+    afterState: investigation,
+  });
 
   logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${requesterUuid}`);
 

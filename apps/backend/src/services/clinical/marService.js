@@ -2,6 +2,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 
 // ===================================================================
 // Medication Administration Record (MAR) Service
@@ -117,6 +118,66 @@ function expandSchedule(frequency, startTime, durationDays) {
   return out;
 }
 
+async function recordCanonicalMarEvent({
+  record,
+  eventType,
+  actorUid = null,
+  actorRole = null,
+  previousStatus = null,
+  encounterId = null,
+  sourceClinicalOrderId = null,
+  payload = {},
+} = {}) {
+  if (!record?.id) return null;
+  const status = record.status || null;
+  const stamp = record.updated_at?.toISOString?.()
+    || record.administered_at?.toISOString?.()
+    || record.created_at?.toISOString?.()
+    || Date.now();
+
+  try {
+    return await recordCanonicalClinicalEvent({
+      tenantId: record.tenant_id,
+      patientUid: record.patient_uid,
+      encounterId,
+      eventType,
+      eventStatus: status,
+      sourceTable: 'medication_administrations',
+      sourceId: String(record.id),
+      resourceType: 'mar',
+      resourceId: String(record.id),
+      actorUid: actorUid || record.administered_by,
+      actorRole,
+      summary: `${record.medication_name || 'Medication'} ${status || 'updated'}`,
+      payload: {
+        medication_administration_id: record.id,
+        medication_name: record.medication_name || null,
+        dose: record.dose || record.dosage || null,
+        route: record.route || null,
+        scheduled_time: record.scheduled_time || null,
+        administered_at: record.administered_at || null,
+        previous_status: previousStatus,
+        status,
+        source_clinical_order_id: sourceClinicalOrderId || null,
+        notes: record.notes || null,
+        hold_reason: record.hold_reason || null,
+        refusal_reason: record.refusal_reason || null,
+        ...payload,
+      },
+      beforeState: previousStatus ? { status: previousStatus } : null,
+      afterState: { status },
+      tags: ['mar', 'medication'],
+      timelineIdempotencyKey: `medication_administrations:${record.id}:${eventType}:${status || 'none'}:${stamp}`,
+      auditIdempotencyKey: `medication_administrations:${record.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
+    });
+  } catch (err) {
+    logger.warn(`Canonical MAR event skipped for row ${record.id}`, {
+      error: err?.message || String(err),
+    });
+    return null;
+  }
+}
+
 /**
  * Schedule medications for a patient.
  * @param {string} patientUid
@@ -128,7 +189,7 @@ function expandSchedule(frequency, startTime, durationDays) {
  *     optional `start_time` + `duration_days` into an array of doses.
  * @returns {Array} Created medication_administration records
  */
-export async function scheduleMedications(patientUid, prescriptionId, medications) {
+export async function scheduleMedications(patientUid, prescriptionId, medications, context = {}) {
   if (!medications || medications.length === 0) {
     throw AppError.badRequest('At least one medication entry is required');
   }
@@ -212,6 +273,17 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
 
     );
     results.push(rows[0]);
+    await recordCanonicalMarEvent({
+      record: rows[0],
+      eventType: 'mar.scheduled',
+      actorUid: context.actorUid,
+      actorRole: context.actorRole,
+      encounterId: context.encounterId,
+      sourceClinicalOrderId: context.sourceClinicalOrderId,
+      payload: {
+        prescription_id: prescriptionId || null,
+      },
+    });
   }
 
   logger.info(`Scheduled ${results.length} medications for patient ${patientUid}`);
@@ -228,7 +300,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
  */
 export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null) {
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status, patient_uid, medication_name, scheduled_time
+    `SELECT id, status, patient_uid, medication_name, scheduled_time, tenant_id
        FROM medication_administrations
       WHERE id = $1`,
     id
@@ -282,9 +354,18 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
          notes = COALESCE($3, notes),
          witness_uid = $4::uuid
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, witness_uid, created_at`,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+               administered_at, status, administered_by, notes, witness_uid,
+               tenant_id, created_at, updated_at`,
     id, administeredBy, notes, witnessUid
   );
+
+  await recordCanonicalMarEvent({
+    record: rows[0],
+    eventType: 'mar.administered',
+    actorUid: administeredBy,
+    previousStatus: existing[0].status,
+  });
 
   logger.info(`Medication ${id} administered by ${administeredBy}`);
   return rows[0];
@@ -296,7 +377,7 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
  * @param {string} reason
  * @returns {Object} Updated record
  */
-export async function recordMissed(id, reason) {
+export async function recordMissed(id, reason, missedBy = null) {
   const existing = await prisma.$queryRawUnsafe(
     'SELECT id, status FROM medication_administrations WHERE id = $1',
     id
@@ -314,9 +395,18 @@ export async function recordMissed(id, reason) {
     `UPDATE medication_administrations
      SET status = 'missed', notes = COALESCE($2, notes)
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+               status, administered_by, notes, tenant_id, created_at, updated_at`,
     id, reason
   );
+
+  await recordCanonicalMarEvent({
+    record: rows[0],
+    eventType: 'mar.missed',
+    actorUid: missedBy,
+    previousStatus: existing[0].status,
+    payload: { reason },
+  });
 
   logger.info(`Medication ${id} marked as missed`);
   return rows[0];
@@ -351,9 +441,19 @@ export async function holdMedication(id, reason, heldBy) {
     `UPDATE medication_administrations
      SET status = 'held', hold_reason = $2, administered_by = $3::uuid
      WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, hold_reason, notes, created_at`,
+     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+               status, administered_by, hold_reason, notes, tenant_id,
+               created_at, updated_at`,
     id, reason, heldBy
   );
+
+  await recordCanonicalMarEvent({
+    record: rows[0],
+    eventType: 'mar.held',
+    actorUid: heldBy,
+    previousStatus: existing[0].status,
+    payload: { reason },
+  });
 
   logger.info(`Medication ${id} held by ${heldBy}: ${reason}`);
   return rows[0];
