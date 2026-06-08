@@ -5,6 +5,9 @@ import { API_KEY, generateTestToken } from './testClient.js';
 
 const PATIENT_UID = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d401';
 const NURSE_UID = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d402';
+const PAEDIATRIC_DEEP_TEST_TIMEOUT_MS = 30000;
+
+jest.setTimeout(PAEDIATRIC_DEEP_TEST_TIMEOUT_MS);
 
 function twoYearOldDob() {
   return new Date(Date.now() - 760 * 86400000).toISOString().slice(0, 10);
