@@ -9,6 +9,7 @@ const backendRoot = path.resolve(__dirname, '..');
 const jestBin = path.join(backendRoot, 'node_modules', 'jest', 'bin', 'jest.js');
 const chunkSize = Number(process.env.JEST_CI_CHUNK_SIZE || 8);
 const oldSpaceMb = Number(process.env.JEST_OLD_SPACE_MB || 3072);
+const testTimeoutMs = Number(process.env.JEST_TEST_TIMEOUT_MS || 60000);
 const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);
 const endChunk = process.env.JEST_CI_END_CHUNK
   ? Number(process.env.JEST_CI_END_CHUNK)
@@ -28,6 +29,11 @@ if (!Number.isInteger(chunkSize) || chunkSize < 1) {
 
 if (!Number.isInteger(oldSpaceMb) || oldSpaceMb < 512) {
   console.error(`JEST_OLD_SPACE_MB must be an integer >= 512; received ${process.env.JEST_OLD_SPACE_MB}`);
+  process.exit(1);
+}
+
+if (!Number.isInteger(testTimeoutMs) || testTimeoutMs < 5000) {
+  console.error(`JEST_TEST_TIMEOUT_MS must be an integer >= 5000; received ${process.env.JEST_TEST_TIMEOUT_MS}`);
   process.exit(1);
 }
 
@@ -87,7 +93,7 @@ if (firstIndex >= testFiles.length) {
 }
 console.log(
   `Running ${testFiles.length} Jest files in ${chunkCount} chunk(s) ` +
-  `of up to ${chunkSize} with ${oldSpaceMb} MB old-space each.`
+  `of up to ${chunkSize} with ${oldSpaceMb} MB old-space and ${testTimeoutMs} ms timeout each.`
 );
 if (startChunk > 1 || endChunk !== null) {
   console.log(`Running chunk window ${startChunk}-${endChunk ?? chunkCount} for local triage.`);
@@ -100,6 +106,7 @@ for (let index = firstIndex; index < lastIndexExclusive; index += chunkSize) {
   const result = run([
     '--runInBand',
     '--forceExit',
+    `--testTimeout=${testTimeoutMs}`,
     ...passthroughArgs,
     '--runTestsByPath',
     ...chunk,
