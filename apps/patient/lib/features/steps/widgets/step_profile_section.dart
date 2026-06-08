@@ -2,6 +2,7 @@
 // display-name + colour setup form for new users. Presentational; the
 // screen owns the profile state and handles edit/colour/save callbacks.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:vhhealth/features/steps/models/step_models.dart';
 import 'package:vhhealth/features/steps/step_formatters.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -10,10 +11,13 @@ class StepProfileSection extends StatelessWidget {
   final StepProfile? profile;
   final bool loadingProfile;
   final bool savingProfile;
+  final bool editingProfile;
   final TextEditingController nameController;
+  final TextEditingController goalController;
   final String editColor;
   final List<String> colorOptions;
   final VoidCallback onEditPressed;
+  final VoidCallback onCancelEdit;
   final ValueChanged<String> onColorSelected;
   final VoidCallback onSave;
 
@@ -22,10 +26,13 @@ class StepProfileSection extends StatelessWidget {
     required this.profile,
     required this.loadingProfile,
     required this.savingProfile,
+    required this.editingProfile,
     required this.nameController,
+    required this.goalController,
     required this.editColor,
     required this.colorOptions,
     required this.onEditPressed,
+    required this.onCancelEdit,
     required this.onColorSelected,
     required this.onSave,
   });
@@ -45,8 +52,9 @@ class StepProfileSection extends StatelessWidget {
         profile == null ||
         profile!.displayName.isEmpty ||
         profile!.displayName.startsWith('User');
+    final showForm = needsSetup || editingProfile;
 
-    if (!needsSetup) {
+    if (!showForm) {
       return Card(
         child: ListTile(
           leading: CircleAvatar(
@@ -65,7 +73,7 @@ class StepProfileSection extends StatelessWidget {
             profile!.displayName,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          subtitle: Text('Daily goal: ${profile!.dailyGoal.toString()} steps'),
+          subtitle: Text('Daily target: ${_formatGoal(profile!.dailyGoal)}'),
           trailing: TextButton(
             onPressed: onEditPressed,
             child: const Text('Edit'),
@@ -76,6 +84,7 @@ class StepProfileSection extends StatelessWidget {
 
     // Setup form
     final l = AppLocalizations.of(context)!;
+    final targetPresets = [6000, 8000, 10000, 12000];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -83,7 +92,7 @@ class StepProfileSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              l.stepsSetupProfileTitle,
+              needsSetup ? l.stepsSetupProfileTitle : 'Edit step target',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
@@ -96,6 +105,35 @@ class StepProfileSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            TextField(
+              controller: goalController,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Daily step target',
+                hintText: 'Example: 7500',
+                helperText: 'Choose a realistic goal between 1,000 and 100,000',
+                prefixIcon: Icon(Icons.flag_outlined),
+                suffixText: 'steps',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: targetPresets.map((steps) {
+                return ActionChip(
+                  label: Text(_formatGoal(steps)),
+                  onPressed: savingProfile
+                      ? null
+                      : () {
+                          goalController.text = steps.toString();
+                        },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
             Text(
               l.stepsPickColor,
               style: const TextStyle(fontWeight: FontWeight.w600),
@@ -126,22 +164,45 @@ class StepProfileSection extends StatelessWidget {
               }).toList(),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: savingProfile ? null : onSave,
-                child: savingProfile
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(l.stepsSaveProfile),
-              ),
+            Row(
+              children: [
+                if (!needsSetup) ...[
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: savingProfile ? null : onCancelEdit,
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: savingProfile ? null : onSave,
+                    child: savingProfile
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(l.stepsSaveProfile),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  static String _formatGoal(int steps) {
+    if (steps >= 1000 && steps % 1000 == 0) {
+      return '${steps ~/ 1000}k steps';
+    }
+    if (steps >= 1000) {
+      return '${(steps / 1000).toStringAsFixed(1)}k steps';
+    }
+    return '$steps steps';
   }
 }

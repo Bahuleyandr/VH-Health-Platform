@@ -30,7 +30,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   StepProfile? _profile;
   bool _loadingProfile = true;
   bool _savingProfile = false;
+  bool _editingProfile = false;
   final _nameController = TextEditingController();
+  final _goalController = TextEditingController(text: '8000');
   String _editColor = '#2196F3';
   final List<String> _colorOptions = [
     '#2196F3',
@@ -108,6 +110,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _goalController.dispose();
     _positionStream?.cancel();
     _elapsedTimer?.cancel();
     _pedometerSubscription?.cancel();
@@ -136,6 +139,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
           setState(() {
             _profile = p;
             _nameController.text = p.displayName;
+            _goalController.text = p.dailyGoal.toString();
             _editColor = p.displayColor;
           });
         }
@@ -224,6 +228,15 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
       _showError('Display name cannot be empty');
       return;
     }
+    final dailyGoal = int.tryParse(_goalController.text.trim());
+    if (dailyGoal == null) {
+      _showError('Daily step target must be a number');
+      return;
+    }
+    if (dailyGoal < 1000 || dailyGoal > 100000) {
+      _showError('Daily step target must be between 1,000 and 100,000');
+      return;
+    }
     setState(() => _savingProfile = true);
     try {
       final resp = await ApiClient.put(
@@ -231,11 +244,12 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
         body: {
           'displayName': name,
           'displayColor': _editColor,
-          'dailyGoal': _profile?.dailyGoal ?? 8000,
+          'dailyGoal': dailyGoal,
           'optedIn': _profile?.optedIn ?? true,
         },
       );
       if (resp.isSuccess) {
+        if (mounted) setState(() => _editingProfile = false);
         await _fetchProfile();
         _showSuccess('Profile saved');
       } else {
@@ -424,11 +438,21 @@ class _StepChallengeScreenState extends State<StepChallengeScreen> {
               profile: _profile,
               loadingProfile: _loadingProfile,
               savingProfile: _savingProfile,
+              editingProfile: _editingProfile,
               nameController: _nameController,
+              goalController: _goalController,
               editColor: _editColor,
               colorOptions: _colorOptions,
               onEditPressed: () => setState(() {
+                _editingProfile = true;
                 _nameController.text = _profile?.displayName ?? '';
+                _goalController.text = (_profile?.dailyGoal ?? 8000).toString();
+                _editColor = _profile?.displayColor ?? '#2196F3';
+              }),
+              onCancelEdit: () => setState(() {
+                _editingProfile = false;
+                _nameController.text = _profile?.displayName ?? '';
+                _goalController.text = (_profile?.dailyGoal ?? 8000).toString();
                 _editColor = _profile?.displayColor ?? '#2196F3';
               }),
               onColorSelected: (hex) => setState(() => _editColor = hex),
