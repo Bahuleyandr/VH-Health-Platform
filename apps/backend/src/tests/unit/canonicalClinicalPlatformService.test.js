@@ -121,15 +121,22 @@ describe('canonical clinical platform service', () => {
       timestamp: '2026-06-07T08:30:00.000Z',
       title: 'Vitals recorded',
       summary: 'HR 82',
+    }, {
+      id: 100,
+      event_type: 'clinical_note',
+      timestamp: '2026-06-07T08:00:00.000Z',
+      title: 'Progress note',
+      summary: 'Review after rounds',
     }]);
 
     const timeline = await readCanonicalPatientTimeline(PATIENT, { limit: 20 });
 
     expect(timeline.patient_uid).toBe(PATIENT);
-    expect(timeline.counts).toEqual({ canonical: 1, legacy: 1, returned: 2 });
+    expect(timeline.counts).toEqual({ canonical: 1, legacy: 2, returned: 3 });
     expect(timeline.events.map((event) => event.event_type)).toEqual([
       'prescription.created',
       'vitals.recorded',
+      'clinical_note',
     ]);
   });
 

@@ -85,6 +85,7 @@ function sourceKey({ eventType, action, sourceTable, sourceId, resourceType, res
 
 function mapLegacyTypeToCanonical(type) {
   const raw = String(type || '').toLowerCase();
+  if (raw === 'clinical_note' || raw === 'clinical.notes') return 'clinical_note';
   if (raw.includes('vital')) return 'vitals.recorded';
   if (raw.includes('io') || raw.includes('intake') || raw.includes('output')) return 'io.recorded';
   if (raw.includes('prescription')) return 'prescription.created';
