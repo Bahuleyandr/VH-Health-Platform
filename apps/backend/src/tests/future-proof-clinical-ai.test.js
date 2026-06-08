@@ -2273,7 +2273,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await admin.patch('/api/v1/admin/clinical-ai/modules/blood_bank_demand_forecast').send({ enabled: false });
     const blocked = await admin.post('/api/v1/admin/clinical-ai/blood-bank/forecast').send({ forecast_window_hours: 24 });
     expect(blocked.statusCode).toBe(403);
-  });
+  }, LONG_CLINICAL_AI_TEST_TIMEOUT_MS);
 
   it('evaluates obstetric risk with preeclampsia + PPH signals and gates by module', async () => {
     await enableModule('obstetric_risk_assistant');

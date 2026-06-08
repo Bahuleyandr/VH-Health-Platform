@@ -72,7 +72,7 @@ class MedicalApiService {
       'patientName': ?patientName,
       'notes': ?notes,
       'date': ?date,
-      if (additionalData != null) ...additionalData,
+      ...?additionalData,
     });
   }
 
