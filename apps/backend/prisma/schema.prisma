@@ -8919,7 +8919,6 @@ model users {
   gender                                                                           String?                           @db.VarChar(20)
   address                                                                          String?
   email                                                                            String?                           @db.VarChar(255)
-  email_verified                                                                   Boolean                           @default(false)
   birthday                                                                         DateTime?                         @db.Date
   anniversary                                                                      DateTime?                         @db.Date
   guardian_name                                                                    String?                           @db.VarChar(160)
@@ -8927,8 +8926,6 @@ model users {
   guardian_relationship                                                            String?                           @db.VarChar(40)
   profile_picture                                                                  String?
   role                                                                             String?                           @default("PATIENT") @db.VarChar(50)
-  firebase_uid                                                                     String?                           @db.VarChar(128)
-  firebase_tokens_revoked_at                                                       DateTime?                         @db.Timestamptz(6)
   is_active                                                                        Boolean                           @default(true)
   registered_at                                                                    DateTime                          @default(now()) @db.Timestamp(6)
   updated_at                                                                       DateTime                          @db.Timestamp(6)
@@ -8967,6 +8964,9 @@ model users {
   chronic_medications                                                              Json                              @default("[]")
   chronic_medications_updated_at                                                   DateTime?                         @db.Timestamptz(6)
   preferred_channel                                                                String                            @default("app") @db.VarChar(10)
+  firebase_uid                                                                     String?                           @db.VarChar(128)
+  firebase_tokens_revoked_at                                                       DateTime?                         @db.Timestamptz(6)
+  email_verified                                                                   Boolean                           @default(false)
   abdm_consents                                                                    abdm_consents[]
   abdm_data_requests                                                               abdm_data_requests[]
   annual_review_reminders                                                          annual_review_reminders[]
