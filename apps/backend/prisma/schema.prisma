@@ -12790,83 +12790,86 @@ model patient_encounters {
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, admission_id], map: "idx_patient_encounters_tenant_admission", where: raw("(admission_id IS NOT NULL)"))
+  @@unique([tenant_id, appointment_id], map: "idx_patient_encounters_tenant_appointment", where: raw("(appointment_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, status, opened_at(sort: Desc)], map: "idx_patient_encounters_patient_status")
-  @@index([tenant_id, primary_doctor_uid, status, opened_at(sort: Desc)], map: "idx_patient_encounters_doctor_status")
+  @@index([tenant_id, primary_doctor_uid, status, opened_at(sort: Desc)], map: "idx_patient_encounters_doctor_status", where: raw("(primary_doctor_uid IS NOT NULL)"))
 }
 
 /// Append-only canonical patient timeline event stream.
 model clinical_timeline_events {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id          String    @db.Uuid
-  patient_uid        String    @db.Uuid
-  encounter_id       String?   @db.Uuid
-  event_type         String    @db.VarChar(80)
-  event_subtype      String?   @db.VarChar(80)
-  event_status       String?   @db.VarChar(40)
-  source_table       String?   @db.VarChar(100)
-  source_id          String?   @db.VarChar(120)
-  source_uid         String?   @db.Uuid
-  resource_type      String?   @db.VarChar(80)
-  resource_id        String?   @db.VarChar(120)
-  actor_uid          String?   @db.Uuid
-  actor_role         String?   @db.VarChar(80)
-  occurred_at        DateTime  @default(now()) @db.Timestamptz(6)
-  visible_to_patient Boolean   @default(false)
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id          String   @db.Uuid
+  patient_uid        String   @db.Uuid
+  encounter_id       String?  @db.Uuid
+  event_type         String   @db.VarChar(80)
+  event_subtype      String?  @db.VarChar(80)
+  event_status       String?  @db.VarChar(40)
+  source_table       String?  @db.VarChar(100)
+  source_id          String?  @db.VarChar(120)
+  source_uid         String?  @db.Uuid
+  resource_type      String?  @db.VarChar(80)
+  resource_id        String?  @db.VarChar(120)
+  actor_uid          String?  @db.Uuid
+  actor_role         String?  @db.VarChar(80)
+  occurred_at        DateTime @default(now()) @db.Timestamptz(6)
+  visible_to_patient Boolean  @default(false)
   clinical_summary   String?
-  payload            Json      @default("{}")
-  tags               String[]  @default([])
-  idempotency_key    String    @unique @db.VarChar(220)
-  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  payload            Json     @default("{}")
+  tags               String[] @default([])
+  idempotency_key    String   @unique @db.VarChar(220)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_timeline_patient_occurred")
-  @@index([tenant_id, encounter_id, occurred_at(sort: Desc)], map: "idx_clinical_timeline_encounter_occurred")
-  @@index([source_table, source_id], map: "idx_clinical_timeline_source")
+  @@index([tenant_id, encounter_id, occurred_at(sort: Desc)], map: "idx_clinical_timeline_encounter_occurred", where: raw("(encounter_id IS NOT NULL)"))
+  @@index([source_table, source_id], map: "idx_clinical_timeline_source", where: raw("((source_table IS NOT NULL) AND (source_id IS NOT NULL))"))
   @@index([tenant_id, event_type, occurred_at(sort: Desc)], map: "idx_clinical_timeline_event_type")
 }
 
 /// Normalized clinical-action audit stream. This complements legacy audit_log,
 /// audit_logs, patient_access_audit_log, and staff_access_audit_log.
 model clinical_audit_events {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id       String    @db.Uuid
-  patient_uid     String?   @db.Uuid
-  encounter_id    String?   @db.Uuid
-  action          String    @db.VarChar(100)
-  action_status   String    @default("success") @db.VarChar(40)
-  actor_uid       String?   @db.Uuid
-  actor_role      String?   @db.VarChar(80)
-  resource_type   String?   @db.VarChar(80)
-  resource_table  String?   @db.VarChar(100)
-  resource_id     String?   @db.VarChar(120)
-  request_id      String?   @db.VarChar(120)
-  ip_address      String?   @db.Inet
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String   @db.Uuid
+  patient_uid     String?  @db.Uuid
+  encounter_id    String?  @db.Uuid
+  action          String   @db.VarChar(100)
+  action_status   String   @default("success") @db.VarChar(40)
+  actor_uid       String?  @db.Uuid
+  actor_role      String?  @db.VarChar(80)
+  resource_type   String?  @db.VarChar(80)
+  resource_table  String?  @db.VarChar(100)
+  resource_id     String?  @db.VarChar(120)
+  request_id      String?  @db.VarChar(120)
+  ip_address      String?  @db.Inet
   user_agent      String?
   before_state    Json?
   after_state     Json?
-  metadata        Json      @default("{}")
-  idempotency_key String?   @db.VarChar(220)
-  occurred_at     DateTime  @default(now()) @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  metadata        Json     @default("{}")
+  idempotency_key String?  @unique(map: "idx_clinical_audit_events_idempotency", where: raw("(idempotency_key IS NOT NULL)")) @db.VarChar(220)
+  occurred_at     DateTime @default(now()) @db.Timestamptz(6)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time")
-  @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time")
-  @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource")
+  @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
+  @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model workflow_sla_rules {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id             String?   @db.Uuid
-  rule_code             String    @db.VarChar(100)
-  title                 String    @db.VarChar(160)
-  trigger_event_type    String    @db.VarChar(100)
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String?  @db.Uuid
+  rule_code             String   @db.VarChar(100)
+  title                 String   @db.VarChar(160)
+  trigger_event_type    String   @db.VarChar(100)
   target_minutes        Int
-  severity              String    @default("medium") @db.VarChar(30)
-  owner_role_codes      String[]  @default([])
-  escalation_role_codes String[]  @default([])
-  enabled               Boolean   @default(true)
-  metadata              Json      @default("{}")
-  created_at            DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+  severity              String   @default("medium") @db.VarChar(30)
+  owner_role_codes      String[] @default([])
+  escalation_role_codes String[] @default([])
+  enabled               Boolean  @default(true)
+  metadata              Json     @default("{}")
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
 }
 
 model workflow_sla_instances {
@@ -12892,8 +12895,9 @@ model workflow_sla_instances {
   created_at          DateTime  @default(now()) @db.Timestamptz(6)
   updated_at          DateTime  @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, rule_code, source_table, source_id], map: "idx_workflow_sla_instances_source", where: raw("((source_table IS NOT NULL) AND (source_id IS NOT NULL))"))
   @@index([tenant_id, status, due_at], map: "idx_workflow_sla_instances_due")
-  @@index([tenant_id, patient_uid, started_at(sort: Desc)], map: "idx_workflow_sla_instances_patient")
+  @@index([tenant_id, patient_uid, started_at(sort: Desc)], map: "idx_workflow_sla_instances_patient", where: raw("(patient_uid IS NOT NULL)"))
 }
 
 model medication_safety_reviews {
@@ -12919,7 +12923,7 @@ model medication_safety_reviews {
   created_at        DateTime  @default(now()) @db.Timestamptz(6)
   updated_at        DateTime  @default(now()) @db.Timestamptz(6)
 
-  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_medication_safety_reviews_patient_time")
-  @@index([prescription_id, created_at(sort: Desc)], map: "idx_medication_safety_reviews_prescription")
+  @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_medication_safety_reviews_patient_time", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([prescription_id, created_at(sort: Desc)], map: "idx_medication_safety_reviews_prescription", where: raw("(prescription_id IS NOT NULL)"))
   @@index([tenant_id, status, severity, created_at(sort: Desc)], map: "idx_medication_safety_reviews_status")
 }
