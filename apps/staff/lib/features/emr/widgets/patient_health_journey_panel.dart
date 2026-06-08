@@ -49,11 +49,19 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
       children: [
         _summaryHeader(model),
         const SizedBox(height: 12),
-        _activityCard(model),
-        const SizedBox(height: 12),
-        _vitalsCard(model),
-        const SizedBox(height: 12),
-        _clinicalMarkersCard(model),
+        if (model.timelineEvents.isNotEmpty) ...[
+          _clinicalMarkersCard(model),
+          const SizedBox(height: 12),
+        ],
+        if (model.hasVitals) ...[
+          _vitalsCard(model),
+          const SizedBox(height: 12),
+        ],
+        if (model.hasActivity) ...[
+          _activityCard(model),
+          const SizedBox(height: 12),
+        ],
+        if (!model.hasVitals && !model.hasActivity) _wellnessPlaceholder(),
       ],
     );
   }
@@ -95,16 +103,37 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Patient app activity is shown as unverified until a clinician reviews it.',
+                  'Canonical timeline of notes, prescriptions, investigations, vitals, and patient-generated wellness data.',
                   style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                 ),
               ],
             ),
           ),
-          _metricPill(
-            icon: Icons.event_note_outlined,
-            label: '${model.days.length} days',
-            color: AppTheme.primaryBlue,
+          const SizedBox(width: 12),
+          Flexible(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                _metricPill(
+                  icon: Icons.timeline_outlined,
+                  label: '${model.timelineEvents.length} events',
+                  color: AppTheme.primaryBlue,
+                ),
+                _metricPill(
+                  icon: Icons.date_range_outlined,
+                  label: model.dateRangeLabel,
+                  color: AppTheme.primaryTeal,
+                ),
+                if (model.latestEventLabel != null)
+                  _metricPill(
+                    icon: Icons.history_outlined,
+                    label: model.latestEventLabel!,
+                    color: AppTheme.warningOnSurface,
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -183,9 +212,14 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   Widget _clinicalMarkersCard(_HealthJourneyModel model) {
     return _sectionCard(
       icon: Icons.timeline_outlined,
-      title: 'Clinical timeline',
+      title: 'Clinical story',
       subtitle:
-          'Time runs left to right. Tap an event to open the source detail',
+          'Time runs left to right. Tap any card to open the source detail.',
+      trailing: _metricPill(
+        icon: Icons.touch_app_outlined,
+        label: 'Tap to inspect',
+        color: AppTheme.primaryBlue,
+      ),
       child: model.timelineEvents.isEmpty
           ? _smallEmpty('No clinical events in this date range')
           : _horizontal(
@@ -196,6 +230,18 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                 onEventTap: widget.onEventTap,
               ),
             ),
+    );
+  }
+
+  Widget _wellnessPlaceholder() {
+    return _sectionCard(
+      icon: Icons.insights_outlined,
+      title: 'Patient-generated trends',
+      subtitle: 'Steps, walking distance, sleep, weight, and BP sync here',
+      trailing: _sourceChip('Optional'),
+      child: _smallEmpty(
+        'No patient-app activity or trend vitals synced yet. Clinical events remain available above.',
+      ),
     );
   }
 
@@ -534,12 +580,13 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (events.isEmpty) return const SizedBox.shrink();
-    const laneHeight = 226.0;
-    const segmentWidth = 156.0;
-    const axisY = 108.0;
-    const sidePad = 76.0;
-    final width = math.max(720.0, sidePad * 2 + events.length * segmentWidth);
-    final axisPaintColor = AppTheme.primaryBlue.withValues(alpha: 0.42);
+    const laneHeight = 304.0;
+    const segmentWidth = 212.0;
+    const axisY = 140.0;
+    const sidePad = 108.0;
+    final width = math.max(920.0, sidePad * 2 + events.length * segmentWidth);
+    final firstDate = _eventDate(events.first);
+    final lastDate = _eventDate(events.last);
 
     return SizedBox(
       width: width,
@@ -548,13 +595,41 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned(
+            left: 0,
+            right: 0,
+            top: axisY - 34,
+            child: Row(
+              children: [
+                _timelineEndLabel(
+                  icon: Icons.first_page_outlined,
+                  label: firstDate == null
+                      ? 'First event'
+                      : 'First ${_shortDate(firstDate)} ${_shortTime(firstDate)}',
+                ),
+                const Spacer(),
+                _timelineEndLabel(
+                  icon: Icons.last_page_outlined,
+                  label: lastDate == null
+                      ? 'Latest event'
+                      : 'Latest ${_shortDate(lastDate)} ${_shortTime(lastDate)}',
+                ),
+              ],
+            ),
+          ),
+          Positioned(
             left: sidePad,
             right: sidePad,
             top: axisY,
             child: Container(
-              height: 3,
+              height: 4,
               decoration: BoxDecoration(
-                color: axisPaintColor,
+                gradient: LinearGradient(
+                  colors: [
+                    AppTheme.primaryBlue.withValues(alpha: 0.20),
+                    AppTheme.primaryBlue.withValues(alpha: 0.72),
+                    AppTheme.primaryTeal.withValues(alpha: 0.60),
+                  ],
+                ),
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
@@ -571,6 +646,32 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
     );
   }
 
+  Widget _timelineEndLabel({required IconData icon, required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundGrey,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: AppTheme.textSecondary, size: 14),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _timelineEventNode({
     required Map<String, dynamic> event,
     required int index,
@@ -580,14 +681,14 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
     final color = _eventColor(event);
     final above = index.isEven;
     final eventDate = _eventDate(event);
-    final cardTop = above ? 4.0 : axisY + 30;
-    final stemTop = above ? 78.0 : axisY + 15;
-    final stemHeight = above ? 30.0 : 30.0;
+    final cardTop = above ? 16.0 : axisY + 40;
+    final stemTop = above ? 96.0 : axisY + 15;
+    final stemHeight = above ? axisY - stemTop : 28.0;
     return Positioned(
-      left: x - 68,
+      left: x - 88,
       top: 0,
-      width: 136,
-      height: 220,
+      width: 176,
+      height: 298,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.topCenter,
@@ -603,38 +704,51 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
           Positioned(
             top: axisY - 9,
             child: Container(
-              width: 19,
-              height: 19,
+              width: 22,
+              height: 22,
               decoration: BoxDecoration(
                 color: AppTheme.cardSurface,
                 shape: BoxShape.circle,
-                border: Border.all(color: color, width: 3),
+                border: Border.all(color: color, width: 3.5),
                 boxShadow: [
                   BoxShadow(
                     color: color.withValues(alpha: 0.18),
-                    blurRadius: 7,
+                    blurRadius: 9,
                     spreadRadius: 1,
                   ),
                 ],
               ),
-            ),
-          ),
-          Positioned(
-            top: axisY + 11,
-            child: Text(
-              eventDate == null ? '-' : _shortDate(eventDate),
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
+              child: Center(
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
               ),
             ),
           ),
           Positioned(
-            top: axisY + 25,
-            child: Text(
-              eventDate == null ? '' : _shortTime(eventDate),
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 9),
+            top: axisY + 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundGrey,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppTheme.divider),
+              ),
+              child: Text(
+                eventDate == null
+                    ? '-'
+                    : '${_shortDate(eventDate)}  ${_shortTime(eventDate)}',
+                style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
           Positioned(
@@ -645,11 +759,11 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               onTap: onEventTap == null ? null : () => onEventTap!(event),
               child: Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.10),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: color.withValues(alpha: 0.24)),
+                  border: Border.all(color: color.withValues(alpha: 0.42)),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -673,24 +787,43 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       _shortEventTitle(event),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppTheme.textPrimary,
-                        fontSize: 10.5,
+                        fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        height: 1.15,
+                        height: 1.18,
                       ),
                     ),
+                    _eventSubtitleText(event),
                   ],
                 ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _eventSubtitleText(Map<String, dynamic> event) {
+    final subtitle = _eventSubtitle(event);
+    if (subtitle.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Text(
+        subtitle,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: AppTheme.textSecondary,
+          fontSize: 10.5,
+          height: 1.18,
+        ),
       ),
     );
   }
@@ -891,9 +1024,26 @@ class _HealthJourneyModel {
       bpByDay.isNotEmpty ||
       timelineEvents.isNotEmpty;
 
+  bool get hasActivity => activityByDay.isNotEmpty;
+
+  bool get hasVitals => weightByDay.isNotEmpty || bpByDay.isNotEmpty;
+
+  String get dateRangeLabel {
+    if (days.isEmpty) return '0 days';
+    if (days.length == 1) return _shortDate(days.first);
+    return '${_shortDate(days.first)}-${_shortDate(days.last)}';
+  }
+
+  String? get latestEventLabel {
+    if (timelineEvents.isEmpty) return null;
+    final latest = _eventDate(timelineEvents.last);
+    if (latest == null) return 'Latest event';
+    return 'Latest ${_shortTime(latest)}';
+  }
+
   double get chartWidth => math.max(680, days.length * 78.0);
 
-  double get timelineWidth => math.max(760, timelineEvents.length * 156.0);
+  double get timelineWidth => math.max(920, timelineEvents.length * 212.0);
 
   factory _HealthJourneyModel.fromEvents(List<Map<String, dynamic>> events) {
     final daySet = <String, DateTime>{};
@@ -1123,13 +1273,134 @@ String _compactInt(int value) {
 }
 
 String _shortEventTitle(Map<String, dynamic> event) {
+  final payload = _payload(event);
+  final type = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .toLowerCase();
   final title =
       (event['title'] ?? event['summary'] ?? event['clinical_summary'] ?? '')
           .toString()
           .trim();
-  if (title.isNotEmpty) return title;
-  final type = (event['event_type'] ?? event['type'] ?? 'event').toString();
-  return type.replaceAll('_', ' ').replaceAll('.', ' ');
+  if (type.contains('prescription') || type.contains('medication')) {
+    if (title.contains('signed')) return 'Prescription signed';
+    if (title.contains('created')) return 'Prescription created';
+    if (title.contains('dispensed')) return 'Medicines dispensed';
+    final drug =
+        payload['drug_name'] ??
+        payload['medication_name'] ??
+        payload['name'] ??
+        payload['generic_name'];
+    if (drug != null && drug.toString().trim().isNotEmpty) {
+      return 'Prescription - ${drug.toString().trim()}';
+    }
+    return title.isEmpty ? 'Prescription' : _humanizeEventText(title);
+  }
+  if (type.contains('note') || type.contains('consultation')) {
+    final noteType =
+        payload['note_type'] ?? payload['kind'] ?? payload['visit_type'];
+    if (title.startsWith('OP consultation')) return title;
+    if (noteType != null && noteType.toString().trim().isNotEmpty) {
+      return '${_humanizeEventText(noteType.toString())} note';
+    }
+    return title.isEmpty ? 'Clinical note' : _humanizeEventText(title);
+  }
+  if (type.contains('investigation') || type.contains('lab')) {
+    final test =
+        payload['test_name'] ??
+        payload['service_name'] ??
+        payload['investigation_name'] ??
+        payload['name'];
+    final status = (payload['status'] ?? event['status'] ?? '')
+        .toString()
+        .trim();
+    final action = status.isEmpty ? 'requested' : status.toLowerCase();
+    if (test != null && test.toString().trim().isNotEmpty) {
+      return '${_humanizeEventText(test.toString())} $action';
+    }
+    if (title.isNotEmpty && title.toLowerCase() != 'lab') {
+      return _humanizeEventText(title);
+    }
+    return 'Investigation $action';
+  }
+  if (type.contains('referral')) {
+    final department =
+        payload['department'] ??
+        payload['referred_to_department'] ??
+        payload['speciality'];
+    if (department != null && department.toString().trim().isNotEmpty) {
+      return 'Referral - ${_humanizeEventText(department.toString())}';
+    }
+    return 'Specialist referral';
+  }
+  if (type.contains('vital')) return 'Vitals recorded';
+  if (type.contains('admission')) return 'Admission';
+  if (type.contains('discharge')) return 'Discharge';
+  if (title.isNotEmpty) return _humanizeEventText(title);
+  return _humanizeEventText(type.isEmpty ? 'event' : type);
+}
+
+String _eventSubtitle(Map<String, dynamic> event) {
+  final payload = _payload(event);
+  final type = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .toLowerCase();
+  final status = (payload['status'] ?? event['status'] ?? '').toString().trim();
+  final author =
+      (payload['doctor_name'] ??
+              payload['author_name'] ??
+              payload['created_by_name'] ??
+              event['author'])
+          ?.toString()
+          .trim();
+  if (type.contains('prescription') || type.contains('medication')) {
+    final diagnosis =
+        payload['diagnosis'] ??
+        payload['chief_complaint'] ??
+        payload['clinical_context'];
+    final parts = [
+      if (status.isNotEmpty) _humanizeEventText(status),
+      if (diagnosis != null && diagnosis.toString().trim().isNotEmpty)
+        diagnosis.toString().trim(),
+    ];
+    return parts.join(' - ');
+  }
+  if (type.contains('note') || type.contains('consultation')) {
+    final diagnosis =
+        payload['diagnosis'] ??
+        payload['chief_complaint'] ??
+        payload['chief_complaints'] ??
+        payload['assessment'];
+    final parts = [
+      if (author != null && author.isNotEmpty) author,
+      if (diagnosis != null && diagnosis.toString().trim().isNotEmpty)
+        diagnosis.toString().trim(),
+    ];
+    return parts.join(' - ');
+  }
+  if (type.contains('investigation') || type.contains('lab')) {
+    final category =
+        payload['category'] ?? payload['department'] ?? payload['modality'];
+    final parts = [
+      if (status.isNotEmpty) _humanizeEventText(status),
+      if (category != null && category.toString().trim().isNotEmpty)
+        _humanizeEventText(category.toString()),
+    ];
+    return parts.join(' - ');
+  }
+  if (author != null && author.isNotEmpty) return author;
+  if (status.isNotEmpty) return _humanizeEventText(status);
+  return '';
+}
+
+String _humanizeEventText(String value) {
+  final text = value
+      .replaceAll('_', ' ')
+      .replaceAll('.', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (text.isEmpty) return text;
+  final lower = text.toLowerCase();
+  return '${lower[0].toUpperCase()}${lower.substring(1)}';
 }
 
 String _eventKindLabel(Map<String, dynamic> event) {
@@ -1137,13 +1408,15 @@ String _eventKindLabel(Map<String, dynamic> event) {
       .toString()
       .toLowerCase();
   if (type.contains('prescription') || type.contains('medication')) {
-    return 'Medication';
+    return 'Prescription';
   }
   if (type.contains('investigation') || type.contains('lab')) {
     return 'Investigation';
   }
   if (type.contains('vital')) return 'Vitals';
-  if (type.contains('note')) return 'Note';
+  if (type.contains('note') || type.contains('consultation')) {
+    return 'Clinical note';
+  }
   if (type.contains('referral')) return 'Referral';
   if (type.contains('admission')) return 'Admission';
   if (type.contains('discharge')) return 'Discharge';
@@ -1161,7 +1434,9 @@ IconData _eventIcon(Map<String, dynamic> event) {
     return Icons.biotech_outlined;
   }
   if (type.contains('vital')) return Icons.monitor_heart_outlined;
-  if (type.contains('note')) return Icons.note_alt_outlined;
+  if (type.contains('note') || type.contains('consultation')) {
+    return Icons.note_alt_outlined;
+  }
   if (type.contains('referral')) return Icons.call_split_outlined;
   if (type.contains('admission')) return Icons.local_hospital_outlined;
   if (type.contains('discharge')) return Icons.exit_to_app_outlined;
@@ -1179,7 +1454,9 @@ Color _eventColor(Map<String, dynamic> event) {
     return AppTheme.successOnSurface;
   }
   if (type.contains('vital')) return AppTheme.primaryTeal;
-  if (type.contains('note')) return const Color(0xFF8E24AA);
+  if (type.contains('note') || type.contains('consultation')) {
+    return const Color(0xFF8E24AA);
+  }
   if (type.contains('referral')) return AppTheme.warningOnSurface;
   if (type.contains('admission')) return AppTheme.primaryBlue;
   return AppTheme.textSecondary;
