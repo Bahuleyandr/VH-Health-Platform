@@ -37,6 +37,7 @@ const createdAdmissionIds = [];
 const createdSummaryIds = [];
 const createdPaymentIds = [];
 const createdConsentIds = [];
+const CLEANUP_TIMEOUT_MS = 30000;
 let policyId;
 
 async function seedIssuedInvoice({ total, admissionId, roomRent = 0 }) {
@@ -187,7 +188,7 @@ describe('TPA claim cover-exceeded + room-cap advisories (4600ed9c / b5906e90)',
       await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
     }
     await prisma.$disconnect().catch(() => {});
-  });
+  }, CLEANUP_TIMEOUT_MS);
 
   it('surfaces a non-blocking cover-exceeded warning but still creates the claim (the 4600ed9c scenario)', async () => {
     // ₹50k preauth + ₹15k enhancement = ₹65k cumulative cover. The final
