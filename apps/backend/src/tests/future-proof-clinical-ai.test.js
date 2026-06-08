@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { recordTimelineEvent } from '../services/clinical/canonicalClinicalPlatformService.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
 const PATIENT_UID = 'c1111111-1111-4111-8111-111111111a01';
@@ -139,6 +140,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   beforeAll(async () => {
     acceptedEvalSeeds.clear();
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -263,6 +265,30 @@ describe('future-proof clinical AI and privacy foundations', () => {
       DOCTOR_UID,
       JSON.stringify({ summary: 'Improving fever and cough after IV antibiotics.', current_status: 'Stable', plan: 'Continue antibiotics and monitor oxygen.' })
     );
+    await recordTimelineEvent({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      encounterId: ENCOUNTER_ID,
+      eventType: 'note.created',
+      eventSubtype: 'progress',
+      eventStatus: 'active',
+      sourceTable: 'clinical_notes',
+      sourceId: 'future-proof-progress-note',
+      resourceType: 'clinical_notes',
+      resourceId: 'future-proof-progress-note',
+      actorUid: DOCTOR_UID,
+      actorRole: 'DOCTOR',
+      occurredAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      summary: 'Improving fever and cough after IV antibiotics.',
+      payload: {
+        title: 'Clinical progress note',
+        summary: 'Improving fever and cough after IV antibiotics.',
+        current_status: 'Stable',
+        plan: 'Continue antibiotics and monitor oxygen.',
+      },
+      tags: ['test', 'clinical_note'],
+      idempotencyKey: `test:${PATIENT_UID}:future-proof-progress-note`,
+    });
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO clinical_orders
@@ -305,6 +331,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_antimicrobial_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -2236,7 +2263,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
       admission_id: admissionId,
     });
     expect(blocked.statusCode).toBe(403);
-  });
+  }, LONG_CLINICAL_AI_TEST_TIMEOUT_MS);
 
   it('forecasts blood bank demand + stockout risk and gates by module', async () => {
     await enableModule('blood_bank_demand_forecast');
