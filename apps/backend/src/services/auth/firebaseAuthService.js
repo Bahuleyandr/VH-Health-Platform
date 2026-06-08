@@ -66,7 +66,10 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   
   // Check if user exists in our database
   const userResult = await query(
-    'SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login FROM users WHERE phone = $1 OR firebase_uid = $2',
+    `SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid,
+            gender, email_verified, is_active, last_sign_in_at AS last_login
+       FROM users
+      WHERE phone = $1 OR firebase_uid = $2`,
     [phone, firebaseUid]
   );
   
@@ -77,10 +80,11 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     // Create new user
     const insertResult = await query(
       `INSERT INTO users (
-        phone, firebase_uid, role, registered_at, updated_at, last_login,
+        phone, firebase_uid, role, registered_at, updated_at, last_sign_in_at,
         name, email, email_verified
       ) VALUES ($1, $2, $3, NOW(), NOW(), NOW(), $4, $5, $6)
-      RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login`,
+      RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid,
+                gender, email_verified, is_active, last_sign_in_at AS last_login`,
       [
         phone,
         firebaseUid,
@@ -99,12 +103,12 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     // Update Firebase UID if missing
     if (!user.firebase_uid) {
       await query(
-        'UPDATE users SET firebase_uid = $1, last_login = NOW(), updated_at = NOW() WHERE uid = $2',
+        'UPDATE users SET firebase_uid = $1, last_sign_in_at = NOW(), updated_at = NOW() WHERE uid = $2',
         [firebaseUid, user.uid]
       );
     } else {
       await query(
-        'UPDATE users SET last_login = NOW(), updated_at = NOW() WHERE uid = $1',
+        'UPDATE users SET last_sign_in_at = NOW(), updated_at = NOW() WHERE uid = $1',
         [user.uid]
       );
     }
@@ -139,6 +143,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   
   return {
     accessToken,
+    isNewUser,
     user: {
       uid: user.uid,
       id: user.id,
@@ -147,6 +152,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       hospital_number: user.hospital_number || null,
       email: user.email,
       role: user.role,
+      isNewUser,
       profileComplete: !!(user.name && user.gender),
       emailVerified: user.email_verified
     }
@@ -362,7 +368,7 @@ export const getHealthStatus = async () => {
   const stats = await query(`
     SELECT 
       COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL) as firebase_users,
-      COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL AND last_login > NOW() - INTERVAL '24 hours') as active_firebase_users_24h,
+      COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL AND last_sign_in_at > NOW() - INTERVAL '24 hours') as active_firebase_users_24h,
       COUNT(*) FILTER (WHERE firebase_uid IS NOT NULL AND profile_completed_at IS NOT NULL) as completed_profiles,
       COUNT(*) as total_users
     FROM users

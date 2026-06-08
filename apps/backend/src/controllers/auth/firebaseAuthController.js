@@ -23,6 +23,10 @@ export const firebaseLogin = async (req, res) => {
     if (err.code === 'auth/id-token-revoked') {
       return error(res, 'Firebase token has been revoked', HTTP_STATUS.UNAUTHORIZED);
     }
+
+    if (err.statusCode) {
+      return error(res, err.message || 'Firebase authentication failed', err.statusCode);
+    }
     
     error(res, 'Invalid Firebase ID token', HTTP_STATUS.UNAUTHORIZED);
   }

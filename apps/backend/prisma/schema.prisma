@@ -8919,6 +8919,7 @@ model users {
   gender                                                                           String?                           @db.VarChar(20)
   address                                                                          String?
   email                                                                            String?                           @db.VarChar(255)
+  email_verified                                                                   Boolean                           @default(false)
   birthday                                                                         DateTime?                         @db.Date
   anniversary                                                                      DateTime?                         @db.Date
   guardian_name                                                                    String?                           @db.VarChar(160)
@@ -8926,6 +8927,8 @@ model users {
   guardian_relationship                                                            String?                           @db.VarChar(40)
   profile_picture                                                                  String?
   role                                                                             String?                           @default("PATIENT") @db.VarChar(50)
+  firebase_uid                                                                     String?                           @db.VarChar(128)
+  firebase_tokens_revoked_at                                                       DateTime?                         @db.Timestamptz(6)
   is_active                                                                        Boolean                           @default(true)
   registered_at                                                                    DateTime                          @default(now()) @db.Timestamp(6)
   updated_at                                                                       DateTime                          @db.Timestamp(6)
@@ -9069,6 +9072,7 @@ model users {
   @@index([phone])
   @@index([role])
   @@index([uid])
+  @@index([firebase_uid], map: "idx_users_firebase_uid", where: raw("(firebase_uid IS NOT NULL)"))
   @@index([chronic_medications], map: "idx_users_chronic_medications_gin", type: Gin)
   @@index([abha_number], map: "idx_users_abha_number", where: raw("(abha_number IS NOT NULL)"))
   @@index([guardian_phone], map: "idx_users_guardian_phone", where: raw("(guardian_phone IS NOT NULL)"))

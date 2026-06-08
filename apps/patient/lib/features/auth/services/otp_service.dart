@@ -39,8 +39,11 @@ class OtpService {
     }
   }
 
-  /// Handle backend login in background (non-blocking)
-  Future<void> loginToBackendInBackground({
+  /// Exchange the Firebase ID token for the VH backend JWT.
+  ///
+  /// Firebase confirms phone ownership; the backend JWT is still required for
+  /// patient data, ownership checks, dependents, and protected portal routes.
+  Future<bool> loginToBackendInBackground({
     required FlutterSecureStorage secureStorage,
     required String phoneNumber,
   }) async {
@@ -57,17 +60,26 @@ class OtpService {
             name: 'Auth',
           );
         }
-        return;
+        return false;
       }
 
       final response = await BackendApiService.firebaseLogin(idToken);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode) {
+          developer.log(
+            '❌ Backend Firebase login failed: HTTP ${response.statusCode}',
+            name: 'Auth',
+          );
+        }
+        return false;
+      }
 
       // Check if response is valid
       if (response.body.isEmpty) {
         if (kDebugMode) {
           developer.log('⚠️ Backend returned empty response', name: 'Auth');
         }
-        return;
+        return false;
       }
 
       final decoded = jsonDecode(response.body);
@@ -75,7 +87,7 @@ class OtpService {
       // Safely access nested data from { success, data: { accessToken, user: { ... } } }
       final data = decoded['data'] as Map<String, dynamic>?;
       final user = data?['user'] as Map<String, dynamic>?;
-      final isNewUser = user?['isNewUser'] ?? false;
+      final isNewUser = data?['isNewUser'] ?? user?['isNewUser'] ?? false;
       final jwt = data?['accessToken'];
       final userPhone = user?['phone'];
       final userName = user?['name'];
@@ -126,6 +138,7 @@ class OtpService {
           developer.log('✅ Backend login completed successfully', name: 'Auth');
           developer.log('📱 New User: $isNewUser', name: 'Auth');
         }
+        return true;
       } else {
         if (kDebugMode) {
           developer.log(
@@ -137,24 +150,13 @@ class OtpService {
             name: 'Auth',
           );
         }
+        return false;
       }
     } catch (e) {
       if (kDebugMode) {
         developer.log('❌ Background backend login failed: $e', name: 'Auth');
       }
-
-      // Store basic Firebase info as fallback
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await secureStorage.write(key: 'user_phone', value: phoneNumber);
-        await secureStorage.write(key: 'firebase_uid', value: user.uid);
-        if (kDebugMode) {
-          developer.log(
-            '💾 Stored basic Firebase user info as fallback',
-            name: 'Auth',
-          );
-        }
-      }
+      return false;
     }
   }
 }

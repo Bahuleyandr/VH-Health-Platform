@@ -113,11 +113,19 @@ class _OtpWidgetState extends State<OtpWidget> {
         name: 'OtpWidget',
       );
 
-      // Await backend login BEFORE navigating so JWT is stored first
-      await _otpService.loginToBackendInBackground(
+      // Await backend login BEFORE navigating so JWT is stored first.
+      final backendLoginOk = await _otpService.loginToBackendInBackground(
         secureStorage: _secureStorage,
         phoneNumber: widget.phoneNumber,
       );
+
+      if (!backendLoginOk) {
+        await FirebaseAuth.instance.signOut();
+        _showMessage(
+          "Phone verified, but hospital login failed. Please try again.",
+        );
+        return;
+      }
 
       developer.log(
         "Backend login complete - triggering navigation",
@@ -127,7 +135,6 @@ class _OtpWidgetState extends State<OtpWidget> {
     } catch (e) {
       _showMessage("Authentication failed: ${e.toString()}");
       developer.log("Firebase auth error: $e", name: 'OtpWidget');
-      rethrow;
     }
   }
 
