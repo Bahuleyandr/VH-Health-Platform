@@ -1,48 +1,64 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum CycleStatus { dueIn, dueToday, delayed, missed }
+
 @immutable
 class CycleEstimate {
+  final DateTime lastPeriodStart;
+  final DateTime lastPeriodEnd;
   final DateTime cycleStart;
-  final DateTime periodEnd;
+  final DateTime expectedPeriodEnd;
   final DateTime nextPeriod;
   final DateTime fertileStart;
   final DateTime fertileEnd;
   final int cycleDay;
   final int daysToNextPeriod;
+  final int delayedDays;
   final int cycleLength;
   final int periodLength;
+  final CycleStatus status;
 
   const CycleEstimate({
+    required this.lastPeriodStart,
+    required this.lastPeriodEnd,
     required this.cycleStart,
-    required this.periodEnd,
+    required this.expectedPeriodEnd,
     required this.nextPeriod,
     required this.fertileStart,
     required this.fertileEnd,
     required this.cycleDay,
     required this.daysToNextPeriod,
+    required this.delayedDays,
     required this.cycleLength,
     required this.periodLength,
+    required this.status,
   });
 
-  bool get isPeriodWindow {
-    final today = CycleTrackerSnapshot.dateOnly(DateTime.now());
-    return !today.isBefore(cycleStart) && !today.isAfter(periodEnd);
-  }
+  DateTime get periodEnd => expectedPeriodEnd;
+
+  bool get isPeriodWindow => status == CycleStatus.dueToday;
+
+  bool get isDelayed => status == CycleStatus.delayed;
+
+  bool get mayBePregnant => status == CycleStatus.missed;
 
   double get cycleProgress => cycleLength <= 0
       ? 0
       : (cycleDay / cycleLength).clamp(0.0, 1.0).toDouble();
 
   String get phaseLabel {
-    final today = CycleTrackerSnapshot.dateOnly(DateTime.now());
-    if (isPeriodWindow) return 'Period window';
+    if (mayBePregnant) return 'You may be pregnant';
+    if (isDelayed) return 'Cycle delayed by $delayedDays days';
+    if (status == CycleStatus.dueToday) return 'Cycle due today';
     if (!today.isBefore(fertileStart) && !today.isAfter(fertileEnd)) {
       return 'Fertile window';
     }
     if (daysToNextPeriod <= 7) return 'Due soon';
     return 'Cycle day $cycleDay';
   }
+
+  DateTime get today => CycleTrackerSnapshot.dateOnly(DateTime.now());
 }
 
 @immutable
@@ -69,34 +85,39 @@ class CycleTrackerSnapshot {
     final base = dateOnly(start);
     final cycleDays = _bounded(cycleLength, min: 1, max: 365);
     final periodDays = _bounded(periodLength, min: 1, max: cycleDays);
-    final daysSince = today.difference(base).inDays;
-    final cyclesElapsed = daysSince < 0 ? 0 : daysSince ~/ cycleDays;
-    final cycleStart = base.add(Duration(days: cyclesElapsed * cycleDays));
-    final periodEnd = cycleStart.add(Duration(days: periodDays - 1));
-    final inPeriodWindow =
-        !today.isBefore(cycleStart) && !today.isAfter(periodEnd);
-    final nextPeriod = inPeriodWindow
-        ? cycleStart
-        : cycleStart.add(Duration(days: cycleDays));
-    final ovulation = cycleStart.add(Duration(days: cycleDays - 14));
+    final lastPeriodEnd = base.add(Duration(days: periodDays - 1));
+    final nextPeriod = base.add(Duration(days: cycleDays));
+    final expectedPeriodEnd = nextPeriod.add(Duration(days: periodDays - 1));
+    final daysUntilNextPeriod = nextPeriod.difference(today).inDays;
+    final delayedDays = today.isAfter(nextPeriod)
+        ? today.difference(nextPeriod).inDays
+        : 0;
+    final status = daysUntilNextPeriod > 0
+        ? CycleStatus.dueIn
+        : daysUntilNextPeriod == 0
+        ? CycleStatus.dueToday
+        : delayedDays >= cycleDays
+        ? CycleStatus.missed
+        : CycleStatus.delayed;
+    final ovulation = nextPeriod.subtract(const Duration(days: 14));
     final fertileStart = ovulation.subtract(const Duration(days: 5));
     final fertileEnd = ovulation.add(const Duration(days: 1));
-    final cycleDay = today.difference(cycleStart).inDays + 1;
+    final cycleDay = today.difference(base).inDays + 1;
 
     return CycleEstimate(
-      cycleStart: cycleStart,
-      periodEnd: periodEnd,
+      lastPeriodStart: base,
+      lastPeriodEnd: lastPeriodEnd,
+      cycleStart: base,
+      expectedPeriodEnd: expectedPeriodEnd,
       nextPeriod: nextPeriod,
       fertileStart: fertileStart,
       fertileEnd: fertileEnd,
-      cycleDay: _bounded(cycleDay, min: 1, max: cycleDays),
-      daysToNextPeriod: nextPeriod
-          .difference(today)
-          .inDays
-          .clamp(0, 365)
-          .toInt(),
+      cycleDay: _bounded(cycleDay, min: 1, max: 3650),
+      daysToNextPeriod: daysUntilNextPeriod.clamp(0, 365).toInt(),
+      delayedDays: delayedDays.clamp(0, 3650).toInt(),
       cycleLength: cycleDays,
       periodLength: periodDays,
+      status: status,
     );
   }
 

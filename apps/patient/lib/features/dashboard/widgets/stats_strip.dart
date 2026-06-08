@@ -277,16 +277,9 @@ class _PeriodStatCard extends StatelessWidget {
     final isLight = theme.brightness == Brightness.light;
     final estimate = this.estimate;
     final hasEstimate = estimate != null;
-    final value = estimate == null
-        ? 'Track'
-        : estimate.isPeriodWindow
-        ? 'Now'
-        : '${estimate.daysToNextPeriod}d';
-    final footer = estimate == null
-        ? 'Add date'
-        : estimate.isPeriodWindow
-        ? 'Day ${estimate.cycleDay}'
-        : 'Next ${DateFormat.MMMd().format(estimate.nextPeriod)}';
+    final value = _centerValue(estimate);
+    final unit = _centerUnit(estimate);
+    final footer = _footer(estimate);
     final progress = estimate?.cycleProgress ?? 0.0;
 
     return Material(
@@ -347,28 +340,43 @@ class _PeriodStatCard extends StatelessWidget {
               Align(
                 alignment: Alignment.center,
                 child: SizedBox(
-                  width: 48,
-                  height: 48,
+                  width: 54,
+                  height: 54,
                   child: CustomPaint(
                     painter: RingProgressPainter(
                       progress: progress,
                       color: tint,
                       backgroundColor: tint.withValues(alpha: 0.16),
-                      strokeWidth: hasEstimate ? 5 : 3,
+                      strokeWidth: hasEstimate ? 4 : 3,
                     ),
                     child: Center(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Text(
-                            value,
-                            maxLines: 1,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: tint,
-                              fontWeight: FontWeight.w900,
-                              height: 1,
-                            ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(9),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                value,
+                                maxLines: 1,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: tint,
+                                  fontWeight: FontWeight.w900,
+                                  height: 0.95,
+                                ),
+                              ),
+                              if (unit != null)
+                                Text(
+                                  unit,
+                                  maxLines: 1,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: tint.withValues(alpha: 0.86),
+                                    fontWeight: FontWeight.w800,
+                                    height: 0.95,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
@@ -391,6 +399,29 @@ class _PeriodStatCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _centerValue(CycleEstimate? estimate) {
+    if (estimate == null) return 'Track';
+    if (estimate.mayBePregnant) return 'Late';
+    if (estimate.isDelayed) return '+${estimate.delayedDays}';
+    if (estimate.status == CycleStatus.dueToday) return 'Due';
+    return '${estimate.daysToNextPeriod}';
+  }
+
+  String? _centerUnit(CycleEstimate? estimate) {
+    if (estimate == null) return null;
+    if (estimate.mayBePregnant) return null;
+    if (estimate.status == CycleStatus.dueToday) return null;
+    return 'days';
+  }
+
+  String _footer(CycleEstimate? estimate) {
+    if (estimate == null) return 'Add date';
+    if (estimate.mayBePregnant) return 'May be pregnant';
+    if (estimate.isDelayed) return 'Delayed';
+    if (estimate.status == CycleStatus.dueToday) return 'Record today';
+    return 'Due ${DateFormat.MMMd().format(estimate.nextPeriod)}';
   }
 }
 

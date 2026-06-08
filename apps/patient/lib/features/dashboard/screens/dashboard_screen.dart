@@ -781,8 +781,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case _DashboardStatPanel.period:
         return CycleBreakdownPanel(
           snapshot: _cycleTrackerSnapshot,
+          onRecordPeriodStart: _recordPeriodStart,
           onOpenFull: () => _openFeature(context, '/period-tracker'),
         );
+    }
+  }
+
+  Future<void> _recordPeriodStart(DateTime startDate) async {
+    if (_isGuestSession) return;
+    try {
+      final user = context.read<UserProvider>();
+      final dependent = context.read<DependentsProvider>().activeDependent;
+      final current =
+          _cycleTrackerSnapshot ??
+          await CycleTrackerStore.load(
+            userPhone: user.phone,
+            dependentUid: dependent?.uid,
+          );
+      final updated = CycleTrackerSnapshot(
+        ownerKey: current.ownerKey,
+        lastPeriodStart: CycleTrackerSnapshot.dateOnly(startDate),
+        cycleLength: current.cycleLength,
+        periodLength: current.periodLength,
+      );
+      await CycleTrackerStore.save(updated);
+      if (!mounted) return;
+      setState(() => _cycleTrackerSnapshot = updated);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cycle start recorded')));
+    } catch (e) {
+      if (kDebugMode) debugPrint('Cycle tracker save failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save cycle start right now.')),
+      );
     }
   }
 

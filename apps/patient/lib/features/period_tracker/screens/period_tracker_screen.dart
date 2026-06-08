@@ -83,6 +83,12 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
     setState(() => _lastPeriodStart = picked);
   }
 
+  void _markStartedToday() {
+    setState(
+      () => _lastPeriodStart = CycleTrackerSnapshot.dateOnly(DateTime.now()),
+    );
+  }
+
   CycleEstimate? _estimate() {
     final ownerKey = _ownerKey;
     if (ownerKey == null) return null;
@@ -116,6 +122,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
                   estimate: estimate,
                   accent: _accent,
                   onPickDate: _pickLastPeriodStart,
+                  onMarkToday: _markStartedToday,
                 ),
                 const SizedBox(height: 18),
                 Text(
@@ -177,11 +184,13 @@ class _HeroCyclePanel extends StatelessWidget {
   final CycleEstimate? estimate;
   final Color accent;
   final VoidCallback onPickDate;
+  final VoidCallback onMarkToday;
 
   const _HeroCyclePanel({
     required this.estimate,
     required this.accent,
     required this.onPickDate,
+    required this.onMarkToday,
   });
 
   @override
@@ -189,13 +198,11 @@ class _HeroCyclePanel extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final estimate = this.estimate;
-    final title = estimate == null
-        ? 'Start tracking'
-        : estimate.daysToNextPeriod <= 0
-        ? 'Period expected'
-        : '${estimate.daysToNextPeriod} days to next period';
+    final title = _titleFor(estimate);
     final subtitle = estimate == null
         ? 'Add the first day of your last period.'
+        : estimate.mayBePregnant
+        ? 'This is not a diagnosis. Consider a pregnancy test or clinician review.'
         : 'Cycle day ${estimate.cycleDay}';
 
     return Container(
@@ -251,21 +258,48 @@ class _HeroCyclePanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: onPickDate,
-            icon: const Icon(LucideIcons.calendarPlus, size: 18),
-            label: Text(
-              estimate == null ? 'Add last period date' : 'Change start date',
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: accent,
-              side: BorderSide(color: accent.withValues(alpha: 0.55)),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: onMarkToday,
+                  icon: const Icon(LucideIcons.checkCircle2, size: 18),
+                  label: const Text('Started today'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onPickDate,
+                  icon: const Icon(LucideIcons.calendarPlus, size: 18),
+                  label: Text(estimate == null ? 'Add date' : 'Enter date'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: accent,
+                    side: BorderSide(color: accent.withValues(alpha: 0.55)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  String _titleFor(CycleEstimate? estimate) {
+    if (estimate == null) return 'Start tracking';
+    if (estimate.mayBePregnant) return 'You may be pregnant';
+    if (estimate.isDelayed) {
+      return 'Cycle delayed by ${estimate.delayedDays} days';
+    }
+    if (estimate.status == CycleStatus.dueToday) return 'Cycle due today';
+    return '${estimate.daysToNextPeriod} days to next cycle';
   }
 }
 
@@ -362,9 +396,9 @@ class _TimelinePanel extends StatelessWidget {
       children: [
         _DateRow(
           icon: LucideIcons.droplet,
-          label: 'Current period window',
+          label: 'Last recorded period',
           value:
-              '${_dateLabel(estimate.cycleStart)} - ${_dateLabel(estimate.periodEnd)}',
+              '${_dateLabel(estimate.lastPeriodStart)} - ${_dateLabel(estimate.lastPeriodEnd)}',
           accent: accent,
         ),
         const SizedBox(height: 8),
@@ -378,8 +412,11 @@ class _TimelinePanel extends StatelessWidget {
         const SizedBox(height: 8),
         _DateRow(
           icon: LucideIcons.calendarClock,
-          label: 'Next period estimate',
-          value: _dateLabel(estimate.nextPeriod),
+          label: estimate.isDelayed
+              ? 'Expected period date'
+              : 'Expected next period',
+          value:
+              '${_dateLabel(estimate.nextPeriod)} - ${_dateLabel(estimate.expectedPeriodEnd)}',
           accent: Colors.amber,
         ),
       ],

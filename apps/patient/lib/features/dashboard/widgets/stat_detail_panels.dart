@@ -240,10 +240,12 @@ class PointsBreakdownPanel extends StatelessWidget {
 class CycleBreakdownPanel extends StatelessWidget {
   final CycleTrackerSnapshot? snapshot;
   final VoidCallback onOpenFull;
+  final ValueChanged<DateTime> onRecordPeriodStart;
 
   const CycleBreakdownPanel({
     super.key,
     required this.onOpenFull,
+    required this.onRecordPeriodStart,
     this.snapshot,
   });
 
@@ -257,17 +259,27 @@ class CycleBreakdownPanel extends StatelessWidget {
     final hasEstimate = estimate != null;
     final trailing = estimate == null
         ? 'Set up'
-        : estimate.isPeriodWindow
-        ? 'Now'
+        : estimate.mayBePregnant
+        ? 'Late'
+        : estimate.isDelayed
+        ? '+${estimate.delayedDays}d'
+        : estimate.status == CycleStatus.dueToday
+        ? 'Due'
         : '${estimate.daysToNextPeriod}d';
     final title = estimate == null
         ? 'Cycle tracker'
-        : estimate.isPeriodWindow
-        ? 'Period window'
-        : 'Next period in ${estimate.daysToNextPeriod} days';
+        : estimate.mayBePregnant
+        ? 'You may be pregnant'
+        : estimate.isDelayed
+        ? 'Cycle delayed by ${estimate.delayedDays} days'
+        : estimate.status == CycleStatus.dueToday
+        ? 'Cycle due today'
+        : 'Next cycle due in ${estimate.daysToNextPeriod} days';
     final subtitle = estimate == null
         ? 'Private cycle dates and reminders'
-        : '${estimate.phaseLabel} - next ${DateFormat.MMMd().format(estimate.nextPeriod)}';
+        : estimate.mayBePregnant
+        ? 'A cycle appears missed. Consider a pregnancy test or clinician review.'
+        : '${estimate.phaseLabel} - due ${DateFormat.MMMd().format(estimate.nextPeriod)}';
 
     return _DetailShell(
       accent: accent,
@@ -293,8 +305,12 @@ class CycleBreakdownPanel extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(
-                        estimate.isPeriodWindow
-                            ? 'Now'
+                        estimate.mayBePregnant
+                            ? 'Late'
+                            : estimate.isDelayed
+                            ? '+${estimate.delayedDays}'
+                            : estimate.status == CycleStatus.dueToday
+                            ? 'Due'
                             : '${estimate.daysToNextPeriod}d',
                         maxLines: 1,
                         style: theme.textTheme.titleMedium?.copyWith(
@@ -308,9 +324,11 @@ class CycleBreakdownPanel extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    estimate.isPeriodWindow
-                        ? 'Estimated period window is active. Open the tracker to adjust the start date if this feels off.'
-                        : 'Estimated from your saved last period date. Open the tracker to adjust cycle length or period length.',
+                    estimate.mayBePregnant
+                        ? 'This is not a diagnosis. If pregnancy is possible, consider a test and contact the hospital if you are worried.'
+                        : estimate.isDelayed
+                        ? 'Your expected date has passed. Record the actual period start when it begins so the tracker resets.'
+                        : 'Estimated from your saved last period date. Record the actual start when your next period begins.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withValues(alpha: 0.70),
                     ),
@@ -351,12 +369,44 @@ class CycleBreakdownPanel extends StatelessWidget {
           Text(
             estimate == null
                 ? 'Add your last period start date to estimate the next period and fertile window.'
-                : 'Fertile window estimate: ${DateFormat.MMMd().format(estimate.fertileStart)} - ${DateFormat.MMMd().format(estimate.fertileEnd)}.',
+                : 'Fertile window estimate: ${DateFormat.MMMd().format(estimate.fertileStart)} - ${DateFormat.MMMd().format(estimate.fertileEnd)}. The app will not roll forward until you record the next actual period start.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withValues(alpha: 0.68),
             ),
           ),
           const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => onRecordPeriodStart(
+                    CycleTrackerSnapshot.dateOnly(DateTime.now()),
+                  ),
+                  icon: const Icon(LucideIcons.checkCircle2, size: 16),
+                  label: const Text('Mark started today'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _pickPeriodStart(context),
+                  icon: const Icon(LucideIcons.calendarPlus, size: 16),
+                  label: const Text('Enter start date'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: accent,
+                    side: BorderSide(color: accent.withValues(alpha: 0.62)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
@@ -369,6 +419,19 @@ class CycleBreakdownPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _pickPeriodStart(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: now.subtract(const Duration(days: 90)),
+      lastDate: now,
+      helpText: 'Period start date',
+    );
+    if (picked == null) return;
+    onRecordPeriodStart(CycleTrackerSnapshot.dateOnly(picked));
   }
 }
 
