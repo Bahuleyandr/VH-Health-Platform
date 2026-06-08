@@ -7,7 +7,8 @@
 // (prisma.admissions.findFirst({ where: { encounter_id } })), throwing a type
 // error → 500. createNote already binds OPD notes via a separate
 // appointment_id param (migration 240); the route now passes both keys
-// distinctly.
+// distinctly. Canonical encounter lifecycle support may additionally bind the
+// note to the appointment's UUID patient_encounters row.
 
 import request from 'supertest';
 import app from '../app.js';
@@ -77,14 +78,15 @@ describe('POST /clinical/progress-notes — OPD note save (no 500)', () => {
     expect(res.body.data.note_type).toBe('progress');
     createdNoteId = res.body.data.id;
 
-    // The fix routes appointment_id to the appointment binding, leaving
-    // the UUID encounter_id null — so the note links to the OPD visit.
+    // The fix routes appointment_id to the appointment binding. Canonical OP
+    // encounters also stamp the UUID encounter_id so note/timeline/signature
+    // lifecycle state can be audited per visit.
     const rows = await prisma.$queryRawUnsafe(
       `SELECT appointment_id, encounter_id FROM clinical_notes WHERE id = $1::int`,
       createdNoteId,
     );
     expect(Number(rows[0].appointment_id)).toBe(appointmentId);
-    expect(rows[0].encounter_id).toBeNull();
+    expect(rows[0].encounter_id).toMatch(/^[0-9a-f-]{36}$/i);
   });
 
   it('rejects an unknown appointment_id with 404 (not 500)', async () => {
