@@ -5,12 +5,16 @@ import 'package:vhhealth/features/gamification/utils/tier_utils.dart';
 class StepsBreakdownPanel extends StatelessWidget {
   final int? stepsToday;
   final int? stepGoal;
+  final double? distanceTodayMeters;
+  final String? activityLevelLabel;
   final VoidCallback onOpenFull;
 
   const StepsBreakdownPanel({
     super.key,
     required this.stepsToday,
     required this.stepGoal,
+    this.distanceTodayMeters,
+    this.activityLevelLabel,
     required this.onOpenFull,
   });
 
@@ -20,6 +24,8 @@ class StepsBreakdownPanel extends StatelessWidget {
     final goal = stepGoal ?? 8000;
     final remaining = (goal - steps).clamp(0, goal);
     final progress = goal > 0 ? (steps / goal).clamp(0.0, 1.0) : 0.0;
+    final distanceMeters = distanceTodayMeters ?? 0;
+    final activityLabel = activityLevelLabel ?? _activityLabel(progress);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final accent = Colors.lightBlueAccent;
@@ -72,6 +78,26 @@ class StepsBreakdownPanel extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _MetricChip(
+                  label: 'Distance',
+                  value: _formatDistance(distanceMeters),
+                  accent: accent,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _MetricChip(
+                  label: 'Activity',
+                  value: activityLabel,
+                  accent: accent,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerRight,
@@ -86,6 +112,20 @@ class StepsBreakdownPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+String _activityLabel(double progress) {
+  if (progress >= 1) return 'Goal met';
+  if (progress >= 0.75) return 'Active';
+  if (progress >= 0.45) return 'Moderate';
+  if (progress >= 0.15) return 'Light';
+  return 'Low';
+}
+
+String _formatDistance(double meters) {
+  if (meters <= 0) return '-';
+  if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
+  return '${meters.round()} m';
 }
 
 class PointsBreakdownPanel extends StatelessWidget {

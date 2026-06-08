@@ -81,6 +81,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int? _wellnessScore;
   int? _stepsToday;
   int? _stepGoal;
+  double? _distanceTodayMeters;
+  String? _activityLevelLabel;
 
   // Features list
   late final List<FeatureIconData> _features;
@@ -233,13 +235,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
         if (mounted && stepsRes.isSuccess) {
           final data = stepsRes.dataAsMap();
+          final profile = data['profile'] is Map
+              ? data['profile'] as Map
+              : null;
+          final todayActivity = data['todayActivity'] is Map
+              ? data['todayActivity'] as Map
+              : null;
+          final activityLevel = data['activityLevel'] is Map
+              ? data['activityLevel'] as Map
+              : null;
           final today =
-              data['steps_today'] ?? data['stepsToday'] ?? data['today'];
-          final goal = data['daily_goal'] ?? data['dailyGoal'] ?? data['goal'];
+              data['steps_today'] ??
+              data['stepsToday'] ??
+              todayActivity?['steps'] ??
+              data['today'];
+          final goal =
+              data['daily_goal'] ??
+              data['dailyGoal'] ??
+              data['goal'] ??
+              profile?['daily_goal'] ??
+              profile?['dailyGoal'];
+          final distance =
+              data['distanceTodayMeters'] ??
+              data['distance_today_meters'] ??
+              todayActivity?['distanceMeters'];
+          final levelLabel =
+              activityLevel?['label']?.toString() ??
+              (todayActivity?['activityLevel'] is Map
+                  ? (todayActivity?['activityLevel'] as Map)['label']
+                        ?.toString()
+                  : null);
           if (mounted) {
             setState(() {
               _stepsToday = today is num ? today.toInt() : _stepsToday;
               _stepGoal = goal is num ? goal.toInt() : _stepGoal;
+              _distanceTodayMeters = distance is num
+                  ? distance.toDouble()
+                  : _distanceTodayMeters;
+              _activityLevelLabel = levelLabel ?? _activityLevelLabel;
             });
           }
         }
@@ -635,6 +668,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return StepsBreakdownPanel(
           stepsToday: _stepsToday,
           stepGoal: _stepGoal,
+          distanceTodayMeters: _distanceTodayMeters,
+          activityLevelLabel: _activityLevelLabel,
           onOpenFull: () => _openFeature(context, '/steps'),
         );
       case _DashboardStatPanel.points:

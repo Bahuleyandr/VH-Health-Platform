@@ -9,7 +9,8 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const DIMENSION_MAX = 20;
-const STEP_DEFAULT_GOAL = 6000;
+const STEP_DEFAULT_GOAL = 8000;
+const WALKING_STEP_LENGTH_METERS = 0.75;
 
 // ── Individual dimension scorers ─────────────────────────────────────────────
 
@@ -87,22 +88,71 @@ async function scoreMedicationCompliance(userUid) {
 }
 
 /**
- * Activity level: distinct days in the last 7 where the user met their step
- * goal (as determined by the existing gamification ledger).
+ * Activity level: average 7-day progress toward the user's step goal. This
+ * reads the same step_sessions rows populated by manual walk sessions,
+ * Health Connect, HealthKit, Strava, and future wearable connectors. Distance
+ * is converted to an equivalent step count when a source provides distance
+ * without reliable steps.
  */
 async function scoreActivityLevel(userUid) {
+  const profile = await prisma.step_profiles.findUnique({
+    where: { user_uid: userUid },
+    select: { daily_goal: true },
+  });
+  const goalSteps = Math.max(1000, Number(profile?.daily_goal || STEP_DEFAULT_GOAL));
+
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(DISTINCT activity_ref_id)::int AS days
-       FROM health_point_ledger
+    `SELECT
+        DATE(started_at AT TIME ZONE 'UTC') AS day,
+        COALESCE(SUM(steps), 0)::int AS steps,
+        COALESCE(SUM(distance_meters), 0)::float AS "distanceMeters",
+        COALESCE(SUM(active_energy_kcal), 0)::float AS "activeEnergyKcal",
+        BOOL_OR(source <> 'manual') AS "hasSyncedSource"
+       FROM step_sessions
       WHERE user_uid = $1::uuid
-        AND activity_type = 'STEP_DAILY_GOAL'
-        AND earned_at >= NOW() - INTERVAL '7 days'`,
+        AND is_active = false
+        AND DATE(started_at AT TIME ZONE 'UTC') >= CURRENT_DATE - INTERVAL '6 days'
+      GROUP BY DATE(started_at AT TIME ZONE 'UTC')`,
     userUid
   );
-  const days = rows[0]?.days || 0;
+
+  let progressTotal = 0;
+  let activeDays = 0;
+  let goalDaysMet = 0;
+  let totalSteps = 0;
+  let totalDistanceMeters = 0;
+  let syncedDays = 0;
+
+  for (const row of rows) {
+    const steps = Math.max(0, Number(row.steps || 0));
+    const distanceMeters = Math.max(0, Number(row.distanceMeters || 0));
+    const distanceEquivalentSteps = Math.round(distanceMeters / WALKING_STEP_LENGTH_METERS);
+    const effectiveSteps = Math.max(steps, distanceEquivalentSteps);
+    const progress = Math.min(1, effectiveSteps / goalSteps);
+
+    progressTotal += progress;
+    totalSteps += steps;
+    totalDistanceMeters += distanceMeters;
+    if (effectiveSteps > 0) activeDays += 1;
+    if (progress >= 1) goalDaysMet += 1;
+    if (row.hasSyncedSource) syncedDays += 1;
+  }
+
+  const score = Math.min(DIMENSION_MAX, Math.round((progressTotal / 7) * DIMENSION_MAX));
+
   return {
-    score: Math.min(DIMENSION_MAX, Math.round((days / 7) * DIMENSION_MAX)),
-    detail: { goalDaysMet: days, windowDays: 7, goalSteps: STEP_DEFAULT_GOAL },
+    score,
+    detail: {
+      activeDays,
+      goalDaysMet,
+      syncedDays,
+      windowDays: 7,
+      goalSteps,
+      averageSteps: Math.round(totalSteps / 7),
+      averageDistanceMeters: Math.round(totalDistanceMeters / 7),
+      totalDistanceMeters: Math.round(totalDistanceMeters),
+      source: 'step_sessions',
+    },
   };
 }
 

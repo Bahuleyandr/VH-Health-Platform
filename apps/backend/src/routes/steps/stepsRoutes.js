@@ -23,6 +23,9 @@ const ACTIVITY_SYNC_SOURCES = new Set([
   'wearable',
 ]);
 
+const DEFAULT_DAILY_GOAL = 8000;
+const WALKING_STEP_LENGTH_METERS = 0.75;
+
 function normalizeActivitySource(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'google_fit') return 'health_connect';
@@ -47,6 +50,66 @@ function safeNonNegativeNumber(value, { integer = false, max = 1000000 } = {}) {
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   const capped = Math.min(parsed, max);
   return integer ? Math.round(capped) : capped;
+}
+
+function buildActivityLevel({ steps = 0, distanceMeters = 0, dailyGoal = DEFAULT_DAILY_GOAL } = {}) {
+  const safeSteps = Math.max(0, Number(steps) || 0);
+  const safeDistance = Math.max(0, Number(distanceMeters) || 0);
+  const goalSteps = Math.max(1000, Number(dailyGoal) || DEFAULT_DAILY_GOAL);
+  const distanceEquivalentSteps = Math.round(safeDistance / WALKING_STEP_LENGTH_METERS);
+  const effectiveSteps = Math.max(safeSteps, distanceEquivalentSteps);
+  const progress = Math.min(1, effectiveSteps / goalSteps);
+
+  let key = 'low';
+  let label = 'Low';
+  if (progress >= 1) {
+    key = 'goal_met';
+    label = 'Goal met';
+  } else if (progress >= 0.75 || effectiveSteps >= 7000) {
+    key = 'active';
+    label = 'Active';
+  } else if (progress >= 0.45 || effectiveSteps >= 4000) {
+    key = 'moderate';
+    label = 'Moderate';
+  } else if (progress >= 0.15 || effectiveSteps >= 1000) {
+    key = 'light';
+    label = 'Light';
+  }
+
+  return {
+    key,
+    label,
+    effectiveSteps,
+    progress: Number(progress.toFixed(2)),
+    goalSteps,
+  };
+}
+
+async function getTodayActivity(uid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT
+        COALESCE(SUM(steps), 0)::int AS steps,
+        COALESCE(SUM(distance_meters), 0)::float AS "distanceMeters",
+        COALESCE(SUM(sleep_minutes), 0)::int AS "sleepMinutes",
+        COALESCE(SUM(active_energy_kcal), 0)::float AS "activeEnergyKcal",
+        MAX(recorded_at_source) AS "recordedAtSource",
+        BOOL_OR(source <> 'manual') AS "hasSyncedSource"
+      FROM step_sessions
+     WHERE user_uid = $1::uuid
+       AND is_active = false
+       AND DATE(started_at AT TIME ZONE 'UTC') = CURRENT_DATE`,
+    uid,
+  );
+
+  const today = rows[0] || {};
+  return {
+    steps: Number(today.steps || 0),
+    distanceMeters: Number(today.distanceMeters || 0),
+    sleepMinutes: Number(today.sleepMinutes || 0),
+    activeEnergyKcal: Number(today.activeEnergyKcal || 0),
+    recordedAtSource: today.recordedAtSource || null,
+    hasSyncedSource: Boolean(today.hasSyncedSource),
+  };
 }
 
 // ─── POST /session/start ────────────────────────────────────────────────────
@@ -105,7 +168,7 @@ router.post('/session/stop', async (req, res) => {
 
     // Gamification: fire-and-forget step goal check
     const profile = await prisma.step_profiles.findUnique({ where: { user_uid: uid } });
-    pointService.awardStepPoints(uid, profile?.daily_goal || 8000).catch(err =>
+    pointService.awardStepPoints(uid, profile?.daily_goal || DEFAULT_DAILY_GOAL).catch(err =>
       logger.warn('Gamification: step point award failed', { error: err.message })
     );
 
@@ -210,7 +273,7 @@ router.post('/health-sync', async (req, res) => {
       return day === today;
     })) {
       const profile = await prisma.step_profiles.findUnique({ where: { user_uid: uid } });
-      pointService.awardStepPoints(uid, profile?.daily_goal || 8000).catch(err =>
+      pointService.awardStepPoints(uid, profile?.daily_goal || DEFAULT_DAILY_GOAL).catch(err =>
         logger.warn('Gamification: health-sync step point award failed', { error: err.message })
       );
     }
@@ -369,6 +432,19 @@ router.get('/sync-status', async (req, res) => {
 
     const latest = latestRows[0] || null;
     const today = todayRows[0] || {};
+    const profile = await prisma.step_profiles.findUnique({
+      where: { user_uid: uid },
+      select: { daily_goal: true },
+    });
+    const dailyGoal = Number(profile?.daily_goal || DEFAULT_DAILY_GOAL);
+    const todayPayload = {
+      steps: Number(today.steps || 0),
+      distanceMeters: Number(today.distanceMeters || 0),
+      sleepMinutes: Number(today.sleepMinutes || 0),
+      activeEnergyKcal: Number(today.activeEnergyKcal || 0),
+      recordedAtSource: today.recordedAtSource || null,
+    };
+
     return success(
       res,
       {
@@ -386,11 +462,12 @@ router.get('/sync-status', async (req, res) => {
             }
           : null,
         today: {
-          steps: Number(today.steps || 0),
-          distanceMeters: Number(today.distanceMeters || 0),
-          sleepMinutes: Number(today.sleepMinutes || 0),
-          activeEnergyKcal: Number(today.activeEnergyKcal || 0),
-          recordedAtSource: today.recordedAtSource || null,
+          ...todayPayload,
+          activityLevel: buildActivityLevel({
+            steps: todayPayload.steps,
+            distanceMeters: todayPayload.distanceMeters,
+            dailyGoal,
+          }),
         },
         sources: sourceRows.map(row => ({
           source: row.source,
@@ -496,14 +573,40 @@ router.get('/profile', async (req, res) => {
           user_uid: uid,
           display_name: `User${last4}`,
           display_color: '#2196F3',
-          daily_goal: 8000,
+          daily_goal: DEFAULT_DAILY_GOAL,
           opted_in: true,
           updated_at: new Date(),
         },
       });
     }
 
-    return success(res, { profile }, 'Profile fetched');
+    const dailyGoal = Number(profile.daily_goal || DEFAULT_DAILY_GOAL);
+    const todayActivity = await getTodayActivity(uid);
+    const activityLevel = buildActivityLevel({
+      steps: todayActivity.steps,
+      distanceMeters: todayActivity.distanceMeters,
+      dailyGoal,
+    });
+
+    return success(
+      res,
+      {
+        profile,
+        steps_today: todayActivity.steps,
+        stepsToday: todayActivity.steps,
+        today: todayActivity.steps,
+        daily_goal: dailyGoal,
+        dailyGoal,
+        distance_today_meters: todayActivity.distanceMeters,
+        distanceTodayMeters: todayActivity.distanceMeters,
+        activityLevel,
+        todayActivity: {
+          ...todayActivity,
+          activityLevel,
+        },
+      },
+      'Profile fetched',
+    );
   } catch (err) {
     logger.error('steps/profile GET error', { error: err.message });
     return error(res, 'Failed to fetch profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -551,8 +654,9 @@ router.put('/profile', async (req, res) => {
         user_uid: uid,
         display_name: displayName || `User${last4}`,
         display_color: displayColor || '#2196F3',
-        daily_goal: dailyGoal !== undefined ? dailyGoal : 8000,
+        daily_goal: dailyGoal !== undefined ? dailyGoal : DEFAULT_DAILY_GOAL,
         opted_in: optedIn !== undefined ? Boolean(optedIn) : true,
+        updated_at: new Date(),
       },
       update: {
         ...(displayName !== undefined && { display_name: displayName }),

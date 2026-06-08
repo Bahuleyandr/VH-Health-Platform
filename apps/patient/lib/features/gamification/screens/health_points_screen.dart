@@ -465,6 +465,8 @@ class _HealthHubStatsPanel extends StatelessWidget {
     final today = _todayStepRow(stepHistory);
     final syncedToday = _mapValue(syncStatus?['today']) ?? const {};
     final latestSync = _mapValue(syncStatus?['latest']);
+    final activityLevel = _mapValue(syncedToday['activityLevel']);
+    final activityLabel = activityLevel?['label']?.toString();
     final syncedSteps = _asInt(syncedToday['steps']) ?? 0;
     final syncedDistance = _asDouble(syncedToday['distanceMeters']) ?? 0;
     final steps = syncedSteps > 0 ? syncedSteps : _asInt(today?['steps']) ?? 0;
@@ -557,7 +559,7 @@ class _HealthHubStatsPanel extends StatelessWidget {
                     value: loading ? '-' : _formatThousands(steps),
                     caption: syncSource == null
                         ? '$goal-step goal'
-                        : '$goal-step goal · $syncSource',
+                        : '${activityLabel ?? '$goal-step goal'} · $syncSource',
                     progress: progress,
                   ),
                   _HubMetricTile(
