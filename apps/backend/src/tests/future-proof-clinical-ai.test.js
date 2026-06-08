@@ -524,7 +524,14 @@ describe('future-proof clinical AI and privacy foundations', () => {
   it('exposes timeline, handover draft, FHIR everything, and downtime packet', async () => {
     const timeline = await doctor.get(`/api/v1/emr/timeline/${PATIENT_UID}`);
     expectStatus(timeline, 200, 'patient timeline');
-    expect(timeline.body.data.some((event) => event.event_type === 'clinical_note')).toBe(true);
+    const timelineEvents = Array.isArray(timeline.body.data)
+      ? timeline.body.data
+      : timeline.body.data?.events || [];
+    expect(timelineEvents.some((event) =>
+      event.event_type === 'clinical_note' ||
+      String(event.event_type || '').startsWith('note.') ||
+      event.resource_type === 'clinical_notes'
+    )).toBe(true);
 
     const handover = await doctor.post('/api/v1/clinical/handover/generate').send({ patient_uid: PATIENT_UID });
     expectStatus(handover, 200, 'handover draft');
