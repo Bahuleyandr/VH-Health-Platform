@@ -182,17 +182,17 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
 
   Widget _clinicalMarkersCard(_HealthJourneyModel model) {
     return _sectionCard(
-      icon: Icons.medical_information_outlined,
-      title: 'Clinical event markers',
-      subtitle: 'Tap an event to open the source detail',
-      child: model.eventsByDay.isEmpty
+      icon: Icons.timeline_outlined,
+      title: 'Clinical timeline',
+      subtitle:
+          'Time runs left to right. Tap an event to open the source detail',
+      child: model.timelineEvents.isEmpty
           ? _smallEmpty('No clinical events in this date range')
           : _horizontal(
               controller: _markerScrollController,
-              minWidth: model.chartWidth,
-              child: _ClinicalMarkerRail(
-                days: model.days,
-                eventsByDay: model.eventsByDay,
+              minWidth: model.timelineWidth,
+              child: _HorizontalClinicalTimeline(
+                events: model.timelineEvents,
                 onEventTap: widget.onEventTap,
               ),
             ),
@@ -525,94 +525,173 @@ class _ActivityBars extends StatelessWidget {
   }
 }
 
-class _ClinicalMarkerRail extends StatelessWidget {
-  const _ClinicalMarkerRail({
-    required this.days,
-    required this.eventsByDay,
-    this.onEventTap,
-  });
+class _HorizontalClinicalTimeline extends StatelessWidget {
+  const _HorizontalClinicalTimeline({required this.events, this.onEventTap});
 
-  final List<DateTime> days;
-  final Map<String, List<Map<String, dynamic>>> eventsByDay;
+  final List<Map<String, dynamic>> events;
   final ValueChanged<Map<String, dynamic>>? onEventTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: days.map((day) {
-        final events =
-            eventsByDay[_dayKey(day)] ?? const <Map<String, dynamic>>[];
-        return SizedBox(
-          width: 96,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _shortDate(day),
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
+    if (events.isEmpty) return const SizedBox.shrink();
+    const laneHeight = 226.0;
+    const segmentWidth = 156.0;
+    const axisY = 108.0;
+    const sidePad = 76.0;
+    final width = math.max(720.0, sidePad * 2 + events.length * segmentWidth);
+    final axisPaintColor = AppTheme.primaryBlue.withValues(alpha: 0.42);
+
+    return SizedBox(
+      width: width,
+      height: laneHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: sidePad,
+            right: sidePad,
+            top: axisY,
+            child: Container(
+              height: 3,
+              decoration: BoxDecoration(
+                color: axisPaintColor,
+                borderRadius: BorderRadius.circular(99),
               ),
-              const SizedBox(height: 8),
-              Container(height: 2, color: AppTheme.divider),
-              const SizedBox(height: 8),
-              if (events.isEmpty)
-                Text(
-                  '-',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
-                )
-              else
-                ...events.take(4).map((event) {
-                  final color = _eventColor(event);
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6, right: 8),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(6),
-                      onTap: onEventTap == null
-                          ? null
-                          : () => onEventTap!(event),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: color.withValues(alpha: 0.20),
+            ),
+          ),
+          for (var i = 0; i < events.length; i++)
+            _timelineEventNode(
+              event: events[i],
+              index: i,
+              x: sidePad + i * segmentWidth + segmentWidth / 2,
+              axisY: axisY,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _timelineEventNode({
+    required Map<String, dynamic> event,
+    required int index,
+    required double x,
+    required double axisY,
+  }) {
+    final color = _eventColor(event);
+    final above = index.isEven;
+    final eventDate = _eventDate(event);
+    final cardTop = above ? 4.0 : axisY + 30;
+    final stemTop = above ? 78.0 : axisY + 15;
+    final stemHeight = above ? 30.0 : 30.0;
+    return Positioned(
+      left: x - 68,
+      top: 0,
+      width: 136,
+      height: 220,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          Positioned(
+            top: stemTop,
+            child: Container(
+              width: 2,
+              height: stemHeight,
+              color: color.withValues(alpha: 0.45),
+            ),
+          ),
+          Positioned(
+            top: axisY - 9,
+            child: Container(
+              width: 19,
+              height: 19,
+              decoration: BoxDecoration(
+                color: AppTheme.cardSurface,
+                shape: BoxShape.circle,
+                border: Border.all(color: color, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.18),
+                    blurRadius: 7,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            top: axisY + 11,
+            child: Text(
+              eventDate == null ? '-' : _shortDate(eventDate),
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Positioned(
+            top: axisY + 25,
+            child: Text(
+              eventDate == null ? '' : _shortTime(eventDate),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 9),
+            ),
+          ),
+          Positioned(
+            top: cardTop,
+            left: 0,
+            right: 0,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onEventTap == null ? null : () => onEventTap!(event),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: color.withValues(alpha: 0.24)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(_eventIcon(event), color: color, size: 15),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            _eventKindLabel(event),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
-                        child: Text(
-                          _shortEventTitle(event),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _shortEventTitle(event),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        height: 1.15,
                       ),
                     ),
-                  );
-                }),
-              if (events.length > 4)
-                Text(
-                  '+${events.length - 4} more',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  ],
                 ),
-            ],
+              ),
+            ),
           ),
-        );
-      }).toList(),
+        ],
+      ),
     );
   }
 }
@@ -796,6 +875,7 @@ class _HealthJourneyModel {
     required this.weightByDay,
     required this.bpByDay,
     required this.eventsByDay,
+    required this.timelineEvents,
   });
 
   final List<DateTime> days;
@@ -803,14 +883,17 @@ class _HealthJourneyModel {
   final Map<String, double> weightByDay;
   final Map<String, _BpPoint> bpByDay;
   final Map<String, List<Map<String, dynamic>>> eventsByDay;
+  final List<Map<String, dynamic>> timelineEvents;
 
   bool get hasAnyData =>
       activityByDay.isNotEmpty ||
       weightByDay.isNotEmpty ||
       bpByDay.isNotEmpty ||
-      eventsByDay.isNotEmpty;
+      timelineEvents.isNotEmpty;
 
   double get chartWidth => math.max(680, days.length * 78.0);
+
+  double get timelineWidth => math.max(760, timelineEvents.length * 156.0);
 
   factory _HealthJourneyModel.fromEvents(List<Map<String, dynamic>> events) {
     final daySet = <String, DateTime>{};
@@ -818,6 +901,7 @@ class _HealthJourneyModel {
     final weightByDay = <String, double>{};
     final bpByDay = <String, _BpPoint>{};
     final eventsByDay = <String, List<Map<String, dynamic>>>{};
+    final timelineEvents = <Map<String, dynamic>>[];
 
     for (final event in events) {
       final timestamp = _eventDate(event);
@@ -835,12 +919,18 @@ class _HealthJourneyModel {
       final bp = _bpFrom(event);
       if (bp != null) bpByDay[key] = bp;
 
-      if (!_isPatientActivity(event)) {
+      if (_isTimelineClinicalEvent(event)) {
         eventsByDay.putIfAbsent(key, () => []).add(event);
+        timelineEvents.add(event);
       }
     }
 
     final days = daySet.values.toList()..sort();
+    timelineEvents.sort((a, b) {
+      final at = _eventDate(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bt = _eventDate(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return at.compareTo(bt);
+    });
     for (final events in eventsByDay.values) {
       events.sort((a, b) {
         final at = _eventDate(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -855,6 +945,7 @@ class _HealthJourneyModel {
       weightByDay: weightByDay,
       bpByDay: bpByDay,
       eventsByDay: eventsByDay,
+      timelineEvents: timelineEvents,
     );
   }
 }
@@ -975,6 +1066,15 @@ bool _isPatientActivity(Map<String, dynamic> event) {
       payload['source_kind'] == 'patient_generated';
 }
 
+bool _isTimelineClinicalEvent(Map<String, dynamic> event) {
+  if (_isPatientActivity(event)) return false;
+  final type = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .toLowerCase();
+  if (type.contains('.edited')) return false;
+  return type.trim().isNotEmpty;
+}
+
 Map<String, dynamic> _payload(Map<String, dynamic> event) {
   final payload = event['payload'];
   if (payload is Map<String, dynamic>) return payload;
@@ -1012,20 +1112,66 @@ String _shortDate(DateTime day) {
   return '${day.day.toString().padLeft(2, '0')}/${day.month.toString().padLeft(2, '0')}';
 }
 
+String _shortTime(DateTime value) {
+  final local = value.toLocal();
+  return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+}
+
 String _compactInt(int value) {
   if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}k';
   return value.toString();
 }
 
 String _shortEventTitle(Map<String, dynamic> event) {
-  final title = (event['title'] ?? event['summary'] ?? '').toString().trim();
+  final title =
+      (event['title'] ?? event['summary'] ?? event['clinical_summary'] ?? '')
+          .toString()
+          .trim();
   if (title.isNotEmpty) return title;
   final type = (event['event_type'] ?? event['type'] ?? 'event').toString();
   return type.replaceAll('_', ' ').replaceAll('.', ' ');
 }
 
+String _eventKindLabel(Map<String, dynamic> event) {
+  final type = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .toLowerCase();
+  if (type.contains('prescription') || type.contains('medication')) {
+    return 'Medication';
+  }
+  if (type.contains('investigation') || type.contains('lab')) {
+    return 'Investigation';
+  }
+  if (type.contains('vital')) return 'Vitals';
+  if (type.contains('note')) return 'Note';
+  if (type.contains('referral')) return 'Referral';
+  if (type.contains('admission')) return 'Admission';
+  if (type.contains('discharge')) return 'Discharge';
+  return 'Event';
+}
+
+IconData _eventIcon(Map<String, dynamic> event) {
+  final type = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .toLowerCase();
+  if (type.contains('prescription') || type.contains('medication')) {
+    return Icons.medication_outlined;
+  }
+  if (type.contains('investigation') || type.contains('lab')) {
+    return Icons.biotech_outlined;
+  }
+  if (type.contains('vital')) return Icons.monitor_heart_outlined;
+  if (type.contains('note')) return Icons.note_alt_outlined;
+  if (type.contains('referral')) return Icons.call_split_outlined;
+  if (type.contains('admission')) return Icons.local_hospital_outlined;
+  if (type.contains('discharge')) return Icons.exit_to_app_outlined;
+  return Icons.circle_outlined;
+}
+
 Color _eventColor(Map<String, dynamic> event) {
-  final type = (event['event_type'] ?? event['type'] ?? '').toString();
+  final type = (event['event_type'] ?? event['type'] ?? '')
+      .toString()
+      .toLowerCase();
   if (type.contains('prescription') || type.contains('medication')) {
     return AppTheme.warningOnSurface;
   }
