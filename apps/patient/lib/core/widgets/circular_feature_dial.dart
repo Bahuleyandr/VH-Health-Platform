@@ -402,10 +402,11 @@ class _FeatureDialButton extends StatelessWidget {
     final isLight = theme.brightness == Brightness.light;
     final foreground = _strongColor(feature.color, isLight);
     final surface = theme.colorScheme.surface;
-    final labelColor = isHighlighted ? foreground : theme.colorScheme.onSurface;
+    final labelColor = foreground;
     final scale = iconScale.clamp(1.0, 1.2).toDouble();
-    final iconBubbleSize = 35.0 * scale;
-    final iconSize = 31.0 * scale;
+    final iconBubbleSize = 32.0 * scale;
+    final iconSize = 29.0 * scale;
+    final label = _dialLabel(feature.label);
 
     return Semantics(
       button: true,
@@ -506,25 +507,22 @@ class _FeatureDialButton extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             SizedBox(
-              height: 14,
+              height: 22 * scale,
               width: double.infinity,
               child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    feature.label,
-                    maxLines: 1,
-                    softWrap: false,
-                    overflow: TextOverflow.visible,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: labelColor,
-                      fontWeight: isHighlighted
-                          ? FontWeight.w800
-                          : FontWeight.w700,
-                      fontSize: 8.9,
-                      height: 1.0,
-                    ),
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  softWrap: true,
+                  overflow: TextOverflow.visible,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: labelColor,
+                    fontWeight: isHighlighted
+                        ? FontWeight.w900
+                        : FontWeight.w800,
+                    fontSize: 8.9 * scale,
+                    height: 0.98,
                   ),
                 ),
               ),
@@ -534,6 +532,16 @@ class _FeatureDialButton extends StatelessWidget {
       ),
     );
   }
+}
+
+String _dialLabel(String label) {
+  return switch (label) {
+    'Appointments' => 'Appoint-\nments',
+    'Departments' => 'Depart-\nments',
+    'Tests & Reports' => 'Tests &\nReports',
+    'Ask a Doubt' => 'Ask a\nDoubt',
+    _ => label,
+  };
 }
 
 class _CenterLogoButton extends StatelessWidget {
