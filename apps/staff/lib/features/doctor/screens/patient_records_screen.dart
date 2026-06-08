@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
@@ -132,6 +134,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String _scopedSearchQuery = '';
+  String? _lastPhoneSearchDigits;
+  Map<String, dynamic>? _matchedPatient;
+  Timer? _searchDebounce;
   bool _canUploadPriorRecords = false;
   bool get _isIpContext => widget.contextMode?.toLowerCase() == 'ip';
 
@@ -171,8 +176,19 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  List<dynamic> _recordsFromResponse(Map<String, dynamic> data) {
+    final nested = data['data'];
+    if (data['records'] is List) return data['records'] as List;
+    if (nested is List) return nested;
+    if (nested is Map && nested['records'] is List) {
+      return nested['records'] as List;
+    }
+    return const [];
   }
 
   Future<void> _load({int? patientId}) async {
@@ -184,7 +200,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       final data = patientId == null
           ? await MedicalApiService.getMedicalRecords(limit: 50)
           : await MedicalApiService.getPatientRecords(patientId);
-      final list = data['records'] as List? ?? data['data'] as List? ?? [];
+      final list = _recordsFromResponse(data);
       if (mounted) setState(() => _appointments = list);
     } catch (e) {
       if (mounted) {
@@ -212,14 +228,36 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   }
 
   Future<void> _searchByPhone(String phone) async {
+    final digits = patientRecordsPhoneSearchDigits(phone);
+    if (digits.isEmpty) return;
     setState(() {
       _loading = true;
       _error = null;
+      _lastPhoneSearchDigits = digits;
     });
     try {
-      final data = await MedicalApiService.getHealthRecordsByPhone(phone);
-      final list = data['records'] as List? ?? data['data'] as List? ?? [];
-      if (mounted) setState(() => _appointments = list);
+      final results = await Future.wait([
+        MedicalApiService.getHealthRecordsByPhone(digits),
+        PatientApiService.search(digits, limit: 5),
+      ]);
+      final records = results[0] as Map<String, dynamic>;
+      final patients = results[1] as List<Map<String, dynamic>>;
+      Map<String, dynamic>? exactPatient;
+      for (final patient in patients) {
+        final phoneDigits = patientRecordsPhoneSearchDigits(
+          patient['phone']?.toString(),
+        );
+        if (phoneDigits == digits) {
+          exactPatient = patient;
+          break;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _appointments = _recordsFromResponse(records);
+          _matchedPatient = exactPatient;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
@@ -227,6 +265,24 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {
+      _searchQuery = value;
+      if (value.trim().isEmpty) {
+        _matchedPatient = null;
+        _lastPhoneSearchDigits = null;
+      }
+    });
+    _searchDebounce?.cancel();
+    final digits = patientRecordsPhoneSearchDigits(value);
+    if (digits.isEmpty) return;
+    if (digits == _lastPhoneSearchDigits) return;
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _searchByPhone(digits),
+    );
   }
 
   Future<void> _showUploadRecordSheet() async {
@@ -666,6 +722,10 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     if (_scopedSearchQuery.isNotEmpty && _searchQuery == _scopedSearchQuery) {
       return _appointments;
     }
+    final phoneDigits = patientRecordsPhoneSearchDigits(_searchQuery);
+    if (phoneDigits.isNotEmpty && phoneDigits == _lastPhoneSearchDigits) {
+      return _appointments;
+    }
     final q = _searchQuery.toLowerCase();
     return _appointments.where((a) {
       final name =
@@ -741,17 +801,23 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                           tooltip: s.patientRecordsClearTooltip,
                           onPressed: () {
                             _searchCtrl.clear();
-                            setState(() => _searchQuery = '');
+                            _searchDebounce?.cancel();
+                            setState(() {
+                              _searchQuery = '';
+                              _lastPhoneSearchDigits = null;
+                              _matchedPatient = null;
+                            });
+                            _load();
                           },
                         )
                       : null,
                   filled: true,
                   fillColor: AppTheme.backgroundGrey,
                 ),
-                onChanged: (v) => setState(() => _searchQuery = v),
+                onChanged: _onSearchChanged,
                 onSubmitted: (v) {
-                  final digits = _digitsOnly(v);
-                  if (digits.length == 10) _searchByPhone(digits);
+                  final digits = patientRecordsPhoneSearchDigits(v);
+                  if (digits.isNotEmpty) _searchByPhone(digits);
                 },
               );
               final uploadButton = _canUploadPriorRecords
@@ -799,7 +865,14 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 : _error != null
                 ? _ErrorState(error: _error!, onRetry: _loadInitial)
                 : _filtered.isEmpty
-                ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
+                ? _EmptyState(
+                    hasSearch: _searchQuery.isNotEmpty,
+                    matchedPatient: _matchedPatient,
+                    canUploadPriorRecords: _canUploadPriorRecords,
+                    onUpload: _canUploadPriorRecords
+                        ? _showUploadRecordSheet
+                        : null,
+                  )
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: _filtered.length,
@@ -2406,11 +2479,25 @@ class _ErrorState extends StatelessWidget {
 
 class _EmptyState extends StatelessWidget {
   final bool hasSearch;
-  const _EmptyState({required this.hasSearch});
+  final Map<String, dynamic>? matchedPatient;
+  final bool canUploadPriorRecords;
+  final VoidCallback? onUpload;
+
+  const _EmptyState({
+    required this.hasSearch,
+    this.matchedPatient,
+    this.canUploadPriorRecords = false,
+    this.onUpload,
+  });
 
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final patient = matchedPatient;
+    final patientName = patient?['name']?.toString().trim() ?? '';
+    final hospitalNumber = patient?['hospital_number']?.toString().trim() ?? '';
+    final phone = patient?['phone']?.toString().trim() ?? '';
+    final patientFound = patient != null;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -2422,7 +2509,11 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            hasSearch ? s.patientRecordsNoFound : s.patientRecordsEmpty,
+            patientFound
+                ? 'Patient found, no prior records uploaded'
+                : hasSearch
+                ? s.patientRecordsNoFound
+                : s.patientRecordsEmpty,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -2430,10 +2521,28 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            s.patientRecordsEmptyBody,
-            style: TextStyle(color: AppTheme.textSecondary),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              patientFound
+                  ? [
+                      if (patientName.isNotEmpty) patientName,
+                      if (hospitalNumber.isNotEmpty) hospitalNumber,
+                      if (phone.isNotEmpty) phone,
+                    ].join(' • ')
+                  : s.patientRecordsEmptyBody,
+              style: TextStyle(color: AppTheme.textSecondary),
+              textAlign: TextAlign.center,
+            ),
           ),
+          if (patientFound && canUploadPriorRecords && onUpload != null) ...[
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onUpload,
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Upload prior record'),
+            ),
+          ],
         ],
       ),
     );
