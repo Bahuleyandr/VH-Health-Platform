@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:vhhealth/core/widgets/health_charts.dart';
+import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 
 /// Glance strip for the patient's top daily signals. It intentionally fits
 /// the available screen width instead of scrolling so the right edge never
@@ -11,6 +13,7 @@ class StatsStrip extends StatelessWidget {
   final String? healthTier;
   final int? stepsToday;
   final int? stepGoal;
+  final CycleEstimate? cycleEstimate;
   final bool wellnessExpanded;
   final bool stepsExpanded;
   final bool pointsExpanded;
@@ -29,6 +32,7 @@ class StatsStrip extends StatelessWidget {
     this.healthTier,
     this.stepsToday,
     this.stepGoal,
+    this.cycleEstimate,
     this.wellnessExpanded = false,
     this.stepsExpanded = false,
     this.pointsExpanded = false,
@@ -72,11 +76,8 @@ class StatsStrip extends StatelessWidget {
         onTap: onPointsTap,
       ),
       if (showPeriodTracker)
-        _StatCard(
-          icon: LucideIcons.calendarHeart,
-          tint: Colors.pinkAccent,
-          label: 'Period',
-          value: 'Track',
+        _PeriodStatCard(
+          estimate: cycleEstimate,
           expanded: periodExpanded,
           onTap: onPeriodTap,
         ),
@@ -247,6 +248,142 @@ class _WellnessStatCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: cs.onSurface.withValues(alpha: 0.56),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PeriodStatCard extends StatelessWidget {
+  final CycleEstimate? estimate;
+  final bool expanded;
+  final VoidCallback? onTap;
+
+  const _PeriodStatCard({
+    required this.estimate,
+    required this.expanded,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    const tint = Colors.pinkAccent;
+    final isLight = theme.brightness == Brightness.light;
+    final estimate = this.estimate;
+    final hasEstimate = estimate != null;
+    final value = estimate == null
+        ? 'Track'
+        : estimate.isPeriodWindow
+        ? 'Now'
+        : '${estimate.daysToNextPeriod}d';
+    final footer = estimate == null
+        ? 'Add date'
+        : estimate.isPeriodWindow
+        ? 'Day ${estimate.cycleDay}'
+        : 'Next ${DateFormat.MMMd().format(estimate.nextPeriod)}';
+    final progress = estimate?.cycleProgress ?? 0.0;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: double.infinity,
+          padding: const EdgeInsets.fromLTRB(9, 8, 9, 8),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: tint.withValues(alpha: expanded ? 0.82 : 0.55),
+              width: expanded ? 1.4 : 1.1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                tint.withValues(alpha: isLight ? 0.45 : 0.20),
+                tint.withValues(alpha: isLight ? 0.18 : 0.05),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: tint.withValues(alpha: isLight ? 0.15 : 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(LucideIcons.calendarHeart, size: 14, color: tint),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: _StatHeaderLabel(
+                      text: 'Period',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: cs.onSurface.withValues(alpha: 0.7),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                    size: 14,
+                    color: cs.onSurface.withValues(alpha: 0.62),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Align(
+                alignment: Alignment.center,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: CustomPaint(
+                    painter: RingProgressPainter(
+                      progress: progress,
+                      color: tint,
+                      backgroundColor: tint.withValues(alpha: 0.16),
+                      strokeWidth: hasEstimate ? 5 : 3,
+                    ),
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Text(
+                            value,
+                            maxLines: 1,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: tint,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                footer,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurface.withValues(alpha: 0.58),
                 ),
               ),
             ],

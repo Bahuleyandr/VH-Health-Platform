@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 
 class PeriodTrackerScreen extends StatefulWidget {
   const PeriodTrackerScreen({super.key});
@@ -24,7 +24,7 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   bool _loading = true;
   bool _saving = false;
 
-  String? _storageKey;
+  String? _ownerKey;
 
   @override
   void initState() {
@@ -37,35 +37,32 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   Future<void> _load() async {
     final user = context.read<UserProvider>();
     final dependent = context.read<DependentsProvider>().activeDependent;
-    final ownerKey = dependent?.uid ?? user.phone;
-    final storageKey = 'period_tracker_$ownerKey';
-    final prefs = await SharedPreferences.getInstance();
-    final rawStart = prefs.getString('${storageKey}_last_start');
+    final snapshot = await CycleTrackerStore.load(
+      userPhone: user.phone,
+      dependentUid: dependent?.uid,
+    );
     if (!mounted) return;
     setState(() {
-      _storageKey = storageKey;
-      _lastPeriodStart = rawStart == null ? null : DateTime.tryParse(rawStart);
-      _cycleLength = prefs.getInt('${storageKey}_cycle_length') ?? 28;
-      _periodLength = prefs.getInt('${storageKey}_period_length') ?? 5;
+      _ownerKey = snapshot.ownerKey;
+      _lastPeriodStart = snapshot.lastPeriodStart;
+      _cycleLength = snapshot.cycleLength;
+      _periodLength = snapshot.periodLength;
       _loading = false;
     });
   }
 
   Future<void> _save() async {
-    final storageKey = _storageKey;
-    if (storageKey == null) return;
+    final ownerKey = _ownerKey;
+    if (ownerKey == null) return;
     setState(() => _saving = true);
-    final prefs = await SharedPreferences.getInstance();
-    if (_lastPeriodStart != null) {
-      await prefs.setString(
-        '${storageKey}_last_start',
-        DateFormat('yyyy-MM-dd').format(_lastPeriodStart!),
-      );
-    } else {
-      await prefs.remove('${storageKey}_last_start');
-    }
-    await prefs.setInt('${storageKey}_cycle_length', _cycleLength);
-    await prefs.setInt('${storageKey}_period_length', _periodLength);
+    await CycleTrackerStore.save(
+      CycleTrackerSnapshot(
+        ownerKey: ownerKey,
+        lastPeriodStart: _lastPeriodStart,
+        cycleLength: _cycleLength,
+        periodLength: _periodLength,
+      ),
+    );
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(
@@ -87,35 +84,15 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
   }
 
   CycleEstimate? _estimate() {
-    final start = _lastPeriodStart;
-    if (start == null) return null;
-    final today = _dateOnly(DateTime.now());
-    final base = _dateOnly(start);
-    final daysSince = today.difference(base).inDays;
-    final cyclesElapsed = daysSince < 0
-        ? 0
-        : daysSince ~/ _cycleLength.clamp(1, 365);
-    final cycleStart = base.add(Duration(days: cyclesElapsed * _cycleLength));
-    final nextPeriod = cycleStart.add(Duration(days: _cycleLength));
-    final periodEnd = cycleStart.add(Duration(days: _periodLength - 1));
-    final ovulation = cycleStart.add(Duration(days: _cycleLength - 14));
-    final fertileStart = ovulation.subtract(const Duration(days: 5));
-    final fertileEnd = ovulation.add(const Duration(days: 1));
-    final cycleDay = today.difference(cycleStart).inDays + 1;
-
-    return CycleEstimate(
-      cycleStart: cycleStart,
-      periodEnd: periodEnd,
-      nextPeriod: nextPeriod,
-      fertileStart: fertileStart,
-      fertileEnd: fertileEnd,
-      cycleDay: cycleDay.clamp(1, _cycleLength),
-      daysToNextPeriod: nextPeriod.difference(today).inDays,
-    );
+    final ownerKey = _ownerKey;
+    if (ownerKey == null) return null;
+    return CycleTrackerSnapshot(
+      ownerKey: ownerKey,
+      lastPeriodStart: _lastPeriodStart,
+      cycleLength: _cycleLength,
+      periodLength: _periodLength,
+    ).estimate();
   }
-
-  DateTime _dateOnly(DateTime value) =>
-      DateTime(value.year, value.month, value.day);
 
   @override
   Widget build(BuildContext context) {
@@ -194,27 +171,6 @@ class _PeriodTrackerScreenState extends State<PeriodTrackerScreen> {
             ),
     );
   }
-}
-
-@immutable
-class CycleEstimate {
-  final DateTime cycleStart;
-  final DateTime periodEnd;
-  final DateTime nextPeriod;
-  final DateTime fertileStart;
-  final DateTime fertileEnd;
-  final int cycleDay;
-  final int daysToNextPeriod;
-
-  const CycleEstimate({
-    required this.cycleStart,
-    required this.periodEnd,
-    required this.nextPeriod,
-    required this.fertileStart,
-    required this.fertileEnd,
-    required this.cycleDay,
-    required this.daysToNextPeriod,
-  });
 }
 
 class _HeroCyclePanel extends StatelessWidget {

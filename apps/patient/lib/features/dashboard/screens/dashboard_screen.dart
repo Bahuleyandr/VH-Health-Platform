@@ -32,6 +32,7 @@ import 'package:vhhealth/features/dashboard/widgets/command_center_today.dart';
 import 'package:vhhealth/features/dashboard/widgets/stagger_entry.dart';
 import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/dashboard/widgets/stat_detail_panels.dart';
+import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
 
 enum _DashboardStatPanel { wellness, steps, points, period }
@@ -84,6 +85,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int? _stepGoal;
   double? _distanceTodayMeters;
   String? _activityLevelLabel;
+  CycleTrackerSnapshot? _cycleTrackerSnapshot;
   bool _stepsHealthSyncInFlight = false;
 
   // Features list
@@ -109,6 +111,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!_isGuestSession) {
         _loadCachedData();
+        _loadCycleTrackerSnapshot();
         _maybeFetchFromBackend();
         _startAppointmentPolling();
         _startSmartWidgetPolling();
@@ -288,6 +291,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (kDebugMode) {
         debugPrint('Smart poll failed (#$_smartPollFailures): $e');
       }
+    }
+  }
+
+  Future<void> _loadCycleTrackerSnapshot() async {
+    if (_isGuestSession) return;
+    try {
+      final user = context.read<UserProvider>();
+      final dependent = context.read<DependentsProvider>().activeDependent;
+      final snapshot = await CycleTrackerStore.load(
+        userPhone: user.phone,
+        dependentUid: dependent?.uid,
+      );
+      if (!mounted) return;
+      setState(() => _cycleTrackerSnapshot = snapshot);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Cycle tracker load failed: $e');
     }
   }
 
@@ -619,14 +638,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Records merged into Your Health — open Hospital Docs tab (index 2)
       context.push('/health', extra: {'tab': 2});
     } else if (routeName == '/period-tracker') {
-      final activeDependent = context
-          .read<DependentsProvider>()
-          .activeDependent;
-      if (!_canShowPeriodTracker(activeDependent)) return;
-      context.push(routeName, extra: {'eligible': true});
+      unawaited(_openPeriodTracker(context));
     } else {
       context.push(routeName);
     }
+  }
+
+  Future<void> _openPeriodTracker(BuildContext context) async {
+    final activeDependent = context.read<DependentsProvider>().activeDependent;
+    if (!_canShowPeriodTracker(activeDependent)) return;
+    await context.push('/period-tracker', extra: {'eligible': true});
+    if (!mounted) return;
+    await _loadCycleTrackerSnapshot();
   }
 
   void _openTodayCard(Map<String, dynamic> card) {
@@ -757,6 +780,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       case _DashboardStatPanel.period:
         return CycleBreakdownPanel(
+          snapshot: _cycleTrackerSnapshot,
           onOpenFull: () => _openFeature(context, '/period-tracker'),
         );
     }
@@ -803,6 +827,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _fetchAndStoreDashboardFresh(),
       _fetchSmartWidgetData(),
       _pollAppointments(),
+      _loadCycleTrackerSnapshot(),
     ]);
   }
 
@@ -827,10 +852,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (!mounted) return;
         setState(() {
           _commandCenterProfile = null;
+          _cycleTrackerSnapshot = null;
           if (_expandedStatPanel == _DashboardStatPanel.period) {
             _expandedStatPanel = null;
           }
         });
+        _loadCycleTrackerSnapshot();
         _fetchAndStoreDashboardFresh();
         _fetchSmartWidgetData();
         _pollAppointments();
@@ -902,6 +929,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               healthTier: healthTierLabel,
                               stepsToday: _stepsToday,
                               stepGoal: _stepGoal,
+                              cycleEstimate: _cycleTrackerSnapshot?.estimate(),
                               wellnessExpanded:
                                   activeStatPanel ==
                                   _DashboardStatPanel.wellness,

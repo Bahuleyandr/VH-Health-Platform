@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:vhhealth/core/widgets/health_charts.dart';
 import 'package:vhhealth/features/gamification/utils/tier_utils.dart';
+import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 
 class StepsBreakdownPanel extends StatelessWidget {
   final int? stepsToday;
@@ -235,47 +238,110 @@ class PointsBreakdownPanel extends StatelessWidget {
 }
 
 class CycleBreakdownPanel extends StatelessWidget {
+  final CycleTrackerSnapshot? snapshot;
   final VoidCallback onOpenFull;
 
-  const CycleBreakdownPanel({super.key, required this.onOpenFull});
+  const CycleBreakdownPanel({
+    super.key,
+    required this.onOpenFull,
+    this.snapshot,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     const accent = Colors.pinkAccent;
+    final snapshot = this.snapshot;
+    final estimate = snapshot?.estimate();
+    final hasEstimate = estimate != null;
+    final trailing = estimate == null
+        ? 'Set up'
+        : estimate.isPeriodWindow
+        ? 'Now'
+        : '${estimate.daysToNextPeriod}d';
+    final title = estimate == null
+        ? 'Cycle tracker'
+        : estimate.isPeriodWindow
+        ? 'Period window'
+        : 'Next period in ${estimate.daysToNextPeriod} days';
+    final subtitle = estimate == null
+        ? 'Private cycle dates and reminders'
+        : '${estimate.phaseLabel} - next ${DateFormat.MMMd().format(estimate.nextPeriod)}';
 
     return _DetailShell(
       accent: accent,
       icon: LucideIcons.calendarHeart,
-      title: 'Cycle tracker',
-      subtitle: 'Private cycle dates and reminders',
-      trailing: 'Period',
+      title: title,
+      subtitle: subtitle,
+      trailing: trailing,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (estimate != null) ...[
+            Row(
+              children: [
+                SizedBox(
+                  width: 72,
+                  height: 72,
+                  child: CustomPaint(
+                    painter: RingProgressPainter(
+                      progress: estimate.cycleProgress,
+                      color: accent,
+                      backgroundColor: accent.withValues(alpha: 0.14),
+                      strokeWidth: 7,
+                    ),
+                    child: Center(
+                      child: Text(
+                        estimate.isPeriodWindow
+                            ? 'Now'
+                            : '${estimate.daysToNextPeriod}d',
+                        maxLines: 1,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: accent,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    estimate.isPeriodWindow
+                        ? 'Estimated period window is active. Open the tracker to adjust the start date if this feels off.'
+                        : 'Estimated from your saved last period date. Open the tracker to adjust cycle length or period length.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurface.withValues(alpha: 0.70),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
-            children: const [
+            children: [
               Expanded(
                 child: _MetricChip(
                   label: 'Cycle',
-                  value: '28d',
+                  value: '${snapshot?.cycleLength ?? 28}d',
                   accent: accent,
                 ),
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
                   label: 'Period',
-                  value: '5d',
+                  value: '${snapshot?.periodLength ?? 5}d',
                   accent: accent,
                 ),
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(
                 child: _MetricChip(
-                  label: 'Storage',
-                  value: 'Local',
+                  label: hasEstimate ? 'Cycle day' : 'Storage',
+                  value: hasEstimate ? '${estimate.cycleDay}' : 'Local',
                   accent: accent,
                 ),
               ),
@@ -283,7 +349,9 @@ class CycleBreakdownPanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Add your last period start date to estimate the next period and fertile window.',
+            estimate == null
+                ? 'Add your last period start date to estimate the next period and fertile window.'
+                : 'Fertile window estimate: ${DateFormat.MMMd().format(estimate.fertileStart)} - ${DateFormat.MMMd().format(estimate.fertileEnd)}.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurface.withValues(alpha: 0.68),
             ),
