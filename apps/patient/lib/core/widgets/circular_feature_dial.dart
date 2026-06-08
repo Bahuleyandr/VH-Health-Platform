@@ -404,8 +404,8 @@ class _FeatureDialButton extends StatelessWidget {
     final surface = theme.colorScheme.surface;
     final labelColor = isHighlighted ? foreground : theme.colorScheme.onSurface;
     final scale = iconScale.clamp(1.0, 1.2).toDouble();
-    final iconBubbleSize = 30.0 * scale;
-    final iconSize = 20.0 * scale;
+    final iconBubbleSize = 35.0 * scale;
+    final iconSize = 31.0 * scale;
 
     return Semantics(
       button: true,
@@ -418,10 +418,11 @@ class _FeatureDialButton extends StatelessWidget {
           shape: BoxShape.circle,
           gradient: RadialGradient(
             center: Alignment.topLeft,
-            radius: 1.15,
+            radius: 1.05,
             colors: [
-              feature.color.withValues(alpha: isLight ? 0.72 : 0.34),
-              surface.withValues(alpha: isLight ? 0.98 : 0.88),
+              surface.withValues(alpha: isLight ? 1 : 0.92),
+              feature.color.withValues(alpha: isLight ? 0.28 : 0.24),
+              surface.withValues(alpha: isLight ? 0.94 : 0.78),
             ],
           ),
           border: Border.all(
@@ -455,17 +456,37 @@ class _FeatureDialButton extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: foreground.withValues(alpha: isLight ? 0.12 : 0.18),
+                    gradient: RadialGradient(
+                      center: Alignment.topLeft,
+                      radius: 1.15,
+                      colors: [
+                        Colors.white.withValues(alpha: isLight ? 0.96 : 0.30),
+                        feature.color.withValues(alpha: isLight ? 0.16 : 0.18),
+                        Colors.black.withValues(alpha: isLight ? 0.03 : 0.14),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withValues(
+                        alpha: isLight ? 0.80 : 0.22,
+                      ),
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: feature.color.withValues(
+                          alpha: isHighlighted ? 0.26 : 0.14,
+                        ),
+                        blurRadius: isHighlighted ? 12 : 7,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
                   child: feature.svgAsset != null
                       ? SvgPicture.asset(
                           feature.svgAsset!,
                           width: iconSize,
                           height: iconSize,
-                          colorFilter: ColorFilter.mode(
-                            foreground,
-                            BlendMode.srcIn,
-                          ),
+                          fit: BoxFit.contain,
                         )
                       : Icon(feature.icon, size: iconSize, color: foreground),
                 ),
@@ -483,18 +504,28 @@ class _FeatureDialButton extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 4),
-            Flexible(
-              child: Text(
-                feature.label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: labelColor,
-                  fontWeight: isHighlighted ? FontWeight.w800 : FontWeight.w700,
-                  fontSize: 9.2,
-                  height: 1.02,
+            const SizedBox(height: 2),
+            SizedBox(
+              height: 14,
+              width: double.infinity,
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    feature.label,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.visible,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: labelColor,
+                      fontWeight: isHighlighted
+                          ? FontWeight.w800
+                          : FontWeight.w700,
+                      fontSize: 8.9,
+                      height: 1.0,
+                    ),
+                  ),
                 ),
               ),
             ),

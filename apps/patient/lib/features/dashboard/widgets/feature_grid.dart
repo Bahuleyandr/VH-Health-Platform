@@ -125,18 +125,20 @@ class _CompactFeatureTile extends StatelessWidget {
                       height: 32,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: tint.withValues(alpha: isLight ? 0.30 : 0.18),
+                        color: Colors.white.withValues(
+                          alpha: isLight ? 0.70 : 0.18,
+                        ),
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: tint.withValues(alpha: isLight ? 0.32 : 0.24),
+                        ),
                       ),
                       child: feature.svgAsset != null
                           ? SvgPicture.asset(
                               feature.svgAsset!,
-                              width: 20,
-                              height: 20,
-                              colorFilter: ColorFilter.mode(
-                                foreground,
-                                BlendMode.srcIn,
-                              ),
+                              width: 26,
+                              height: 26,
+                              fit: BoxFit.contain,
                             )
                           : Icon(feature.icon, size: 19, color: foreground),
                     ),
@@ -268,13 +270,13 @@ class _FeatureCard extends StatelessWidget {
                 right: feature.svgAsset != null ? -8 : -12,
                 bottom: feature.svgAsset != null ? -10 : -16,
                 child: feature.svgAsset != null
-                    ? SvgPicture.asset(
-                        feature.svgAsset!,
-                        width: 110,
-                        height: 110,
-                        colorFilter: ColorFilter.mode(
-                          echoColor,
-                          BlendMode.srcIn,
+                    ? Opacity(
+                        opacity: isLight ? 0.18 : 0.12,
+                        child: SvgPicture.asset(
+                          feature.svgAsset!,
+                          width: 110,
+                          height: 110,
+                          fit: BoxFit.contain,
                         ),
                       )
                     : Icon(feature.icon, size: 96, color: echoColor),
@@ -286,23 +288,32 @@ class _FeatureCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Icon in a colored circle with its own gradient +
-                    // glow. Foreground glyph is either the hand-drawn
-                    // SVG (when supplied) tinted white, or the legacy
-                    // Lucide icon. SVG gets slightly more padding +
-                    // bigger render size since the illustrations are
-                    // more detailed than icon glyphs.
+                    // Icon in a circular image plate with its own glow.
+                    // SVG assets render in full color so the tile feels
+                    // like a pictorial service shortcut, not a flat glyph.
                     Container(
                       padding: EdgeInsets.all(
-                        feature.svgAsset != null ? 9 : 11,
+                        feature.svgAsset != null ? 6 : 11,
                       ),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          colors: [iconCircleStart, iconCircleEnd],
+                          colors: feature.svgAsset != null
+                              ? [
+                                  Colors.white.withValues(
+                                    alpha: isLight ? 0.92 : 0.26,
+                                  ),
+                                  tint.withValues(alpha: isLight ? 0.18 : 0.22),
+                                ]
+                              : [iconCircleStart, iconCircleEnd],
                         ),
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(
+                            alpha: isLight ? 0.72 : 0.18,
+                          ),
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: tint.withValues(
@@ -316,12 +327,9 @@ class _FeatureCard extends StatelessWidget {
                       child: feature.svgAsset != null
                           ? SvgPicture.asset(
                               feature.svgAsset!,
-                              width: 28,
-                              height: 28,
-                              colorFilter: ColorFilter.mode(
-                                iconColor,
-                                BlendMode.srcIn,
-                              ),
+                              width: 38,
+                              height: 38,
+                              fit: BoxFit.contain,
                             )
                           : Icon(feature.icon, color: iconColor, size: 22),
                     ),

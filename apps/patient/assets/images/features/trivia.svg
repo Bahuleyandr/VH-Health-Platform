@@ -1,17 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
-  <!-- Lightbulb glass -->
-  <path d="M48 12 a 22 22 0 0 0 -22 22 c 0 11 6 18 11 23 c 3 3 3 6 3 9 H 56 c 0 -3 0 -6 3 -9 c 5 -5 11 -12 11 -23 a 22 22 0 0 0 -22 -22 Z"
-    fill="currentColor" fill-opacity="0.92"/>
-  <!-- Filament glow inside -->
-  <path d="M40 38 Q 48 30 56 38 M 44 46 L 52 46" stroke="white" stroke-width="2.5" stroke-linecap="round" fill="none" stroke-opacity="0.85"/>
-  <!-- Bulb base / threads -->
-  <rect x="38" y="68" width="20" height="6" rx="2" fill="currentColor" fill-opacity="0.7"/>
-  <rect x="40" y="76" width="16" height="5" rx="2" fill="currentColor" fill-opacity="0.55"/>
-  <!-- Cap -->
-  <rect x="42" y="83" width="12" height="5" rx="2.5" fill="currentColor" fill-opacity="0.7"/>
-  <!-- Sparkle accents around bulb -->
-  <path d="M14 30 L 18 30 M 16 26 L 16 34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-opacity="0.65"/>
-  <path d="M78 22 L 84 22 M 81 19 L 81 25" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-opacity="0.65"/>
-  <circle cx="84" cy="48" r="2.2" fill="currentColor" fill-opacity="0.5"/>
-  <circle cx="10" cy="50" r="2" fill="currentColor" fill-opacity="0.45"/>
+  <defs>
+    <radialGradient id="bg" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(32 22) rotate(51) scale(79)">
+      <stop stop-color="#F1E8FF"/>
+      <stop offset=".58" stop-color="#B996FF"/>
+      <stop offset="1" stop-color="#6E3FE8"/>
+    </radialGradient>
+    <linearGradient id="bulb" x1="35" y1="17" x2="60" y2="67" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7B0"/>
+      <stop offset=".7" stop-color="#FFCB47"/>
+      <stop offset="1" stop-color="#F7941D"/>
+    </linearGradient>
+  </defs>
+  <circle cx="48" cy="48" r="42" fill="url(#bg)"/>
+  <path d="M34 39c0-10 7-18 17-18s17 8 17 18c0 7-4 12-9 16-3 2-4 5-4 8H43c0-3-1-6-4-8-5-4-5-9-5-16Z" fill="url(#bulb)" stroke="#4B25B8" stroke-width="3"/>
+  <path d="M41 68h20M43 76h16" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M49 34c4-2 8 1 8 5 0 5-7 6-7 12" stroke="#4B25B8" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="50" cy="58" r="2.5" fill="#4B25B8"/>
+  <path d="M22 30l6 3M73 23l-4 7M78 55l-7-2" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity=".78"/>
 </svg>

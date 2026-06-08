@@ -1,12 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
-  <!-- Anatomical heart silhouette in two-tone (rounded, slightly off-axis like a sketch) -->
-  <path d="M48 84 C 14 56, 6 38, 18 22 C 30 10, 42 18, 48 26 C 54 18, 66 10, 78 22 C 90 38, 82 56, 48 84 Z"
-    fill="currentColor" fill-opacity="0.92"/>
-  <path d="M48 84 C 30 70, 22 60, 18 50 C 16 44, 16 38, 20 32 C 26 24, 36 22, 42 28 C 46 32, 48 36, 48 38 Z"
-    fill="currentColor" fill-opacity="0.7"/>
-  <!-- EKG waveform across the heart, in white for contrast -->
-  <path d="M16 50 L 32 50 L 38 38 L 44 60 L 50 32 L 56 56 L 64 50 L 80 50"
-    stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <!-- Single bright pulse highlight dot -->
-  <circle cx="50" cy="32" r="2.5" fill="white"/>
+  <defs>
+    <radialGradient id="bg" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(30 22) rotate(52) scale(78)">
+      <stop stop-color="#E6FFFA"/>
+      <stop offset="0.55" stop-color="#8DEDE1"/>
+      <stop offset="1" stop-color="#0F9F8F"/>
+    </radialGradient>
+    <linearGradient id="heart" x1="27" y1="28" x2="70" y2="76" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF5A76"/>
+      <stop offset="1" stop-color="#D61F45"/>
+    </linearGradient>
+  </defs>
+  <circle cx="48" cy="48" r="42" fill="url(#bg)"/>
+  <path d="M17 61c7-15 20-23 36-25 10-1 18 1 26 6 4 3 3 10-1 12-20 10-42 18-61 7Z" fill="#DFF8EF" opacity=".78"/>
+  <path d="M48 78C25 59 20 47 28 37c7-8 16-4 20 2 4-6 13-10 20-2 8 10 3 22-20 41Z" fill="url(#heart)"/>
+  <path d="M20 50h17l5-12 8 24 7-18 5 10h14" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="68" cy="25" r="10" fill="#FFFFFF"/>
+  <path d="M68 19v12M62 25h12" stroke="#0F9F8F" stroke-width="4" stroke-linecap="round"/>
 </svg>

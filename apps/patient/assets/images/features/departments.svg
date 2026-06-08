@@ -1,31 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
-  <!-- Hospital building (3-tier) -->
-  <!-- Base -->
-  <rect x="10" y="58" width="76" height="32" rx="2" fill="currentColor" fill-opacity="0.92"/>
-  <!-- Middle floor -->
-  <rect x="18" y="38" width="60" height="22" fill="currentColor" fill-opacity="0.85"/>
-  <!-- Top tower -->
-  <rect x="32" y="20" width="32" height="20" fill="currentColor" fill-opacity="0.78"/>
-  <!-- Big medical cross on top tower -->
-  <g transform="translate(48,30)">
-    <rect x="-2" y="-7" width="4" height="14" fill="white"/>
-    <rect x="-7" y="-2" width="14" height="4" fill="white"/>
-  </g>
-  <!-- Windows: 3 rows × 2-4 cells, white panes -->
-  <g fill="white">
-    <rect x="22" y="44" width="6" height="6" rx="1"/>
-    <rect x="32" y="44" width="6" height="6" rx="1"/>
-    <rect x="58" y="44" width="6" height="6" rx="1"/>
-    <rect x="68" y="44" width="6" height="6" rx="1"/>
-    <rect x="14" y="64" width="6" height="6" rx="1"/>
-    <rect x="24" y="64" width="6" height="6" rx="1"/>
-    <rect x="66" y="64" width="6" height="6" rx="1"/>
-    <rect x="76" y="64" width="6" height="6" rx="1"/>
-    <rect x="14" y="76" width="6" height="6" rx="1"/>
-    <rect x="24" y="76" width="6" height="6" rx="1"/>
-    <rect x="66" y="76" width="6" height="6" rx="1"/>
-    <rect x="76" y="76" width="6" height="6" rx="1"/>
-  </g>
-  <!-- Entrance arch -->
-  <path d="M40 90 V 76 a 8 8 0 0 1 16 0 V 90 Z" fill="white"/>
+  <defs>
+    <linearGradient id="bg" x1="17" y1="15" x2="80" y2="85" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E9FFE9"/>
+      <stop offset=".55" stop-color="#92DE97"/>
+      <stop offset="1" stop-color="#238D49"/>
+    </linearGradient>
+    <linearGradient id="building" x1="27" y1="20" x2="66" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E7F5EA"/>
+    </linearGradient>
+  </defs>
+  <circle cx="48" cy="48" r="42" fill="url(#bg)"/>
+  <rect x="25" y="29" width="46" height="50" rx="8" fill="url(#building)" stroke="#176C37" stroke-width="3"/>
+  <rect x="36" y="18" width="24" height="20" rx="5" fill="#176C37"/>
+  <path d="M48 23v10M43 28h10" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <path d="M35 46h8M53 46h8M35 58h8M53 58h8" stroke="#8BBC9A" stroke-width="4" stroke-linecap="round"/>
+  <path d="M42 79V67h12v12" fill="#FFE08A" stroke="#176C37" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="72" cy="30" r="9" fill="#FFE08A"/>
 </svg>
