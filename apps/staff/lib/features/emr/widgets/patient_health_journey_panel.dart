@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
+const double _timelineSegmentWidth = 212.0;
+const double _timelineSidePad = 108.0;
+const double _timelineMinWidth = 920.0;
+
 class PatientHealthJourneyPanel extends StatefulWidget {
   const PatientHealthJourneyPanel({
     super.key,
@@ -67,12 +71,13 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   }
 
   Widget _summaryHeader(_HealthJourneyModel model) {
+    final colors = _JourneyColors.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
+        color: colors.card,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.divider),
+        border: Border.all(color: colors.divider),
       ),
       child: Row(
         children: [
@@ -96,7 +101,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                 Text(
                   'Patient health journey',
                   style: TextStyle(
-                    color: AppTheme.textPrimary,
+                    color: colors.textPrimary,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
@@ -104,7 +109,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                 const SizedBox(height: 4),
                 Text(
                   'Canonical timeline of notes, prescriptions, investigations, vitals, and patient-generated wellness data.',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
                 ),
               ],
             ),
@@ -141,6 +146,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   }
 
   Widget _activityCard(_HealthJourneyModel model) {
+    final colors = _JourneyColors.of(context);
     return _sectionCard(
       icon: Icons.directions_walk_outlined,
       title: 'Walking, steps, and sleep',
@@ -154,12 +160,14 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
               child: _ActivityBars(
                 days: model.days,
                 activityByDay: model.activityByDay,
+                colors: colors,
               ),
             ),
     );
   }
 
   Widget _vitalsCard(_HealthJourneyModel model) {
+    final colors = _JourneyColors.of(context);
     final hasVitals = model.weightByDay.isNotEmpty || model.bpByDay.isNotEmpty;
     return _sectionCard(
       icon: Icons.monitor_heart_outlined,
@@ -188,6 +196,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                       painter: _BpLinePainter(
                         days: model.days,
                         bpByDay: model.bpByDay,
+                        colors: colors,
                       ),
                       child: const SizedBox.expand(),
                     ),
@@ -199,6 +208,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                       painter: _WeightLinePainter(
                         days: model.days,
                         weightByDay: model.weightByDay,
+                        colors: colors,
                       ),
                       child: const SizedBox.expand(),
                     ),
@@ -210,6 +220,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   }
 
   Widget _clinicalMarkersCard(_HealthJourneyModel model) {
+    final colors = _JourneyColors.of(context);
     return _sectionCard(
       icon: Icons.timeline_outlined,
       title: 'Clinical story',
@@ -227,6 +238,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
               minWidth: model.timelineWidth,
               child: _HorizontalClinicalTimeline(
                 events: model.timelineEvents,
+                colors: colors,
                 onEventTap: widget.onEventTap,
               ),
             ),
@@ -252,12 +264,13 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
     required Widget child,
     Widget? trailing,
   }) {
+    final colors = _JourneyColors.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
+        color: colors.card,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.divider),
+        border: Border.all(color: colors.divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,7 +286,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                     Text(
                       title,
                       style: TextStyle(
-                        color: AppTheme.textPrimary,
+                        color: colors.textPrimary,
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
@@ -281,7 +294,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: AppTheme.textSecondary,
+                        color: colors.textSecondary,
                         fontSize: 12,
                       ),
                     ),
@@ -367,6 +380,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   }
 
   Widget _legendDot(String label, Color color) {
+    final colors = _JourneyColors.of(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -378,45 +392,47 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
         const SizedBox(width: 4),
         Text(
           label,
-          style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+          style: TextStyle(color: colors.textSecondary, fontSize: 11),
         ),
       ],
     );
   }
 
   Widget _smallEmpty(String text) {
+    final colors = _JourneyColors.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
       decoration: BoxDecoration(
-        color: AppTheme.backgroundGrey,
+        color: colors.subtle,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.divider),
+        border: Border.all(color: colors.divider),
       ),
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: TextStyle(color: AppTheme.textSecondary),
+        style: TextStyle(color: colors.textSecondary),
       ),
     );
   }
 
   Widget _emptyState() {
+    final colors = _JourneyColors.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 56, horizontal: 16),
       decoration: BoxDecoration(
-        color: AppTheme.cardSurface,
+        color: colors.card,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.divider),
+        border: Border.all(color: colors.divider),
       ),
       child: Column(
         children: [
-          Icon(Icons.timeline_outlined, size: 54, color: AppTheme.divider),
+          Icon(Icons.timeline_outlined, size: 54, color: colors.divider),
           const SizedBox(height: 12),
           Text(
             'No timeline data yet',
             style: TextStyle(
-              color: AppTheme.textPrimary,
+              color: colors.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w700,
             ),
@@ -425,7 +441,7 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
           Text(
             'Clinical events and patient-app activity will appear here once available.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: colors.textSecondary),
           ),
         ],
       ),
@@ -433,11 +449,54 @@ class _PatientHealthJourneyPanelState extends State<PatientHealthJourneyPanel> {
   }
 }
 
+class _JourneyColors {
+  const _JourneyColors({
+    required this.card,
+    required this.subtle,
+    required this.chip,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.divider,
+    required this.isDark,
+  });
+
+  final Color card;
+  final Color subtle;
+  final Color chip;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color divider;
+  final bool isDark;
+
+  factory _JourneyColors.of(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final card = theme.cardColor;
+    final background = theme.scaffoldBackgroundColor;
+    return _JourneyColors(
+      card: card,
+      subtle: Color.lerp(card, scheme.primary, isDark ? 0.045 : 0.025)!,
+      chip: Color.lerp(background, card, isDark ? 0.35 : 0.78)!,
+      textPrimary: theme.textTheme.bodyLarge?.color ?? scheme.onSurface,
+      textSecondary:
+          theme.textTheme.bodySmall?.color ?? scheme.onSurfaceVariant,
+      divider: theme.dividerTheme.color ?? scheme.outlineVariant,
+      isDark: isDark,
+    );
+  }
+}
+
 class _ActivityBars extends StatelessWidget {
-  const _ActivityBars({required this.days, required this.activityByDay});
+  const _ActivityBars({
+    required this.days,
+    required this.activityByDay,
+    required this.colors,
+  });
 
   final List<DateTime> days;
   final Map<String, _ActivityPoint> activityByDay;
+  final _JourneyColors colors;
 
   @override
   Widget build(BuildContext context) {
@@ -491,7 +550,7 @@ class _ActivityBars extends StatelessWidget {
                         ? '-'
                         : _compactInt(point.steps),
                     style: TextStyle(
-                      color: AppTheme.textPrimary,
+                      color: colors.textPrimary,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -513,7 +572,7 @@ class _ActivityBars extends StatelessWidget {
                         ? '-'
                         : '${(point.distanceMeters / 1000).toStringAsFixed(1)} km',
                     style: TextStyle(
-                      color: AppTheme.textSecondary,
+                      color: colors.textSecondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                     ),
@@ -521,10 +580,7 @@ class _ActivityBars extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     _shortDate(day),
-                    style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 10,
-                    ),
+                    style: TextStyle(color: colors.textSecondary, fontSize: 10),
                   ),
                 ],
               ),
@@ -550,7 +606,7 @@ class _ActivityBars extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            color: AppTheme.textSecondary,
+            color: colors.textSecondary,
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
@@ -572,21 +628,30 @@ class _ActivityBars extends StatelessWidget {
 }
 
 class _HorizontalClinicalTimeline extends StatelessWidget {
-  const _HorizontalClinicalTimeline({required this.events, this.onEventTap});
+  const _HorizontalClinicalTimeline({
+    required this.events,
+    required this.colors,
+    this.onEventTap,
+  });
 
   final List<Map<String, dynamic>> events;
+  final _JourneyColors colors;
   final ValueChanged<Map<String, dynamic>>? onEventTap;
 
   @override
   Widget build(BuildContext context) {
     if (events.isEmpty) return const SizedBox.shrink();
     const laneHeight = 304.0;
-    const segmentWidth = 212.0;
     const axisY = 140.0;
-    const sidePad = 108.0;
-    final width = math.max(920.0, sidePad * 2 + events.length * segmentWidth);
-    final firstDate = _eventDate(events.first);
-    final lastDate = _eventDate(events.last);
+    final width = math.max(
+      _timelineMinWidth,
+      _timelineSidePad * 2 + events.length * _timelineSegmentWidth,
+    );
+    final axisStart = _timelineSidePad + (_timelineSegmentWidth / 2);
+    final axisEnd =
+        _timelineSidePad +
+        math.max(0, events.length - 1) * _timelineSegmentWidth +
+        (_timelineSegmentWidth / 2);
 
     return SizedBox(
       width: width,
@@ -595,30 +660,8 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned(
-            left: 0,
-            right: 0,
-            top: axisY - 34,
-            child: Row(
-              children: [
-                _timelineEndLabel(
-                  icon: Icons.first_page_outlined,
-                  label: firstDate == null
-                      ? 'First event'
-                      : 'First ${_shortDate(firstDate)} ${_shortTime(firstDate)}',
-                ),
-                const Spacer(),
-                _timelineEndLabel(
-                  icon: Icons.last_page_outlined,
-                  label: lastDate == null
-                      ? 'Latest event'
-                      : 'Latest ${_shortDate(lastDate)} ${_shortTime(lastDate)}',
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: sidePad,
-            right: sidePad,
+            left: axisStart,
+            width: math.max(1, axisEnd - axisStart),
             top: axisY,
             child: Container(
               height: 4,
@@ -638,35 +681,12 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
             _timelineEventNode(
               event: events[i],
               index: i,
-              x: sidePad + i * segmentWidth + segmentWidth / 2,
+              x:
+                  _timelineSidePad +
+                  i * _timelineSegmentWidth +
+                  _timelineSegmentWidth / 2,
               axisY: axisY,
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _timelineEndLabel({required IconData icon, required String label}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.backgroundGrey,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppTheme.divider),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: AppTheme.textSecondary, size: 14),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
         ],
       ),
     );
@@ -678,7 +698,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
     required double x,
     required double axisY,
   }) {
-    final color = _eventColor(event);
+    final color = _eventColor(event, fallback: colors.textSecondary);
     final above = index.isEven;
     final eventDate = _eventDate(event);
     final cardTop = above ? 16.0 : axisY + 40;
@@ -707,7 +727,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
               width: 22,
               height: 22,
               decoration: BoxDecoration(
-                color: AppTheme.cardSurface,
+                color: colors.card,
                 shape: BoxShape.circle,
                 border: Border.all(color: color, width: 3.5),
                 boxShadow: [
@@ -735,16 +755,16 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: AppTheme.backgroundGrey,
+                color: colors.chip,
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: AppTheme.divider),
+                border: Border.all(color: colors.divider),
               ),
               child: Text(
                 eventDate == null
                     ? '-'
                     : '${_shortDate(eventDate)}  ${_shortTime(eventDate)}',
                 style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: colors.textSecondary,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                 ),
@@ -793,7 +813,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: AppTheme.textPrimary,
+                        color: colors.textPrimary,
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         height: 1.18,
@@ -820,7 +840,7 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: AppTheme.textSecondary,
+          color: colors.textSecondary,
           fontSize: 10.5,
           height: 1.18,
         ),
@@ -830,14 +850,19 @@ class _HorizontalClinicalTimeline extends StatelessWidget {
 }
 
 class _BpLinePainter extends CustomPainter {
-  _BpLinePainter({required this.days, required this.bpByDay});
+  _BpLinePainter({
+    required this.days,
+    required this.bpByDay,
+    required this.colors,
+  });
 
   final List<DateTime> days;
   final Map<String, _BpPoint> bpByDay;
+  final _JourneyColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {
-    _drawChartFrame(canvas, size, 'Blood pressure (mmHg)');
+    _drawChartFrame(canvas, size, 'Blood pressure (mmHg)', colors);
     final points = days
         .map((day) => MapEntry(day, bpByDay[_dayKey(day)]))
         .where((entry) => entry.value != null)
@@ -860,6 +885,7 @@ class _BpLinePainter extends CustomPainter {
       minValue,
       maxValue,
       AppTheme.errorOnSurface,
+      colors,
     );
     _drawLine(
       canvas,
@@ -871,24 +897,32 @@ class _BpLinePainter extends CustomPainter {
       minValue,
       maxValue,
       AppTheme.primaryBlue,
+      colors,
     );
   }
 
   @override
   bool shouldRepaint(covariant _BpLinePainter oldDelegate) {
-    return oldDelegate.days != days || oldDelegate.bpByDay != bpByDay;
+    return oldDelegate.days != days ||
+        oldDelegate.bpByDay != bpByDay ||
+        oldDelegate.colors != colors;
   }
 }
 
 class _WeightLinePainter extends CustomPainter {
-  _WeightLinePainter({required this.days, required this.weightByDay});
+  _WeightLinePainter({
+    required this.days,
+    required this.weightByDay,
+    required this.colors,
+  });
 
   final List<DateTime> days;
   final Map<String, double> weightByDay;
+  final _JourneyColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {
-    _drawChartFrame(canvas, size, 'Weight (kg)');
+    _drawChartFrame(canvas, size, 'Weight (kg)', colors);
     final points = days
         .map((day) => MapEntry(day, weightByDay[_dayKey(day)]))
         .where((entry) => entry.value != null)
@@ -906,24 +940,32 @@ class _WeightLinePainter extends CustomPainter {
       minValue,
       maxValue,
       AppTheme.primaryTeal,
+      colors,
     );
   }
 
   @override
   bool shouldRepaint(covariant _WeightLinePainter oldDelegate) {
-    return oldDelegate.days != days || oldDelegate.weightByDay != weightByDay;
+    return oldDelegate.days != days ||
+        oldDelegate.weightByDay != weightByDay ||
+        oldDelegate.colors != colors;
   }
 }
 
-void _drawChartFrame(Canvas canvas, Size size, String label) {
+void _drawChartFrame(
+  Canvas canvas,
+  Size size,
+  String label,
+  _JourneyColors colors,
+) {
   final gridPaint = Paint()
-    ..color = AppTheme.divider
+    ..color = colors.divider
     ..strokeWidth = 1;
   final labelPainter = TextPainter(
     text: TextSpan(
       text: label,
       style: TextStyle(
-        color: AppTheme.textSecondary,
+        color: colors.textSecondary,
         fontSize: 11,
         fontWeight: FontWeight.w700,
       ),
@@ -948,6 +990,7 @@ void _drawLine(
   double minValue,
   double maxValue,
   Color color,
+  _JourneyColors colors,
 ) {
   if (days.isEmpty || points.isEmpty) return;
   final top = 28.0;
@@ -990,7 +1033,7 @@ void _drawLine(
       text: TextSpan(
         text: entry.value.toStringAsFixed(entry.value % 1 == 0 ? 0 : 1),
         style: TextStyle(
-          color: AppTheme.textPrimary,
+          color: colors.textPrimary,
           fontSize: 10,
           fontWeight: FontWeight.w700,
         ),
@@ -1443,7 +1486,7 @@ IconData _eventIcon(Map<String, dynamic> event) {
   return Icons.circle_outlined;
 }
 
-Color _eventColor(Map<String, dynamic> event) {
+Color _eventColor(Map<String, dynamic> event, {Color? fallback}) {
   final type = (event['event_type'] ?? event['type'] ?? '')
       .toString()
       .toLowerCase();
@@ -1459,5 +1502,5 @@ Color _eventColor(Map<String, dynamic> event) {
   }
   if (type.contains('referral')) return AppTheme.warningOnSurface;
   if (type.contains('admission')) return AppTheme.primaryBlue;
-  return AppTheme.textSecondary;
+  return fallback ?? AppTheme.textSecondary;
 }
