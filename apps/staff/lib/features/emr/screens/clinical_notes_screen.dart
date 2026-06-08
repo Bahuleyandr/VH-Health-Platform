@@ -1389,7 +1389,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         await _submitNote(
           formKey: formKey,
           existingNoteId: _intFrom(existingNote?['id']),
-          openPrescriptionAfterSave: openPrescription,
+          openInvestigationsAfterSave: openPrescription,
           data: {
             'patient_uid': widget.patientUid,
             'note_type': noteType,
@@ -1617,8 +1617,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                           if (showPrescriptionAction)
                             OutlinedButton.icon(
                               onPressed: () => onSubmit(openPrescription: true),
-                              icon: const Icon(Icons.medication_outlined),
-                              label: const Text('Save & prescribe'),
+                              icon: const Icon(Icons.biotech_outlined),
+                              label: const Text('Save & investigations'),
                             ),
                           FilledButton.icon(
                             onPressed: () => onSubmit(openPrescription: false),
@@ -1692,11 +1692,33 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     context.push('/prescriptions', extra: extra);
   }
 
+  void _openInvestigationsFromNoteContext() {
+    final params = <String>[
+      'patient_uid=${Uri.encodeQueryComponent(widget.patientUid)}',
+      if (widget.appointmentId != null)
+        'appointment_id=${widget.appointmentId}',
+      if (widget.patientId != null) 'patient_id=${widget.patientId}',
+      if ((widget.patientName ?? '').trim().isNotEmpty)
+        'name=${Uri.encodeQueryComponent(widget.patientName!.trim())}',
+      if (widget.doctorId != null) 'doctor_id=${widget.doctorId}',
+      if ((widget.doctorName ?? '').trim().isNotEmpty)
+        'doctor_name=${Uri.encodeQueryComponent(widget.doctorName!.trim())}',
+      if ((widget.department ?? '').trim().isNotEmpty)
+        'department=${Uri.encodeQueryComponent(widget.department!.trim())}',
+      if ((widget.appointmentDate ?? '').trim().isNotEmpty)
+        'appointment_date=${Uri.encodeQueryComponent(widget.appointmentDate!.trim())}',
+      if ((widget.appointmentTime ?? '').trim().isNotEmpty)
+        'appointment_time=${Uri.encodeQueryComponent(widget.appointmentTime!.trim())}',
+      'context=op',
+    ];
+    context.push('/investigations?${params.join('&')}');
+  }
+
   Future<void> _submitNote({
     required GlobalKey<FormState> formKey,
     required Map<String, dynamic> data,
     int? existingNoteId,
-    bool openPrescriptionAfterSave = false,
+    bool openInvestigationsAfterSave = false,
   }) async {
     if (!formKey.currentState!.validate()) return;
     Navigator.of(context).pop();
@@ -1735,8 +1757,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             _tabController.animateTo(tabIndex);
           }
         }
-        if (openPrescriptionAfterSave) {
-          _openPrescriptionFromContent(content);
+        if (openInvestigationsAfterSave) {
+          _openInvestigationsFromNoteContext();
         }
       }
     } catch (e) {

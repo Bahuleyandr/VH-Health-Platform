@@ -460,35 +460,13 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
     return parts.join('\n\n');
   }
 
-  Future<void> _openPrescriptionFromContent(
-    Map<String, dynamic> content,
-  ) async {
-    await context.push(
-      '/prescriptions',
-      extra: {
-        if (widget.appointmentId != null) 'id': widget.appointmentId,
-        if (widget.patientId != null) 'patient_id': widget.patientId,
-        if (widget.doctorId != null) 'doctor_id': widget.doctorId,
-        'patient_uid': widget.patientUid,
-        'patient_name': _patientTitle,
-        if (_clean(widget.doctorName).isNotEmpty)
-          'doctor_name': _clean(widget.doctorName),
-        if (_clean(widget.department).isNotEmpty)
-          'department': _clean(widget.department),
-        if (_clean(widget.reason).isNotEmpty) 'reason': _clean(widget.reason),
-        if (_clean(widget.appointmentDate).isNotEmpty)
-          'appointment_date': _clean(widget.appointmentDate),
-        if (_clean(widget.appointmentTime).isNotEmpty)
-          'appointment_time': _clean(widget.appointmentTime),
-        'diagnosis': _clean(content['diagnosis']),
-        'clinical_notes': _prescriptionClinicalNotes(content),
-      },
-    );
+  Future<void> _openInvestigationsAfterNote() async {
+    await context.push(_investigationsRoute);
     if (mounted) _loadTimeline();
   }
 
   Future<void> _saveOpNote({
-    bool openPrescriptionAfter = false,
+    bool openInvestigationsAfter = false,
     bool signAfter = false,
   }) async {
     if (_savingNote || _opNoteSigned) return;
@@ -543,8 +521,8 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
             ? 'Consultation note signed'
             : (_opNoteId != null ? 'Consultation note saved' : 'Note saved'),
       );
-      if (openPrescriptionAfter) {
-        await _openPrescriptionFromContent(content);
+      if (openInvestigationsAfter) {
+        await _openInvestigationsAfterNote();
       }
       _loadTimeline();
     } catch (e) {
@@ -739,9 +717,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                 OutlinedButton.icon(
                   onPressed: _savingNote || !noteFieldsEnabled
                       ? null
-                      : () => _saveOpNote(openPrescriptionAfter: true),
-                  icon: const Icon(Icons.medication_outlined, size: 18),
-                  label: const Text('Save & prescribe'),
+                      : () => _saveOpNote(openInvestigationsAfter: true),
+                  icon: const Icon(Icons.biotech_outlined, size: 18),
+                  label: const Text('Save & investigations'),
                 ),
                 OutlinedButton.icon(
                   onPressed:

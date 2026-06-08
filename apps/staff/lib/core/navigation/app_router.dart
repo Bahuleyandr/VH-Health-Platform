@@ -256,6 +256,7 @@ final GoRouter appRouter = GoRouter(
                 initialPatientName: q['name'],
                 initialHospitalNumber: q['hospital_number'],
                 initialAppointmentId: q['appointment_id'],
+                initialDoctorId: q['doctor_id'],
                 initialDoctorName: q['doctor_name'],
                 initialDepartment: q['department'],
                 initialAppointmentDate: q['appointment_date'],

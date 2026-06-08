@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
@@ -18,6 +19,7 @@ class InvestigationsScreen extends StatefulWidget {
   final String? initialPatientName;
   final String? initialHospitalNumber;
   final String? initialAppointmentId;
+  final String? initialDoctorId;
   final String? initialDoctorName;
   final String? initialDepartment;
   final String? initialAppointmentDate;
@@ -32,6 +34,7 @@ class InvestigationsScreen extends StatefulWidget {
     this.initialPatientName,
     this.initialHospitalNumber,
     this.initialAppointmentId,
+    this.initialDoctorId,
     this.initialDoctorName,
     this.initialDepartment,
     this.initialAppointmentDate,
@@ -189,6 +192,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   bool _canUploadResults = false;
   bool _canManagePendingStatus = false;
 
+  bool get _isScopedOpVisit =>
+      (widget.contextMode ?? '').trim().toLowerCase() == 'op' &&
+      (widget.initialPatientUid ?? '').trim().isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -225,6 +232,34 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       _canUploadResults = canUpload;
       _canManagePendingStatus = canManagePendingStatus;
     });
+  }
+
+  Map<String, dynamic> _prescriptionContext() {
+    int? parseInt(String? value) => int.tryParse((value ?? '').trim());
+    return {
+      if (parseInt(widget.initialAppointmentId) != null)
+        'id': parseInt(widget.initialAppointmentId),
+      if (parseInt(widget.initialPatientId) != null)
+        'patient_id': parseInt(widget.initialPatientId),
+      'patient_uid': widget.initialPatientUid,
+      if ((widget.initialPatientName ?? '').trim().isNotEmpty)
+        'patient_name': widget.initialPatientName!.trim(),
+      if (parseInt(widget.initialDoctorId) != null)
+        'doctor_id': parseInt(widget.initialDoctorId),
+      if ((widget.initialDoctorName ?? '').trim().isNotEmpty)
+        'doctor_name': widget.initialDoctorName!.trim(),
+      if ((widget.initialDepartment ?? '').trim().isNotEmpty)
+        'department': widget.initialDepartment!.trim(),
+      if ((widget.initialAppointmentDate ?? '').trim().isNotEmpty)
+        'appointment_date': widget.initialAppointmentDate!.trim(),
+      if ((widget.initialAppointmentTime ?? '').trim().isNotEmpty)
+        'appointment_time': widget.initialAppointmentTime!.trim(),
+    };
+  }
+
+  void _continueToPrescription() {
+    if (!_isScopedOpVisit) return;
+    context.push('/prescriptions', extra: _prescriptionContext());
   }
 
   Future<void> _orderInvestigation() async {
@@ -532,9 +567,16 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
       if (ordered == true && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Investigation ordered'),
+          SnackBar(
+            content: const Text('Investigation ordered'),
             backgroundColor: AppTheme.successGreen,
+            action: _isScopedOpVisit
+                ? SnackBarAction(
+                    label: 'Prescription',
+                    textColor: AppTheme.surfaceWhite,
+                    onPressed: _continueToPrescription,
+                  )
+                : null,
           ),
         );
         setState(() {
@@ -605,6 +647,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             child: Row(
               children: [
                 const Spacer(),
+                if (_isScopedOpVisit) ...[
+                  OutlinedButton.icon(
+                    onPressed: _continueToPrescription,
+                    icon: const Icon(Icons.medication_outlined),
+                    label: const Text('Continue to prescription'),
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: _orderInvestigation,
