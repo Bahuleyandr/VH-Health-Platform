@@ -13,6 +13,8 @@ const adminOrigin = trimSlash(process.env.VH_TRIAL_ADMIN_ORIGIN || 'https://admi
 const expectedCommit = process.env.GITHUB_SHA || process.env.FORGEJO_SHA || '';
 const requireVersionMatch = truthy(process.env.VH_REQUIRE_VERSION_MATCH);
 const sentryRequired = truthy(process.env.SENTRY_SMOKE_REQUIRED);
+const versionMatchTimeoutMs = Number(process.env.VH_VERSION_MATCH_TIMEOUT_MS || 10 * 60 * 1000);
+const versionMatchPollMs = Number(process.env.VH_VERSION_MATCH_POLL_MS || 15 * 1000);
 
 const results = [];
 
@@ -68,6 +70,21 @@ async function probeJson(label, url, { required = true, expectStatus = 200 } = {
     });
     return { ok: false, status: 'ERR', body: null, error };
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolveSleep) => {
+    setTimeout(resolveSleep, ms);
+  });
+}
+
+function getDeployedCommit(versionBody) {
+  return String(versionBody?.commit || versionBody?.git_commit || versionBody?.data?.git_commit || '');
+}
+
+function commitsMatch(deployed, expected) {
+  if (!deployed || deployed === 'unknown' || !expected) return false;
+  return deployed === expected || expected.startsWith(deployed) || deployed.startsWith(expected);
 }
 
 async function sendSentrySmoke({ name, dsn }) {
@@ -156,13 +173,22 @@ async function sendSentrySmoke({ name, dsn }) {
 
 const live = await probeJson('backend:live', `${healthOrigin}/health/live`);
 await probeJson('backend:ready', `${healthOrigin}/health/ready`);
-const version = await probeJson('backend:version', `${healthOrigin}/health/version`);
+let version = await probeJson('backend:version', `${healthOrigin}/health/version`);
 await probeJson('backend:metrics', `${healthOrigin}/health/metrics`, { required: false });
 await probeJson('admin:login', `${adminOrigin}/login`);
 
-if (version.ok && expectedCommit && version.body?.commit && version.body.commit !== 'unknown') {
-  const deployed = String(version.body.commit);
-  const match = deployed === expectedCommit || expectedCommit.startsWith(deployed) || deployed.startsWith(expectedCommit);
+if (version.ok && expectedCommit) {
+  let deployed = getDeployedCommit(version.body);
+  let match = commitsMatch(deployed, expectedCommit);
+  if (!match && requireVersionMatch && versionMatchTimeoutMs > 0) {
+    const deadline = Date.now() + versionMatchTimeoutMs;
+    while (!match && Date.now() < deadline) {
+      await sleep(versionMatchPollMs);
+      version = await probeJson('backend:version-retry', `${healthOrigin}/health/version`);
+      deployed = getDeployedCommit(version.body);
+      match = commitsMatch(deployed, expectedCommit);
+    }
+  }
   appendResult({
     label: 'backend:version-match',
     ok: match,
