@@ -1,0 +1,107 @@
+# monitoring/backend-red-alerts.yaml — backend RED + clinical-path alerts
+# (roadmap A6). Metric names come from the backend's own exporter
+# (src/middleware/prometheusMiddleware.js): http_request_duration_seconds
+# (histogram, labels method/route/status_code) and http_requests_total.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vhhealth-backend-red-alerts
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: rules
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: backend-red
+      interval: 30s
+      rules:
+        - alert: BackendHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+              / clamp_min(sum(rate(http_requests_total[5m])), 1e-9) > 0.02
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Backend 5xx rate above 2% for 5m"
+            runbook: "docs/RUNBOOK_ONCALL.md#backendhigherrorrate"
+
+        - alert: BackendReadLatencyP95Breach
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{method="GET"}[5m])) by (le)
+            ) > 0.4
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GET p95 latency above the 400ms SLO for 10m"
+            runbook: "docs/RUNBOOK_ONCALL.md#backendreadlatencyp95breach"
+
+        - alert: BackendWriteLatencyP95Breach
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{method=~"POST|PUT|PATCH"}[5m])) by (le)
+            ) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Write p95 latency above the 800ms SLO for 10m"
+            runbook: "docs/RUNBOOK_ONCALL.md#backendwritelatencyp95breach"
+
+        - alert: BackendClinicalRouteErrors
+          expr: |
+            sum(rate(http_requests_total{status_code=~"5..",
+              route=~"/api/v1/(emr|clinical|pharmacy-orders|prescriptions|downtime).*"}[5m])) > 0.05
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "5xx on clinical routes (EMR/MAR/prescriptions) — patient-facing impact"
+            runbook: "docs/RUNBOOK_ONCALL.md#backendclinicalrouteerrors"
+
+        - alert: BackendDown
+          expr: absent(up{job=~".*vhhealth-backend.*"} == 1)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No backend targets up for 2m — downtime procedure may apply"
+            runbook: "docs/DOWNTIME_PROCEDURE.md"
+
+        - alert: WardDowntimePacksStale
+          expr: |
+            time() - max(kube_job_status_completion_time{job_name=~"ward-downtime-packs.*"}) > 3600
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Ward downtime packs have not regenerated in >1h (in-process cron — investigate backend logs)"
+            runbook: "docs/DOWNTIME_PROCEDURE.md"
+
+    - name: backend-db
+      interval: 30s
+      rules:
+        - alert: CNPGReplicationLagHigh
+          expr: max(cnpg_pg_replication_lag) > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CNPG replication lag above 30s — read replicas serving stale data"
+            runbook: "docs/RUNBOOK_ONCALL.md#cnpgreplicationlaghigh"
+
+        - alert: CNPGBackupNotRecent
+          expr: |
+            time() - max(cnpg_collector_last_available_backup_timestamp) > 60 * 60 * 30
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "No completed CNPG backup in >30h — RPO at risk (roadmap A4)"
+            runbook: "docs/DR_RESTORE_DRILL.md"
