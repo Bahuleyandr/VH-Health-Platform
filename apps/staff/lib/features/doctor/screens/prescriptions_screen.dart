@@ -407,6 +407,15 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     );
   }
 
+  void _refreshDrugAutocompleteOptions(_MedicationEntry med) {
+    final controller = _drugTextControllers[med];
+    if (controller == null) return;
+    // RawAutocomplete recalculates options from controller notifications, but
+    // the backend suggestions arrive asynchronously after the text has changed.
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    controller.notifyListeners();
+  }
+
   FocusNode _drugFocusFor(_MedicationEntry med) {
     return _drugFocusNodes.putIfAbsent(med, FocusNode.new);
   }
@@ -1635,6 +1644,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           _drugSuggestionLoading.remove(med);
           _drugSuggestionQuery.remove(med);
         });
+        _refreshDrugAutocompleteOptions(med);
       }
       return;
     }
@@ -1655,9 +1665,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       setState(() {
         _drugSuggestions[med] = _groupCatalogRows(relevantRows);
       });
+      _refreshDrugAutocompleteOptions(med);
     } catch (e) {
       if (!mounted) return;
       setState(() => _drugSuggestions[med] = const []);
+      _refreshDrugAutocompleteOptions(med);
     } finally {
       if (mounted && _drugSuggestionQuery[med] == q) {
         setState(() => _drugSuggestionLoading.remove(med));
