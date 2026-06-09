@@ -52,6 +52,25 @@ void main() {
       );
     });
 
+    test('keeps bulk prior-record upload titles distinguishable', () {
+      expect(
+        patientRecordsUploadTitleForFile(
+          baseTitle: 'Outside records',
+          fileName: 'scan-2024.pdf',
+          fileCount: 1,
+        ),
+        'Outside records',
+      );
+      expect(
+        patientRecordsUploadTitleForFile(
+          baseTitle: 'Outside records',
+          fileName: 'scan-2024.pdf',
+          fileCount: 3,
+        ),
+        'Outside records - scan-2024',
+      );
+    });
+
     test('reads nested AI extraction state from patient records', () {
       final extraction = patientRecordAiExtractionFrom({
         'id': '42',

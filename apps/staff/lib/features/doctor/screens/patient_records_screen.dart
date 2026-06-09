@@ -17,6 +17,46 @@ import '../../../l10n/app_strings.dart';
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
+class _PriorRecordUploadFile {
+  const _PriorRecordUploadFile({
+    required this.path,
+    required this.name,
+    this.size,
+  });
+
+  final String path;
+  final String name;
+  final int? size;
+
+  String get sizeLabel {
+    final bytes = size;
+    if (bytes == null || bytes <= 0) return '';
+    final kb = bytes / 1024;
+    if (kb < 1024) return '${kb.toStringAsFixed(kb < 100 ? 1 : 0)} KB';
+    final mb = kb / 1024;
+    return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
+  }
+}
+
+String _priorRecordFileStem(String name) {
+  final trimmed = name.trim();
+  if (trimmed.isEmpty) return 'file';
+  final dot = trimmed.lastIndexOf('.');
+  return dot > 0 ? trimmed.substring(0, dot) : trimmed;
+}
+
+@visibleForTesting
+String patientRecordsUploadTitleForFile({
+  required String baseTitle,
+  required String fileName,
+  required int fileCount,
+}) {
+  final normalizedTitle = baseTitle.trim();
+  if (fileCount <= 1) return normalizedTitle;
+  final stem = _priorRecordFileStem(fileName);
+  return '$normalizedTitle - $stem';
+}
+
 /// Patient Records screen — Doctors/Nurses/Admin view patient records.
 class PatientRecordsScreen extends StatefulWidget {
   final String? contextMode;
@@ -578,9 +618,10 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     final notesCtrl = TextEditingController();
     var documentType = 'prior_record';
     DateTime? recordDate;
-    String? pickedPath;
-    String? pickedName;
+    final pickedFiles = <_PriorRecordUploadFile>[];
     var submitting = false;
+    var uploadedCount = 0;
+    String? uploadingName;
     var lookupBusy = false;
     var patientNameReadOnly = hasScopedPatient && scopedPatientName.isNotEmpty;
     var lookupMessage = patientRecordsUploadLookupMessage(
@@ -656,37 +697,59 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
 
           Future<void> submit() async {
             if (!formKey.currentState!.validate()) return;
-            if (pickedPath == null) {
+            if (pickedFiles.isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
                 const SnackBar(
-                  content: Text('Attach a file or photo'),
+                  content: Text('Attach at least one file or photo'),
                   backgroundColor: AppTheme.errorRed,
                 ),
               );
               return;
             }
-            setSheetState(() => submitting = true);
+            setSheetState(() {
+              submitting = true;
+              uploadedCount = 0;
+              uploadingName = null;
+            });
             try {
-              await MedicalApiService.uploadPatientPriorRecord(
-                patientId: scopedPatientId,
-                patientPhone: phoneCtrl.text.trim(),
-                patientName: patientNameCtrl.text.trim(),
-                title: titleCtrl.text.trim(),
-                documentType: documentType,
-                filePath: pickedPath!,
-                fileName: pickedName,
-                sourceHospital: sourceCtrl.text.trim(),
-                recordDate: recordDate == null
-                    ? null
-                    : DateFormat('yyyy-MM-dd').format(recordDate!),
-                notes: notesCtrl.text.trim().isEmpty
-                    ? null
-                    : notesCtrl.text.trim(),
-              );
+              final baseTitle = titleCtrl.text.trim();
+              final formattedRecordDate = recordDate == null
+                  ? null
+                  : DateFormat('yyyy-MM-dd').format(recordDate!);
+              final notes = notesCtrl.text.trim().isEmpty
+                  ? null
+                  : notesCtrl.text.trim();
+              for (var index = 0; index < pickedFiles.length; index++) {
+                final file = pickedFiles[index];
+                setSheetState(() {
+                  uploadedCount = index;
+                  uploadingName = file.name;
+                });
+                await MedicalApiService.uploadPatientPriorRecord(
+                  patientId: scopedPatientId,
+                  patientPhone: phoneCtrl.text.trim(),
+                  patientName: patientNameCtrl.text.trim(),
+                  title: patientRecordsUploadTitleForFile(
+                    baseTitle: baseTitle,
+                    fileName: file.name,
+                    fileCount: pickedFiles.length,
+                  ),
+                  documentType: documentType,
+                  filePath: file.path,
+                  fileName: file.name,
+                  sourceHospital: sourceCtrl.text.trim(),
+                  recordDate: formattedRecordDate,
+                  notes: notes,
+                );
+                setSheetState(() => uploadedCount = index + 1);
+              }
               if (ctx.mounted) Navigator.pop(ctx, true);
             } catch (e) {
               if (!ctx.mounted) return;
-              setSheetState(() => submitting = false);
+              setSheetState(() {
+                submitting = false;
+                uploadingName = null;
+              });
               ScaffoldMessenger.of(ctx).showSnackBar(
                 SnackBar(
                   content: Text(e.toString().replaceFirst('Exception: ', '')),
@@ -876,12 +939,17 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                         Expanded(
                           child: OutlinedButton.icon(
                             icon: const Icon(Icons.attach_file),
-                            label: Text(pickedName ?? 'Choose file'),
+                            label: Text(
+                              pickedFiles.isEmpty
+                                  ? 'Choose files'
+                                  : '${pickedFiles.length} file${pickedFiles.length == 1 ? '' : 's'} selected',
+                            ),
                             onPressed: submitting
                                 ? null
                                 : () async {
                                     final result = await FilePicker.pickFiles(
                                       type: FileType.custom,
+                                      allowMultiple: true,
                                       allowedExtensions: [
                                         'pdf',
                                         'jpg',
@@ -889,11 +957,33 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                         'png',
                                       ],
                                     );
-                                    final file = result?.files.single;
-                                    if (file?.path != null) {
+                                    final files =
+                                        result?.files
+                                            .where(
+                                              (file) =>
+                                                  (file.path ?? '').isNotEmpty,
+                                            )
+                                            .map(
+                                              (file) => _PriorRecordUploadFile(
+                                                path: file.path!,
+                                                name: file.name,
+                                                size: file.size,
+                                              ),
+                                            )
+                                            .toList() ??
+                                        const <_PriorRecordUploadFile>[];
+                                    if (files.isNotEmpty) {
                                       setSheetState(() {
-                                        pickedPath = file!.path;
-                                        pickedName = file.name;
+                                        final existingPaths = pickedFiles
+                                            .map((file) => file.path)
+                                            .toSet();
+                                        pickedFiles.addAll(
+                                          files.where(
+                                            (file) => !existingPaths.contains(
+                                              file.path,
+                                            ),
+                                          ),
+                                        );
                                       });
                                     }
                                   },
@@ -910,9 +1000,15 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                     final picked = await ImagePicker()
                                         .pickImage(source: ImageSource.camera);
                                     if (picked != null) {
+                                      final size = await picked.length();
                                       setSheetState(() {
-                                        pickedPath = picked.path;
-                                        pickedName = picked.name;
+                                        pickedFiles.add(
+                                          _PriorRecordUploadFile(
+                                            path: picked.path,
+                                            name: picked.name,
+                                            size: size,
+                                          ),
+                                        );
                                       });
                                     }
                                   },
@@ -920,6 +1016,74 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                         ),
                       ],
                     ),
+                    if (pickedFiles.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Theme.of(ctx)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(
+                              ctx,
+                            ).colorScheme.outlineVariant.withValues(alpha: 0.7),
+                          ),
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 180),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: pickedFiles.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final file = pickedFiles[index];
+                              final subtitle = file.sizeLabel;
+                              final isUploading =
+                                  submitting && uploadingName == file.name;
+                              return ListTile(
+                                dense: true,
+                                leading: Icon(
+                                  isUploading
+                                      ? Icons.cloud_upload_outlined
+                                      : Icons.description_outlined,
+                                  color: isUploading
+                                      ? AppTheme.primaryBlue
+                                      : null,
+                                ),
+                                title: Text(
+                                  file.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: subtitle.isEmpty
+                                    ? null
+                                    : Text(subtitle),
+                                trailing: submitting
+                                    ? isUploading
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : null
+                                    : IconButton(
+                                        tooltip: 'Remove file',
+                                        icon: const Icon(Icons.close),
+                                        onPressed: () => setSheetState(
+                                          () => pickedFiles.removeAt(index),
+                                        ),
+                                      ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     TextField(
                       controller: notesCtrl,
@@ -950,7 +1114,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                 color: Colors.white,
                               ),
                         label: Text(
-                          submitting ? 'Uploading...' : 'Upload Record',
+                          submitting
+                              ? 'Uploading $uploadedCount/${pickedFiles.length}'
+                              : pickedFiles.length <= 1
+                              ? 'Upload Record'
+                              : 'Upload ${pickedFiles.length} Records',
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primaryBlue,
