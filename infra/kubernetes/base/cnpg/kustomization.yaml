@@ -25,3 +25,4 @@ resources:
   - operator.yaml
   - cluster.yaml
   - poolers.yaml
+  - scheduled-backup.yaml
