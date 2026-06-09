@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
+import { evaluateDrugKb } from '../../services/clinical/drugKnowledgeBaseService.js';
 
 /**
  * Per-dose mg/kg ceilings for common paediatric drugs. Names matched
@@ -1015,6 +1016,98 @@ export async function validatePrescriptionSafety(patientId, medications) {
     const stewardship = checkAntibioticStewardship(medications);
     warnings.push(...stewardship.warnings);
     blockers.push(...stewardship.blockers);
+
+    // 8. Drug knowledge base (roadmap B2). The general engine the checks
+    //    above deliberately were not: drug–drug interactions, group-based
+    //    allergy cross-sensitivity, drug–disease cautions against the B7
+    //    problem list, dose ceilings (adult/renal), IV compatibility — all
+    //    DB-backed (migration 277; licensed KB via drug-kb-import.mjs).
+    //    The engine is schema-tolerant: on an un-migrated environment it
+    //    reports kbAvailable:false and contributes nothing (the legacy
+    //    checks above remain the safety floor). Severity mapping:
+    //    contraindicated/major + same-class allergy hits → blockers
+    //    (override-with-reason path unchanged), the rest → warnings.
+    try {
+      const patientRows = await prisma.$queryRawUnsafe(
+        `SELECT uid,
+                CASE WHEN birthday IS NOT NULL THEN DATE_PART('year', AGE(NOW()::date, birthday))::int
+                     ELSE NULL END AS age_years
+           FROM users WHERE id = $1 LIMIT 1`,
+        patientId,
+      );
+      const patientUid = patientRows[0]?.uid || null;
+      let activeProblems = [];
+      if (patientUid) {
+        try {
+          activeProblems = await prisma.$queryRawUnsafe(
+            `SELECT icd10_code, title FROM patient_problems
+              WHERE patient_uid = $1::uuid AND status = 'active'`,
+            patientUid,
+          );
+        } catch (problemErr) {
+          if (!/does not exist/i.test(String(problemErr?.message || ''))) throw problemErr;
+        }
+      }
+      const kbResult = await evaluateDrugKb({
+        medications,
+        allergies,
+        problems: activeProblems,
+        patient: {
+          ageYears: patientRows[0]?.age_years ?? paedCtx?.ageYears ?? null,
+          weightKg: paedCtx?.weightKg ?? null,
+          egfr: renalContext?.egfr ?? null,
+        },
+      });
+      for (const finding of kbResult.findings) {
+        // The antithrombotic axis (check 4) owns its pairs — skip KB
+        // duplicates where every involved drug classifies antithrombotic.
+        if (finding.check === 'interaction'
+          && finding.medications.every((name) => classifyAntithromboticDrug(name))) {
+          continue;
+        }
+        // Skip cross-sensitivity findings already flagged by checks 1/1b
+        // for the same medication+allergen pair.
+        if (finding.check === 'allergy_cross_sensitivity') {
+          const dup = blockers.concat(warnings).some(
+            (b) => String(b.medication || '').toLowerCase() === String(finding.medications[0] || '').toLowerCase()
+              && String(b.allergy || '').toLowerCase() === String(finding.allergen || '').toLowerCase()
+              && (b.type === 'ALLERGY_CONFLICT' || b.type === 'ALLERGY_CONFLICT_UNSTRUCTURED'),
+          );
+          if (dup) continue;
+        }
+        const issue = {
+          type: finding.check === 'interaction' ? 'DRUG_INTERACTION_KB'
+            : finding.check === 'allergy_cross_sensitivity' ? 'ALLERGY_CROSS_SENSITIVITY_KB'
+              : finding.check === 'condition_caution' ? 'DRUG_DISEASE_KB'
+                : finding.check === 'dose_range' ? 'DOSE_RANGE_KB'
+                  : 'IV_COMPATIBILITY_KB',
+          severity: String(finding.severity || '').toUpperCase(),
+          medication: finding.medications.join(' + '),
+          medications: finding.medications,
+          allergy: finding.allergen,
+          message: finding.message,
+          management: finding.management || null,
+          kb_source: finding.source_key || null,
+        };
+        const blocking =
+          (finding.check === 'interaction' && ['contraindicated', 'major'].includes(finding.severity))
+          || (finding.check === 'allergy_cross_sensitivity' && finding.severity === 'high')
+          || (finding.check === 'condition_caution' && finding.severity === 'contraindicated')
+          || (finding.check === 'dose_range' && finding.severity === 'major');
+        if (blocking) blockers.push(issue);
+        else warnings.push(issue);
+      }
+    } catch (kbErr) {
+      // KB evaluation must never weaken the floor checks above; treat an
+      // unexpected KB failure as its own loud warning, not a silent pass
+      // and not a full fail-closed (the deterministic checks already ran).
+      logger.error('Drug KB evaluation failed (continuing with legacy checks):', kbErr.message);
+      warnings.push({
+        type: 'DRUG_KB_CHECK_ERROR',
+        severity: 'MODERATE',
+        message: 'Drug knowledge-base screening failed — interactions beyond the built-in checks were not evaluated this time.',
+      });
+    }
 
   } catch (err) {
     // Fail CLOSED on safety-check failure. Returning safe:true silently

@@ -4411,6 +4411,138 @@ model drug_interactions {
   created_at      DateTime? @default(now()) @db.Timestamptz(6)
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model drug_kb_allergy_cross_reactivity {
+  id                    Int             @id @default(autoincrement())
+  source_key            String          @db.VarChar(60)
+  group_key             String          @db.VarChar(80)
+  reacts_with_group_key String          @db.VarChar(80)
+  risk                  String          @default("moderate") @db.VarChar(20)
+  note                  String?
+  created_at            DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources       drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([source_key, group_key, reacts_with_group_key], map: "drug_kb_allergy_xreact_unique")
+}
+
+model drug_kb_allergy_groups {
+  id              Int             @id @default(autoincrement())
+  source_key      String          @db.VarChar(60)
+  group_key       String          @db.VarChar(80)
+  member_key      String          @db.VarChar(120)
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([source_key, group_key, member_key], map: "drug_kb_allergy_groups_unique")
+  @@index([member_key], map: "idx_drug_kb_allergy_groups_member")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model drug_kb_condition_cautions {
+  id              Int             @id @default(autoincrement())
+  source_key      String          @db.VarChar(60)
+  drug_key        String          @db.VarChar(120)
+  icd10_prefix    String          @db.VarChar(10)
+  condition_label String          @db.VarChar(200)
+  risk            String          @db.VarChar(20)
+  note            String?
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([source_key, drug_key, icd10_prefix], map: "drug_kb_condition_cautions_unique")
+  @@index([drug_key], map: "idx_drug_kb_condition_cautions_drug")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model drug_kb_dose_ranges {
+  id                  Int             @id @default(autoincrement())
+  source_key          String          @db.VarChar(60)
+  drug_key            String          @db.VarChar(120)
+  route               String?         @db.VarChar(20)
+  population          String          @default("adult") @db.VarChar(20)
+  max_single_dose_mg  Decimal?        @db.Decimal(10, 3)
+  max_daily_dose_mg   Decimal?        @db.Decimal(10, 3)
+  max_daily_mg_per_kg Decimal?        @db.Decimal(10, 3)
+  min_egfr            Decimal?        @db.Decimal(6, 2)
+  egfr_max_daily_mg   Decimal?        @db.Decimal(10, 3)
+  note                String?
+  created_at          DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources     drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@index([drug_key], map: "idx_drug_kb_dose_ranges_drug")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model drug_kb_interactions {
+  id              Int             @id @default(autoincrement())
+  source_key      String          @db.VarChar(60)
+  drug_a_key      String          @db.VarChar(120)
+  drug_b_key      String          @db.VarChar(120)
+  severity        String          @db.VarChar(20)
+  mechanism       String?
+  effect          String?
+  management      String?
+  evidence        String?         @db.VarChar(40)
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([source_key, drug_a_key, drug_b_key], map: "drug_kb_interactions_unique")
+  @@index([drug_a_key], map: "idx_drug_kb_interactions_a")
+  @@index([drug_b_key], map: "idx_drug_kb_interactions_b")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model drug_kb_iv_compatibility {
+  id              Int             @id @default(autoincrement())
+  source_key      String          @db.VarChar(60)
+  drug_a_key      String          @db.VarChar(120)
+  drug_b_key      String          @db.VarChar(120)
+  compatibility   String          @db.VarChar(20)
+  diluent         String?         @db.VarChar(80)
+  note            String?
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+}
+
+model drug_kb_monographs {
+  id              Int             @id @default(autoincrement())
+  source_key      String          @db.VarChar(60)
+  drug_key        String          @db.VarChar(120)
+  display_name    String          @db.VarChar(200)
+  atc_code        String?         @db.VarChar(20)
+  drug_class      String?         @db.VarChar(120)
+  aliases         String[]        @default([])
+  properties      Json            @default("{}")
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
+  drug_kb_sources drug_kb_sources @relation(fields: [source_key], references: [source_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([source_key, drug_key], map: "drug_kb_monographs_unique")
+  @@index([drug_key], map: "idx_drug_kb_monographs_key")
+}
+
+model drug_kb_sources {
+  id                               Int                                @id @default(autoincrement())
+  source_key                       String                             @unique @db.VarChar(60)
+  name                             String                             @db.VarChar(200)
+  vendor                           String?                            @db.VarChar(120)
+  version                          String?                            @db.VarChar(80)
+  license_note                     String?                            @db.VarChar(255)
+  is_starter                       Boolean                            @default(false)
+  is_active                        Boolean                            @default(true)
+  imported_at                      DateTime?                          @db.Timestamptz(6)
+  metadata                         Json                               @default("{}")
+  created_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                           @default(now()) @db.Timestamptz(6)
+  drug_kb_allergy_cross_reactivity drug_kb_allergy_cross_reactivity[]
+  drug_kb_allergy_groups           drug_kb_allergy_groups[]
+  drug_kb_condition_cautions       drug_kb_condition_cautions[]
+  drug_kb_dose_ranges              drug_kb_dose_ranges[]
+  drug_kb_interactions             drug_kb_interactions[]
+  drug_kb_iv_compatibility         drug_kb_iv_compatibility[]
+  drug_kb_monographs               drug_kb_monographs[]
+}
+
 model e_prescriptions {
   id                            Int                             @id @default(autoincrement())
   appointment_id                Int?

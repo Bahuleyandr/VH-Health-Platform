@@ -231,6 +231,7 @@ import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import downtimeRoutes from './routes/downtime/downtimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
 import problemListRoutes from './routes/clinical/problemListRoutes.js';
+import drugKbRoutes from './routes/clinical/drugKbRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -717,6 +718,11 @@ app.use('/api/v1/terminology', requireRole(...CLINICAL_STAFF_ROLES), terminology
 
 // Longitudinal problem list (roadmap B7) — PHI by definition.
 app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
+
+// Drug knowledge base (roadmap B2) — stateless KB evaluation + source
+// status. Reference data; patient-bound screening runs inside
+// validatePrescriptionSafety on the prescription write path.
+app.use('/api/v1/drug-kb', requireRole(...CLINICAL_STAFF_ROLES), drugKbRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
