@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
 
 /**
  * Per-dose mg/kg ceilings for common paediatric drugs. Names matched
@@ -766,28 +767,32 @@ export async function validatePrescriptionSafety(patientId, medications) {
   const blockers = [];
 
   try {
-    // 1. Check patient allergies
-    const allergyResult = await prisma.$queryRawUnsafe(
-      `SELECT allergy_name, severity FROM patient_allergies WHERE patient_id = $1 AND is_active = true`,
-      patientId
-    );
-    const allergies = allergyResult;
+    // 1. Check patient allergies — ALL stores (roadmap A10). The old query
+    // read patient_allergies by patient_id only, so it missed: uid-keyed
+    // patient_allergies rows, the legacy `allergies` import table (written
+    // by patientDataImport, previously read only by CCDA/FHIR exporters),
+    // the users.allergies profile text, and admission-intake allergies.
+    // getUnifiedActiveAllergies unions all four, dedupes case-insensitively
+    // keeping the highest severity, and never throws.
+    const allergies = await getUnifiedActiveAllergies(prisma, { patientId });
 
     if (allergies.length > 0) {
       for (const med of medications) {
         const medName = (med.name || med.medication_name || '').toLowerCase();
         for (const allergy of allergies) {
-          const allergyName = (allergy.allergy_name || '').toLowerCase();
+          const allergyName = (allergy.allergen || '').toLowerCase();
           // Simple substring match — production should use a proper drug-allergy database
           if (medName.includes(allergyName) || allergyName.includes(medName)) {
             const issue = {
               type: 'ALLERGY_CONFLICT',
               medication: med.name || med.medication_name,
-              allergy: allergy.allergy_name,
+              allergy: allergy.allergen,
               severity: allergy.severity || 'UNKNOWN',
-              message: `Patient is allergic to "${allergy.allergy_name}" — "${med.name || med.medication_name}" may cause a reaction`,
+              sources: allergy.sources,
+              message: `Patient is allergic to "${allergy.allergen}" — "${med.name || med.medication_name}" may cause a reaction`,
             };
-            if (allergy.severity === 'SEVERE' || allergy.severity === 'LIFE_THREATENING') {
+            const sev = String(allergy.severity || '').toUpperCase();
+            if (sev === 'SEVERE' || sev === 'LIFE_THREATENING' || sev === 'ANAPHYLAXIS' || sev === 'CONTRAINDICATED') {
               blockers.push(issue);
             } else {
               warnings.push(issue);

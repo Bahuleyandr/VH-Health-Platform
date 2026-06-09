@@ -6,3 +6,4 @@ metadata:
 resources:
   - chart-tracker.yaml
   - alert-rules.yaml
+  - backend-red-alerts.yaml

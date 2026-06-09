@@ -224,10 +224,86 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
 }
 
 /**
+ * Tenant-scope a Prisma MODEL-API call (roadmap A2). The Phase-2 auto-wrapper
+ * originally covered only $queryRaw* / $executeRaw* — but the typed-ORM
+ * migrations (batches 26–38) moved many domains to the model API
+ * (`prisma.appointments.findMany(...)`), which connected with the GUC unset
+ * and therefore hit the PERMISSIVE branch of every tenant_isolation policy.
+ * The tenant-rls-http deep test demonstrated the resulting cross-tenant PHI
+ * read through GET /api/v1/appointments/list. This wrapper routes model calls
+ * through setTenant exactly like raw calls.
+ *
+ * KNOWN LIMITATIONS (documented, lint-guarded where possible):
+ *   * Array-form `prisma.$transaction([...])` requires lazy PrismaPromises.
+ *     Under an active tenant context the wrapped methods return real
+ *     Promises, which Prisma rejects LOUDLY (not silently): convert such
+ *     sites to the interactive form. All four pre-existing sites
+ *     (billingService ×3, medicationService ×1) were converted with this
+ *     change.
+ *   * Interactive `prisma.$transaction(async (tx) => ...)` callbacks receive
+ *     the raw tx client — model/raw calls inside are NOT auto-scoped (you
+ *     cannot nest a transaction inside a transaction). Those sites keep
+ *     legacy permissive behaviour until they adopt setTenant explicitly —
+ *     the Phase-2 call-site audit continues to track them.
+ */
+const MODEL_DELEGATE_CACHE = new WeakMap(); // baseClient → Map<prop, proxy>
+
+function isModelDelegate(value, prop) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof prop === 'string' &&
+    !prop.startsWith('$') &&
+    !prop.startsWith('_') &&
+    typeof value.findMany === 'function'
+  );
+}
+
+function shouldTenantWrap() {
+  if (!isTenantRlsEnforcementEnabled()) return null;
+  const ctx = getCurrentTenantContext();
+  if (!ctx || ctx.inSetTenant) return null;
+  if (!ctx.tenantId && !ctx.superAdmin) return null;
+  return ctx;
+}
+
+function wrapModelDelegate(baseClient, delegate, modelProp) {
+  let perClient = MODEL_DELEGATE_CACHE.get(baseClient);
+  if (!perClient) {
+    perClient = new Map();
+    MODEL_DELEGATE_CACHE.set(baseClient, perClient);
+  }
+  if (perClient.has(modelProp)) return perClient.get(modelProp);
+
+  const proxied = new Proxy(delegate, {
+    get(target, method, receiver) {
+      const fn = Reflect.get(target, method, receiver);
+      if (typeof fn !== 'function' || typeof method !== 'string' || method.startsWith('$')) {
+        return typeof fn === 'function' ? fn.bind(target) : fn;
+      }
+      return function tenantAwareModelCall(...args) {
+        const ctx = shouldTenantWrap();
+        if (!ctx) return fn.apply(target, args);
+        // Run the model call inside a setTenant transaction so the GUC (and
+        // the runtime role, when configured) applies. tx[modelProp] is the
+        // transaction-scoped delegate for the same model.
+        return runInTenantContext(ctx.tenantId, () => setTenant(
+          ctx.tenantId,
+          async (tx) => tx[modelProp][method](...args),
+          { superAdmin: ctx.superAdmin },
+        ), { superAdmin: ctx.superAdmin });
+      };
+    },
+  });
+  perClient.set(modelProp, proxied);
+  return proxied;
+}
+
+/**
  * Wrap the raw Prisma client in a Proxy that applies the circuit breaker
- * to WRAPPED_METHODS. Every other property passes through untouched, so
- * model APIs (`prisma.users.findUnique`, etc.), `$connect`, `$on`, and the
- * transaction `tx` client all behave exactly as before.
+ * to WRAPPED_METHODS and tenant scoping to BOTH raw-SQL methods and model
+ * delegates. `$connect`, `$on`, and the transaction `tx` client behave
+ * exactly as before.
  */
 function wrapClient(baseClient, tag) {
   return new Proxy(baseClient, {
@@ -235,6 +311,9 @@ function wrapClient(baseClient, tag) {
       const value = Reflect.get(target, prop, receiver);
       if (typeof value === 'function' && WRAPPED_METHODS.has(prop)) {
         return wrapWithCircuitBreaker(value, prop, tag).bind(target);
+      }
+      if (isModelDelegate(value, prop)) {
+        return wrapModelDelegate(target, value, prop);
       }
       return typeof value === 'function' ? value.bind(target) : value;
     },
@@ -289,13 +368,16 @@ export async function setTenant(tenantId, fn, { superAdmin = false } = {}) {
   // recurse and nest $transactions). Calls *outside* this fn (e.g. a
   // sibling promise after `await setTenant(...)`) see no inSetTenant flag
   // and behave normally.
-  // Test-only escape hatch: when AUTH_TENANT_RLS_TEST_ROLE is set, SET LOCAL
-  // ROLE to that role BEFORE the GUC. This is how the Phase-2 deep test
-  // simulates production (which connects as a non-superuser, non-owner role).
-  // CI Postgres and dev clusters often connect as a superuser/owner, which
-  // bypasses RLS regardless of FORCE — without this hook the deep test
-  // can only run on the local QA cluster's qa_writer role.
-  const testRole = process.env.AUTH_TENANT_RLS_TEST_ROLE;
+  // Runtime-role escape hatch: when AUTH_TENANT_RLS_RUNTIME_ROLE (canonical,
+  // prod-facing name — see roadmap item A2) or AUTH_TENANT_RLS_TEST_ROLE
+  // (legacy alias kept for existing rigs/tests) is set, SET LOCAL ROLE to
+  // that role BEFORE the GUC. Two deployment shapes need it:
+  //   * dalekdefender / CI: connection role is a SUPERUSER → bypasses RLS
+  //     even under FORCE; the non-bypass role restores enforcement.
+  //   * CNPG prod: connection role OWNS the tables; FORCE (migrations
+  //     237/238/239/272) covers owned tables, and the runtime role is
+  //     belt-and-braces for any future unforced table.
+  const testRole = tenantRlsRuntimeRole();
 
   return runInTenantContext(
     superAdmin ? null : tenantId,
@@ -334,9 +416,21 @@ export function circuitBreakerStatus() {
 }
 
 /**
+ * The SET LOCAL ROLE target for tenant-scoped transactions.
+ * AUTH_TENANT_RLS_RUNTIME_ROLE is the canonical name; AUTH_TENANT_RLS_TEST_ROLE
+ * is the legacy alias (pre-roadmap-A2 rigs and the Phase-2 deep tests).
+ */
+export function tenantRlsRuntimeRole(env = process.env) {
+  const role = env.AUTH_TENANT_RLS_RUNTIME_ROLE || env.AUTH_TENANT_RLS_TEST_ROLE;
+  const trimmed = typeof role === 'string' ? role.trim() : '';
+  return trimmed || null;
+}
+
+/**
  * Pure verdict for whether tenant RLS will actually be enforced, given the
  * connection role and the optional SET LOCAL ROLE override
- * (AUTH_TENANT_RLS_TEST_ROLE). No DB access — unit-testable in isolation.
+ * (AUTH_TENANT_RLS_RUNTIME_ROLE / legacy AUTH_TENANT_RLS_TEST_ROLE).
+ * No DB access — unit-testable in isolation.
  *
  * Postgres bypasses ALL row-level security for roles with `rolsuper` or
  * `rolbypassrls`, *even under FORCE ROW LEVEL SECURITY*. So if enforcement
@@ -356,6 +450,7 @@ export function evaluateTenantRlsPosture({
   connectionBypassesRls = false,
   testRole = null,
   testRoleBypassesRls = false,
+  effectiveRoleOwnsUnforcedRlsTables = 0,
 } = {}) {
   if (!enforced) {
     return {
@@ -363,17 +458,45 @@ export function evaluateTenantRlsPosture({
       ok: true,
       effectiveRole: connectionRole,
       bypassesRls: connectionBypassesRls,
+      unforcedOwnedRlsTables: effectiveRoleOwnsUnforcedRlsTables,
       reason: 'enforcement_disabled',
     };
   }
   const effectiveRole = testRole || connectionRole;
   const bypassesRls = testRole ? testRoleBypassesRls : connectionBypassesRls;
+  if (bypassesRls) {
+    return {
+      enforced: true,
+      ok: false,
+      effectiveRole,
+      bypassesRls,
+      unforcedOwnedRlsTables: effectiveRoleOwnsUnforcedRlsTables,
+      reason: 'effective_role_bypasses_rls',
+    };
+  }
+  // Owner-exemption gap: Postgres exempts a table's OWNER from RLS unless the
+  // table has FORCE ROW LEVEL SECURITY. CNPG prod connects as the bootstrap
+  // owner (`vhhealth`), which is neither SUPERUSER nor BYPASSRLS — the
+  // rolsuper/rolbypassrls check above passes, yet every tenant_isolation
+  // policy on an unforced owned table is still inert. Migration 272 forces
+  // the known set; this verdict alarms if any table regresses.
+  if (effectiveRoleOwnsUnforcedRlsTables > 0) {
+    return {
+      enforced: true,
+      ok: false,
+      effectiveRole,
+      bypassesRls: false,
+      unforcedOwnedRlsTables: effectiveRoleOwnsUnforcedRlsTables,
+      reason: 'owner_exempt_unforced_tables',
+    };
+  }
   return {
     enforced: true,
-    ok: !bypassesRls,
+    ok: true,
     effectiveRole,
-    bypassesRls,
-    reason: bypassesRls ? 'effective_role_bypasses_rls' : 'enforced',
+    bypassesRls: false,
+    unforcedOwnedRlsTables: 0,
+    reason: 'enforced',
   };
 }
 
@@ -386,7 +509,7 @@ export function evaluateTenantRlsPosture({
  */
 export async function tenantRlsRolePosture() {
   const enforced = isTenantRlsEnforcementEnabled();
-  const testRole = process.env.AUTH_TENANT_RLS_TEST_ROLE || null;
+  const testRole = tenantRlsRuntimeRole();
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT
@@ -394,7 +517,20 @@ export async function tenantRlsRolePosture() {
          COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = session_user), false) AS connection_bypasses_rls,
          CASE WHEN NULLIF($1, '') IS NOT NULL
               THEN COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = NULLIF($1, '')), true)
-              ELSE false END AS test_role_bypasses_rls`,
+              ELSE false END AS test_role_bypasses_rls,
+         (SELECT count(*)::int
+            FROM pg_policies p
+            JOIN pg_class c     ON c.relname = p.tablename
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+                               AND n.nspname = p.schemaname
+           WHERE p.schemaname = 'public'
+             AND p.policyname = 'tenant_isolation'
+             AND c.relrowsecurity
+             AND NOT c.relforcerowsecurity
+             AND c.relowner = (
+               SELECT oid FROM pg_roles
+                WHERE rolname = COALESCE(NULLIF($1, ''), session_user)
+             )) AS unforced_owned_rls_tables`,
       testRole || '',
     );
     const row = rows?.[0] || {};
@@ -405,9 +541,11 @@ export async function tenantRlsRolePosture() {
         connectionBypassesRls: row.connection_bypasses_rls === true,
         testRole,
         testRoleBypassesRls: row.test_role_bypasses_rls === true,
+        effectiveRoleOwnsUnforcedRlsTables: Number(row.unforced_owned_rls_tables) || 0,
       }),
       connectionRole: row.connection_role ?? null,
       testRole,
+      runtimeRole: testRole,
     };
   } catch (err) {
     return {
@@ -465,11 +603,27 @@ export async function logTenantRlsRolePosture() {
     return posture;
   }
   if (!posture.ok) {
+    if (posture.reason === 'owner_exempt_unforced_tables') {
+      logger.error(
+        'TENANT RLS IS PARTIALLY INERT: AUTH_ENFORCE_TENANT_RLS=true but the effective DB role ' +
+          `'${posture.effectiveRole}' OWNS ${posture.unforcedOwnedRlsTables} table(s) carrying a ` +
+          'tenant_isolation policy without FORCE ROW LEVEL SECURITY — Postgres exempts table ' +
+          'owners from non-forced RLS, so isolation on those tables is silently bypassed. ' +
+          'Run migration 272 (forces all tenant_isolation tables) or set ' +
+          'AUTH_TENANT_RLS_RUNTIME_ROLE to a non-owner role.',
+        {
+          connectionRole: posture.connectionRole,
+          effectiveRole: posture.effectiveRole,
+          unforcedOwnedRlsTables: posture.unforcedOwnedRlsTables,
+        },
+      );
+      return posture;
+    }
     logger.error(
       "TENANT RLS IS NOT ENFORCED: AUTH_ENFORCE_TENANT_RLS=true but the effective DB role " +
         `'${posture.effectiveRole}' has SUPERUSER/BYPASSRLS — every tenant_isolation policy is ` +
         'silently bypassed (Postgres bypasses RLS for super/bypassrls roles even under FORCE). ' +
-        'Connect as a non-superuser, non-BYPASSRLS role, or set AUTH_TENANT_RLS_TEST_ROLE to one.',
+        'Connect as a non-superuser, non-BYPASSRLS role, or set AUTH_TENANT_RLS_RUNTIME_ROLE to one.',
       {
         connectionRole: posture.connectionRole,
         testRole: posture.testRole,
@@ -483,6 +637,78 @@ export async function logTenantRlsRolePosture() {
     via: posture.testRole ? 'SET LOCAL ROLE' : 'connection role',
   });
   return posture;
+}
+
+/**
+ * Idempotent boot-time provisioning of the tenant-RLS runtime role's
+ * privileges (roadmap A2). Why boot-time and not only a migration:
+ *
+ *   * On CNPG prod the role itself is created declaratively by the operator
+ *     (`spec.managed.roles` → vhhealth_app, NOLOGIN NOSUPERUSER NOBYPASSRLS)
+ *     and the operator may reconcile it AFTER the first migration pass on a
+ *     fresh cluster. A tracker-driven migration runs exactly once per DB —
+ *     if the role didn't exist yet, the grants would be skipped forever.
+ *   * On dev/QA/dalekdefender the connection role is a superuser, so this
+ *     function can also CREATE the role outright (same SQL as
+ *     overlays/dalekdefender/rls-runtime-role.sql).
+ *
+ * Every statement is tolerant: missing CREATEROLE privilege downgrades to a
+ * NOTICE and the grants still run (the table owner can always GRANT on the
+ * objects it owns). Failure never blocks startup — SET LOCAL ROLE to a role
+ * lacking privileges fails CLOSED (queries error loudly rather than leak).
+ */
+export async function ensureTenantRlsRuntimeRoleGrants() {
+  const role = tenantRlsRuntimeRole();
+  if (!role) return { skipped: true, reason: 'no_runtime_role_configured' };
+  if (!/^[a-z_][a-z0-9_]*$/i.test(role)) {
+    logger.error('Tenant RLS runtime role name is not a safe identifier — skipping grants', { role });
+    return { skipped: true, reason: 'unsafe_role_name' };
+  }
+  const sql = `
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+    BEGIN
+      CREATE ROLE ${role} NOLOGIN;
+      ALTER ROLE ${role} NOSUPERUSER NOBYPASSRLS;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'cannot CREATE ROLE ${role} (no CREATEROLE) — expecting it to be provisioned externally (CNPG managed.roles)';
+    END;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+    BEGIN
+      EXECUTE format('GRANT CONNECT ON DATABASE %I TO ${role}', current_database());
+      GRANT USAGE ON SCHEMA public TO ${role};
+      GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role};
+      GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role};
+      GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role};
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'object grants for ${role} skipped (executing role lacks privilege on some objects)';
+    END;
+    BEGIN
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role};
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public
+        GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${role};
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public
+        GRANT EXECUTE ON FUNCTIONS TO ${role};
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'default-privilege grants for ${role} skipped (insufficient privilege)';
+    END;
+  END IF;
+END
+$$;`;
+  try {
+    await prisma.$executeRawUnsafe(sql);
+    logger.info('Tenant RLS runtime role grants ensured', { role });
+    return { skipped: false, role };
+  } catch (err) {
+    logger.warn('Tenant RLS runtime role grant pass failed (startup continues; tenant-scoped queries will fail closed if the role is unusable)', {
+      role,
+      message: err?.message,
+    });
+    return { skipped: false, role, error: err?.message };
+  }
 }
 
 // Graceful shutdown. bin/www.js also handles SIGTERM/SIGINT separately; this

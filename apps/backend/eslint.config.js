@@ -21,6 +21,9 @@ export default [
       'node_modules/',
       'dist/',
       'load-tests/',
+      // k6 scripts run in the k6 runtime (k6/* modules, __ENV global) —
+      // not lintable as Node code (roadmap A5).
+      'loadtest/',
       'ecosystem.config.cjs',
       'local_plugins/',
     ],

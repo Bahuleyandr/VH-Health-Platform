@@ -21,9 +21,11 @@ export const getAllMedications = async (filters) => {
     ];
   }
 
-  const [total, medications] = await prisma.$transaction([
-    prisma.medications.count({ where }),
-    prisma.medications.findMany({
+  // Interactive form — see roadmap A2 note on the model wrapper in
+  // src/lib/prisma.js (array form breaks under an active tenant context).
+  const [total, medications] = await prisma.$transaction(async (tx) => Promise.all([
+    tx.medications.count({ where }),
+    tx.medications.findMany({
       where,
       select: {
         id: true, name: true, generic_name: true, brand: true,
@@ -35,7 +37,7 @@ export const getAllMedications = async (filters) => {
       skip: offset,
       take: limit,
     }),
-  ]);
+  ]));
 
   return {
     medications,

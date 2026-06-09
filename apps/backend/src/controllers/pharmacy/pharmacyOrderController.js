@@ -9,6 +9,7 @@ import { success, error } from '../../utils/responseHelper.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/pharmacyCapService.js';
+import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
 import { emitPharmacyOrderEvent } from '../../services/clinical/canonicalOperationalBridgeService.js';
 
 // ── Helper: attach signed URL to order ──────────────────────────────────────
@@ -1291,9 +1292,7 @@ export const getDispenseLabel = async (req, res) => {
                  JOIN users vu ON vu.uid = vc.patient_uid
                 WHERE vu.id = po.patient_id AND vc.weight_kg IS NOT NULL
                 ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1) AS latest_weight_kg,
-              (SELECT array_agg(DISTINCT pa.allergy_name)
-                 FROM patient_allergies pa
-                WHERE pa.patient_id = po.patient_id AND pa.is_active = TRUE) AS allergies
+              NULL::text[] AS allergies
          FROM pharmacy_orders po
          LEFT JOIN users u ON u.id = po.patient_id
         WHERE po.id = $1`,
@@ -1301,6 +1300,12 @@ export const getDispenseLabel = async (req, res) => {
     );
     if (!rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
     const o = rows[0];
+
+    // Roadmap A10: the label's allergy line must reflect EVERY allergy
+    // store, not just patient_id-keyed patient_allergies rows — a label is
+    // the last line of defense at handover. Unified fetch, best-effort.
+    o.allergies = (await getUnifiedActiveAllergies(prisma, { patientId: o.patient_id }))
+      .map((a) => a.allergen);
 
     if (!['DISPENSED', 'DELIVERED'].includes(o.status)) {
       return error(

@@ -13,6 +13,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getActiveAlerts, getProtocolReminders } from '../emr/cdsEngine.js';
+import { getUnifiedActiveAllergies } from '../clinical/allergySourceService.js';
 
 function isMissingSchemaError(err) {
   return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
@@ -56,14 +57,14 @@ export async function buildEncounterStartAlerts({ patientUid, encounterId = null
   }
 
   // 3. Allergies on file (informational card)
+  //
+  // Roadmap A10: this used to `SELECT allergen FROM patient_allergies` —
+  // but that table's column is allergy_name, so the query 42703'd on every
+  // call and the missing-schema guard swallowed it: the allergy card NEVER
+  // rendered (verified against the QA schema 2026-06-10). The unified
+  // service reads all four allergy stores and never throws.
   try {
-    const allergyRows = await prisma.$queryRawUnsafe(
-      `SELECT allergen, severity, reaction
-       FROM patient_allergies
-       WHERE patient_uid = $1::uuid
-       LIMIT 50`,
-      patientUid,
-    );
+    const allergyRows = await getUnifiedActiveAllergies(prisma, { patientUid });
     if (allergyRows.length > 0) {
       alerts.push({
         type: 'allergies_on_file',
@@ -71,7 +72,11 @@ export async function buildEncounterStartAlerts({ patientUid, encounterId = null
         title: `${allergyRows.length} allergy/allergies on file`,
         description: allergyRows.map((a) => `${a.allergen}${a.severity ? ` (${a.severity})` : ''}`).join('; '),
         canOverride: true,
-        sourceData: { allergy_count: allergyRows.length, allergens: allergyRows.map((a) => a.allergen) },
+        sourceData: {
+          allergy_count: allergyRows.length,
+          allergens: allergyRows.map((a) => a.allergen),
+          sources: [...new Set(allergyRows.flatMap((a) => a.sources || []))],
+        },
       });
     }
   } catch (err) {

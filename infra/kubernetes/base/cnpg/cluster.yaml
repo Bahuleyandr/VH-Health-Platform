@@ -95,6 +95,33 @@ spec:
       - "host all all 172.16.0.0/12 scram-sha-256"
       - "host all all 192.168.0.0/16 scram-sha-256"
 
+  # Declaratively managed roles (reconciled continuously by the operator —
+  # works on existing clusters, unlike postInitApplicationSQL which only
+  # runs at initdb time).
+  #
+  # vhhealth_app — tenant-RLS runtime role (roadmap A2). The backend's
+  # connection role `vhhealth` OWNS every table (bootstrap.initdb.owner), and
+  # Postgres exempts owners from non-FORCEd RLS. Tenant-scoped transactions
+  # therefore SET LOCAL ROLE vhhealth_app (AUTH_TENANT_RLS_RUNTIME_ROLE in the
+  # backend ConfigMap) before applying app.current_tenant_id. Object grants
+  # are applied idempotently at backend boot (ensureTenantRlsRuntimeRoleGrants
+  # in src/lib/prisma.js), so ordering with migrations is not a concern.
+  managed:
+    roles:
+      - name: vhhealth_app
+        ensure: present
+        comment: >-
+          Tenant-RLS runtime role: SET LOCAL ROLE target for tenant-scoped
+          transactions. NOLOGIN by design — only reachable through the
+          backend's connection.
+        login: false
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+
   bootstrap:
     initdb:
       database: vhhealth

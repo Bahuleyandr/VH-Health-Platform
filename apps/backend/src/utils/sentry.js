@@ -17,10 +17,24 @@ if (!dsn && env === 'production') {
   console.warn('[sentry] SENTRY_DSN not set in production — error reporting disabled');
 }
 
+// Roadmap A6: clinical WRITE paths trace at 100% — when a med
+// administration or order write goes slow/wrong, a 10% sample is not
+// enough to reconstruct the incident. Everything else keeps the
+// env-configured rate. Pure + exported for unit tests.
+const CLINICAL_WRITE_RX = /^(POST|PUT|PATCH|DELETE)\s+\/api\/v1\/(emr|clinical|prescriptions|pharmacy-orders|downtime|bloodbank|theatre)\b/i;
+export function clinicalAwareTracesSampler({ name, parentSampled, baseRate = tracesSampleRate }) {
+  if (typeof parentSampled === 'boolean') return parentSampled;
+  if (name && CLINICAL_WRITE_RX.test(name)) return 1.0;
+  return baseRate;
+}
+
 Sentry.init({
   dsn,
   enabled: Boolean(dsn) && env !== 'test',
-  tracesSampleRate,
+  tracesSampler: (ctx) => clinicalAwareTracesSampler({
+    name: ctx?.name || ctx?.transactionContext?.name || '',
+    parentSampled: ctx?.parentSampled,
+  }),
   environment: process.env.SENTRY_ENVIRONMENT || env,
   release,
   serverName: process.env.HOSTNAME || process.env.COMPUTERNAME || undefined,

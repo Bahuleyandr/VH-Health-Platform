@@ -74,6 +74,7 @@ import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNo
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
+import { generateWardDowntimePacks } from '../services/downtime/wardDowntimePackService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 
@@ -144,6 +145,13 @@ cron.schedule('*/10 * * * *', withJobLock('unread-critical-notification-escalati
 
 // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
 cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
+
+// 🖨️ Every 15 minutes - regenerate per-ward downtime packs (roadmap A3).
+// The packs must already exist when an outage starts — never generated
+// on demand. See docs/DOWNTIME_PROCEDURE.md for the ops procedure.
+cron.schedule('*/15 * * * *', withJobLock('ward-downtime-packs', async () => {
+  await generateWardDowntimePacks();
+}));
 
 // 🪦 Every 15 minutes — A8 visit-status reaper. Flip SCHEDULED
 // appointments whose slot is more than 60 min past to MISSED, with

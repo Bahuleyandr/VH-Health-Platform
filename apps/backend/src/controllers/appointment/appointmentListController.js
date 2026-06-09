@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
+import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -15,7 +16,11 @@ export const listAppointments = async (req, res) => {
 
     const filters = {
       status: req.query.status,
-      doctor_id: req.query.doctor_id,
+      // Roadmap A9: accept either users.id (canonical) or doctors.id and
+      // filter by the canonical users.id appointment rows actually store.
+      doctor_id: await resolveDoctorFilterId(prisma, req.query.doctor_id, {
+        tenantId: req.tenantId || null,
+      }),
       patient_id: req.query.patient_id,
       department: req.query.department,
       date: req.query.date,
@@ -118,10 +123,20 @@ export const getRecentCompletedAppointments = async (req, res) => {
 
 export const getDoctorAppointments = async (req, res) => {
   try {
-    const { doctor_id } = req.params;
-    
+    // Roadmap A9: canonicalize BEFORE the ownership check so a doctor who
+    // passes their doctors.id profile id (the id the admin UI displays) is
+    // recognized as themselves instead of getting a confusing 403 — while a
+    // doctor probing someone ELSE's id still gets denied against the
+    // canonical users.id.
+    const canonicalDoctorId = await resolveDoctorFilterId(prisma, req.params.doctor_id, {
+      tenantId: req.tenantId || null,
+    });
+    if (!canonicalDoctorId) {
+      return error(res, 'doctor_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    }
+
     // Check permissions
-    if (req.user?.role === 'DOCTOR' && req.user.id !== parseInt(doctor_id)) {
+    if (req.user?.role === 'DOCTOR' && String(req.user.id) !== String(canonicalDoctorId)) {
       return error(res, 'Can only view your own appointments', HTTP_STATUS.FORBIDDEN);
     }
 
@@ -130,12 +145,13 @@ export const getDoctorAppointments = async (req, res) => {
       date: req.query.date
     };
 
-    const appointments = await appointmentQueryService.getDoctorAppointments(doctor_id, filters);
+    const appointments = await appointmentQueryService.getDoctorAppointments(canonicalDoctorId, filters);
 
     success(res, {
       appointments,
       count: appointments.length,
-      doctor_id,
+      doctor_id: canonicalDoctorId,
+      requested_doctor_id: req.params.doctor_id,
       filters,
       requestedBy: req.user?.name
     }, 'Doctor appointments retrieved successfully');

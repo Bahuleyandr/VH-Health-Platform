@@ -19,6 +19,11 @@ export function generateTestToken(role = 'ADMIN', overrides = {}) {
       id: 1,
       phone: '9876543210',
       role,
+      // Every real auth realm stamps deviceType at login; clinical-write
+      // routes 403 (DEVICE_TYPE_MISSING) without it since the phone-mode
+      // gate (rejectMobileClinicalWrite). Desktop = full clinical access;
+      // pass { deviceType: 'mobile' } to exercise the phone-mode denial.
+      deviceType: 'desktop',
       ...overrides
     },
     secret,

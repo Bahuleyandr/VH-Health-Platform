@@ -4383,17 +4383,21 @@ model doctors {
 
 model downtime_snapshots {
   id           Int       @id @default(autoincrement())
-  patient_uid  String    @db.Uuid
+  patient_uid  String?   @db.Uuid
   scope        String    @default("patient_chart") @db.VarChar(80)
   generated_by String?   @db.Uuid
   payload      Json      @default("{}")
   expires_at   DateTime? @db.Timestamptz(6)
   created_at   DateTime  @default(now()) @db.Timestamptz(6)
   tenant_id    String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  ward_id      Int?
+  label        String?   @db.VarChar(160)
   tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_downtime_snapshots_tenant")
+  wards        wards?    @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_downtime_snapshots_patient_created")
   @@index([tenant_id], map: "idx_downtime_snapshots_tenant_id")
+  @@index([ward_id, scope, created_at(sort: Desc)], map: "idx_downtime_snapshots_ward_latest")
 }
 
 model drug_interactions {
@@ -9247,18 +9251,19 @@ model vitals_chart {
 }
 
 model wards {
-  id                             Int            @id @default(autoincrement())
-  name                           String         @db.VarChar(100)
-  floor                          Int?           @default(1)
+  id                             Int                  @id @default(autoincrement())
+  name                           String               @db.VarChar(100)
+  floor                          Int?                 @default(1)
   department_id                  Int?
-  total_beds                     Int?           @default(0)
-  attendant_pass_color           String?        @db.VarChar(20)
-  attendant_pass_screening_level String?        @default("standard") @db.VarChar(20)
-  created_at                     DateTime?      @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime?      @default(now()) @db.Timestamptz(6)
+  total_beds                     Int?                 @default(0)
+  attendant_pass_color           String?              @db.VarChar(20)
+  attendant_pass_screening_level String?              @default("standard") @db.VarChar(20)
+  created_at                     DateTime?            @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?            @default(now()) @db.Timestamptz(6)
   beds                           beds[]
+  downtime_snapshots             downtime_snapshots[]
   ward_indents                   ward_indents[]
-  departments                    departments?   @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  departments                    departments?         @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model advance_deposits {

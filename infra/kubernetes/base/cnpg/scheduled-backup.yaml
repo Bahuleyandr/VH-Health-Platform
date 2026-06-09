@@ -1,0 +1,27 @@
+# cnpg/scheduled-backup.yaml — nightly base backup (roadmap A4).
+#
+# cluster.yaml already configures continuous WAL archiving to Cloudflare R2
+# (off-site by definition — outside the hospital). But PITR needs a BASE
+# backup to replay WAL on top of; without a ScheduledBackup the operator
+# never takes one and the R2 bucket holds unreplayable WAL. This CR closes
+# that gap: nightly base backup at 01:00 IST (19:30 UTC), retained per the
+# cluster's 30d retentionPolicy.
+#
+# Restore procedure + quarterly drill: docs/DR_RESTORE_DRILL.md
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: vhhealth-pg-nightly
+  namespace: vhhealth
+spec:
+  # CNPG cron format includes seconds: sec min hour day month weekday
+  schedule: "0 30 19 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: vhhealth-pg
+  method: barmanObjectStore
+  # Take the backup from a replica when one is healthy — keeps the primary's
+  # I/O budget for clinical traffic.
+  target: prefer-standby
+  immediate: true

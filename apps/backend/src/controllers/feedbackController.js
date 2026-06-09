@@ -4,6 +4,8 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
 import feedbackService from '../services/feedback/feedbackService.js';
+import { resolveDoctorFilterId } from '../services/doctor/doctorRefService.js';
+import prisma from '../lib/prisma.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromRequest, resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -160,7 +162,10 @@ export async function getRecentFeedback(req, res) {
       category: req.query.category,
       rating: req.query.rating,
       priority: req.query.priority,
-      doctor_id: req.query.doctor_id,
+      // Roadmap A9: canonicalize to users.id whichever id space the caller used.
+      doctor_id: await resolveDoctorFilterId(prisma, req.query.doctor_id, {
+        tenantId: req.tenantId || null,
+      }),
       department_id: req.query.department_id
     };
 
