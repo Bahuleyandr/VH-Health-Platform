@@ -5958,6 +5958,57 @@ model medication_administrations {
   @@index([tenant_id], map: "idx_medication_administrations_tenant_id")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model medication_reconciliation_items {
+  id                         Int                        @id @default(autoincrement())
+  reconciliation_id          String                     @db.Uuid
+  tenant_id                  String                     @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  medication_name            String                     @db.VarChar(255)
+  dose                       String?                    @db.VarChar(120)
+  frequency                  String?                    @db.VarChar(120)
+  route                      String?                    @db.VarChar(40)
+  source                     String                     @default("other") @db.VarChar(30)
+  source_ref                 String?                    @db.VarChar(160)
+  decision                   String?                    @db.VarChar(20)
+  decision_reason            String?
+  new_instructions           String?
+  decided_by                 String?                    @db.Uuid
+  decided_at                 DateTime?                  @db.Timestamptz(6)
+  metadata                   Json                       @default("{}")
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  medication_reconciliations medication_reconciliations @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_reconciliation_items_tenant")
+
+  @@index([reconciliation_id, id], map: "idx_medication_reconciliation_items_rec")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model medication_reconciliations {
+  id                              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                       String                            @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid                     String                            @db.Uuid
+  patient_id                      Int?
+  admission_id                    Int?
+  encounter_id                    String?                           @db.Uuid
+  rec_type                        String                            @db.VarChar(20)
+  status                          String                            @default("in_progress") @db.VarChar(20)
+  transfer_context                String?                           @db.VarChar(160)
+  source_lists                    Json                              @default("{}")
+  notes                           String?
+  started_by                      String?                           @db.Uuid
+  started_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  completed_by                    String?                           @db.Uuid
+  completed_at                    DateTime?                         @db.Timestamptz(6)
+  metadata                        Json                              @default("{}")
+  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  medication_reconciliation_items medication_reconciliation_items[]
+  tenants                         tenants                           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_reconciliations_tenant")
+
+  @@index([tenant_id, patient_uid, rec_type, created_at(sort: Desc)], map: "idx_medication_reconciliations_patient")
+}
+
 model medication_reminders {
   id              BigInt    @id @default(autoincrement())
   patient_uid     String    @db.Uuid
@@ -8846,6 +8897,8 @@ model tenants {
   lab_specimens                              lab_specimens[]
   medical_records                            medical_records[]
   medication_administrations                 medication_administrations[]
+  medication_reconciliation_items            medication_reconciliation_items[]
+  medication_reconciliations                 medication_reconciliations[]
   medication_reminders                       medication_reminders[]
   mfa_backup_codes                           mfa_backup_codes[]
   mfa_challenges                             mfa_challenges[]
