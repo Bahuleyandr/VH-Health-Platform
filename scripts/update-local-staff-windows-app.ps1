@@ -17,6 +17,11 @@ param(
   [string]$SentryEnvironment = $env:VH_SENTRY_ENVIRONMENT,
   [string]$SentryRelease = $env:VH_SENTRY_RELEASE,
   [string]$InstallDir = "D:\Dev\Tools\VH Health Staff",
+  [switch]$UseDalekdefenderApiKey,
+  [string]$DalekHost = "dalekdefender",
+  [string]$DalekNamespace = "vhhealth",
+  [string]$DalekSecretName = "vhhealth-backend",
+  [string]$DalekSecretKey = "API_KEY",
   [switch]$SkipBuild,
   [switch]$SkipAnalyze,
   [switch]$SkipApiKeyPreflight,
@@ -45,6 +50,41 @@ if (-not $AllowCustomInstallDir.IsPresent -and $installFullPath -ne $defaultInst
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   $BaseUrl = $defaultStableBaseUrl
+}
+
+function Get-KubernetesSecretValueViaSsh {
+  param(
+    [Parameter(Mandatory = $true)][string]$HostName,
+    [Parameter(Mandatory = $true)][string]$Namespace,
+    [Parameter(Mandatory = $true)][string]$SecretName,
+    [Parameter(Mandatory = $true)][string]$SecretKey
+  )
+
+  foreach ($part in @($HostName, $Namespace, $SecretName, $SecretKey)) {
+    if ($part -notmatch '^[A-Za-z0-9_.-]+$') {
+      throw "Unsafe Kubernetes secret selector segment: $part"
+    }
+  }
+
+  $remoteCommand = "sudo -n kubectl -n $Namespace get secret $SecretName -o jsonpath='{.data.$SecretKey}' | base64 -d"
+  $secretValue = & ssh -o BatchMode=yes -o ConnectTimeout=10 $HostName $remoteCommand
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to read $SecretName/$SecretKey from $HostName."
+  }
+  $secretValue = [string]$secretValue
+  if ([string]::IsNullOrWhiteSpace($secretValue)) {
+    throw "Read empty $SecretName/$SecretKey from $HostName."
+  }
+  return $secretValue.Trim()
+}
+
+if ($UseDalekdefenderApiKey.IsPresent) {
+  $ApiKey = Get-KubernetesSecretValueViaSsh `
+    -HostName $DalekHost `
+    -Namespace $DalekNamespace `
+    -SecretName $DalekSecretName `
+    -SecretKey $DalekSecretKey
+  Write-Host "Loaded API key from $DalekHost Kubernetes secret $DalekSecretName/$DalekSecretKey."
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiKey)) {
