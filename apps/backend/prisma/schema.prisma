@@ -8771,6 +8771,87 @@ model tenants {
   workflow_steps                             workflow_steps[]
 }
 
+model terminology_code_systems {
+  id                                                                          Int                           @id @default(autoincrement())
+  system_key                                                                  String                        @unique @db.VarChar(40)
+  uri                                                                         String                        @db.VarChar(200)
+  name                                                                        String                        @db.VarChar(200)
+  version                                                                     String?                       @db.VarChar(80)
+  source                                                                      String?                       @db.VarChar(255)
+  license_note                                                                String?                       @db.VarChar(255)
+  concept_count                                                               Int                           @default(0)
+  imported_at                                                                 DateTime?                     @db.Timestamptz(6)
+  is_active                                                                   Boolean                       @default(true)
+  metadata                                                                    Json                          @default("{}")
+  created_at                                                                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                                                                  DateTime                      @default(now()) @db.Timestamptz(6)
+  terminology_catalog_bindings                                                terminology_catalog_bindings[]
+  terminology_concept_maps_terminology_concept_maps_source_systemToterminology_code_systems terminology_concept_maps[] @relation("terminology_concept_maps_source_systemToterminology_code_systems")
+  terminology_concept_maps_terminology_concept_maps_target_systemToterminology_code_systems terminology_concept_maps[] @relation("terminology_concept_maps_target_systemToterminology_code_systems")
+  terminology_concepts                                                        terminology_concepts[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model terminology_concepts {
+  id                       BigInt                   @id @default(autoincrement())
+  system_key               String                   @db.VarChar(40)
+  code                     String                   @db.VarChar(80)
+  display                  String
+  category                 String?                  @db.VarChar(255)
+  semantic_tag             String?                  @db.VarChar(120)
+  status                   String                   @default("active") @db.VarChar(20)
+  properties               Json                     @default("{}")
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  terminology_code_systems terminology_code_systems @relation(fields: [system_key], references: [system_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([system_key, code], map: "terminology_concepts_system_code_key")
+  @@index([code], map: "idx_terminology_concepts_code")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model terminology_concept_maps {
+  id                                                                          BigInt                   @id @default(autoincrement())
+  source_system                                                               String                   @db.VarChar(40)
+  source_code                                                                 String                   @db.VarChar(80)
+  target_system                                                               String                   @db.VarChar(40)
+  target_code                                                                 String                   @db.VarChar(80)
+  relationship                                                                String                   @default("equivalent") @db.VarChar(30)
+  context                                                                     String?                  @db.VarChar(120)
+  metadata                                                                    Json                     @default("{}")
+  created_by                                                                  String?                  @db.Uuid
+  created_at                                                                  DateTime                 @default(now()) @db.Timestamptz(6)
+  terminology_code_systems_terminology_concept_maps_source_systemToterminology_code_systems terminology_code_systems @relation("terminology_concept_maps_source_systemToterminology_code_systems", fields: [source_system], references: [system_key], onDelete: NoAction, onUpdate: Cascade)
+  terminology_code_systems_terminology_concept_maps_target_systemToterminology_code_systems terminology_code_systems @relation("terminology_concept_maps_target_systemToterminology_code_systems", fields: [target_system], references: [system_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([source_system, source_code, target_system, target_code, relationship], map: "terminology_concept_maps_unique")
+  @@index([source_system, source_code], map: "idx_terminology_concept_maps_source")
+  @@index([target_system, target_code], map: "idx_terminology_concept_maps_target")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model terminology_catalog_bindings {
+  id                       Int                      @id @default(autoincrement())
+  catalog_type             String                   @db.VarChar(40)
+  catalog_id               Int
+  system_key               String                   @db.VarChar(40)
+  code                     String                   @db.VarChar(80)
+  display                  String?
+  binding_status           String                   @default("suggested") @db.VarChar(20)
+  confidence               Decimal?                 @db.Decimal(4, 3)
+  bound_by                 String?                  @db.Uuid
+  verified_by              String?                  @db.Uuid
+  verified_at              DateTime?                @db.Timestamptz(6)
+  metadata                 Json                     @default("{}")
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  terminology_code_systems terminology_code_systems @relation(fields: [system_key], references: [system_key], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([catalog_type, catalog_id, system_key], map: "terminology_catalog_bindings_unique")
+  @@index([system_key, code], map: "idx_terminology_catalog_bindings_code")
+  @@index([catalog_type, binding_status], map: "idx_terminology_catalog_bindings_status")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model tpas {
   id                  Int                  @id @default(autoincrement())
