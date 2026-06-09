@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { assertBedsideVerified } from './transfusionSafetyService.js';
 
 const VALID_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const VALID_COMPONENTS = ['whole_blood', 'prbc', 'ffp', 'platelets', 'cryoprecipitate'];
@@ -130,6 +131,10 @@ class BloodBankService {
     if (existing[0].status !== 'issued') {
       throw AppError.badRequest('Transfusion can only be recorded for issued blood');
     }
+
+    // Roadmap B5 — the legacy completion path honours the same two-person
+    // bedside verification gate as the closed-loop endpoints (no bypass).
+    await assertBedsideVerified(parseInt(id, 10));
 
     const reactionNote = transfusion_reaction
       ? `Transfusion reaction: ${typeof transfusion_reaction === 'string' ? transfusion_reaction : JSON.stringify(transfusion_reaction)}`

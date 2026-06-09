@@ -1037,13 +1037,48 @@ model blood_requests {
   transfused_at       DateTime? @db.Timestamptz(6)
   status              String?   @default("requested") @db.VarChar(50)
   ordered_by          String?   @db.Uuid
-  notes               String?
-  created_at          DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
-  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_requests_tenant")
+  notes                    String?
+  created_at               DateTime?                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime?                  @default(now()) @db.Timestamptz(6)
+  tenant_id                String                     @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  crossmatched_unit_id     Int?
+  transfusion_started_at   DateTime?                  @db.Timestamptz(6)
+  transfusion_started_by   String?                    @db.Uuid
+  blood_units_crossmatched blood_units?               @relation("blood_requests_crossmatched_unit", fields: [crossmatched_unit_id], references: [id], onUpdate: NoAction, map: "blood_requests_crossmatched_unit_id_fkey")
+  blood_units              blood_units[]              @relation("blood_units_request")
+  transfusion_reactions    transfusion_reactions[]
+  transfusion_verifications transfusion_verifications[]
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_requests_tenant")
 
   @@index([tenant_id], map: "idx_blood_requests_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model blood_units {
+  id                        Int                         @id @default(autoincrement())
+  tenant_id                 String                      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  unit_number               String                      @db.VarChar(60)
+  blood_group               String                      @db.VarChar(5)
+  component                 String                      @default("prbc") @db.VarChar(30)
+  status                    String                      @default("available") @db.VarChar(20)
+  volume_ml                 Int?
+  collected_date            DateTime?                   @db.Date
+  expiry_date               DateTime                    @db.Date
+  donor_ref                 String?                     @db.VarChar(80)
+  source_blood_bank         String?                     @db.VarChar(160)
+  request_id                Int?
+  registered_by             String?                     @db.Uuid
+  metadata                  Json                        @default("{}")
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  blood_requests_crossmatch blood_requests[]            @relation("blood_requests_crossmatched_unit")
+  blood_requests            blood_requests?             @relation("blood_units_request", fields: [request_id], references: [id], onUpdate: NoAction)
+  tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_units_tenant")
+  transfusion_reactions     transfusion_reactions[]
+  transfusion_verifications transfusion_verifications[]
+
+  @@unique([tenant_id, unit_number], map: "uq_blood_units_number")
+  @@index([tenant_id, status, blood_group, component, expiry_date], map: "idx_blood_units_stock")
 }
 
 model bulk_operation_logs {
@@ -8750,6 +8785,7 @@ model tenants {
   bed_transfers                              bed_transfers[]
   beds                                       beds[]
   blood_requests                             blood_requests[]
+  blood_units                                blood_units[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
   care_plan_review_log                       care_plan_review_log[]
@@ -8979,6 +9015,8 @@ model tenants {
   teleconsult_provider_configs               teleconsult_provider_configs?
   teleconsultations                          teleconsultations[]
   tpas                                       tpas[]
+  transfusion_reactions                      transfusion_reactions[]
+  transfusion_verifications                  transfusion_verifications[]
   triage_assessments                         triage_assessments[]
   users                                      users[]
   video_sessions                             video_sessions[]
@@ -9099,6 +9137,56 @@ model tpas {
   @@unique([tenant_id, tpa_code])
   @@index([tenant_id, status, display_name], map: "idx_tpas_tenant_status")
   @@index([parent_payer_id], map: "idx_tpas_payer", where: raw("(parent_payer_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model transfusion_reactions {
+  id                     Int             @id @default(autoincrement())
+  tenant_id              String          @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  request_id             Int
+  unit_id                Int?
+  reaction_type          String          @db.VarChar(30)
+  severity               String          @db.VarChar(20)
+  onset_at               DateTime?       @db.Timestamptz(6)
+  symptoms               String?
+  vitals                 Json?
+  intervention           String?
+  transfusion_stopped    Boolean         @default(true)
+  outcome                String?         @db.VarChar(160)
+  hemovigilance_reported Boolean         @default(false)
+  reported_by            String?         @db.Uuid
+  reported_at            DateTime        @default(now()) @db.Timestamptz(6)
+  metadata               Json            @default("{}")
+  blood_requests         blood_requests  @relation(fields: [request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transfusion_reactions_tenant")
+  blood_units            blood_units?    @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+
+  @@index([request_id, reported_at(sort: Desc)], map: "idx_transfusion_reactions_request")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model transfusion_verifications {
+  id                  Int            @id @default(autoincrement())
+  tenant_id           String         @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  request_id          Int
+  unit_id             Int?
+  verifier_role       String         @db.VarChar(10)
+  verified_by         String         @db.Uuid
+  scanned_unit_number String?        @db.VarChar(60)
+  scanned_patient_uid String?        @db.Uuid
+  unit_match          Boolean        @default(false)
+  patient_match       Boolean        @default(false)
+  group_compatible    Boolean        @default(false)
+  expiry_ok           Boolean        @default(false)
+  all_checks_passed   Boolean        @default(false)
+  override_reason     String?
+  verified_at         DateTime       @default(now()) @db.Timestamptz(6)
+  metadata            Json           @default("{}")
+  blood_requests      blood_requests @relation(fields: [request_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_transfusion_verifications_tenant")
+  blood_units         blood_units?   @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+
+  @@unique([request_id, verifier_role], map: "uq_transfusion_verifications_role")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
