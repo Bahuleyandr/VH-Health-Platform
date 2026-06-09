@@ -160,9 +160,12 @@ class BillingService {
     const paidAt = newStatus === 'paid' ? new Date() : null;
     const now = new Date();
 
-    // Transaction + invoice update in one batch
-    const [transaction, updatedInvoice] = await prisma.$transaction([
-      prisma.payment_transactions.create({
+    // Transaction + invoice update atomically. Interactive form (not the
+    // array form) because the tenant-RLS model wrapper in src/lib/prisma.js
+    // returns real Promises under an active tenant context, which the
+    // array form rejects (see roadmap A2 notes in lib/prisma.js).
+    const [transaction, updatedInvoice] = await prisma.$transaction(async (tx) => Promise.all([
+      tx.payment_transactions.create({
         data: {
           invoice_id: invoiceId,
           amount,
@@ -171,7 +174,7 @@ class BillingService {
           processed_by: processedBy || null,
         },
       }),
-      prisma.invoices.update({
+      tx.invoices.update({
         where: { id: invoiceId },
         data: {
           paid_amount: newPaid,
@@ -185,7 +188,7 @@ class BillingService {
           paid_amount: true, payment_status: true, payment_method: true, paid_at: true,
         },
       }),
-    ]);
+    ]));
 
     logger.info(`Payment of ${amount} recorded for invoice ${invoiceId}, status: ${newStatus}`);
     return { invoice: updatedInvoice, transaction };
@@ -214,9 +217,10 @@ class BillingService {
       if (date_to) where.issued_at.lte = new Date(date_to);
     }
 
-    const [total, invoices] = await prisma.$transaction([
-      prisma.invoices.count({ where }),
-      prisma.invoices.findMany({
+    // Interactive form — see roadmap A2 note on the model wrapper.
+    const [total, invoices] = await prisma.$transaction(async (tx) => Promise.all([
+      tx.invoices.count({ where }),
+      tx.invoices.findMany({
         where,
         select: {
           id: true, invoice_number: true, type: true, subtotal: true,
@@ -228,7 +232,7 @@ class BillingService {
         skip: listQuery.offset,
         take: listQuery.limit,
       }),
-    ]);
+    ]));
 
     return {
       invoices,
@@ -656,9 +660,10 @@ class BillingService {
     if (patient_uid) where.patient_uid = patient_uid;
     if (status && VALID_CLAIM_STATUSES.includes(status)) where.status = status;
 
-    const [total, claims] = await prisma.$transaction([
-      prisma.insurance_claims.count({ where }),
-      prisma.insurance_claims.findMany({
+    // Interactive form — see roadmap A2 note on the model wrapper.
+    const [total, claims] = await prisma.$transaction(async (tx) => Promise.all([
+      tx.insurance_claims.count({ where }),
+      tx.insurance_claims.findMany({
         where,
         select: {
           id: true, claim_number: true, patient_uid: true, invoice_id: true,
@@ -670,7 +675,7 @@ class BillingService {
         skip: listQuery.offset,
         take: listQuery.limit,
       }),
-    ]);
+    ]));
 
     return {
       claims,

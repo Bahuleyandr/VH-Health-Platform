@@ -20,7 +20,7 @@ BigInt.prototype.toJSON = function bigIntToJSON() {
 
 import http from 'http';
 import app from '../app.js';
-import { logTenantRlsRolePosture } from '../lib/prisma.js';
+import { logTenantRlsRolePosture, ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
 import { initRedis, disconnectRedis } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
@@ -103,9 +103,15 @@ async function onListening() {
   // Verify schema health after migrations
   await checkSchemaHealth();
 
+  // Tenant-RLS runtime role (roadmap A2): ensure the SET LOCAL ROLE target's
+  // privileges exist before probing posture. Idempotent; covers the CNPG
+  // managed-role ordering gap on fresh clusters. Best-effort.
+  await ensureTenantRlsRuntimeRoleGrants();
+
   // Tenant-RLS posture guard: when AUTH_ENFORCE_TENANT_RLS=true, log a loud
-  // ERROR if the effective DB role bypasses RLS (superuser/BYPASSRLS) so a
-  // deployment can't silently ship inert tenant isolation. Best-effort.
+  // ERROR if the effective DB role bypasses RLS (superuser/BYPASSRLS) or owns
+  // unforced tenant_isolation tables, so a deployment can't silently ship
+  // inert tenant isolation. Best-effort.
   await logTenantRlsRolePosture();
 
   // NB: database pool health monitor was removed with the DatabaseManager

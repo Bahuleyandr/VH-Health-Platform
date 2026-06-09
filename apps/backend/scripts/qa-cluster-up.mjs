@@ -224,6 +224,37 @@ async function ensureDatabaseAndRole() {
       `ALTER DEFAULT PRIVILEGES FOR ROLE ${SUPERUSER} IN SCHEMA public
          GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${QA_ROLE}`
     );
+
+    // Non-owner RLS test roles (roadmap A2). The *-deep RLS suites SET LOCAL
+    // ROLE to these so tenant_isolation policies actually fire even though
+    // qa_writer/superuser connections would otherwise bypass them. qa_writer
+    // cannot CREATE ROLE itself, so provision them here (idempotent).
+    for (const rlsRole of ['rls_test_app', 'rls_phase2_test_app', 'rls_http_test_app']) {
+      await dbClient.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${rlsRole}') THEN
+            CREATE ROLE ${rlsRole} NOLOGIN;
+          END IF;
+        END $$`);
+      await dbClient.query(`ALTER ROLE ${rlsRole} NOSUPERUSER NOBYPASSRLS`);
+      await dbClient.query(`GRANT USAGE ON SCHEMA public TO ${rlsRole}`);
+      await dbClient.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${rlsRole}`
+      );
+      await dbClient.query(
+        `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${rlsRole}`
+      );
+      // Tolerant: on clusters without pgvector, resolving vector-typed
+      // function signatures throws 58P01 — EXECUTE on specific functions is
+      // not needed by the RLS suites anyway.
+      await dbClient.query(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${rlsRole}`)
+        .catch((err) => console.warn(`  (skipping function grants for ${rlsRole}: ${err.message})`));
+      await dbClient.query(`GRANT ${rlsRole} TO ${QA_ROLE}`);
+      await dbClient.query(
+        `ALTER DEFAULT PRIVILEGES FOR ROLE ${SUPERUSER} IN SCHEMA public
+           GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${rlsRole}`
+      );
+    }
   } finally {
     await dbClient.end();
   }

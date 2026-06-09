@@ -125,15 +125,20 @@ describe('Phase-2 tenant RLS via AsyncLocalStorage', () => {
     }
 
     // Seed both tenants — `tenants` has check constraints, keep the rows
-    // minimal but valid.
+    // minimal but valid. ON CONFLICT DO NOTHING: cleanup()'s tenant delete
+    // is best-effort (on a pgvector-less cluster it can fail mid-cascade),
+    // and a leftover fixed-uuid row is equivalent for this suite — don't
+    // let it crash setup (roadmap A2 hardening).
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name, region, compliance_profile, status, settings, created_at, updated_at)
-       VALUES ($1::uuid, $2, $3, 'IN', 'DPDP', 'active', '{}'::jsonb, NOW(), NOW())`,
+       VALUES ($1::uuid, $2, $3, 'IN', 'DPDP', 'active', '{}'::jsonb, NOW(), NOW())
+       ON CONFLICT (id) DO NOTHING`,
       TENANT_A, `phase2-rls-a-${Date.now()}`, 'Phase2 Tenant A',
     );
     await prisma.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, name, region, compliance_profile, status, settings, created_at, updated_at)
-       VALUES ($1::uuid, $2, $3, 'IN', 'DPDP', 'active', '{}'::jsonb, NOW(), NOW())`,
+       VALUES ($1::uuid, $2, $3, 'IN', 'DPDP', 'active', '{}'::jsonb, NOW(), NOW())
+       ON CONFLICT (id) DO NOTHING`,
       TENANT_B, `phase2-rls-b-${Date.now()}`, 'Phase2 Tenant B',
     );
 

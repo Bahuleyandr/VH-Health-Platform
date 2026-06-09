@@ -186,4 +186,5 @@ exists to production and wires it into the Pillar B/C/D loops.
 
 ---
 
-*Update cadence: revisit at each phase exit. Keep findings-driven items
+*Update cadence: revisit at each phase exit. Keep findings-driven items synced
+with the swarm queue rather than duplicating them here.*

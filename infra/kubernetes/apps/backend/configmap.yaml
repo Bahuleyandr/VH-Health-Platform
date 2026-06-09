@@ -57,3 +57,11 @@ data:
   HTTP_BODY_LIMIT: "10mb"
   STATEMENT_TIMEOUT_MS: "30000"
   AUTH_ENFORCE_TENANT_RLS: "true"
+  # Tenant-RLS runtime role (roadmap A2): tenant-scoped transactions SET LOCAL
+  # ROLE to this non-owner, non-BYPASSRLS role before applying
+  # app.current_tenant_id. The connection role `vhhealth` owns the tables
+  # (CNPG bootstrap.initdb.owner) and would otherwise be exempt from any
+  # tenant_isolation policy that is not FORCEd. The role itself is created by
+  # CNPG `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured at
+  # backend boot.
+  AUTH_TENANT_RLS_RUNTIME_ROLE: "vhhealth_app"

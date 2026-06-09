@@ -16,7 +16,7 @@
  * (setTenant does SET LOCAL ROLE before the GUC), else the connection role.
  */
 
-import { evaluateTenantRlsPosture } from '../../lib/prisma.js';
+import { evaluateTenantRlsPosture, tenantRlsRuntimeRole } from '../../lib/prisma.js';
 
 describe('evaluateTenantRlsPosture', () => {
   it('is ok when enforcement is disabled, regardless of role bypass', () => {
@@ -96,5 +96,82 @@ describe('evaluateTenantRlsPosture', () => {
     });
     expect(v.effectiveRole).toBe('vhhealth_rls');
     expect(v.ok).toBe(true);
+  });
+
+  // Roadmap A2: the owner-exemption gap. CNPG prod connects as the table
+  // OWNER (`vhhealth`, bootstrap.initdb.owner) — neither SUPERUSER nor
+  // BYPASSRLS, so the rolsuper/rolbypassrls check passes, yet Postgres
+  // exempts owners from any tenant_isolation policy that is not FORCEd.
+  it('flags inert RLS when the effective role owns unforced tenant_isolation tables', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth',
+      connectionBypassesRls: false,
+      effectiveRoleOwnsUnforcedRlsTables: 11,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe('owner_exempt_unforced_tables');
+    expect(v.bypassesRls).toBe(false);
+    expect(v.unforcedOwnedRlsTables).toBe(11);
+    expect(v.effectiveRole).toBe('vhhealth');
+  });
+
+  it('is ok when the owner has zero unforced tenant_isolation tables (post-migration-272)', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth',
+      connectionBypassesRls: false,
+      effectiveRoleOwnsUnforcedRlsTables: 0,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.reason).toBe('enforced');
+    expect(v.unforcedOwnedRlsTables).toBe(0);
+  });
+
+  it('bypass verdict wins over the owner-exemption verdict', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'postgres',
+      connectionBypassesRls: true,
+      effectiveRoleOwnsUnforcedRlsTables: 3,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe('effective_role_bypasses_rls');
+  });
+
+  it('does not blame the runtime role for tables the CONNECTION role owns (runtime role owns nothing)', () => {
+    // With a runtime role set, the probe counts tables owned by the runtime
+    // role — not the connection role — because SET LOCAL ROLE makes the
+    // runtime role the one RLS evaluates.
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth',
+      connectionBypassesRls: false,
+      testRole: 'vhhealth_app',
+      testRoleBypassesRls: false,
+      effectiveRoleOwnsUnforcedRlsTables: 0,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.effectiveRole).toBe('vhhealth_app');
+  });
+});
+
+describe('tenantRlsRuntimeRole', () => {
+  it('prefers AUTH_TENANT_RLS_RUNTIME_ROLE over the legacy alias', () => {
+    const role = tenantRlsRuntimeRole({
+      AUTH_TENANT_RLS_RUNTIME_ROLE: 'vhhealth_app',
+      AUTH_TENANT_RLS_TEST_ROLE: 'legacy_role',
+    });
+    expect(role).toBe('vhhealth_app');
+  });
+
+  it('falls back to the legacy AUTH_TENANT_RLS_TEST_ROLE alias', () => {
+    const role = tenantRlsRuntimeRole({ AUTH_TENANT_RLS_TEST_ROLE: 'legacy_role' });
+    expect(role).toBe('legacy_role');
+  });
+
+  it('returns null when neither env var is set (or both are blank)', () => {
+    expect(tenantRlsRuntimeRole({})).toBeNull();
+    expect(tenantRlsRuntimeRole({ AUTH_TENANT_RLS_RUNTIME_ROLE: '  ' })).toBeNull();
   });
 });
