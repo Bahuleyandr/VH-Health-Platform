@@ -6,6 +6,11 @@ export const RATE_LIMIT_PROFILES = {
     max: 100, // 100 requests per window
     message: 'Too many requests from this patient. Please try again later.'
   },
+  patientInvestigation: {
+    windowMs: 15 * 60 * 1000,
+    max: 400,
+    message: 'Too many investigation requests. Please pause briefly and try again.'
+  },
   staff: {
     windowMs: 15 * 60 * 1000,
     max: 500,

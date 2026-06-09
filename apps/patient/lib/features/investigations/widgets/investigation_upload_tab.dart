@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
@@ -36,6 +37,24 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
   bool _isSubmitting = false;
 
   late final bool _isGuest;
+
+  MediaType? _contentTypeForUpload(String path, String? fileName) {
+    final name = (fileName?.isNotEmpty == true ? fileName! : path)
+        .toLowerCase();
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    if (name.endsWith('.png')) return MediaType('image', 'png');
+    if (name.endsWith('.pdf')) return MediaType('application', 'pdf');
+    if (name.endsWith('.doc')) return MediaType('application', 'msword');
+    if (name.endsWith('.docx')) {
+      return MediaType(
+        'application',
+        'vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -143,6 +162,7 @@ class _InvestigationUploadTabState extends State<InvestigationUploadTab> {
             'file',
             _file!.path,
             filename: _fileName,
+            contentType: _contentTypeForUpload(_file!.path, _fileName),
           ),
         ],
       );

@@ -14,7 +14,8 @@ class MyBookingsScreen extends StatefulWidget {
   State<MyBookingsScreen> createState() => _MyBookingsScreenState();
 }
 
-class _MyBookingsScreenState extends State<MyBookingsScreen> {
+class _MyBookingsScreenState extends State<MyBookingsScreen>
+    with AutomaticKeepAliveClientMixin {
   List<dynamic> _bookings = [];
   bool _loading = true;
   String? _error;
@@ -46,6 +47,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     'PROCESSING': Icons.hourglass_top,
     'RESULT_READY': Icons.assignment_turned_in,
   };
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -102,6 +106,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
 
     return DataStateBuilder<dynamic>(

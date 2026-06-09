@@ -57,6 +57,31 @@ const FALLBACK_MIME_CANDIDATES = new Set([
   'binary/octet-stream',
 ]);
 
+function matchesSignature(buffer, signature) {
+  if (!buffer || buffer.length < signature.bytes.length) return false;
+
+  if (signature.mime === 'application/dicom') {
+    if (buffer.length < 132) return false;
+    return signature.bytes.every((byte, i) => buffer[128 + i] === byte);
+  }
+
+  if (signature.mime === 'image/webp') {
+    if (buffer.length < 12) return false;
+    const riffHeaderMatches = signature.bytes.every((byte, i) => buffer[i] === byte);
+    const webpMarker = [0x57, 0x45, 0x42, 0x50]; // WEBP at byte offset 8
+    return riffHeaderMatches && webpMarker.every((byte, i) => buffer[8 + i] === byte);
+  }
+
+  return signature.bytes.every((byte, i) => buffer[i] === byte);
+}
+
+function inferMimeTypeFromMagicBytes(buffer) {
+  for (const sig of MAGIC_BYTES) {
+    if (matchesSignature(buffer, sig)) return sig.mime;
+  }
+  return null;
+}
+
 // Patient upload: file size limits
 const PATIENT_FILE_SIZE_LIMITS = {
   image: 10 * 1024 * 1024,  // 10MB for images
@@ -65,11 +90,21 @@ const PATIENT_FILE_SIZE_LIMITS = {
 
 export function normalizeUploadMimeType(file) {
   const declared = String(file?.mimetype || '').toLowerCase().split(';')[0].trim();
+  if (declared === 'image/jpg') {
+    file.mimetype = 'image/jpeg';
+    return file.mimetype;
+  }
   if (!FALLBACK_MIME_CANDIDATES.has(declared)) return declared;
 
   const ext = path.extname(String(file?.originalname || '')).slice(1).toLowerCase();
   const inferred = FALLBACK_MIME_BY_EXTENSION.get(ext);
-  if (!inferred) return declared;
+  if (!inferred) {
+    const magicMime = inferMimeTypeFromMagicBytes(file?.buffer);
+    if (!magicMime) return declared;
+
+    file.mimetype = magicMime;
+    return magicMime;
+  }
 
   file.mimetype = inferred;
   return inferred;
@@ -82,20 +117,9 @@ export function normalizeUploadMimeType(file) {
 function validateMagicBytes(buffer, claimedMime) {
   if (!buffer || buffer.length < 4) return false;
 
-  // For DICOM, magic bytes are at offset 128
-  if (claimedMime === 'application/dicom') {
-    if (buffer.length >= 132) {
-      const dicmSignature = [0x44, 0x49, 0x43, 0x4D];
-      return dicmSignature.every((byte, i) => buffer[128 + i] === byte);
-    }
-    return false;
-  }
-
-  // Check if file matches ANY known signature
-  for (const sig of MAGIC_BYTES) {
-    if (sig.bytes.every((byte, i) => buffer[i] === byte)) {
-      return true;
-    }
+  const actualMime = inferMimeTypeFromMagicBytes(buffer);
+  if (actualMime) {
+    return actualMime === claimedMime || (actualMime === 'image/jpeg' && claimedMime === 'image/jpg');
   }
 
   // Allow text-based formats, audio/video, and office documents without magic byte check
@@ -221,6 +245,7 @@ export function validateFileContent(req, res, next) {
   if (files.length === 0) return next();
 
   for (const file of files) {
+    normalizeUploadMimeType(file);
     if (!validateMagicBytes(file.buffer, file.mimetype)) {
       logger.warn(`File content validation failed: ${file.originalname} claims ${file.mimetype} but magic bytes don't match`);
       return res.status(400).json({
@@ -242,6 +267,7 @@ export function validatePatientUpload(req, res, next) {
   if (files.length === 0) return next();
 
   for (const file of files) {
+    normalizeUploadMimeType(file);
     // Check MIME type restriction for patient uploads
     if (!PATIENT_ALLOWED_MIMES.includes(file.mimetype)) {
       return res.status(400).json({

@@ -27,7 +27,8 @@ class InvestigationResultsTab extends StatefulWidget {
       InvestigationResultsTabState();
 }
 
-class InvestigationResultsTabState extends State<InvestigationResultsTab> {
+class InvestigationResultsTabState extends State<InvestigationResultsTab>
+    with AutomaticKeepAliveClientMixin {
   static const _secureStorage = FlutterSecureStorage();
 
   List<dynamic> _investigations = [];
@@ -42,6 +43,9 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab> {
   String? _patientId;
   late final bool _isGuest;
   late final String _phone;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -367,6 +371,7 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;

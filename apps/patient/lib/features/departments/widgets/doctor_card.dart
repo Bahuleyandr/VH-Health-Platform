@@ -36,162 +36,185 @@ class DoctorCard extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Avatar
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: cs.secondaryContainer,
-              foregroundColor: cs.onSecondaryContainer,
-              child: const Icon(Icons.person_outline, size: 24),
-            ),
-            const SizedBox(width: 12),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Name + availability badge
-                  Row(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: cs.secondaryContainer,
+                  foregroundColor: cs.onSecondaryContainer,
+                  child: const Icon(Icons.person_outline, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Flexible(
-                        child: Text(
-                          docName,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            docName,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
+                          if (isAvailableToday)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withAlpha(25),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.green.withAlpha(100),
+                                ),
+                              ),
+                              child: const Text(
+                                'Available',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      if (specialization.isNotEmpty)
+                        Text(
+                          specialization,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.primary,
+                          ),
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        children: [
+                          if (exp != null)
+                            _MetaChip(
+                              icon: Icons.work_outline,
+                              label: '$exp yrs',
+                              colorScheme: cs,
+                              theme: theme,
+                            ),
+                          if (fee != null)
+                            _MetaChip(
+                              icon: Icons.currency_rupee,
+                              label: '₹$fee',
+                              colorScheme: cs,
+                              theme: theme,
+                              strong: true,
+                            ),
+                        ],
                       ),
-                      if (isAvailableToday) ...[
-                        const SizedBox(width: 6),
-                        Container(
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (qualifications.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 60, top: 6),
+                child: Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: qualifications
+                      .take(4)
+                      .map(
+                        (q) => Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.green.withAlpha(25),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: Colors.green.withAlpha(100),
-                            ),
+                            color: cs.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text(
-                            'Available',
+                          child: Text(
+                            q.toString(),
                             style: TextStyle(
                               fontSize: 10,
-                              color: Colors.green,
-                              fontWeight: FontWeight.w600,
+                              color: cs.onSurfaceVariant,
                             ),
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  // Specialization
-                  if (specialization.isNotEmpty)
-                    Text(
-                      specialization,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.primary,
-                      ),
-                    ),
-                  const SizedBox(height: 4),
-                  // Experience + fee
-                  Row(
-                    children: [
-                      if (exp != null) ...[
-                        Icon(
-                          Icons.work_outline,
-                          size: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          '$exp yrs',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                            fontSize: 11,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                      ],
-                      if (fee != null) ...[
-                        Icon(
-                          Icons.currency_rupee,
-                          size: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '₹$fee',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  // Qualification chips
-                  if (qualifications.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: qualifications
-                            .take(4)
-                            .map(
-                              (q) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: cs.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  q.toString(),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                ],
+                      )
+                      .toList(),
+                ),
               ),
-            ),
-            // Book button
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: SizedBox(
-                height: 32,
-                child: ElevatedButton(
-                  onPressed: onBook,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    textStyle: const TextStyle(fontSize: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SizedBox(
+                  height: 32,
+                  child: ElevatedButton(
+                    onPressed: onBook,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      textStyle: const TextStyle(fontSize: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
+                    child: Text(loc.departmentsBook),
                   ),
-                  child: Text(loc.departmentsBook),
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final ColorScheme colorScheme;
+  final ThemeData theme;
+  final bool strong;
+
+  const _MetaChip({
+    required this.icon,
+    required this.label,
+    required this.colorScheme,
+    required this.theme,
+    this.strong = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: colorScheme.onSurfaceVariant),
+        const SizedBox(width: 3),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+            fontSize: 11,
+            fontWeight: strong ? FontWeight.w600 : null,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -58,6 +59,17 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
     'Afternoon (12 PM - 3 PM)',
     'Evening (3 PM - 6 PM)',
   ];
+
+  MediaType? _contentTypeForUpload(String path, String? fileName) {
+    final name = (fileName?.isNotEmpty == true ? fileName! : path)
+        .toLowerCase();
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    if (name.endsWith('.png')) return MediaType('image', 'png');
+    if (name.endsWith('.pdf')) return MediaType('application', 'pdf');
+    return null;
+  }
 
   @override
   void initState() {
@@ -206,6 +218,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             'slip_photo',
             _slipPhoto!.path,
             filename: _slipPhotoName ?? 'slip.jpg',
+            contentType: _contentTypeForUpload(
+              _slipPhoto!.path,
+              _slipPhotoName,
+            ),
           ),
         );
       }

@@ -133,6 +133,7 @@ export const getRateLimiter = (profileName = 'default') => {
 /** ✅ Pre-configured Limiters (from profiles) */
 export const genericLimiter = getRateLimiter('default');
 export const patientRateLimiter = getRateLimiter('patient');
+export const patientInvestigationRateLimiter = getRateLimiter('patientInvestigation');
 export const staffRateLimiter = getRateLimiter('staff');
 export const adminRateLimiter = getRateLimiter('admin'); // Less restrictive, not unlimited
 

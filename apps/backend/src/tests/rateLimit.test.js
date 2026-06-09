@@ -13,6 +13,16 @@ describe('Rate Limiting', () => {
     expect(adminProfile.max).not.toBe(Infinity);
   });
 
+  it('uses a roomier patient investigation profile for tabbed read traffic', () => {
+    const patientProfile = RATE_LIMIT_PROFILES.patient;
+    const investigationProfile = RATE_LIMIT_PROFILES.patientInvestigation;
+
+    expect(investigationProfile).toBeDefined();
+    expect(investigationProfile.windowMs).toBe(patientProfile.windowMs);
+    expect(investigationProfile.max).toBeGreaterThan(patientProfile.max);
+    expect(investigationProfile.message).toContain('investigation');
+  });
+
   it('should trigger rate limit after multiple requests', async () => {
     const token = generateTestToken('ADMIN');
     const results = [];

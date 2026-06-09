@@ -29,7 +29,14 @@ import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.
 import { phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
-import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
+import {
+  patientRateLimiter,
+  patientInvestigationRateLimiter,
+  genericLimiter,
+  adminRateLimiter,
+  dataExportRateLimiter,
+  dashboardRateLimiter
+} from './middleware/rateLimitMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { sentryScopeMiddleware } from './middleware/sentryScopeMiddleware.js';
@@ -516,7 +523,7 @@ app.use(
 // Healthcare services - Modularized
 app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
 app.use('/api/v1/records', patientRateLimiter, requireRole(...RECORD_ROUTE_ROLES), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
-app.use('/api/v1/investigations', patientRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
 // Pharmacy inventory and stores/purchase routes are operational supply-chain
 // surfaces. Mount them before the broader pharmacy-order router so stores and
 // purchase users do not need patient pharmacy-order permissions.
