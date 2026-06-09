@@ -50,7 +50,10 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDiY5ya9Ji0nWXqzNuJIprUQm-t0FVex_8',
+    apiKey: String.fromEnvironment(
+      'VH_FIREBASE_ANDROID_API_KEY',
+      defaultValue: 'AIzaSyDiY5ya9Ji0nWXqzNuJIprUQm-t0FVex_8',
+    ),
     appId: '1:155620159512:android:6b4839756b9f099a9d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',

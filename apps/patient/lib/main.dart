@@ -57,18 +57,28 @@ Future<void> main() async {
           ) &&
           (Platform.isAndroid || Platform.isIOS);
 
-      // When running in debug mode against a non-production backend
-      // (e.g. http://127.0.0.1:5206 for local QA), disable Firebase phone-auth
-      // reCAPTCHA verification. The dev hostname is not in the Firebase
-      // project's authorised-domains list, so reCAPTCHA Enterprise config calls
-      // return 403 and the OTP entry screen stalls indefinitely.
-      // appVerificationDisabledForTesting lets test phone numbers (configured
-      // in the Firebase console) skip the reCAPTCHA path entirely; it is a
-      // strict no-op against api.vhhealth.app where the domain is authorised.
-      if (kDebugMode && ApiConfig.baseUrl.startsWith('http://')) {
+      // Firebase phone-auth app verification is fragile on emulators and
+      // sideloaded debug builds. Keep production untouched, but let local QA
+      // builds choose between fictional-number test mode and a forced
+      // reCAPTCHA fallback through dart-defines.
+      const firebaseAuthTestMode = bool.fromEnvironment(
+        'VH_FIREBASE_AUTH_TEST_MODE',
+        defaultValue: false,
+      );
+      const firebaseForceRecaptcha = bool.fromEnvironment(
+        'VH_FIREBASE_FORCE_RECAPTCHA',
+        defaultValue: false,
+      );
+      final disableAppVerification =
+          firebaseAuthTestMode ||
+          (kDebugMode && ApiConfig.baseUrl.startsWith('http://'));
+      final forceRecaptcha =
+          !disableAppVerification && kDebugMode && firebaseForceRecaptcha;
+      if (disableAppVerification || forceRecaptcha) {
         try {
           await FirebaseAuth.instance.setSettings(
-            appVerificationDisabledForTesting: true,
+            appVerificationDisabledForTesting: disableAppVerification,
+            forceRecaptchaFlow: forceRecaptcha,
           );
         } catch (e) {
           debugPrint('Firebase test-mode setSettings skipped: $e');
