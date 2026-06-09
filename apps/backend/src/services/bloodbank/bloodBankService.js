@@ -123,7 +123,7 @@ class BloodBankService {
    * because the table has no dedicated column for it.
    */
   async recordTransfusion(id, data) {
-    const { transfusion_reaction } = data;
+    const { transfusion_reaction, verification_override_reason } = data;
 
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM blood_requests WHERE id = $1`, parseInt(id));
@@ -133,8 +133,11 @@ class BloodBankService {
     }
 
     // Roadmap B5 — the legacy completion path honours the same two-person
-    // bedside verification gate as the closed-loop endpoints (no bypass).
-    await assertBedsideVerified(parseInt(id, 10));
+    // bedside verification gate as the closed-loop endpoints. Unit-less
+    // legacy requests (nothing to scan) need an explicit audited override.
+    await assertBedsideVerified(parseInt(id, 10), {
+      legacyOverrideReason: verification_override_reason || null,
+    });
 
     const reactionNote = transfusion_reaction
       ? `Transfusion reaction: ${typeof transfusion_reaction === 'string' ? transfusion_reaction : JSON.stringify(transfusion_reaction)}`

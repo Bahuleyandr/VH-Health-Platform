@@ -14,6 +14,9 @@ const getProtocolRemindersMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryUnsafeMock },
+  // B7/B8: the helper now reaches problemListService → terminologyService,
+  // which named-imports prismaReadOnly; route reads through the same mock.
+  prismaReadOnly: { $queryRawUnsafe: queryUnsafeMock },
 }));
 jest.unstable_mockModule('../../services/emr/cdsEngine.js', () => ({
   getActiveAlerts: getActiveAlertsMock,
@@ -56,6 +59,7 @@ describe('buildEncounterStartAlerts', () => {
       { allergen: 'penicillin', severity: 'severe', reaction: 'anaphylaxis' },
       { allergen: 'sulfa', severity: 'mild', reaction: 'rash' },
     ]); // allergies
+    queryUnsafeMock.mockResolvedValueOnce([]); // active problems (B7)
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 5, origin_kind: 'discharge', due_at: new Date(Date.now() - 86400000).toISOString(), reason: '6w post-op' },
     ]); // follow-ups (overdue)
@@ -85,6 +89,7 @@ describe('buildEncounterStartAlerts', () => {
     getActiveAlertsMock.mockResolvedValueOnce([]);
     getProtocolRemindersMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "patient_allergies" does not exist'));
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "patient_problems" does not exist'));
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "follow_up_plans" does not exist'));
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tasks" does not exist'));
     const alerts = await buildEncounterStartAlerts({ patientUid: PATIENT });
@@ -95,6 +100,7 @@ describe('buildEncounterStartAlerts', () => {
     getActiveAlertsMock.mockRejectedValueOnce(new Error('db down'));
     getProtocolRemindersMock.mockRejectedValueOnce(new Error('db down'));
     queryUnsafeMock.mockResolvedValueOnce([]);  // allergies
+    queryUnsafeMock.mockResolvedValueOnce([]);  // active problems (B7)
     queryUnsafeMock.mockResolvedValueOnce([]);  // follow-ups
     queryUnsafeMock.mockResolvedValueOnce([]);  // tasks
     const alerts = await buildEncounterStartAlerts({ patientUid: PATIENT });
@@ -105,6 +111,7 @@ describe('buildEncounterStartAlerts', () => {
     getActiveAlertsMock.mockResolvedValueOnce([]);
     getProtocolRemindersMock.mockResolvedValueOnce([]);
     queryUnsafeMock.mockResolvedValueOnce([]); // allergies
+    queryUnsafeMock.mockResolvedValueOnce([]); // active problems (B7)
     const future = new Date(Date.now() + 7 * 86400000).toISOString();
     queryUnsafeMock.mockResolvedValueOnce([
       { id: 5, origin_kind: 'consultation', due_at: future, reason: 'follow-up' },

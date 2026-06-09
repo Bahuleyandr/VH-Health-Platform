@@ -163,8 +163,11 @@ describe('Bloodbank lifecycle — deep integration', () => {
     });
 
     it('records transfusion without reaction and advances status=transfused', async () => {
+      // B5: completion is gated on bedside verification; this unit-less
+      // legacy request proceeds via the audited override path.
       const res = await bloodStaff.put(`/api/v1/blood-bank/${requestId}/transfused`).send({
         transfusion_reaction: false,
+        verification_override_reason: 'Legacy unit-less request fixture — bedside scan not possible',
       });
       expect(res.statusCode).toBe(200);
       expect(res.body.data.status).toBe('transfused');
@@ -174,6 +177,7 @@ describe('Bloodbank lifecycle — deep integration', () => {
     it('blocks further transitions from terminal transfused state', async () => {
       const res = await bloodStaff.put(`/api/v1/blood-bank/${requestId}/transfused`).send({
         transfusion_reaction: false,
+        verification_override_reason: 'Legacy unit-less request fixture — bedside scan not possible',
       });
       expect(res.statusCode).toBe(400);
     });
@@ -225,8 +229,18 @@ describe('Bloodbank lifecycle — deep integration', () => {
     });
 
     it('appends the transfusion reaction into notes (no dedicated column exists)', async () => {
+      // B5: bedside verification now gates completion. This legacy request
+      // pinned no blood_units row at crossmatch, so there is nothing to
+      // scan — the silent path must 409 and the audited unit-less override
+      // proceeds.
+      const gated = await bloodStaff.put(`/api/v1/blood-bank/${requestId}/transfused`).send({
+        transfusion_reaction: 'Mild fever, chills — resolved after paracetamol',
+      });
+      expect(gated.statusCode).toBe(409);
+
       const res = await bloodStaff.put(`/api/v1/blood-bank/${requestId}/transfused`).send({
         transfusion_reaction: 'Mild fever, chills — resolved after paracetamol',
+        verification_override_reason: 'Legacy unit-less request fixture — bedside scan not possible',
       });
       expect(res.statusCode).toBe(200);
       const row = await prisma.$queryRawUnsafe(

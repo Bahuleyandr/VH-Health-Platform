@@ -425,6 +425,12 @@ describe('E-prescriptions — deep integration', () => {
     expect(orderRows[0].items_list[0].measuring_instruction).toMatch(/medicine cup/i);
 
     const pharmacy = clientAs('PHARMACY_STAFF', STAFF_UID, staffId);
+    // B1: pharmacist clinical verification now gates counter dispense.
+    const verified = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${mapped.body.data.id}/verify`)
+      .send({ decision: 'verified' });
+    expect(verified.statusCode).toBe(200);
+
     const unpaid = await pharmacy.post(`/api/v1/pharmacy/orders/${mapped.body.data.id}/dispense-counter`).send({});
     expect(unpaid.statusCode).toBe(400);
     expect(unpaid.body.details?.code).toBe('COUNTER_PAYMENT_REQUIRED');
@@ -626,6 +632,18 @@ describe('E-prescriptions — deep integration', () => {
     expect(item.substitution?.dose_conversion_required).toBeUndefined();
 
     const pharmacy = clientAs('PHARMACY_STAFF', STAFF_UID, staffId);
+    // B1: pharmacist clinical verification gates counter dispense. The
+    // shared fixture patient is paediatric, so a 500mg adult tablet trips
+    // the paediatric-dose blocker — plain 'verified' must refuse, and the
+    // pharmacist proceeds through the audited override path.
+    const refused = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/verify`)
+      .send({ decision: 'verified' });
+    expect(refused.statusCode).toBe(409);
+    const verified = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/verify`)
+      .send({ decision: 'override', override_reason: 'Test fixture: quantity-guard scenario, dose reviewed' });
+    expect(verified.statusCode).toBe(200);
 
     // (3a) Dispensing a quantity that mismatches the ordered 9 is blocked.
     const overDispense = await pharmacy
@@ -703,6 +721,13 @@ describe('E-prescriptions — deep integration', () => {
     expect(orderRows[0].items_list[0].quantity_source).toBe('explicit');
 
     const pharmacy = clientAs('PHARMACY_STAFF', STAFF_UID, staffId);
+    // B1: pharmacist clinical verification gates counter dispense (override
+    // path — paediatric fixture patient + adult tablet trips the dose blocker).
+    const verified = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/verify`)
+      .send({ decision: 'override', override_reason: 'Test fixture: ack-mismatch scenario, dose reviewed' });
+    expect(verified.statusCode).toBe(200);
+
     // Unacknowledged short-supply with no partial intent is blocked.
     const blocked = await pharmacy
       .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)

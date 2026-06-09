@@ -190,6 +190,15 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
     });
 
     it('markPreparing advances CONFIRMED → PREPARING and stamps preparing_at', async () => {
+      // B1: pharmacist clinical verification now gates preparation — the
+      // unverified attempt 409s, then verification clears the path.
+      const gated = await admin.post(`/api/v1/pharmacy-orders/orders/${orderId}/preparing`).send({});
+      expect(gated.statusCode).toBe(409);
+      const verified = await admin
+        .post(`/api/v1/pharmacy-orders/orders/${orderId}/verify`)
+        .send({ decision: 'verified' });
+      expect(verified.statusCode).toBe(200);
+
       const res = await admin.post(`/api/v1/pharmacy-orders/orders/${orderId}/preparing`).send({});
       expect(res.statusCode).toBe(200);
       expect(res.body.data.status).toBe('PREPARING');

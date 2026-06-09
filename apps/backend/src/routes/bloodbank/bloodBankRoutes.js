@@ -116,7 +116,8 @@ router.put('/:id/transfused', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const transfusionData = {
-      transfusion_reaction: req.body.transfusion_reaction
+      transfusion_reaction: req.body.transfusion_reaction,
+      verification_override_reason: req.body.verification_override_reason
     };
 
     const result = await bloodBankService.recordTransfusion(parseInt(id, 10), transfusionData);

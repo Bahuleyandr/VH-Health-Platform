@@ -308,7 +308,7 @@ export async function recordBedsideVerification(requestId, {
   return verification;
 }
 
-export async function assertBedsideVerified(requestId) {
+export async function assertBedsideVerified(requestId, { legacyOverrideReason = null } = {}) {
   if (!TRANSFUSION_REQUIRE_BEDSIDE_VERIFICATION) return { enforced: false };
   const rows = await prisma.$queryRawUnsafe(
     `SELECT verifier_role, all_checks_passed, override_reason
@@ -316,18 +316,37 @@ export async function assertBedsideVerified(requestId) {
     requestId,
   );
   const cleared = (role) => rows.some((r) => r.verifier_role === role && (r.all_checks_passed || r.override_reason));
-  if (!cleared('first') || !cleared('second')) {
-    throw AppError.conflict(
-      'Two-person bedside verification (scan unit + wristband) is required before transfusion',
-      'TRANSFUSION_VERIFICATION_REQUIRED',
-      {
-        first_done: cleared('first'),
-        second_done: cleared('second'),
-        verify_endpoint: `/api/v1/blood-bank/${requestId}/verify-bedside`,
-      },
-    );
+  if (cleared('first') && cleared('second')) return { enforced: true };
+
+  // Unit-less legacy requests (crossmatched without pinning a blood_units
+  // row) have nothing to scan — bedside verification is impossible by
+  // construction. Those may complete ONLY with an explicit, audited
+  // override reason; silent completion stays blocked.
+  const reqRows = await prisma.$queryRawUnsafe(
+    `SELECT crossmatched_unit_id FROM blood_requests WHERE id = $1`,
+    requestId,
+  );
+  const unitless = reqRows.length > 0 && reqRows[0].crossmatched_unit_id == null;
+  const trimmed = (legacyOverrideReason || '').trim();
+  if (unitless && trimmed.length >= 10) {
+    logger.warn('Transfusion completed via unit-less legacy override (no bedside scan possible)', {
+      request_id: requestId, reason: trimmed,
+    });
+    return { enforced: true, legacy_override: trimmed };
   }
-  return { enforced: true };
+
+  throw AppError.conflict(
+    unitless
+      ? 'No unit was pinned at crossmatch, so bedside scanning is impossible — supply verification_override_reason (≥10 chars, audited) or re-crossmatch with a registered unit'
+      : 'Two-person bedside verification (scan unit + wristband) is required before transfusion',
+    'TRANSFUSION_VERIFICATION_REQUIRED',
+    {
+      first_done: cleared('first'),
+      second_done: cleared('second'),
+      unitless_request: unitless,
+      verify_endpoint: `/api/v1/blood-bank/${requestId}/verify-bedside`,
+    },
+  );
 }
 
 export async function startTransfusion(requestId, context = {}) {
