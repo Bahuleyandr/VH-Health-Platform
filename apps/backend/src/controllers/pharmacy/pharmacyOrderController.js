@@ -1391,23 +1391,45 @@ export const getDispenseLabel = async (req, res) => {
 export const getCatalog = async (req, res) => {
   try {
     const { category, search } = req.query;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
     let where = 'WHERE is_active=TRUE';
     const params = [];
+    let orderBy = 'ORDER BY category, name';
 
     if (category) {
       params.push(category);
       where += ` AND category=$${params.length}`;
     }
     if (search) {
-      params.push(`%${search}%`);
-      where += ` AND (name ILIKE $${params.length} OR generic_name ILIKE $${params.length})`;
+      const cleanSearch = String(search).trim();
+      params.push(cleanSearch);
+      const exactParam = params.length;
+      params.push(`${cleanSearch}%`);
+      const prefixParam = params.length;
+      params.push(`%${cleanSearch}%`);
+      const containsParam = params.length;
+      where += ` AND (name ILIKE $${containsParam} OR generic_name ILIKE $${containsParam})`;
+      orderBy = `ORDER BY
+        CASE
+          WHEN LOWER(name) = LOWER($${exactParam}) THEN 0
+          WHEN name ILIKE $${prefixParam} THEN 1
+          WHEN generic_name ILIKE $${prefixParam} THEN 2
+          WHEN name ILIKE $${containsParam} THEN 3
+          WHEN generic_name ILIKE $${containsParam} THEN 4
+          ELSE 5
+        END,
+        (COALESCE(stock_quantity, stock, 0) > 0) DESC,
+        COALESCE(stock_quantity, stock, 0) DESC,
+        name`;
     }
+    params.push(limit);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, name, generic_name, category, manufacturer, price, unit_price, pack_size,
               COALESCE(stock_quantity, stock) AS stock,
               in_stock, is_available, requires_prescription, reorder_level, description, created_at
-       FROM pharmacy_catalog ${where} ORDER BY category, name`,
+       FROM pharmacy_catalog ${where} ${orderBy}
+       LIMIT $${params.length}`,
       ...params
     );
     success(res, result, 'Catalog');
