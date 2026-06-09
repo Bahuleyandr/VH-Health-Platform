@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as lab from '../../services/lab/labResultsService.js';
+import * as labClosedLoop from '../../services/lab/labClosedLoopService.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import * as investigationOrderService from '../../services/investigation/orderService.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -252,5 +253,52 @@ router.post('/alerts/critical/:id/ack', requireStaffOrAdmin, wrap(async (req) =>
     notes: req.body.notes,
   }),
 ));
+
+// ── Roadmap B3 — closed-loop lab ───────────────────────────────────────────
+
+// Printable specimen label (Code 39 of the accession barcode).
+router.get('/specimens/:id/label', requireStaffOrAdmin, wrap(async (req, res) => {
+  const label = await labClosedLoop.getSpecimenLabel(
+    Number.parseInt(req.params.id, 10),
+    { actorUid: req.user?.uid || null },
+  );
+  if (String(req.query.format || '').toLowerCase() === 'html') {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Specimen ${label.accession_number}</title>
+<style>body{font-family:monospace;margin:12px}.lbl{border:1px solid #000;padding:8px;max-width:420px}</style></head>
+<body><div class="lbl"><div><b>${label.patient.name || 'Unknown'}</b> · ${label.specimen_type} · ${label.priority}</div>
+<div>${label.accession_number}</div>${label.svg}</div></body></html>`);
+    return undefined;
+  }
+  return label;
+}));
+
+// Scan-on-receipt: lab scans the tube barcode → collected/in_transit → received.
+router.post('/specimens/receive-scan', requireStaffOrAdmin, wrap(async (req) =>
+  labClosedLoop.scanReceiveSpecimen({
+    barcode: req.body.barcode,
+    actorUid: req.user?.uid || null,
+    actorRole: req.user?.role || null,
+  })));
+
+// Analyzer interface bridge: middleware-capable analyzers (or the owner-side
+// serial/MLLP listeners) POST raw ASTM E1394 / HL7v2 payloads here. Every
+// payload is persisted in lab_interface_messages with its outcome.
+router.post('/interface/ingest', requireStaffOrAdmin, wrap(async (req) =>
+  labClosedLoop.ingestInterfaceMessage({
+    protocol: req.body.protocol,
+    rawMessage: req.body.message,
+    analyzerCode: req.body.analyzer_code || null,
+    tenantId: tenantOf(req),
+  }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null })));
+
+// Interface inbox (replay/triage surface).
+router.get('/interface/messages', requireStaffOrAdmin, wrap(async (req) => ({
+  messages: await labClosedLoop.listInterfaceMessages({
+    status: req.query.status || null,
+    limit: req.query.limit,
+  }),
+})));
 
 export default router;
