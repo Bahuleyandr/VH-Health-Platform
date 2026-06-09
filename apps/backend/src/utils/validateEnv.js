@@ -42,6 +42,13 @@ const envSchema = Joi.object({
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),
 
+  // PACS / imaging viewer (roadmap B4) — optional until the optional/pacs
+  // module is enabled. When unset, /api/v1/pacs/config reports enabled=false
+  // and study links carry no viewer URL.
+  PACS_DICOMWEB_URL: Joi.string().uri().allow('').optional().label('PACS_DICOMWEB_URL'),
+  PACS_VIEWER_URL: Joi.string().uri().allow('').optional().label('PACS_VIEWER_URL'),
+  PACS_AET: Joi.string().max(16).allow('').optional().label('PACS_AET'),
+
   // Encryption — MANDATORY. No JWT_SECRET fallback (compliance footgun).
   // Each key protects a different class of data and MUST be rotated independently.
   //   FIELD_ENCRYPTION_KEY  — at-rest PHI columns (names, DOB, diagnosis, etc.)

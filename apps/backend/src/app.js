@@ -234,6 +234,7 @@ import problemListRoutes from './routes/clinical/problemListRoutes.js';
 import drugKbRoutes from './routes/clinical/drugKbRoutes.js';
 import bcmaRoutes from './routes/clinical/bcmaRoutes.js';
 import medRecRoutes from './routes/clinical/medRecRoutes.js';
+import pacsRoutes from './routes/radiology/pacsRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -731,6 +732,10 @@ app.use('/api/v1/bcma', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('B
 
 // Medication reconciliation (roadmap B6) — admission/transfer/discharge.
 app.use('/api/v1/med-rec', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('MED_REC'), medRecRoutes);
+
+// PACS / imaging viewer surface (roadmap B4) — study links, OHIF deep
+// links, modality worklist feed.
+app.use('/api/v1/pacs', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('RADIOLOGY_PACS'), pacsRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
