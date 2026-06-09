@@ -5,6 +5,7 @@ import * as adminController from '../../controllers/appointment/appointmentAdmin
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { upload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { paramId } from '../../validators/sharedValidators.js';
@@ -84,10 +85,10 @@ router.get('/admin/documents', docController.getAllDocumentsAdmin);
 router.post('/:id/confirm', paramId(), validate, guardAppointmentWrite, workflowController.confirmAppointment);
 router.post('/:id/no-show', paramId(), validate, guardAppointmentWrite, workflowController.markNoShow);
 router.post('/:id/reschedule', paramId(), validate, guardAppointmentWrite, workflowController.rescheduleAppointment);
-router.post('/:id/complete', paramId(), validate, guardAppointmentWrite, workflowController.completeAppointment);
+router.post('/:id/complete', rejectMobileClinicalWrite, paramId(), validate, guardAppointmentWrite, workflowController.completeAppointment);
 router.post('/:id/cancel', paramId(), validate, guardAppointmentWrite, workflowController.cancelAppointment);
 // OPD→IPD bridge: doctor flips this on a visit; admission counter sees it.
-router.post('/:id/advise-admission', paramId(), validate, guardAppointmentWrite, workflowController.adviseForAdmission);
+router.post('/:id/advise-admission', rejectMobileClinicalWrite, paramId(), validate, guardAppointmentWrite, workflowController.adviseForAdmission);
 router.get('/:id/history', guardAppointmentView, workflowController.getAppointmentHistory);
 router.get('/:appointment_id/documents', guardAppointmentDocumentView, docController.getAppointmentDocuments);
 

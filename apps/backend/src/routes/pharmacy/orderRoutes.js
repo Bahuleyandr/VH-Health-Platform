@@ -5,6 +5,7 @@ import * as orderController from '../../controllers/pharmacy/orderController.js'
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 import { sanitizePharmacyFields } from '../../middleware/sanitizeMiddleware.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
 import { 
   placeOrderValidation,
   updateOrderStatusValidation,
@@ -19,13 +20,7 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only images and PDFs are allowed'));
-    }
-  }
+  fileFilter: prescriptionAttachmentFileFilter
 });
 
 // ── New lifecycle routes (static paths BEFORE :id) ──────────────────────────

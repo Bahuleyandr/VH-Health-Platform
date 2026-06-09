@@ -18,6 +18,9 @@ import '../../features/investigations/screens/lab_bookings_screen.dart';
 import '../../features/pharmacy/screens/pharmacy_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
+import '../../features/phone/screens/phone_patient_lookup_screen.dart';
+import '../../features/phone/screens/staff_phone_more_screen.dart';
+import '../../features/phone/screens/staff_query_screen.dart';
 import '../../features/reception/screens/front_office_workbench_screen.dart';
 import '../../features/reception/screens/billing_desk_screen.dart';
 import '../../features/ward/screens/ward_mode_screen.dart';
@@ -289,6 +292,24 @@ final GoRouter appRouter = GoRouter(
           name: 'settings',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: SettingsScreen()),
+        ),
+        GoRoute(
+          path: '/phone/more',
+          name: 'phone-more',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: StaffPhoneMoreScreen()),
+        ),
+        GoRoute(
+          path: '/phone/queries',
+          name: 'phone-queries',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: StaffQueryScreen()),
+        ),
+        GoRoute(
+          path: '/phone/patient-lookup',
+          name: 'phone-patient-lookup',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: PhonePatientLookupScreen()),
         ),
         GoRoute(
           path: '/reception-counter',

@@ -6,6 +6,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import bedManagementService from '../../services/bed/bedManagementService.js';
 import admissionService from '../../services/emr/admissionService.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
@@ -77,6 +78,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/admit',
+  rejectMobileClinicalWrite,
   requireBedAllocation,
   guardBedPatientWrite,
   wrapAsync(async (req, res) => {
@@ -107,6 +109,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge',
+  rejectMobileClinicalWrite,
   requireClinicalForBedMovement,
   guardBedResourceWrite,
   wrapAsync(async (req, res) => {
@@ -139,6 +142,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/transfer',
+  rejectMobileClinicalWrite,
   requireClinicalForBedMovement,
   guardBedPatientWrite,
   wrapAsync(async (req, res) => {

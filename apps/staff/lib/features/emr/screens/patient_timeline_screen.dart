@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/platform_info.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -555,6 +556,33 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   }
 
   Widget _buildClinicalActionStrip() {
+    if (appDeviceModeForContext(context) == AppDeviceMode.mobile) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryBlue.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.25),
+            ),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.visibility_outlined, color: AppTheme.primaryBlue),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Read-only on phone. Clinical entries must be completed on Staff Desktop.',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final query = _patientRouteQuery();
     final actions = [
       _TimelineAction(

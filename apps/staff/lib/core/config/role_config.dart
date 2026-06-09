@@ -1894,11 +1894,27 @@ class RoleFeatures {
     return const [
       BottomNavItem(
         item: BottomNavigationBarItem(
-          icon: Icon(Icons.dashboard_outlined),
-          activeIcon: Icon(Icons.dashboard),
+          icon: Icon(Icons.home_outlined),
+          activeIcon: Icon(Icons.home),
           label: 'Home',
         ),
         route: '/dashboard',
+      ),
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.notifications_outlined),
+          activeIcon: Icon(Icons.notifications),
+          label: 'Alerts',
+        ),
+        route: '/notifications',
+      ),
+      BottomNavItem(
+        item: BottomNavigationBarItem(
+          icon: Icon(Icons.chat_bubble_outline),
+          activeIcon: Icon(Icons.chat_bubble),
+          label: 'Messages',
+        ),
+        route: '/messaging',
       ),
       BottomNavItem(
         item: BottomNavigationBarItem(
@@ -1910,27 +1926,11 @@ class RoleFeatures {
       ),
       BottomNavItem(
         item: BottomNavigationBarItem(
-          icon: Icon(Icons.schedule_outlined),
-          activeIcon: Icon(Icons.schedule),
-          label: 'Roster',
+          icon: Icon(Icons.more_horiz),
+          activeIcon: Icon(Icons.more),
+          label: 'More',
         ),
-        route: '/schedule',
-      ),
-      BottomNavItem(
-        item: BottomNavigationBarItem(
-          icon: Icon(Icons.event_available_outlined),
-          activeIcon: Icon(Icons.event_available),
-          label: 'Leave',
-        ),
-        route: '/leave',
-      ),
-      BottomNavItem(
-        item: BottomNavigationBarItem(
-          icon: Icon(Icons.person_outlined),
-          activeIcon: Icon(Icons.person),
-          label: 'Profile',
-        ),
-        route: '/profile',
+        route: '/phone/more',
       ),
     ];
   }

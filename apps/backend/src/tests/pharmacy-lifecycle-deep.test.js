@@ -98,6 +98,22 @@ describe('Rich pharmacy lifecycle — deep integration', () => {
       const res = await admin.post('/api/v1/pharmacy-orders/orders/place').send({});
       expect(res.statusCode).toBe(400);
     });
+
+    it('rejects unsupported prescription attachment as a client error', async () => {
+      const res = await admin.post('/api/v1/pharmacy-orders/orders/place')
+        .field('order_note', 'Attach wrong file type')
+        .attach('prescription', Buffer.from('not a prescription image'), {
+          filename: 'prescription.txt',
+          contentType: 'text/plain',
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toEqual(expect.objectContaining({
+        success: false,
+        code: 'INVALID_PRESCRIPTION_ATTACHMENT',
+      }));
+      expect(res.body.message).toMatch(/Only images and PDFs are allowed/i);
+    });
   });
 
   // For the full walk, we seed an order directly via DB (avoids multipart) and then

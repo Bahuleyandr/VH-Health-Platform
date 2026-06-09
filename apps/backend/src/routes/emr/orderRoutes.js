@@ -2,6 +2,7 @@
 import express from 'express';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as orderEntryService from '../../services/emr/orderEntryService.js';
 import {
   ACCESS_POLICY_CODES,
@@ -148,7 +149,7 @@ function resolveOrderDetails(body) {
 // POST /emr/orders — Create a clinical order
 // ===================================================================
 
-router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical_order' }), guardClinicalOrderWrite, async (req, res, next) => {
+router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order' }), guardClinicalOrderWrite, async (req, res, next) => {
   try {
     const {
       encounter_id, er_visit_id, patient_uid, order_type, priority,
@@ -200,7 +201,7 @@ router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical
 // POST /emr/orders/apply-set — Apply an order set
 // ===================================================================
 
-router.post('/orders/apply-set', guardClinicalOrderWrite, async (req, res, next) => {
+router.post('/orders/apply-set', rejectMobileClinicalWrite, guardClinicalOrderWrite, async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, order_set_id } = req.body;
 
@@ -245,7 +246,7 @@ router.post('/orders/apply-set', guardClinicalOrderWrite, async (req, res, next)
 // front, then inserts all rows in one transaction.
 // Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
 
-router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), guardBulkOrderPatients, async (req, res, next) => {
+router.post('/orders/bulk', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), guardBulkOrderPatients, async (req, res, next) => {
   try {
     const { encounter_id, orders } = req.body;
 
@@ -308,7 +309,7 @@ router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'cli
 // PUT /emr/orders/:id/verify — Verify an order
 // ===================================================================
 
-router.put('/orders/:id/verify', guardClinicalOrderResourceWrite, async (req, res, next) => {
+router.put('/orders/:id/verify', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
 
@@ -327,7 +328,7 @@ router.put('/orders/:id/verify', guardClinicalOrderResourceWrite, async (req, re
 // PUT /emr/orders/:id/complete — Complete an order
 // ===================================================================
 
-router.put('/orders/:id/complete', guardClinicalOrderResourceWrite, async (req, res, next) => {
+router.put('/orders/:id/complete', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
 
@@ -347,7 +348,7 @@ router.put('/orders/:id/complete', guardClinicalOrderResourceWrite, async (req, 
 // PUT /emr/orders/:id/cancel — Cancel an order
 // ===================================================================
 
-router.put('/orders/:id/cancel', guardClinicalOrderResourceWrite, async (req, res, next) => {
+router.put('/orders/:id/cancel', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
     const { reason } = req.body;
@@ -372,7 +373,7 @@ router.put('/orders/:id/cancel', guardClinicalOrderResourceWrite, async (req, re
 // PUT /emr/orders/:id/discontinue — Discontinue an order
 // ===================================================================
 
-router.put('/orders/:id/discontinue', guardClinicalOrderResourceWrite, async (req, res, next) => {
+router.put('/orders/:id/discontinue', rejectMobileClinicalWrite, guardClinicalOrderResourceWrite, async (req, res, next) => {
   try {
     const orderId = parseInt(req.params.id, 10);
     const { reason } = req.body;

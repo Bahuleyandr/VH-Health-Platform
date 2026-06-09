@@ -85,6 +85,125 @@ class SettingsScreen extends StatelessWidget {
     pinCtrl.dispose();
   }
 
+  Future<void> _showChangePasswordDialog(BuildContext context) async {
+    final s = AppStrings.of(context);
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final values = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(s.settingsChangePasswordDialogTitle),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: currentCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: s.settingsChangePasswordCurrent,
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.lock_outline),
+                  ),
+                ),
+                validator: (v) => v == null || v.isEmpty
+                    ? s.settingsChangePasswordCurrent
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: s.settingsChangePasswordNew,
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.password_outlined),
+                  ),
+                ),
+                validator: (v) {
+                  if (v == null || v.isEmpty) {
+                    return s.settingsChangePasswordNew;
+                  }
+                  if (v.length < 8) {
+                    return 'Password must be at least 8 characters';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: s.settingsChangePasswordConfirm,
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.verified_user_outlined),
+                  ),
+                ),
+                validator: (v) {
+                  if (v != newCtrl.text) {
+                    return s.settingsChangePasswordMismatch;
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(s.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, {
+                  'currentPassword': currentCtrl.text,
+                  'newPassword': newCtrl.text,
+                });
+              }
+            },
+            child: Text(s.actionSave),
+          ),
+        ],
+      ),
+    );
+
+    currentCtrl.dispose();
+    newCtrl.dispose();
+    confirmCtrl.dispose();
+
+    if (values == null || !context.mounted) return;
+    try {
+      await HrApiService.changeOwnPassword(
+        currentPassword: values['currentPassword'] ?? '',
+        newPassword: values['newPassword'] ?? '',
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.settingsChangePasswordSuccess),
+            backgroundColor: AppTheme.successGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppTheme.errorRed,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showManageDevicesSheet(BuildContext context) async {
     showModalBottomSheet(
       context: context,
@@ -237,6 +356,17 @@ class SettingsScreen extends StatelessWidget {
                   color: AppTheme.textSecondary,
                 ),
                 onTap: () => _showSetupPinDialog(context),
+              ),
+              const Divider(height: 1, indent: 56),
+              _SettingsTile(
+                icon: Icons.lock_reset_outlined,
+                title: s.settingsChangePassword,
+                subtitle: s.settingsChangePasswordSubtitle,
+                trailing: Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
+                onTap: () => _showChangePasswordDialog(context),
               ),
               const Divider(height: 1, indent: 56),
               _BiometricToggleTile(),

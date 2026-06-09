@@ -22,6 +22,7 @@ import '../../../core/widgets/theme_toggle_action.dart';
 import '../../../l10n/app_strings.dart';
 import '../../clinical_ai/op_ai_assist_availability.dart';
 import '../../opd/op_doctor_workspace_route.dart';
+import '../../phone/screens/staff_phone_home_screen.dart';
 import '../dashboard_inpatient_count.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -273,6 +274,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _attendanceStatus?['isCheckedIn'] == true ||
         _attendanceStatus?['status'] == 'checked-in';
     final mode = appDeviceModeForContext(context);
+    if (mode == AppDeviceMode.mobile) {
+      return const StaffPhoneHomeScreen();
+    }
     final canMarkAttendance = mode.canMarkAttendance;
     final features = _featuresForDeviceMode(
       featuresWithOpAiAssistAvailability(

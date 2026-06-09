@@ -7926,6 +7926,30 @@ model staff_grievances {
   @@index([grievance_type, created_at(sort: Desc)], map: "idx_staff_grievances_type_created")
 }
 
+model staff_queries {
+  id              Int       @id @default(autoincrement())
+  uid             String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id       String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  staff_uid       String    @db.Uuid
+  category        String    @default("general") @db.VarChar(80)
+  subject         String    @db.VarChar(200)
+  body            String
+  priority        String    @default("normal") @db.VarChar(20)
+  status          String    @default("submitted") @db.VarChar(30)
+  assigned_to_uid String?   @db.Uuid
+  resolution      String?
+  resolved_at     DateTime? @db.Timestamptz(6)
+  resolved_by     String?   @db.Uuid
+  metadata        Json      @default("{}")
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([uid])
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_staff_queries_tenant_created")
+  @@index([staff_uid, created_at(sort: Desc)], map: "idx_staff_queries_staff_created")
+  @@index([status, priority, created_at(sort: Desc)], map: "idx_staff_queries_status_priority")
+}
+
 model staff_messages {
   id                        Int                         @id @default(autoincrement())
   sender_uid                String                      @db.Uuid

@@ -20,9 +20,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _error;
 
   // Edit controllers
-  final _phoneCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _addressCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -32,9 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
-    _phoneCtrl.dispose();
-    _emailCtrl.dispose();
-    _addressCtrl.dispose();
+    _nameCtrl.dispose();
     super.dispose();
   }
 
@@ -50,9 +46,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (mounted) {
         setState(() => _profile = staff);
-        _phoneCtrl.text = _profileValue(staff, ['phone', 'phoneNumber']);
-        _emailCtrl.text = _profileValue(staff, ['email']);
-        _addressCtrl.text = _profileValue(staff, ['address']);
+        _nameCtrl.text = _profileValue(staff, ['name', 'staffName']);
       }
     } catch (e) {
       if (mounted) {
@@ -77,14 +71,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _saveProfile() async {
     setState(() => _saving = true);
     try {
-      final id = _profile?['_id']?.toString() ?? _profile?['id']?.toString();
-      if (id == null) throw Exception('Profile ID not found');
-
-      await HrApiService.updateProfile(id, {
-        if (_phoneCtrl.text.isNotEmpty) 'phone': _phoneCtrl.text.trim(),
-        if (_emailCtrl.text.isNotEmpty) 'email': _emailCtrl.text.trim(),
-        if (_addressCtrl.text.isNotEmpty) 'address': _addressCtrl.text.trim(),
-      });
+      final name = _nameCtrl.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (name.length < 2) {
+        throw Exception('Name must be at least 2 characters');
+      }
+      await HrApiService.updateOwnProfile(name: name);
 
       if (mounted) {
         final s = AppStrings.of(context);
@@ -234,34 +225,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildInfoCard() {
     final s = AppStrings.of(context);
-    final fields = <String, String>{
-      s.profileFieldEmployeeId: _profileValue(_profile, [
-        'employeeId',
-        'employee_id',
-      ], fallback: '—'),
-      s.profileFieldRole: _profileValue(_profile, [
-        'role',
-      ], fallback: '—').replaceAll('_', ' '),
-      s.profileFieldDepartment: _profileValue(_profile, [
-        'department',
-      ], fallback: '—'),
-      s.profileFieldPhone: _profileValue(_profile, [
-        'phone',
-        'phoneNumber',
-      ], fallback: '—'),
-      s.profileFieldEmail: _profileValue(_profile, ['email'], fallback: '—'),
-      s.profileFieldShift: _profileValue(_profile, ['shift'], fallback: '—'),
-      s.profileFieldJoiningDate: _profileValue(_profile, [
-        'joiningDate',
-        'joining_date',
-        'hireDate',
-        'hire_date',
-        'createdAt',
-        'created_at',
-        'registeredAt',
-        'registered_at',
-      ], fallback: '—'),
-    };
+    final role = _profileValue(_profile, [
+      'role',
+    ], fallback: '—').replaceAll('_', ' ');
+    final phone = _profileValue(_profile, [
+      'phone',
+      'phoneNumber',
+    ], fallback: '—');
 
     return Card(
       child: Padding(
@@ -278,8 +248,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             const Divider(height: 20),
-            ...fields.entries.map(
-              (e) => _FieldRow(label: e.key, value: e.value),
+            _FieldRow(
+              label: s.profileFieldEmployeeId,
+              value: _profileValue(_profile, [
+                'employeeId',
+                'employee_id',
+              ], fallback: '—'),
+            ),
+            _FieldRow(
+              label: s.profileFieldRole,
+              value: role,
+              note: s.profileHrManagedHint,
+            ),
+            _FieldRow(
+              label: s.profileFieldDepartment,
+              value: _profileValue(_profile, ['department'], fallback: '—'),
+            ),
+            _FieldRow(
+              label: s.profileFieldPhone,
+              value: phone,
+              note: s.profileHrManagedHint,
+            ),
+            _FieldRow(
+              label: s.profileFieldEmail,
+              value: _profileValue(_profile, ['email'], fallback: '—'),
+            ),
+            _FieldRow(
+              label: s.profileFieldShift,
+              value: _profileValue(_profile, ['shift'], fallback: '—'),
+            ),
+            _FieldRow(
+              label: s.profileFieldJoiningDate,
+              value: _profileValue(_profile, [
+                'joiningDate',
+                'joining_date',
+                'hireDate',
+                'hire_date',
+                'createdAt',
+                'created_at',
+                'registeredAt',
+                'registered_at',
+              ], fallback: '—'),
             ),
           ],
         ),
@@ -289,6 +298,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildEditCard() {
     final s = AppStrings.of(context);
+    final role = _profileValue(_profile, [
+      'role',
+    ], fallback: '—').replaceAll('_', ' ');
+    final phone = _profileValue(_profile, [
+      'phone',
+      'phoneNumber',
+    ], fallback: '—');
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -305,37 +322,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              controller: _phoneCtrl,
+              controller: _nameCtrl,
               decoration: InputDecoration(
-                labelText: s.profileFieldPhone,
+                labelText: s.profileFieldName,
                 prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.phone_outlined),
+                  child: Icon(Icons.badge_outlined),
                 ),
               ),
-              keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _emailCtrl,
-              decoration: InputDecoration(
-                labelText: s.profileFieldEmail,
-                prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.email_outlined),
-                ),
-              ),
-              keyboardType: TextInputType.emailAddress,
+            _ManagedField(
+              icon: Icons.phone_outlined,
+              label: s.profileFieldPhone,
+              value: phone,
+              note: s.profileHrManagedHint,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _addressCtrl,
-              decoration: InputDecoration(
-                labelText: s.profileFieldAddress,
-                prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.home_outlined),
-                ),
-                alignLabelWithHint: true,
-              ),
-              maxLines: 2,
+            const SizedBox(height: 8),
+            _ManagedField(
+              icon: Icons.admin_panel_settings_outlined,
+              label: s.profileFieldRole,
+              value: role,
+              note: s.profileHrManagedHint,
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -441,7 +448,8 @@ class _ProfileChip extends StatelessWidget {
 class _FieldRow extends StatelessWidget {
   final String label;
   final String value;
-  const _FieldRow({required this.label, required this.value});
+  final String? note;
+  const _FieldRow({required this.label, required this.value, this.note});
 
   @override
   Widget build(BuildContext context) {
@@ -458,14 +466,91 @@ class _FieldRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (note != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    note!,
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManagedField extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String note;
+
+  const _ManagedField({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.note,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.06),
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppTheme.textSecondary, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  note,
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.lock_outline,
+            color: AppTheme.textSecondary.withValues(alpha: 0.8),
+            size: 18,
           ),
         ],
       ),

@@ -435,105 +435,151 @@ class _BillingDeskScreenState extends State<BillingDeskScreen> {
   Widget _invoiceTile(Map<String, dynamic> invoice) {
     final id = invoice['invoice_number'] ?? '#${invoice['id']}';
     final status = invoice['status']?.toString().toUpperCase() ?? 'DRAFT';
+    final invoiceType = invoice['invoice_type']?.toString() ?? 'OP';
     final isDraft = status == 'DRAFT';
     final due = billingInvoiceAmountDue(invoice);
     final canCollect = billingInvoiceCanCollect(invoice);
     final canPrintTax = billingInvoiceCanPrintTaxInvoice(invoice);
     final canPrintReceipt = billingInvoiceCanPrintReceipt(invoice);
+    final actions = <Widget>[
+      if (canPrintTax)
+        IconButton.filledTonal(
+          tooltip: 'Print tax invoice',
+          onPressed: _actionBusy
+              ? null
+              : () => _printInvoiceDocument(
+                  invoice,
+                  BillingDocumentType.taxInvoice,
+                ),
+          icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+        ),
+      if (canPrintReceipt)
+        IconButton.filledTonal(
+          tooltip: 'Print receipt',
+          onPressed: _actionBusy
+              ? null
+              : () =>
+                    _printInvoiceDocument(invoice, BillingDocumentType.receipt),
+          icon: const Icon(Icons.receipt_outlined, size: 18),
+        ),
+      if (isDraft)
+        SizedBox(
+          height: 34,
+          child: OutlinedButton.icon(
+            onPressed: _actionBusy ? null : () => _issueInvoice(invoice),
+            icon: const Icon(Icons.publish_outlined, size: 16),
+            label: const Text('Issue'),
+          ),
+        ),
+      if (canCollect)
+        SizedBox(
+          height: 34,
+          child: FilledButton.icon(
+            onPressed: _actionBusy
+                ? null
+                : () => _collectInvoicePayment(invoice),
+            icon: const Icon(Icons.payments_outlined, size: 16),
+            label: const Text('Collect'),
+          ),
+        ),
+    ];
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.backgroundGrey,
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.26),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.divider),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.12),
-            child: const Icon(Icons.receipt_long_outlined),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  id.toString(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                Text(
-                  '${invoice['invoice_type'] ?? 'OP'} - $status',
-                  style: TextStyle(color: AppTheme.textSecondary),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final details = Row(
             children: [
-              Text(
-                _money(due),
-                style: const TextStyle(fontWeight: FontWeight.w800),
+              CircleAvatar(
+                backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.12),
+                child: const Icon(Icons.receipt_long_outlined),
               ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                alignment: WrapAlignment.end,
-                children: [
-                  if (canPrintTax)
-                    IconButton.filledTonal(
-                      tooltip: 'Print tax invoice',
-                      onPressed: _actionBusy
-                          ? null
-                          : () => _printInvoiceDocument(
-                              invoice,
-                              BillingDocumentType.taxInvoice,
-                            ),
-                      icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                    ),
-                  if (canPrintReceipt)
-                    IconButton.filledTonal(
-                      tooltip: 'Print receipt',
-                      onPressed: _actionBusy
-                          ? null
-                          : () => _printInvoiceDocument(
-                              invoice,
-                              BillingDocumentType.receipt,
-                            ),
-                      icon: const Icon(Icons.receipt_outlined, size: 18),
-                    ),
-                  if (isDraft)
-                    SizedBox(
-                      height: 34,
-                      child: OutlinedButton.icon(
-                        onPressed: _actionBusy
-                            ? null
-                            : () => _issueInvoice(invoice),
-                        icon: const Icon(Icons.publish_outlined, size: 16),
-                        label: const Text('Issue'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      id.toString(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                  if (canCollect)
-                    SizedBox(
-                      height: 34,
-                      child: FilledButton.icon(
-                        onPressed: _actionBusy
-                            ? null
-                            : () => _collectInvoicePayment(invoice),
-                        icon: const Icon(Icons.payments_outlined, size: 16),
-                        label: const Text('Collect'),
-                      ),
+                    const SizedBox(height: 2),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          '$invoiceType - $status',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          _money(due),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                      ],
                     ),
-                ],
+                  ],
+                ),
               ),
             ],
-          ),
-        ],
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                details,
+                if (actions.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: actions,
+                  ),
+                ],
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: details),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 380),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.end,
+                    children: actions,
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }

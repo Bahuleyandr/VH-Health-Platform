@@ -1,6 +1,7 @@
 // src/routes/emr/vitalsRoutes.js
 import express from 'express';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -24,7 +25,7 @@ const guardVitalsResourceWrite = patientAccessGuardForResource('VITAL_SIGN', {
 // POST /emr/vitals — Record vitals
 // ===================================================================
 
-router.post('/vitals', guardClinicalWrite, async (req, res, next) => {
+router.post('/vitals', rejectMobileClinicalWrite, guardClinicalWrite, async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
@@ -129,8 +130,8 @@ async function handleVitalsCorrection(req, res, next) {
   }
 }
 
-router.put('/vitals/:vitalsId', guardVitalsResourceWrite, handleVitalsCorrection);
-router.patch('/vitals/:vitalsId', guardVitalsResourceWrite, handleVitalsCorrection);
+router.put('/vitals/:vitalsId', rejectMobileClinicalWrite, guardVitalsResourceWrite, handleVitalsCorrection);
+router.patch('/vitals/:vitalsId', rejectMobileClinicalWrite, guardVitalsResourceWrite, handleVitalsCorrection);
 
 // ===================================================================
 // GET /emr/vitals/:patientUid/latest — Latest vitals
@@ -227,7 +228,7 @@ router.get('/vitals/:patientUid/chart', guardClinicalView, async (req, res, next
 // POST /emr/io — Record intake/output
 // ===================================================================
 
-router.post('/io', guardClinicalWrite, async (req, res, next) => {
+router.post('/io', rejectMobileClinicalWrite, guardClinicalWrite, async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description } = req.body;
 

@@ -5,6 +5,8 @@ import * as ePrescriptionController from '../../controllers/prescription/ePrescr
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
 import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
+import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
 
 const router = express.Router();
 
@@ -14,13 +16,7 @@ logger.info('✅ E-Prescription routes loaded');
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only images and PDFs are allowed'));
-    }
-  }
+  fileFilter: prescriptionAttachmentFileFilter
 });
 
 // Static paths BEFORE /:id
@@ -39,6 +35,7 @@ wrapAutoRBAC(router, 'ePrescriptionCreateRoutes', {
     ['/create',
       [
         requireIdempotencyKey({ required: false, scope: 'prescription_create' }),
+        rejectMobileClinicalWrite,
         upload.single('handwritten_photo'),
       ],
       ePrescriptionController.createPrescription],
@@ -76,15 +73,15 @@ wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {
     ['/:id/safety', [], ePrescriptionController.getPrescriptionSafety]
   ],
   put: [
-    ['/:id', [], ePrescriptionController.updatePrescription]
+    ['/:id', [rejectMobileClinicalWrite], ePrescriptionController.updatePrescription]
   ],
   post: [
-    ['/:id/sign', [], ePrescriptionController.signPrescription],
+    ['/:id/sign', [rejectMobileClinicalWrite], ePrescriptionController.signPrescription],
     ['/:id/order-pharmacy',
-      [requireIdempotencyKey({ required: false, scope: 'prescription_order_pharmacy' })],
+      [rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'prescription_order_pharmacy' })],
       ePrescriptionController.orderPharmacyFromPrescription],
     ['/:id/refill',
-      [requireIdempotencyKey({ required: false, scope: 'prescription_refill' })],
+      [rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'prescription_refill' })],
       ePrescriptionController.orderPharmacyFromPrescription]
   ]
 });

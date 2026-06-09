@@ -166,6 +166,109 @@ export class StaffAuthService {
     }
   }
 
+  static async updateOwnProfile(staffUid, updates, req) {
+    const forbiddenFields = [
+      'phone',
+      'phoneNumber',
+      'phone_number',
+      'role',
+      'roles',
+      'employeeId',
+      'employee_id',
+      'department',
+      'position',
+      'salary',
+    ];
+
+    const touchedForbidden = forbiddenFields.filter((field) => Object.prototype.hasOwnProperty.call(updates || {}, field));
+    if (touchedForbidden.length > 0) {
+      const err = new Error('Phone number, role, and employment fields are managed by HR/Admin');
+      err.statusCode = 403;
+      throw err;
+    }
+
+    const unsupportedFields = Object.keys(updates || {}).filter((field) => field !== 'name');
+    if (unsupportedFields.length > 0) {
+      const err = new Error('Only name can be updated from staff self-service profile');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const name = String(updates?.name || '').trim().replace(/\s+/g, ' ');
+    if (!name || name.length < 2 || name.length > 120) {
+      const err = new Error('Name must be between 2 and 120 characters');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const result = await query(`
+      UPDATE users
+      SET name = $2, updated_at = NOW()
+      WHERE uid = $1::uuid
+      RETURNING id, uid, name, email, phone, role
+    `, [staffUid, name]);
+
+    if (result.rowCount === 0) {
+      const err = new Error('Staff not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    await this.logActivity(staffUid, 'STAFF_SELF_PROFILE_UPDATE', 'Staff updated own display name', req, {
+      fields: ['name'],
+    });
+
+    return { profile: result.rows[0] };
+  }
+
+  static async changeOwnPassword(staffUid, currentPassword, newPassword, req) {
+    if (!currentPassword || !newPassword) {
+      const err = new Error('Current password and new password are required');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (currentPassword === newPassword) {
+      const err = new Error('New password must be different from current password');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const result = await query(`
+      SELECT id, uid, role, encrypted_password
+      FROM users
+      WHERE uid = $1::uuid
+      LIMIT 1
+    `, [staffUid]);
+
+    if (result.rowCount === 0) {
+      const err = new Error('Staff not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const staff = result.rows[0];
+    const ok = await bcrypt.compare(currentPassword, staff.encrypted_password || '');
+    if (!ok) {
+      const err = new Error('Current password is incorrect');
+      err.statusCode = 401;
+      throw err;
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await query(`
+      UPDATE users
+      SET encrypted_password = $2, password_changed_at = NOW(), updated_at = NOW()
+      WHERE uid = $1::uuid
+    `, [staffUid, newHash]);
+
+    await this.logActivity(staffUid, 'STAFF_PASSWORD_CHANGED', 'Staff changed own password', req, {
+      deviceType: req?.user?.deviceType || null,
+    });
+
+    return { success: true };
+  }
+
   static async registerStaffDevice(employeeId, password, deviceInfo, req, { deviceType } = {}) {
     try {
       // Re-uses the result from authenticateStaff, avoiding extra DB calls.

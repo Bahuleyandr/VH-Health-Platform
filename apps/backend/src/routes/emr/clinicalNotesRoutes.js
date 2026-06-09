@@ -2,6 +2,7 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
@@ -110,7 +111,7 @@ function normalizeNotePayload(body) {
 // POST /emr/notes — Create clinical note
 // ===================================================================
 
-router.post('/notes', guardClinicalNoteWrite, async (req, res, next) => {
+router.post('/notes', rejectMobileClinicalWrite, guardClinicalNoteWrite, async (req, res, next) => {
   try {
     const { encounter_id, appointment_id, author_role, title } = req.body;
     const patient_uid = await resolvePatientUidFromBody(req.body);
@@ -155,7 +156,7 @@ router.post('/notes', guardClinicalNoteWrite, async (req, res, next) => {
 // POST /emr/notes/:id/addendum — Add addendum to existing note
 // ===================================================================
 
-router.post('/notes/:id/addendum', guardClinicalNoteResourceWrite, async (req, res, next) => {
+router.post('/notes/:id/addendum', rejectMobileClinicalWrite, guardClinicalNoteResourceWrite, async (req, res, next) => {
   try {
     const noteId = parseInt(req.params.id, 10);
     const { content, author_role } = req.body;
@@ -232,14 +233,14 @@ async function adminUpdateNote(req, res, next) {
   }
 }
 
-router.put('/notes/:id', guardClinicalNoteResourceWrite, adminUpdateNote);
-router.patch('/notes/:id', guardClinicalNoteResourceWrite, adminUpdateNote);
+router.put('/notes/:id', rejectMobileClinicalWrite, guardClinicalNoteResourceWrite, adminUpdateNote);
+router.patch('/notes/:id', rejectMobileClinicalWrite, guardClinicalNoteResourceWrite, adminUpdateNote);
 
 // ===================================================================
 // POST /emr/notes/:id/sign — Sign a clinical note
 // ===================================================================
 
-router.post('/notes/:id/sign', guardClinicalNoteResourceWrite, async (req, res, next) => {
+router.post('/notes/:id/sign', rejectMobileClinicalWrite, guardClinicalNoteResourceWrite, async (req, res, next) => {
   try {
     const noteId = parseInt(req.params.id, 10);
 

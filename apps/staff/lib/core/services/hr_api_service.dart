@@ -108,6 +108,35 @@ class HrApiService {
     return _get('/staff/$identifier');
   }
 
+  /// GET /auth/staff/profile — fetch the current signed-in staff profile.
+  static Future<Map<String, dynamic>> getAuthProfile() async {
+    return _get('/auth/staff/profile');
+  }
+
+  /// PATCH /auth/staff/profile — self-service fields only.
+  /// Phone number, role, department, and employment details are HR/Admin owned.
+  static Future<Map<String, dynamic>> updateOwnProfile({
+    required String name,
+  }) async {
+    final resp = await ApiClient.patch(
+      '/auth/staff/profile',
+      body: {'name': name.trim()},
+    );
+    return _handle(resp);
+  }
+
+  /// POST /auth/staff/change-password — current staff password change.
+  static Future<Map<String, dynamic>> changeOwnPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final resp = await ApiClient.post(
+      '/auth/staff/change-password',
+      body: {'currentPassword': currentPassword, 'newPassword': newPassword},
+    );
+    return _handle(resp);
+  }
+
   /// PUT /staff/:id — update staff profile
   static Future<Map<String, dynamic>> updateProfile(
     String id,
@@ -859,11 +888,6 @@ class HrApiService {
     required String deviceToken,
   }) async {
     return _post('/auth/staff/verify-device', {'deviceToken': deviceToken});
-  }
-
-  /// GET /auth/staff/profile — get staff profile from auth service
-  static Future<Map<String, dynamic>> getAuthProfile() async {
-    return _get('/auth/staff/profile');
   }
 
   /// GET /auth/staff/devices — list registered devices

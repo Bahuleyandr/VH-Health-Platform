@@ -5,6 +5,7 @@ import multer from 'multer';
 import attendanceRoutes from './attendanceRoutes.js';
 import hrRoutes from './hrRoutes.js';
 import pharmacyRoutes from './pharmacyRoutes.js';
+import phoneRoutes from './phoneRoutes.js';
 import rosterBoardRoutes from './rosterBoardRoutes.js';
 import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
@@ -68,6 +69,7 @@ function normalizeAppointmentDocument(row) {
 router.post('/walk-in', walkInRoles, workflowController.registerWalkIn);
 
 // Mount sub-routers
+router.use('/', phoneRoutes);           // Staff phone home + query workflow
 router.use('/', staffRoutes);           // Staff management
 router.use('/attendance', attendanceRoutes);  // Attendance operations
 router.use('/hr', hrRoutes);            // HR management

@@ -361,6 +361,20 @@ class AppStrings {
       _t('settings.setup_pin.dialog_label');
   // REVIEW: clinical-action / security message - confirm phrasing
   String get settingsSetupPinSuccess => _t('settings.setup_pin.success');
+  String get settingsChangePassword => _t('settings.change_password');
+  String get settingsChangePasswordSubtitle =>
+      _t('settings.change_password.subtitle');
+  String get settingsChangePasswordDialogTitle =>
+      _t('settings.change_password.dialog_title');
+  String get settingsChangePasswordCurrent =>
+      _t('settings.change_password.current');
+  String get settingsChangePasswordNew => _t('settings.change_password.new');
+  String get settingsChangePasswordConfirm =>
+      _t('settings.change_password.confirm');
+  String get settingsChangePasswordMismatch =>
+      _t('settings.change_password.mismatch');
+  String get settingsChangePasswordSuccess =>
+      _t('settings.change_password.success');
   String get settingsBiometricTitle => _t('settings.biometric.title');
   String get settingsBiometricSubtitle => _t('settings.biometric.subtitle');
   // REVIEW: clinical-action / security message
@@ -398,6 +412,7 @@ class AppStrings {
   String get profileEmpIdPrefix => _t('profile.emp_id_prefix');
   String get profileInfoTitle => _t('profile.info_title');
   String get profileEditTitle => _t('profile.edit_title');
+  String get profileFieldName => _t('profile.field.name');
   String get profileFieldEmployeeId => _t('profile.field.employee_id');
   String get profileFieldRole => _t('profile.field.role');
   String get profileFieldDepartment => _t('profile.field.department');
@@ -408,6 +423,7 @@ class AppStrings {
   String get profileFieldJoiningDate => _t('profile.field.joining_date');
   String get profileSavingButton => _t('profile.saving_button');
   String get profileSaveChanges => _t('profile.save_changes');
+  String get profileHrManagedHint => _t('profile.hr_managed_hint');
   // REVIEW: clinical-action confirmation - confirm phrasing
   String get profileUpdatedSuccess => _t('profile.updated_success');
 
@@ -2457,6 +2473,15 @@ class AppStrings {
       'settings.setup_pin.dialog_title': 'Set Up PIN',
       'settings.setup_pin.dialog_label': 'Enter 4–6 digit PIN',
       'settings.setup_pin.success': '✅ PIN set up successfully',
+      'settings.change_password': 'Change Password',
+      'settings.change_password.subtitle':
+          'Update your own login password securely',
+      'settings.change_password.dialog_title': 'Change Password',
+      'settings.change_password.current': 'Current password',
+      'settings.change_password.new': 'New password',
+      'settings.change_password.confirm': 'Confirm new password',
+      'settings.change_password.mismatch': 'New passwords do not match',
+      'settings.change_password.success': 'Password changed successfully',
       'settings.biometric.title': 'Biometric Login',
       'settings.biometric.subtitle': 'Use fingerprint or face to sign in',
       'settings.biometric.enabled': '✅ Biometric enabled',
@@ -2487,6 +2512,7 @@ class AppStrings {
       'profile.emp_id_prefix': 'EMP:',
       'profile.info_title': 'Staff Information',
       'profile.edit_title': 'Edit Profile',
+      'profile.field.name': 'Name',
       'profile.field.employee_id': 'Employee ID',
       'profile.field.role': 'Role',
       'profile.field.department': 'Department',
@@ -2497,6 +2523,7 @@ class AppStrings {
       'profile.field.joining_date': 'Joining Date',
       'profile.saving_button': 'Saving...',
       'profile.save_changes': 'Save Changes',
+      'profile.hr_managed_hint': 'Managed by HR/Admin',
       'profile.updated_success': '✅ Profile updated successfully',
       // Leave
       'leave.title': 'Leave',

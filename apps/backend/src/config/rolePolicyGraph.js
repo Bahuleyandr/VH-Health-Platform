@@ -189,6 +189,49 @@ export const ROLE_POLICY_CAPABILITY_GROUPS = {
       'COMPLIANCE_OFFICER',
     ],
   },
+  phone_self_service: {
+    title: 'Staff phone self service',
+    description: 'Mobile staff home, attendance, alerts, messages, reports, grievances, and staff queries.',
+    roles: [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'HR_STAFF',
+      'DOCTOR',
+      'DUTY_DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'NURSING_STAFF',
+      'NURSING_INCHARGE',
+      'OP_STAFF_NURSE',
+      'OP_INCHARGE',
+      'IP_STAFF_NURSE',
+      'IP_INCHARGE',
+      'OT_NURSE',
+      'OT_INCHARGE',
+      'CATH_LAB_STAFF',
+      'CATH_LAB_INCHARGE',
+      'PHARMACY_STAFF',
+      'PHARMACY_INCHARGE',
+      'LAB_STAFF',
+      'RADIOLOGIST',
+      'RADIOLOGY_STAFF',
+      'PATHOLOGIST',
+      'HOUSEKEEPING_STAFF',
+      'HOUSEKEEPING_INCHARGE',
+      'RECEPTIONIST',
+      'RECEPTION_INCHARGE',
+      'BILLING_STAFF',
+      'ADMISSION_OFFICER',
+      'INSURANCE_COORDINATOR',
+      'IPD_COUNSELLOR',
+      'GENERAL_STAFF',
+      'MAINTENANCE',
+      'DRIVER',
+      'SECURITY',
+      'STORES_PURCHASE_INCHARGE',
+    ],
+  },
   technical_admin: {
     title: 'Technical administration',
     description: 'Technical control-plane access for IT and integration operators.',
@@ -1040,6 +1083,80 @@ const STAFF_FEATURE_CATALOG = [
   { id: 'housekeeping_roster', title: 'Housekeeping Roster', sidebar_label: 'Roster', sidebar_order: 175, capability_group: 'housekeeping' },
 ];
 
+const PHONE_FEATURE_CATALOG = [
+  { id: 'phone_home', title: 'Phone Home', nav_label: 'Home', nav_order: 10, capability_group: 'phone_self_service' },
+  { id: 'phone_alerts', title: 'Alerts', nav_label: 'Alerts', nav_order: 20, capability_group: 'phone_self_service' },
+  { id: 'phone_messages', title: 'Messages', nav_label: 'Messages', nav_order: 30, capability_group: 'phone_self_service' },
+  { id: 'phone_attendance', title: 'Attendance', nav_label: 'Attendance', nav_order: 40, capability_group: 'phone_self_service' },
+  { id: 'phone_more', title: 'More', nav_label: 'More', nav_order: 50, capability_group: 'phone_self_service' },
+  { id: 'phone_roster', title: 'My Roster', nav_label: 'Roster', nav_order: 60, capability_group: 'phone_self_service' },
+  { id: 'phone_leave', title: 'Leave', nav_label: 'Leave', nav_order: 70, capability_group: 'phone_self_service' },
+  { id: 'phone_queries', title: 'Staff Queries', nav_label: 'Queries', nav_order: 80, capability_group: 'phone_self_service' },
+  { id: 'phone_reports', title: 'Incident Reports and Grievances', nav_label: 'Reports', nav_order: 90, capability_group: 'phone_self_service' },
+  { id: 'phone_readonly_chart', title: 'Read-only Patient Chart', nav_label: 'Chart', nav_order: 100, capability_group: 'phone_self_service' },
+  { id: 'phone_profile_settings', title: 'Profile and Settings', nav_label: 'Profile', nav_order: 110, capability_group: 'phone_self_service' },
+];
+
+const PHONE_PRIMARY_FEATURES = [
+  'phone_home',
+  'phone_alerts',
+  'phone_messages',
+  'phone_attendance',
+  'phone_more',
+];
+const PHONE_MORE_SELF_SERVICE_FEATURES = [
+  'phone_roster',
+  'phone_leave',
+  'phone_queries',
+  'phone_reports',
+  'phone_profile_settings',
+];
+const PHONE_READONLY_CHART_ROLES = new Set([
+  'SUPER_ADMIN',
+  'ADMIN',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'CONSULTANT',
+  'SENIOR_DOCTOR',
+  'JUNIOR_DOCTOR',
+  'RESIDENT',
+  'MEDICAL_SUPERINTENDENT',
+  'CNO',
+  'NURSING_SUPERINTENDENT',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OP_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
+  'LAB_STAFF',
+  'PATHOLOGIST',
+  'RADIOLOGIST',
+  'RADIOLOGY_STAFF',
+  'RECEPTIONIST',
+  'RECEPTION_INCHARGE',
+  'BILLING_STAFF',
+  'ADMISSION_OFFICER',
+  'IPD_COUNSELLOR',
+]);
+
+function phoneFeaturesForRole(roleCode) {
+  const normalized = normalizeRoleCode(roleCode);
+  if (normalized === 'PATIENT' || MACHINE_ROLE_SET.has(normalized)) return [];
+  const features = [
+    ...PHONE_PRIMARY_FEATURES,
+    ...PHONE_MORE_SELF_SERVICE_FEATURES,
+  ];
+  if (PHONE_READONLY_CHART_ROLES.has(normalized)) {
+    features.push('phone_readonly_chart');
+  }
+  return features;
+}
+
 const ROLE_POLICY_ROLES = ROLE_CODES.map((roleCode) => buildRoleEntry(roleCode));
 
 export const ROLE_POLICY_GRAPH = Object.freeze({
@@ -1060,6 +1177,10 @@ export const ROLE_POLICY_GRAPH = Object.freeze({
   phi_levels: PHI_ACCESS_LEVELS,
   staff_features: STAFF_FEATURE_CATALOG,
   staff_features_by_role: UI_FEATURES_BY_ROLE,
+  phone_features: PHONE_FEATURE_CATALOG,
+  phone_features_by_role: Object.fromEntries(
+    ROLE_CODES.map((roleCode) => [roleCode, phoneFeaturesForRole(roleCode)])
+  ),
 });
 
 const ROLE_POLICY_HASH = crypto
@@ -1260,6 +1381,7 @@ function buildRoleEntry(roleCode) {
     },
     ui: {
       feature_ids: UI_FEATURES_BY_ROLE[roleCode] || [],
+      phone_feature_ids: phoneFeaturesForRole(roleCode),
     },
     phi: {
       access_level: phiAccessLevelForRole(roleCode),

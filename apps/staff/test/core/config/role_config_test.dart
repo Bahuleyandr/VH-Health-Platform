@@ -528,10 +528,10 @@ void main() {
 
         expect(routes, [
           '/dashboard',
+          '/notifications',
+          '/messaging',
           '/attendance',
-          '/schedule',
-          '/leave',
-          '/profile',
+          '/phone/more',
         ]);
         expect(routes, isNot(contains('/front-office')));
         expect(routes, isNot(contains('/reception-counter')));
@@ -748,5 +748,25 @@ void main() {
         );
       },
     );
+  });
+
+  group('RoleFeatures.getPhoneSelfServiceNavForRole', () {
+    test('phone mode exposes the non-clinical five-tab shell', () {
+      final nav = RoleFeatures.getPhoneSelfServiceNavForRole(StaffRole.nurse);
+      expect(nav.map((item) => item.item.label).toList(), [
+        'Home',
+        'Alerts',
+        'Messages',
+        'Attendance',
+        'More',
+      ]);
+      expect(nav.map((item) => item.route).toList(), [
+        '/dashboard',
+        '/notifications',
+        '/messaging',
+        '/attendance',
+        '/phone/more',
+      ]);
+    });
   });
 }

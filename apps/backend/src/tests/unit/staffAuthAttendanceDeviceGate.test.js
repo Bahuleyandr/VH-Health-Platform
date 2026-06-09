@@ -7,6 +7,8 @@ let deviceTypeUnderTest = 'mobile';
 const noop = (_req, _res, next) => next();
 const checkInMock = jest.fn((_req, res) => res.status(200).json({ success: true, action: 'check-in' }));
 const checkOutMock = jest.fn((_req, res) => res.status(200).json({ success: true, action: 'check-out' }));
+const updateProfileMock = jest.fn((_req, res) => res.status(200).json({ success: true, action: 'update-profile' }));
+const changePasswordMock = jest.fn((_req, res) => res.status(200).json({ success: true, action: 'change-password' }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
@@ -59,6 +61,8 @@ jest.unstable_mockModule('../../controllers/auth/staffAuthController.js', () => 
   checkOut: checkOutMock,
   logout: jest.fn(),
   getProfile: jest.fn(),
+  updateProfile: updateProfileMock,
+  changePassword: changePasswordMock,
   getDevices: jest.fn(),
   getTodayAttendance: jest.fn(),
   getAttendanceHistory: jest.fn(),
@@ -85,6 +89,8 @@ const attendanceBody = {
 beforeEach(() => {
   checkInMock.mockClear();
   checkOutMock.mockClear();
+  updateProfileMock.mockClear();
+  changePasswordMock.mockClear();
 });
 
 describe('staff auth attendance device gate', () => {
@@ -133,5 +139,30 @@ describe('staff auth attendance device gate', () => {
       got: 'tablet',
     }));
     expect(checkOutMock).not.toHaveBeenCalled();
+  });
+
+  it('wires the authenticated self-service profile update route', async () => {
+    const app = makeApp('desktop');
+
+    const res = await request(app)
+      .patch('/auth/staff/profile')
+      .send({ name: 'Test Staff Updated' });
+
+    expect(res.statusCode).toBe(200);
+    expect(updateProfileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('wires the authenticated self-service password change route', async () => {
+    const app = makeApp('desktop');
+
+    const res = await request(app)
+      .post('/auth/staff/change-password')
+      .send({
+        currentPassword: 'OldStrong1!',
+        newPassword: 'NewStrong1!',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(changePasswordMock).toHaveBeenCalledTimes(1);
   });
 });

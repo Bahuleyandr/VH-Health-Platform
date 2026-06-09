@@ -141,6 +141,35 @@ export const getProfile = async (req, res) => {
   }
 };
 
+export const updateProfile = async (req, res) => {
+  try {
+    const staffUid = req.user.uid;
+    const result = await StaffAuthService.updateOwnProfile(staffUid, req.body, req);
+    success(res, result, 'Profile updated');
+  } catch (err) {
+    if (err?.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Update Profile Error:', err);
+    error(res, 'Failed to update profile', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+    const staffUid = req.user.uid;
+    const { currentPassword, newPassword } = req.body;
+    const result = await StaffAuthService.changeOwnPassword(staffUid, currentPassword, newPassword, req);
+    success(res, result, 'Password changed');
+  } catch (err) {
+    if (err?.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Change Password Error:', err);
+    error(res, 'Failed to change password', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // Get registered devices
 export const getDevices = async (req, res) => {
   try {

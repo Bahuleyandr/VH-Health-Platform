@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
+import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import referralService from '../../services/referral/referralService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isDoctor, isAdmin, isClinical } from '../../utils/roleHelpers.js';
@@ -52,7 +53,7 @@ function isReferralAdmin(role) {
  * forcing every caller to send both. Finding:
  * 2026-05-09-dynamic-acute-abdomen-doctor-referral-dual-field-validation-conflict.
  */
-router.post('/', requiredUUID('patient_uid'), requiredString('reason', 1000), validate, async (req, res, next) => {
+router.post('/', rejectMobileClinicalWrite, requiredUUID('patient_uid'), requiredString('reason', 1000), validate, async (req, res, next) => {
   try {
     if (!canRequestWardReferral(req.user?.role)) {
       return error(res, 'Only doctors and ward nursing roles can request referrals', 403);
@@ -234,7 +235,7 @@ router.get('/audit', async (req, res, next) => {
  * PUT /referrals/:id/seen
  * Marks the first time the referred consultant opened the referral.
  */
-router.put('/:id/seen', paramId(), validate, async (req, res, next) => {
+router.put('/:id/seen', rejectMobileClinicalWrite, paramId(), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can mark referrals as seen', 403);
@@ -259,7 +260,7 @@ router.put('/:id/seen', paramId(), validate, async (req, res, next) => {
  * PUT /referrals/:id/accept
  * Accept a referral — DOCTOR
  */
-router.put('/:id/accept', paramId(), validate, async (req, res, next) => {
+router.put('/:id/accept', rejectMobileClinicalWrite, paramId(), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can accept referrals', 403);
@@ -284,7 +285,7 @@ router.put('/:id/accept', paramId(), validate, async (req, res, next) => {
  * PUT /referrals/:id/complete
  * Complete a referral — DOCTOR
  */
-router.put('/:id/complete', paramId(), validate, async (req, res, next) => {
+router.put('/:id/complete', rejectMobileClinicalWrite, paramId(), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can complete referrals', 403);
@@ -314,7 +315,7 @@ router.put('/:id/complete', paramId(), validate, async (req, res, next) => {
  * PUT /referrals/:id/decline
  * Decline a referral — DOCTOR
  */
-router.put('/:id/decline', paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
+router.put('/:id/decline', rejectMobileClinicalWrite, paramId(), requiredString('reason', 500), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can decline referrals', 403);

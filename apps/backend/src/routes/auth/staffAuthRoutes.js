@@ -9,6 +9,7 @@ import * as staffAuthController from '../../controllers/auth/staffAuthController
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import { authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireDeviceType } from '../../middleware/requireDeviceTypeMiddleware.js';
+import { passwordComplexityMiddleware } from '../../validators/passwordValidator.js';
 import { staffPinLoginValidator } from '../../validators/auth/adminAuthValidator.js';
 import {
   staffPasswordLoginValidator,
@@ -20,6 +21,22 @@ import {
 
 const router = express.Router();
 const mobileOnly = requireDeviceType('mobile');
+
+const ownProfileUpdateValidator = [
+  body('name')
+    .exists({ checkFalsy: true }).withMessage('Name is required')
+    .customSanitizer((value) => String(value || '').trim().replace(/\s+/g, ' '))
+    .isLength({ min: 2, max: 120 }).withMessage('Name must be between 2 and 120 characters'),
+];
+
+const staffPasswordChangeValidator = [
+  body('currentPassword')
+    .notEmpty().withMessage('Current password is required'),
+  body('newPassword')
+    .notEmpty().withMessage('New password is required')
+    .custom((value, { req }) => value !== req.body.currentPassword)
+    .withMessage('New password must be different from current password'),
+];
 
 // Validation middleware helper
 const handleValidation = (req, res, next) => {
@@ -145,6 +162,16 @@ wrapRoutesWithValidation(
         body('deviceToken').optional(),
         handleValidation,
         staffAuthController.logout
+      ],
+
+      // Change own password. Staff can do this themselves; HR/Admin still own
+      // role, phone number, and employment details through staff management.
+      [
+        '/change-password',
+        ...staffPasswordChangeValidator,
+        handleValidation,
+        passwordComplexityMiddleware,
+        staffAuthController.changePassword
       ]
     ],
     
@@ -160,6 +187,11 @@ wrapRoutesWithValidation(
       
       // Get attendance history
       ['/attendance/history', staffAuthController.getAttendanceHistory]
+    ],
+
+    patch: [
+      // Update self-service account fields. Only display name is accepted here.
+      ['/profile', ...ownProfileUpdateValidator, handleValidation, staffAuthController.updateProfile]
     ],
     
     delete: [
