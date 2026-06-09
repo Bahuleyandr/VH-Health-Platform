@@ -698,6 +698,20 @@ class _UploadTab extends StatefulWidget {
   State<_UploadTab> createState() => _UploadTabState();
 }
 
+class _SelectedInvestigationFile {
+  final File file;
+  final String name;
+  final int sizeBytes;
+  bool uploaded = false;
+  String? error;
+
+  _SelectedInvestigationFile({
+    required this.file,
+    required this.name,
+    required this.sizeBytes,
+  });
+}
+
 class _UploadTabState extends State<_UploadTab> {
   final _formKey = GlobalKey<FormState>();
   final _phoneCtrl = TextEditingController();
@@ -705,8 +719,9 @@ class _UploadTabState extends State<_UploadTab> {
   final _resultCtrl = TextEditingController();
   String? _testType;
   bool _submitting = false;
-  File? _file;
-  String? _fileName;
+  String? _uploadingFileName;
+  int _uploadedCount = 0;
+  final List<_SelectedInvestigationFile> _files = [];
 
   static const _testTypes = [
     'Blood Test - CBC',
@@ -742,19 +757,36 @@ class _UploadTabState extends State<_UploadTab> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _uploadedCount = 0;
+      _uploadingFileName = null;
+      for (final file in _files) {
+        file.error = null;
+      }
+    });
     try {
-      await MedicalApiService.uploadInvestigation(
-        phone: _phoneCtrl.text.trim(),
-        testType: _testType!,
-        result: _resultCtrl.text.trim().isEmpty
-            ? null
-            : _resultCtrl.text.trim(),
-        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        filePath: _file?.path,
-        fileName: _fileName,
-      );
+      if (_files.isEmpty) {
+        await _uploadOne();
+      } else {
+        for (var i = 0; i < _files.length; i++) {
+          final selected = _files[i];
+          if (selected.uploaded) continue;
+          if (mounted) {
+            setState(() {
+              _uploadedCount = i + 1;
+              _uploadingFileName = selected.name;
+            });
+          }
+          try {
+            await _uploadOne(file: selected);
+            selected.uploaded = true;
+          } catch (e) {
+            selected.error = e.toString().replaceFirst('Exception: ', '');
+            rethrow;
+          }
+        }
+      }
       if (mounted) {
         final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -766,8 +798,11 @@ class _UploadTabState extends State<_UploadTab> {
         _formKey.currentState!.reset();
         setState(() {
           _testType = null;
-          _file = null;
-          _fileName = null;
+          _resultCtrl.clear();
+          _notesCtrl.clear();
+          _files.clear();
+          _uploadedCount = 0;
+          _uploadingFileName = null;
         });
       }
     } catch (e) {
@@ -780,8 +815,25 @@ class _UploadTabState extends State<_UploadTab> {
         );
       }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _uploadingFileName = null;
+        });
+      }
     }
+  }
+
+  Future<void> _uploadOne({_SelectedInvestigationFile? file}) {
+    return MedicalApiService.uploadInvestigation(
+      phone: _phoneCtrl.text.trim(),
+      testType: _testType!,
+      result: _resultCtrl.text.trim().isEmpty ? null : _resultCtrl.text.trim(),
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+      filePath: file?.file.path,
+      fileName: file?.name,
+    );
   }
 
   @override
@@ -893,6 +945,7 @@ class _UploadTabState extends State<_UploadTab> {
                       try {
                         final result = await FilePicker.pickFiles(
                           type: FileType.custom,
+                          allowMultiple: true,
                           allowedExtensions: [
                             'pdf',
                             'doc',
@@ -902,26 +955,44 @@ class _UploadTabState extends State<_UploadTab> {
                             'png',
                           ],
                         );
-                        if (result?.files.single.path != null) {
-                          final file = File(result!.files.single.path!);
+                        if (result == null || result.files.isEmpty) return;
+                        final selected = <_SelectedInvestigationFile>[];
+                        var skippedLarge = 0;
+                        final existingPaths = _files
+                            .map((file) => file.file.path)
+                            .toSet();
+                        for (final picked in result.files) {
+                          final path = picked.path;
+                          if (path == null || existingPaths.contains(path)) {
+                            continue;
+                          }
+                          final file = File(path);
                           final sizeBytes = await file.length();
                           const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
                           if (sizeBytes > maxSizeBytes) {
-                            if (mounted) {
-                              // ignore: use_build_context_synchronously
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(s.investigationsFileTooLarge),
-                                  backgroundColor: AppTheme.errorRed,
-                                ),
-                              );
-                            }
-                            return;
+                            skippedLarge += 1;
+                            continue;
                           }
-                          setState(() {
-                            _file = file;
-                            _fileName = result.files.single.name;
-                          });
+                          selected.add(
+                            _SelectedInvestigationFile(
+                              file: file,
+                              name: picked.name,
+                              sizeBytes: sizeBytes,
+                            ),
+                          );
+                          existingPaths.add(path);
+                        }
+                        if (mounted && selected.isNotEmpty) {
+                          setState(() => _files.addAll(selected));
+                        }
+                        if (mounted && skippedLarge > 0) {
+                          // ignore: use_build_context_synchronously
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(s.investigationsFileTooLarge),
+                              backgroundColor: AppTheme.errorRed,
+                            ),
+                          );
                         }
                       } catch (e) {
                         if (mounted) {
@@ -939,14 +1010,14 @@ class _UploadTabState extends State<_UploadTab> {
                 height: 80,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: _file != null
+                  color: _files.isNotEmpty
                       ? AppTheme.accentCyan.withValues(alpha: 0.08)
-                      : Colors.white,
+                      : AppTheme.surfaceWhite,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: _file != null
+                    color: _files.isNotEmpty
                         ? AppTheme.accentCyan
-                        : const Color(0xFFB0BEC5),
+                        : AppTheme.divider,
                     style: BorderStyle.solid,
                   ),
                 ),
@@ -954,29 +1025,30 @@ class _UploadTabState extends State<_UploadTab> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      _file != null
+                      _files.isNotEmpty
                           ? Icons.check_circle_outline
                           : Icons.upload_file_outlined,
-                      color: _file != null
+                      color: _files.isNotEmpty
                           ? AppTheme.accentCyan
                           : AppTheme.textSecondary,
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _fileName ?? s.investigationsAttachReport,
+                      _files.isEmpty
+                          ? s.investigationsAttachReport
+                          : '${_files.length} file${_files.length == 1 ? '' : 's'} selected',
                       style: TextStyle(
-                        color: _file != null
+                        color: _files.isNotEmpty
                             ? AppTheme.accentCyan
                             : AppTheme.textSecondary,
                         fontSize: 13,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (_file != null)
+                    if (_files.isNotEmpty)
                       GestureDetector(
                         onTap: () => setState(() {
-                          _file = null;
-                          _fileName = null;
+                          _files.clear();
                         }),
                         child: Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -993,6 +1065,18 @@ class _UploadTabState extends State<_UploadTab> {
                 ),
               ),
             ),
+            if (_files.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              for (var i = 0; i < _files.length; i++)
+                _SelectedFileRow(
+                  file: _files[i],
+                  uploading:
+                      _submitting && _uploadingFileName == _files[i].name,
+                  onRemove: _submitting
+                      ? null
+                      : () => setState(() => _files.removeAt(i)),
+                ),
+            ],
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _submitting ? null : _submit,
@@ -1008,7 +1092,9 @@ class _UploadTabState extends State<_UploadTab> {
                   : const Icon(Icons.upload, color: Colors.white),
               label: Text(
                 _submitting
-                    ? s.investigationsUploading
+                    ? _files.isEmpty
+                          ? s.investigationsUploading
+                          : 'Uploading $_uploadedCount/${_files.length}${_uploadingFileName == null ? '' : ' - $_uploadingFileName'}'
                     : s.investigationsUploadButton,
               ),
               style: ElevatedButton.styleFrom(
@@ -1020,6 +1106,101 @@ class _UploadTabState extends State<_UploadTab> {
       ),
     );
   }
+}
+
+class _SelectedFileRow extends StatelessWidget {
+  final _SelectedInvestigationFile file;
+  final bool uploading;
+  final VoidCallback? onRemove;
+
+  const _SelectedFileRow({
+    required this.file,
+    required this.uploading,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = file.error != null
+        ? AppTheme.errorOnSurface
+        : file.uploaded
+        ? AppTheme.successOnSurface
+        : AppTheme.textSecondary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: file.error != null
+              ? AppTheme.errorOnSurface.withValues(alpha: 0.45)
+              : AppTheme.divider,
+        ),
+      ),
+      child: Row(
+        children: [
+          if (uploading)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.accentCyan,
+              ),
+            )
+          else
+            Icon(
+              file.uploaded
+                  ? Icons.check_circle_outline
+                  : file.error != null
+                  ? Icons.error_outline
+                  : Icons.insert_drive_file_outlined,
+              size: 18,
+              color: color,
+            ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  file.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  file.error ?? _fileSizeLabel(file.sizeBytes),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: color),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove file',
+            onPressed: onRemove,
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _fileSizeLabel(int bytes) {
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '$bytes B';
 }
 
 class _PendingTab extends StatefulWidget {

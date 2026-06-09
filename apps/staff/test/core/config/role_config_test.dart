@@ -180,11 +180,19 @@ void main() {
 
       expect(
         opStaffIds,
-        containsAll(['front_office_workbench', 'appointments']),
+        containsAll([
+          'op_nursing_dashboard',
+          'front_office_workbench',
+          'appointments',
+        ]),
       );
       expect(
         opInchargeIds,
-        containsAll(['front_office_workbench', 'appointments']),
+        containsAll([
+          'op_nursing_dashboard',
+          'front_office_workbench',
+          'appointments',
+        ]),
       );
       expect(opStaffIds, isNot(contains('admissions')));
       expect(opInchargeIds, isNot(contains('admissions')));
@@ -494,6 +502,23 @@ void main() {
       },
     );
 
+    test('OP nursing roles open the OP nursing dashboard first', () {
+      for (final role in [StaffRole.opStaffNurse, StaffRole.opIncharge]) {
+        final items = RoleFeatures.getBottomNavForRole(role);
+        expect(
+          items.map((item) => item.route),
+          contains('/op/nursing-dashboard'),
+        );
+        expect(
+          items
+              .firstWhere((item) => item.route == '/op/nursing-dashboard')
+              .item
+              .label,
+          'OP Nursing',
+        );
+      }
+    });
+
     test(
       'phone self-service navigation stays personal for operational roles',
       () {
@@ -629,6 +654,13 @@ void main() {
       expect(nurseRoutes, isNot(contains('/front-office')));
       expect(nurseRoutes, isNot(contains('/emr/admissions')));
       expect(nurseRoutes, contains('/patient-records'));
+
+      final opNurseRoutes = RoleFeatures.getWorkbenchNavForRole(
+        StaffRole.opStaffNurse,
+      ).map((item) => item.route).toSet();
+      expect(opNurseRoutes, contains('/op/nursing-dashboard'));
+      expect(opNurseRoutes, contains('/front-office'));
+      expect(opNurseRoutes, isNot(contains('/emr/admissions')));
     });
 
     test('workbench side bar gates match role predicates for every role', () {

@@ -120,10 +120,10 @@ class StaffScaffold extends StatelessWidget {
             '/dashboard',
           ),
           const _NavItem(
-            'Appointments',
-            Icons.calendar_month_outlined,
-            Icons.calendar_month,
-            '/appointments',
+            'OP Nursing',
+            Icons.fact_check_outlined,
+            Icons.fact_check,
+            '/op/nursing-dashboard',
           ),
           const _NavItem(
             'Records',

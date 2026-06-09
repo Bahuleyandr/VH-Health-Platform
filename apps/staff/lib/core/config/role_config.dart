@@ -547,6 +547,13 @@ class RoleFeatures {
     route: '/staff-roster/op_nursing',
     color: Color(0xFF00838F),
   );
+  static const DashboardFeature _opNursingDashboard = DashboardFeature(
+    id: 'op_nursing_dashboard',
+    title: 'OP Nursing',
+    icon: Icons.fact_check_outlined,
+    route: '/op/nursing-dashboard',
+    color: Color(0xFF00838F),
+  );
   static const DashboardFeature _receptionRoster = DashboardFeature(
     id: 'reception_roster',
     title: 'Reception Roster',
@@ -846,6 +853,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _dutyPreference,
+        _opNursingDashboard,
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
@@ -865,6 +873,7 @@ class RoleFeatures {
         _schedule,
         _dutyPreference,
         _opNursingRoster,
+        _opNursingDashboard,
         _frontOfficeWorkbench,
         _appointments,
         _patientRecords,
@@ -1382,11 +1391,11 @@ class RoleFeatures {
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month_outlined),
-            activeIcon: Icon(Icons.calendar_month),
-            label: 'Appointments',
+            icon: Icon(Icons.fact_check_outlined),
+            activeIcon: Icon(Icons.fact_check),
+            label: 'OP Nursing',
           ),
-          route: '/appointments',
+          route: '/op/nursing-dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(
@@ -2122,6 +2131,18 @@ class RoleFeatures {
           selectedIcon: Icons.space_dashboard,
           route: '/front-office',
           featureId: 'front_office_workbench',
+        ),
+      );
+    }
+
+    if (role == StaffRole.opStaffNurse || role == StaffRole.opIncharge) {
+      items.add(
+        const WorkbenchNavItem(
+          label: 'OP Nursing',
+          icon: Icons.fact_check_outlined,
+          selectedIcon: Icons.fact_check,
+          route: '/op/nursing-dashboard',
+          featureId: 'appointments',
         ),
       );
     }

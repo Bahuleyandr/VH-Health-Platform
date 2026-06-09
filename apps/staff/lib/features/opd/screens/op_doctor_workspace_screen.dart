@@ -719,7 +719,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
                       ? null
                       : () => _saveOpNote(openInvestigationsAfter: true),
                   icon: const Icon(Icons.biotech_outlined, size: 18),
-                  label: const Text('Save & investigations'),
+                  label: const Text('Save, then investigations'),
                 ),
                 OutlinedButton.icon(
                   onPressed:

@@ -974,14 +974,14 @@ const HR_PROCESS_OVERRIDES = {
 };
 
 const UI_FEATURES_BY_ROLE = {
-  ADMIN: ['front_office_workbench', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
-  SUPER_ADMIN: ['front_office_workbench', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
+  ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
+  SUPER_ADMIN: ['front_office_workbench', 'op_nursing_dashboard', 'admissions', 'billing_desk', 'staff_management', 'organization_hierarchy', 'safety_center', 'audit_logs', 'bed_board', 'referrals'],
   HR_STAFF: ['staff_management', 'organization_hierarchy', 'hr_dashboard', 'leave_approvals', 'staff_directory', 'reports_grievances', 'audit_logs'],
-  CNO: ['organization_hierarchy', 'nursing_roster', 'op_nursing_roster', 'staff_roster', 'patient_command_board', 'bed_board', 'referrals', 'safety_center'],
+  CNO: ['organization_hierarchy', 'nursing_roster', 'op_nursing_roster', 'op_nursing_dashboard', 'staff_roster', 'patient_command_board', 'bed_board', 'referrals', 'safety_center'],
   RECEPTIONIST: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions'],
   RECEPTION_INCHARGE: ['front_office_workbench', 'appointments', 'patient_records', 'billing_desk', 'admissions', 'reception_roster'],
-  OP_STAFF_NURSE: ['front_office_workbench', 'appointments', 'patient_records', 'lab_bookings', 'nursing_notes'],
-  OP_INCHARGE: ['front_office_workbench', 'appointments', 'patient_records', 'lab_bookings', 'nursing_notes', 'op_nursing_roster'],
+  OP_STAFF_NURSE: ['front_office_workbench', 'op_nursing_dashboard', 'appointments', 'patient_records', 'lab_bookings', 'nursing_notes'],
+  OP_INCHARGE: ['front_office_workbench', 'op_nursing_dashboard', 'appointments', 'patient_records', 'lab_bookings', 'nursing_notes', 'op_nursing_roster'],
   NURSING_STAFF: ['patient_command_board', 'bed_board', 'nursing_notes', 'handover', 'discharge_hub', 'referrals'],
   IP_STAFF_NURSE: ['patient_command_board', 'bed_board', 'nursing_notes', 'handover', 'discharge_hub', 'referrals'],
   NURSING_INCHARGE: ['patient_command_board', 'bed_board', 'nursing_notes', 'handover', 'discharge_hub', 'nursing_roster', 'referrals'],
@@ -1006,6 +1006,7 @@ const STAFF_FEATURE_CATALOG = [
   { id: 'home', title: 'Home', sidebar_label: 'Home', sidebar_order: 10, capability_group: 'op_flow' },
   { id: 'front_office_workbench', title: 'Front Office Workbench', sidebar_label: 'Front Office', sidebar_order: 20, capability_group: 'op_flow' },
   { id: 'appointments', title: 'Appointments', sidebar_label: 'Appointments', sidebar_order: 25, capability_group: 'op_flow' },
+  { id: 'op_nursing_dashboard', title: 'OP Nursing Dashboard', sidebar_label: 'OP Nursing', sidebar_order: 27, capability_group: 'op_flow' },
   { id: 'patient_records', title: 'Patient Records', sidebar_label: 'Patient Records', sidebar_order: 30, capability_group: 'op_flow' },
   { id: 'billing_desk', title: 'Billing Desk', sidebar_label: 'Billing', sidebar_order: 35, capability_group: 'billing' },
   { id: 'patient_command_board', title: 'Patient Command Board', sidebar_label: 'IP Services', sidebar_order: 40, capability_group: 'ip_flow' },

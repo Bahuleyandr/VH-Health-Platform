@@ -659,6 +659,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'dietary',
       },
       StaffRole.opStaffNurse => {
+        'op_nursing_dashboard',
         'front_office_workbench',
         'appointments',
         'patient_records',
@@ -668,6 +669,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
       },
       StaffRole.opIncharge => {
+        'op_nursing_dashboard',
         'front_office_workbench',
         'appointments',
         'patient_records',
@@ -846,7 +848,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'dietary',
         'handover',
       },
-      StaffRole.opStaffNurse => {
+      StaffRole.opStaffNurse || StaffRole.opIncharge => {
+        'op_nursing_dashboard',
         'appointments',
         'lab_bookings',
         'nursing_notes',
@@ -1030,6 +1033,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           tiles: _serviceTilesForIds(
             features,
             [
+              'op_nursing_dashboard',
               'front_office_workbench',
               'appointments',
               'nursing_notes',
@@ -1039,6 +1043,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records',
             ],
             titleOverrides: {
+              'op_nursing_dashboard': 'OP Nursing',
               'front_office_workbench': 'OP Workbench',
               'nursing_notes': s.dashboardOpNursingNotes,
               'lab_bookings': s.dashboardOpLabBookings,
@@ -1208,6 +1213,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Map<String, String> _serviceContextRoutes(String context) => {
+    'op_nursing_dashboard': '/op/nursing-dashboard',
     'front_office_workbench': '/front-office?context=$context',
     'appointments': '/appointments?context=$context',
     'queue': '/queue?context=$context',
