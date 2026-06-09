@@ -121,7 +121,15 @@ describe('rolePolicyGraph', () => {
       group: 'support',
       department: 'Stores / Purchase',
     }));
-    expect(role?.access?.route_capability_groups).toEqual(['supply_chain']);
+    // phone_self_service is the universal staff phone surface (home,
+    // attendance, alerts, messages) added with phone mode — it is not a
+    // PHI capability, so it coexists with the no-PHI assertions below.
+    expect(role?.access?.route_capability_groups).toEqual(
+      expect.arrayContaining(['supply_chain']),
+    );
+    expect(role?.access?.route_capability_groups).not.toEqual(
+      expect.arrayContaining(['clinical', 'emr', 'pharmacy', 'billing']),
+    );
     expect(role?.phi).toEqual(expect.objectContaining({
       access_level: PHI_ACCESS_LEVELS.OPERATIONAL_ONLY,
       requires_patient_relationship: false,
