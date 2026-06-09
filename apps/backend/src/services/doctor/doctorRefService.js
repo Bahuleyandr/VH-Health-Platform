@@ -12,6 +12,40 @@ function doctorRefError(message, code, details = null) {
   return AppError.badRequest(message, code, details);
 }
 
+/**
+ * Lenient canonicalizer for doctor-id FILTER inputs (roadmap A9).
+ *
+ * Read paths (list filters, exports, dashboards) historically accepted a
+ * doctor id without saying which id space it lives in — `users.id` (what
+ * appointment/clinical rows store) or `doctors.id` (the profile row the
+ * admin UI shows). A doctors.id-shaped filter silently returns the wrong
+ * (usually empty) result set; the 2026-05-23 triage attributed 15+ findings
+ * to this class.
+ *
+ * Contract — never throws, never blocks the request:
+ *   * resolvable        → canonical users.id (Number)
+ *   * unresolvable      → the parsed integer unchanged (filter simply
+ *                         matches nothing, same as today)
+ *   * non-numeric/empty → null (caller skips the filter)
+ *
+ * Use resolveDoctorRef (strict, throwing) for WRITE paths; this helper is
+ * deliberately forgiving because a bad filter should yield an empty list,
+ * not a 500.
+ */
+export async function resolveDoctorFilterId(db, value, options = {}) {
+  const parsed = parseDoctorRef(value);
+  if (!parsed) return null;
+  try {
+    const resolved = await resolveDoctorRef(db, parsed, options);
+    return resolved ? Number(resolved.id) : parsed;
+  } catch {
+    // Ambiguity (or any resolver failure) on a read path: prefer the raw
+    // value — appointment rows store users.id, so the explicit-user
+    // interpretation is the one a filter caller almost always means.
+    return parsed;
+  }
+}
+
 export async function resolveDoctorRef(db, value, options = {}) {
   const ref = parseDoctorRef(value);
   if (!ref) {

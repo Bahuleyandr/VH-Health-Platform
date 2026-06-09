@@ -3,6 +3,8 @@ import { RECORD_MESSAGES } from '../../config/recordConfig.js';
 import logger from '../../logging/logger.js';
 import * as accessControl from '../../services/record/accessControlService.js';
 import * as recordService from '../../services/record/recordService.js';
+import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
+import prisma from '../../lib/prisma.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -20,7 +22,10 @@ export async function getMedicalRecords(req, res) {
       page: listQuery.page,
       limit: listQuery.limit,
       patient_id: req.query.patient_id,
-      doctor_id: req.query.doctor_id,
+      // Roadmap A9: canonicalize to users.id whichever id space the caller used.
+      doctor_id: await resolveDoctorFilterId(prisma, req.query.doctor_id, {
+        tenantId: req.tenantId || null,
+      }),
       record_type: req.query.type,
       date_from: req.query.date_from,
       date_to: req.query.date_to

@@ -3,6 +3,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
+import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -28,7 +29,10 @@ export const listInvestigations = async (req, res) => {
       // investigations — a PHI leak. Resolved to patient_id in the service.
       // Finding: 2026-05-21-inpatient-admission-doctor-58437f67.
       patient_uid: req.query.patient_uid,
-      doctor_id: req.query.doctor_id,
+      // Roadmap A9: canonicalize to users.id whichever id space the caller used.
+      doctor_id: await resolveDoctorFilterId(prisma, req.query.doctor_id, {
+        tenantId: req.tenantId || null,
+      }),
       type: req.query.type,
       status: req.query.status,
       date: req.query.date,

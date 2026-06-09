@@ -9,6 +9,8 @@
 
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
+import prisma from '../../lib/prisma.js';
+import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import * as snapshot from '../../services/dashboards/snapshotService.js';
 import * as metabase from '../../services/dashboards/metabaseService.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -44,7 +46,10 @@ router.get('/snapshot/opd-daily', requireAdmin, wrap(async (req) =>
   snapshot.getOpdDaily({
     from: req.query.from,
     to: req.query.to,
-    doctor_id: req.query.doctor_id,
+    // Roadmap A9: canonicalize to users.id whichever id space the caller used.
+    doctor_id: await resolveDoctorFilterId(prisma, req.query.doctor_id, {
+      tenantId: req.tenantId || null,
+    }),
   }),
 ));
 
