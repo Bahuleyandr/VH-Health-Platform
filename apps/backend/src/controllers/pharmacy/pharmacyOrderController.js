@@ -11,6 +11,23 @@ import { calculateETA } from '../delivery/deliveryTrackingController.js';
 import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/pharmacyCapService.js';
 import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
 import { emitPharmacyOrderEvent } from '../../services/clinical/canonicalOperationalBridgeService.js';
+import { assertVerificationCleared, ensurePackBarcode } from '../../services/pharmacy/pharmacistVerificationService.js';
+
+// B1 — shared pharmacist clinical-verification gate for lifecycle
+// progressions (PREPARING / DISPATCH / counter dispense). Returns true when
+// the response has already been sent (gate failed).
+async function verificationGateBlocked(req, res, orderId) {
+  try {
+    await assertVerificationCleared(orderId);
+    return false;
+  } catch (gateErr) {
+    if (gateErr && typeof gateErr.statusCode === 'number') {
+      error(res, gateErr.message, gateErr.statusCode, gateErr.details ?? { code: gateErr.code });
+      return true;
+    }
+    throw gateErr;
+  }
+}
 
 // ── Helper: attach signed URL to order ──────────────────────────────────────
 async function attachSignedUrl(order) {
@@ -310,6 +327,8 @@ export const confirmOrder = async (req, res) => {
 export const markPreparing = async (req, res) => {
   try {
     const { id } = req.params;
+    // B1 — pharmacist clinical verification gates preparation.
+    if (await verificationGateBlocked(req, res, parseInt(id, 10))) return;
     const result = await prisma.$queryRawUnsafe(
       `UPDATE pharmacy_orders SET status='PREPARING', preparing_at=NOW(), updated_at=NOW()
        WHERE id=$1 AND status='CONFIRMED'
@@ -348,6 +367,10 @@ export const dispatchOrder = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { delivery_person, delivery_person_phone } = req.body;
+
+    // B1 — pharmacist clinical verification gates dispatch (CONFIRMED can
+    // jump straight to DISPATCHED, so the gate must sit here too).
+    if (await verificationGateBlocked(req, res, parseInt(id, 10))) return;
 
     const order = await prisma.$queryRawUnsafe(
       `SELECT id, uid, patient_id, patient_name, patient_phone, phone, status,
@@ -718,6 +741,10 @@ export const markCounterDispensed = async (req, res) => {
       return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // B1 — pharmacist clinical verification gates counter dispense (the
+    // walk-in short-circuit skips PREPARING, so the gate must sit here).
+    if (await verificationGateBlocked(req, res, orderId)) return;
+
     const {
       dispensed_items,
       payment_mode: rawPaymentMode,
@@ -1062,6 +1089,15 @@ export const markCounterDispensed = async (req, res) => {
       partial_dispense: Boolean(result.ok?.partial_dispense),
       payment_status: result.ok?.payment_status || null,
     });
+    // B1 (Phase 1.5, best-effort) — issue the med-pack barcode so the
+    // bedside drug scan can match this dispense exactly.
+    try {
+      result.ok.pack_barcode = await ensurePackBarcode(orderId);
+    } catch (packErr) {
+      logger.warn('Pack barcode generation failed (label endpoint can retry)', {
+        order_id: orderId, error: packErr.message,
+      });
+    }
     success(res, result.ok, 'Counter dispense complete');
   } catch (err) {
     logger.error('Counter dispense error:', err);

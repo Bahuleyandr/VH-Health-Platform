@@ -68,10 +68,46 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
   const rightPatient = _norm(ma.patient_uid) === _norm(scanned_patient_uid);
 
   const medName = ma.medication_name || '';
-  const rightDrug =
+  let drugMatchMode = null;
+  let rightDrug =
     _norm(medName).length > 0 &&
     (_norm(medName).includes(_norm(scanned_barcode))
       || _norm(scanned_barcode).includes(_norm(medName)));
+  if (rightDrug) drugMatchMode = 'name';
+
+  // B1 — platform med-pack barcode (pharmacy_orders.pack_barcode, issued at
+  // dispense). An exact pack match for the SAME patient whose item list
+  // carries this medication beats substring name matching. Best-effort:
+  // lookup failure falls back to the name verdict above.
+  if (!rightDrug && /^vhmp-/i.test(String(scanned_barcode || ''))) {
+    try {
+      const packRows = await prisma.$queryRawUnsafe(
+        `SELECT po.id
+           FROM pharmacy_orders po
+           JOIN users u ON u.id = po.patient_id
+          WHERE UPPER(po.pack_barcode) = UPPER($1)
+            AND u.uid = $2::uuid
+            AND EXISTS (
+                  SELECT 1
+                    FROM jsonb_array_elements(COALESCE(po.items_list, '[]'::jsonb)) item
+                   WHERE lower(COALESCE(item->>'name', item->>'medication_name', '')) LIKE '%' || lower($3) || '%'
+                      OR lower($3) LIKE '%' || lower(COALESCE(item->>'name', item->>'medication_name', '~none~')) || '%'
+                )
+          LIMIT 1`,
+        scanned_barcode,
+        ma.patient_uid,
+        medName,
+      );
+      if (packRows.length > 0) {
+        rightDrug = true;
+        drugMatchMode = 'pack_barcode';
+      }
+    } catch (err) {
+      logger.warn('Pack-barcode drug-right lookup failed (falling back to name match)', {
+        error: err?.message || String(err),
+      });
+    }
+  }
 
   const rightDose = Boolean(ma.dose || ma.dosage);
   const rightRoute = Boolean(ma.route);
@@ -107,6 +143,7 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
     context: {
       minutesFromScheduled,
       windowMinutes,
+      drugMatchMode,
     },
   };
 }

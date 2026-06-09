@@ -7192,6 +7192,12 @@ model pharmacy_orders {
   receipt_delivery                           String?                  @db.VarChar(20)
   payment_metadata                           Json?
   dispense_label                             Json?
+  clinical_verification_status               String                   @default("pending") @db.VarChar(20)
+  clinically_verified_by                     String?                  @db.Uuid
+  clinically_verified_at                     DateTime?                @db.Timestamptz(6)
+  clinical_verification_notes                String?
+  clinical_verification_findings             Json?
+  pack_barcode                               String?                  @db.VarChar(64)
   tenant_id                                  String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   pharmacy_order_history                     pharmacy_order_history[]
   tenants                                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pharmacy_orders_tenant")
