@@ -14,6 +14,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getActiveAlerts, getProtocolReminders } from '../emr/cdsEngine.js';
 import { getUnifiedActiveAllergies } from '../clinical/allergySourceService.js';
+import { getActiveProblemSummary } from '../clinical/problemListService.js';
 
 function isMissingSchemaError(err) {
   return /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
@@ -82,6 +83,39 @@ export async function buildEncounterStartAlerts({ patientUid, encounterId = null
   } catch (err) {
     if (!isMissingSchemaError(err)) {
       logger.warn('encounter-start allergies fetch failed', { error: err.message });
+    }
+  }
+
+  // 3b. Active problem list (roadmap B7) — the longitudinal conditions the
+  // clinician should hold in mind at encounter start. Informational card;
+  // chronic problems listed first.
+  try {
+    const problems = await getActiveProblemSummary(patientUid);
+    if (problems.length > 0) {
+      alerts.push({
+        type: 'active_problems_on_file',
+        severity: 'info',
+        title: `${problems.length} active problem(s) on file`,
+        description: problems
+          .map((p) => `${p.title}${p.icd10_code ? ` [${p.icd10_code}]` : ''}${p.is_chronic ? ' (chronic)' : ''}`)
+          .join('; '),
+        canOverride: true,
+        sourceData: {
+          problem_count: problems.length,
+          problems: problems.map((p) => ({
+            id: p.id,
+            title: p.title,
+            icd10_code: p.icd10_code || null,
+            snomed_code: p.snomed_code || null,
+            is_chronic: p.is_chronic === true,
+            severity: p.severity || null,
+          })),
+        },
+      });
+    }
+  } catch (err) {
+    if (!isMissingSchemaError(err)) {
+      logger.warn('encounter-start problem-list fetch failed', { error: err.message });
     }
   }
 

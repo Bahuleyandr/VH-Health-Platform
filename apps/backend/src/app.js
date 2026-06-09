@@ -230,6 +230,7 @@ import nursingAssessmentRoutes from './routes/clinical/nursingAssessmentRoutes.j
 import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import downtimeRoutes from './routes/downtime/downtimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
+import problemListRoutes from './routes/clinical/problemListRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -713,6 +714,9 @@ app.use('/api/v1/downtime', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogge
 // Terminology service (roadmap B8) — code-system search/validate/map +
 // local-catalog bindings. Reference data only (no PHI → no PHI logger).
 app.use('/api/v1/terminology', requireRole(...CLINICAL_STAFF_ROLES), terminologyRoutes);
+
+// Longitudinal problem list (roadmap B7) — PHI by definition.
+app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
