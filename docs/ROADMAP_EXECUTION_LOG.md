@@ -66,6 +66,35 @@ Dalekdefender overlay edits untouched throughout.
   stream's regenerated `clinical_code_bindings` model, which is theirs to
   commit with 297.
 
+### Forgejo CI audit + backend-stage repair (same session)
+
+- Forgejo Actions (`.forgejo/workflows/`, 9 workflows) already EXCEEDS the
+  GitHub set: canonical 6-stage CI + container supply-chain + Semgrep/Trivy
+  security sweep + schema/role-policy drift + OpenAPI/client drift +
+  post-deploy smoke + renovate + staff-windows-build + trial-readiness.
+- **But the canonical `backend` stage had been red on EVERY push since the
+  pillar-C merge window (~07:17)** — uniformly ~130s, unnoticed because
+  session gates run locally. Run logs aren't exposed anonymously/via API on
+  this Forgejo build, so the stage was reproduced byte-for-byte in WSL
+  docker (fresh clone → `run-db-guardrails-docker.mjs`): the
+  **comprehensive auto-seeder cannot satisfy five Pillar-D tables'
+  domain CHECKs** (`provider_availability_templates` /
+  `resource_bookings` window CHECKs, `chemo_protocol_drugs` mg/m²-XOR-fixed
+  dosing, `chemo_cycles` plan/BSA shape, `dental_tooth_findings` FDI code),
+  so `check-db-contracts --require-seeded`'s `seeded.table.coverage`
+  failed 5×. The CHECKs rejecting a naive generic seeder is the
+  constraints working as designed. Fix: the five tables moved to
+  `MANUAL_SEED_TABLES` + `seedPillarDWorkflowTables()` provides
+  constraint-aware rows (the established `insurance_claim_caps` pattern).
+  Re-run: **524/524 tables seeded, contracts 13/13, guardrails pass**.
+- Lesson queued as an owner item: red-main notifications (the stage was
+  red for 15 h before anyone looked).
+- Note: the dockerized guardrail flow is the ONLY place the comprehensive
+  seeder + seeded contracts run — local session gates (lint, targeted
+  deep tests, `test:ci`, scratch drift) never execute it. When a pillar
+  adds CHECK-guarded tables, run
+  `node scripts/run-db-guardrails-docker.mjs` (WSL) before merging.
+
 ### Branch audit (same session, post-merge)
 
 - **Forgejo pruned to `main` only**: deleted the 7 merged `roadmap/*`

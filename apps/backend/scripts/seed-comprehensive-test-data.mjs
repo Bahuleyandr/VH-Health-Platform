@@ -6,7 +6,17 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
-const MANUAL_SEED_TABLES = new Set(['insurance_claim_caps']);
+const MANUAL_SEED_TABLES = new Set([
+  'insurance_claim_caps',
+  // Pillar-D workflow tables — domain CHECKs the auto-seeder can't
+  // satisfy (ordered time windows, XOR dosing, FDI tooth codes, plan-
+  // anchored cycles). Seeded by seedPillarDWorkflowTables below.
+  'provider_availability_templates',
+  'resource_bookings',
+  'chemo_protocol_drugs',
+  'chemo_cycles',
+  'dental_tooth_findings',
+]);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
 if (!connectionString) {
@@ -955,11 +965,90 @@ async function seedInsuranceClaimCaps() {
   ]);
 }
 
+// Explicit seeds for the Pillar-D workflow tables (migrations 285/290/292).
+// The auto-seeder can't navigate their domain CHECK constraints — provider
+// availability and resource bookings require ordered time windows
+// (end > start), chemo_protocol_drugs requires the mg/m²-XOR-fixed dosing
+// shape, chemo_cycles hangs off a treatment plan with real weight/BSA
+// numbers, and dental findings must carry a valid FDI tooth code. These
+// CHECKs failing the generic engine is the constraints working as designed;
+// constraint-aware rows here keep the seeded.table.coverage contract
+// meaningful instead of weakening it. (This was the Forgejo `backend` stage
+// failure from the pillar-C/D merges onward — the guardrail flow is the
+// only place the comprehensive seeder runs.)
+async function seedPillarDWorkflowTables() {
+  const doctor = await first('doctors', 'id');
+  if (doctor) {
+    await insertIfEmpty('provider_availability_templates', [{
+      doctor_id: doctor.id,
+      weekday: 1,
+      start_time: '09:00:00',
+      end_time: '13:00:00',
+      slot_minutes: 15,
+      location: 'OPD-1 (seed)',
+    }]);
+  }
+
+  const resource = await first('bookable_resources', 'id');
+  if (resource) {
+    await insertIfEmpty('resource_bookings', [{
+      resource_id: resource.id,
+      starts_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      ends_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      booked_for_type: 'other',
+      status: 'booked',
+      notes: 'Seed booking for QA coverage',
+    }]);
+  }
+
+  const protocol = await first('chemo_protocols', 'id');
+  if (protocol) {
+    await insertIfEmpty('chemo_protocol_drugs', [{
+      protocol_id: protocol.id,
+      drug_name: 'Doxorubicin (seed)',
+      dose_per_m2: 60, // XOR dosing: fixed_dose deliberately NULL
+      dose_unit: 'mg',
+      route: 'IV',
+      infusion_duration_min: 30,
+      is_vesicant: true,
+      max_lifetime_dose_per_m2: 450,
+      sequence: 1,
+      notes: 'Seed protocol drug for QA coverage',
+    }]);
+  }
+
+  const plan = await first('chemo_treatment_plans', 'id');
+  if (plan) {
+    await insertIfEmpty('chemo_cycles', [{
+      plan_id: plan.id,
+      cycle_number: 1,
+      scheduled_date: new Date().toISOString().slice(0, 10),
+      status: 'scheduled',
+      weight_kg: 70.0,
+      bsa_m2: 1.84,
+      notes: 'Seed cycle for QA coverage',
+    }]);
+  }
+
+  const patientUid = await firstValue('users', 'uid');
+  if (patientUid) {
+    await insertIfEmpty('dental_tooth_findings', [{
+      patient_uid: patientUid,
+      tooth_fdi: '16',
+      surface: 'occlusal',
+      finding: 'caries',
+      status: 'active',
+      notes: 'Seed finding for QA coverage',
+    }]);
+  }
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
   const { seeded, failed } = await seedRemainingTables();
   await seedInsuranceClaimCaps();
+  await seedPillarDWorkflowTables();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
