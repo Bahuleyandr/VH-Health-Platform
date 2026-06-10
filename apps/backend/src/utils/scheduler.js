@@ -76,6 +76,8 @@ import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { generateWardDowntimePacks } from '../services/downtime/wardDowntimePackService.js';
 import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
+import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
+import { expiryRadarSweep } from '../services/staff/credentialingService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 
@@ -159,6 +161,19 @@ cron.schedule('*/15 * * * *', withJobLock('ward-downtime-packs', async () => {
 // replay via POST /api/v1/hl7-feeds/messages/:id/replay.
 cron.schedule('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
   await deliverPendingFeedMessages({ limit: 50 });
+}));
+
+// 📅 Every 10 minutes — waitlist auto-fill sweep (roadmap D2): freed
+// capacity for today/tomorrow is offered to waiting patients
+// priority-then-FIFO.
+cron.schedule('*/10 * * * *', withJobLock('waitlist-auto-fill', async () => {
+  await sweepWaitlists();
+}));
+
+// 🪪 Daily at 06:30 — credential expiry radar (roadmap D3): surfaces
+// registrations/privileges expiring within 30 days. NABH wants the trail.
+cron.schedule('30 6 * * *', withJobLock('credential-expiry-radar', async () => {
+  await expiryRadarSweep();
 }));
 
 // 🪦 Every 15 minutes — A8 visit-status reaper. Flip SCHEDULED

@@ -238,6 +238,13 @@ import pacsRoutes from './routes/radiology/pacsRoutes.js';
 import integrityRoutes from './routes/clinical/integrityRoutes.js';
 import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
+import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
+import nabhRoutes from './routes/quality/nabhRoutes.js';
+import credentialingRoutes from './routes/staff/credentialingRoutes.js';
+import researchRoutes from './routes/research/researchRoutes.js';
+import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
+import dentalRoutes from './routes/clinical/dentalRoutes.js';
+import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -748,6 +755,30 @@ app.use('/api/v1/hl7-feeds', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogg
 
 // ICU monitor vitals ingestion + verification queue (roadmap C5).
 app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DEVICE_VITALS'), deviceVitalsRoutes);
+
+// Scheduling optimization (roadmap D2) — templates, slot grids, waitlist,
+// bookable resources. Reception works this surface alongside clinicians.
+app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST', 'RECEPTION_INCHARGE', 'ADMISSION_OFFICER'), phiAccessLogger('SCHEDULING'), schedulingRoutes);
+
+// NABH quality indicators (roadmap D4) — computed packs + assessor export.
+app.use('/api/v1/quality/nabh', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), nabhRoutes);
+
+// Credentialing & privileging (roadmap D3) — staff PII, no patient PHI.
+app.use('/api/v1/credentials', requireRole(...CLINICAL_STAFF_ROLES, 'HR_STAFF', 'QUALITY_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), credentialingRoutes);
+
+// Research/registry capture (roadmap D6) — CRFs bound to clinical data;
+// enrollments/responses are PHI, exports de-identified by default.
+app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'CMO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('RESEARCH'), researchRoutes);
+
+// Oncology/chemo foundations (roadmap D1) — protocols, BSA dosing, cycle
+// scheduling, two-person administration verification, cumulative ceilings.
+app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+
+// Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
+app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DENTAL'), dentalRoutes);
+
+// Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
+app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);

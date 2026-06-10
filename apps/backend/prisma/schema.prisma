@@ -142,21 +142,23 @@ model abdm_consents {
 }
 
 model abdm_data_requests {
-  id              Int       @id @default(autoincrement())
-  transaction_id  String?   @unique @db.VarChar(100)
-  consent_id      String?   @db.VarChar(100)
-  patient_uid     String?   @db.Uuid
-  hi_types        String[]
-  date_range_from DateTime? @db.Timestamptz(6)
-  date_range_to   DateTime? @db.Timestamptz(6)
-  key_material    Json?
-  status          String    @default("PROCESSING") @db.VarChar(50)
-  delivered_at    DateTime? @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
-  tenant_id       String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  users           users?    @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_abdm_data_requests_tenant")
+  id                  Int       @id @default(autoincrement())
+  transaction_id      String?   @unique @db.VarChar(100)
+  consent_id          String?   @db.VarChar(100)
+  patient_uid         String?   @db.Uuid
+  hi_types            String[]
+  date_range_from     DateTime? @db.Timestamptz(6)
+  date_range_to       DateTime? @db.Timestamptz(6)
+  key_material        Json?
+  status              String    @default("PROCESSING") @db.VarChar(50)
+  delivered_at        DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  data_push_url       String?
+  sender_key_material Json?
+  users               users?    @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_abdm_data_requests_tenant")
 
   @@index([consent_id], map: "idx_abdm_data_requests_consent_id")
   @@index([patient_uid], map: "idx_abdm_data_requests_patient_uid")
@@ -4112,6 +4114,7 @@ model clinical_trial_match_results {
   scored_at               DateTime                @default(now()) @db.Timestamptz(6)
   tenants                 tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   clinical_trials_catalog clinical_trials_catalog @relation(fields: [trial_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_enrollments    research_enrollments[]
 
   @@unique([tenant_id, patient_uid, trial_id, scored_at])
   @@index([tenant_id, patient_uid, scored_at(sort: Desc)], map: "idx_clinical_trial_matches_patient")
@@ -4135,6 +4138,7 @@ model clinical_trials_catalog {
   last_refreshed               DateTime                       @default(now()) @db.Timestamptz(6)
   clinical_trial_match_results clinical_trial_match_results[]
   tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_registries          research_registries[]
 
   @@unique([tenant_id, nct_id])
   @@index([tenant_id, status], map: "idx_clinical_trials_tenant_status")
@@ -6246,6 +6250,25 @@ model mlc_records {
   @@index([emergency_visit_id], map: "idx_mlc_visit", where: raw("(emergency_visit_id IS NOT NULL)"))
 }
 
+model nabh_indicator_snapshots {
+  id             Int      @id @default(autoincrement())
+  tenant_id      String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  period_start   DateTime @db.Date
+  period_end     DateTime @db.Date
+  indicator_code String   @db.VarChar(60)
+  label          String   @db.VarChar(200)
+  value          Decimal? @db.Decimal(14, 4)
+  numerator      Decimal? @db.Decimal(14, 4)
+  denominator    Decimal? @db.Decimal(14, 4)
+  unit           String?  @db.VarChar(40)
+  details        Json     @default("{}")
+  computed_by    String?  @db.Uuid
+  computed_at    DateTime @default(now()) @db.Timestamptz(6)
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nabh_indicator_snapshots_tenant")
+
+  @@unique([tenant_id, period_start, period_end, indicator_code], map: "uq_nabh_indicator_snapshots")
+}
+
 model news2_scores {
   id                Int      @id @default(autoincrement())
   patient_uid       String   @db.Uuid
@@ -7621,6 +7644,100 @@ model prescription_safety_overrides {
   @@index([tenant_id], map: "idx_prescription_safety_overrides_tenant_id")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model provider_availability_templates {
+  id             Int       @id @default(autoincrement())
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  doctor_id      Int
+  weekday        Int       @db.SmallInt
+  start_time     DateTime  @db.Time(6)
+  end_time       DateTime  @db.Time(6)
+  slot_minutes   Int       @default(15)
+  location       String?   @db.VarChar(120)
+  effective_from DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  effective_to   DateTime? @db.Date
+  is_active      Boolean   @default(true)
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
+
+  @@index([doctor_id, weekday], map: "idx_provider_availability_doctor", where: raw("is_active"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model provider_leaves {
+  id          Int      @id @default(autoincrement())
+  tenant_id   String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  doctor_id   Int
+  starts_on   DateTime @db.Date
+  ends_on     DateTime @db.Date
+  reason      String?  @db.VarChar(200)
+  approved_by String?  @db.Uuid
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_leaves_tenant")
+
+  @@index([doctor_id, starts_on, ends_on], map: "idx_provider_leaves_doctor")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model appointment_waitlist {
+  id               Int       @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid      String    @db.Uuid
+  doctor_id        Int
+  preferred_date   DateTime? @db.Date
+  preferred_window String    @default("any") @db.VarChar(10)
+  priority         Int       @default(5)
+  status           String    @default("waiting") @db.VarChar(20)
+  notes            String?   @db.VarChar(300)
+  offered_slot     Json?
+  offered_at       DateTime? @db.Timestamptz(6)
+  resolved_at      DateTime? @db.Timestamptz(6)
+  created_by       String?   @db.Uuid
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_waitlist_tenant")
+
+  @@index([doctor_id, status, priority, created_at], map: "idx_appointment_waitlist_doctor", where: raw("((status)::text = ANY ((ARRAY['waiting'::character varying, 'offered'::character varying])::text[]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bookable_resources {
+  id                Int                 @id @default(autoincrement())
+  tenant_id         String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  kind              String              @db.VarChar(20)
+  name              String              @db.VarChar(160)
+  location          String?             @db.VarChar(160)
+  is_active         Boolean             @default(true)
+  metadata          Json                @default("{}")
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  tenants           tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookable_resources_tenant")
+  resource_bookings resource_bookings[]
+
+  @@unique([tenant_id, kind, name], map: "uq_bookable_resources_name")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model resource_bookings {
+  id                 Int                @id @default(autoincrement())
+  tenant_id          String             @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  resource_id        Int
+  starts_at          DateTime           @db.Timestamptz(6)
+  ends_at            DateTime           @db.Timestamptz(6)
+  booked_for_type    String             @default("other") @db.VarChar(30)
+  booked_for_id      String?            @db.VarChar(60)
+  patient_uid        String?            @db.Uuid
+  booked_by          String?            @db.Uuid
+  status             String             @default("booked") @db.VarChar(20)
+  notes              String?            @db.VarChar(300)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_resource_bookings_tenant")
+  bookable_resources bookable_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([resource_id, starts_at, ends_at], map: "idx_resource_bookings_resource_time", where: raw("((status)::text = 'booked'::text)"))
+}
+
 model prescriptions {
   id              Int       @id @default(autoincrement())
   patient_uid     String    @db.Uuid
@@ -8235,6 +8352,33 @@ model staff_grievances {
   @@index([grievance_type, created_at(sort: Desc)], map: "idx_staff_grievances_type_created")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_credentials {
+  id                  Int       @id @default(autoincrement())
+  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  staff_uid           String    @db.Uuid
+  credential_type     String    @db.VarChar(20)
+  name                String    @db.VarChar(200)
+  issuing_body        String?   @db.VarChar(200)
+  registration_number String?   @db.VarChar(120)
+  valid_from          DateTime? @db.Date
+  valid_until         DateTime? @db.Date
+  status              String    @default("active") @db.VarChar(20)
+  document_ref        String?   @db.VarChar(255)
+  verified_by         String?   @db.Uuid
+  verified_at         DateTime? @db.Timestamptz(6)
+  notes               String?   @db.VarChar(400)
+  metadata            Json      @default("{}")
+  created_by          String?   @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_credentials_tenant")
+
+  @@unique([tenant_id, staff_uid, name], map: "uq_staff_credentials_active_privilege", where: raw("(((credential_type)::text = 'privilege'::text) AND ((status)::text = 'active'::text))"))
+  @@index([staff_uid, credential_type, status], map: "idx_staff_credentials_staff")
+  @@index([valid_until], map: "idx_staff_credentials_expiry", where: raw("((valid_until IS NOT NULL) AND ((status)::text = 'active'::text))"))
+}
+
 model staff_queries {
   id              Int       @id @default(autoincrement())
   uid             String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -8829,6 +8973,7 @@ model tenants {
   appointment_documents                      appointment_documents[]
   appointment_queue_status_history           appointment_queue_status_history[]
   appointment_queues                         appointment_queues[]
+  appointment_waitlist                       appointment_waitlist[]
   appointments                               appointments[]
   approvals                                  approvals[]
   automation_rules                           automation_rules[]
@@ -8836,6 +8981,7 @@ model tenants {
   beds                                       beds[]
   blood_requests                             blood_requests[]
   blood_units                                blood_units[]
+  bookable_resources                         bookable_resources[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
   care_plan_review_log                       care_plan_review_log[]
@@ -8847,6 +8993,11 @@ model tenants {
   cds_alerts                                 cds_alerts[]
   chat_session_messages                      chat_session_messages[]
   chat_sessions                              chat_sessions[]
+  chemo_administrations                      chemo_administrations[]
+  chemo_cumulative_doses                     chemo_cumulative_doses[]
+  chemo_cycles                               chemo_cycles[]
+  chemo_protocols                            chemo_protocols[]
+  chemo_treatment_plans                      chemo_treatment_plans[]
   claim_denials                              claim_denials[]
   clinical_ai_acuity_staffing_forecasts      clinical_ai_acuity_staffing_forecasts[]
   clinical_ai_agent_health_reports           clinical_ai_agent_health_reports[]
@@ -8942,7 +9093,11 @@ model tenants {
   clinical_voice_notes                       clinical_voice_notes[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
+  dental_procedures                          dental_procedures[]
+  dental_tooth_findings                      dental_tooth_findings[]
   diagnoses                                  diagnoses[]
+  dialysis_prescriptions                     dialysis_prescriptions[]
+  dialysis_session_events                    dialysis_session_events[]
   diet_orders                                diet_orders[]
   discharge_consults                         discharge_consults[]
   downtime_snapshots                         downtime_snapshots[]
@@ -8994,11 +9149,14 @@ model tenants {
   mfa_challenges                             mfa_challenges[]
   mfa_devices                                mfa_devices[]
   mlc_records                                mlc_records[]
+  nabh_indicator_snapshots                   nabh_indicator_snapshots[]
   news2_scores                               news2_scores[]
   notification_events                        notification_events[]
   notifications                              notifications[]
   numbering_series                           numbering_series[]
   nurse_handovers                            nurse_handovers[]
+  ophthalmic_exams                           ophthalmic_exams[]
+  ophthalmic_refractions                     ophthalmic_refractions[]
   ot_schedules                               ot_schedules[]
   package_items                              package_items[]
   packages                                   packages[]
@@ -9035,10 +9193,17 @@ model tenants {
   preop_checklists                           preop_checklists[]
   prescription_safety_overrides              prescription_safety_overrides[]
   prescriptions                              prescriptions[]
+  provider_availability_templates            provider_availability_templates[]
+  provider_leaves                            provider_leaves[]
   quality_incidents                          quality_incidents[]
   radiology_orders                           radiology_orders[]
   referrals                                  referrals[]
   remote_prescriptions                       remote_prescriptions[]
+  research_crf_forms                         research_crf_forms[]
+  research_crf_responses                     research_crf_responses[]
+  research_enrollments                       research_enrollments[]
+  research_registries                        research_registries[]
+  resource_bookings                          resource_bookings[]
   roster_calendar_events                     roster_calendar_events[]
   roster_weather_signals                     roster_weather_signals[]
   service_catalog                            service_catalog[]
@@ -9049,6 +9214,7 @@ model tenants {
   staff_access_audit_log                     staff_access_audit_log[]
   staff_commute_profile_audit                staff_commute_profile_audit[]
   staff_commute_profiles                     staff_commute_profiles[]
+  staff_credentials                          staff_credentials[]
   staff_grievances                           staff_grievances[]
   staff_leave_forecast_audit                 staff_leave_forecast_audit[]
   staff_leave_forecast_runs                  staff_leave_forecast_runs[]
@@ -11609,6 +11775,8 @@ model dialysis_intra_obs {
   intervention_dose  String?           @db.VarChar(40)
   recorded_by        String?           @db.Uuid
   created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  source             String            @default("staff") @db.VarChar(12)
+  source_device      String?           @db.VarChar(80)
   dialysis_sessions  dialysis_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([session_id, recorded_at], map: "idx_dialysis_obs_session")
@@ -11616,28 +11784,29 @@ model dialysis_intra_obs {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model dialysis_patients {
-  id                  Int                 @id @default(autoincrement())
-  patient_uid         String              @db.Uuid
-  enrolled_at         DateTime            @default(dbgenerated("CURRENT_DATE")) @db.Date
-  modality            String              @default("hd") @db.VarChar(20)
-  schedule_pattern    String?             @db.VarChar(20)
-  prescribed_minutes  Int?
-  prescribed_dialyser String?             @db.VarChar(80)
-  dry_weight_kg       Decimal?            @db.Decimal(5, 2)
-  dry_weight_set_at   DateTime?           @db.Timestamptz(6)
-  anticoag_default    String?             @default("heparin") @db.VarChar(20)
-  hbsag_status        String?             @default("negative") @db.VarChar(20)
-  hcv_status          String?             @default("negative") @db.VarChar(20)
-  hiv_status          String?             @default("negative") @db.VarChar(20)
-  isolation_required  Boolean?            @default(dbgenerated("(((hbsag_status)::text = 'positive'::text) OR ((hcv_status)::text = 'positive'::text) OR ((hiv_status)::text = 'positive'::text))"))
-  status              String              @default("active") @db.VarChar(20)
-  notes               String?
-  tenant_id           String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  created_at          DateTime            @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime            @default(now()) @db.Timestamptz(6)
-  dialysis_serology   dialysis_serology[]
-  dialysis_sessions   dialysis_sessions[]
-  vascular_access     vascular_access?
+  id                     Int                     @id @default(autoincrement())
+  patient_uid            String                  @db.Uuid
+  enrolled_at            DateTime                @default(dbgenerated("CURRENT_DATE")) @db.Date
+  modality               String                  @default("hd") @db.VarChar(20)
+  schedule_pattern       String?                 @db.VarChar(20)
+  prescribed_minutes     Int?
+  prescribed_dialyser    String?                 @db.VarChar(80)
+  dry_weight_kg          Decimal?                @db.Decimal(5, 2)
+  dry_weight_set_at      DateTime?               @db.Timestamptz(6)
+  anticoag_default       String?                 @default("heparin") @db.VarChar(20)
+  hbsag_status           String?                 @default("negative") @db.VarChar(20)
+  hcv_status             String?                 @default("negative") @db.VarChar(20)
+  hiv_status             String?                 @default("negative") @db.VarChar(20)
+  isolation_required     Boolean?                @default(dbgenerated("(((hbsag_status)::text = 'positive'::text) OR ((hcv_status)::text = 'positive'::text) OR ((hiv_status)::text = 'positive'::text))"))
+  status                 String                  @default("active") @db.VarChar(20)
+  notes                  String?
+  tenant_id              String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
+  dialysis_prescriptions dialysis_prescriptions?
+  dialysis_serology      dialysis_serology[]
+  dialysis_sessions      dialysis_sessions[]
+  vascular_access        vascular_access?
 
   @@index([patient_uid], map: "idx_dialysis_patients_pat")
   @@index([tenant_id, status], map: "idx_dialysis_patients_active", where: raw("((status)::text = 'active'::text)"))
@@ -11666,54 +11835,57 @@ model dialysis_serology {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model dialysis_sessions {
-  id                         Int                  @id @default(autoincrement())
+  id                         Int                       @id @default(autoincrement())
   dialysis_patient_id        Int
   vascular_access_id         Int?
-  session_date               DateTime             @default(dbgenerated("CURRENT_DATE")) @db.Date
-  machine_no                 String?              @db.VarChar(40)
-  station_no                 String?              @db.VarChar(20)
-  modality                   String               @db.VarChar(20)
-  dialyser                   String?              @db.VarChar(80)
+  session_date               DateTime                  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  machine_no                 String?                   @db.VarChar(40)
+  station_no                 String?                   @db.VarChar(20)
+  modality                   String                    @db.VarChar(20)
+  dialyser                   String?                   @db.VarChar(80)
   reuse_count                Int?
-  scheduled_start_at         DateTime?            @db.Timestamptz(6)
-  actual_start_at            DateTime?            @db.Timestamptz(6)
-  actual_end_at              DateTime?            @db.Timestamptz(6)
+  scheduled_start_at         DateTime?                 @db.Timestamptz(6)
+  actual_start_at            DateTime?                 @db.Timestamptz(6)
+  actual_end_at              DateTime?                 @db.Timestamptz(6)
   duration_min               Int?
-  pre_weight_kg              Decimal?             @db.Decimal(5, 2)
+  pre_weight_kg              Decimal?                  @db.Decimal(5, 2)
   pre_bp_systolic            Int?
   pre_bp_diastolic           Int?
   pre_pulse                  Int?
-  pre_temp_c                 Decimal?             @db.Decimal(4, 1)
-  post_weight_kg             Decimal?             @db.Decimal(5, 2)
+  pre_temp_c                 Decimal?                  @db.Decimal(4, 1)
+  post_weight_kg             Decimal?                  @db.Decimal(5, 2)
   post_bp_systolic           Int?
   post_bp_diastolic          Int?
   post_pulse                 Int?
-  post_temp_c                Decimal?             @db.Decimal(4, 1)
-  prescribed_uf_l            Decimal?             @db.Decimal(4, 2)
-  actual_uf_l                Decimal?             @db.Decimal(4, 2)
-  anticoag                   String?              @db.VarChar(20)
-  anticoag_initial_dose      String?              @db.VarChar(40)
-  anticoag_maintenance       String?              @db.VarChar(40)
-  ktv_calculated             Decimal?             @db.Decimal(4, 2)
+  post_temp_c                Decimal?                  @db.Decimal(4, 1)
+  prescribed_uf_l            Decimal?                  @db.Decimal(4, 2)
+  actual_uf_l                Decimal?                  @db.Decimal(4, 2)
+  anticoag                   String?                   @db.VarChar(20)
+  anticoag_initial_dose      String?                   @db.VarChar(40)
+  anticoag_maintenance       String?                   @db.VarChar(40)
+  ktv_calculated             Decimal?                  @db.Decimal(4, 2)
   urea_pre_mg_dl             Int?
   urea_post_mg_dl            Int?
   urr_pct                    Int?
-  intra_dialytic_hypotension Boolean              @default(false)
-  cramps                     Boolean              @default(false)
-  bleeding                   Boolean              @default(false)
-  clotting                   Boolean              @default(false)
-  early_termination          Boolean              @default(false)
+  intra_dialytic_hypotension Boolean                   @default(false)
+  cramps                     Boolean                   @default(false)
+  bleeding                   Boolean                   @default(false)
+  clotting                   Boolean                   @default(false)
+  early_termination          Boolean                   @default(false)
   early_termination_reason   String?
-  status                     String               @default("scheduled") @db.VarChar(20)
-  conducted_by               String?              @db.Uuid
-  supervised_by              String?              @db.Uuid
+  status                     String                    @default("scheduled") @db.VarChar(20)
+  conducted_by               String?                   @db.Uuid
+  supervised_by              String?                   @db.Uuid
   notes                      String?
-  tenant_id                  String               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  created_at                 DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime             @default(now()) @db.Timestamptz(6)
+  tenant_id                  String                    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  created_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  prescription_id            Int?
   dialysis_intra_obs         dialysis_intra_obs[]
-  dialysis_patients          dialysis_patients    @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  vascular_access            vascular_access?     @relation(fields: [vascular_access_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dialysis_session_events    dialysis_session_events[]
+  dialysis_patients          dialysis_patients         @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dialysis_prescriptions     dialysis_prescriptions?   @relation(fields: [prescription_id], references: [id], onUpdate: NoAction)
+  vascular_access            vascular_access?          @relation(fields: [vascular_access_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([dialysis_patient_id, session_date(sort: Desc)], map: "idx_dialysis_sess_patient")
   @@index([tenant_id, status, session_date(sort: Desc)], map: "idx_dialysis_sess_status")
@@ -13482,4 +13654,413 @@ model lab_interface_messages {
 
   @@index([analyzer_id, created_at(sort: Desc)], map: "idx_lab_interface_messages_analyzer", where: raw("(analyzer_id IS NOT NULL)"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_lab_interface_messages_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_crf_forms {
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  registry_id            Int
+  name                   String                   @db.VarChar(160)
+  version                Int                      @default(1)
+  status                 String                   @default("draft") @db.VarChar(12)
+  field_schema           Json                     @default("[]")
+  created_by             String?                  @db.Uuid
+  published_at           DateTime?                @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_crf_forms_tenant")
+  research_registries    research_registries      @relation(fields: [registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_crf_responses research_crf_responses[]
+
+  @@unique([registry_id, name, version], map: "uq_research_crf_forms_version")
+  @@index([registry_id, status], map: "idx_research_crf_forms_registry")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_crf_responses {
+  id                   Int                  @id @default(autoincrement())
+  tenant_id            String               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  form_id              Int
+  enrollment_id        Int
+  visit_label          String               @default("baseline") @db.VarChar(80)
+  data                 Json                 @default("{}")
+  autofilled           Json                 @default("{}")
+  status               String               @default("draft") @db.VarChar(12)
+  recorded_by          String?              @db.Uuid
+  submitted_at         DateTime?            @db.Timestamptz(6)
+  verified_by          String?              @db.Uuid
+  verified_at          DateTime?            @db.Timestamptz(6)
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  tenants              tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_crf_responses_tenant")
+  research_enrollments research_enrollments @relation(fields: [enrollment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_crf_forms   research_crf_forms   @relation(fields: [form_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([enrollment_id, form_id, visit_label], map: "uq_research_crf_responses_visit")
+  @@index([enrollment_id, status], map: "idx_research_crf_responses_enrollment")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_enrollments {
+  id                           Int                           @id @default(autoincrement())
+  tenant_id                    String                        @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  registry_id                  Int
+  patient_uid                  String                        @db.Uuid
+  subject_code                 String                        @db.VarChar(60)
+  status                       String                        @default("enrolled") @db.VarChar(12)
+  match_id                     Int?
+  consent_ref                  String?                       @db.VarChar(200)
+  enrolled_by                  String?                       @db.Uuid
+  enrolled_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  withdrawn_at                 DateTime?                     @db.Timestamptz(6)
+  withdrawal_reason            String?
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  research_crf_responses       research_crf_responses[]
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_enrollments_tenant")
+  clinical_trial_match_results clinical_trial_match_results? @relation(fields: [match_id], references: [id], onUpdate: NoAction)
+  research_registries          research_registries           @relation(fields: [registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([registry_id, patient_uid], map: "uq_research_enrollments_live", where: raw("((status)::text = ANY ((ARRAY['screening'::character varying, 'enrolled'::character varying])::text[]))"))
+  @@unique([registry_id, subject_code], map: "uq_research_enrollments_subject")
+  @@index([patient_uid, status], map: "idx_research_enrollments_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_registries {
+  id                         Int                      @id @default(autoincrement())
+  tenant_id                  String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  code                       String                   @db.VarChar(40)
+  title                      String                   @db.VarChar(300)
+  kind                       String                   @default("registry") @db.VarChar(12)
+  trial_id                   Int?
+  description                String?
+  principal_investigator_uid String?                  @db.Uuid
+  status                     String                   @default("active") @db.VarChar(12)
+  created_by                 String?                  @db.Uuid
+  created_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  research_crf_forms         research_crf_forms[]
+  research_enrollments       research_enrollments[]
+  tenants                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_registries_tenant")
+  clinical_trials_catalog    clinical_trials_catalog? @relation(fields: [trial_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, code], map: "uq_research_registries_code")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model chemo_administrations {
+  id                      Int                  @id @default(autoincrement())
+  tenant_id               String               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  cycle_id                Int
+  protocol_drug_id        Int
+  drug_name               String               @db.VarChar(160)
+  calculated_dose         Decimal              @db.Decimal(10, 2)
+  dose_reduction_pct      Decimal              @default(0) @db.Decimal(5, 2)
+  final_dose              Decimal              @db.Decimal(10, 2)
+  dose_unit               String               @default("mg") @db.VarChar(20)
+  route                   String               @default("IV") @db.VarChar(40)
+  status                  String               @default("pending") @db.VarChar(16)
+  ceiling_override_reason String?
+  first_verified_by       String?              @db.Uuid
+  first_verified_at       DateTime?            @db.Timestamptz(6)
+  second_verified_by      String?              @db.Uuid
+  second_verified_at      DateTime?            @db.Timestamptz(6)
+  administered_by         String?              @db.Uuid
+  administered_at         DateTime?            @db.Timestamptz(6)
+  withheld_reason         String?
+  notes                   String?
+  created_at              DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime             @default(now()) @db.Timestamptz(6)
+  chemo_cycles            chemo_cycles         @relation(fields: [cycle_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  chemo_protocol_drugs    chemo_protocol_drugs @relation(fields: [protocol_drug_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_administrations_tenant")
+
+  @@index([cycle_id, status], map: "idx_chemo_administrations_cycle")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model chemo_cumulative_doses {
+  id                   Int       @id @default(autoincrement())
+  tenant_id            String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid          String    @db.Uuid
+  drug_name            String    @db.VarChar(160)
+  total_dose           Decimal   @default(0) @db.Decimal(12, 2)
+  total_dose_per_m2    Decimal   @default(0) @db.Decimal(10, 2)
+  dose_unit            String    @default("mg") @db.VarChar(20)
+  administration_count Int       @default(0)
+  last_administered_at DateTime? @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @db.Timestamptz(6)
+  tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_cumulative_doses_tenant")
+
+  @@unique([patient_uid, drug_name], map: "uq_chemo_cumulative_doses_drug")
+  @@index([patient_uid], map: "idx_chemo_cumulative_doses_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model chemo_cycles {
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  plan_id               Int
+  cycle_number          Int
+  scheduled_date        DateTime                @db.Date
+  status                String                  @default("scheduled") @db.VarChar(12)
+  weight_kg             Decimal                 @db.Decimal(5, 1)
+  bsa_m2                Decimal                 @db.Decimal(4, 2)
+  delay_reason          String?
+  notes                 String?
+  created_by            String?                 @db.Uuid
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  chemo_administrations chemo_administrations[]
+  chemo_treatment_plans chemo_treatment_plans   @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_cycles_tenant")
+
+  @@unique([plan_id, cycle_number], map: "uq_chemo_cycles_number")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model chemo_protocol_drugs {
+  id                       Int                     @id @default(autoincrement())
+  protocol_id              Int
+  drug_name                String                  @db.VarChar(160)
+  dose_per_m2              Decimal?                @db.Decimal(10, 3)
+  fixed_dose               Decimal?                @db.Decimal(10, 3)
+  dose_unit                String                  @default("mg") @db.VarChar(20)
+  route                    String                  @default("IV") @db.VarChar(40)
+  days_of_cycle            Int[]                   @default([1])
+  infusion_duration_min    Int?
+  is_vesicant              Boolean                 @default(false)
+  max_lifetime_dose_per_m2 Decimal?                @db.Decimal(10, 3)
+  sequence                 Int                     @default(1)
+  notes                    String?
+  chemo_administrations    chemo_administrations[]
+  chemo_protocols          chemo_protocols         @relation(fields: [protocol_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([protocol_id, sequence], map: "idx_chemo_protocol_drugs_protocol")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model chemo_protocols {
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  code                  String                  @db.VarChar(40)
+  name                  String                  @db.VarChar(200)
+  indication            String?
+  cycle_length_days     Int
+  total_cycles          Int                     @default(1)
+  status                String                  @default("draft") @db.VarChar(12)
+  reference             String?
+  created_by            String?                 @db.Uuid
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  chemo_protocol_drugs  chemo_protocol_drugs[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_protocols_tenant")
+  chemo_treatment_plans chemo_treatment_plans[]
+
+  @@unique([tenant_id, code], map: "uq_chemo_protocols_code")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model chemo_treatment_plans {
+  id              Int             @id @default(autoincrement())
+  tenant_id       String          @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid     String          @db.Uuid
+  protocol_id     Int
+  indication      String?
+  planned_cycles  Int
+  current_cycle   Int             @default(0)
+  status          String          @default("planned") @db.VarChar(12)
+  consent_ref     String?         @db.VarChar(200)
+  height_cm       Decimal         @db.Decimal(5, 1)
+  weight_kg       Decimal         @db.Decimal(5, 1)
+  bsa_m2          Decimal         @db.Decimal(4, 2)
+  bsa_method      String          @default("mosteller") @db.VarChar(20)
+  start_date      DateTime?       @db.Date
+  stopped_reason  String?
+  created_by      String?         @db.Uuid
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
+  chemo_cycles    chemo_cycles[]
+  chemo_protocols chemo_protocols @relation(fields: [protocol_id], references: [id], onUpdate: NoAction)
+  tenants         tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_chemo_treatment_plans_tenant")
+
+  @@unique([patient_uid, protocol_id], map: "uq_chemo_treatment_plans_live", where: raw("((status)::text = ANY ((ARRAY['planned'::character varying, 'active'::character varying, 'on_hold'::character varying])::text[]))"))
+  @@index([patient_uid, status], map: "idx_chemo_treatment_plans_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialysis_prescriptions {
+  id                    Int                 @id @default(autoincrement())
+  tenant_id             String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  dialysis_patient_id   Int                 @unique(map: "uq_dialysis_prescriptions_active", where: raw("((status)::text = 'active'::text)"))
+  modality              String              @default("hd") @db.VarChar(10)
+  sessions_per_week     Int                 @default(3)
+  duration_minutes      Int                 @default(240)
+  dialyser              String?             @db.VarChar(80)
+  dialysate_k_mmol      Decimal?            @db.Decimal(4, 1)
+  dialysate_ca_mmol     Decimal?            @db.Decimal(4, 2)
+  dialysate_na_mmol     Decimal?            @db.Decimal(5, 1)
+  dialysate_hco3_mmol   Decimal?            @db.Decimal(4, 1)
+  blood_flow_ml_min     Int?
+  dialysate_flow_ml_min Int?
+  target_dry_weight_kg  Decimal?            @db.Decimal(5, 1)
+  max_uf_ml_per_session Int?
+  anticoag              String              @default("heparin") @db.VarChar(40)
+  anticoag_loading      String?             @db.VarChar(60)
+  anticoag_maintenance  String?             @db.VarChar(60)
+  status                String              @default("active") @db.VarChar(12)
+  prescribed_by         String?             @db.Uuid
+  valid_from            DateTime            @default(dbgenerated("CURRENT_DATE")) @db.Date
+  superseded_at         DateTime?           @db.Timestamptz(6)
+  notes                 String?
+  created_at            DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime            @default(now()) @db.Timestamptz(6)
+  dialysis_patients     dialysis_patients   @relation(fields: [dialysis_patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants               tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialysis_prescriptions_tenant")
+  dialysis_sessions     dialysis_sessions[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialysis_session_events {
+  id                Int               @id @default(autoincrement())
+  tenant_id         String            @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  session_id        Int
+  event_type        String            @db.VarChar(20)
+  severity          String            @default("mild") @db.VarChar(10)
+  occurred_at       DateTime          @default(now()) @db.Timestamptz(6)
+  bp_systolic       Int?
+  bp_diastolic      Int?
+  intervention      String?           @db.VarChar(200)
+  intervention_dose String?           @db.VarChar(80)
+  resolved          Boolean           @default(false)
+  recorded_by       String?           @db.Uuid
+  notes             String?
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  dialysis_sessions dialysis_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants           tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialysis_session_events_tenant")
+
+  @@index([session_id, occurred_at], map: "idx_dialysis_session_events_session")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dental_procedures {
+  id                                                                                      Int                     @id @default(autoincrement())
+  tenant_id                                                                               String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid                                                                             String                  @db.Uuid
+  tooth_fdi                                                                               String?                 @db.VarChar(2)
+  surface                                                                                 String?                 @db.VarChar(10)
+  finding_id                                                                              Int?
+  procedure_name                                                                          String                  @db.VarChar(200)
+  procedure_code                                                                          String?                 @db.VarChar(40)
+  status                                                                                  String                  @default("planned") @db.VarChar(12)
+  anesthesia                                                                              String?                 @db.VarChar(120)
+  materials                                                                               String?                 @db.VarChar(200)
+  performed_by                                                                            String?                 @db.Uuid
+  performed_at                                                                            DateTime?               @db.Timestamptz(6)
+  cancelled_reason                                                                        String?
+  notes                                                                                   String?
+  created_by                                                                              String?                 @db.Uuid
+  created_at                                                                              DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                                                                              DateTime                @default(now()) @db.Timestamptz(6)
+  dental_tooth_findings_dental_procedures_finding_idTodental_tooth_findings               dental_tooth_findings?  @relation("dental_procedures_finding_idTodental_tooth_findings", fields: [finding_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                 tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dental_procedures_tenant")
+  dental_tooth_findings_dental_tooth_findings_resolved_by_procedure_idTodental_procedures dental_tooth_findings[] @relation("dental_tooth_findings_resolved_by_procedure_idTodental_procedures")
+
+  @@index([patient_uid, status], map: "idx_dental_procedures_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dental_tooth_findings {
+  id                                                                                  Int                 @id @default(autoincrement())
+  tenant_id                                                                           String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid                                                                         String              @db.Uuid
+  tooth_fdi                                                                           String              @db.VarChar(2)
+  surface                                                                             String?             @db.VarChar(10)
+  finding                                                                             String              @db.VarChar(24)
+  severity                                                                            String?             @db.VarChar(10)
+  status                                                                              String              @default("active") @db.VarChar(12)
+  noted_by                                                                            String?             @db.Uuid
+  recorded_at                                                                         DateTime            @default(now()) @db.Timestamptz(6)
+  resolved_at                                                                         DateTime?           @db.Timestamptz(6)
+  resolved_by_procedure_id                                                            Int?
+  resolution_note                                                                     String?
+  notes                                                                               String?
+  created_at                                                                          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                                                          DateTime            @default(now()) @db.Timestamptz(6)
+  dental_procedures_dental_procedures_finding_idTodental_tooth_findings               dental_procedures[] @relation("dental_procedures_finding_idTodental_tooth_findings")
+  dental_procedures_dental_tooth_findings_resolved_by_procedure_idTodental_procedures dental_procedures?  @relation("dental_tooth_findings_resolved_by_procedure_idTodental_procedures", fields: [resolved_by_procedure_id], references: [id], onUpdate: NoAction, map: "fk_dental_findings_resolved_by")
+  tenants                                                                             tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dental_tooth_findings_tenant")
+
+  @@index([patient_uid, status, tooth_fdi], map: "idx_dental_tooth_findings_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ophthalmic_exams {
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid            String                   @db.Uuid
+  exam_type              String                   @default("comprehensive") @db.VarChar(16)
+  od_va_unaided          String?                  @db.VarChar(12)
+  os_va_unaided          String?                  @db.VarChar(12)
+  od_va_pinhole          String?                  @db.VarChar(12)
+  os_va_pinhole          String?                  @db.VarChar(12)
+  od_va_corrected        String?                  @db.VarChar(12)
+  os_va_corrected        String?                  @db.VarChar(12)
+  od_iop_mmhg            Decimal?                 @db.Decimal(4, 1)
+  os_iop_mmhg            Decimal?                 @db.Decimal(4, 1)
+  iop_method             String?                  @db.VarChar(10)
+  od_anterior_segment    String?
+  os_anterior_segment    String?
+  od_posterior_segment   String?
+  os_posterior_segment   String?
+  od_lens_status         String?                  @db.VarChar(20)
+  os_lens_status         String?                  @db.VarChar(20)
+  diagnosis              String?
+  advice                 String?
+  examined_by            String?                  @db.Uuid
+  recorded_at            DateTime                 @default(now()) @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ophthalmic_exams_tenant")
+  ophthalmic_refractions ophthalmic_refractions[]
+
+  @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_ophthalmic_exams_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ophthalmic_refractions {
+  id                 Int              @id @default(autoincrement())
+  tenant_id          String           @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  exam_id            Int
+  patient_uid        String           @db.Uuid
+  eye                String           @db.VarChar(2)
+  refraction_type    String           @default("manifest") @db.VarChar(14)
+  sphere             Decimal          @db.Decimal(5, 2)
+  cylinder           Decimal?         @db.Decimal(5, 2)
+  axis               Int?
+  add_power          Decimal?         @db.Decimal(4, 2)
+  va_with_correction String?          @db.VarChar(12)
+  recorded_by        String?          @db.Uuid
+  created_at         DateTime         @default(now()) @db.Timestamptz(6)
+  tenants            tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ophthalmic_refractions_tenant")
+  ophthalmic_exams   ophthalmic_exams @relation(fields: [exam_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([exam_id, eye, refraction_type], map: "uq_ophthalmic_refractions_eye")
+  @@index([patient_uid, created_at(sort: Desc)], map: "idx_ophthalmic_refractions_patient")
 }

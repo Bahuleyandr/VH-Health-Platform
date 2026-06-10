@@ -4,6 +4,68 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-10 (evening) — Pillar D continuation + C1 encryption (branch `roadmap/pillar-d`)
+
+Pre-work happened in an interrupted earlier half-session: `roadmap/pillar-c`
+was merged `--no-ff` → main `db75b945`, `roadmap/pillar-d` branched, and
+D2/D4/D3 landed there before the session stopped mid-D5. This session
+resumed per user direction: **D5 infection control deferred** (WIP stashed,
+see below), everything else proceeded — including D1/D7 in full depth.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| D2 scheduling | ✅ (earlier half-session) | `97fb36d4` | Provider availability templates (weekly recurrence, slot sizing), provider_leaves auto-block, appointment_waitlist with 10-min auto-fill sweep, bookable_resources + tx-serialised overlap guard, overbook allowance fed by `clinical_ai_no_show_predictions`. 11 tests. |
+| D4 NABH pack | ✅ (earlier half-session) | `2a7f5b08` | Indicator pack computed from captured data + assessor export. |
+| D3 credentialing | ✅ (earlier half-session) | `521b3338` | `staff_credentials` registry (credential_type incl. `privilege`), expiry radar, `hasActivePrivilege()` gate for clinical surfaces. |
+| D5 infection control | ⏸ deferred | `stash@{0}` | User call 2026-06-10: do later. WIP (service+routes+test+app.js mount) stashed as "WIP D5 infection-control workbench (deferred per user 2026-06-10)". Resume = `git stash pop`, finish, migration, tests. |
+| C1 follow-up: FHIR-bundle encryption | ✅ | `dda199b9` | `abdmCrypto.js` — FIDELIUS-equivalent ECDH(X25519) + HKDF-SHA256 (salt = first 20 bytes of nonce XOR, IV = last 12) + AES-256-GCM (tag appended). Unit-anchored to the RFC 7748 vector + an independent AES-GCM re-derivation; accepts raw-32/DER-44 peer keys. Data push now REFUSES plaintext, POSTs encrypted entries to the HIU `dataPushUrl` (captured per hiRequest, migration 288), embeds our ephemeral public keyMaterial, fires `/health-information/notify` best-effort. Preflight gap flipped to non-blocker; **byte-level interop sign-off rides the sandbox M2 dry run (owner blockers 1–2 in `docs/ABDM_READINESS.md`)**. Also fixed 5 un-spread `dateParams` sites (the Phase-0.5 lint blind spot). |
+| C1 fix: collect drift | ✅ | `adb63a10` | **Every** `collectHealthData` HI-type branch selected nonexistent columns (written against an imagined schema) — M2 collection could never have produced a bundle. Repointed to real columns; DiagnosticReport now reads `lab_results` (the B3 canonical store); OPConsultation resolves `users.uid → appointments.patient_id`. 5-test deep regression incl. the date-binding case. |
+| D6 research/registry | ✅ | `c6945f6b` | RDC-lite riding the trial-matcher catalog: registries, versioned CRF forms (JSONB field schemas; fields may declare **bindings** that auto-pull `vitals_latest` / `lab_latest` / `demographics` at capture — column-whitelisted), pseudonymous enrollments (`REG-NNNN`, one live per registry×patient, optional link to the AI match), responses draft→submitted→verified→locked with per-field autofill provenance. Export = flat CSV/xlsx grid, **de-identified by default**; `include_phi` is admin/leadership-gated. Enrollment/withdrawal/submission on the canonical timeline. 10 tests. |
+| D1 oncology foundations | ✅ | `de2ce1f2` | Chemo protocols (mg/m² XOR fixed dosing, days-of-cycle validation, vesicant flag, `max_lifetime_dose_per_m2`), plans (Mosteller BSA from latest vitals; one live per patient×protocol), per-cycle re-weigh + BSA recompute, administrations with **two-person verification** (different-human guard, B5 pattern; wristband mismatch blocks) and `chemo_cumulative_doses` updated in the SAME tx. Cycle scheduling **blocks ceiling breaches** without an override reason (recorded + on the timeline). Optional D3 hook: `CHEMO_REQUIRE_ADMIN_PRIVILEGE=true` requires an active `chemo_administration` privilege. **Protocol content ships empty by design — regimens are pilot-side data pending clinical review.** 18 tests. |
+| D7 dialysis depth | ✅ | `998c7d61` | `dialysis_prescriptions` (one active per patient, supersession in-tx, roster snapshot sync, sessions inherit params), machine-data ingestion via the B3 inbox (raw JSON first → `lab_interface_messages`, then obs land through the standard path tagged `source=device`, matched by `machine_no` to the in-progress session; failures replayable), `dialysis_session_events` structured complications (typed/severity/intervention; keeps the legacy session boolean flags in sync; timeline events). Fixed a dormant 42P08 in `enrolPatient`. 6 tests. |
+| D7 dental + ophthalmology | ✅ | `3d05a896` | Both greenfield. Dental: FDI-validated tooth findings (active/resolved) + procedures whose completion **auto-resolves the finding treated**; odontogram chart endpoint. Ophthalmology: per-eye exams (VA notations `6/x|CF|HM|PL|NPL|Nx` validated, IOP 0–80 with mandatory method, **>21 mmHg raises a glaucoma alert** + distinct timeline event, lens grading), refractions (sphere/cyl/axis/add CHECKed both sides, axis mandatory with non-zero cylinder; `final_glasses` rows are the dispensable spectacle prescription). 14 tests. |
+| Wrap-up | ✅ | (this commit) | Migrations 288–293; per-commit `prisma db pull` regen from a migrations-built fresh DB + drift check green each time (also picked up partial-index annotations the 285/287 regen had missed). Full backend lint green (eslint + raw-params + phi-tenant-id 178 tables + secret scan). Full sharded suite (57 chunks) **green** after one self-inflicted finding: the new deep tests' cleanup deleted `clinical_audit_events` rows, punching holes in the C4 hash chain — `document-integrity` failed. Fix: cleanups no longer delete audit rows (append-only by design), and the test DB chain was rebuilt with the 282 backfill logic. |
+
+### Environment notes
+
+- **Prisma 7 driver adapter surfaces 42P08 on untyped param contexts.**
+  `CASE WHEN $n IS NOT NULL` / param reuse across `text`-vs-`varchar`
+  contexts that old drivers tolerated now fail with `inconsistent types
+  deduced` / `could not determine data type`. Two dormant instances found
+  (dialysis `enrolPatient`, new CRF-form insert). Rule: cast explicitly
+  (`$n::numeric`, `$n::varchar`) wherever a param lacks a single typed
+  context.
+- Schema regen scratch DB: `vhhealth_drift_fresh` on the QA cluster
+  (127.0.0.1:55432), built by `ci-setup-db.mjs` from 000_baseline + all
+  migrations (needs `CREATE EXTENSION vector, pg_trgm` first on a fresh
+  DB). `prisma db pull` only from this (never the long-lived QA DB).
+  Reused incrementally across the session; safe to drop after.
+- Test-data timezone: server-local `NOW()` (IST) vs JS UTC `Date` windows —
+  use ±2-day windows when asserting date-range filters (Phase-0.5 note).
+- **Never DELETE from `clinical_audit_events` in test cleanup** — the C4
+  hash chain treats it as append-only; holes fail `document-integrity`
+  for the whole tenant. Scope assertions by the per-run patient uid
+  instead. (Repair if it ever happens again: NULL the chain columns and
+  re-run the migration-282 backfill block.)
+
+### Owner-side actions queued (Pillar D continuation)
+
+1. ABDM sandbox credentials + bridge registration, then the **M2 dry run
+   against the sandbox HIU** — validates the new encryption byte-level
+   (`docs/ABDM_READINESS.md`; preflight now passes the encryption gap).
+2. Source chemo protocol content (regimen library) with the pilot
+   hospital's oncology board; load via `/api/v1/oncology/protocols`; decide
+   whether `CHEMO_REQUIRE_ADMIN_PRIVILEGE` goes ON (needs D3 privileges
+   loaded for chemo nurses first).
+3. Point dialysis machine bridges/middleware at
+   `POST /api/v1/dialysis/machines/ingest` (JSON; `machine_no` must match
+   the session board) for the pilot dialysis unit.
+4. Pick the registries/CRFs the research office wants first (D6) and seed
+   them; decide the de-identified-export sharing policy.
+5. Resume D5 infection control when ready: `git stash pop` on
+   `roadmap/pillar-d` (stash message above), finish workbench + migration.
+6. Merge `roadmap/pillar-d` → main after review.
+
 ## Session 2026-06-10 (later) — Pillar B merge + Pillar C (branch `roadmap/pillar-c`)
 
 Pre-work: merged `roadmap/pillar-b` `--no-ff` → main `8d6a5880` (9 commits,
@@ -128,11 +190,12 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar D (missing modules) on `roadmap/pillar-d`, ordered per the roadmap:
-D2 scheduling optimization (provider templates, waitlist auto-fill,
-resource booking, overbooking fed by the existing no-show predictor),
-D4 NABH quality-indicator pack, D3 credentialing & privileging,
-D5 infection-control workbench, D6 research/registry capture, D1 oncology
-(largest; scope with the pilot hospital first), D7 specialty depth per
-pilot demand. Engineering follow-up carried from C1: ABDM FHIR-bundle
-encryption (ECDH+AES-GCM) before any M2 certification attempt.
+Pillar D is complete except **D5 infection control (deferred per user
+2026-06-10; WIP in `stash@{0}` on `roadmap/pillar-d`)** — resume that
+first when green-lit. The C1 encryption follow-up landed this session, so
+the remaining C1 work is owner-side (sandbox + certification runs). After
+D5: Pillar E (experience parity — E1 CPOE surfaced in the staff app, E2
+staff i18n, E3 accessibility, E5 chart ergonomics, E6 patient portal) and
+Pillar F (analytics warehouse) per the phased plan in
+`EPIC_LEVEL_ROADMAP.md`; Pillar G items pair with their loops as those go
+live (G2 stage-1 ward pilot rides B6 med-rec).
