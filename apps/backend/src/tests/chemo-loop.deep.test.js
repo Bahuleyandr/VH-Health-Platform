@@ -55,9 +55,8 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`, TEST_NAME,
-  ).catch(() => {});
+  // clinical_audit_events is append-only — the C4 hash chain must never
+  // have holes, so test cleanup deliberately leaves audit rows in place.
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = $1`, TEST_NAME).catch(() => {});
 }
 
