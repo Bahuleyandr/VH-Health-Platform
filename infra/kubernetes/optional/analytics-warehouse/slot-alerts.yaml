@@ -1,0 +1,59 @@
+# Replication-slot alerts — the one failure mode that pages (see README):
+# a dead/stalled subscription leaves vh_analytics_slot retaining WAL on the
+# CLINICAL primary until its disk fills.
+#
+# Metrics come from CNPG's default monitoring queries (pg_replication_slots
+# is in the operator's default set since 1.21; the base cluster has
+# enablePodMonitor: true). After enabling the module, verify the metric
+# names once:
+#   kubectl -n vhhealth-platform exec vhhealth-pg-1 -c postgres -- \
+#     curl -s localhost:9187/metrics | grep replication_slots
+# and adjust here if the deployed operator version prefixes differently.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vhhealth-analytics-slot-alerts
+  namespace: vhhealth-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: rules
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+    release: vhhealth-monitoring
+spec:
+  groups:
+    - name: analytics-warehouse-replication
+      interval: 60s
+      rules:
+        - alert: AnalyticsReplicationSlotStalled
+          expr: |
+            max by (slot_name) (
+              cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_name="vh_analytics_slot"}
+            ) > 4e9
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Analytics slot retaining >4GB WAL on the clinical primary"
+            description: >-
+              The warehouse subscription is stalled or down; the publisher is
+              retaining WAL for vh_analytics_slot. Fix the subscriber (or
+              DROP SUBSCRIPTION / pg_drop_replication_slot) before the
+              primary's WAL volume fills.
+            runbook: "infra/kubernetes/optional/analytics-warehouse/README.md#monitoring-the-one-real-failure-mode"
+
+        - alert: AnalyticsReplicationSlotInactive
+          expr: |
+            max by (slot_name) (
+              cnpg_pg_replication_slots_active{slot_name="vh_analytics_slot"}
+            ) == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Analytics replication slot inactive for 30m"
+            description: >-
+              vh_analytics_slot exists but no subscriber is connected —
+              warehouse data is stale and WAL retention is growing.
+            runbook: "infra/kubernetes/optional/analytics-warehouse/README.md#monitoring-the-one-real-failure-mode"

@@ -9,13 +9,11 @@ name: ci-warehouse
 on:
   pull_request:
     paths:
-      - "analytics/**"
       - "infra/kubernetes/optional/analytics-warehouse/**"
       - ".github/workflows/ci-warehouse.yml"
   push:
     branches: [main]
     paths:
-      - "analytics/**"
       - "infra/kubernetes/optional/analytics-warehouse/**"
       - ".github/workflows/ci-warehouse.yml"
 
@@ -73,7 +71,7 @@ jobs:
         run: pip install --quiet "dbt-core<2" "dbt-postgres~=1.9.0"
 
       - name: dbt build (models + tests)
-        working-directory: analytics/dbt
+        working-directory: infra/kubernetes/optional/analytics-warehouse/dbt
         env:
           DBT_PG_HOST: 127.0.0.1
           DBT_PG_PORT: "5432"

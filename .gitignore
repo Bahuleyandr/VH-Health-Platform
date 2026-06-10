@@ -60,6 +60,6 @@ apps/backend/storage/
 qa-runs/
   
 # dbt (analytics warehouse) - local run artifacts  
-analytics/dbt/target/  
-analytics/dbt/logs/  
-analytics/dbt/profiles/.user.yml  
+infra/kubernetes/optional/analytics-warehouse/dbt/target/
+infra/kubernetes/optional/analytics-warehouse/dbt/logs/
+infra/kubernetes/optional/analytics-warehouse/dbt/profiles/.user.yml

@@ -6,7 +6,8 @@
 -- a second CNPG cluster following the B4 PACS opt-in pattern).
 --
 --   * Curated table list — deliberately NOT "FOR ALL TABLES". Only what the
---     dbt star schemas (analytics/dbt) read. Keeps the warehouse PHI surface
+--     dbt star schemas (infra/kubernetes/optional/analytics-warehouse/dbt)
+--     read. Keeps the warehouse PHI surface
 --     reviewable, keeps credential/audit/AI tables out wholesale, and means
 --     a future PK-less table can never silently wedge replication.
 --   * users is published with a COLUMN LIST (PG15+): identity, demographics

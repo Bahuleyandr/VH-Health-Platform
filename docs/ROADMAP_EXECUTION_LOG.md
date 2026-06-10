@@ -44,6 +44,11 @@ Dalekdefender overlay edits left untouched throughout.
   rows only break `document-integrity` when later appends land behind them
   before the check runs — a green suite does NOT prove cleanups are clean.
   `git grep "DELETE FROM clinical_audit_events" src/tests` should stay empty.
+- **kustomize configMapGenerator load restrictions** (caught at merge-review
+  by a local `kubectl kustomize` build): generator file sources must live
+  in/below the kustomization root — ArgoCD would have refused the module as
+  first committed. The dbt project therefore lives INSIDE the module
+  (`optional/analytics-warehouse/dbt/`), not at a top-level `analytics/`.
 - `ci-setup-db.mjs` now supports `--skip-seeds` / `CI_DB_SKIP_SEEDS=1`.
   Note: without the flag it seeds test staff (EMP-1001..) unconditionally —
   including under NODE_ENV=production (pre-existing; the prod migration job
@@ -56,9 +61,9 @@ Dalekdefender overlay edits left untouched throughout.
    publisher-setup → migrate → subscribe, first dbt build, then repoint
    Metabase at `vhhealth-warehouse-rw` as `vh_metabase` and retire its OLTP
    connection (module README has the exact commands).
-2. Add the `AnalyticsReplicationSlotStalled` PrometheusRule
-   (docs/ANALYTICS_WAREHOUSE.md) before go-live — an abandoned subscription
-   retains WAL on the clinical primary.
+2. ~~Add the `AnalyticsReplicationSlotStalled` PrometheusRule~~ — shipped
+   in-module (`slot-alerts.yaml`, stalled + inactive rules) later this same
+   session; verify CNPG metric names once post-enablement.
 3. Decide the payroll-cost question: publishing payslip aggregates would
    upgrade `mart_department_revenue_monthly` to true P&L — needs an explicit
    privacy sign-off; queue as its own item if wanted.

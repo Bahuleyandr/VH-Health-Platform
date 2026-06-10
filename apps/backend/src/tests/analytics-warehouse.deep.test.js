@@ -14,7 +14,7 @@ import prisma from '../lib/prisma.js';
 const PUB = 'vh_analytics_pub';
 
 // Keep in lockstep with pub_tables in 295_analytics_publication.sql and the
-// sources list in analytics/dbt/models/sources.yml.
+// sources list in infra/kubernetes/optional/analytics-warehouse/dbt/models/sources.yml.
 const EXPECTED_TABLES = [
   'admissions', 'appointments', 'emergency_visits', 'icu_admissions',
   'ot_schedules', 'bed_transfers', 'beds', 'wards', 'departments',

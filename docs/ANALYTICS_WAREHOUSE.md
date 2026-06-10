@@ -50,7 +50,11 @@ PHI posture:
   `vh_metabase` has **no** BYPASSRLS and reads only what the dbt post-hook
   grants: the `analytics_marts` schema. Metabase never touches raw rows.
 
-## Star schemas (dbt, `analytics/dbt/`)
+## Star schemas (dbt, `infra/kubernetes/optional/analytics-warehouse/dbt/`)
+
+(The dbt project lives inside the k8s module because kustomize's
+configMapGenerator load restrictions require generator sources in/below the
+kustomization root — keeping one source of truth beats a copy step.)
 
 | Layer | Models |
 |---|---|
@@ -74,19 +78,11 @@ opportunistically.
 Bring-up, release runbook (migrate → re-grant → REFRESH PUBLICATION),
 teardown, and the slot-monitoring SQL live in the module README. The one
 failure mode that pages: a dead subscription leaves `vh_analytics_slot`
-retaining WAL on the **primary**. Suggested PrometheusRule (pair with
-`base/monitoring/backend-red-alerts.yaml`):
-
-```yaml
-- alert: AnalyticsReplicationSlotStalled
-  expr: |
-    max by (slot_name) (cnpg_pg_replication_slots_pg_wal_lsn_diff{slot_name="vh_analytics_slot"}) > 4e9
-  for: 30m
-  labels: { severity: warning }
-  annotations:
-    summary: "Analytics slot retaining >4GB WAL — warehouse subscription stalled"
-    runbook: infra/kubernetes/optional/analytics-warehouse/README.md
-```
+retaining WAL on the **primary**. The PrometheusRule covering it
+(`AnalyticsReplicationSlotStalled` >4GB for 30m, plus
+`AnalyticsReplicationSlotInactive`) ships **inside the module**
+(`slot-alerts.yaml`) and deploys with it — verify the CNPG metric names once
+post-enablement per the file header.
 
 Health check: `node apps/backend/scripts/warehouse-verify.mjs`
 (`DATABASE_URL` = OLTP, `WAREHOUSE_URL` = warehouse) — publication, slot
@@ -111,7 +107,7 @@ its own roadmap item with its own review.
 cd apps/backend && set DATABASE_URL=postgresql://postgres@127.0.0.1:55432/vhhealth_drift_fresh ^
   && node scripts/ci-setup-db.mjs
 # then:
-cd ../../analytics/dbt
+cd ../../infra/kubernetes/optional/analytics-warehouse/dbt
 set DBT_PG_HOST=127.0.0.1& set DBT_PG_PORT=55432& set DBT_PG_USER=postgres& set DBT_PG_DBNAME=vhhealth_drift_fresh
 dbt build --profiles-dir profiles
 ```

@@ -10,9 +10,12 @@ resources:
   - warehouse-migrate-job.yaml
   - subscribe-job.yaml
   - dbt-cronjob.yaml
+  - slot-alerts.yaml
 
 # The dbt project rides into the cluster as ConfigMaps straight from
-# analytics/dbt/ — single source of truth, no image bake, no git clone
+# the in-module dbt/ project (kustomize load restrictions require generator
+# sources in/below the kustomization root — that is WHY the dbt project
+# lives inside this module) — single source of truth, no image bake, no git clone
 # (no egress in-cluster). Adding a model file = add it here too (kustomize
 # has no globs; the CI dbt parse run catches a missed entry because the
 # repo project and this list drift loudly).
@@ -20,58 +23,58 @@ configMapGenerator:
   - name: vh-dbt-project-root
     namespace: vhhealth-platform
     files:
-      - dbt_project.yml=../../../../analytics/dbt/dbt_project.yml
+      - dbt_project.yml=dbt/dbt_project.yml
   - name: vh-dbt-profiles
     namespace: vhhealth-platform
     files:
-      - profiles.yml=../../../../analytics/dbt/profiles/profiles.yml
+      - profiles.yml=dbt/profiles/profiles.yml
   - name: vh-dbt-macros
     namespace: vhhealth-platform
     files:
-      - grant_marts_read.sql=../../../../analytics/dbt/macros/grant_marts_read.sql
+      - grant_marts_read.sql=dbt/macros/grant_marts_read.sql
   - name: vh-dbt-models
     namespace: vhhealth-platform
     files:
-      - sources.yml=../../../../analytics/dbt/models/sources.yml
-      - schema.yml=../../../../analytics/dbt/models/schema.yml
+      - sources.yml=dbt/models/sources.yml
+      - schema.yml=dbt/models/schema.yml
   - name: vh-dbt-models-staging
     namespace: vhhealth-platform
     files:
-      - stg_admissions.sql=../../../../analytics/dbt/models/staging/stg_admissions.sql
-      - stg_appointments.sql=../../../../analytics/dbt/models/staging/stg_appointments.sql
-      - stg_emergency_visits.sql=../../../../analytics/dbt/models/staging/stg_emergency_visits.sql
-      - stg_billing.sql=../../../../analytics/dbt/models/staging/stg_billing.sql
-      - stg_billing_items.sql=../../../../analytics/dbt/models/staging/stg_billing_items.sql
-      - stg_billing_payments.sql=../../../../analytics/dbt/models/staging/stg_billing_payments.sql
-      - stg_ot_schedules.sql=../../../../analytics/dbt/models/staging/stg_ot_schedules.sql
-      - stg_bed_transfers.sql=../../../../analytics/dbt/models/staging/stg_bed_transfers.sql
-      - stg_wards.sql=../../../../analytics/dbt/models/staging/stg_wards.sql
-      - stg_orders.sql=../../../../analytics/dbt/models/staging/stg_orders.sql
+      - stg_admissions.sql=dbt/models/staging/stg_admissions.sql
+      - stg_appointments.sql=dbt/models/staging/stg_appointments.sql
+      - stg_emergency_visits.sql=dbt/models/staging/stg_emergency_visits.sql
+      - stg_billing.sql=dbt/models/staging/stg_billing.sql
+      - stg_billing_items.sql=dbt/models/staging/stg_billing_items.sql
+      - stg_billing_payments.sql=dbt/models/staging/stg_billing_payments.sql
+      - stg_ot_schedules.sql=dbt/models/staging/stg_ot_schedules.sql
+      - stg_bed_transfers.sql=dbt/models/staging/stg_bed_transfers.sql
+      - stg_wards.sql=dbt/models/staging/stg_wards.sql
+      - stg_orders.sql=dbt/models/staging/stg_orders.sql
   - name: vh-dbt-models-dims
     namespace: vhhealth-platform
     files:
-      - dim_date.sql=../../../../analytics/dbt/models/dims/dim_date.sql
-      - dim_department.sql=../../../../analytics/dbt/models/dims/dim_department.sql
-      - dim_doctor.sql=../../../../analytics/dbt/models/dims/dim_doctor.sql
-      - dim_patient.sql=../../../../analytics/dbt/models/dims/dim_patient.sql
-      - dim_payer.sql=../../../../analytics/dbt/models/dims/dim_payer.sql
+      - dim_date.sql=dbt/models/dims/dim_date.sql
+      - dim_department.sql=dbt/models/dims/dim_department.sql
+      - dim_doctor.sql=dbt/models/dims/dim_doctor.sql
+      - dim_patient.sql=dbt/models/dims/dim_patient.sql
+      - dim_payer.sql=dbt/models/dims/dim_payer.sql
   - name: vh-dbt-models-facts
     namespace: vhhealth-platform
     files:
-      - fct_encounters.sql=../../../../analytics/dbt/models/facts/fct_encounters.sql
-      - fct_orders.sql=../../../../analytics/dbt/models/facts/fct_orders.sql
-      - fct_revenue.sql=../../../../analytics/dbt/models/facts/fct_revenue.sql
+      - fct_encounters.sql=dbt/models/facts/fct_encounters.sql
+      - fct_orders.sql=dbt/models/facts/fct_orders.sql
+      - fct_revenue.sql=dbt/models/facts/fct_revenue.sql
   - name: vh-dbt-models-marts
     namespace: vhhealth-platform
     files:
-      - mart_bed_flow_daily.sql=../../../../analytics/dbt/models/marts/mart_bed_flow_daily.sql
-      - mart_ot_utilization_daily.sql=../../../../analytics/dbt/models/marts/mart_ot_utilization_daily.sql
-      - mart_department_revenue_monthly.sql=../../../../analytics/dbt/models/marts/mart_department_revenue_monthly.sql
-      - mart_payer_mix_monthly.sql=../../../../analytics/dbt/models/marts/mart_payer_mix_monthly.sql
+      - mart_bed_flow_daily.sql=dbt/models/marts/mart_bed_flow_daily.sql
+      - mart_ot_utilization_daily.sql=dbt/models/marts/mart_ot_utilization_daily.sql
+      - mart_department_revenue_monthly.sql=dbt/models/marts/mart_department_revenue_monthly.sql
+      - mart_payer_mix_monthly.sql=dbt/models/marts/mart_payer_mix_monthly.sql
   - name: vh-dbt-tests
     namespace: vhhealth-platform
     files:
-      - assert_bed_flow_unique_ward_day.sql=../../../../analytics/dbt/tests/assert_bed_flow_unique_ward_day.sql
+      - assert_bed_flow_unique_ward_day.sql=dbt/tests/assert_bed_flow_unique_ward_day.sql
 
 generatorOptions:
   disableNameSuffixHash: false

@@ -17,8 +17,43 @@ retired in favour of CRDs without touching migration 295.
 
 ## Bring-up (one-time)
 
-1. Seal the three secrets in
-   `warehouse-credentials.sealed-secret.yaml.example`.
+1. Seal the three secrets (run from a machine with cluster access +
+   `kubeseal`; fetches the controller cert in-band):
+
+   ```bash
+   cd infra/kubernetes/optional/analytics-warehouse
+   REPL_PW="$(openssl rand -base64 24 | tr -d '/+=' )"
+   DBT_PW="$(openssl rand -base64 24 | tr -d '/+=' )"
+   MB_PW="$(openssl rand -base64 24 | tr -d '/+=' )"
+
+   kubectl -n vhhealth-platform create secret generic vh-warehouse-repl-credentials \
+     --from-literal=password="$REPL_PW" --dry-run=client -o yaml \
+     | kubeseal --controller-namespace kube-system --format yaml > repl-credentials.sealed.yaml
+
+   kubectl -n vhhealth-platform create secret generic vh-dbt-credentials \
+     --type=kubernetes.io/basic-auth \
+     --from-literal=username=vh_dbt --from-literal=password="$DBT_PW" \
+     --dry-run=client -o yaml \
+     | kubeseal --controller-namespace kube-system --format yaml > dbt-credentials.sealed.yaml
+
+   kubectl -n vhhealth-platform create secret generic vh-metabase-credentials \
+     --type=kubernetes.io/basic-auth \
+     --from-literal=username=vh_metabase --from-literal=password="$MB_PW" \
+     --dry-run=client -o yaml \
+     | kubeseal --controller-namespace kube-system --format yaml > metabase-credentials.sealed.yaml
+
+   # CNPG managed roles reload basic-auth secrets — add the reload label:
+   for f in dbt-credentials.sealed.yaml metabase-credentials.sealed.yaml; do
+     yq -i '.spec.template.metadata.labels."cnpg.io/reload" = "true"' "$f"
+   done
+
+   echo "Metabase connection password (save it NOW, it is not recoverable): $MB_PW"
+   ```
+
+   Commit the three `*.sealed.yaml` files and add them to
+   `kustomization.yaml` `resources:`. Only `$MB_PW` needs writing down —
+   it goes into Metabase's connection form; the other two live solely
+   in-cluster.
 2. Add the module to `overlays/prod/kustomization.yaml`:
 
    ```yaml
@@ -68,8 +103,10 @@ SELECT slot_name, active,
 FROM pg_replication_slots WHERE slot_name = 'vh_analytics_slot';
 ```
 
-Add the PrometheusRule alert (suggested in `docs/ANALYTICS_WAREHOUSE.md`,
-pairs with base/monitoring) before go-live. Tearing the warehouse down?
+The PrometheusRule for this (`slot-alerts.yaml` — stalled-WAL + inactive
+slot) **ships in this module** and deploys with it; verify the CNPG metric
+names once after enablement (instructions in the file header). Tearing the
+warehouse down?
 **`DROP SUBSCRIPTION vh_analytics_sub;` first** (drops the slot), or
 `SELECT pg_drop_replication_slot('vh_analytics_slot');` on the primary if
 the warehouse is already gone.
