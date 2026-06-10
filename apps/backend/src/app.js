@@ -238,6 +238,7 @@ import pacsRoutes from './routes/radiology/pacsRoutes.js';
 import integrityRoutes from './routes/clinical/integrityRoutes.js';
 import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
+import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -748,6 +749,10 @@ app.use('/api/v1/hl7-feeds', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogg
 
 // ICU monitor vitals ingestion + verification queue (roadmap C5).
 app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DEVICE_VITALS'), deviceVitalsRoutes);
+
+// Scheduling optimization (roadmap D2) — templates, slot grids, waitlist,
+// bookable resources. Reception works this surface alongside clinicians.
+app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST', 'RECEPTION_INCHARGE', 'ADMISSION_OFFICER'), phiAccessLogger('SCHEDULING'), schedulingRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);

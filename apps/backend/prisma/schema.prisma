@@ -7621,6 +7621,94 @@ model prescription_safety_overrides {
   @@index([tenant_id], map: "idx_prescription_safety_overrides_tenant_id")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model provider_availability_templates {
+  id             Int      @id @default(autoincrement())
+  tenant_id      String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  doctor_id      Int
+  weekday        Int      @db.SmallInt
+  start_time     DateTime @db.Time(6)
+  end_time       DateTime @db.Time(6)
+  slot_minutes   Int      @default(15)
+  location       String?  @db.VarChar(120)
+  effective_from DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  effective_to   DateTime? @db.Date
+  is_active      Boolean  @default(true)
+  created_by     String?  @db.Uuid
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model provider_leaves {
+  id          Int      @id @default(autoincrement())
+  tenant_id   String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  doctor_id   Int
+  starts_on   DateTime @db.Date
+  ends_on     DateTime @db.Date
+  reason      String?  @db.VarChar(200)
+  approved_by String?  @db.Uuid
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_leaves_tenant")
+
+  @@index([doctor_id, starts_on, ends_on], map: "idx_provider_leaves_doctor")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model appointment_waitlist {
+  id               Int       @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid      String    @db.Uuid
+  doctor_id        Int
+  preferred_date   DateTime? @db.Date
+  preferred_window String    @default("any") @db.VarChar(10)
+  priority         Int       @default(5)
+  status           String    @default("waiting") @db.VarChar(20)
+  notes            String?   @db.VarChar(300)
+  offered_slot     Json?
+  offered_at       DateTime? @db.Timestamptz(6)
+  resolved_at      DateTime? @db.Timestamptz(6)
+  created_by       String?   @db.Uuid
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_waitlist_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bookable_resources {
+  id                Int                 @id @default(autoincrement())
+  tenant_id         String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  kind              String              @db.VarChar(20)
+  name              String              @db.VarChar(160)
+  location          String?             @db.VarChar(160)
+  is_active         Boolean             @default(true)
+  metadata          Json                @default("{}")
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  resource_bookings resource_bookings[]
+  tenants           tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookable_resources_tenant")
+
+  @@unique([tenant_id, kind, name], map: "uq_bookable_resources_name")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model resource_bookings {
+  id                 Int                @id @default(autoincrement())
+  tenant_id          String             @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  resource_id        Int
+  starts_at          DateTime           @db.Timestamptz(6)
+  ends_at            DateTime           @db.Timestamptz(6)
+  booked_for_type    String             @default("other") @db.VarChar(30)
+  booked_for_id      String?            @db.VarChar(60)
+  patient_uid        String?            @db.Uuid
+  booked_by          String?            @db.Uuid
+  status             String             @default("booked") @db.VarChar(20)
+  notes              String?            @db.VarChar(300)
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  bookable_resources bookable_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_resource_bookings_tenant")
+}
+
 model prescriptions {
   id              Int       @id @default(autoincrement())
   patient_uid     String    @db.Uuid
@@ -8829,11 +8917,13 @@ model tenants {
   appointment_documents                      appointment_documents[]
   appointment_queue_status_history           appointment_queue_status_history[]
   appointment_queues                         appointment_queues[]
+  appointment_waitlist                       appointment_waitlist[]
   appointments                               appointments[]
   approvals                                  approvals[]
   automation_rules                           automation_rules[]
   bed_transfers                              bed_transfers[]
   beds                                       beds[]
+  bookable_resources                         bookable_resources[]
   blood_requests                             blood_requests[]
   blood_units                                blood_units[]
   care_plan_activities                       care_plan_activities[]
@@ -9035,9 +9125,12 @@ model tenants {
   preop_checklists                           preop_checklists[]
   prescription_safety_overrides              prescription_safety_overrides[]
   prescriptions                              prescriptions[]
+  provider_availability_templates            provider_availability_templates[]
+  provider_leaves                            provider_leaves[]
   quality_incidents                          quality_incidents[]
   radiology_orders                           radiology_orders[]
   referrals                                  referrals[]
+  resource_bookings                          resource_bookings[]
   remote_prescriptions                       remote_prescriptions[]
   roster_calendar_events                     roster_calendar_events[]
   roster_weather_signals                     roster_weather_signals[]
