@@ -7,8 +7,12 @@
 // response. No Flutter imports — unit-tested in
 // test/features/emr/patient_summary_test.dart.
 
-/// Orders that are still clinically live on the chart.
-const kActiveOrderStatuses = {'ordered', 'verified'};
+/// Orders that are still clinically live on the chart. Mirrors the
+/// backend's canonical live-order set ('ordered','verified','in_progress')
+/// — orderEntryService/ipdSupportService/admissionService all use the
+/// triple; an in-progress infusion or a specimen already in the lab is
+/// still on the chart. (Review fix pre-merge: 'in_progress' was missing.)
+const kActiveOrderStatuses = {'ordered', 'verified', 'in_progress'};
 
 /// Order types whose un-completed orders read as "pending results".
 const kResultOrderTypes = {'investigation', 'lab', 'radiology', 'ecg'};

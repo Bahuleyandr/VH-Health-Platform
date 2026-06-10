@@ -23,6 +23,11 @@ void main() {
           'details': {'medication_name': 'Old drug'},
         },
         {
+          'order_type': 'medication',
+          'status': 'in_progress',
+          'details': {'medication_name': 'Vancomycin infusion'},
+        },
+        {
           'order_type': 'investigation',
           'status': 'verified',
           'details': {'test_name': 'CBC'},
@@ -45,10 +50,10 @@ void main() {
         'junk',
       ]);
 
-      expect(r.activeMeds, hasLength(1));
+      expect(r.activeMeds, hasLength(2));
       expect(
-        (r.activeMeds.single['details'] as Map)['medication_name'],
-        'Amoxicillin',
+        r.activeMeds.map((o) => (o['details'] as Map)['medication_name']),
+        containsAll(['Amoxicillin', 'Vancomycin infusion']),
       );
       expect(r.pendingResults, hasLength(2));
       expect(
