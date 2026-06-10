@@ -90,7 +90,9 @@ export interface ScoreboardMedicationSafety {
 export interface ScoreboardTotals {
   modules_with_activity: number;
   generations: ScoreboardGenerations;
-  reviews: ScoreboardReviews;
+  // Review latency is a per-module stat; the backend totals deliberately
+  // omit it (averaging latencies across modules would be meaningless).
+  reviews: Omit<ScoreboardReviews, "avg_review_latency_minutes">;
   edits: ScoreboardEdits;
   safety: Omit<ScoreboardSafety, "missed_reject_count"> & { missed_reject_count: number };
   time_to_sign: {

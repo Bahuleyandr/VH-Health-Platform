@@ -108,7 +108,6 @@ const SCOREBOARD: AiOutcomeScoreboard = {
       needs_revision: 0,
       acceptance_rate_pct: 50,
       used_rate_pct: 83.3,
-      avg_review_latency_minutes: 42.4,
     },
     edits: { sample_count: 2, mean_edit_distance_pct: 12.5, median_edit_distance_pct: 12.5 },
     safety: {
