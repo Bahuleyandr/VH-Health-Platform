@@ -4,6 +4,33 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-10 (night) — Pillar E start (branch `roadmap/pillar-e`)
+
+Pre-work: merged `roadmap/pillar-d` `--no-ff` → main `8edae310` (suite 57
+chunks + drift + full lint green, per-item review done in-session) and
+pushed; `roadmap/pillar-e` branched from that main.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| E6 portal results + proxy | ✅ | `5a5c87fd` | **Release rules**: portal visibility = signed off AND not held AND (auto-release delay elapsed OR clinician released early). `PORTAL_RESULT_RELEASE_DELAY_HOURS` (default 24, in validateEnv); migration 294 backfills pre-existing signed-off rows as released so nothing patients could already see disappears. Doctor hold needs a reason; early release overrides a hold; both audited. Staff surface `/api/v1/lab/release` (mounted before `/lab` so the narrower lab gate can't shadow it). **Trends**: `/portal/lab-results/trends` — released-only longitudinal numeric series per test (min/max/latest + points). **Proxy access**: `portal_proxy_grants` is the consent trail (method/ref/grantor/expiry/revocation; one active per patient×proxy); `for_patient=` is the one sanctioned exception to never-trust-caller-patient-uid — resolves only through an active grant with matching scope, every proxy read audited with the grant id. 7-test deep round-trip; portal+abdm regression suites green (29 tests). |
+
+Remaining Pillar E is mostly Flutter-side and lands in following sessions:
+E1 CPOE order composer in the staff app (backend orders/order-sets are
+ready — pure UI), E2 staff-app i18n (port the patient app's l10n pipeline;
+nurse-facing screens first), E3 execute `SCREEN_READER_TEST_PLAN.md` +
+font-scaling parity, E5 one-screen patient summary / tap-depth audit, E4
+admin i18n (explicitly post-pilot per the roadmap).
+
+### Owner-side actions queued (Pillar E so far)
+
+1. Confirm the result-release policy with the medical director: default
+   delay 24 h? Which test families should clinicians hold by default
+   (e.g. histopathology)? Hold workflow comms to doctors.
+2. Decide the proxy-consent ceremony at reception (OTP vs written) so
+   `consent_method`/`consent_ref` get real values from day one.
+3. Merge `roadmap/pillar-e` → main after review (or hold until more E
+   items land).
+
 ## Session 2026-06-10 (evening) — Pillar D continuation + C1 encryption (branch `roadmap/pillar-d`)
 
 Pre-work happened in an interrupted earlier half-session: `roadmap/pillar-c`
@@ -190,12 +217,11 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar D is complete except **D5 infection control (deferred per user
-2026-06-10; WIP in `stash@{0}` on `roadmap/pillar-d`)** — resume that
-first when green-lit. The C1 encryption follow-up landed this session, so
-the remaining C1 work is owner-side (sandbox + certification runs). After
-D5: Pillar E (experience parity — E1 CPOE surfaced in the staff app, E2
-staff i18n, E3 accessibility, E5 chart ergonomics, E6 patient portal) and
-Pillar F (analytics warehouse) per the phased plan in
-`EPIC_LEVEL_ROADMAP.md`; Pillar G items pair with their loops as those go
-live (G2 stage-1 ward pilot rides B6 med-rec).
+Pillar E is underway on `roadmap/pillar-e` (E6 landed; E1/E2/E3/E5 are
+Flutter-side next). Still parked: **D5 infection control (deferred per
+user 2026-06-10; WIP in `stash@{0}`, taken on `roadmap/pillar-d`)** —
+resume when green-lit. C1's remaining work is owner-side (sandbox
+credentials → M2 dry run validates the new encryption byte-level). After
+Pillar E: Pillar F (analytics warehouse) per the phased plan; Pillar G
+items pair with their loops as those go live (G2 stage-1 ward pilot rides
+B6 med-rec).
