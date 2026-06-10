@@ -4,6 +4,71 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-11 — Pillar E review+merge, Pillar F start (branch `roadmap/pillar-f`)
+
+Pre-work: per-item review of all 5 pillar-e commits, all gates re-run, then
+merged `roadmap/pillar-e` `--no-ff` → main `31106697` and pushed. Deleted the
+abandoned `roadmap/pillar-d-d5` branch (local only; D5 WIP stays in
+stash@{0}, untouched). `roadmap/pillar-f` branched from the new main.
+Dalekdefender overlay edits left untouched throughout.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| Pillar E review | ✅ | `72c4454e`, `d15e87c6` | E6/E1/E2/E3 pass as-reviewed (E6 proxy create/revoke pass `actorRole: null` from the portal router, so patients can only self-grant — the staff path is unreachable from the patient surface; E1 role set + bulk payload mirror orderRoutes exactly; order-set apply fix places real orders). Two findings fixed forward on the branch: **(1)** E5's `kActiveOrderStatuses` omitted `in_progress` while every backend live-order set uses the ordered/verified/in_progress triple — mid-administration infusions and in-lab specimens silently dropped off the summary sheet (`72c4454e`); **(2)** first full-suite run failed `document-integrity`: two pre-D-sweep test files (`problem-list.deep`, `visit-ownership-guard-deep`) still DELETEd `clinical_audit_events` rows — re-chunking (57 chunks, 451 files) landed the holes before the integrity check this time. Deletes removed (neither asserts on audit contents), QA chain re-built via the migration-282 backfill replay (`d15e87c6`). |
+| Pillar E gates | ✅ | — | Backend: lint (all 5 checks), schema drift vs fresh scratch DB, full `test:ci` 57 chunks green after the chain repair. Flutter: `melos run analyze` + `melos run test` green ×3 packages; `i18n-verify` hi/ta/te 100% (1723), ml 32% declared-partial — matches the E2 log entry. |
+| F1 analytics warehouse | ✅ | `c703e736` | **Publication (migration 295)**: curated 22-table `vh_analytics_pub` — deliberately not FOR ALL TABLES; `users` published with a PG15 **column list** (id/uid/role/gender/birthday/is_minor/is_active/registered_at/tenant_id) so credentials, contact PHI, `*_encrypted` columns, ABHA/PAN and device tokens can never reach the warehouse; replica-identity (PK) guard fails the migration loudly; conditional grants to `vh_warehouse_repl`. Contract locked by `analytics-warehouse.deep.test.js` (membership, users allow+forbidden lists, PK assertion, no audit/AI/payroll tables). **Infra** `infra/kubernetes/optional/analytics-warehouse/` (B4 PACS opt-in pattern; CNPG operator is 1.24 → pre Publication/Subscription CRDs, so idempotent SQL Jobs): single-instance PG17 subscriber Cluster (`statement_timeout=0` — the point of F1; managed roles `vh_dbt` BYPASSRLS / `vh_metabase` marts-only), publisher-setup Job (wal_level check + repl role + grants from `pg_publication_tables`), warehouse-migrate Job (same migration chain, new `--skip-seeds` ci-setup-db flag so the subscriber holds replicated truth only), subscribe Job (TRUNCATE-before-copy; `REFRESH_PUBLICATION=1` mode for post-release refreshes), nightly dbt CronJob fed by configMapGenerator straight from `analytics/dbt/` (no egress, no dbt packages). **dbt**: staging views + `dim_date/department/doctor/patient` (age-banded, pseudonymous-by-construction) `/payer` + `fct_encounters` (OPD+IPD+ER with payer_class) / `fct_orders` (3 stores unified) / `fct_revenue` (invoice-line grain); `grant_marts_read` post-hook keeps Metabase marts-only. `ci-warehouse.yml` builds dbt against a migrations-built service PG + `kustomize build` check. `docs/ANALYTICS_WAREHOUSE.md` + module README carry the bring-up/release runbooks and the slot-WAL-retention alert. Validated: migration on scratch+QA, jest 5/5, `dbt build` 52/52 against the migrated scratch DB. |
+| F2 operational marts | ✅ | `9eb448d8` | `mart_bed_flow_daily` (per-ward admits/discharges/transfers, midnight census via day-spine interval join, occupancy vs seeded ward structure — 819 ward-day rows materialize from the seeded structure alone), `mart_ot_utilization_daily` (cases + planned/utilized minutes vs the `ot_available_minutes_per_day` var; completed cases without `actual_duration` fall back to estimate), `mart_department_revenue_monthly` (gross/discounts/net/collected/outstanding/voided — **deliberately P&L-lite**: payroll cost tables stay out of replication pending an explicit privacy sign-off), `mart_payer_mix_monthly` (encounter mix by payer_class + IPD billed + TPA/insurance settlement). Column tests per mart + singular grain/occupancy-bounds test. Full project `dbt build` 52/52. |
+| G4 Tier-H pairing | ⏭ deferred | — | Per the session brief: only after F1 runs clean in prod. Modules stay `enabled=false`, unwired; pairing is its own roadmap item (`docs/ANALYTICS_WAREHOUSE.md#g4`). |
+
+### Environment notes
+
+- **Port 55432 was hijacked at session start**: a WSL ssh tunnel
+  (`ssh -N -L 0.0.0.0:55432:127.0.0.1:5433 bahuleyan@dalekdefender`, started
+  07:01) was shadowing the QA cluster port — `qa-cluster-up` saw "already
+  accepting connections" then died on SCRAM (the local QA cluster is trust;
+  the remote isn't). Killed per user choice; if the tunnel comes back, give
+  it a different local port.
+- **`robocopy`/`xcopy` into the repo clobbered fresher working-tree edits**
+  (robocopy copies on ANY size/time difference; xcopy also silently skipped
+  6 files mid-directory). When staging generated files from outside the
+  repo, copy then re-verify every in-repo edit — or write files in place.
+- **Bare `pip install dbt-postgres` resolves the dbt Fusion 2.0 alpha**,
+  which has no postgres adapter. Pin `"dbt-core<2"` everywhere (done in
+  `ci-warehouse.yml`); validated combo is core 1.11.x + dbt-postgres 1.9.1.
+  Keep `schema.yml` in pre-1.10 test syntax — the in-cluster CronJob image
+  (`dbt-postgres:1.9.latest`) predates the `arguments:` property.
+- **Prisma 7 driver adapter cannot deserialize `name[]`** (pg catalog
+  arrays): `pg_publication_tables.attnames` needs `::text[]` — same family
+  as the 42P08 untyped-param rule.
+- The C4 chain-hole failure mode is **order-dependent**: deletes of audit
+  rows only break `document-integrity` when later appends land behind them
+  before the check runs — a green suite does NOT prove cleanups are clean.
+  `git grep "DELETE FROM clinical_audit_events" src/tests` should stay empty.
+- `ci-setup-db.mjs` now supports `--skip-seeds` / `CI_DB_SKIP_SEEDS=1`.
+  Note: without the flag it seeds test staff (EMP-1001..) unconditionally —
+  including under NODE_ENV=production (pre-existing; the prod migration job
+  inherits this. Flagged for owner review).
+
+### Owner-side actions queued (Pillar F)
+
+1. Enable the warehouse: seal the 3 secrets, add
+   `optional/analytics-warehouse` to the prod overlay, run
+   publisher-setup → migrate → subscribe, first dbt build, then repoint
+   Metabase at `vhhealth-warehouse-rw` as `vh_metabase` and retire its OLTP
+   connection (module README has the exact commands).
+2. Add the `AnalyticsReplicationSlotStalled` PrometheusRule
+   (docs/ANALYTICS_WAREHOUSE.md) before go-live — an abandoned subscription
+   retains WAL on the clinical primary.
+3. Decide the payroll-cost question: publishing payslip aggregates would
+   upgrade `mart_department_revenue_monthly` to true P&L — needs an explicit
+   privacy sign-off; queue as its own item if wanted.
+4. Confirm `ot_available_minutes_per_day` (default 600) per theatre with the
+   OT incharge; override via dbt vars.
+5. Review the unconditional test-staff seeding in prod's migration job
+   (pre-existing; `--skip-seeds` now exists if it should stop).
+6. G4 Tier-H pairing decision once F1 has real data flowing.
+7. Merge `roadmap/pillar-f` → main after review.
+
 ## Session 2026-06-10 (late night) — Pillar E Flutter items (branch `roadmap/pillar-e`)
 
 Pre-work: an abandoned `roadmap/pillar-d-d5` branch (at main `8edae310`)
