@@ -9093,6 +9093,8 @@ model tenants {
   clinical_voice_notes                       clinical_voice_notes[]
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
+  dental_procedures                          dental_procedures[]
+  dental_tooth_findings                      dental_tooth_findings[]
   diagnoses                                  diagnoses[]
   dialysis_prescriptions                     dialysis_prescriptions[]
   dialysis_session_events                    dialysis_session_events[]
@@ -9153,6 +9155,8 @@ model tenants {
   notifications                              notifications[]
   numbering_series                           numbering_series[]
   nurse_handovers                            nurse_handovers[]
+  ophthalmic_exams                           ophthalmic_exams[]
+  ophthalmic_refractions                     ophthalmic_refractions[]
   ot_schedules                               ot_schedules[]
   package_items                              package_items[]
   packages                                   packages[]
@@ -13948,4 +13952,115 @@ model dialysis_session_events {
   tenants           tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dialysis_session_events_tenant")
 
   @@index([session_id, occurred_at], map: "idx_dialysis_session_events_session")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dental_procedures {
+  id                                                                                      Int                     @id @default(autoincrement())
+  tenant_id                                                                               String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid                                                                             String                  @db.Uuid
+  tooth_fdi                                                                               String?                 @db.VarChar(2)
+  surface                                                                                 String?                 @db.VarChar(10)
+  finding_id                                                                              Int?
+  procedure_name                                                                          String                  @db.VarChar(200)
+  procedure_code                                                                          String?                 @db.VarChar(40)
+  status                                                                                  String                  @default("planned") @db.VarChar(12)
+  anesthesia                                                                              String?                 @db.VarChar(120)
+  materials                                                                               String?                 @db.VarChar(200)
+  performed_by                                                                            String?                 @db.Uuid
+  performed_at                                                                            DateTime?               @db.Timestamptz(6)
+  cancelled_reason                                                                        String?
+  notes                                                                                   String?
+  created_by                                                                              String?                 @db.Uuid
+  created_at                                                                              DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                                                                              DateTime                @default(now()) @db.Timestamptz(6)
+  dental_tooth_findings_dental_procedures_finding_idTodental_tooth_findings               dental_tooth_findings?  @relation("dental_procedures_finding_idTodental_tooth_findings", fields: [finding_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                 tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dental_procedures_tenant")
+  dental_tooth_findings_dental_tooth_findings_resolved_by_procedure_idTodental_procedures dental_tooth_findings[] @relation("dental_tooth_findings_resolved_by_procedure_idTodental_procedures")
+
+  @@index([patient_uid, status], map: "idx_dental_procedures_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dental_tooth_findings {
+  id                                                                                  Int                 @id @default(autoincrement())
+  tenant_id                                                                           String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid                                                                         String              @db.Uuid
+  tooth_fdi                                                                           String              @db.VarChar(2)
+  surface                                                                             String?             @db.VarChar(10)
+  finding                                                                             String              @db.VarChar(24)
+  severity                                                                            String?             @db.VarChar(10)
+  status                                                                              String              @default("active") @db.VarChar(12)
+  noted_by                                                                            String?             @db.Uuid
+  recorded_at                                                                         DateTime            @default(now()) @db.Timestamptz(6)
+  resolved_at                                                                         DateTime?           @db.Timestamptz(6)
+  resolved_by_procedure_id                                                            Int?
+  resolution_note                                                                     String?
+  notes                                                                               String?
+  created_at                                                                          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                                                          DateTime            @default(now()) @db.Timestamptz(6)
+  dental_procedures_dental_procedures_finding_idTodental_tooth_findings               dental_procedures[] @relation("dental_procedures_finding_idTodental_tooth_findings")
+  dental_procedures_dental_tooth_findings_resolved_by_procedure_idTodental_procedures dental_procedures?  @relation("dental_tooth_findings_resolved_by_procedure_idTodental_procedures", fields: [resolved_by_procedure_id], references: [id], onUpdate: NoAction, map: "fk_dental_findings_resolved_by")
+  tenants                                                                             tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dental_tooth_findings_tenant")
+
+  @@index([patient_uid, status, tooth_fdi], map: "idx_dental_tooth_findings_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ophthalmic_exams {
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid            String                   @db.Uuid
+  exam_type              String                   @default("comprehensive") @db.VarChar(16)
+  od_va_unaided          String?                  @db.VarChar(12)
+  os_va_unaided          String?                  @db.VarChar(12)
+  od_va_pinhole          String?                  @db.VarChar(12)
+  os_va_pinhole          String?                  @db.VarChar(12)
+  od_va_corrected        String?                  @db.VarChar(12)
+  os_va_corrected        String?                  @db.VarChar(12)
+  od_iop_mmhg            Decimal?                 @db.Decimal(4, 1)
+  os_iop_mmhg            Decimal?                 @db.Decimal(4, 1)
+  iop_method             String?                  @db.VarChar(10)
+  od_anterior_segment    String?
+  os_anterior_segment    String?
+  od_posterior_segment   String?
+  os_posterior_segment   String?
+  od_lens_status         String?                  @db.VarChar(20)
+  os_lens_status         String?                  @db.VarChar(20)
+  diagnosis              String?
+  advice                 String?
+  examined_by            String?                  @db.Uuid
+  recorded_at            DateTime                 @default(now()) @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ophthalmic_exams_tenant")
+  ophthalmic_refractions ophthalmic_refractions[]
+
+  @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_ophthalmic_exams_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ophthalmic_refractions {
+  id                 Int              @id @default(autoincrement())
+  tenant_id          String           @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  exam_id            Int
+  patient_uid        String           @db.Uuid
+  eye                String           @db.VarChar(2)
+  refraction_type    String           @default("manifest") @db.VarChar(14)
+  sphere             Decimal          @db.Decimal(5, 2)
+  cylinder           Decimal?         @db.Decimal(5, 2)
+  axis               Int?
+  add_power          Decimal?         @db.Decimal(4, 2)
+  va_with_correction String?          @db.VarChar(12)
+  recorded_by        String?          @db.Uuid
+  created_at         DateTime         @default(now()) @db.Timestamptz(6)
+  tenants            tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ophthalmic_refractions_tenant")
+  ophthalmic_exams   ophthalmic_exams @relation(fields: [exam_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([exam_id, eye, refraction_type], map: "uq_ophthalmic_refractions_eye")
+  @@index([patient_uid, created_at(sort: Desc)], map: "idx_ophthalmic_refractions_patient")
 }

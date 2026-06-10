@@ -243,6 +243,8 @@ import nabhRoutes from './routes/quality/nabhRoutes.js';
 import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
+import dentalRoutes from './routes/clinical/dentalRoutes.js';
+import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -771,6 +773,12 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 // Oncology/chemo foundations (roadmap D1) — protocols, BSA dosing, cycle
 // scheduling, two-person administration verification, cumulative ceilings.
 app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+
+// Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
+app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DENTAL'), dentalRoutes);
+
+// Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
+app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
