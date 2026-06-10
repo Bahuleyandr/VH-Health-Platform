@@ -1195,6 +1195,21 @@ class MedicalApiService {
         .toList();
   }
 
+  /// GET /allergies/patient/:uid/unified — union of all four allergy
+  /// stores (A10 over HTTP; E5 follow-up), valid for any patient,
+  /// admitted or not. Rows are shaped {allergen, severity?, sources}.
+  static Future<List<Map<String, dynamic>>> getUnifiedAllergies(
+    String uid,
+  ) async {
+    final data = await _get('/allergies/patient/$uid/unified');
+    final rows = data['allergies'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
   /// PUT /emr/orders/:id/verify — verify an order
   static Future<Map<String, dynamic>> verifyOrder(int id) async {
     final resp = await ApiClient.put('/emr/orders/$id/verify', body: {});

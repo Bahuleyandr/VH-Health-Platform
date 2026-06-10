@@ -6,10 +6,11 @@
 // tap from any patient context (and via the global patient search on
 // every app bar, so "from anywhere" = magnifier → patient → summary).
 //
-// Composed CLIENT-SIDE from existing endpoints in parallel — no backend
-// changes: command board (allergies + admission context), B7 problem
-// list, EMR vitals chart, and the patient's clinical orders partitioned
-// into active meds / pending results
+// Composed CLIENT-SIDE from existing endpoints in parallel: unified
+// allergies (A10 over HTTP — all four stores, works for un-admitted
+// patients), command board (admission context only), B7 problem list,
+// EMR vitals chart, and the patient's clinical orders partitioned into
+// active meds / pending results
 // (lib/features/emr/models/patient_summary.dart, unit-tested).
 //
 // Every section degrades independently — one failed fetch renders that
@@ -90,19 +91,18 @@ class _PatientSummarySheetState extends State<PatientSummarySheet> {
   void _loadAll() {
     // Independent parallel fetches; each section settles on its own.
     _run(_allergies, () async {
-      final board = await MedicalApiService.getPatientCommandBoard(
-        patientUid: widget.patientUid,
-        limit: 1,
+      // Unified allergies (A10 over HTTP) — unions all four stores, so
+      // un-admitted patients no longer read "No allergies recorded"
+      // (E5 follow-up; previously this section relied on the
+      // admission-scoped command-board payload).
+      final items = await MedicalApiService.getUnifiedAllergies(
+        widget.patientUid,
       );
-      final entry = extractBoardEntry(board, widget.patientUid);
-      if (entry != null && mounted) {
-        setState(() => _admission = entry);
-      }
-      final items = entry?['allergies'] is Map
-          ? ((entry!['allergies'] as Map)['items'] as List? ?? const [])
-          : const <dynamic>[];
       return summarizeAllergies(items);
     });
+    // Admission context for the header chip — best-effort and no longer
+    // the allergy source; absence simply means "not currently admitted".
+    _loadAdmissionContext();
     _run(_problems, () async {
       return MedicalApiService.getPatientProblems(
         widget.patientUid,
@@ -122,6 +122,21 @@ class _PatientSummarySheetState extends State<PatientSummarySheet> {
       final list = data['orders'] ?? data['data'];
       return partitionOrdersForSummary(list is List ? list : const []);
     });
+  }
+
+  Future<void> _loadAdmissionContext() async {
+    try {
+      final board = await MedicalApiService.getPatientCommandBoard(
+        patientUid: widget.patientUid,
+        limit: 1,
+      );
+      final entry = extractBoardEntry(board, widget.patientUid);
+      if (entry != null && mounted) {
+        setState(() => _admission = entry);
+      }
+    } catch (_) {
+      // Best-effort context only — never blocks or errors a section.
+    }
   }
 
   Future<void> _run<T>(
