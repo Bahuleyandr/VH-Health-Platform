@@ -1178,6 +1178,23 @@ class MedicalApiService {
     return _get('/emr/orders/patient/$uid');
   }
 
+  /// GET /problems/patient/:uid — longitudinal problem list (B7).
+  static Future<List<Map<String, dynamic>>> getPatientProblems(
+    String uid, {
+    String? status,
+  }) async {
+    final data = await _get(
+      '/problems/patient/$uid',
+      query: {'status': ?status},
+    );
+    final rows = data['problems'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
   /// PUT /emr/orders/:id/verify — verify an order
   static Future<Map<String, dynamic>> verifyOrder(int id) async {
     final resp = await ApiClient.put('/emr/orders/$id/verify', body: {});

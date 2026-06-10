@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/order_draft.dart';
+import '../widgets/patient_summary_sheet.dart';
 
 /// EMR Orders screen (roadmap E1) — patient order list with full status
 /// visibility (ordered → verified → completed / cancelled / discontinued),
@@ -405,6 +406,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
       title: widget.patientName != null
           ? s.ordersTitleWithName(widget.patientName!)
           : s.ordersTitle,
+      actions: [
+        IconButton(
+          tooltip: s.summaryTooltip,
+          icon: const Icon(Icons.assignment_ind_outlined),
+          onPressed: () => PatientSummarySheet.show(
+            context,
+            patientUid: widget.patientUid,
+            patientName: widget.patientName,
+          ),
+        ),
+      ],
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openComposer,
         backgroundColor: AppTheme.primaryBlue,

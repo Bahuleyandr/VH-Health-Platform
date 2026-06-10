@@ -1089,6 +1089,29 @@ class AppStrings {
     'order_sets.apply_count',
   ).replaceAll('{sel}', '$sel').replaceAll('{total}', '$total');
 
+  // ── One-screen patient summary (roadmap E5) ────────────────────────
+  String get summaryTitle => _t('summary.title');
+  String get summaryTooltip => _t('summary.tooltip');
+  String summaryAdmittedBed(String bed) =>
+      _t('summary.admitted_bed').replaceAll('{bed}', bed);
+  // REVIEW: safety-critical section header
+  String get summaryAllergies => _t('summary.allergies');
+  String get summaryNoKnownAllergies => _t('summary.no_known_allergies');
+  String get summaryProblems => _t('summary.problems');
+  String get summaryNoProblems => _t('summary.no_problems');
+  String get summaryChronic => _t('summary.chronic');
+  String get summaryActiveMeds => _t('summary.active_meds');
+  String get summaryNoActiveMeds => _t('summary.no_active_meds');
+  String get summaryLastVitals => _t('summary.last_vitals');
+  String get summaryNoVitals => _t('summary.no_vitals');
+  String get summaryPendingResults => _t('summary.pending_results');
+  String get summaryNoPendingResults => _t('summary.no_pending_results');
+  String get summarySectionFailed => _t('summary.section_failed');
+  String get summaryTimeline => _t('summary.timeline');
+  String get summaryNotes => _t('summary.notes');
+  String get ordersTitlePrefix => _t('orders.title_prefix');
+  String get vitalsChartTitlePrefix => _t('vitals_chart.title_prefix');
+
   // ── Inpatient drug chart ───────────────────────────────────────────
   String get drugChartTitle => _t('drug_chart.title');
   // REVIEW: clinical action label
@@ -2580,6 +2603,23 @@ class AppStrings {
       'drug_chart.saved_toast': 'Drug order saved and pharmacy intimated',
       'drug_chart.empty': 'No inpatient drugs charted',
       'drug_chart.given': 'Given',
+      'summary.title': 'Patient summary',
+      'summary.tooltip': 'Patient summary',
+      'summary.admitted_bed': 'Admitted · Bed {bed}',
+      'summary.allergies': 'Allergies',
+      'summary.no_known_allergies': 'No allergies recorded',
+      'summary.problems': 'Active problems',
+      'summary.no_problems': 'No active problems recorded',
+      'summary.chronic': 'Chronic',
+      'summary.active_meds': 'Active medications',
+      'summary.no_active_meds': 'No active medication orders',
+      'summary.last_vitals': 'Last vitals',
+      'summary.no_vitals': 'No vitals recorded',
+      'summary.pending_results': 'Pending results',
+      'summary.no_pending_results': 'No pending results',
+      'summary.section_failed': 'Could not load this section',
+      'summary.timeline': 'Timeline',
+      'summary.notes': 'Notes',
       'settings.push_notifications': 'Push Notifications',
       'settings.push_notifications.subtitle':
           'Attendance reminders, appointment alerts',
@@ -4501,6 +4541,24 @@ class AppStrings {
           'दवा आदेश सहेजा गया और फ़ार्मेसी को सूचित किया गया',
       'drug_chart.empty': 'कोई इनपेशेंट दवा चार्ट नहीं',
       'drug_chart.given': 'दिया गया',
+      // REVIEW: hi patient-summary batch — clinical wording
+      'summary.title': 'रोगी सारांश',
+      'summary.tooltip': 'रोगी सारांश',
+      'summary.admitted_bed': 'भर्ती · बेड {bed}',
+      'summary.allergies': 'एलर्जी',
+      'summary.no_known_allergies': 'कोई एलर्जी दर्ज नहीं',
+      'summary.problems': 'सक्रिय समस्याएँ',
+      'summary.no_problems': 'कोई सक्रिय समस्या दर्ज नहीं',
+      'summary.chronic': 'दीर्घकालिक',
+      'summary.active_meds': 'सक्रिय दवाएँ',
+      'summary.no_active_meds': 'कोई सक्रिय दवा आदेश नहीं',
+      'summary.last_vitals': 'अंतिम वाइटल्स',
+      'summary.no_vitals': 'कोई वाइटल्स दर्ज नहीं',
+      'summary.pending_results': 'लंबित परिणाम',
+      'summary.no_pending_results': 'कोई लंबित परिणाम नहीं',
+      'summary.section_failed': 'यह अनुभाग लोड नहीं हो सका',
+      'summary.timeline': 'टाइमलाइन',
+      'summary.notes': 'नोट्स',
       'settings.push_notifications': 'पुश सूचनाएँ',
       'settings.push_notifications.subtitle':
           'उपस्थिति रिमाइंडर, अपॉइंटमेंट अलर्ट',
@@ -6620,6 +6678,24 @@ class AppStrings {
           'மருந்து ஆர்டர் சேமிக்கப்பட்டு பார்மசிக்கு அறிவிக்கப்பட்டது',
       'drug_chart.empty': 'உள்நோயாளி மருந்துகள் எதுவும் பதிவில் இல்லை',
       'drug_chart.given': 'கொடுக்கப்பட்டது',
+      // REVIEW: ta AI first-pass patient-summary batch — clinical wording
+      'summary.title': 'நோயாளர் சுருக்கம்',
+      'summary.tooltip': 'நோயாளர் சுருக்கம்',
+      'summary.admitted_bed': 'அனுமதி · படுக்கை {bed}',
+      'summary.allergies': 'ஒவ்வாமைகள்',
+      'summary.no_known_allergies': 'ஒவ்வாமைகள் பதிவில் இல்லை',
+      'summary.problems': 'செயலில் உள்ள பிரச்சினைகள்',
+      'summary.no_problems': 'செயலில் உள்ள பிரச்சினைகள் இல்லை',
+      'summary.chronic': 'நாள்பட்ட',
+      'summary.active_meds': 'செயலில் உள்ள மருந்துகள்',
+      'summary.no_active_meds': 'செயலில் உள்ள மருந்து ஆர்டர்கள் இல்லை',
+      'summary.last_vitals': 'கடைசி வைட்டல்கள்',
+      'summary.no_vitals': 'வைட்டல்கள் பதிவில் இல்லை',
+      'summary.pending_results': 'நிலுவை முடிவுகள்',
+      'summary.no_pending_results': 'நிலுவை முடிவுகள் இல்லை',
+      'summary.section_failed': 'இந்தப் பகுதியை ஏற்ற முடியவில்லை',
+      'summary.timeline': 'காலவரிசை',
+      'summary.notes': 'குறிப்புகள்',
       'settings.push_notifications': 'புஷ் அறிவிப்புகள்',
       'settings.push_notifications.subtitle':
           'வருகை நினைவூட்டல்கள், சந்திப்பு எச்சரிக்கைகள்',
@@ -9241,6 +9317,24 @@ class AppStrings {
           'మందు ఆర్డర్ సేవ్ చేయబడింది, ఫార్మసీకి తెలియజేయబడింది',
       'drug_chart.empty': 'ఇన్‌పేషెంట్ మందులు చార్ట్ చేయలేదు',
       'drug_chart.given': 'ఇవ్వబడింది',
+      // REVIEW: te AI first-pass patient-summary batch — clinical wording
+      'summary.title': 'రోగి సారాంశం',
+      'summary.tooltip': 'రోగి సారాంశం',
+      'summary.admitted_bed': 'అడ్మిట్ · బెడ్ {bed}',
+      'summary.allergies': 'అలర్జీలు',
+      'summary.no_known_allergies': 'అలర్జీలు నమోదు కాలేదు',
+      'summary.problems': 'యాక్టివ్ సమస్యలు',
+      'summary.no_problems': 'యాక్టివ్ సమస్యలు నమోదు లేవు',
+      'summary.chronic': 'దీర్ఘకాలిక',
+      'summary.active_meds': 'యాక్టివ్ మందులు',
+      'summary.no_active_meds': 'యాక్టివ్ మందు ఆర్డర్లు లేవు',
+      'summary.last_vitals': 'చివరి వైటల్స్',
+      'summary.no_vitals': 'వైటల్స్ నమోదు కాలేదు',
+      'summary.pending_results': 'పెండింగ్ ఫలితాలు',
+      'summary.no_pending_results': 'పెండింగ్ ఫలితాలు లేవు',
+      'summary.section_failed': 'ఈ విభాగం లోడ్ కాలేదు',
+      'summary.timeline': 'టైమ్‌లైన్',
+      'summary.notes': 'నోట్స్',
       'settings.push_notifications': 'పుష్ నోటిఫికేషన్‌లు',
       'settings.push_notifications.subtitle':
           'హాజరు రిమైండర్‌లు, అపాయింట్‌మెంట్ హెచ్చరికలు',
@@ -12157,6 +12251,23 @@ class AppStrings {
       'drug_chart.saved_toast': 'മരുന്ന് ഓർഡർ സേവ് ചെയ്തു, ഫാർമസിയെ അറിയിച്ചു',
       'drug_chart.empty': 'ഇൻപേഷ്യന്റ് മരുന്നുകളൊന്നും ചാർട്ടിലില്ല',
       'drug_chart.given': 'നൽകി',
+      'summary.title': 'രോഗി സംഗ്രഹം',
+      'summary.tooltip': 'രോഗി സംഗ്രഹം',
+      'summary.admitted_bed': 'അഡ്മിറ്റ് · ബെഡ് {bed}',
+      'summary.allergies': 'അലർജികൾ',
+      'summary.no_known_allergies': 'അലർജികളൊന്നും രേഖപ്പെടുത്തിയിട്ടില്ല',
+      'summary.problems': 'സജീവ പ്രശ്നങ്ങൾ',
+      'summary.no_problems': 'സജീവ പ്രശ്നങ്ങളൊന്നുമില്ല',
+      'summary.chronic': 'ദീർഘകാല',
+      'summary.active_meds': 'സജീവ മരുന്നുകൾ',
+      'summary.no_active_meds': 'സജീവ മരുന്ന് ഓർഡറുകളില്ല',
+      'summary.last_vitals': 'അവസാന വൈറ്റൽസ്',
+      'summary.no_vitals': 'വൈറ്റൽസ് രേഖപ്പെടുത്തിയിട്ടില്ല',
+      'summary.pending_results': 'തീർപ്പാക്കാത്ത ഫലങ്ങൾ',
+      'summary.no_pending_results': 'തീർപ്പാക്കാത്ത ഫലങ്ങളില്ല',
+      'summary.section_failed': 'ഈ ഭാഗം ലോഡ് ചെയ്യാനായില്ല',
+      'summary.timeline': 'ടൈംലൈൻ',
+      'summary.notes': 'കുറിപ്പുകൾ',
     },
   };
 }

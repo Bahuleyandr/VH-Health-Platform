@@ -5,6 +5,8 @@ import '../../../core/navigation/ip_command_board_routes.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
+import '../widgets/patient_summary_sheet.dart';
 
 @visibleForTesting
 String patientCommandBoardScopeLabel(Map<String, dynamic> board) {
@@ -934,6 +936,21 @@ class _PatientCommandBoardScreenState extends State<PatientCommandBoardScreen> {
                               ),
                             ],
                           ),
+                        ),
+                        // One-tap patient summary (roadmap E5).
+                        IconButton(
+                          tooltip: AppStrings.of(context).summaryTooltip,
+                          icon: const Icon(Icons.assignment_ind_outlined),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final uid = _text(patient['uid']);
+                            if (uid.isEmpty) return;
+                            PatientSummarySheet.show(
+                              context,
+                              patientUid: uid,
+                              patientName: name,
+                            );
+                          },
                         ),
                         _statusBadge(
                           _text(priority['label'], 'Routine'),

@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/patient_health_journey_panel.dart';
+import '../widgets/patient_summary_sheet.dart';
 
 enum _TimelineView { healthJourney, eventLog }
 
@@ -783,6 +784,17 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       title: widget.patientName != null
           ? s.timelineTitleWithName(widget.patientName!)
           : s.timelineTitle,
+      actions: [
+        IconButton(
+          tooltip: s.summaryTooltip,
+          icon: const Icon(Icons.assignment_ind_outlined),
+          onPressed: () => PatientSummarySheet.show(
+            context,
+            patientUid: widget.patientUid,
+            patientName: widget.patientName,
+          ),
+        ),
+      ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null

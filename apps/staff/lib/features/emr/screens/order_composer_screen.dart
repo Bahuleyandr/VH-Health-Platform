@@ -36,6 +36,7 @@ import '../../../l10n/app_strings.dart';
 import '../../doctor/widgets/cds_blocker_modal.dart';
 import '../../productivity/screens/order_sets_screen.dart';
 import '../models/order_draft.dart';
+import '../widgets/patient_summary_sheet.dart';
 
 // Pure helpers (OrderDraft, payload builders, CDS partitioning, role gate)
 // live in ../models/order_draft.dart so the order-sets picker and the unit
@@ -366,6 +367,19 @@ class _OrderComposerScreenState extends State<OrderComposerScreen> {
       title: widget.patientName == null
           ? s.composerTitle
           : s.composerTitleWithName(widget.patientName!),
+      actions: [
+        // One-tap summary while composing — allergies and active meds
+        // are exactly what a prescriber wants mid-order (roadmap E5).
+        IconButton(
+          tooltip: s.summaryTooltip,
+          icon: const Icon(Icons.assignment_ind_outlined),
+          onPressed: () => PatientSummarySheet.show(
+            context,
+            patientUid: widget.patientUid,
+            patientName: widget.patientName,
+          ),
+        ),
+      ],
       body: Column(
         children: [
           Padding(

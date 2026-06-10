@@ -28,6 +28,7 @@ import 'core/services/phi_scrubber.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
 import 'core/widgets/patient_search_sheet.dart';
+import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
@@ -60,6 +61,16 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   VHHttpClient.deviceTypeProvider = () => currentDeviceType;
+
+  // One-screen patient summary (roadmap E5): the global patient search
+  // (magnifier on every app bar / Ctrl+K) offers a summary shortcut per
+  // result row. Injected here so the core widget stays feature-free.
+  PatientSearchSheet.summaryOpener =
+      (context, {required patientUid, patientName}) => PatientSummarySheet.show(
+        context,
+        patientUid: patientUid,
+        patientName: patientName,
+      );
 
   // Desktop platforms (Windows/Linux/macOS) need the sqflite FFI bridge
   // wired before any DB-touching code runs (OfflineQueue, ConnectivitySync-
