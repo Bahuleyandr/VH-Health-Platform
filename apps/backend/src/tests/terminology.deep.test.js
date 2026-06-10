@@ -22,7 +22,7 @@ async function cleanup() {
     `DELETE FROM terminology_concept_maps WHERE source_code LIKE 'B8%' OR target_code LIKE 'B8%'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM terminology_concepts WHERE code LIKE 'B8%' OR display LIKE 'B8TEST%'`,
+    `DELETE FROM terminology_concepts WHERE code LIKE 'B8%' OR display LIKE 'B8TEST%' OR code = 'BA00'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM investigation_test_catalog WHERE name LIKE 'B8TEST%'`,
@@ -31,6 +31,9 @@ async function cleanup() {
 
 d('Terminology service — deep round-trip (roadmap B8)', () => {
   beforeAll(async () => {
+    process.env.WHO_ICD_DISABLE_AUTH = 'false';
+    process.env.WHO_ICD_CLIENT_ID = '';
+    process.env.WHO_ICD_CLIENT_SECRET = '';
     await cleanup();
 
     // Concepts: two ICD10 displays for ranking, one SNOMED target, two LOINC
@@ -40,6 +43,7 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
          ('ICD10', 'B8T.0', 'B8TEST Fever', 'B8TEST', 'active'),
          ('ICD10', 'B8T.1', 'B8TEST Fever with chills', 'B8TEST', 'active'),
          ('ICD10', 'B8T.9', 'B8TEST Retired concept', 'B8TEST', 'inactive'),
+         ('ICD11', 'BA00', 'B8TEST Essential hypertension', 'B8TEST', 'active'),
          ('SNOMED_CT', 'B8386661000', 'B8TEST Fever (finding)', 'finding', 'active'),
          ('LOINC', 'B8888-8', 'B8TEST Glucose Panel', 'CHEM', 'active'),
          ('LOINC', 'B8999-9', 'B8TEST Sodium Serum', 'CHEM', 'active')
@@ -98,6 +102,29 @@ d('Terminology service — deep round-trip (roadmap B8)', () => {
       .query({ system: 'ICD10', q: 'B8T.1' });
     expect(byCode.status).toBe(200);
     expect(byCode.body.data.concepts[0].code).toBe('B8T.1');
+  });
+
+  test('ICD-11 search and validate fall back to local terminology cache without WHO credentials', async () => {
+    const search = await authClient('DOCTOR')
+      .get('/api/v1/terminology/search')
+      .query({ system: 'ICD11', q: 'B8TEST Essential' });
+    expect(search.status).toBe(200);
+    expect(search.body.data.concepts[0]).toMatchObject({
+      system_key: 'ICD11',
+      code: 'BA00',
+      display: 'B8TEST Essential hypertension',
+    });
+
+    const concept = await authClient('DOCTOR')
+      .get('/api/v1/terminology/concepts/ICD11/BA00');
+    expect(concept.status).toBe(200);
+    expect(concept.body.data.concept).toMatchObject({ code: 'BA00' });
+
+    const validate = await authClient('DOCTOR')
+      .get('/api/v1/terminology/validate')
+      .query({ system: 'ICD11', code: 'BA00' });
+    expect(validate.status).toBe(200);
+    expect(validate.body.data).toMatchObject({ valid: true, mode: 'catalog' });
   });
 
   test('search rejects unknown system and short query', async () => {

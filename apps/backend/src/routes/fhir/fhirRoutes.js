@@ -23,6 +23,10 @@ import { validatedFhirJson, validateResource } from '../../services/fhir/fhirVal
 import { fhirObservationToVitals } from '../../services/fhir/observationVitalsMapper.js';
 import { recordVitals } from '../../services/emr/vitalsChartService.js';
 import { createProblem } from '../../services/clinical/problemListService.js';
+import {
+  attachResourceCodings,
+  normalizeClinicalCodings,
+} from '../../services/terminology/clinicalCodeBindingService.js';
 import { AppError } from '../../utils/AppError.js';
 import { ROLES, isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 
@@ -60,6 +64,19 @@ function assertValidInbound(resource, expectedType) {
       'FHIR_VALIDATION_FAILED',
     );
   }
+}
+
+function conditionCodingsFromFhir(codings = []) {
+  return normalizeClinicalCodings((Array.isArray(codings) ? codings : []).map((coding) => ({
+    system: coding.system,
+    code: coding.code,
+    display: coding.display || null,
+    coding_role: 'diagnosis',
+    source: 'fhir_import',
+    metadata: {
+      fhir_system: coding.system || null,
+    },
+  })));
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +418,9 @@ router.get(
       id, _count
     );
 
+    await attachResourceCodings(conditions, { resourceType: 'diagnosis' });
+    await attachResourceCodings(problems, { resourceType: 'patient_problem' });
+
     const resources = [
       toFhirPatient(patientRows[0]),
       ...observations.map(toFhirObservation),
@@ -634,6 +654,7 @@ router.get(
          FROM diagnoses ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
         ...params, _count, _offset
       );
+      await attachResourceCodings(rows, { resourceType: 'diagnosis' });
       resources.push(...rows.map(toFhirCondition));
     }
     if (wantProblems) {
@@ -645,6 +666,7 @@ router.get(
          ORDER BY created_at DESC LIMIT $${patient ? 2 : 1} OFFSET $${patient ? 3 : 2}`,
         ...(patient ? [patient] : []), _count, _offset
       );
+      await attachResourceCodings(rows, { resourceType: 'patient_problem' });
       resources.push(...rows.map(toFhirConditionFromProblem));
     }
     res.json(buildBundle('Condition', resources));
@@ -667,6 +689,7 @@ router.post(
     const codings = Array.isArray(resource.code?.coding) ? resource.code.coding : [];
     const icd10 = codings.find((c) => String(c.system || '').includes('icd-10'))?.code || null;
     const snomed = codings.find((c) => String(c.system || '').includes('snomed'))?.code || null;
+    const clinicalCodings = conditionCodingsFromFhir(codings);
     const title = resource.code?.text
       || codings.find((c) => c.display)?.display
       || icd10 || snomed;
@@ -688,6 +711,7 @@ router.post(
       snomedCode: snomed,
       onsetDate: resource.onsetDateTime ? String(resource.onsetDateTime).slice(0, 10) : null,
       notes: resource.note?.[0]?.text || null,
+      codings: clinicalCodings,
     }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
 
     res.status(201);

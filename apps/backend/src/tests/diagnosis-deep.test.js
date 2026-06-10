@@ -32,6 +32,8 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
   const doctor = doctorAs();
 
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_code_bindings WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE source_table = 'diagnoses' AND patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM diagnoses WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM icd10_codes WHERE code = $1`, TEST_ICD_CODE);
     await clearCareTeam();
@@ -73,6 +75,8 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_code_bindings WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE source_table = 'diagnoses' AND patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM diagnoses WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM icd10_codes WHERE code = $1`, TEST_ICD_CODE).catch(() => {});
@@ -128,6 +132,14 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
         status: 'active',
         severity: 'moderate',
         onset_date: '2026-04-01',
+        codings: [{
+          system: 'ICD11',
+          code: 'BA00',
+          display: 'Essential hypertension',
+          release_id: '2026-01',
+          linearization_uri: 'http://id.who.int/icd/release/11/2026-01/mms/123',
+          foundation_uri: 'http://id.who.int/icd/entity/123',
+        }],
       });
       expect(res.statusCode).toBe(201);
       const dx = res.body.data;
@@ -136,6 +148,10 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
       expect(dx.icd10_description).toBe('Unit Test Diagnosis'); // looked up
       expect(dx.diagnosis_type).toBe('primary');
       expect(dx.status).toBe('active');
+      expect(dx.codings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ system_key: 'ICD10', code: TEST_ICD_CODE }),
+        expect.objectContaining({ system_key: 'ICD11', code: 'BA00', display: 'Essential hypertension' }),
+      ]));
       primaryDxId = dx.id;
 
       // Verify row in DB
@@ -143,6 +159,35 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
         `SELECT icd10_code, diagnosis_type, severity FROM diagnoses WHERE id = $1`, primaryDxId);
       expect(row[0].icd10_code).toBe(TEST_ICD_CODE);
       expect(row[0].severity).toBe('moderate');
+
+      const bindings = await prisma.$queryRawUnsafe(
+        `SELECT system_key, code, display, release_id, linearization_uri, foundation_uri
+           FROM clinical_code_bindings
+          WHERE resource_type = 'diagnosis' AND resource_id = $1
+          ORDER BY system_key`,
+        String(primaryDxId),
+      );
+      expect(bindings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ system_key: 'ICD10', code: TEST_ICD_CODE }),
+        expect.objectContaining({
+          system_key: 'ICD11',
+          code: 'BA00',
+          display: 'Essential hypertension',
+          release_id: '2026-01',
+          linearization_uri: 'http://id.who.int/icd/release/11/2026-01/mms/123',
+          foundation_uri: 'http://id.who.int/icd/entity/123',
+        }),
+      ]));
+
+      const events = await prisma.$queryRawUnsafe(
+        `SELECT payload FROM clinical_timeline_events
+          WHERE source_table = 'diagnoses' AND source_id = $1
+          ORDER BY created_at DESC LIMIT 1`,
+        String(primaryDxId),
+      );
+      expect(events[0]?.payload?.codings).toEqual(expect.arrayContaining([
+        expect.objectContaining({ system_key: 'ICD11', code: 'BA00' }),
+      ]));
     });
 
     it('creates a secondary diagnosis without ICD-10 code', async () => {

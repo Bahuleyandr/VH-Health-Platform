@@ -2,6 +2,7 @@
 // HL7 FHIR R4 interoperability adapter
 // Transforms VH Health internal data to/from FHIR R4 JSON resources
 
+import { systemUriForKey } from '../terminology/clinicalCodeBindingService.js';
 
 /**
  * Map VH Health gender values to FHIR administrative-gender codes.
@@ -43,6 +44,32 @@ function toFhirInstant(dateValue) {
   const d = dateValue instanceof Date ? dateValue : new Date(dateValue);
   if (isNaN(d.getTime())) return undefined;
   return d.toISOString();
+}
+
+function clinicalCodingsToFhir(codings = []) {
+  const out = [];
+  const seen = new Set();
+  for (const coding of Array.isArray(codings) ? codings : []) {
+    if (!coding?.code) continue;
+    const system = coding.system || systemUriForKey(coding.system_key, coding);
+    const key = `${system}|${coding.code}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      system,
+      code: coding.code,
+      ...(coding.display ? { display: coding.display } : {}),
+    });
+  }
+  return out;
+}
+
+function appendCoding(coding, next) {
+  if (!next?.code) return coding;
+  const system = next.system;
+  if (coding.some((item) => item.system === system && item.code === next.code)) return coding;
+  coding.push(next);
+  return coding;
 }
 
 // =============================================================================
@@ -393,6 +420,14 @@ function mapConditionStatus(status) {
  */
 export function toFhirCondition(diagnosis) {
   if (!diagnosis) return null;
+  const coding = clinicalCodingsToFhir(diagnosis.codings);
+  if (diagnosis.icd10_code) {
+    appendCoding(coding, {
+      system: 'http://hl7.org/fhir/sid/icd-10-cm',
+      code: diagnosis.icd10_code,
+      display: diagnosis.icd10_description || diagnosis.description,
+    });
+  }
 
   return {
     resourceType: 'Condition',
@@ -406,15 +441,7 @@ export function toFhirCondition(diagnosis) {
       ],
     },
     code: {
-      coding: diagnosis.icd10_code
-        ? [
-            {
-              system: 'http://hl7.org/fhir/sid/icd-10-cm',
-              code: diagnosis.icd10_code,
-              display: diagnosis.icd10_description || diagnosis.description,
-            },
-          ]
-        : [],
+      coding,
       text: diagnosis.description,
     },
     subject: { reference: `Patient/${diagnosis.patient_uid}` },
@@ -439,16 +466,16 @@ export function toFhirConditionFromProblem(problem) {
     resolved: 'resolved',
     entered_in_error: 'inactive',
   };
-  const coding = [];
+  const coding = clinicalCodingsToFhir(problem.codings);
   if (problem.icd10_code) {
-    coding.push({
+    appendCoding(coding, {
       system: 'http://hl7.org/fhir/sid/icd-10',
       code: problem.icd10_code,
       display: problem.title,
     });
   }
   if (problem.snomed_code) {
-    coding.push({
+    appendCoding(coding, {
       system: 'http://snomed.info/sct',
       code: problem.snomed_code,
       display: problem.title,

@@ -9267,6 +9267,7 @@ model terminology_code_systems {
   metadata                                                                                  Json                           @default("{}")
   created_at                                                                                DateTime                       @default(now()) @db.Timestamptz(6)
   updated_at                                                                                DateTime                       @default(now()) @db.Timestamptz(6)
+  clinical_code_bindings                                                                    clinical_code_bindings[]
   terminology_catalog_bindings                                                              terminology_catalog_bindings[]
   terminology_concept_maps_terminology_concept_maps_source_systemToterminology_code_systems terminology_concept_maps[]     @relation("terminology_concept_maps_source_systemToterminology_code_systems")
   terminology_concept_maps_terminology_concept_maps_target_systemToterminology_code_systems terminology_concept_maps[]     @relation("terminology_concept_maps_target_systemToterminology_code_systems")
@@ -9333,6 +9334,34 @@ model terminology_catalog_bindings {
   @@unique([catalog_type, catalog_id, system_key], map: "terminology_catalog_bindings_unique")
   @@index([system_key, code], map: "idx_terminology_catalog_bindings_code")
   @@index([catalog_type, binding_status], map: "idx_terminology_catalog_bindings_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model clinical_code_bindings {
+  id                       BigInt                   @id @default(autoincrement())
+  tenant_id                String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid              String?                  @db.Uuid
+  resource_type            String                   @db.VarChar(40)
+  resource_id              String                   @db.VarChar(120)
+  system_key               String                   @db.VarChar(40)
+  code                     String                   @db.VarChar(120)
+  display                  String?
+  release_id               String?                  @db.VarChar(80)
+  language                 String?                  @db.VarChar(12)
+  linearization_uri        String?
+  foundation_uri           String?
+  coding_role              String                   @default("diagnosis") @db.VarChar(40)
+  source                   String                   @default("manual") @db.VarChar(40)
+  metadata                 Json                     @default("{}")
+  created_by               String?                  @db.Uuid
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  terminology_code_systems terminology_code_systems @relation(fields: [system_key], references: [system_key], onDelete: NoAction)
+
+  @@unique([resource_type, resource_id, system_key, code, coding_role], map: "uq_clinical_code_bindings_resource_code")
+  @@index([resource_type, resource_id], map: "idx_clinical_code_bindings_resource")
+  @@index([tenant_id, patient_uid, system_key, code], map: "idx_clinical_code_bindings_patient", where: raw("(patient_uid IS NOT NULL)"))
+  @@index([system_key, code], map: "idx_clinical_code_bindings_code")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
