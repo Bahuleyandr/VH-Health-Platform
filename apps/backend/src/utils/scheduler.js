@@ -75,6 +75,7 @@ import { sendInvestigationNotifications } from './notifications/InvestigationNot
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
 import { generateWardDowntimePacks } from '../services/downtime/wardDowntimePackService.js';
+import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 
@@ -151,6 +152,13 @@ cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuck
 // on demand. See docs/DOWNTIME_PROCEDURE.md for the ops procedure.
 cron.schedule('*/15 * * * *', withJobLock('ward-downtime-packs', async () => {
   await generateWardDowntimePacks();
+}));
+
+// 📡 Every 2 minutes — deliver queued outbound HL7v2 feed messages
+// (roadmap C2). Per-message exponential backoff; dead after 7 attempts;
+// replay via POST /api/v1/hl7-feeds/messages/:id/replay.
+cron.schedule('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
+  await deliverPendingFeedMessages({ limit: 50 });
 }));
 
 // 🪦 Every 15 minutes — A8 visit-status reaper. Flip SCHEDULED

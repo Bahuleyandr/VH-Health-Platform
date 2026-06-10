@@ -736,6 +736,15 @@ export async function signOffResults({
     }
   }
 
+  // Roadmap C2 (Phase 1.5, best-effort) — release the signed results to
+  // subscribed third-party systems as ORU^R01.
+  try {
+    const { emitSignedResultsOru } = await import('../hl7/hl7OutboundService.js');
+    await emitSignedResultsOru({ resultIds: result_ids, patientUid: patient_uid || null });
+  } catch (feedErr) {
+    logger.warn(`ORU feed emission failed on signoff (signoff stands): ${feedErr?.message}`);
+  }
+
   return rows[0];
 }
 
