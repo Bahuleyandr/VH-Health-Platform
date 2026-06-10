@@ -4,6 +4,52 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-11 (later) — Pillar G start: G3 + allergies rider (branch `roadmap/pillar-g`)
+
+Pre-work: `roadmap/pillar-g` branched from main `2d3123ea` (post Pillar-F
+merge). Dalekdefender overlay edits left untouched throughout (incl. via
+`rebase --autostash`); D5 stays parked in `stash@{0}`.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| G3 outcome instrumentation | ✅ | `54084db6` | Per-module AI evidence scoreboard computed ONLY from existing generation/review/safety tables (no new AI modules, no schema change): **acceptance + used rates** from `clinical_ai_reviews` decision buckets (accepted/signed/approved vs edited/revision_requested vs rejected/needs_revision; matches `REVIEW_STATUS_BY_DECISION`); **edit distance** = normalized word-level Levenshtein between `draft` and `edited_draft` (two-row DP, capped 800 tokens, latest 400 edited reviews/window; deterministic sorted-key JSON flatten); **safety-flag precision + override rate** = `clinical_ai_safety_reviews` (needs_review/blocked) joined to the latest human decision per generation — confirmed (rejected/edited) vs overridden (accepted despite flag) — plus passed-but-rejected as the false-negative proxy; **time-to-sign vs baseline** = `clinical_notes` signed with `ai_generation_id` vs same-`note_type` notes without, median+avg minutes per module; **deterministic med-safety override rates** from `medication_safety_reviews` by review_type. Rates are **null, never 0, when there is no data to rate** — "no evidence yet" must not read as 0% acceptance. Surface: `GET /outcome-scoreboard` on the clinical-AI control plane (both mounts; admin/IT roles + IP allowlist; `prismaReadOnly`; schema-tolerant) + admin read view `/dashboard/clinical-ai/scoreboard` (react-query, module/period filters, print-for-board, methodology definitions block for assessors; nav under AI Governance). Enabled-but-idle modules stay on the board (governance signal); disabled idle ones don't. Tests: 16 unit (metric math incl. null-rate honesty) + 3 deep (seeded exact-count round trip, 90-day window exclusion, 403 for clinical roles, legacy alias) + 3 admin jest. |
+| Rider: unified allergies over HTTP | ✅ | `ab87d846` | A10/E5 follow-up: `GET /api/v1/allergies/patient/:uid/unified` exposes `getUnifiedActiveAllergies` (union of `patient_allergies` + legacy `allergies` + `users.allergies` + admission intake) behind `CLINICAL_STAFF_ROLES` + `phiAccessLogger('ALLERGY')` — works for ANY patient, admitted or not. Staff `PatientSummarySheet` allergies section now reads this endpoint instead of the admission-scoped command-board payload (the cause of un-admitted patients showing "No allergies recorded"); the command-board read stays as best-effort admission context only. `summarizeAllergies` accepts the `{allergen, severity, sources}` shape alongside the board shapes. 3-test deep round trip (un-admitted union, case-insensitive cross-store merge keeping highest severity + both sources, inactive exclusion, 400 non-UUID, 403 PATIENT) + staff unit case. |
+| housekeeping | ✅ | `a5613dce` | `locale_provider_test.dart` dart-format drift (current SDK formatter rewraps what the older one accepted) — committed separately to keep item commits clean. |
+| G4 Tier-H pairing | ⏭ blocked | — | Per session brief: only after the owner reports F1 live with real data. Modules stay `enabled=false`. |
+
+### Gates
+
+- Backend: full lint chain green (eslint --max-warnings=0 + raw-params +
+  phi-tenant-id + external-region guards + secret scan); new unit 16/16 +
+  deep 3/3 + 3/3; full sharded suite `npm run test:ci` 57 chunks green.
+  **No schema changes** — migrations stay at 295, no drift run needed.
+- Admin: lint + type-check green; jest 24 suites / 277 tests green.
+- Flutter: `melos run analyze` ×3 packages clean, `melos run test` all green
+  (staff 333), `melos run format` 0 changed.
+
+### Environment notes
+
+- `eslint --max-warnings=0` rejects documentation-only unused consts; fold
+  post-commit lint fixes into the item commit via `git commit --fixup` +
+  `git rebase -i --autosquash --autostash` (`--autostash` required here —
+  the parked dalekdefender overlay edits otherwise block the rebase).
+- Deep tests asserting GROUP BY metrics must seed **synthetic keys**
+  (module_key / note_type / review_type) — tenant-wide aggregates pollute
+  exact-count assertions if seeded under real module keys while the suite
+  runs around them.
+- Current local `dart format` rewraps some code the previous formatter
+  accepted — run `melos run format` before committing Flutter changes and
+  expect occasional pre-existing-file drift (commit it separately).
+
+### Owner-side actions queued (Pillar G so far)
+
+1. G3 scoreboard is the standing governance artifact (roadmap §G3/§G7):
+   review `/dashboard/clinical-ai/scoreboard` once G2 stage-1 pilot traffic
+   exists; until then most rates read "—" by design.
+2. Report when F1 warehouse is live with real data → unblocks G4 Tier-H
+   pairing (next Pillar-G item).
+3. Merge `roadmap/pillar-g` → main after review (or hold for more G items).
+
 ## Session 2026-06-11 — Pillar E review+merge, Pillar F start (branch `roadmap/pillar-f`)
 
 Pre-work: per-item review of all 5 pillar-e commits, all gates re-run, then
@@ -334,11 +380,9 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar E is underway on `roadmap/pillar-e` (E6 landed; E1/E2/E3/E5 are
-Flutter-side next). Still parked: **D5 infection control (deferred per
-user 2026-06-10; WIP in `stash@{0}`, taken on `roadmap/pillar-d`)** —
-resume when green-lit. C1's remaining work is owner-side (sandbox
-credentials → M2 dry run validates the new encryption byte-level). After
-Pillar E: Pillar F (analytics warehouse) per the phased plan; Pillar G
-items pair with their loops as those go live (G2 stage-1 ward pilot rides
-B6 med-rec).
+Pillar G is underway on `roadmap/pillar-g` (G3 landed; G4 Tier-H pairing
+blocked until the owner reports F1 live with real data; G1/G2/G5–G8 are
+owner-led ceremonies riding existing code). Still parked: **D5 infection
+control (deferred per user 2026-06-10; WIP in `stash@{0}`)** — resume when
+green-lit. Warehouse bring-up (F1 DEPLOY) and the rest of the standing A–D
+owner queues are tracked in the session entries above.
