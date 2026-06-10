@@ -5,6 +5,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/providers/locale_provider.dart';
 import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/utils/font_scale.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -311,6 +312,32 @@ class SettingsScreen extends StatelessWidget {
                   onSelectionChanged: (selected) {
                     themeProvider.setThemeMode(selected.first);
                   },
+                ),
+              ),
+              const Divider(height: 1, indent: 56),
+              // Font size (roadmap E3) — composed with the OS text scale
+              // in main.dart; 16 pt = neutral.
+              ListTile(
+                leading: const Icon(
+                  Icons.format_size,
+                  color: AppTheme.primaryBlue,
+                ),
+                title: Text(s.settingsFontSize),
+                subtitle: Text(s.settingsFontSizeSubtitle),
+                trailing: Text(
+                  '${themeProvider.fontSize.toInt()} pt',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Slider(
+                  value: themeProvider.fontSize,
+                  min: kMinFontPt,
+                  max: kMaxFontPt,
+                  divisions: (kMaxFontPt - kMinFontPt).toInt(),
+                  label: '${themeProvider.fontSize.toInt()} pt',
+                  onChanged: (v) => themeProvider.setFontSize(v),
                 ),
               ),
               const Divider(height: 1, indent: 56),

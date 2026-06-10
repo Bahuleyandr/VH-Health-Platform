@@ -11,6 +11,34 @@ and reacts to the intended gesture.
 
 ---
 
+## Execution status (2026-06-10, roadmap E3)
+
+The machine-verifiable parts of this plan are now **executed
+automatically on every test run** by
+`test/a11y/screen_reader_plan_test.dart`, which pins the semantics
+tree the screen reader consumes:
+
+| Scenario | Automated? | Where |
+|---|---|---|
+| S3 Toast live region | ✅ semantics-tree level | `screen_reader_plan_test.dart` (SuccessToast/ErrorToast `liveRegion` + announcement label) |
+| S8 Reduce motion | ✅ | same file (shimmer freezes under `disableAnimations`, pulses otherwise, announces `Loading…` live region) |
+| S9 Text scaling | ✅ logic-level | same file (`composeTextScaleFactor` clamps; see "Font scaling" below) + manual visual pass still useful |
+| S1/S2/S4–S7, S10–S12 | ❌ ear/manual | Below — needs a human with NVDA/TalkBack |
+
+**Font scaling (new since the plan was written):** the staff app now
+has an in-app font-size preference (Settings → Appearance → Font
+size, 12–22 pt) composed with the OS text scale via a `MediaQuery`
+`TextScaler` in `main.dart` — parity with the patient app's
+font_scaler (roadmap E3). When running S9 manually, test BOTH the OS
+setting and the in-app slider; hard-coded `fontSize:` chips/pills now
+scale too because the scaler applies at the MediaQuery level.
+
+The by-ear NVDA/TalkBack session (S1, S2, S4–S7, S10–S12) remains an
+**owner-side ceremony** — schedule one tester per platform per the
+Setup section. File failures against `A11y #N` as before.
+
+---
+
 ## Setup
 
 ### Windows (NVDA)

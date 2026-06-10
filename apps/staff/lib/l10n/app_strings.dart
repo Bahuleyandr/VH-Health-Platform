@@ -355,6 +355,8 @@ class AppStrings {
   String get settingsLanguage => _t('settings.language');
   String get settingsLanguageSubtitle => _t('settings.language.subtitle');
   String get settingsLanguageSystem => _t('settings.language.system');
+  String get settingsFontSize => _t('settings.font_size');
+  String get settingsFontSizeSubtitle => _t('settings.font_size.subtitle');
   String get settingsPushNotifications => _t('settings.push_notifications');
   String get settingsPushNotificationsSubtitle =>
       _t('settings.push_notifications.subtitle');
@@ -2562,6 +2564,9 @@ class AppStrings {
       'settings.language': 'Language',
       'settings.language.subtitle': 'Choose the app language',
       'settings.language.system': 'System default',
+      'settings.font_size': 'Font size',
+      'settings.font_size.subtitle':
+          'Scales text on top of the system text size',
       'drug_chart.title': 'Drug Chart',
       'drug_chart.stop_title': 'Stop medication',
       'drug_chart.stop_reason_label': 'Reason',
@@ -4427,6 +4432,9 @@ class AppStrings {
       'settings.language': 'भाषा',
       'settings.language.subtitle': 'ऐप की भाषा चुनें',
       'settings.language.system': 'सिस्टम डिफ़ॉल्ट',
+      'settings.font_size': 'फ़ॉन्ट आकार',
+      'settings.font_size.subtitle':
+          'सिस्टम टेक्स्ट आकार के ऊपर टेक्स्ट को बड़ा-छोटा करता है',
       // ── 2026-06-10 gap-fill: keys added en-only by later sessions ──
       // REVIEW: hi gap-fill batch — confirm clinical wording (transfer,
       // discharge, consciousness) before production.
@@ -6539,6 +6547,10 @@ class AppStrings {
       'settings.language': 'மொழி',
       'settings.language.subtitle': 'ஆப்பின் மொழியைத் தேர்வு செய்யவும்',
       'settings.language.system': 'கணினி இயல்புநிலை',
+      // REVIEW: AI first-pass
+      'settings.font_size': 'எழுத்து அளவு',
+      // REVIEW: AI first-pass
+      'settings.font_size.subtitle': 'கணினி உரை அளவுக்கு மேல் உரையை அளவிடும்',
       // ── 2026-06-10 gap-fill: keys added en-only by later sessions ──
       // REVIEW: ta AI first-pass gap-fill batch — confirm clinical
       // wording (transfer, discharge, consciousness) before production.
@@ -9155,6 +9167,11 @@ class AppStrings {
       'settings.language': 'భాష',
       'settings.language.subtitle': 'యాప్ భాషను ఎంచుకోండి',
       'settings.language.system': 'సిస్టమ్ డిఫాల్ట్',
+      // REVIEW: AI first-pass
+      'settings.font_size': 'ఫాంట్ పరిమాణం',
+      // REVIEW: AI first-pass
+      'settings.font_size.subtitle':
+          'సిస్టమ్ టెక్స్ట్ పరిమాణంపై టెక్స్ట్‌ను స్కేల్ చేస్తుంది',
       // ── 2026-06-10 gap-fill: keys added en-only by later sessions ──
       // REVIEW: te AI first-pass gap-fill batch — confirm clinical
       // wording (transfer, discharge, consciousness) before production.
@@ -11709,6 +11726,9 @@ class AppStrings {
       'settings.language': 'ഭാഷ',
       'settings.language.subtitle': 'ആപ്പിന്റെ ഭാഷ തിരഞ്ഞെടുക്കുക',
       'settings.language.system': 'സിസ്റ്റം ഡിഫോൾട്ട്',
+      'settings.font_size': 'ഫോണ്ട് വലുപ്പം',
+      'settings.font_size.subtitle':
+          'സിസ്റ്റം ടെക്സ്റ്റ് വലുപ്പത്തിന് മുകളിൽ ടെക്സ്റ്റ് സ്കെയിൽ ചെയ്യുന്നു',
       'settings.push_notifications': 'പുഷ് അറിയിപ്പുകൾ',
       'settings.push_notifications.subtitle':
           'ഹാജർ ഓർമ്മപ്പെടുത്തലുകൾ, അപ്പോയിന്റ്മെന്റ് അലേർട്ടുകൾ',

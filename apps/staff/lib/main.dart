@@ -17,6 +17,7 @@ import 'core/providers/message_unread_provider.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/locale_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/utils/font_scale.dart';
 import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/code_blue_notifier.dart';
@@ -405,11 +406,29 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                     // next API call to 401. Lives in the MaterialApp
                     // builder so a ScaffoldMessenger is reachable for the
                     // snackbar.
-                    builder: (context, child) => StaffMessageAlertListener(
-                      child: SessionRevocationListener(
-                        child: child ?? const SizedBox.shrink(),
-                      ),
-                    ),
+                    //
+                    // The MediaQuery wrapper composes the OS text scale
+                    // with the in-app font-size preference (Settings →
+                    // Appearance → Font size) so every text style —
+                    // including hard-coded chip/pill fontSizes — scales
+                    // together (roadmap E3, A11y #9).
+                    builder: (context, child) {
+                      final mq = MediaQuery.of(context);
+                      final factor = composeTextScaleFactor(
+                        systemFactor: mq.textScaler.scale(14) / 14,
+                        userPt: themeProvider.fontSize,
+                      );
+                      return MediaQuery(
+                        data: mq.copyWith(
+                          textScaler: TextScaler.linear(factor),
+                        ),
+                        child: StaffMessageAlertListener(
+                          child: SessionRevocationListener(
+                            child: child ?? const SizedBox.shrink(),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),

@@ -3,6 +3,7 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import '../utils/font_scale.dart';
 
 /// Theme mode controller. Persists the chosen mode to SharedPreferences
 /// and (critically) keeps the static `AppTheme.brightness` flag in sync
@@ -11,9 +12,16 @@ import '../theme/app_theme.dart';
 /// right palette across the 273 call sites that hard-reference them.
 class ThemeProvider extends ChangeNotifier {
   static const _key = 'theme_mode';
+  static const _fontSizeKey = 'font_size';
 
   ThemeMode _themeMode = ThemeMode.system;
   ThemeMode get themeMode => _themeMode;
+
+  /// In-app font-size preference (pt; 16 = neutral). Persisted; composed
+  /// with the OS text scale in `main.dart` via [composeTextScaleFactor]
+  /// (roadmap E3 — font-scaling parity with the patient app).
+  double _fontSize = kBaseFontPt;
+  double get fontSize => _fontSize;
 
   ThemeData get lightTheme => AppTheme.lightTheme;
   ThemeData get darkTheme => AppTheme.darkTheme;
@@ -35,11 +43,18 @@ class ThemeProvider extends ChangeNotifier {
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getString(_key);
+    final storedFontSize = prefs.getDouble(_fontSizeKey);
+    var changed = false;
     if (value != null) {
       _themeMode = _themeModeFromString(value);
       _syncBrightness();
-      notifyListeners();
+      changed = true;
     }
+    if (storedFontSize != null) {
+      _fontSize = storedFontSize.clamp(kMinFontPt, kMaxFontPt);
+      changed = true;
+    }
+    if (changed) notifyListeners();
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
@@ -49,6 +64,15 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, _themeModeToString(mode));
+  }
+
+  Future<void> setFontSize(double size) async {
+    final clamped = size.clamp(kMinFontPt, kMaxFontPt);
+    if (clamped == _fontSize) return;
+    _fontSize = clamped;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_fontSizeKey, clamped);
   }
 
   void toggleTheme() {
