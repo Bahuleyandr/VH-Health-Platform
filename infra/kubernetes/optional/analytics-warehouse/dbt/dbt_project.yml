@@ -1,0 +1,51 @@
+# VH Health analytics warehouse — dbt project (roadmap F1/F2).
+#
+# Runs AGAINST THE WAREHOUSE Postgres (the logical-replication subscriber),
+# never against the OLTP cluster. The replicated `public` schema is read-only
+# source data; dbt materializes into `stg` (views) and `marts` (tables).
+#
+# Profiles: profiles/profiles.yml is fully env-var driven (DBT_PG_*) — the
+# same file works for local QA validation, CI, and the in-cluster CronJob.
+#
+#   dbt build --profiles-dir profiles
+#
+# No external dbt packages on purpose: the warehouse runs inside the hospital
+# (no internet egress), so everything here is core dbt + plain SQL.
+
+name: vh_warehouse
+version: "1.0.0"
+config-version: 2
+
+profile: vh_warehouse
+
+model-paths: ["models"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Minutes an OT room is considered staffed/available per day, for the
+  # utilization denominator. Override per deployment:
+  #   dbt build --vars '{ot_available_minutes_per_day: 720}'
+  ot_available_minutes_per_day: 600
+  # Day the bed-flow/census spine starts. Keep >= go-live so empty early
+  # months don't dilute occupancy charts.
+  warehouse_epoch: "2026-01-01"
+
+models:
+  vh_warehouse:
+    staging:
+      +materialized: view
+      +schema: stg
+    dims:
+      +materialized: table
+      +schema: marts
+      +post-hook: "{{ grant_marts_read() }}"
+    facts:
+      +materialized: table
+      +schema: marts
+      +post-hook: "{{ grant_marts_read() }}"
+    marts:
+      +materialized: table
+      +schema: marts
+      +post-hook: "{{ grant_marts_read() }}"

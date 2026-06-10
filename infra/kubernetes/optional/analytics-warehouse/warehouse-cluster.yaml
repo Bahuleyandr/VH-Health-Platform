@@ -1,0 +1,123 @@
+# Analytics warehouse — second CNPG cluster (roadmap F1).
+#
+# Single instance by design: the warehouse is REBUILDABLE (drop subscription,
+# re-run migrate + subscribe, dbt rebuild) and read-only for humans, so HA
+# replicas and barman backups are not part of v1. If exec dashboards become
+# operationally critical, raise instances and add a barmanObjectStore section
+# mirroring base/cnpg/cluster.yaml.
+#
+# Same PG major + image as the OLTP cluster — the warehouse applies the SAME
+# migration chain (warehouse-migrate-job.yaml), and 000_baseline declares
+# pgvector columns, so the image must ship pgvector (this one does).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-warehouse
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: vhhealth-warehouse
+    app.kubernetes.io/component: analytics-warehouse
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  description: "VH Health analytics warehouse (logical-replication subscriber + dbt)"
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2-1
+  instances: 1
+  primaryUpdateStrategy: unsupervised
+
+  # Jobs in this module connect as superuser for CREATE SUBSCRIPTION /
+  # TRUNCATE-before-copy (subscribe-job.yaml).
+  enableSuperuserAccess: true
+
+  postgresql:
+    parameters:
+      shared_buffers: "1GB"
+      effective_cache_size: "3GB"
+      work_mem: "64MB"                  # analytics joins; OLTP keeps 16MB
+      maintenance_work_mem: "512MB"
+      max_wal_size: "2GB"
+      # THE point of F1: no 30/60s OLTP statement ceiling for analytics.
+      # Long scans live here, not on the clinical cluster. Sessions can
+      # still SET a tighter timeout; Metabase has its own query timeout.
+      statement_timeout: "0"
+      idle_in_transaction_session_timeout: "600s"
+      log_min_duration_statement: "30000"
+      shared_preload_libraries: "pg_stat_statements"
+      "pg_stat_statements.track": "all"
+    pg_hba:
+      - "host all all 10.0.0.0/8 scram-sha-256"
+      - "host all all 172.16.0.0/12 scram-sha-256"
+      - "host all all 192.168.0.0/16 scram-sha-256"
+
+  managed:
+    roles:
+      # dbt build role: owns the analytics schemas. BYPASSRLS because the
+      # replicated tables keep their FORCEd tenant-RLS policies (the
+      # warehouse applies the same migrations) and dbt reads cross-tenant
+      # by design — the warehouse is single-hospital scoped infrastructure.
+      - name: vh_dbt
+        ensure: present
+        comment: "dbt build role — reads replicated tables (BYPASSRLS), owns stg/marts schemas"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: true
+        passwordSecret:
+          name: vh-dbt-credentials
+      # Metabase role: NO bypassrls — it can only read what dbt's
+      # grant_marts_read post-hook grants (the marts schema), never the
+      # replicated raw tables.
+      - name: vh_metabase
+        ensure: present
+        comment: "Metabase read role — marts schema only (granted by dbt post-hook)"
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        passwordSecret:
+          name: vh-metabase-credentials
+
+  bootstrap:
+    initdb:
+      database: vhhealth
+      owner: vhhealth
+      encoding: UTF8
+      localeCType: "C"
+      localeCollate: "C"
+      dataChecksums: true
+      postInitApplicationSQL:
+        - "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+        - "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+        - "CREATE EXTENSION IF NOT EXISTS citext;"
+        - "CREATE EXTENSION IF NOT EXISTS uuid-ossp;"
+        - "CREATE EXTENSION IF NOT EXISTS vector;"
+        - "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+        # NOTE: no role-dependent SQL here — postInitApplicationSQL runs at
+        # initdb, BEFORE the operator reconciles managed roles. vh_dbt's
+        # schema/database grants happen in subscribe-job.yaml (idempotent).
+
+  storage:
+    # Size for: replicated subset (~the clinical+billing hot tables) + dbt
+    # materializations. Revisit with docs/HARDWARE_REQUIREMENTS.md when the
+    # imaging/lab volume grows.
+    size: 50Gi
+    storageClass: local-path
+    resizeInUseVolumes: true
+
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+
+  monitoring:
+    enablePodMonitor: true

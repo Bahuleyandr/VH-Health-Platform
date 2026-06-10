@@ -1,0 +1,110 @@
+# Creates (or refreshes) the warehouse-side SUBSCRIPTION.
+#
+# Modes (REFRESH_PUBLICATION env):
+#   "0" (default) — first-time subscribe: bootstrap vh_dbt grants, TRUNCATE
+#        the published set (the warehouse may hold migrate-job leftovers;
+#        the initial copy needs empty targets), CREATE SUBSCRIPTION with
+#        copy_data=true.
+#   "1" — after a migration added tables to the publication: just
+#        ALTER SUBSCRIPTION ... REFRESH PUBLICATION (copies new tables).
+#
+# Ordering: warehouse-migrate-job MUST have run first (tables must exist),
+# and publisher-setup-job MUST have run on the OLTP side (role + grants).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vh-warehouse-subscribe
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: vh-warehouse-subscribe
+    app.kubernetes.io/component: analytics-warehouse
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: subscribe
+          image: ghcr.io/cloudnative-pg/postgresql:17.2-1
+          command: ["/bin/bash", "-ceu"]
+          args:
+            - |
+              WH() { PGPASSWORD="$WH_SUPER_PASS" psql -h vhhealth-warehouse-rw -U "$WH_SUPER_NAME" -d vhhealth -v ON_ERROR_STOP=1 "$@"; }
+              PUBQ() { PGPASSWORD="$REPL_PASSWORD" psql -h vhhealth-pg-rw -U vh_warehouse_repl -d vhhealth -At -v ON_ERROR_STOP=1 "$@"; }
+
+              echo ">> bootstrap vh_dbt grants (idempotent)"
+              WH <<'SQL'
+              DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='vh_dbt') THEN
+                  EXECUTE 'GRANT CREATE ON DATABASE vhhealth TO vh_dbt';
+                  EXECUTE 'GRANT USAGE ON SCHEMA public TO vh_dbt';
+                  EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO vh_dbt';
+                  EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO vh_dbt';
+                END IF;
+              END $$;
+              SQL
+
+              EXISTS=$(WH -At -c "SELECT 1 FROM pg_subscription WHERE subname='vh_analytics_sub'" || true)
+
+              if [ "${REFRESH_PUBLICATION:-0}" = "1" ]; then
+                if [ "$EXISTS" != "1" ]; then
+                  echo "FATAL: refresh requested but subscription does not exist" >&2; exit 1
+                fi
+                echo ">> ALTER SUBSCRIPTION ... REFRESH PUBLICATION"
+                WH -c "ALTER SUBSCRIPTION vh_analytics_sub REFRESH PUBLICATION"
+                exit 0
+              fi
+
+              if [ "$EXISTS" = "1" ]; then
+                echo ">> subscription already present — nothing to do (use REFRESH_PUBLICATION=1 after publication changes)"
+                exit 0
+              fi
+
+              echo ">> fetch published set from the publisher"
+              TABLES=$(PUBQ -c "SELECT quote_ident(schemaname)||'.'||quote_ident(tablename) FROM pg_publication_tables WHERE pubname='vh_analytics_pub'")
+              if [ -z "$TABLES" ]; then
+                echo "FATAL: publication empty/missing on publisher" >&2; exit 1
+              fi
+
+              echo ">> TRUNCATE published targets on the warehouse (initial copy needs empty tables)"
+              # CASCADE: non-published FK dependents on the warehouse never
+              # receive data (they exist only because the schema is shared),
+              # so cascading into them is truncating empty tables.
+              LIST=$(echo "$TABLES" | paste -sd, -)
+              WH -c "TRUNCATE $LIST CASCADE"
+
+              echo ">> CREATE SUBSCRIPTION (initial copy starts now)"
+              WH <<SQL
+              CREATE SUBSCRIPTION vh_analytics_sub
+                CONNECTION 'host=vhhealth-pg-rw port=5432 dbname=vhhealth user=vh_warehouse_repl password=${REPL_PASSWORD}'
+                PUBLICATION vh_analytics_pub
+                WITH (copy_data = true, create_slot = true, slot_name = 'vh_analytics_slot');
+              SQL
+
+              echo ">> subscription created; monitor initial copy with:"
+              echo "   SELECT * FROM pg_stat_subscription;  (on the warehouse)"
+              echo "   SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) FROM pg_replication_slots;  (on the publisher)"
+          env:
+            - name: WH_SUPER_NAME
+              valueFrom:
+                secretKeyRef: { name: vhhealth-warehouse-superuser, key: username }
+            - name: WH_SUPER_PASS
+              valueFrom:
+                secretKeyRef: { name: vhhealth-warehouse-superuser, key: password }
+            - name: REPL_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: vh-warehouse-repl-credentials, key: password }
+            - name: REFRESH_PUBLICATION
+              value: "0"
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }

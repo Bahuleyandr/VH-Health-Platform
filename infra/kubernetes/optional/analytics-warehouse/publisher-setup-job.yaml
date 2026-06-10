@@ -1,0 +1,96 @@
+# One-shot, idempotent, re-runnable: prepares the MAIN (OLTP) cluster as the
+# logical-replication publisher.
+#
+#   1. Verifies wal_level=logical (the CNPG default — fails loudly if a
+#      future parameters edit ever regresses it).
+#   2. Ensures the vh_warehouse_repl role (REPLICATION LOGIN, password from
+#      the vh-warehouse-repl-credentials secret; password re-asserted so the
+#      secret stays the source of truth).
+#   3. Grants SELECT on exactly the published set, read live from
+#      pg_publication_tables — re-run after any migration that does
+#      ALTER PUBLICATION ... ADD TABLE.
+#
+# The publication itself is migration 295 (versioned with the schema, not
+# cluster state). Run this job AFTER the backend release carrying 295.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vh-warehouse-publisher-setup
+  namespace: vhhealth-platform
+  labels:
+    app.kubernetes.io/name: vh-warehouse-publisher-setup
+    app.kubernetes.io/component: analytics-warehouse
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: setup
+          image: ghcr.io/cloudnative-pg/postgresql:17.2-1
+          command: ["/bin/bash", "-ceu"]
+          args:
+            - |
+              export PGHOST=vhhealth-pg-rw PGDATABASE=vhhealth
+              export PGUSER="$SUPERUSER_NAME" PGPASSWORD="$SUPERUSER_PASS"
+
+              echo ">> wal_level check"
+              WAL=$(psql -At -c "SHOW wal_level")
+              if [ "$WAL" != "logical" ]; then
+                echo "FATAL: wal_level=$WAL (need logical). Check the CNPG cluster parameters." >&2
+                exit 1
+              fi
+
+              echo ">> publication check"
+              PUB=$(psql -At -c "SELECT 1 FROM pg_publication WHERE pubname='vh_analytics_pub'" || true)
+              if [ "$PUB" != "1" ]; then
+                echo "FATAL: publication vh_analytics_pub missing — run the backend release with migration 295 first." >&2
+                exit 1
+              fi
+
+              echo ">> ensure vh_warehouse_repl role"
+              psql -v ON_ERROR_STOP=1 <<SQL
+              DO \$\$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='vh_warehouse_repl') THEN
+                  CREATE ROLE vh_warehouse_repl REPLICATION LOGIN PASSWORD '${REPL_PASSWORD}';
+                ELSE
+                  ALTER ROLE vh_warehouse_repl REPLICATION LOGIN PASSWORD '${REPL_PASSWORD}';
+                END IF;
+              END \$\$;
+              GRANT USAGE ON SCHEMA public TO vh_warehouse_repl;
+              SQL
+
+              echo ">> grants on the published set"
+              psql -v ON_ERROR_STOP=1 -At \
+                -c "SELECT format('GRANT SELECT ON %I.%I TO vh_warehouse_repl;', schemaname, tablename) FROM pg_publication_tables WHERE pubname='vh_analytics_pub'" \
+                | psql -v ON_ERROR_STOP=1
+
+              echo ">> publisher ready"
+          env:
+            - name: SUPERUSER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-pg-superuser
+                  key: username
+            - name: SUPERUSER_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-pg-superuser
+                  key: password
+            - name: REPL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vh-warehouse-repl-credentials
+                  key: password
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }

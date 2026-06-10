@@ -1,0 +1,99 @@
+version: 2
+
+models:
+  - name: dim_date
+    columns:
+      - name: date_day
+        tests: [unique, not_null]
+
+  - name: dim_department
+    columns:
+      - name: department_id
+        tests: [unique, not_null]
+
+  - name: dim_doctor
+    columns:
+      - name: doctor_id
+        tests: [unique, not_null]
+
+  - name: dim_patient
+    description: Pseudonymous by construction — replication column list (migration 295) is the enforcement point.
+    columns:
+      - name: patient_uid
+        tests: [unique, not_null]
+      - name: age_band
+        tests:
+          - accepted_values:
+              values: ['unknown', 'infant', 'child', 'adolescent', '18-39', '40-59', '60-74', '75+']
+
+  - name: dim_payer
+    columns:
+      - name: payer_key
+        tests: [unique, not_null]
+      - name: payer_class
+        tests:
+          - accepted_values:
+              values: ['cash', 'insurance', 'tpa', 'govt_scheme', 'corporate', 'other']
+
+  - name: fct_encounters
+    columns:
+      - name: encounter_key
+        tests: [unique, not_null]
+      - name: encounter_type
+        tests:
+          - accepted_values:
+              values: ['ipd', 'opd', 'er']
+      - name: payer_class
+        tests:
+          - accepted_values:
+              values: ['cash', 'insurance', 'tpa', 'govt_scheme', 'corporate', 'other']
+              config:
+                severity: warn   # upstream payer_type is free-ish text; surfacing, not blocking
+
+  - name: fct_orders
+    columns:
+      - name: order_key
+        tests: [unique, not_null]
+      - name: status_class
+        tests:
+          - accepted_values:
+              values: ['open', 'completed', 'cancelled']
+
+  - name: fct_revenue
+    columns:
+      - name: revenue_line_key
+        tests: [unique, not_null]
+      - name: invoice_id
+        tests: [not_null]
+
+  - name: mart_bed_flow_daily
+    description: >
+      Ward × day bed-flow board. Occupancy uses the seeded ward bed
+      structure. Grain + occupancy bounds are enforced by the singular test
+      tests/assert_bed_flow_unique_ward_day.sql (no external packages).
+    columns:
+      - name: date_day
+        tests: [not_null]
+      - name: ward_id
+        tests: [not_null]
+
+  - name: mart_ot_utilization_daily
+    columns:
+      - name: cases_scheduled
+        tests: [not_null]
+
+  - name: mart_department_revenue_monthly
+    columns:
+      - name: department
+        tests: [not_null]
+      - name: month
+        tests: [not_null]
+
+  - name: mart_payer_mix_monthly
+    columns:
+      - name: month
+        tests: [not_null]
+      - name: payer_class
+        tests: [not_null]
+
+
