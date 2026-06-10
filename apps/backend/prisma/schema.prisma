@@ -8342,6 +8342,31 @@ model staff_grievances {
   @@index([grievance_type, created_at(sort: Desc)], map: "idx_staff_grievances_type_created")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_credentials {
+  id                  Int       @id @default(autoincrement())
+  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  staff_uid           String    @db.Uuid
+  credential_type     String    @db.VarChar(20)
+  name                String    @db.VarChar(200)
+  issuing_body        String?   @db.VarChar(200)
+  registration_number String?   @db.VarChar(120)
+  valid_from          DateTime? @db.Date
+  valid_until         DateTime? @db.Date
+  status              String    @default("active") @db.VarChar(20)
+  document_ref        String?   @db.VarChar(255)
+  verified_by         String?   @db.Uuid
+  verified_at         DateTime? @db.Timestamptz(6)
+  notes               String?   @db.VarChar(400)
+  metadata            Json      @default("{}")
+  created_by          String?   @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_credentials_tenant")
+
+  @@index([staff_uid, credential_type, status], map: "idx_staff_credentials_staff")
+}
+
 model staff_queries {
   id              Int       @id @default(autoincrement())
   uid             String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -9169,6 +9194,7 @@ model tenants {
   staff_leave_forecast_shift_risks           staff_leave_forecast_shift_risks[]
   staff_message_attachments                  staff_message_attachments[]
   staff_message_thread_participants          staff_message_thread_participants[]
+  staff_credentials                          staff_credentials[]
   staff_message_threads                      staff_message_threads[]
   staff_messages                             staff_messages[]
   staff_roster_preferences                   staff_roster_preferences[]

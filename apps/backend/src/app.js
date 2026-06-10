@@ -240,6 +240,7 @@ import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
 import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
 import nabhRoutes from './routes/quality/nabhRoutes.js';
+import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -757,6 +758,9 @@ app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST
 
 // NABH quality indicators (roadmap D4) — computed packs + assessor export.
 app.use('/api/v1/quality/nabh', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), nabhRoutes);
+
+// Credentialing & privileging (roadmap D3) — staff PII, no patient PHI.
+app.use('/api/v1/credentials', requireRole(...CLINICAL_STAFF_ROLES, 'HR_STAFF', 'QUALITY_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), credentialingRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);

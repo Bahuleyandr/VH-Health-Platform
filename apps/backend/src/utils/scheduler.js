@@ -77,6 +77,7 @@ import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2
 import { generateWardDowntimePacks } from '../services/downtime/wardDowntimePackService.js';
 import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
 import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
+import { expiryRadarSweep } from '../services/staff/credentialingService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
 import loadSwaggerDocument from './swaggerLoader.js';
 
@@ -167,6 +168,12 @@ cron.schedule('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
 // priority-then-FIFO.
 cron.schedule('*/10 * * * *', withJobLock('waitlist-auto-fill', async () => {
   await sweepWaitlists();
+}));
+
+// 🪪 Daily at 06:30 — credential expiry radar (roadmap D3): surfaces
+// registrations/privileges expiring within 30 days. NABH wants the trail.
+cron.schedule('30 6 * * *', withJobLock('credential-expiry-radar', async () => {
+  await expiryRadarSweep();
 }));
 
 // 🪦 Every 15 minutes — A8 visit-status reaper. Flip SCHEDULED
