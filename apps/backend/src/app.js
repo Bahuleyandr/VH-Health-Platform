@@ -241,6 +241,7 @@ import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
 import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
 import nabhRoutes from './routes/quality/nabhRoutes.js';
+import infectionControlRoutes from './routes/quality/infectionControlRoutes.js';
 import credentialingRoutes from './routes/staff/credentialingRoutes.js';
 import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
@@ -768,6 +769,10 @@ app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST
 
 // NABH quality indicators (roadmap D4) — computed packs + assessor export.
 app.use('/api/v1/quality/nabh', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), nabhRoutes);
+
+// Infection-control workbench (roadmap D5) — isolation board, ADT contact
+// tracing, antibiogram over existing micro data. Same IC/quality gate as NABH.
+app.use('/api/v1/infection-control', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), phiAccessLogger('INFECTION_CONTROL'), infectionControlRoutes);
 
 // Credentialing & privileging (roadmap D3) — staff PII, no patient PHI.
 app.use('/api/v1/credentials', requireRole(...CLINICAL_STAFF_ROLES, 'HR_STAFF', 'QUALITY_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), credentialingRoutes);

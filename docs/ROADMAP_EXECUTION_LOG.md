@@ -4,6 +4,80 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-11 (night) — Pillar G merge + D5 resume (branch `roadmap/pillar-d-d5`)
+
+Pre-work: per-item review of the 5 pillar-g commits — one finding fixed
+forward (`08852099`: admin `ScoreboardTotals.reviews` type claimed
+`avg_review_latency_minutes`, which the backend totals deliberately never
+emit; latency is per-module only) — then merged `roadmap/pillar-g`
+`--no-ff` → main `8d8d0ecc` and pushed. Gates had run in-session on the
+identical tree and the merge was fast-forwardable, so branch-tested ==
+merge-tested; only the admin type-check + scoreboard jest were re-run for
+the fix. `roadmap/pillar-d-d5` then recreated from that main;
+**stash@{0} (D5 WIP, parked 2026-06-10) applied cleanly** (app.js
+auto-merged); both D5 stash entries dropped after the commit landed.
+Dalekdefender overlay edits untouched throughout.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| D5 infection control | ✅ | (see git log) | Resumed the parked WIP (workbench service + routes + deep test + mount) and finished it. **Workbench** at `/api/v1/infection-control` (NABH-style IC/quality role gate + PHI logger): isolation board (active `infection_cases` joined to the live admission/bed), ADT ward-overlap **contact tracing** (index patient's stays define ward+time intervals; any intersecting admission is a contact, overlap hours computed in SQL), **antibiogram** (organism × antibiotic %S/I/R from `micro_sensitivities`→`micro_isolates`→`micro_orders` + MRSA/ESBL/CRE/VRE/XDR phenotype counts). Read-only — no canonical-timeline obligation; case ENTRY stays the existing qualityService reporting surface. **Finished from WIP:** explicit tenant scoping on every query (the WIP had none — `infection_cases`/`admissions` direct, micro tables via `micro_orders.tenant_id`); admission live-set aligned to the house `NOT IN ('discharged','cancelled')` convention. **Migration 296:** `infection_cases` carried tenant_id but was in NO tenant_isolation set (075/262/272 all missed it) — canonical RLS policy + FORCE added (294 pattern), plus partial index `idx_admissions_ward_admitted` for the contact-trace scan; schema.prisma regenerated (the index annotation is the only model change). **Bed-board flag (the roadmap's first D5 deliverable):** patient command board rows now carry `isolation` `{required, types, active_case_count, items}` from active infection cases — `required`/`types` stay visible even on minimized housekeeping-class payloads (bed turnover is exactly who needs the precaution flag); organism/site detail is full-payload only. 7-test deep round trip: board+bed join, cross-tenant leak negative, command-board flag, overlap-hours math + self-exclusion, antibiogram percentages + flags, 400 missing-input, 403 PATIENT. |
+
+### Environment notes
+
+- **ci-setup-db against a scratch DB must run as a BYPASSRLS-capable role**
+  (use `postgres`). `000_baseline.sql` is pg_dump output and carries
+  `SET row_security = off`; under plain `qa_writer` every migration after
+  the FORCE-RLS sweeps (240, 255–296) dies 42501→25P02 as "non-fatal",
+  silently leaving the chain at 254 while still printing "CI DB setup
+  complete". Working recipe: `createdb` as postgres → vector+pg_trgm →
+  `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/vhhealth_drift_fresh
+  node scripts/ci-setup-db.mjs --skip-seeds` (301 applied / 0 errors) →
+  `prisma db pull` → drift check → drop.
+- Command-board tests need a full-board role (`ADMIN`): DOCTOR tokens get
+  own-patients scoping, so seeded admissions without an attending doctor
+  silently vanish from the board.
+
+### Gates
+
+- Backend: full lint chain green; D5 deep test 7/7; board unit suite 11/11
+  (mock gained `infection_cases`); schema regen from a fresh
+  migrations-built scratch DB (chain at 296) + drift check green.
+- **Full `test:ci`: deferred to merge review.** Run 1 failed only on the
+  board unit mock (fixed); the rerun then aborted on
+  `fhir-server.deep.test.js` needing `clinical_code_bindings` — a table
+  belonging to a CONCURRENT ICD-11/WHO terminology work-stream that was
+  writing into this working tree mid-run (migration 297, whoIcdClient,
+  diagnosis/problem-list/FHIR service + test edits, from 19:14 onward).
+  Not D5 fallout. Owner chose: commit D5 scoped to its own files; the
+  combined tree re-runs the full suite when that stream lands.
+- No Flutter/admin changes in D5 — melos and admin suites unaffected.
+
+### Environment notes (concurrency)
+
+- **Two writers, one working tree**: a parallel session/agent began
+  landing an ICD-11 integration (untracked migration
+  `297_clinical_code_bindings.sql` + service/test edits) while this
+  session's full suite was running — suite aborts mid-chunk look like
+  regressions but aren't. Before merging `roadmap/pillar-d-d5`,
+  coordinate with that stream; migration number 297 is now TAKEN by it.
+- This commit's `prisma/schema.prisma` change was staged as a single-hunk
+  patch (`git apply --cached`) — the working copy also carries the other
+  stream's regenerated `clinical_code_bindings` model, which is theirs to
+  commit with 297.
+
+### Owner-side actions queued (D5)
+
+1. Coordinate the in-flight ICD-11/WHO terminology stream (migration 297)
+   with this branch; re-run full `test:ci` on the combined tree, then
+   merge `roadmap/pillar-d-d5` → main after review.
+2. Staff-app surfacing of the new command-board `isolation` field (ward
+   bed-sheet / command-board chip) — UI follow-up; queue with the next
+   staff-app batch.
+3. Confirm the infection-reporting workflow with the IC officer so
+   `infection_cases` rows are entered consistently (the workbench reads
+   what the quality module's reporting surface captures; isolation_type
+   vocabulary = contact/droplet/airborne as charted today).
+
 ## Session 2026-06-11 (later) — Pillar G start: G3 + allergies rider (branch `roadmap/pillar-g`)
 
 Pre-work: `roadmap/pillar-g` branched from main `2d3123ea` (post Pillar-F
@@ -380,9 +454,11 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar G is underway on `roadmap/pillar-g` (G3 landed; G4 Tier-H pairing
+Pillar G is merged to main (`8d8d0ecc`; G3 landed; G4 Tier-H pairing
 blocked until the owner reports F1 live with real data; G1/G2/G5–G8 are
-owner-led ceremonies riding existing code). Still parked: **D5 infection
-control (deferred per user 2026-06-10; WIP in `stash@{0}`)** — resume when
-green-lit. Warehouse bring-up (F1 DEPLOY) and the rest of the standing A–D
-owner queues are tracked in the session entries above.
+owner-led ceremonies riding existing code). **D5 infection control is
+done** on `roadmap/pillar-d-d5` (this session) — merge after review; the
+D5 stashes are dropped. With D1–D7 complete, the code-side roadmap is
+fully landed pending owner ceremonies: warehouse bring-up (F1 DEPLOY →
+unblocks G4) and the standing A–D owner queues tracked in the session
+entries above.

@@ -429,6 +429,7 @@ model admissions {
   @@index([package_id], map: "idx_admissions_package_id", where: raw("(package_id IS NOT NULL)"))
   @@index([policy_id], map: "idx_admissions_policy_id", where: raw("(policy_id IS NOT NULL)"))
   @@index([prior_admission_id], map: "idx_admissions_prior_admission", where: raw("(prior_admission_id IS NOT NULL)"))
+  @@index([ward, admitted_at], map: "idx_admissions_ward_admitted", where: raw("(ward IS NOT NULL)"))
 }
 
 model discharge_consults {
