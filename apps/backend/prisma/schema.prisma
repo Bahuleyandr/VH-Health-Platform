@@ -9660,6 +9660,11 @@ model vitals_chart {
   id                Int       @id @default(autoincrement())
   patient_uid       String    @db.Uuid
   encounter_id      Int?
+  source            String    @default("staff") @db.VarChar(30)
+  source_device     String?   @db.VarChar(120)
+  device_verified   Boolean?
+  verified_by       String?   @db.Uuid
+  verified_at       DateTime? @db.Timestamptz(6)
   heart_rate        Decimal?  @db.Decimal(6, 2)
   systolic_bp       Decimal?  @db.Decimal(6, 2)
   diastolic_bp      Decimal?  @db.Decimal(6, 2)
