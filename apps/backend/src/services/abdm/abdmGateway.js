@@ -174,29 +174,102 @@ async function notifyConsentStatus(consentId, status, consentArtifact = null) {
 }
 
 /**
- * Send encrypted health data to the HIU via ABDM gateway.
+ * Send encrypted health data to the HIU (roadmap C1 follow-up).
+ *
+ * Per the ABDM M2 flow the encrypted entries POST directly to the HIU's
+ * `dataPushUrl` from the hiRequest; the keyMaterial in the envelope is the
+ * SENDER'S (our) ephemeral public material so the HIU can derive the shared
+ * AES key. Falls back to the bridge ack path when no dataPushUrl was
+ * captured (legacy requests recorded before migration 288).
+ *
  * @param {string} transactionId - Data request transaction ID
- * @param {Object} encryptedData - Encrypted FHIR bundle
- * @param {Object} keyMaterial - Key material for encryption
+ * @param {Array<{content: string, media: string, checksum: string, careContextReference?: string}>} entries
+ *   Pre-encrypted entries (see abdmCrypto.encryptFhirBundle)
+ * @param {Object} senderKeyMaterial - OUR public key material for this transfer
+ * @param {Object} [options]
+ * @param {string|null} [options.dataPushUrl] - HIU data-push endpoint
  */
-async function sendHealthData(transactionId, encryptedData, keyMaterial) {
+async function sendHealthData(transactionId, entries, senderKeyMaterial, { dataPushUrl = null } = {}) {
   const body = {
-    requestId: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
+    pageNumber: 1,
+    pageCount: 1,
     transactionId,
-    entries: [
-      {
-        content: JSON.stringify(encryptedData),
-        media: 'application/fhir+json',
-        checksum: crypto.createHash('md5').update(JSON.stringify(encryptedData)).digest('hex'),
-      },
-    ],
-    keyMaterial,
+    entries,
+    keyMaterial: senderKeyMaterial,
   };
+
+  if (dataPushUrl) {
+    let response;
+    try {
+      response = await fetch(dataPushUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (err) {
+      logger.error('ABDM data push to HIU endpoint failed (network)', {
+        transactionId,
+        error: err.message,
+      });
+      throw AppError.internal('Unable to reach HIU data-push endpoint', 'ABDM_DATA_PUSH_UNREACHABLE');
+    }
+    if (!response.ok) {
+      const responseBody = await response.text();
+      logger.error('ABDM data push to HIU endpoint rejected', {
+        transactionId,
+        status: response.status,
+        body: responseBody.substring(0, 500),
+      });
+      throw AppError.internal('HIU data-push endpoint rejected the transfer', 'ABDM_DATA_PUSH_REJECTED');
+    }
+    logger.info('ABDM health data pushed to HIU dataPushUrl', {
+      transactionId,
+      entryCount: entries.length,
+    });
+    return;
+  }
 
   await authenticatedRequest('POST', '/v0.5/health-information/hip/on-request', body);
 
-  logger.info('ABDM health data sent successfully', { transactionId });
+  logger.info('ABDM health data sent via bridge', { transactionId, entryCount: entries.length });
+}
+
+/**
+ * Notify the gateway of a completed (or failed) health-information transfer
+ * — the /health-information/notify leg that follows the data push.
+ * Best-effort by design; callers treat failures as non-blocking.
+ */
+async function notifyHealthInfoTransfer({
+  transactionId,
+  consentId,
+  sessionStatus = 'TRANSFERRED',
+  careContextReferences = [],
+}) {
+  const hiStatus = sessionStatus === 'TRANSFERRED' ? 'DELIVERED' : 'ERRORED';
+  const body = {
+    requestId: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    notification: {
+      consentId,
+      transactionId,
+      doneAt: new Date().toISOString(),
+      notifier: { type: 'HIP', id: ABDM_CONFIG.hipId },
+      statusNotification: {
+        sessionStatus,
+        hipId: ABDM_CONFIG.hipId,
+        statusResponses: careContextReferences.map((ref) => ({
+          careContextReference: ref,
+          hiStatus,
+          description: `Health information ${hiStatus.toLowerCase()}`,
+        })),
+      },
+    },
+  };
+
+  await authenticatedRequest('POST', '/v0.5/health-information/notify', body);
+
+  logger.info('ABDM health-information transfer notified', { transactionId, sessionStatus });
 }
 
 /**
@@ -213,5 +286,6 @@ export default {
   verifyABHA,
   notifyConsentStatus,
   sendHealthData,
+  notifyHealthInfoTransfer,
   clearTokenCache,
 };

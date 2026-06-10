@@ -142,21 +142,23 @@ model abdm_consents {
 }
 
 model abdm_data_requests {
-  id              Int       @id @default(autoincrement())
-  transaction_id  String?   @unique @db.VarChar(100)
-  consent_id      String?   @db.VarChar(100)
-  patient_uid     String?   @db.Uuid
-  hi_types        String[]
-  date_range_from DateTime? @db.Timestamptz(6)
-  date_range_to   DateTime? @db.Timestamptz(6)
-  key_material    Json?
-  status          String    @default("PROCESSING") @db.VarChar(50)
-  delivered_at    DateTime? @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
-  tenant_id       String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  users           users?    @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
-  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_abdm_data_requests_tenant")
+  id                  Int       @id @default(autoincrement())
+  transaction_id      String?   @unique @db.VarChar(100)
+  consent_id          String?   @db.VarChar(100)
+  patient_uid         String?   @db.Uuid
+  hi_types            String[]
+  date_range_from     DateTime? @db.Timestamptz(6)
+  date_range_to       DateTime? @db.Timestamptz(6)
+  key_material        Json?
+  status              String    @default("PROCESSING") @db.VarChar(50)
+  delivered_at        DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  data_push_url       String?
+  sender_key_material Json?
+  users               users?    @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_abdm_data_requests_tenant")
 
   @@index([consent_id], map: "idx_abdm_data_requests_consent_id")
   @@index([patient_uid], map: "idx_abdm_data_requests_patient_uid")
@@ -7642,21 +7644,23 @@ model prescription_safety_overrides {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model provider_availability_templates {
-  id             Int      @id @default(autoincrement())
-  tenant_id      String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  id             Int       @id @default(autoincrement())
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   doctor_id      Int
-  weekday        Int      @db.SmallInt
-  start_time     DateTime @db.Time(6)
-  end_time       DateTime @db.Time(6)
-  slot_minutes   Int      @default(15)
-  location       String?  @db.VarChar(120)
-  effective_from DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  weekday        Int       @db.SmallInt
+  start_time     DateTime  @db.Time(6)
+  end_time       DateTime  @db.Time(6)
+  slot_minutes   Int       @default(15)
+  location       String?   @db.VarChar(120)
+  effective_from DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
   effective_to   DateTime? @db.Date
-  is_active      Boolean  @default(true)
-  created_by     String?  @db.Uuid
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime @default(now()) @db.Timestamptz(6)
-  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
+  is_active      Boolean   @default(true)
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
+
+  @@index([doctor_id, weekday], map: "idx_provider_availability_doctor", where: raw("is_active"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7692,6 +7696,8 @@ model appointment_waitlist {
   created_at       DateTime  @default(now()) @db.Timestamptz(6)
   updated_at       DateTime  @default(now()) @db.Timestamptz(6)
   tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_waitlist_tenant")
+
+  @@index([doctor_id, status, priority, created_at], map: "idx_appointment_waitlist_doctor", where: raw("((status)::text = ANY ((ARRAY['waiting'::character varying, 'offered'::character varying])::text[]))"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7704,8 +7710,8 @@ model bookable_resources {
   is_active         Boolean             @default(true)
   metadata          Json                @default("{}")
   created_at        DateTime            @default(now()) @db.Timestamptz(6)
-  resource_bookings resource_bookings[]
   tenants           tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bookable_resources_tenant")
+  resource_bookings resource_bookings[]
 
   @@unique([tenant_id, kind, name], map: "uq_bookable_resources_name")
 }
@@ -7724,8 +7730,10 @@ model resource_bookings {
   status             String             @default("booked") @db.VarChar(20)
   notes              String?            @db.VarChar(300)
   created_at         DateTime           @default(now()) @db.Timestamptz(6)
-  bookable_resources bookable_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_resource_bookings_tenant")
+  bookable_resources bookable_resources @relation(fields: [resource_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([resource_id, starts_at, ends_at], map: "idx_resource_bookings_resource_time", where: raw("((status)::text = 'booked'::text)"))
 }
 
 model prescriptions {
@@ -8364,7 +8372,9 @@ model staff_credentials {
   updated_at          DateTime  @default(now()) @db.Timestamptz(6)
   tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_credentials_tenant")
 
+  @@unique([tenant_id, staff_uid, name], map: "uq_staff_credentials_active_privilege", where: raw("(((credential_type)::text = 'privilege'::text) AND ((status)::text = 'active'::text))"))
   @@index([staff_uid, credential_type, status], map: "idx_staff_credentials_staff")
+  @@index([valid_until], map: "idx_staff_credentials_expiry", where: raw("((valid_until IS NOT NULL) AND ((status)::text = 'active'::text))"))
 }
 
 model staff_queries {
@@ -8967,9 +8977,9 @@ model tenants {
   automation_rules                           automation_rules[]
   bed_transfers                              bed_transfers[]
   beds                                       beds[]
-  bookable_resources                         bookable_resources[]
   blood_requests                             blood_requests[]
   blood_units                                blood_units[]
+  bookable_resources                         bookable_resources[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
   care_plan_review_log                       care_plan_review_log[]
@@ -9175,8 +9185,8 @@ model tenants {
   quality_incidents                          quality_incidents[]
   radiology_orders                           radiology_orders[]
   referrals                                  referrals[]
-  resource_bookings                          resource_bookings[]
   remote_prescriptions                       remote_prescriptions[]
+  resource_bookings                          resource_bookings[]
   roster_calendar_events                     roster_calendar_events[]
   roster_weather_signals                     roster_weather_signals[]
   service_catalog                            service_catalog[]
@@ -9187,6 +9197,7 @@ model tenants {
   staff_access_audit_log                     staff_access_audit_log[]
   staff_commute_profile_audit                staff_commute_profile_audit[]
   staff_commute_profiles                     staff_commute_profiles[]
+  staff_credentials                          staff_credentials[]
   staff_grievances                           staff_grievances[]
   staff_leave_forecast_audit                 staff_leave_forecast_audit[]
   staff_leave_forecast_runs                  staff_leave_forecast_runs[]
@@ -9194,7 +9205,6 @@ model tenants {
   staff_leave_forecast_shift_risks           staff_leave_forecast_shift_risks[]
   staff_message_attachments                  staff_message_attachments[]
   staff_message_thread_participants          staff_message_thread_participants[]
-  staff_credentials                          staff_credentials[]
   staff_message_threads                      staff_message_threads[]
   staff_messages                             staff_messages[]
   staff_roster_preferences                   staff_roster_preferences[]

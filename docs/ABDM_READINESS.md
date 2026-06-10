@@ -28,14 +28,18 @@ onboarding plus one engineering gap (payload encryption).
    ConfigMap.
 2. **Bridge registration (owner).** Register the bridge URL + HIP/HIU
    capabilities against the sandbox gateway once credentials exist.
-3. **FHIR bundle encryption (engineering — the real gap).** M2 data push
-   requires ECDH (Curve25519) key agreement + AES-GCM payload encryption
-   (the reference implementation is NHA's FIDELIUS). The current
-   `dataPush` path builds the correct envelope but with **plaintext**
-   `keyMaterial`. Schedule as the first Pillar-C follow-up before any M2
-   attempt. Scope: key-pair generation per transfer, shared-secret
-   derivation, AES-GCM encrypt, checksum — ~2-3 focused days against the
-   sandbox HIU.
+3. **FHIR bundle encryption — IMPLEMENTED (2026-06-10, roadmap C1
+   follow-up).** `src/services/abdm/abdmCrypto.js` is the
+   FIDELIUS-equivalent: per-transfer ephemeral X25519 key pairs + 32-byte
+   nonces, HKDF-SHA256 (salt = first 20 bytes of nonce XOR, IV = last 12),
+   AES-256-GCM with appended tag. The data-push path now refuses to send
+   plaintext (requests without usable HIU key material are marked FAILED),
+   POSTs encrypted entries to the HIU's `dataPushUrl` (captured per
+   hiRequest, migration 288), embeds OUR public key material in the
+   envelope, and fires the `/health-information/notify` leg best-effort.
+   Unit-tested against the RFC 7748 X25519 vector + an independent
+   AES-GCM re-derivation. Remaining: byte-level interop sign-off against
+   the sandbox HIU during the M2 dry run (needs blockers 1–2).
 4. **Certification suites (owner + engineering together).** M1 (ABHA), M2
    (HIP data push), M3 (HIU) test suites run against the sandbox with NHA
    observers; book after 1–3 close.

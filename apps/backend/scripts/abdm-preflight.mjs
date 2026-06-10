@@ -27,8 +27,8 @@ const REQUIRED_TABLES = [
 const KNOWN_GAPS = [
   {
     id: 'fhir-bundle-encryption',
-    blocker: true,
-    summary: 'ECDH(Curve25519)+AES-GCM payload encryption (FIDELIUS-equivalent) is NOT implemented — health information packages currently build with plaintext keyMaterial. Required for M2 data push.',
+    blocker: false,
+    summary: 'ECDH(Curve25519)+HKDF+AES-GCM payload encryption implemented (src/services/abdm/abdmCrypto.js; unit-tested incl. RFC 7748 vector). Byte-level interop sign-off against the sandbox HIU still pending — validate during the M2 dry run.',
   },
   {
     id: 'bridge-registration',

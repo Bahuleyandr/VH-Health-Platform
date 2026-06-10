@@ -104,6 +104,7 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
       hiTypes: req.body?.hiRequest?.hiTypes || req.body?.hiTypes || [],
       dateRange: req.body?.hiRequest?.dateRange || req.body?.dateRange || {},
       keyMaterial: req.body?.hiRequest?.keyMaterial || req.body?.keyMaterial || null,
+      dataPushUrl: req.body?.hiRequest?.dataPushUrl || req.body?.dataPushUrl || null,
     };
 
     const result = await abdmService.handleDataRequest(dataRequest);

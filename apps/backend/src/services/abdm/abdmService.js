@@ -5,6 +5,7 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { encryptFhirBundle } from './abdmCrypto.js';
 import abdmGateway from './abdmGateway.js';
 
 class ABDMService {
@@ -464,6 +465,7 @@ class ABDMService {
       hiTypes,
       dateRange,
       keyMaterial,
+      dataPushUrl,
     } = dataRequest;
 
     if (!transactionId || !consentId) {
@@ -501,10 +503,10 @@ class ABDMService {
     // Create data request record
     const requestResult = await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_data_requests
-        (transaction_id, consent_id, patient_uid, hi_types, date_range_from, date_range_to, key_material, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PROCESSING', NOW())
+        (transaction_id, consent_id, patient_uid, hi_types, date_range_from, date_range_to, key_material, data_push_url, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PROCESSING', NOW())
        RETURNING id, transaction_id, consent_id, patient_uid, status, created_at`,
-      
+
         transactionId,
         consentId,
         consent.patient_uid,
@@ -512,17 +514,20 @@ class ABDMService {
         dateRange?.from ? new Date(dateRange.from) : consent.date_range_from,
         dateRange?.to ? new Date(dateRange.to) : consent.date_range_to,
         keyMaterial ? JSON.stringify(keyMaterial) : null,
-      
+        dataPushUrl || null,
+
     );
 
     // Collect and send health data asynchronously
     this._processDataRequest(
       transactionId,
+      consentId,
       consent.patient_uid,
       hiTypes || consent.hi_types || [],
       dateRange?.from || consent.date_range_from,
       dateRange?.to || consent.date_range_to,
-      keyMaterial
+      keyMaterial,
+      dataPushUrl || null
     ).catch((err) => {
       logger.error('Failed to process ABDM data request', {
         transactionId,
@@ -600,7 +605,7 @@ class ABDMService {
              WHERE patient_uid = $1${dateClause}
              ORDER BY created_at DESC
              LIMIT 100`,
-            dateParams
+            ...dateParams
           );
           for (const rx of rxResult) {
             entries.push({
@@ -626,7 +631,7 @@ class ABDMService {
              WHERE patient_uid = $1${dateClause}
              ORDER BY created_at DESC
              LIMIT 100`,
-            dateParams
+            ...dateParams
           );
           for (const lab of labResult) {
             entries.push({
@@ -652,7 +657,7 @@ class ABDMService {
              WHERE patient_uid = $1${dateClause}
              ORDER BY created_at DESC
              LIMIT 50`,
-            dateParams
+            ...dateParams
           );
           for (const dc of dcResult) {
             entries.push({
@@ -677,7 +682,7 @@ class ABDMService {
              WHERE patient_uid = $1 AND status = 'completed'${dateClause}
              ORDER BY created_at DESC
              LIMIT 100`,
-            dateParams
+            ...dateParams
           );
           for (const op of opResult) {
             entries.push({
@@ -703,7 +708,7 @@ class ABDMService {
                WHERE patient_uid = $1${dateClause}
                ORDER BY created_at DESC
                LIMIT 100`,
-              dateParams
+              ...dateParams
             );
             for (const imm of immResult) {
               entries.push({
@@ -792,32 +797,86 @@ class ABDMService {
   }
 
   /**
-   * Process a data request — collect data, format, and send to HIU.
+   * Process a data request — collect, ENCRYPT, and push to the HIU
+   * (roadmap C1 follow-up). The bundle is encrypted FIDELIUS-style
+   * (ECDH Curve25519 + HKDF-SHA256 + AES-256-GCM) against the HIU's key
+   * material; plaintext PHI is never pushed — a request without usable
+   * key material fails and is marked FAILED by the caller's catch.
    * @private
    */
-  async _processDataRequest(transactionId, patientUid, hiTypes, dateFrom, dateTo, keyMaterial) {
+  async _processDataRequest(transactionId, consentId, patientUid, hiTypes, dateFrom, dateTo, keyMaterial, dataPushUrl = null) {
     // Collect health data
     const bundle = await this.collectHealthData(patientUid, hiTypes, dateFrom, dateTo);
 
-    // In production, data should be encrypted with the HIU's public key
-    // For now, send the bundle as-is (encryption would use keyMaterial.dhPublicKey)
-    const dataToSend = bundle;
-
-    // Send via ABDM gateway
-    if (ABDM_CONFIG.enabled) {
-      await abdmGateway.sendHealthData(transactionId, dataToSend, keyMaterial || {});
+    if (!keyMaterial?.dhPublicKey?.keyValue || !keyMaterial?.nonce) {
+      throw AppError.badRequest(
+        'HIU key material missing or incomplete — refusing to push unencrypted health information',
+        'ABDM_KEY_MATERIAL_MISSING'
+      );
     }
 
-    // Mark as delivered
+    const { content, checksum, senderKeyMaterial } = encryptFhirBundle(bundle, keyMaterial);
+
+    // Resolve a care-context reference for the entry; fall back to a
+    // transaction-scoped reference when the patient has none registered.
+    let careContextReference = `VH-BUNDLE-${transactionId}`;
+    try {
+      const ccRows = await prisma.$queryRawUnsafe(
+        `SELECT care_context_reference FROM abdm_care_contexts
+         WHERE patient_uid = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        patientUid
+      );
+      if (ccRows.length && ccRows[0].care_context_reference) {
+        careContextReference = ccRows[0].care_context_reference;
+      }
+    } catch (err) {
+      logger.warn('ABDM care-context lookup failed; using transaction reference', {
+        transactionId,
+        error: err.message,
+      });
+    }
+
+    const entries = [
+      { content, media: 'application/fhir+json', checksum, careContextReference },
+    ];
+
+    // Send via ABDM gateway / HIU data-push endpoint
+    if (ABDM_CONFIG.enabled) {
+      await abdmGateway.sendHealthData(transactionId, entries, senderKeyMaterial, { dataPushUrl });
+
+      // Phase 1.5 best-effort: transfer-status notification must never
+      // fail the delivered transfer.
+      abdmGateway
+        .notifyHealthInfoTransfer({
+          transactionId,
+          consentId,
+          sessionStatus: 'TRANSFERRED',
+          careContextReferences: [careContextReference],
+        })
+        .catch((err) => {
+          logger.warn('ABDM health-information notify failed (transfer already delivered)', {
+            transactionId,
+            error: err.message,
+          });
+        });
+    }
+
+    // Mark as delivered; keep our public key material for traceability.
     await prisma.$queryRawUnsafe(
-      `UPDATE abdm_data_requests SET status = 'DELIVERED', delivered_at = NOW() WHERE transaction_id = $1`,
-      transactionId
+      `UPDATE abdm_data_requests
+       SET status = 'DELIVERED', delivered_at = NOW(), sender_key_material = $2
+       WHERE transaction_id = $1`,
+      transactionId,
+      JSON.stringify(senderKeyMaterial)
     );
 
-    logger.info('ABDM data request processed', {
+    logger.info('ABDM data request processed (encrypted)', {
       transactionId,
       patientUid,
       entriesCount: bundle.total,
+      pushedDirect: Boolean(dataPushUrl),
     });
   }
 }
