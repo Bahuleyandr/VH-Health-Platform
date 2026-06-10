@@ -15,6 +15,7 @@ import 'core/config/observability_config.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/message_unread_provider.dart';
 import 'core/providers/notification_provider.dart';
+import 'core/providers/locale_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
@@ -300,6 +301,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => WebSocketProvider()..init()),
         // Realtime fabric lifecycle owner. Widgets should listen via
@@ -381,6 +383,10 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                     theme: themeProvider.lightTheme,
                     darkTheme: themeProvider.darkTheme,
                     themeMode: themeProvider.themeMode,
+                    // In-app language override (Settings → Language).
+                    // null = follow the device locale, the historical
+                    // behaviour (roadmap E2).
+                    locale: context.watch<LocaleProvider>().locale,
                     // Localization delegates wire built-in Material/
                     // Cupertino translations (date pickers, drawer back
                     // button, etc.) for the supported locales. App-

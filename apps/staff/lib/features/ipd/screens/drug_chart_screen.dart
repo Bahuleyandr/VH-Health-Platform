@@ -9,6 +9,7 @@ import '../../../core/widgets/desktop_scroll_controls.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../l10n/app_strings.dart';
 import '../utils/drug_chart_utils.dart';
 
 const _routeOptions = <String, String>{
@@ -172,7 +173,8 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
       if (!mounted) return;
       _removeDraftRow(row);
       await _load();
-      _showSnack('Drug order saved and pharmacy intimated');
+      if (!mounted) return;
+      _showSnack(AppStrings.of(context).drugChartSavedToast);
     } catch (e) {
       if (!mounted) return;
       _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
@@ -187,32 +189,35 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
     final reasonCtrl = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Stop medication'),
-        content: TextField(
-          controller: reasonCtrl,
-          autofocus: true,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: 'Reason',
-            hintText: 'e.g. course completed, adverse effect, changed plan',
+      builder: (context) {
+        final s = AppStrings.of(context);
+        return AlertDialog(
+          title: Text(s.drugChartStopTitle),
+          content: TextField(
+            controller: reasonCtrl,
+            autofocus: true,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: s.drugChartStopReasonLabel,
+              hintText: s.drugChartStopReasonHint,
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = reasonCtrl.text.trim();
-              if (value.isEmpty) return;
-              Navigator.of(context).pop(value);
-            },
-            child: const Text('Stop'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(s.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = reasonCtrl.text.trim();
+                if (value.isEmpty) return;
+                Navigator.of(context).pop(value);
+              },
+              child: Text(s.drugChartStopButton),
+            ),
+          ],
+        );
+      },
     );
     reasonCtrl.dispose();
     if (reason == null || reason.isEmpty) return;
@@ -240,13 +245,14 @@ class _DrugChartScreenState extends State<DrugChartScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Drug Chart',
+      title: s.drugChartTitle,
       floatingActionButton: _chart != null && _canPrescribe
           ? FloatingActionButton.extended(
               onPressed: _addDraftRow,
               icon: const Icon(Icons.add),
-              label: const Text('Add row'),
+              label: Text(s.drugChartAddRow),
             )
           : null,
       body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
@@ -472,7 +478,7 @@ class _DrugChartTable extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'No inpatient drugs charted',
+              AppStrings.of(context).drugChartEmpty,
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -483,7 +489,7 @@ class _DrugChartTable extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onAddRow,
                 icon: const Icon(Icons.add),
-                label: const Text('Add first row'),
+                label: Text(AppStrings.of(context).drugChartAddFirstRow),
               ),
             ],
           ],
@@ -559,7 +565,7 @@ class _DrugChartToolbar extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onAddRow,
               icon: const Icon(Icons.add),
-              label: const Text('Add row'),
+              label: Text(AppStrings.of(context).drugChartAddRow),
             ),
         ],
       ),
@@ -907,12 +913,16 @@ class _DrugChartDraftTableRowState extends State<_DrugChartDraftTableRow> {
                                 ),
                               )
                             : const Icon(Icons.save_outlined),
-                        label: Text(row.saving ? 'Saving' : 'Save'),
+                        label: Text(
+                          row.saving
+                              ? AppStrings.of(context).bedSheetSavingLabel
+                              : AppStrings.of(context).actionSave,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      tooltip: 'Remove row',
+                      tooltip: AppStrings.of(context).drugChartRemoveRow,
                       onPressed: row.saving ? null : widget.onRemove,
                       icon: const Icon(Icons.delete_outline),
                     ),
@@ -1175,11 +1185,13 @@ class _DoseTimeCell extends StatelessWidget {
                       onPressed: () => context
                           .push('/mar/scan/${latest['id']}')
                           .then((_) => onAdministrationChanged()),
-                      child: const Text('Scan'),
+                      child: Text(AppStrings.of(context).drugChartScan),
                     )
                   else
                     Text(
-                      given != null ? 'Given' : status,
+                      given != null
+                          ? AppStrings.of(context).drugChartGiven
+                          : status,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppTheme.textSecondary,
@@ -1248,7 +1260,7 @@ class _SafetyAndActionsCell extends StatelessWidget {
             child: TextButton.icon(
               onPressed: onStop,
               icon: const Icon(Icons.stop_circle_outlined),
-              label: const Text('Stop'),
+              label: Text(AppStrings.of(context).drugChartStopButton),
             ),
           ),
         ],
