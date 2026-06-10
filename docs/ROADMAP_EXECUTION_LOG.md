@@ -66,6 +66,23 @@ Dalekdefender overlay edits untouched throughout.
   stream's regenerated `clinical_code_bindings` model, which is theirs to
   commit with 297.
 
+### Branch audit (same session, post-merge)
+
+- **Forgejo pruned to `main` only**: deleted the 7 merged `roadmap/*`
+  branches + 2 merged `renovate/*` branches (history preserved in the
+  `--no-ff` merge commits).
+- **GitHub mirror synced** `84d882ca..ac9b0e9a` (release workflows build
+  from GitHub — this is what lets the next backend image carry migrations
+  295–297) and the merged `codex/staff-roster-onboarding-hub` deleted.
+- **All 6 `swarm/swarm-fix/*` branches verified absorbed by content**
+  (not ancestry — the triage reimplemented them): notes/vitals/ward-indent
+  linkage = migrations 240–242; the cashless issued-invoice guard lives in
+  claimsService; consultant doctor seeding in seed-test-staff-accounts;
+  and `breakdown-in-app` (last candidate) is present across all four
+  files (portal fallback + `disallowed_amount` fields + both patient
+  screens + test). **No cherry-picks needed.** Swarm/swarm-workspace
+  remotes left untouched for the A1 swarm re-arm.
+
 ### Owner-side actions queued (D5 + ICD-11)
 
 1. ~~Coordinate the ICD-11 stream / re-run full suite / merge~~ — done in
