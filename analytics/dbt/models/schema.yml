@@ -66,4 +66,34 @@ models:
       - name: invoice_id
         tests: [not_null]
 
+  - name: mart_bed_flow_daily
+    description: >
+      Ward × day bed-flow board. Occupancy uses the seeded ward bed
+      structure. Grain + occupancy bounds are enforced by the singular test
+      tests/assert_bed_flow_unique_ward_day.sql (no external packages).
+    columns:
+      - name: date_day
+        tests: [not_null]
+      - name: ward_id
+        tests: [not_null]
+
+  - name: mart_ot_utilization_daily
+    columns:
+      - name: cases_scheduled
+        tests: [not_null]
+
+  - name: mart_department_revenue_monthly
+    columns:
+      - name: department
+        tests: [not_null]
+      - name: month
+        tests: [not_null]
+
+  - name: mart_payer_mix_monthly
+    columns:
+      - name: month
+        tests: [not_null]
+      - name: payer_class
+        tests: [not_null]
+
 

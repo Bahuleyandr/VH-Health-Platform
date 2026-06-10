@@ -70,6 +70,8 @@ spec:
                 - { name: dbt-models-staging, mountPath: /dbt-src/models/staging }
                 - { name: dbt-models-dims, mountPath: /dbt-src/models/dims }
                 - { name: dbt-models-facts, mountPath: /dbt-src/models/facts }
+                - { name: dbt-models-marts, mountPath: /dbt-src/models/marts }
+                - { name: dbt-tests, mountPath: /dbt-src/tests }
           volumes:
             - name: work
               emptyDir: { sizeLimit: 512Mi }
@@ -87,3 +89,7 @@ spec:
               configMap: { name: vh-dbt-models-dims }
             - name: dbt-models-facts
               configMap: { name: vh-dbt-models-facts }
+            - name: dbt-models-marts
+              configMap: { name: vh-dbt-models-marts }
+            - name: dbt-tests
+              configMap: { name: vh-dbt-tests }

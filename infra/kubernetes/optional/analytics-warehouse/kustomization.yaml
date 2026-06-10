@@ -61,5 +61,17 @@ configMapGenerator:
       - fct_encounters.sql=../../../../analytics/dbt/models/facts/fct_encounters.sql
       - fct_orders.sql=../../../../analytics/dbt/models/facts/fct_orders.sql
       - fct_revenue.sql=../../../../analytics/dbt/models/facts/fct_revenue.sql
+  - name: vh-dbt-models-marts
+    namespace: vhhealth-platform
+    files:
+      - mart_bed_flow_daily.sql=../../../../analytics/dbt/models/marts/mart_bed_flow_daily.sql
+      - mart_ot_utilization_daily.sql=../../../../analytics/dbt/models/marts/mart_ot_utilization_daily.sql
+      - mart_department_revenue_monthly.sql=../../../../analytics/dbt/models/marts/mart_department_revenue_monthly.sql
+      - mart_payer_mix_monthly.sql=../../../../analytics/dbt/models/marts/mart_payer_mix_monthly.sql
+  - name: vh-dbt-tests
+    namespace: vhhealth-platform
+    files:
+      - assert_bed_flow_unique_ward_day.sql=../../../../analytics/dbt/tests/assert_bed_flow_unique_ward_day.sql
+
 generatorOptions:
   disableNameSuffixHash: false
