@@ -600,7 +600,7 @@ class ABDMService {
       switch (hiType) {
         case 'Prescription': {
           const rxResult = await prisma.$queryRawUnsafe(
-            `SELECT id, medication_name, dosage, frequency, duration, instructions, doctor_uid, created_at
+            `SELECT id, medication_name, dosage, frequency, duration_days, status, issued_at, created_at
              FROM prescriptions
              WHERE patient_uid = $1${dateClause}
              ORDER BY created_at DESC
@@ -615,19 +615,20 @@ class ABDMService {
               medicationName: rx.medication_name,
               dosage: rx.dosage,
               frequency: rx.frequency,
-              duration: rx.duration,
-              instructions: rx.instructions,
-              prescribedBy: rx.doctor_uid,
-              date: rx.created_at,
+              durationDays: rx.duration_days,
+              status: rx.status,
+              date: rx.issued_at || rx.created_at,
             });
           }
           break;
         }
 
         case 'DiagnosticReport': {
+          // lab_results is the canonical signed-off result store (B3).
           const labResult = await prisma.$queryRawUnsafe(
-            `SELECT id, test_name, result_value, result_unit, reference_range, status, doctor_uid, created_at
-             FROM investigations
+            `SELECT id, loinc_code, test_code, test_name, value_text, value_numeric, unit,
+                    reference_range, abnormal_flag, status, performed_at, created_at
+             FROM lab_results
              WHERE patient_uid = $1${dateClause}
              ORDER BY created_at DESC
              LIMIT 100`,
@@ -638,13 +639,17 @@ class ABDMService {
               resourceType: 'DiagnosticReport',
               hiType: 'DiagnosticReport',
               id: String(lab.id),
+              loincCode: lab.loinc_code,
+              testCode: lab.test_code,
               testName: lab.test_name,
-              resultValue: lab.result_value,
-              resultUnit: lab.result_unit,
+              resultValue: lab.value_numeric !== null && lab.value_numeric !== undefined
+                ? Number(lab.value_numeric)
+                : lab.value_text,
+              resultUnit: lab.unit,
               referenceRange: lab.reference_range,
+              abnormalFlag: lab.abnormal_flag,
               status: lab.status,
-              orderedBy: lab.doctor_uid,
-              date: lab.created_at,
+              date: lab.performed_at || lab.created_at,
             });
           }
           break;
@@ -652,7 +657,8 @@ class ABDMService {
 
         case 'DischargeSummary': {
           const dcResult = await prisma.$queryRawUnsafe(
-            `SELECT id, admission_id, summary, diagnosis, treatment_given, discharge_instructions, doctor_uid, created_at
+            `SELECT id, admission_id, primary_diagnosis, secondary_diagnoses, icd10_codes,
+                    procedures_performed, ward_at_discharge, discharged_at, signed_by_name, status, created_at
              FROM discharge_summaries
              WHERE patient_uid = $1${dateClause}
              ORDER BY created_at DESC
@@ -664,11 +670,15 @@ class ABDMService {
               resourceType: 'DocumentReference',
               hiType: 'DischargeSummary',
               id: String(dc.id),
-              summary: dc.summary,
-              diagnosis: dc.diagnosis,
-              treatmentGiven: dc.treatment_given,
-              dischargeInstructions: dc.discharge_instructions,
-              author: dc.doctor_uid,
+              admissionId: dc.admission_id,
+              primaryDiagnosis: dc.primary_diagnosis,
+              secondaryDiagnoses: dc.secondary_diagnoses,
+              icd10Codes: dc.icd10_codes,
+              proceduresPerformed: dc.procedures_performed,
+              wardAtDischarge: dc.ward_at_discharge,
+              dischargedAt: dc.discharged_at,
+              signedByName: dc.signed_by_name,
+              status: dc.status,
               date: dc.created_at,
             });
           }
@@ -676,10 +686,12 @@ class ABDMService {
         }
 
         case 'OPConsultation': {
+          // appointments keys patients by integer id — resolve from the uid.
           const opResult = await prisma.$queryRawUnsafe(
-            `SELECT id, doctor_uid, reason, notes, status, appointment_date, created_at
+            `SELECT id, doctor_name, reason, notes, status, appointment_date, created_at
              FROM appointments
-             WHERE patient_uid = $1 AND status = 'completed'${dateClause}
+             WHERE patient_id = (SELECT id FROM users WHERE uid = $1::uuid LIMIT 1)
+               AND status = 'completed'${dateClause}
              ORDER BY created_at DESC
              LIMIT 100`,
             ...dateParams
@@ -689,7 +701,7 @@ class ABDMService {
               resourceType: 'Encounter',
               hiType: 'OPConsultation',
               id: String(op.id),
-              doctor: op.doctor_uid,
+              doctorName: op.doctor_name,
               reason: op.reason,
               notes: op.notes,
               appointmentDate: op.appointment_date,
