@@ -12,6 +12,8 @@ import {
   listWorkflowSlaInstances,
   transitionEncounter,
 } from '../../services/clinical/canonicalClinicalPlatformService.js';
+import { signDocument } from '../../services/clinical/documentIntegrityService.js';
+import logger from '../../logging/logger.js';
 import { success } from '../../utils/responseHelper.js';
 
 const router = express.Router();
@@ -149,6 +151,27 @@ router.post('/:id/activate', async (req, res, next) => {
 router.post('/:id/sign', async (req, res, next) => {
   try {
     const encounter = await transitionEncounter(req.params.id, 'signed', actorContext(req));
+    // Roadmap C4 — attach an e-signature record (content hash of the
+    // encounter's clinical body) to the sign transition. Best-effort: the
+    // transition is already committed + audited; a signature failure is
+    // logged, not rolled back.
+    if (encounter?.id) {
+      try {
+        encounter.signature = await signDocument({
+          documentType: 'encounter',
+          documentId: encounter.id,
+          statement: req.body?.signature_statement || 'Encounter clinical record attested at sign-off',
+        }, {
+          actorUid: req.user?.uid || null,
+          actorRole: req.user?.role || null,
+          actorName: req.user?.name || null,
+        });
+      } catch (sigErr) {
+        logger.warn('Encounter signature record failed (transition stands)', {
+          encounter_id: encounter.id, error: sigErr?.message,
+        });
+      }
+    }
     return success(res, encounter, 'Encounter signed');
   } catch (err) {
     next(err);

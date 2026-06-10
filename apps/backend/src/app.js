@@ -235,6 +235,7 @@ import drugKbRoutes from './routes/clinical/drugKbRoutes.js';
 import bcmaRoutes from './routes/clinical/bcmaRoutes.js';
 import medRecRoutes from './routes/clinical/medRecRoutes.js';
 import pacsRoutes from './routes/radiology/pacsRoutes.js';
+import integrityRoutes from './routes/clinical/integrityRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -736,6 +737,9 @@ app.use('/api/v1/med-rec', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger
 // PACS / imaging viewer surface (roadmap B4) — study links, OHIF deep
 // links, modality worklist feed.
 app.use('/api/v1/pacs', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('RADIOLOGY_PACS'), pacsRoutes);
+
+// Document integrity (roadmap C4) — e-signatures + audit hash-chain verify.
+app.use('/api/v1/integrity', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DOCUMENT_SIGNATURE'), integrityRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
