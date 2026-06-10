@@ -6246,6 +6246,25 @@ model mlc_records {
   @@index([emergency_visit_id], map: "idx_mlc_visit", where: raw("(emergency_visit_id IS NOT NULL)"))
 }
 
+model nabh_indicator_snapshots {
+  id             Int      @id @default(autoincrement())
+  tenant_id      String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  period_start   DateTime @db.Date
+  period_end     DateTime @db.Date
+  indicator_code String   @db.VarChar(60)
+  label          String   @db.VarChar(200)
+  value          Decimal? @db.Decimal(14, 4)
+  numerator      Decimal? @db.Decimal(14, 4)
+  denominator    Decimal? @db.Decimal(14, 4)
+  unit           String?  @db.VarChar(40)
+  details        Json     @default("{}")
+  computed_by    String?  @db.Uuid
+  computed_at    DateTime @default(now()) @db.Timestamptz(6)
+  tenants        tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nabh_indicator_snapshots_tenant")
+
+  @@unique([tenant_id, period_start, period_end, indicator_code], map: "uq_nabh_indicator_snapshots")
+}
+
 model news2_scores {
   id                Int      @id @default(autoincrement())
   patient_uid       String   @db.Uuid
@@ -9084,6 +9103,7 @@ model tenants {
   mfa_challenges                             mfa_challenges[]
   mfa_devices                                mfa_devices[]
   mlc_records                                mlc_records[]
+  nabh_indicator_snapshots                   nabh_indicator_snapshots[]
   news2_scores                               news2_scores[]
   notification_events                        notification_events[]
   notifications                              notifications[]

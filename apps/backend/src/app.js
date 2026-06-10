@@ -239,6 +239,7 @@ import integrityRoutes from './routes/clinical/integrityRoutes.js';
 import hl7FeedRoutes from './routes/hl7/hl7FeedRoutes.js';
 import deviceVitalsRoutes from './routes/emr/deviceVitalsRoutes.js';
 import schedulingRoutes from './routes/scheduling/schedulingRoutes.js';
+import nabhRoutes from './routes/quality/nabhRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -753,6 +754,9 @@ app.use('/api/v1/devices', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger
 // Scheduling optimization (roadmap D2) — templates, slot grids, waitlist,
 // bookable resources. Reception works this surface alongside clinicians.
 app.use('/api/v1/scheduling', requireRole(...CLINICAL_STAFF_ROLES, 'RECEPTIONIST', 'RECEPTION_INCHARGE', 'ADMISSION_OFFICER'), phiAccessLogger('SCHEDULING'), schedulingRoutes);
+
+// NABH quality indicators (roadmap D4) — computed packs + assessor export.
+app.use('/api/v1/quality/nabh', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'CMO', 'CNO', 'MEDICAL_SUPERINTENDENT'), nabhRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
