@@ -21,20 +21,33 @@ class CdsBlockerModal extends StatefulWidget {
     super.key,
     required this.blockers,
     required this.warnings,
+    this.allowOverride = true,
   });
 
   final List<dynamic> blockers;
   final List<dynamic> warnings;
 
+  /// The prescription save path accepts an `override.reason`; the CPOE
+  /// order endpoints have no override parameter — their blockers are
+  /// final server-side. Pass `false` there so the modal offers only
+  /// "adjust the order" instead of a recorded override that the server
+  /// would reject anyway.
+  final bool allowOverride;
+
   static Future<CdsOverrideOutcome?> show(
     BuildContext context, {
     required List<dynamic> blockers,
     required List<dynamic> warnings,
+    bool allowOverride = true,
   }) {
     return showDialog<CdsOverrideOutcome>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => CdsBlockerModal(blockers: blockers, warnings: warnings),
+      builder: (_) => CdsBlockerModal(
+        blockers: blockers,
+        warnings: warnings,
+        allowOverride: allowOverride,
+      ),
     );
   }
 
@@ -91,6 +104,21 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
               ),
               ...widget.warnings.map((w) => _issueTile(w, isBlocker: false)),
             ],
+            if (!widget.allowOverride) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  s.cdsBlockerNoOverrideHint,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
             if (_showOverrideField) ...[
               const SizedBox(height: 12),
               if (hasAllergyBlocker)
@@ -126,9 +154,13 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(CdsOverrideOutcome()),
-          child: Text(s.actionCancel),
+          child: Text(
+            widget.allowOverride ? s.actionCancel : s.cdsBlockerAdjustOrder,
+          ),
         ),
-        if (!_showOverrideField)
+        if (!widget.allowOverride)
+          const SizedBox.shrink()
+        else if (!_showOverrideField)
           TextButton(
             onPressed: () => setState(() => _showOverrideField = true),
             child: Text(s.cdsBlockerOverrideButton),
@@ -166,7 +198,12 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              issue['message']?.toString() ?? issue.toString(),
+              // Prescription-safety issues carry `message`; cdsEngine
+              // alerts carry `title`/`description`. Render whichever the
+              // payload has so order blockers don't show "{...}".
+              (issue['message'] ?? issue['description'] ?? issue['title'])
+                      ?.toString() ??
+                  issue.toString(),
               style: const TextStyle(fontSize: 13),
             ),
           ),

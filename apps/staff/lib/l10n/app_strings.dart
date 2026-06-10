@@ -1009,6 +1009,75 @@ class AppStrings {
   String ordersCompleteFailed(String e) =>
       '${_t('orders.complete_failed_prefix')} $e';
   String get ordersRetry => _t('orders.retry');
+  String get ordersFilterDiscontinued => _t('orders.filter.discontinued');
+  String get ordersDiscontinue => _t('orders.discontinue');
+  String get ordersCancel => _t('orders.cancel');
+  String get ordersDiscontinueTitle => _t('orders.discontinue_title');
+  String get ordersCancelTitle => _t('orders.cancel_title');
+  String get ordersStopReasonLabel => _t('orders.stop_reason_label');
+  String get ordersStopReasonHint => _t('orders.stop_reason_hint');
+  // REVIEW: clinical-action confirmation
+  String get ordersDiscontinuedToast => _t('orders.discontinued_toast');
+  // REVIEW: clinical-action confirmation
+  String get ordersCancelledToast => _t('orders.cancelled_toast');
+  String ordersStopFailed(String e) => '${_t('orders.stop_failed_prefix')} $e';
+
+  // ── CPOE order composer (roadmap E1) ───────────────────────────────
+  String get composerTitle => _t('composer.title');
+  String composerTitleWithName(String name) =>
+      '${_t('composer.title')} - $name';
+  String get composerSearchLabel => _t('composer.search_label');
+  String get composerSearchHint => _t('composer.search_hint');
+  String get composerSearchHintTestsOnly =>
+      _t('composer.search_hint_tests_only');
+  String get composerSectionMedications => _t('composer.section.medications');
+  String get composerSectionInvestigations =>
+      _t('composer.section.investigations');
+  String get composerOrderSets => _t('composer.order_sets');
+  String get composerTypeRadiology => _t('composer.type.radiology');
+  String get composerTypeConsult => _t('composer.type.consult');
+  String get composerTypeDiet => _t('composer.type.diet');
+  String get composerEmptyBasket => _t('composer.empty_basket');
+  String composerBasketCount(int n) =>
+      _t('composer.basket_count').replaceAll('{n}', '$n');
+  String composerPlaceOrders(int n) =>
+      _t('composer.place_orders').replaceAll('{n}', '$n');
+  String get composerPlacing => _t('composer.placing');
+  // REVIEW: clinical-action confirmation
+  String composerPlacedToast(int n) =>
+      _t('composer.placed_toast').replaceAll('{n}', '$n');
+  String get composerSubmitFailed => _t('composer.submit_failed');
+  String get composerDesktopOnly => _t('composer.desktop_only');
+  String get composerRelogin => _t('composer.relogin');
+  String get composerWarningsTitle => _t('composer.warnings_title');
+  String composerMedItemsSkipped(int n) =>
+      _t('composer.med_items_skipped').replaceAll('{n}', '$n');
+  String get composerRemoveItem => _t('composer.remove_item');
+  String get composerSourceOrderSet => _t('composer.source.order_set');
+  String get composerSourceCatalog => _t('composer.source.catalog');
+  String get composerBlockedChip => _t('composer.blocked_chip');
+  String get composerChipMedication => _t('composer.chip.medication');
+  String get composerChipInvestigation => _t('composer.chip.investigation');
+  String get composerAddToBasket => _t('composer.add_to_basket');
+  String get composerDurationDays => _t('composer.duration_days');
+  String get composerStudyName => _t('composer.study_name');
+  String get composerStudyHint => _t('composer.study_hint');
+  String get composerSpecialty => _t('composer.specialty');
+  String get composerSpecialtyHint => _t('composer.specialty_hint');
+  String get composerDietHint => _t('composer.diet_hint');
+
+  // ── Order sets (composer picker + standalone apply) ────────────────
+  String get orderSetsNoPlaceableItems => _t('order_sets.no_placeable_items');
+  String get orderSetsApplyFailed => _t('order_sets.apply_failed');
+  // REVIEW: clinical-action confirmation
+  String orderSetsPlacedToast(int n) =>
+      _t('order_sets.placed_toast').replaceAll('{n}', '$n');
+  String get orderSetsApplying => _t('order_sets.applying');
+  String orderSetsAddToBasket(int n) =>
+      _t('order_sets.add_to_basket').replaceAll('{n}', '$n');
+  String orderSetsApplyCount(int sel, int total) => _t(
+    'order_sets.apply_count',
+  ).replaceAll('{sel}', '$sel').replaceAll('{total}', '$total');
 
   // ── Vitals chart screen ────────────────────────────────────────────
   String get vitalsChartTitle => _t('vitals_chart.title');
@@ -2182,6 +2251,9 @@ class AppStrings {
   String get cdsBlockerWarningsHeader => _t('cds.warnings_header');
   String get cdsBlockerAllergyHint => _t('cds.allergy_hint');
   String get cdsBlockerOverrideReasonLabel => _t('cds.override_reason_label');
+  // REVIEW: safety-critical copy
+  String get cdsBlockerNoOverrideHint => _t('cds.blocker_no_override_hint');
+  String get cdsBlockerAdjustOrder => _t('cds.blocker_adjust_order');
   String get cdsBlockerOverrideButton => _t('cds.override_button');
   String get cdsBlockerOverrideSave => _t('cds.override_save');
 
@@ -3041,6 +3113,58 @@ class AppStrings {
       'orders.completed_toast': 'Order completed',
       'orders.complete_failed_prefix': 'Failed to complete order:',
       'orders.retry': 'Retry',
+      'orders.filter.discontinued': 'Discontinued',
+      'orders.discontinue': 'Discontinue',
+      'orders.cancel': 'Cancel order',
+      'orders.discontinue_title': 'Discontinue order',
+      'orders.cancel_title': 'Cancel order',
+      'orders.stop_reason_label': 'Reason (required)',
+      'orders.stop_reason_hint': 'Clinical reason for stopping this order',
+      'orders.discontinued_toast': 'Order discontinued',
+      'orders.cancelled_toast': 'Order cancelled',
+      'orders.stop_failed_prefix': 'Failed to stop order:',
+      'composer.title': 'New Orders',
+      'composer.search_label': 'Search the order catalog',
+      'composer.search_hint': 'Search medications & tests...',
+      'composer.search_hint_tests_only': 'Search tests & imaging...',
+      'composer.section.medications': 'Medications (formulary)',
+      'composer.section.investigations': 'Investigations & imaging',
+      'composer.order_sets': 'Order sets',
+      'composer.type.radiology': 'Radiology / Imaging',
+      'composer.type.consult': 'Consultation / Referral',
+      'composer.type.diet': 'Diet Order',
+      'composer.empty_basket':
+          'Search the catalog, pick an order set, or use the quick-add chips above.\nAll orders are signed together as one batch.',
+      'composer.basket_count': 'In basket: {n}',
+      'composer.place_orders': 'Sign & place ({n})',
+      'composer.placing': 'Placing...',
+      'composer.placed_toast': '{n} order(s) placed',
+      'composer.submit_failed': 'Failed to place orders',
+      'composer.desktop_only':
+          'Clinical orders must be placed from the desktop/tablet Staff app.',
+      'composer.relogin': 'Please log in again before placing clinical orders.',
+      'composer.warnings_title': 'Review CDS warnings',
+      'composer.med_items_skipped':
+          '{n} medication item(s) skipped - doctor role required',
+      'composer.remove_item': 'Remove from basket',
+      'composer.source.order_set': 'Order set',
+      'composer.source.catalog': 'Catalog',
+      'composer.blocked_chip': 'Blocked by safety checks',
+      'composer.chip.medication': 'Medication',
+      'composer.chip.investigation': 'Investigation',
+      'composer.add_to_basket': 'Add to basket',
+      'composer.duration_days': 'Duration (days)',
+      'composer.study_name': 'Study',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.specialty': 'Specialty',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'order_sets.no_placeable_items': 'No placeable order items selected',
+      'order_sets.apply_failed': 'Apply failed',
+      'order_sets.placed_toast': '{n} orders placed from set',
+      'order_sets.applying': 'Placing...',
+      'order_sets.add_to_basket': 'Add {n} to basket',
+      'order_sets.apply_count': 'Place {sel} of {total}',
       // Vitals chart
       'vitals_chart.title': 'Vitals Charting',
       'vitals_chart.title_prefix': 'Vitals',
@@ -4006,6 +4130,9 @@ class AppStrings {
           'Allergy conflict: reference the supervising physician who approved '
           'this override in your reason.',
       'cds.override_reason_label': 'Override reason (required, min 5 chars)',
+      'cds.blocker_no_override_hint':
+          'These safety blockers cannot be overridden on a CPOE order. Adjust the order, or use the prescription workflow where a recorded override is supported.',
+      'cds.blocker_adjust_order': 'Adjust order',
       'cds.override_button': 'Override',
       'cds.override_save': 'Override & save',
       // Code Blue - emergency overlay
@@ -4851,6 +4978,70 @@ class AppStrings {
       'orders.completed_toast': 'आदेश पूर्ण',
       'orders.complete_failed_prefix': 'आदेश पूर्ण करने में विफल:',
       'orders.retry': 'पुनः प्रयास',
+      'orders.filter.discontinued': 'बंद किए गए',
+      // REVIEW: clinical action label
+      'orders.discontinue': 'बंद करें',
+      'orders.cancel': 'आदेश रद्द करें',
+      // REVIEW: clinical action label
+      'orders.discontinue_title': 'आदेश बंद करें',
+      'orders.cancel_title': 'आदेश रद्द करें',
+      'orders.stop_reason_label': 'कारण (आवश्यक)',
+      // REVIEW: clinical wording
+      'orders.stop_reason_hint': 'यह आदेश रोकने का क्लिनिकल कारण',
+      // REVIEW: clinical-action confirmation
+      'orders.discontinued_toast': 'आदेश बंद किया गया',
+      'orders.cancelled_toast': 'आदेश रद्द किया गया',
+      'orders.stop_failed_prefix': 'आदेश रोका नहीं जा सका:',
+      'composer.title': 'नए आदेश',
+      'composer.search_label': 'ऑर्डर कैटलॉग खोजें',
+      'composer.search_hint': 'दवाएँ और जाँचें खोजें...',
+      'composer.search_hint_tests_only': 'जाँचें और इमेजिंग खोजें...',
+      'composer.section.medications': 'दवाएँ (फ़ॉर्मुलरी)',
+      'composer.section.investigations': 'जाँचें और इमेजिंग',
+      'composer.order_sets': 'ऑर्डर सेट',
+      'composer.type.radiology': 'रेडियोलॉजी / इमेजिंग',
+      'composer.type.consult': 'परामर्श / रेफरल',
+      'composer.type.diet': 'आहार आदेश',
+      'composer.empty_basket':
+          'कैटलॉग खोजें, कोई ऑर्डर सेट चुनें, या ऊपर दिए त्वरित विकल्प इस्तेमाल करें।\nसभी आदेश एक साथ एक बैच में साइन होते हैं।',
+      'composer.basket_count': 'बास्केट में: {n}',
+      // REVIEW: clinical action label
+      'composer.place_orders': 'साइन करें और भेजें ({n})',
+      'composer.placing': 'भेजा जा रहा है...',
+      // REVIEW: clinical-action confirmation
+      'composer.placed_toast': '{n} आदेश दर्ज हुए',
+      'composer.submit_failed': 'आदेश दर्ज नहीं हो सके',
+      // REVIEW: device-policy wording
+      'composer.desktop_only':
+          'क्लिनिकल आदेश केवल डेस्कटॉप/टैबलेट स्टाफ़ ऐप से ही दर्ज किए जा सकते हैं।',
+      'composer.relogin':
+          'क्लिनिकल आदेश दर्ज करने से पहले कृपया दोबारा लॉगिन करें।',
+      'composer.warnings_title': 'CDS चेतावनियाँ देखें',
+      // REVIEW: role-policy wording
+      'composer.med_items_skipped':
+          '{n} दवा आइटम छोड़े गए - डॉक्टर भूमिका आवश्यक',
+      'composer.remove_item': 'बास्केट से हटाएँ',
+      'composer.source.order_set': 'ऑर्डर सेट',
+      'composer.source.catalog': 'कैटलॉग',
+      // REVIEW: safety wording
+      'composer.blocked_chip': 'सुरक्षा जाँच द्वारा अवरुद्ध',
+      'composer.chip.medication': 'दवा',
+      'composer.chip.investigation': 'जाँच',
+      'composer.add_to_basket': 'बास्केट में जोड़ें',
+      'composer.duration_days': 'अवधि (दिन)',
+      'composer.study_name': 'स्टडी',
+      'composer.study_hint': 'चेस्ट एक्स-रे PA, CT ब्रेन प्लेन...',
+      'composer.specialty': 'विशेषज्ञता',
+      'composer.specialty_hint': 'कार्डियोलॉजी, नेफ्रोलॉजी...',
+      'composer.diet_hint': 'डायबिटिक आहार, NPO, नरम आहार...',
+      'order_sets.no_placeable_items':
+          'कोई लागू करने योग्य ऑर्डर आइटम चयनित नहीं',
+      'order_sets.apply_failed': 'लागू नहीं हो सका',
+      // REVIEW: clinical-action confirmation
+      'order_sets.placed_toast': 'सेट से {n} आदेश दर्ज हुए',
+      'order_sets.applying': 'भेजा जा रहा है...',
+      'order_sets.add_to_basket': '{n} बास्केट में जोड़ें',
+      'order_sets.apply_count': '{total} में से {sel} दर्ज करें',
       // Vitals chart
       'vitals_chart.title': 'वाइटल्स चार्टिंग',
       'vitals_chart.title_prefix': 'वाइटल्स',
@@ -5985,6 +6176,10 @@ class AppStrings {
       'cds.allergy_hint':
           'एलर्जी संघर्ष: कारण में उस पर्यवेक्षक चिकित्सक का उल्लेख करें जिसने इस ओवरराइड को मंजूरी दी।',
       'cds.override_reason_label': 'ओवरराइड कारण (आवश्यक, न्यूनतम 5 अक्षर)',
+      // REVIEW: safety-critical copy
+      'cds.blocker_no_override_hint':
+          'CPOE आदेश पर ये सुरक्षा अवरोध ओवरराइड नहीं किए जा सकते। आदेश बदलें, या प्रिस्क्रिप्शन वर्कफ़्लो उपयोग करें जहाँ रिकॉर्डेड ओवरराइड समर्थित है।',
+      'cds.blocker_adjust_order': 'आदेश बदलें',
       'cds.override_button': 'ओवरराइड',
       'cds.override_save': 'ओवरराइड और सेव करें',
       // Code Blue - emergency overlay
@@ -6856,6 +7051,108 @@ class AppStrings {
       'orders.completed_toast': 'ஆணை முடிந்தது',
       'orders.complete_failed_prefix': 'ஆணை முடிக்க முடியவில்லை:',
       'orders.retry': 'மீண்டும் முயற்சி',
+      // REVIEW: AI first-pass
+      'orders.filter.discontinued': 'நிறுத்தப்பட்டவை',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue': 'நிறுத்து',
+      // REVIEW: AI first-pass
+      'orders.cancel': 'ஆர்டரை ரத்து செய்',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue_title': 'ஆர்டரை நிறுத்து',
+      // REVIEW: AI first-pass
+      'orders.cancel_title': 'ஆர்டரை ரத்து செய்',
+      // REVIEW: AI first-pass
+      'orders.stop_reason_label': 'காரணம் (கட்டாயம்)',
+      // REVIEW: AI first-pass, clinical wording
+      'orders.stop_reason_hint':
+          'இந்த ஆர்டரை நிறுத்துவதற்கான மருத்துவக் காரணம்',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'orders.discontinued_toast': 'ஆர்டர் நிறுத்தப்பட்டது',
+      // REVIEW: AI first-pass
+      'orders.cancelled_toast': 'ஆர்டர் ரத்து செய்யப்பட்டது',
+      // REVIEW: AI first-pass
+      'orders.stop_failed_prefix': 'ஆர்டரை நிறுத்த முடியவில்லை:',
+      // REVIEW: AI first-pass
+      'composer.title': 'புதிய ஆர்டர்கள்',
+      // REVIEW: AI first-pass
+      'composer.search_label': 'ஆர்டர் பட்டியலில் தேடுங்கள்',
+      // REVIEW: AI first-pass
+      'composer.search_hint': 'மருந்துகள் & பரிசோதனைகள் தேடுங்கள்...',
+      // REVIEW: AI first-pass
+      'composer.search_hint_tests_only': 'பரிசோதனைகள் & இமேஜிங் தேடுங்கள்...',
+      // REVIEW: AI first-pass
+      'composer.section.medications': 'மருந்துகள் (மருந்தகப் பட்டியல்)',
+      // REVIEW: AI first-pass
+      'composer.section.investigations': 'பரிசோதனைகள் & இமேஜிங்',
+      // REVIEW: AI first-pass
+      'composer.order_sets': 'ஆர்டர் தொகுப்புகள்',
+      // REVIEW: AI first-pass
+      'composer.type.radiology': 'ரேடியாலஜி / இமேஜிங்',
+      // REVIEW: AI first-pass
+      'composer.type.consult': 'ஆலோசனை / பரிந்துரை',
+      // REVIEW: AI first-pass
+      'composer.type.diet': 'உணவு ஆர்டர்',
+      // REVIEW: AI first-pass
+      'composer.empty_basket':
+          'பட்டியலில் தேடுங்கள், ஒரு ஆர்டர் தொகுப்பைத் தேர்வு செய்யுங்கள், அல்லது மேலே உள்ள விரைவு விருப்பங்களைப் பயன்படுத்துங்கள்.\nஅனைத்து ஆர்டர்களும் ஒரே தொகுதியாக ஒப்பமிடப்படும்.',
+      // REVIEW: AI first-pass
+      'composer.basket_count': 'கூடையில்: {n}',
+      // REVIEW: AI first-pass, clinical action label
+      'composer.place_orders': 'ஒப்பமிட்டு அனுப்பு ({n})',
+      // REVIEW: AI first-pass
+      'composer.placing': 'அனுப்பப்படுகிறது...',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'composer.placed_toast': '{n} ஆர்டர்(கள்) பதிவு செய்யப்பட்டன',
+      // REVIEW: AI first-pass
+      'composer.submit_failed': 'ஆர்டர்களைப் பதிவு செய்ய முடியவில்லை',
+      // REVIEW: AI first-pass, device-policy wording
+      'composer.desktop_only':
+          'மருத்துவ ஆர்டர்கள் டெஸ்க்டாப்/டேப்லெட் ஸ்டாஃப் ஆப்பிலிருந்து மட்டுமே பதிவு செய்ய முடியும்.',
+      // REVIEW: AI first-pass
+      'composer.relogin':
+          'மருத்துவ ஆர்டர்களைப் பதிவு செய்யும் முன் மீண்டும் உள்நுழையவும்.',
+      // REVIEW: AI first-pass
+      'composer.warnings_title': 'CDS எச்சரிக்கைகளை சரிபார்க்கவும்',
+      // REVIEW: AI first-pass, role-policy wording
+      'composer.med_items_skipped':
+          '{n} மருந்து உருப்படி(கள்) தவிர்க்கப்பட்டன - மருத்துவர் பங்கு தேவை',
+      // REVIEW: AI first-pass
+      'composer.remove_item': 'கூடையிலிருந்து நீக்கு',
+      // REVIEW: AI first-pass
+      'composer.source.order_set': 'ஆர்டர் தொகுப்பு',
+      // REVIEW: AI first-pass
+      'composer.source.catalog': 'பட்டியல்',
+      // REVIEW: AI first-pass, safety wording
+      'composer.blocked_chip': 'பாதுகாப்புச் சரிபார்ப்பால் தடுக்கப்பட்டது',
+      // REVIEW: AI first-pass
+      'composer.chip.medication': 'மருந்து',
+      // REVIEW: AI first-pass
+      'composer.chip.investigation': 'பரிசோதனை',
+      // REVIEW: AI first-pass
+      'composer.add_to_basket': 'கூடையில் சேர்',
+      // REVIEW: AI first-pass
+      'composer.duration_days': 'காலம் (நாட்கள்)',
+      // REVIEW: AI first-pass
+      'composer.study_name': 'ஸ்டடி',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      // REVIEW: AI first-pass
+      'composer.specialty': 'சிறப்புப் பிரிவு',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      // REVIEW: AI first-pass
+      'order_sets.no_placeable_items':
+          'பதிவு செய்யக்கூடிய ஆர்டர் உருப்படிகள் தேர்வு செய்யப்படவில்லை',
+      // REVIEW: AI first-pass
+      'order_sets.apply_failed': 'பயன்படுத்த முடியவில்லை',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'order_sets.placed_toast':
+          'தொகுப்பிலிருந்து {n} ஆர்டர்கள் பதிவு செய்யப்பட்டன',
+      // REVIEW: AI first-pass
+      'order_sets.applying': 'அனுப்பப்படுகிறது...',
+      // REVIEW: AI first-pass
+      'order_sets.add_to_basket': '{n}-ஐ கூடையில் சேர்',
+      // REVIEW: AI first-pass
+      'order_sets.apply_count': '{total}-இல் {sel} பதிவு செய்',
       // Vitals chart - REVIEW
       'vitals_chart.title': 'வைட்டல்ஸ் சார்ட்டிங்',
       'vitals_chart.title_prefix': 'வைட்டல்ஸ்',
@@ -7186,6 +7483,11 @@ class AppStrings {
       // CDS blocker - REVIEW: clinical-safety, Tamil-fluent clinician must verify
       // REVIEW:
       'cds.blocker_title': 'மருந்துச்சீட்டு தடுக்கப்பட்டது',
+      // REVIEW: AI first-pass, safety-critical copy
+      'cds.blocker_no_override_hint':
+          'CPOE ஆர்டரில் இந்தப் பாதுகாப்புத் தடைகளை மீற முடியாது. ஆர்டரை மாற்றவும், அல்லது பதிவு செய்யப்பட்ட மீறல் ஆதரிக்கப்படும் மருந்துச்சீட்டு வழிமுறையைப் பயன்படுத்தவும்.',
+      // REVIEW: AI first-pass
+      'cds.blocker_adjust_order': 'ஆர்டரை மாற்று',
       // REVIEW:
       'cds.blocker_body':
           'மருத்துவ முடிவு ஆதரவு பின்வரும் சிக்கல்களைக் குறிப்பிட்டுள்ளது. '
@@ -9285,6 +9587,105 @@ class AppStrings {
       'orders.completed_toast': 'ఆర్డర్ పూర్తయింది',
       'orders.complete_failed_prefix': 'ఆర్డర్ పూర్తి చేయడంలో విఫలమైంది:',
       'orders.retry': 'మళ్ళీ ప్రయత్నించు',
+      // REVIEW: AI first-pass
+      'orders.filter.discontinued': 'నిలిపివేసినవి',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue': 'నిలిపివేయి',
+      // REVIEW: AI first-pass
+      'orders.cancel': 'ఆర్డర్ రద్దు చేయి',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue_title': 'ఆర్డర్ నిలిపివేయి',
+      // REVIEW: AI first-pass
+      'orders.cancel_title': 'ఆర్డర్ రద్దు చేయి',
+      // REVIEW: AI first-pass
+      'orders.stop_reason_label': 'కారణం (తప్పనిసరి)',
+      // REVIEW: AI first-pass, clinical wording
+      'orders.stop_reason_hint': 'ఈ ఆర్డర్ ఆపడానికి వైద్యపరమైన కారణం',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'orders.discontinued_toast': 'ఆర్డర్ నిలిపివేయబడింది',
+      // REVIEW: AI first-pass
+      'orders.cancelled_toast': 'ఆర్డర్ రద్దు చేయబడింది',
+      // REVIEW: AI first-pass
+      'orders.stop_failed_prefix': 'ఆర్డర్ ఆపడం విఫలమైంది:',
+      // REVIEW: AI first-pass
+      'composer.title': 'కొత్త ఆర్డర్లు',
+      // REVIEW: AI first-pass
+      'composer.search_label': 'ఆర్డర్ జాబితాలో వెతకండి',
+      // REVIEW: AI first-pass
+      'composer.search_hint': 'మందులు & పరీక్షలు వెతకండి...',
+      // REVIEW: AI first-pass
+      'composer.search_hint_tests_only': 'పరీక్షలు & ఇమేజింగ్ వెతకండి...',
+      // REVIEW: AI first-pass
+      'composer.section.medications': 'మందులు (ఫార్ములరీ)',
+      // REVIEW: AI first-pass
+      'composer.section.investigations': 'పరీక్షలు & ఇమేజింగ్',
+      // REVIEW: AI first-pass
+      'composer.order_sets': 'ఆర్డర్ సెట్లు',
+      // REVIEW: AI first-pass
+      'composer.type.radiology': 'రేడియాలజీ / ఇమేజింగ్',
+      // REVIEW: AI first-pass
+      'composer.type.consult': 'సంప్రదింపు / రెఫరల్',
+      // REVIEW: AI first-pass
+      'composer.type.diet': 'ఆహార ఆర్డర్',
+      // REVIEW: AI first-pass
+      'composer.empty_basket':
+          'జాబితాలో వెతకండి, ఒక ఆర్డర్ సెట్ ఎంచుకోండి, లేదా పైన ఉన్న త్వరిత ఎంపికలను వాడండి.\nఅన్ని ఆర్డర్లు ఒకే బ్యాచ్‌గా సంతకం చేయబడతాయి.',
+      // REVIEW: AI first-pass
+      'composer.basket_count': 'బుట్టలో: {n}',
+      // REVIEW: AI first-pass, clinical action label
+      'composer.place_orders': 'సంతకం చేసి పంపండి ({n})',
+      // REVIEW: AI first-pass
+      'composer.placing': 'పంపుతోంది...',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'composer.placed_toast': '{n} ఆర్డర్(లు) నమోదు అయ్యాయి',
+      // REVIEW: AI first-pass
+      'composer.submit_failed': 'ఆర్డర్లు నమోదు కాలేదు',
+      // REVIEW: AI first-pass, device-policy wording
+      'composer.desktop_only':
+          'వైద్య ఆర్డర్లు డెస్క్‌టాప్/టాబ్లెట్ స్టాఫ్ యాప్ నుండి మాత్రమే నమోదు చేయగలరు.',
+      // REVIEW: AI first-pass
+      'composer.relogin':
+          'వైద్య ఆర్డర్లు నమోదు చేసే ముందు దయచేసి మళ్ళీ లాగిన్ అవ్వండి.',
+      // REVIEW: AI first-pass
+      'composer.warnings_title': 'CDS హెచ్చరికలను సమీక్షించండి',
+      // REVIEW: AI first-pass, role-policy wording
+      'composer.med_items_skipped':
+          '{n} మందు అంశం(లు) దాటవేయబడ్డాయి - డాక్టర్ పాత్ర అవసరం',
+      // REVIEW: AI first-pass
+      'composer.remove_item': 'బుట్ట నుండి తీసివేయి',
+      // REVIEW: AI first-pass
+      'composer.source.order_set': 'ఆర్డర్ సెట్',
+      // REVIEW: AI first-pass
+      'composer.source.catalog': 'జాబితా',
+      // REVIEW: AI first-pass, safety wording
+      'composer.blocked_chip': 'భద్రతా తనిఖీలచే నిరోధించబడింది',
+      // REVIEW: AI first-pass
+      'composer.chip.medication': 'మందు',
+      // REVIEW: AI first-pass
+      'composer.chip.investigation': 'పరీక్ష',
+      // REVIEW: AI first-pass
+      'composer.add_to_basket': 'బుట్టలో చేర్చు',
+      // REVIEW: AI first-pass
+      'composer.duration_days': 'వ్యవధి (రోజులు)',
+      // REVIEW: AI first-pass
+      'composer.study_name': 'స్టడీ',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      // REVIEW: AI first-pass
+      'composer.specialty': 'ప్రత్యేకత',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      // REVIEW: AI first-pass
+      'order_sets.no_placeable_items': 'నమోదు చేయగల ఆర్డర్ అంశాలు ఎంచుకోబడలేదు',
+      // REVIEW: AI first-pass
+      'order_sets.apply_failed': 'వర్తింపజేయడం విఫలమైంది',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'order_sets.placed_toast': 'సెట్ నుండి {n} ఆర్డర్లు నమోదు అయ్యాయి',
+      // REVIEW: AI first-pass
+      'order_sets.applying': 'పంపుతోంది...',
+      // REVIEW: AI first-pass
+      'order_sets.add_to_basket': '{n} బుట్టలో చేర్చు',
+      // REVIEW: AI first-pass
+      'order_sets.apply_count': '{total}లో {sel} నమోదు చేయి',
       // Vitals chart - REVIEW
       'vitals_chart.title': 'వైటల్స్ చార్టింగ్',
       'vitals_chart.title_prefix': 'వైటల్స్',
@@ -9621,6 +10022,11 @@ class AppStrings {
           'అలర్జీ సంఘర్షణ: ఈ అతిక్రమణను ఆమోదించిన పర్యవేక్షక వైద్యుడిని మీ కారణంలో పేర్కొనండి.',
       // REVIEW:
       'cds.override_reason_label': 'అతిక్రమణ కారణం (అవసరం, కనీసం 5 అక్షరాలు)',
+      // REVIEW: AI first-pass, safety-critical copy
+      'cds.blocker_no_override_hint':
+          'CPOE ఆర్డర్‌పై ఈ భద్రతా అడ్డంకులను అతిక్రమించలేరు. ఆర్డర్‌ను మార్చండి, లేదా నమోదిత అతిక్రమణకు మద్దతు ఉన్న ప్రిస్క్రిప్షన్ వర్క్‌ఫ్లోను వాడండి.',
+      // REVIEW: AI first-pass
+      'cds.blocker_adjust_order': 'ఆర్డర్ మార్చు',
       // REVIEW:
       'cds.override_button': 'అతిక్రమించు',
       // REVIEW:

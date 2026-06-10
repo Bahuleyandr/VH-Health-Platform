@@ -1,10 +1,23 @@
 // lib/features/productivity/screens/order_sets_screen.dart
 //
-// Order set picker + apply (Sprint 8). Doctor browses bundle templates,
-// reviews items, applies to an encounter.
+// Order set picker + apply (Sprint 8; reworked for roadmap E1). Doctor
+// browses bundle templates, reviews items, and either:
+//   * composerMode: pops the selected raw items back to the CPOE composer
+//     basket (no network here), or
+//   * standalone with patient context: places REAL clinical orders through
+//     POST /emr/orders/bulk (atomic, server-side CDS), then logs the
+//     application via /productivity/order-sets/:id/apply best-effort.
+//     (Pre-E1 this screen only wrote the application log row and told the
+//     doctor "Applied N orders" while no clinical_orders existed — nursing
+//     and lab never saw them.)
+//   * standalone without patient context: browse-only.
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/core/services/medical_api_service.dart';
+import 'package:vhhealth_staff/features/doctor/widgets/cds_blocker_modal.dart';
+import 'package:vhhealth_staff/features/emr/models/order_draft.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class _OrderSetSummary {
   _OrderSetSummary.fromJson(Map<String, dynamic> j)
@@ -75,9 +88,19 @@ const _kindColours = <String, Color>{
 };
 
 class OrderSetsScreen extends StatefulWidget {
-  const OrderSetsScreen({super.key, this.encounterId, this.patientUid});
+  const OrderSetsScreen({
+    super.key,
+    this.encounterId,
+    this.patientUid,
+    this.composerMode = false,
+  });
   final int? encounterId;
   final String? patientUid;
+
+  /// When true the detail screen pops the SELECTED RAW ITEMS
+  /// (List&lt;Map&gt; of {kind, payload}) back through this screen to the
+  /// CPOE composer instead of placing orders itself.
+  final bool composerMode;
 
   @override
   State<OrderSetsScreen> createState() => _OrderSetsScreenState();
@@ -173,6 +196,7 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
                         summary: _sets[i],
                         encounterId: widget.encounterId,
                         patientUid: widget.patientUid,
+                        composerMode: widget.composerMode,
                       ),
                     ),
                   ),
@@ -184,10 +208,34 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
 }
 
 class _SetCard extends StatelessWidget {
-  const _SetCard({required this.summary, this.encounterId, this.patientUid});
+  const _SetCard({
+    required this.summary,
+    this.encounterId,
+    this.patientUid,
+    this.composerMode = false,
+  });
   final _OrderSetSummary summary;
   final int? encounterId;
   final String? patientUid;
+  final bool composerMode;
+
+  Future<void> _open(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final result = await navigator.push<List<Map<String, dynamic>>>(
+      MaterialPageRoute(
+        builder: (_) => OrderSetDetailScreen(
+          orderSetId: summary.id,
+          encounterId: encounterId,
+          patientUid: patientUid,
+          composerMode: composerMode,
+        ),
+      ),
+    );
+    // Composer picker: chain the selected items up to the composer.
+    if (composerMode && result != null && navigator.mounted) {
+      navigator.pop(result);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -195,15 +243,7 @@ class _SetCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => OrderSetDetailScreen(
-              orderSetId: summary.id,
-              encounterId: encounterId,
-              patientUid: patientUid,
-            ),
-          ),
-        ),
+        onTap: () => _open(context),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -260,10 +300,12 @@ class OrderSetDetailScreen extends StatefulWidget {
     required this.orderSetId,
     this.encounterId,
     this.patientUid,
+    this.composerMode = false,
   });
   final int orderSetId;
   final int? encounterId;
   final String? patientUid;
+  final bool composerMode;
 
   @override
   State<OrderSetDetailScreen> createState() => _OrderSetDetailScreenState();
@@ -322,41 +364,92 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
     }
   }
 
+  List<Map<String, dynamic>> get _selectedRawItems => _items
+      .where((it) => _selected.contains(it.id))
+      .map((it) => {'id': it.id, 'kind': it.kind, 'payload': it.payload})
+      .toList();
+
+  /// Composer picker: no network — hand the selected raw items back.
+  void _returnToComposer() {
+    Navigator.of(context).pop(_selectedRawItems);
+  }
+
+  /// Standalone with patient context: place REAL clinical orders through
+  /// the atomic bulk CPOE endpoint (full server-side CDS), then log the
+  /// set application for usage analytics best-effort. Pre-E1 this method
+  /// only wrote the analytics row — see the file header.
   Future<void> _apply() async {
+    final s = AppStrings.of(context);
+    final patientUid = widget.patientUid;
+    if (patientUid == null || patientUid.isEmpty) return;
     setState(() {
       _applying = true;
       _error = null;
     });
-    final applied = _items
-        .where((it) => _selected.contains(it.id))
-        .map((it) => {'id': it.id, 'kind': it.kind, 'payload': it.payload})
-        .toList();
+    final applied = _selectedRawItems;
     final skipped = _items
         .where((it) => !_selected.contains(it.id))
         .map((it) => {'id': it.id, 'kind': it.kind})
         .toList();
     try {
-      final response = await ApiClient.post(
-        '/productivity/order-sets/${widget.orderSetId}/apply',
-        body: {
-          if (widget.encounterId != null) 'encounter_id': widget.encounterId,
-          if (widget.patientUid != null) 'patient_uid': widget.patientUid,
-          'items_applied': applied,
-          'items_skipped': skipped,
-        },
-      );
-      if (!mounted) return;
-      if (response.isSuccess) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Applied ${applied.length} orders')),
-        );
-        Navigator.of(context).pop(true);
-      } else {
+      final drafts = applied
+          .map(orderDraftFromSetItem)
+          .whereType<OrderDraft>()
+          .toList();
+      if (drafts.isEmpty) {
         setState(() {
           _applying = false;
-          _error = response.message ?? 'Apply failed';
+          _error = s.orderSetsNoPlaceableItems;
         });
+        return;
       }
+      final orders = [
+        for (final d in drafts)
+          buildBulkOrderItem(
+            d,
+            patientUid: patientUid,
+            encounterId: widget.encounterId?.toString(),
+          ),
+      ];
+      final response = await MedicalApiService.createEmrOrdersBulkRaw(orders);
+      if (!mounted) return;
+      if (!response.isSuccess) {
+        final cds = parseCdsBlockerDetails(response.raw);
+        if (cds.blockers.isNotEmpty) {
+          setState(() => _applying = false);
+          await CdsBlockerModal.show(
+            context,
+            blockers: cds.blockers,
+            warnings: cds.warnings,
+            allowOverride: false,
+          );
+          return;
+        }
+        setState(() {
+          _applying = false;
+          _error = response.message ?? s.orderSetsApplyFailed;
+        });
+        return;
+      }
+      // Usage-analytics log — best-effort, never blocks the clinical path.
+      try {
+        await ApiClient.post(
+          '/productivity/order-sets/${widget.orderSetId}/apply',
+          body: {
+            if (widget.encounterId != null) 'encounter_id': widget.encounterId,
+            'patient_uid': patientUid,
+            'items_applied': applied,
+            'items_skipped': skipped,
+          },
+        );
+      } catch (_) {
+        // Analytics row only — the clinical orders are already placed.
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.orderSetsPlacedToast(drafts.length))),
+      );
+      Navigator.of(context).pop(const <Map<String, dynamic>>[]);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -430,28 +523,46 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
                 );
               },
             ),
-      bottomNavigationBar: _set == null
+      bottomNavigationBar: _set == null || !_canAct
           ? null
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: FilledButton.icon(
-                  onPressed: _applying || _selected.isEmpty ? null : _apply,
+                  onPressed: _applying || _selected.isEmpty
+                      ? null
+                      : widget.composerMode
+                      ? _returnToComposer
+                      : _apply,
                   icon: _applying
                       ? const SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.check),
-                  label: Text(
-                    _applying
-                        ? 'Applying…'
-                        : 'Apply ${_selected.length} of ${_items.length}',
-                  ),
+                      : Icon(
+                          widget.composerMode
+                              ? Icons.playlist_add_check
+                              : Icons.check,
+                        ),
+                  label: Text(_actionLabel(AppStrings.of(context))),
                 ),
               ),
             ),
     );
+  }
+
+  /// Browse-only when there is neither a composer to feed nor a patient to
+  /// order against.
+  bool get _canAct =>
+      widget.composerMode ||
+      (widget.patientUid != null && widget.patientUid!.isNotEmpty);
+
+  String _actionLabel(AppStrings s) {
+    if (_applying) return s.orderSetsApplying;
+    if (widget.composerMode) {
+      return s.orderSetsAddToBasket(_selected.length);
+    }
+    return s.orderSetsApplyCount(_selected.length, _items.length);
   }
 }
