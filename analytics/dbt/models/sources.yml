@@ -1,0 +1,35 @@
+version: 2
+
+# The replicated OLTP tables (publication vh_analytics_pub, migration 295).
+# This list must stay a subset of the publication — locked OLTP-side by
+# apps/backend/src/tests/analytics-warehouse.deep.test.js.
+sources:
+  - name: vhhealth
+    description: >
+      Logical-replication copy of the curated OLTP tables. Read-only to dbt;
+      schema is kept in lockstep by running the same migration chain on the
+      warehouse (warehouse-migrate job) before REFRESH PUBLICATION.
+    schema: public
+    tables:
+      - name: admissions
+      - name: appointments
+      - name: emergency_visits
+      - name: icu_admissions
+      - name: ot_schedules
+      - name: bed_transfers
+      - name: beds
+      - name: wards
+      - name: departments
+      - name: doctors
+      - name: billing_invoices
+      - name: billing_invoice_items
+      - name: billing_payments
+      - name: payers
+      - name: tpas
+      - name: tpa_claims
+      - name: insurance_claims
+      - name: insurance_policies
+      - name: clinical_orders
+      - name: pharmacy_orders
+      - name: investigations
+      - name: users

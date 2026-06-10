@@ -58,3 +58,8 @@ apps/backend/storage/
 # QA harness run artifacts (raw stdout/stderr, JSON traces). Findings live
 # under docs/qa-findings/ and ARE committed.
 qa-runs/
+  
+# dbt (analytics warehouse) - local run artifacts  
+analytics/dbt/target/  
+analytics/dbt/logs/  
+analytics/dbt/profiles/.user.yml  

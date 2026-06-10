@@ -195,33 +195,44 @@ logger.info(
   `→ Migrations: ${appliedCount} applied, ${alreadyApplied} already-tracked, ${knownBadSkipped} skipped (known-bad), ${errors} with non-fatal errors\n`
 );
 
-// Seed minimal lookup data the tests rely on
-logger.info('→ Seeding departments + doctors …');
-try {
-  await import('./seed-departments-doctors-local.mjs');
-  logger.info('  ✓ Departments + doctors seeded\n');
-} catch (err) {
-  logger.info(`  ! Seed departments failed: ${err.message}\n`);
-}
+// Seed minimal lookup data the tests rely on. Skippable (--skip-seeds /
+// CI_DB_SKIP_SEEDS=1) for targets that must hold REPLICATED truth only —
+// the analytics warehouse subscriber (roadmap F1) applies this same
+// migration chain, and locally-seeded rows there would collide with the
+// logical-replication initial copy (duplicate keys → wedged subscription)
+// or linger as phantom rows the publisher never had.
+const skipSeeds =
+  process.argv.includes('--skip-seeds') || process.env.CI_DB_SKIP_SEEDS === '1';
+if (skipSeeds) {
+  logger.info('→ Seeds skipped (--skip-seeds / CI_DB_SKIP_SEEDS=1)\n');
+} else {
+  logger.info('→ Seeding departments + doctors …');
+  try {
+    await import('./seed-departments-doctors-local.mjs');
+    logger.info('  ✓ Departments + doctors seeded\n');
+  } catch (err) {
+    logger.info(`  ! Seed departments failed: ${err.message}\n`);
+  }
 
-logger.info('→ Seeding ICD-10 catalog …');
-try {
-  await import('./seed-icd10-local.mjs');
-  logger.info('  ✓ ICD-10 seeded\n');
-} catch (err) {
-  logger.info(`  ! Seed ICD-10 failed: ${err.message}\n`);
-}
+  logger.info('→ Seeding ICD-10 catalog …');
+  try {
+    await import('./seed-icd10-local.mjs');
+    logger.info('  ✓ ICD-10 seeded\n');
+  } catch (err) {
+    logger.info(`  ! Seed ICD-10 failed: ${err.message}\n`);
+  }
 
-// Test staff accounts (EMP-1001..EMP-1022) — required for every staff-side
-// login in tests, smoke runs, and the agent-driven QA swarm. Without these
-// a fresh vhhealth_test has zero rows in staff/users and every EMP-100X
-// login returns "Login failed", blocking all journey drivers at step 1.
-logger.info('→ Seeding test staff accounts (EMP-1001..EMP-1022) …');
-try {
-  await import('./seed-test-staff-accounts.mjs');
-  logger.info('  ✓ Test staff accounts seeded\n');
-} catch (err) {
-  logger.info(`  ! Seed test staff failed: ${err.message}\n`);
+  // Test staff accounts (EMP-1001..EMP-1022) — required for every staff-side
+  // login in tests, smoke runs, and the agent-driven QA swarm. Without these
+  // a fresh vhhealth_test has zero rows in staff/users and every EMP-100X
+  // login returns "Login failed", blocking all journey drivers at step 1.
+  logger.info('→ Seeding test staff accounts (EMP-1001..EMP-1022) …');
+  try {
+    await import('./seed-test-staff-accounts.mjs');
+    logger.info('  ✓ Test staff accounts seeded\n');
+  } catch (err) {
+    logger.info(`  ! Seed test staff failed: ${err.message}\n`);
+  }
 }
 
 await client.end();

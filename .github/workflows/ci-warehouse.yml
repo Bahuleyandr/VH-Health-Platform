@@ -1,0 +1,91 @@
+# Analytics warehouse CI (roadmap F1/F2) — validates the dbt project against
+# a REAL migrations-built schema, exactly the way the warehouse runs it:
+# apply the full migration chain (= the replicated table shapes), then
+# `dbt build` (models + tests) with the same env-var profile the in-cluster
+# CronJob uses. A model referencing a column that doesn't exist fails HERE,
+# not at 03:00 in the hospital.
+name: ci-warehouse
+
+on:
+  pull_request:
+    paths:
+      - "analytics/**"
+      - "infra/kubernetes/optional/analytics-warehouse/**"
+      - ".github/workflows/ci-warehouse.yml"
+  push:
+    branches: [main]
+    paths:
+      - "analytics/**"
+      - "infra/kubernetes/optional/analytics-warehouse/**"
+      - ".github/workflows/ci-warehouse.yml"
+
+concurrency:
+  group: ci-warehouse-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dbt-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vhhealth_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+
+      - name: Install backend deps (migration runner)
+        working-directory: apps/backend
+        run: npm ci --ignore-scripts
+
+      - name: Apply full migration chain (replicated schema shapes)
+        working-directory: apps/backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vhhealth_test
+        run: |
+          node scripts/ensure-pgvector-extension.mjs
+          node scripts/ci-setup-db.mjs --skip-seeds
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dbt
+        # dbt-core<2 matters: bare resolution can land on the dbt Fusion
+        # 2.0 alpha, which has no postgres adapter (hit locally 2026-06-11).
+        # Validated combo: core 1.11.x + dbt-postgres 1.9.1. Keep schema.yml
+        # in the pre-1.10 test syntax — the in-cluster CronJob image is
+        # dbt-postgres:1.9.latest (core 1.9), which predates `arguments:`.
+        run: pip install --quiet "dbt-core<2" "dbt-postgres~=1.9.0"
+
+      - name: dbt build (models + tests)
+        working-directory: analytics/dbt
+        env:
+          DBT_PG_HOST: 127.0.0.1
+          DBT_PG_PORT: "5432"
+          DBT_PG_USER: postgres
+          DBT_PG_PASSWORD: postgres
+          DBT_PG_DBNAME: vhhealth_test
+          DBT_PG_SCHEMA: analytics
+        run: |
+          dbt deps --profiles-dir profiles || true   # no packages by design
+          dbt build --profiles-dir profiles --no-use-colors
+
+      - name: kustomize build (module manifests + configmap refs resolve)
+        run: |
+          kubectl kustomize infra/kubernetes/optional/analytics-warehouse > /dev/null
+          echo "kustomize build OK"

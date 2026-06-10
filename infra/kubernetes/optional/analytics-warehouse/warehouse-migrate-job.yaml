@@ -1,0 +1,82 @@
+# Applies the SAME backend migration chain to the warehouse, so the
+# subscriber's table definitions stay in lockstep with the publisher —
+# logical replication does not replicate DDL.
+#
+# Re-run after EVERY backend release that adds migrations, then run
+# subscribe-job with REFRESH_PUBLICATION=1 (see README runbook). Mirrors
+# apps/backend/migration-job.yaml; differences:
+#   * DATABASE_URL = the warehouse cluster's own app secret (uri key).
+#   * CI_DB_SKIP_SEEDS=1 — the warehouse holds replicated truth only;
+#     seeded rows here would collide with the subscription's initial copy.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vh-warehouse-migrate
+  labels:
+    app.kubernetes.io/name: vh-warehouse-migrate
+    app.kubernetes.io/component: analytics-warehouse
+    app.kubernetes.io/part-of: vhhealth
+  namespace: vhhealth-platform
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vh-warehouse-migrate
+        app.kubernetes.io/component: analytics-warehouse
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # Same placeholder convention as apps/backend/migration-job.yaml —
+          # ArgoCD/kustomize pins the real digest in overlays/prod.
+          image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo ">> warehouse db:ensure-pgvector"
+              npm run db:ensure-pgvector
+              echo ">> warehouse ci-setup-db.mjs (seeds skipped)"
+              node scripts/ci-setup-db.mjs --skip-seeds
+              echo ">> warehouse schema in lockstep"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: CI_DB_SKIP_SEEDS
+              value: "1"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-warehouse-app
+                  key: uri
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits: { cpu: "1000m", memory: "1Gi" }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: app-tmp, mountPath: /app/tmp }
+            - { name: prisma-cache, mountPath: /app/node_modules/.prisma }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 128Mi }
+        - name: app-tmp
+          emptyDir: { sizeLimit: 128Mi }
+        - name: prisma-cache
+          emptyDir: { sizeLimit: 64Mi }

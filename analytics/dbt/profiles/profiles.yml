@@ -1,0 +1,22 @@
+# Env-var driven profile — one file for local QA validation, CI, and the
+# in-cluster dbt CronJob. No secrets here.
+#
+#   DBT_PG_HOST     warehouse host (vhhealth-warehouse-rw in-cluster)
+#   DBT_PG_PORT     5432 (55432 against the local QA cluster)
+#   DBT_PG_USER     vh_dbt (BYPASSRLS — replicated tables keep FORCEd RLS)
+#   DBT_PG_PASSWORD from the warehouse credentials secret
+#   DBT_PG_DBNAME   vhhealth
+#   DBT_PG_SCHEMA   analytics (base schema; stg/marts suffixes apply)
+vh_warehouse:
+  target: default
+  outputs:
+    default:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', '127.0.0.1') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5432') | int }}"
+      user: "{{ env_var('DBT_PG_USER', 'vh_dbt') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', '') }}"
+      dbname: "{{ env_var('DBT_PG_DBNAME', 'vhhealth') }}"
+      schema: "{{ env_var('DBT_PG_SCHEMA', 'analytics') }}"
+      threads: 4
+      connect_timeout: 10
