@@ -9188,6 +9188,7 @@ model tenants {
   pharmacy_stock_movements                   pharmacy_stock_movements[]
   pharmacy_substitutes                       pharmacy_substitutes[]
   pharmacy_suppliers                         pharmacy_suppliers[]
+  portal_proxy_grants                        portal_proxy_grants[]
   postop_complication_alerts                 postop_complication_alerts[]
   postop_notes                               postop_notes[]
   preop_checklists                           preop_checklists[]
@@ -10951,45 +10952,50 @@ model lab_pathologist_signoffs {
 }
 
 model lab_results {
-  id                   Int                   @id @default(autoincrement())
-  tenant_id            String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  booking_id           Int?
-  patient_uid          String                @db.Uuid
-  patient_name         String?               @db.VarChar(255)
-  hl7_message_id       String?               @db.VarChar(100)
-  hl7_segment_index    Int?
-  loinc_code           String?               @db.VarChar(20)
-  test_code            String                @db.VarChar(50)
-  test_name            String                @db.VarChar(255)
-  value_text           String?               @db.VarChar(255)
-  value_numeric        Decimal?              @db.Decimal(15, 4)
-  unit                 String?               @db.VarChar(40)
-  reference_range      String?               @db.VarChar(100)
-  abnormal_flag        String?               @db.VarChar(10)
-  status               String                @default("preliminary") @db.VarChar(20)
-  is_critical          Boolean               @default(false)
-  performed_by_lab     String?               @db.VarChar(255)
-  performed_at         DateTime?             @db.Timestamptz(6)
-  received_at          DateTime              @default(now()) @db.Timestamptz(6)
-  signed_off_at        DateTime?             @db.Timestamptz(6)
-  signed_off_by        String?               @db.Uuid
-  comments             String?
-  raw_obx              String?
-  panel_id             String?               @db.Uuid
-  panel_code           String?               @db.VarChar(50)
-  reference_range_low  Decimal?              @db.Decimal(15, 4)
-  reference_range_high Decimal?              @db.Decimal(15, 4)
-  created_at           DateTime              @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime              @default(now()) @db.Timestamptz(6)
-  investigation_id     Int?
-  specimen_id          Int?
-  analyzer_id          Int?
-  qc_run_id            Int?
-  lab_critical_alerts  lab_critical_alerts[]
-  lab_analyzers        lab_analyzers?        @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
-  investigations       investigations?       @relation(fields: [investigation_id], references: [id], onUpdate: NoAction)
-  lab_analyzer_qc_runs lab_analyzer_qc_runs? @relation(fields: [qc_run_id], references: [id], onUpdate: NoAction)
-  lab_specimens        lab_specimens?        @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
+  id                     Int                   @id @default(autoincrement())
+  tenant_id              String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  booking_id             Int?
+  patient_uid            String                @db.Uuid
+  patient_name           String?               @db.VarChar(255)
+  hl7_message_id         String?               @db.VarChar(100)
+  hl7_segment_index      Int?
+  loinc_code             String?               @db.VarChar(20)
+  test_code              String                @db.VarChar(50)
+  test_name              String                @db.VarChar(255)
+  value_text             String?               @db.VarChar(255)
+  value_numeric          Decimal?              @db.Decimal(15, 4)
+  unit                   String?               @db.VarChar(40)
+  reference_range        String?               @db.VarChar(100)
+  abnormal_flag          String?               @db.VarChar(10)
+  status                 String                @default("preliminary") @db.VarChar(20)
+  is_critical            Boolean               @default(false)
+  performed_by_lab       String?               @db.VarChar(255)
+  performed_at           DateTime?             @db.Timestamptz(6)
+  received_at            DateTime              @default(now()) @db.Timestamptz(6)
+  signed_off_at          DateTime?             @db.Timestamptz(6)
+  signed_off_by          String?               @db.Uuid
+  comments               String?
+  raw_obx                String?
+  panel_id               String?               @db.Uuid
+  panel_code             String?               @db.VarChar(50)
+  reference_range_low    Decimal?              @db.Decimal(15, 4)
+  reference_range_high   Decimal?              @db.Decimal(15, 4)
+  created_at             DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime              @default(now()) @db.Timestamptz(6)
+  investigation_id       Int?
+  specimen_id            Int?
+  analyzer_id            Int?
+  qc_run_id              Int?
+  released_to_patient_at DateTime?             @db.Timestamptz(6)
+  release_hold           Boolean               @default(false)
+  release_hold_by        String?               @db.Uuid
+  release_hold_reason    String?
+  release_hold_at        DateTime?             @db.Timestamptz(6)
+  lab_critical_alerts    lab_critical_alerts[]
+  lab_analyzers          lab_analyzers?        @relation(fields: [analyzer_id], references: [id], onUpdate: NoAction)
+  investigations         investigations?       @relation(fields: [investigation_id], references: [id], onUpdate: NoAction)
+  lab_analyzer_qc_runs   lab_analyzer_qc_runs? @relation(fields: [qc_run_id], references: [id], onUpdate: NoAction)
+  lab_specimens          lab_specimens?        @relation(fields: [specimen_id], references: [id], onUpdate: NoAction)
 
   @@index([patient_uid, received_at(sort: Desc)], map: "idx_lab_results_patient")
   @@index([panel_id], map: "idx_lab_results_panel")
@@ -11002,6 +11008,7 @@ model lab_results {
   @@index([loinc_code], map: "idx_lab_results_loinc", where: raw("(loinc_code IS NOT NULL)"))
   @@index([tenant_id, status, received_at], map: "idx_lab_results_pending_signoff", where: raw("((signed_off_at IS NULL) AND ((status)::text = 'preliminary'::text))"))
   @@index([tenant_id, specimen_id], map: "idx_lab_results_specimen", where: raw("(specimen_id IS NOT NULL)"))
+  @@index([patient_uid, released_to_patient_at], map: "idx_lab_results_release", where: raw("(release_hold = false)"))
 }
 
 model lab_reference_ranges {
@@ -14063,4 +14070,30 @@ model ophthalmic_refractions {
 
   @@unique([exam_id, eye, refraction_type], map: "uq_ophthalmic_refractions_eye")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_ophthalmic_refractions_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model portal_proxy_grants {
+  id             Int       @id @default(autoincrement())
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid    String    @db.Uuid
+  proxy_uid      String    @db.Uuid
+  relationship   String?   @db.VarChar(40)
+  scope          String[]  @default(["results"])
+  status         String    @default("active") @db.VarChar(12)
+  consent_method String    @db.VarChar(20)
+  consent_ref    String?   @db.VarChar(200)
+  granted_by     String?   @db.Uuid
+  granted_at     DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at     DateTime? @db.Timestamptz(6)
+  revoked_at     DateTime? @db.Timestamptz(6)
+  revoked_by     String?   @db.Uuid
+  revoked_reason String?
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_portal_proxy_grants_tenant")
+
+  @@unique([patient_uid, proxy_uid], map: "uq_portal_proxy_grants_active", where: raw("((status)::text = 'active'::text)"))
+  @@index([proxy_uid, status], map: "idx_portal_proxy_grants_proxy")
 }

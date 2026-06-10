@@ -20,6 +20,10 @@ const envSchema = Joi.object({
   PORT: Joi.number().default(5000).label('PORT'),
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
+  // E6 — hours between lab-result sign-off and automatic patient release
+  // (0 = release immediately at sign-off; clinician hold always wins).
+  PORTAL_RESULT_RELEASE_DELAY_HOURS: Joi.number().min(0).max(720).optional()
+    .label('PORTAL_RESULT_RELEASE_DELAY_HOURS'),
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development')
