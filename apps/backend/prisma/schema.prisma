@@ -4114,6 +4114,7 @@ model clinical_trial_match_results {
   scored_at               DateTime                @default(now()) @db.Timestamptz(6)
   tenants                 tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   clinical_trials_catalog clinical_trials_catalog @relation(fields: [trial_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_enrollments    research_enrollments[]
 
   @@unique([tenant_id, patient_uid, trial_id, scored_at])
   @@index([tenant_id, patient_uid, scored_at(sort: Desc)], map: "idx_clinical_trial_matches_patient")
@@ -4137,6 +4138,7 @@ model clinical_trials_catalog {
   last_refreshed               DateTime                       @default(now()) @db.Timestamptz(6)
   clinical_trial_match_results clinical_trial_match_results[]
   tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_registries          research_registries[]
 
   @@unique([tenant_id, nct_id])
   @@index([tenant_id, status], map: "idx_clinical_trials_tenant_status")
@@ -9186,6 +9188,10 @@ model tenants {
   radiology_orders                           radiology_orders[]
   referrals                                  referrals[]
   remote_prescriptions                       remote_prescriptions[]
+  research_crf_forms                         research_crf_forms[]
+  research_crf_responses                     research_crf_responses[]
+  research_enrollments                       research_enrollments[]
+  research_registries                        research_registries[]
   resource_bookings                          resource_bookings[]
   roster_calendar_events                     roster_calendar_events[]
   roster_weather_signals                     roster_weather_signals[]
@@ -13631,4 +13637,101 @@ model lab_interface_messages {
 
   @@index([analyzer_id, created_at(sort: Desc)], map: "idx_lab_interface_messages_analyzer", where: raw("(analyzer_id IS NOT NULL)"))
   @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_lab_interface_messages_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_crf_forms {
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  registry_id            Int
+  name                   String                   @db.VarChar(160)
+  version                Int                      @default(1)
+  status                 String                   @default("draft") @db.VarChar(12)
+  field_schema           Json                     @default("[]")
+  created_by             String?                  @db.Uuid
+  published_at           DateTime?                @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_crf_forms_tenant")
+  research_registries    research_registries      @relation(fields: [registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_crf_responses research_crf_responses[]
+
+  @@unique([registry_id, name, version], map: "uq_research_crf_forms_version")
+  @@index([registry_id, status], map: "idx_research_crf_forms_registry")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_crf_responses {
+  id                   Int                  @id @default(autoincrement())
+  tenant_id            String               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  form_id              Int
+  enrollment_id        Int
+  visit_label          String               @default("baseline") @db.VarChar(80)
+  data                 Json                 @default("{}")
+  autofilled           Json                 @default("{}")
+  status               String               @default("draft") @db.VarChar(12)
+  recorded_by          String?              @db.Uuid
+  submitted_at         DateTime?            @db.Timestamptz(6)
+  verified_by          String?              @db.Uuid
+  verified_at          DateTime?            @db.Timestamptz(6)
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  tenants              tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_crf_responses_tenant")
+  research_enrollments research_enrollments @relation(fields: [enrollment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  research_crf_forms   research_crf_forms   @relation(fields: [form_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([enrollment_id, form_id, visit_label], map: "uq_research_crf_responses_visit")
+  @@index([enrollment_id, status], map: "idx_research_crf_responses_enrollment")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_enrollments {
+  id                           Int                           @id @default(autoincrement())
+  tenant_id                    String                        @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  registry_id                  Int
+  patient_uid                  String                        @db.Uuid
+  subject_code                 String                        @db.VarChar(60)
+  status                       String                        @default("enrolled") @db.VarChar(12)
+  match_id                     Int?
+  consent_ref                  String?                       @db.VarChar(200)
+  enrolled_by                  String?                       @db.Uuid
+  enrolled_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  withdrawn_at                 DateTime?                     @db.Timestamptz(6)
+  withdrawal_reason            String?
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  research_crf_responses       research_crf_responses[]
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_enrollments_tenant")
+  clinical_trial_match_results clinical_trial_match_results? @relation(fields: [match_id], references: [id], onUpdate: NoAction)
+  research_registries          research_registries           @relation(fields: [registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([registry_id, patient_uid], map: "uq_research_enrollments_live", where: raw("((status)::text = ANY ((ARRAY['screening'::character varying, 'enrolled'::character varying])::text[]))"))
+  @@unique([registry_id, subject_code], map: "uq_research_enrollments_subject")
+  @@index([patient_uid, status], map: "idx_research_enrollments_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model research_registries {
+  id                         Int                      @id @default(autoincrement())
+  tenant_id                  String                   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  code                       String                   @db.VarChar(40)
+  title                      String                   @db.VarChar(300)
+  kind                       String                   @default("registry") @db.VarChar(12)
+  trial_id                   Int?
+  description                String?
+  principal_investigator_uid String?                  @db.Uuid
+  status                     String                   @default("active") @db.VarChar(12)
+  created_by                 String?                  @db.Uuid
+  created_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                 @default(now()) @db.Timestamptz(6)
+  research_crf_forms         research_crf_forms[]
+  research_enrollments       research_enrollments[]
+  tenants                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_research_registries_tenant")
+  clinical_trials_catalog    clinical_trials_catalog? @relation(fields: [trial_id], references: [id], onUpdate: NoAction)
+
+  @@unique([tenant_id, code], map: "uq_research_registries_code")
 }
