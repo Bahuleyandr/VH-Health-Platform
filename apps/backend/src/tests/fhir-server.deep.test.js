@@ -12,6 +12,9 @@ let patientUid;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_code_bindings WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM patient_problems WHERE title LIKE 'C3TEST%'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -100,7 +103,14 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
         resourceType: 'Condition',
         clinicalStatus: { coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }] },
         code: {
-          coding: [{ system: 'http://hl7.org/fhir/sid/icd-10', code: 'C3T.1', display: 'C3TEST Hypothyroidism' }],
+          coding: [
+            { system: 'http://hl7.org/fhir/sid/icd-10', code: 'C3T.1', display: 'C3TEST Hypothyroidism' },
+            {
+              system: 'http://id.who.int/icd/release/11/mms',
+              code: '5A00',
+              display: 'C3TEST Iodine-deficiency-related hypothyroidism',
+            },
+          ],
           text: 'C3TEST Hypothyroidism',
         },
         subject: { reference: `Patient/${patientUid}` },
@@ -109,12 +119,27 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
     expect(res.status).toBe(201);
     expect(res.body.id).toMatch(/^p-/);
     expect(res.body.category[0].coding[0].code).toBe('problem-list-item');
+    expect(res.body.code.coding).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        system: 'http://id.who.int/icd/release/11/mms',
+        code: '5A00',
+      }),
+    ]));
 
     const problems = await prisma.$queryRawUnsafe(
-      `SELECT title, icd10_code, status FROM patient_problems WHERE patient_uid = $1::uuid`,
+      `SELECT id, title, icd10_code, status FROM patient_problems WHERE patient_uid = $1::uuid`,
       patientUid,
     );
     expect(problems.some((p) => p.icd10_code === 'C3T.1' && p.status === 'active')).toBe(true);
+    const createdProblem = problems.find((p) => p.icd10_code === 'C3T.1');
+    const bindings = await prisma.$queryRawUnsafe(
+      `SELECT system_key, code, display FROM clinical_code_bindings
+        WHERE resource_type = 'patient_problem' AND resource_id = $1`,
+      String(createdProblem.id),
+    );
+    expect(bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ system_key: 'ICD11', code: '5A00' }),
+    ]));
 
     // Duplicate active coded problem → 409 OperationOutcome.
     const dup = await authClient('DOCTOR')
@@ -135,6 +160,9 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
     const found = search.body.entry.map((e) => e.resource).find((r) => r.code?.text === 'C3TEST Hypothyroidism');
     expect(found).toBeDefined();
     expect(found.category[0].coding[0].code).toBe('problem-list-item');
+    expect(found.code.coding).toEqual(expect.arrayContaining([
+      expect.objectContaining({ system: 'http://id.who.int/icd/release/11/mms', code: '5A00' }),
+    ]));
   });
 
   test('POST /AllergyIntolerance writes the canonical allergy store', async () => {

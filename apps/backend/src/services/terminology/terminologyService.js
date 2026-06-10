@@ -23,6 +23,7 @@ import prisma, { prismaReadOnly } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { isValidStructure as isValidLoincStructure } from '../hl7/loincValidator.js';
+import whoIcdClient from './whoIcdClient.js';
 
 // ── System keys ────────────────────────────────────────────────────────────
 
@@ -124,6 +125,77 @@ function clampLimit(value, fallback = 20, max = 100) {
   return Math.min(parsed, max);
 }
 
+function serializeProperties(properties = {}) {
+  return JSON.stringify(properties && typeof properties === 'object' ? properties : {});
+}
+
+async function cacheIcd11Concepts(concepts = []) {
+  const cached = [];
+  for (const concept of concepts) {
+    if (!concept?.code || !concept?.display) continue;
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO terminology_concepts
+         (system_key, code, display, category, semantic_tag, status, properties)
+       VALUES ('ICD11', $1, $2, $3, $4, 'active', $5::jsonb)
+       ON CONFLICT (system_key, code) DO UPDATE
+         SET display = EXCLUDED.display,
+             category = COALESCE(EXCLUDED.category, terminology_concepts.category),
+             semantic_tag = COALESCE(EXCLUDED.semantic_tag, terminology_concepts.semantic_tag),
+             status = 'active',
+             properties = terminology_concepts.properties || EXCLUDED.properties,
+             updated_at = NOW()
+       RETURNING system_key, code, display, category, semantic_tag, status, properties`,
+      concept.code,
+      concept.display,
+      concept.category || null,
+      concept.semantic_tag || null,
+      serializeProperties({
+        ...(concept.properties || {}),
+        who_icd: {
+          release_id: concept.release_id || null,
+          language: concept.language || null,
+          linearization_uri: concept.linearization_uri || null,
+          foundation_uri: concept.foundation_uri || null,
+          source: concept.source || 'who_icd_api',
+        },
+      }),
+    );
+    cached.push(rows[0]);
+  }
+  if (cached.length > 0) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE terminology_code_systems
+          SET concept_count = (SELECT COUNT(*) FROM terminology_concepts WHERE system_key = 'ICD11'),
+              version = COALESCE($1, version),
+              imported_at = COALESCE(imported_at, NOW()),
+              updated_at = NOW()
+        WHERE system_key = 'ICD11'`,
+      concepts[0]?.release_id || null,
+    );
+  }
+  return cached;
+}
+
+async function localSearchConcepts({ systemKey, query, limit }) {
+  return prismaReadOnly.$queryRawUnsafe(
+    `SELECT system_key, code, display, category, semantic_tag, status,
+            CASE
+              WHEN lower(code) = lower($2) THEN 0
+              WHEN lower(display) LIKE lower($2) || '%' THEN 1
+              ELSE 2
+            END AS match_rank
+       FROM terminology_concepts
+      WHERE system_key = $1
+        AND status = 'active'
+        AND (lower(code) = lower($2) OR lower(display) LIKE '%' || lower($2) || '%')
+      ORDER BY match_rank, length(display), display
+      LIMIT $3::int`,
+    systemKey,
+    query,
+    limit,
+  );
+}
+
 // ── Code systems ───────────────────────────────────────────────────────────
 
 export async function listCodeSystems() {
@@ -148,24 +220,33 @@ export async function searchConcepts({ system, q, limit } = {}) {
   if (query.length < 2) {
     throw AppError.badRequest('Search text must be at least 2 characters', 'TERMINOLOGY_QUERY_TOO_SHORT');
   }
-  const rows = await prismaReadOnly.$queryRawUnsafe(
-    `SELECT system_key, code, display, category, semantic_tag, status,
-            CASE
-              WHEN lower(code) = lower($2) THEN 0
-              WHEN lower(display) LIKE lower($2) || '%' THEN 1
-              ELSE 2
-            END AS match_rank
-       FROM terminology_concepts
-      WHERE system_key = $1
-        AND status = 'active'
-        AND (lower(code) = lower($2) OR lower(display) LIKE '%' || lower($2) || '%')
-      ORDER BY match_rank, length(display), display
-      LIMIT $3::int`,
-    systemKey,
-    query,
-    clampLimit(limit),
-  );
-  return rows;
+  const max = clampLimit(limit);
+  if (systemKey === 'ICD11' && whoIcdClient.isConfigured()) {
+    try {
+      const concepts = await whoIcdClient.searchIcd11(query, { limit: max });
+      await cacheIcd11Concepts(concepts);
+      return concepts.map((concept, index) => ({
+        system_key: 'ICD11',
+        code: concept.code,
+        display: concept.display,
+        category: concept.category,
+        semantic_tag: concept.semantic_tag,
+        status: concept.status || 'active',
+        match_rank: index,
+        release_id: concept.release_id,
+        language: concept.language,
+        linearization_uri: concept.linearization_uri,
+        foundation_uri: concept.foundation_uri,
+        source: 'who_icd_api',
+      }));
+    } catch (err) {
+      logger.warn('WHO ICD-11 search failed; falling back to local cache', {
+        message: err?.message,
+        status: err?.status,
+      });
+    }
+  }
+  return localSearchConcepts({ systemKey, query, limit: max });
 }
 
 export async function getConcept(system, code) {
@@ -180,7 +261,22 @@ export async function getConcept(system, code) {
     systemKey,
     cleaned,
   );
-  return rows[0] || null;
+  if (rows[0]) return rows[0];
+  if (systemKey === 'ICD11' && whoIcdClient.isConfigured()) {
+    try {
+      const concept = await whoIcdClient.lookupIcd11Code(cleaned);
+      const cached = await cacheIcd11Concepts([concept]);
+      return cached[0] || concept || null;
+    } catch (err) {
+      if (err?.status === 404) return null;
+      logger.warn('WHO ICD-11 lookup failed; falling back to local miss', {
+        code: cleaned,
+        message: err?.message,
+        status: err?.status,
+      });
+    }
+  }
+  return null;
 }
 
 /**

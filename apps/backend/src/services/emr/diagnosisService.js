@@ -3,6 +3,13 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import {
+  attachResourceCodings,
+  legacyIcd10Coding,
+  listResourceCodings,
+  mergeClinicalCodings,
+  replaceResourceCodings,
+} from '../terminology/clinicalCodeBindingService.js';
 
 
 // ===================================================================
@@ -59,7 +66,7 @@ export async function addDiagnosis(data) {
   const {
     patient_uid, encounter_id, icd10_code, description,
     diagnosis_type, status, onset_date, severity, diagnosed_by, notes,
-    tenant_id,
+    tenant_id, codings = [],
   } = data;
 
   if (!patient_uid || !description || !diagnosed_by) {
@@ -125,22 +132,37 @@ export async function addDiagnosis(data) {
     }
   }
 
-  const created = await prisma.diagnoses.create({
-    data: {
-      tenant_id: tenant_id || undefined,
-      patient_uid,
-      encounter_id: encounter_id ?? null,
-      icd10_code: normalisedIcd10,
-      icd10_description: icd10Description,
-      description,
-      diagnosis_type: diagnosis_type ?? 'secondary',
-      status: status ?? 'active',
-      onset_date: onset_date ? new Date(onset_date) : null,
-      severity: severity ?? null,
-      diagnosed_by,
-      notes: notes ?? null,
-    },
-    select: DIAGNOSIS_SELECT,
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.diagnoses.create({
+      data: {
+        tenant_id: tenant_id || undefined,
+        patient_uid,
+        encounter_id: encounter_id ?? null,
+        icd10_code: normalisedIcd10,
+        icd10_description: icd10Description,
+        description,
+        diagnosis_type: diagnosis_type ?? 'secondary',
+        status: status ?? 'active',
+        onset_date: onset_date ? new Date(onset_date) : null,
+        severity: severity ?? null,
+        diagnosed_by,
+        notes: notes ?? null,
+      },
+      select: DIAGNOSIS_SELECT,
+    });
+    const savedCodings = await replaceResourceCodings({
+      db: tx,
+      resourceType: 'diagnosis',
+      resourceId: row.id,
+      tenantId: row.tenant_id,
+      patientUid: row.patient_uid,
+      codings: mergeClinicalCodings(
+        legacyIcd10Coding({ code: normalisedIcd10, display: icd10Description || description }),
+        codings,
+      ),
+      createdBy: diagnosed_by,
+    });
+    return { ...row, codings: savedCodings };
   });
 
   logger.info(`Diagnosis added: id=${created.id}, patient=${patient_uid}, icd10=${normalisedIcd10 ?? 'none'}, type=${created.diagnosis_type}`);
@@ -164,6 +186,7 @@ export async function addDiagnosis(data) {
       diagnosis_type: created.diagnosis_type,
       severity: created.severity,
       notes: created.notes,
+      codings: created.codings || [],
     },
     afterState: created,
     timelineIdempotencyKey: `diagnoses:${created.id}:added`,
@@ -214,6 +237,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
     },
     select: DIAGNOSIS_SELECT,
   });
+  updated.codings = await listResourceCodings({ resourceType: 'diagnosis', resourceId: updated.id });
 
   logger.info(`Diagnosis status updated: id=${id}, old_status=${existing.status}, new_status=${status}, by=${updatedBy}`);
   await bestEffortDiagnosisTimelineEvent('diagnosis status update', {
@@ -236,6 +260,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
       previous_status: existing.status,
       new_status: updated.status,
       resolved_date: updated.resolved_date,
+      codings: updated.codings || [],
     },
     beforeState: { status: existing.status },
     afterState: { status: updated.status, resolved_date: updated.resolved_date },
@@ -268,11 +293,12 @@ export async function getActiveProblemList(patientUid) {
   });
 
   // Match the pre-ORM `CASE diagnosis_type` + `created_at DESC` ordering.
-  return rows.sort((a, b) => {
+  const sorted = rows.sort((a, b) => {
     const rankDiff = rankDiagnosisType(a.diagnosis_type) - rankDiagnosisType(b.diagnosis_type);
     if (rankDiff !== 0) return rankDiff;
     return b.created_at - a.created_at;
   });
+  return attachResourceCodings(sorted, { resourceType: 'diagnosis' });
 }
 
 // ===================================================================
@@ -294,11 +320,12 @@ export async function getEncounterDiagnoses(encounterId) {
     select: DIAGNOSIS_SELECT,
   });
 
-  return rows.sort((a, b) => {
+  const sorted = rows.sort((a, b) => {
     const rankDiff = rankDiagnosisType(a.diagnosis_type) - rankDiagnosisType(b.diagnosis_type);
     if (rankDiff !== 0) return rankDiff;
     return a.created_at - b.created_at;
   });
+  return attachResourceCodings(sorted, { resourceType: 'diagnosis' });
 }
 
 // ===================================================================
@@ -315,11 +342,12 @@ export async function getPatientDiagnosisHistory(patientUid) {
     throw AppError.badRequest('Patient UID is required');
   }
 
-  return prisma.diagnoses.findMany({
+  const rows = await prisma.diagnoses.findMany({
     where: { patient_uid: patientUid },
     select: DIAGNOSIS_SELECT,
     orderBy: { created_at: 'desc' },
   });
+  return attachResourceCodings(rows, { resourceType: 'diagnosis' });
 }
 
 // ===================================================================

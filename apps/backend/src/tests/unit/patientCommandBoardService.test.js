@@ -20,6 +20,7 @@ const prismaMock = {
   diagnoses: { findMany: jest.fn() },
   discharge_consults: { findMany: jest.fn() },
   discharge_summaries: { findMany: jest.fn() },
+  infection_cases: { findMany: jest.fn() },
   patient_allergies: { findMany: jest.fn() },
   users: { findMany: jest.fn() },
 };

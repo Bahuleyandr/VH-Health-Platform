@@ -18,6 +18,9 @@ let diagnosisId;
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_code_bindings WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE source_table = 'patient_problems'
        AND patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
   ).catch(() => {});
@@ -72,6 +75,14 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
         patient_uid: patientUid,
         title: 'B7TEST Hypertension',
         icd10_code: 'B7T.0',
+        codings: [{
+          system: 'ICD11',
+          code: 'BA00',
+          display: 'Essential hypertension',
+          release_id: '2026-01',
+          linearization_uri: 'http://id.who.int/icd/release/11/2026-01/mms/123',
+          foundation_uri: 'http://id.who.int/icd/entity/123',
+        }],
         is_chronic: true,
         severity: 'moderate',
         onset_date: '2024-04-01',
@@ -83,18 +94,25 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
       icd10_code: 'B7T.0',
       is_chronic: true,
     });
+    expect(res.body.data.problem.codings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ system_key: 'ICD10', code: 'B7T.0' }),
+      expect.objectContaining({ system_key: 'ICD11', code: 'BA00' }),
+    ]));
     problemId = res.body.data.problem.id;
     expect(Number(res.body.data.problem.patient_id)).toBe(patientId);
   });
 
   test('same-transaction canonical timeline + audit rows exist', async () => {
     const timeline = await prisma.$queryRawUnsafe(
-      `SELECT event_type, event_status FROM clinical_timeline_events
+      `SELECT event_type, event_status, payload FROM clinical_timeline_events
         WHERE source_table = 'patient_problems' AND source_id = $1`,
       String(problemId),
     );
     expect(timeline.length).toBeGreaterThanOrEqual(1);
     expect(timeline[0]).toMatchObject({ event_type: 'problem.recorded', event_status: 'active' });
+    expect(timeline[0].payload?.codings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ system_key: 'ICD11', code: 'BA00' }),
+    ]));
 
     const audit = await prisma.$queryRawUnsafe(
       `SELECT action FROM clinical_audit_events
@@ -103,6 +121,16 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
     );
     expect(audit.length).toBeGreaterThanOrEqual(1);
     expect(audit[0].action).toBe('problem.recorded');
+
+    const bindings = await prisma.$queryRawUnsafe(
+      `SELECT system_key, code, display
+         FROM clinical_code_bindings
+        WHERE resource_type = 'patient_problem' AND resource_id = $1`,
+      String(problemId),
+    );
+    expect(bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ system_key: 'ICD11', code: 'BA00', display: 'Essential hypertension' }),
+    ]));
   });
 
   test('duplicate active coded problem is rejected with 409', async () => {

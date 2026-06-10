@@ -1288,6 +1288,18 @@ class MedicalApiService {
     return _get('/emr/icd10/search', query: {'q': query});
   }
 
+  /// GET /terminology/search — search standard clinical terminology
+  static Future<Map<String, dynamic>> searchTerminology({
+    required String system,
+    required String query,
+    int limit = 20,
+  }) async {
+    return _get(
+      '/terminology/search',
+      query: {'system': system, 'q': query, 'limit': '$limit'},
+    );
+  }
+
   // ─── EMR: CDS (Clinical Decision Support) ─────────────────────────────────
 
   /// POST /emr/cds/check-order — run CDS checks on an order

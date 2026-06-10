@@ -407,6 +407,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
     dischargeConsults,
     dischargeSummaries,
     recentNotes,
+    infectionCases,
   ] = await Promise.all([
     patientUids.length
       ? prisma.users.findMany({
@@ -514,6 +515,28 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
           take: 200,
         })
       : [],
+    // Roadmap D5 — isolation flags on the bed board: active infection
+    // cases drive contact/droplet/airborne precaution chips per patient.
+    patientUids.length
+      ? prisma.infection_cases.findMany({
+          where: {
+            patient_uid: { in: patientUids },
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+            status: { notIn: ['resolved', 'closed'] },
+          },
+          select: {
+            patient_uid: true,
+            organism: true,
+            infection_site: true,
+            isolation_required: true,
+            isolation_type: true,
+            detection_date: true,
+            status: true,
+          },
+          orderBy: [{ detection_date: 'desc' }, { id: 'desc' }],
+          take: 300,
+        })
+      : [],
   ]);
 
   const byUid = (rows, key = 'patient_uid') => rows.reduce((acc, row) => {
@@ -534,6 +557,7 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
   const ordersByEncounter = byUid(orders.filter((row) => row.encounter_id), 'encounter_id');
   const ordersByPatient = byUid(orders);
   const alertsByPatient = byUid(alerts);
+  const infectionCasesByPatient = byUid(infectionCases);
   const consultsByAdmission = byUid(dischargeConsults, 'admission_id');
   const notesByEncounter = byUid(recentNotes.filter((row) => row.encounter_id), 'encounter_id');
 
@@ -625,6 +649,32 @@ async function getPatientCommandBoard(filters = {}, actor = {}) {
         count: minimizePayload ? 0 : allergies.length,
         items: minimizePayload ? [] : allergies,
       },
+      // D5 — isolation precautions stay visible even on minimized
+      // (housekeeping-class) payloads: bed turnover is exactly who needs
+      // the contact/droplet/airborne flag. Case clinical detail
+      // (organism/site) stays full-payload only.
+      isolation: (() => {
+        const caseRows = infectionCasesByPatient.get(admission.patient_uid) || [];
+        const required = caseRows.some((item) => item.isolation_required === true);
+        const types = [...new Set(
+          caseRows
+            .filter((item) => item.isolation_required === true && item.isolation_type)
+            .map((item) => String(item.isolation_type)),
+        )];
+        return {
+          required,
+          types,
+          active_case_count: caseRows.length,
+          items: minimizePayload ? [] : caseRows.map((item) => ({
+            organism: item.organism,
+            infection_site: item.infection_site,
+            isolation_required: item.isolation_required,
+            isolation_type: item.isolation_type,
+            detection_date: item.detection_date,
+            status: item.status,
+          })),
+        };
+      })(),
       alerts: {
         count: minimizePayload ? 0 : alertRows.length,
         critical_count: minimizePayload ? 0 : alertRows.filter((item) => String(item.severity || '').toLowerCase() === 'critical').length,

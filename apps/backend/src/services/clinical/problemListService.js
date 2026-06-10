@@ -19,6 +19,13 @@ import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
 import { validateCode } from '../terminology/terminologyService.js';
+import {
+  attachResourceCodings,
+  legacyIcd10Coding,
+  listResourceCodings,
+  mergeClinicalCodings,
+  replaceResourceCodings,
+} from '../terminology/clinicalCodeBindingService.js';
 
 export const PROBLEM_STATUSES = Object.freeze(['active', 'resolved', 'inactive', 'entered_in_error']);
 
@@ -71,6 +78,7 @@ async function emitProblemEvent({
       title: problem.title,
       icd10_code: problem.icd10_code || null,
       snomed_code: problem.snomed_code || null,
+      codings: problem.codings || [],
       severity: problem.severity || null,
       is_chronic: problem.is_chronic === true,
       onset_date: problem.onset_date || null,
@@ -128,7 +136,9 @@ export async function getProblem(problemId) {
     `SELECT ${PROBLEM_COLUMNS} FROM patient_problems WHERE id = $1::uuid LIMIT 1`,
     problemId,
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  const [withCodings] = await attachResourceCodings(rows, { resourceType: 'patient_problem' });
+  return withCodings || null;
 }
 
 export async function listProblems(patientUid, { status = null } = {}) {
@@ -144,7 +154,7 @@ export async function listProblems(patientUid, { status = null } = {}) {
     params.push(status);
     where += ` AND p.status = $2`;
   }
-  return prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT p.id, p.title, p.icd10_code, p.snomed_code, p.status, p.severity,
             p.is_chronic, p.onset_date, p.resolved_date, p.notes, p.resolution_notes,
             p.managing_doctor_id, u.name AS managing_doctor_name,
@@ -156,6 +166,7 @@ export async function listProblems(patientUid, { status = null } = {}) {
       ORDER BY (p.status = 'active') DESC, p.onset_date DESC NULLS LAST, p.created_at DESC`,
     ...params,
   );
+  return attachResourceCodings(rows, { resourceType: 'patient_problem' });
 }
 
 /**
@@ -177,6 +188,7 @@ export async function createProblem(input = {}, context = {}) {
     patientUid, title, icd10Code = null, snomedCode = null, severity = null,
     isChronic = false, onsetDate = null, managingDoctor = null,
     sourceEncounterId = null, sourceDiagnosisId = null, notes = null,
+    codings = [],
   } = input;
 
   // Phase 0 — pre-flight on plain prisma (never 500 on bad input).
@@ -241,6 +253,26 @@ export async function createProblem(input = {}, context = {}) {
       JSON.stringify(Object.keys(verdicts).length ? { terminology_verdicts: verdicts } : {}),
     );
     const created = rows[0];
+    const savedCodings = await replaceResourceCodings({
+      db: tx,
+      resourceType: 'patient_problem',
+      resourceId: created.id,
+      tenantId: created.tenant_id,
+      patientUid: created.patient_uid,
+      codings: mergeClinicalCodings(
+        legacyIcd10Coding({ code: icd10Code, display: cleanTitle }),
+        snomedCode ? {
+          system: 'SNOMED_CT',
+          code: snomedCode,
+          display: cleanTitle,
+          coding_role: 'diagnosis',
+          source: 'manual',
+        } : null,
+        codings,
+      ),
+      createdBy: context.actorUid || null,
+    });
+    created.codings = savedCodings;
     await emitProblemEvent({
       db: tx,
       problem: created,
@@ -336,6 +368,7 @@ export async function updateProblem(problemId, patch = {}, context = {}) {
       patch.resolutionNotes ?? null,
     );
     const row = rows[0];
+    row.codings = await listResourceCodings({ db: tx, resourceType: 'patient_problem', resourceId: row.id });
     const eventType = resolving ? 'problem.resolved'
       : nextStatus === 'entered_in_error' ? 'problem.entered_in_error'
         : reactivating ? 'problem.reactivated'
@@ -398,6 +431,7 @@ export async function promoteDiagnosis(diagnosisId, input = {}, context = {}) {
     sourceEncounterId: diagnosis.encounter_id || null,
     sourceDiagnosisId: id,
     notes: input.notes ?? null,
+    codings: await listResourceCodings({ resourceType: 'diagnosis', resourceId: id }),
   }, context);
   return { ...created, already_active: false };
 }

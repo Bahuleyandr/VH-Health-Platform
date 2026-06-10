@@ -95,6 +95,18 @@ const envSchema = Joi.object({
     .allow('')
     .optional()
     .label('AUTH_TENANT_RLS_TEST_ROLE'),
+
+  // WHO ICD API — optional until ICD-11 lookup is enabled for a deployment.
+  // Cloud API uses OAuth2 client credentials; a local WHO ICD deployment may
+  // set WHO_ICD_DISABLE_AUTH=true and point WHO_ICD_BASE_URL at the local host.
+  WHO_ICD_BASE_URL: Joi.string().uri().allow('').optional().label('WHO_ICD_BASE_URL'),
+  WHO_ICD_AUTH_URL: Joi.string().uri().allow('').optional().label('WHO_ICD_AUTH_URL'),
+  WHO_ICD_CLIENT_ID: Joi.string().allow('').optional().label('WHO_ICD_CLIENT_ID'),
+  WHO_ICD_CLIENT_SECRET: Joi.string().allow('').optional().label('WHO_ICD_CLIENT_SECRET'),
+  WHO_ICD_RELEASE_ID: Joi.string().allow('').optional().label('WHO_ICD_RELEASE_ID'),
+  WHO_ICD_LANGUAGE: Joi.string().allow('').optional().label('WHO_ICD_LANGUAGE'),
+  WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
+  WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
 }).unknown(true);
 
 // Validate the current environment variables

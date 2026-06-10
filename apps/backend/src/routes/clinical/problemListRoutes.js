@@ -68,6 +68,7 @@ router.post('/', async (req, res) => {
       managingDoctor: req.body.managing_doctor ?? null,
       sourceEncounterId: req.body.source_encounter_id || null,
       notes: req.body.notes || null,
+      codings: Array.isArray(req.body.codings) ? req.body.codings : [],
     }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
     return success(res, result, 'Problem recorded', HTTP_STATUS.CREATED);
   } catch (err) {

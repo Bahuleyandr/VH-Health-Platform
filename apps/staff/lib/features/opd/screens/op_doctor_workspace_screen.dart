@@ -6,6 +6,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/coded_diagnosis_picker.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -56,6 +57,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   int? _opNoteId;
   bool _opNoteSigned = false;
   bool _hasAppointmentPrescription = false;
+  Map<String, dynamic>? _diagnosisCoding;
 
   final _chiefCtrl = TextEditingController();
   final _historyCtrl = TextEditingController();
@@ -281,6 +283,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
       'diagnosis',
       'assessment',
     ]);
+    _diagnosisCoding = _firstCoding(
+      content['diagnosis_codings'] ?? content['codings'],
+    );
     _planCtrl.text = _firstContentText(content, const ['plan']);
   }
 
@@ -433,6 +438,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
       'history': _historyCtrl.text.trim(),
       'examination': _examCtrl.text.trim(),
       'diagnosis': diagnosis,
+      if (_diagnosisCoding != null) 'diagnosis_codings': [_diagnosisCoding],
       'plan': plan,
       'summary': _joinNonEmpty([
         if (chief.isNotEmpty) 'CC: $chief',
@@ -681,12 +687,17 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 10),
-            _ClinicalTextField(
+            CodedDiagnosisPicker(
               controller: _diagnosisCtrl,
               label: 'Diagnosis',
               hint: 'Working diagnosis or differential',
-              minLines: 2,
               enabled: noteFieldsEnabled,
+              minLines: 2,
+              selectedCoding: _diagnosisCoding,
+              onCodingChanged: (coding) {
+                if (!mounted) return;
+                setState(() => _diagnosisCoding = coding);
+              },
             ),
             const SizedBox(height: 10),
             _ClinicalTextField(
@@ -1679,6 +1690,17 @@ Map<String, dynamic> _asMap(dynamic value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
   return const {};
+}
+
+Map<String, dynamic>? _firstCoding(dynamic value) {
+  if (value is List) {
+    for (final item in value) {
+      final map = _asMap(item);
+      if (_clean(map['code']).isNotEmpty) return map;
+    }
+  }
+  final map = _asMap(value);
+  return _clean(map['code']).isNotEmpty ? map : null;
 }
 
 Map<String, dynamic> _contentMap(Map<String, dynamic> note) {

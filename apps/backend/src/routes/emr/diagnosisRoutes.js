@@ -34,6 +34,7 @@ router.post('/diagnosis', guardDiagnosisWrite, async (req, res, next) => {
     const {
       patient_uid, encounter_id, icd10_code, description,
       diagnosis_type, status, onset_date, severity, notes,
+      codings,
     } = req.body;
 
     if (!patient_uid || !description) {
@@ -51,6 +52,7 @@ router.post('/diagnosis', guardDiagnosisWrite, async (req, res, next) => {
       severity: severity || null,
       diagnosed_by: req.user.uid,
       notes: notes || null,
+      codings: Array.isArray(codings) ? codings : [],
     });
 
     logPhiAccess({
