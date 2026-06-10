@@ -20,7 +20,8 @@ Dalekdefender overlay edits untouched throughout.
 
 | Item | State | Commit | Notes |
 |---|---|---|---|
-| D5 infection control | ✅ | (see git log) | Resumed the parked WIP (workbench service + routes + deep test + mount) and finished it. **Workbench** at `/api/v1/infection-control` (NABH-style IC/quality role gate + PHI logger): isolation board (active `infection_cases` joined to the live admission/bed), ADT ward-overlap **contact tracing** (index patient's stays define ward+time intervals; any intersecting admission is a contact, overlap hours computed in SQL), **antibiogram** (organism × antibiotic %S/I/R from `micro_sensitivities`→`micro_isolates`→`micro_orders` + MRSA/ESBL/CRE/VRE/XDR phenotype counts). Read-only — no canonical-timeline obligation; case ENTRY stays the existing qualityService reporting surface. **Finished from WIP:** explicit tenant scoping on every query (the WIP had none — `infection_cases`/`admissions` direct, micro tables via `micro_orders.tenant_id`); admission live-set aligned to the house `NOT IN ('discharged','cancelled')` convention. **Migration 296:** `infection_cases` carried tenant_id but was in NO tenant_isolation set (075/262/272 all missed it) — canonical RLS policy + FORCE added (294 pattern), plus partial index `idx_admissions_ward_admitted` for the contact-trace scan; schema.prisma regenerated (the index annotation is the only model change). **Bed-board flag (the roadmap's first D5 deliverable):** patient command board rows now carry `isolation` `{required, types, active_case_count, items}` from active infection cases — `required`/`types` stay visible even on minimized housekeeping-class payloads (bed turnover is exactly who needs the precaution flag); organism/site detail is full-payload only. 7-test deep round trip: board+bed join, cross-tenant leak negative, command-board flag, overlap-hours math + self-exclusion, antibiogram percentages + flags, 400 missing-input, 403 PATIENT. |
+| D5 infection control | ✅ | `599479c0` | Resumed the parked WIP (workbench service + routes + deep test + mount) and finished it. **Workbench** at `/api/v1/infection-control` (NABH-style IC/quality role gate + PHI logger): isolation board (active `infection_cases` joined to the live admission/bed), ADT ward-overlap **contact tracing** (index patient's stays define ward+time intervals; any intersecting admission is a contact, overlap hours computed in SQL), **antibiogram** (organism × antibiotic %S/I/R from `micro_sensitivities`→`micro_isolates`→`micro_orders` + MRSA/ESBL/CRE/VRE/XDR phenotype counts). Read-only — no canonical-timeline obligation; case ENTRY stays the existing qualityService reporting surface. **Finished from WIP:** explicit tenant scoping on every query (the WIP had none — `infection_cases`/`admissions` direct, micro tables via `micro_orders.tenant_id`); admission live-set aligned to the house `NOT IN ('discharged','cancelled')` convention. **Migration 296:** `infection_cases` carried tenant_id but was in NO tenant_isolation set (075/262/272 all missed it) — canonical RLS policy + FORCE added (294 pattern), plus partial index `idx_admissions_ward_admitted` for the contact-trace scan; schema.prisma regenerated (the index annotation is the only model change). **Bed-board flag (the roadmap's first D5 deliverable):** patient command board rows now carry `isolation` `{required, types, active_case_count, items}` from active infection cases — `required`/`types` stay visible even on minimized housekeeping-class payloads (bed turnover is exactly who needs the precaution flag); organism/site detail is full-payload only. 7-test deep round trip: board+bed join, cross-tenant leak negative, command-board flag, overlap-hours math + self-exclusion, antibiogram percentages + flags, 400 missing-input, 403 PATIENT. |
+| ICD-11 terminology coding (B8 follow-up, parallel stream) | ✅ reviewed | `06fccd5e` | Authored by the parallel session, reviewed here pre-merge — **no findings to fix**. Migration 297 `clinical_code_bindings` (CHECKed resource_type/source, unique per resource×system×code×role, RLS + FORCE per the 294 pattern, audit row); `whoIcdClient` (OAuth2 client-credentials with cached token + expiry skew, AbortSignal timeouts, `WHO_ICD_DISABLE_AUTH` for local deployments, injectable fetch for unit tests — degrades at call time, never at import); `terminologyService` searches WHO-first for ICD-11 when configured with write-through caching into `terminology_concepts` and falls back to the local cache on failure; bindings written **in the same tx** as their parent rows on both the diagnosis and problem-list write paths (`replaceResourceCodings({db: tx, …})`), `promoteDiagnosis` carries codings across; FHIR Condition round-trips codings with dedupe (`fhir_import` source on ingest); `validateEnv` gains optional `WHO_ICD_*`; staff `CodedDiagnosisPicker` + OP workspace wiring. Test cleanups patient-scoped; the audit-delete invariant stays empty. |
 
 ### Environment notes
 
@@ -39,18 +40,18 @@ Dalekdefender overlay edits untouched throughout.
 
 ### Gates
 
-- Backend: full lint chain green; D5 deep test 7/7; board unit suite 11/11
-  (mock gained `infection_cases`); schema regen from a fresh
-  migrations-built scratch DB (chain at 296) + drift check green.
-- **Full `test:ci`: deferred to merge review.** Run 1 failed only on the
-  board unit mock (fixed); the rerun then aborted on
-  `fhir-server.deep.test.js` needing `clinical_code_bindings` — a table
-  belonging to a CONCURRENT ICD-11/WHO terminology work-stream that was
-  writing into this working tree mid-run (migration 297, whoIcdClient,
-  diagnosis/problem-list/FHIR service + test edits, from 19:14 onward).
-  Not D5 fallout. Owner chose: commit D5 scoped to its own files; the
-  combined tree re-runs the full suite when that stream lands.
-- No Flutter/admin changes in D5 — melos and admin suites unaffected.
+- Backend: full lint chain green (PHI scan now 180 tables — both new
+  tables counted); D5 deep test 7/7; board unit suite 11/11 (mock gained
+  `infection_cases`); schema regen from a fresh migrations-built scratch
+  DB + drift check green at 296, repeated green at 297 after the ICD-11
+  commit (302 files applied / 0 errors as `postgres`).
+- **Full `test:ci`** was deferred mid-session (run 1 failed only on the
+  board unit mock — fixed; the rerun aborted on the CONCURRENT ICD-11
+  stream's in-flight test edits needing `clinical_code_bindings`, not D5
+  fallout) and then **ran green on the combined tree: 58/58 chunks** once
+  `06fccd5e` landed and migration 297 reached the QA DB.
+- Flutter (combined tree, ICD-11 staff changes included): `melos run
+  analyze` + `test` + `format` all green. Admin untouched by both items.
 
 ### Environment notes (concurrency)
 
@@ -65,11 +66,10 @@ Dalekdefender overlay edits untouched throughout.
   stream's regenerated `clinical_code_bindings` model, which is theirs to
   commit with 297.
 
-### Owner-side actions queued (D5)
+### Owner-side actions queued (D5 + ICD-11)
 
-1. Coordinate the in-flight ICD-11/WHO terminology stream (migration 297)
-   with this branch; re-run full `test:ci` on the combined tree, then
-   merge `roadmap/pillar-d-d5` → main after review.
+1. ~~Coordinate the ICD-11 stream / re-run full suite / merge~~ — done in
+   this session (combined gates green; merged → main).
 2. Staff-app surfacing of the new command-board `isolation` field (ward
    bed-sheet / command-board chip) — UI follow-up; queue with the next
    staff-app batch.
@@ -77,6 +77,12 @@ Dalekdefender overlay edits untouched throughout.
    `infection_cases` rows are entered consistently (the workbench reads
    what the quality module's reporting surface captures; isolation_type
    vocabulary = contact/droplet/airborne as charted today).
+4. ICD-11 go-live needs WHO ICD API credentials (`WHO_ICD_CLIENT_ID`/
+   `_SECRET` from icdaccessmanagement.who.int, or a local WHO ICD docker
+   deployment + `WHO_ICD_DISABLE_AUTH=true` + `WHO_ICD_BASE_URL`) sealed
+   into the prod overlay; until then ICD-11 search serves the local
+   `terminology_concepts` cache only. Confirm the pinned release
+   (`WHO_ICD_RELEASE_ID`, default 2026-01) with medical records.
 
 ## Session 2026-06-11 (later) — Pillar G start: G3 + allergies rider (branch `roadmap/pillar-g`)
 
@@ -454,11 +460,11 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar G is merged to main (`8d8d0ecc`; G3 landed; G4 Tier-H pairing
-blocked until the owner reports F1 live with real data; G1/G2/G5–G8 are
-owner-led ceremonies riding existing code). **D5 infection control is
-done** on `roadmap/pillar-d-d5` (this session) — merge after review; the
-D5 stashes are dropped. With D1–D7 complete, the code-side roadmap is
-fully landed pending owner ceremonies: warehouse bring-up (F1 DEPLOY →
-unblocks G4) and the standing A–D owner queues tracked in the session
+Pillars A–G are merged to main. **D5 infection control + the ICD-11
+terminology coding follow-up are merged** (`roadmap/pillar-d-d5`,
+combined gates green; the D5 stashes are dropped; migrations at 297).
+With D1–D7 complete, the code-side roadmap is fully landed. Remaining
+work is owner-led: warehouse bring-up (F1 DEPLOY → unblocks G4 Tier-H
+pairing, the one code item still gated), WHO ICD credentials for live
+ICD-11 search, and the standing A–D owner queues tracked in the session
 entries above.
