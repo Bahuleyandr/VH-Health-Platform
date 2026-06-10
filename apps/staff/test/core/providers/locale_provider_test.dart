@@ -84,10 +84,7 @@ void main() {
     });
 
     test('ml is a supported locale (roadmap E2)', () {
-      expect(
-        AppStrings.supportedLocales,
-        contains(const Locale('ml')),
-      );
+      expect(AppStrings.supportedLocales, contains(const Locale('ml')));
     });
   });
 }

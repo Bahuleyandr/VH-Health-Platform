@@ -73,6 +73,14 @@ const navSections: NavSection[] = [
         href: "/dashboard/clinical-ai/discharge-compose",
         allowedRoles: CLINICAL_AI_CONTROL_ROLES,
       },
+      {
+        // G3 outcome instrumentation — per-module evidence scoreboard
+        // (acceptance, edit distance, overrides, time-to-sign vs
+        // baseline, safety-flag precision). The NABH/board read.
+        name: "AI Outcome Scoreboard",
+        href: "/dashboard/clinical-ai/scoreboard",
+        allowedRoles: CLINICAL_AI_CONTROL_ROLES,
+      },
     ],
   },
   {

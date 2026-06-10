@@ -231,6 +231,7 @@ import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import downtimeRoutes from './routes/downtime/downtimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
 import problemListRoutes from './routes/clinical/problemListRoutes.js';
+import allergyRoutes from './routes/clinical/allergyRoutes.js';
 import drugKbRoutes from './routes/clinical/drugKbRoutes.js';
 import bcmaRoutes from './routes/clinical/bcmaRoutes.js';
 import medRecRoutes from './routes/clinical/medRecRoutes.js';
@@ -732,6 +733,10 @@ app.use('/api/v1/terminology', requireRole(...CLINICAL_STAFF_ROLES), terminology
 
 // Longitudinal problem list (roadmap B7) — PHI by definition.
 app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
+
+// Unified allergies (roadmap A10 over HTTP; E5 follow-up) — union of all
+// four allergy stores for any patient, admitted or not. PHI by definition.
+app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('ALLERGY'), allergyRoutes);
 
 // Drug knowledge base (roadmap B2) — stateless KB evaluation + source
 // status. Reference data; patient-bound screening runs inside

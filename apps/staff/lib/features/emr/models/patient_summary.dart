@@ -71,9 +71,10 @@ String latestVitalsLine(Map<String, dynamic>? row) {
   return parts.join(' · ');
 }
 
-/// Dedupe + cap the allergy items from the command-board payload
-/// (items shaped {allergy/name/allergy_name, severity?, source?}).
-/// Returns display strings, severity-suffixed when present.
+/// Dedupe + cap allergy items into display strings, severity-suffixed
+/// when present. Tolerates both payload shapes: the unified allergies
+/// endpoint ({allergen, severity, sources}) and the legacy command-board
+/// items ({allergy/name/allergy_name, severity?, source?}).
 List<String> summarizeAllergies(List<dynamic> items, {int cap = 8}) {
   final seen = <String>{};
   final out = <String>[];
@@ -81,8 +82,12 @@ List<String> summarizeAllergies(List<dynamic> items, {int cap = 8}) {
     String? name;
     String? severity;
     if (item is Map) {
-      name = (item['allergy'] ?? item['allergy_name'] ?? item['name'])
-          ?.toString();
+      name =
+          (item['allergen'] ??
+                  item['allergy'] ??
+                  item['allergy_name'] ??
+                  item['name'])
+              ?.toString();
       severity = item['severity']?.toString();
     } else if (item is String) {
       name = item;

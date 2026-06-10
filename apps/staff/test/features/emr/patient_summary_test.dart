@@ -116,6 +116,25 @@ void main() {
       ], cap: 5);
       expect(out, hasLength(5));
     });
+
+    test(
+      'reads the unified endpoint shape ({allergen, severity, sources})',
+      () {
+        final out = summarizeAllergies([
+          {
+            'allergen': 'Penicillin',
+            'severity': 'SEVERE',
+            'sources': ['patient_allergies', 'users.allergies'],
+          },
+          {
+            'allergen': 'Dust mites',
+            'severity': null,
+            'sources': ['users.allergies'],
+          },
+        ]);
+        expect(out, ['Penicillin (SEVERE)', 'Dust mites']);
+      },
+    );
   });
 
   group('extractBoardEntry', () {
