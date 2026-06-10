@@ -202,6 +202,9 @@ const VITAL_SELECT = {
   patient_uid: true,
   encounter_id: true,
   encounter_uid: true,
+  source: true,
+  source_device: true,
+  device_verified: true,
   heart_rate: true,
   systolic_bp: true,
   diastolic_bp: true,
@@ -425,7 +428,13 @@ export async function recordVitals(data) {
     fhr, fundal_height_cm,
     urine_albumin, urine_sugar, urine_ketones,
     recorded_by,
+    // Roadmap C5 — provenance labelling: 'staff' (default), 'device'
+    // (ICU monitor ORU; unverified until clinician review), 'fhir',
+    // 'patient_app'.
+    source, source_device,
   } = data;
+
+  const normalizedSource = ['staff', 'device', 'fhir', 'patient_app'].includes(source) ? source : 'staff';
 
   if ((!patient_uid && !patient_id) || !recorded_by) {
     throw AppError.badRequest('patient_uid or patient_id and recorded_by are required');
@@ -519,6 +528,9 @@ export async function recordVitals(data) {
       urine_ketones: normalizedKetones,
       notes: stripNul(notes ?? null),
       recorded_by,
+      source: normalizedSource,
+      source_device: source_device ? String(source_device).slice(0, 120) : null,
+      device_verified: normalizedSource === 'device' ? false : null,
       ...(normalizedRecordedAt ? { recorded_at: normalizedRecordedAt } : {}),
     },
     select: VITAL_SELECT,
@@ -617,21 +629,28 @@ export async function recordVitals(data) {
     patientUid: record.patient_uid,
     encounterId: record.encounter_uid || null,
     eventType: 'vitals.recorded',
-    eventStatus: 'recorded',
+    eventStatus: record.source === 'device' ? 'unverified' : 'recorded',
     sourceTable: 'vitals_chart',
     sourceId: record.id,
     resourceType: 'vitals',
     resourceId: record.id,
     actorUid: record.recorded_by,
-    summary: 'Vitals recorded',
+    summary: record.source === 'device'
+      ? `Device vitals received (${record.source_device || 'monitor'}) — unverified`
+      : 'Vitals recorded',
     payload: {
       vitals: record,
       news2: news2Result,
       alerts: alerts || [],
       growth,
       triage,
+      source_kind: record.source,
+      verification_status: record.source === 'device' ? 'unverified' : 'verified',
     },
     afterState: record,
+    // Canonical timeline convention (docs/CANONICAL_CLINICAL_TIMELINE.md):
+    // device-synced observations are labelled unverified until reviewed.
+    tags: record.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
   });
 
   logger.info(`Vitals recorded: id=${record.id}, patient=${resolvedPatientUid}, by=${recorded_by}`);

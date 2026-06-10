@@ -4,6 +4,35 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-10 (later) — Pillar B merge + Pillar C (branch `roadmap/pillar-c`)
+
+Pre-work: merged `roadmap/pillar-b` `--no-ff` → main `8d6a5880` (9 commits,
+suite + drift green, per-item review done in-session) and pushed;
+`roadmap/pillar-c` branched from that main.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| C4 integrity | ✅ | `d28a7cfa` | Per-tenant sha256 hash chain on `clinical_audit_events`, computed by a BEFORE INSERT trigger (advisory-lock serialised; covers every write path; existing rows backfilled; hash expression lives in ONE SQL function shared by trigger + verification). `clinical_document_signatures`: content-hash e-signatures over notes/discharge summaries/encounters/consents/radiology reports — verification recomputes the hash, so any post-signature edit is detectable; `aadhaar_esign`/`dsc` methods schema-ready (gateway owner-side). Encounter sign-off auto-attaches a signature. `/api/v1/integrity` + admin chain verify. |
+| C3 FHIR R4 server | ✅ | `0865356f` | Write interactions on the existing read server: POST Observation (vital-sign LOINCs incl. BP panels → vitals_chart through the standard path — NEWS2/anomaly/canonical events fire), POST Condition (→ B7 problem list with dedupe + terminology verdicts; 409 on duplicate active code), POST AllergyIntolerance (→ `patient_allergies`, the store all CDS reads). Condition search + `$everything` surface the longitudinal problem list as `problem-list-item` alongside encounter diagnoses. Router-level OperationOutcome error contract; CapabilityStatement updated; writes gated to doctor/admin/integration. MedicationRequest stays read-only by design (the prescription safety engine owns that write path). |
+| C2 HL7v2 outbound feeds | ✅ | `fa4b930e` | `hl7_feed_subscriptions` (per-type fan-out over an HTTP bridge; MLLP terminates into the bridge owner-side, mirroring B3 inbound) + `hl7_outbound_messages` durable queue (tenant RLS — payloads are PHI). Emission hooks (Phase 1.5 best-effort): ADT^A01 on admission, ADT^A03 on discharge, ORU^R01 at pathologist sign-off. Delivery worker every 2 min, exponential backoff, dead after 7 attempts, replay + manual tick; `x-application/hl7-v2+er7`. Deep test runs a live local HTTP receiver. |
+| C5 device vitals | ✅ | `f2430f34` | Provenance labelling on `vitals_chart` (`source` staff/device/fhir/patient_app, `source_device`, `device_verified` + verification stamps; partial index = ICU review queue). Monitor ORU^R01 (PID-3 = patient uid, the BCMA wristband identifier) lands through the STANDARD `recordVitals` path — NEWS2, anomaly alerts, canonical events all fire — tagged `device-synced`/`unverified` per the canonical timeline convention; clinician verify endpoint flips the flag with a chained audit event. Raw payloads persist in the B3 interface inbox. |
+| C1 ABDM readiness | ✅ pack | `f5c21989` | Substrate is largely built (ABHA, consents, care contexts, gateway client, 9 `abdm_*` tables; FHIR sources strong post-C3, audit chained post-C4). Shipping a machine-readable preflight (`scripts/abdm-preflight.mjs`) + `docs/ABDM_READINESS.md`. **Blockers: sandbox credentials + bridge registration (owner-side) and the ECDH(Curve25519)+AES-GCM FHIR-bundle encryption gap (FIDELIUS-equivalent, ~2-3 days) — schedule as the first Pillar-C follow-up before any M2 attempt.** |
+| Wrap-up | ✅ | (this commit) | `prisma db pull` regen + drift check green; full sharded suite (55 chunks) **passed first run, zero fallout** — the C-pillar additions (hash-chain trigger included) were transparent to every existing suite. |
+
+### Owner-side actions queued (Pillar C)
+
+1. ABDM sandbox signup + bridge registration; then schedule the
+   FHIR-bundle encryption work (the M2 blocker) — `docs/ABDM_READINESS.md`.
+2. Point real third-party receivers (LIS/insurer/HIE bridges) at
+   `/api/v1/hl7-feeds` subscriptions; stand up MLLP terminators where
+   needed.
+3. Decide which documents beyond encounter sign-off auto-sign (discharge
+   summaries at `/ready`? consents at capture?) and whether to procure the
+   Aadhaar eSign gateway for `aadhaar_esign` signatures.
+4. Point ICU monitors/gateways at `/api/v1/devices/vitals/ingest` (PID-3
+   must carry the wristband uid) for the pilot ICU.
+5. Merge `roadmap/pillar-c` → main after review.
+
 ## Session 2026-06-10 — Pillar A merge + Pillar B (branch `roadmap/pillar-b`)
 
 Pre-work: reviewed `roadmap/pillar-a` (8 commits — focus: Prisma model-API
@@ -99,10 +128,11 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar C (interoperability & ecosystem) on `roadmap/pillar-c`: C1 ABDM
-certification (sandbox creds are owner-side), C2 HL7v2 live feeds /
-interface engine, C3 FHIR R4 read-write server on the canonical timeline,
-C4 e-signature + tamper-evident audit hash chain, C5 ICU device/vitals
-ingestion. Pillar B foundations C builds on: B8 terminology (FHIR
-CodeableConcepts), B3 interface inbox (HL7v2 transport), B7 problem list
-(FHIR Condition).
+Pillar D (missing modules) on `roadmap/pillar-d`, ordered per the roadmap:
+D2 scheduling optimization (provider templates, waitlist auto-fill,
+resource booking, overbooking fed by the existing no-show predictor),
+D4 NABH quality-indicator pack, D3 credentialing & privileging,
+D5 infection-control workbench, D6 research/registry capture, D1 oncology
+(largest; scope with the pilot hospital first), D7 specialty depth per
+pilot demand. Engineering follow-up carried from C1: ABDM FHIR-bundle
+encryption (ECDH+AES-GCM) before any M2 certification attempt.

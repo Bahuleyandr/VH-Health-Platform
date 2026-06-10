@@ -427,6 +427,68 @@ export function toFhirCondition(diagnosis) {
 }
 
 /**
+ * Convert a longitudinal patient_problems row (roadmap B7) to a FHIR R4
+ * Condition with category problem-list-item. Ids are prefixed `p-` so they
+ * never collide with per-encounter diagnosis ids in the same Bundle.
+ */
+export function toFhirConditionFromProblem(problem) {
+  if (!problem) return null;
+  const clinicalMap = {
+    active: 'active',
+    inactive: 'inactive',
+    resolved: 'resolved',
+    entered_in_error: 'inactive',
+  };
+  const coding = [];
+  if (problem.icd10_code) {
+    coding.push({
+      system: 'http://hl7.org/fhir/sid/icd-10',
+      code: problem.icd10_code,
+      display: problem.title,
+    });
+  }
+  if (problem.snomed_code) {
+    coding.push({
+      system: 'http://snomed.info/sct',
+      code: problem.snomed_code,
+      display: problem.title,
+    });
+  }
+  const resource = {
+    resourceType: 'Condition',
+    id: `p-${problem.id}`,
+    clinicalStatus: {
+      coding: [{
+        system: 'http://terminology.hl7.org/CodeSystem/condition-clinical',
+        code: clinicalMap[problem.status] || 'active',
+      }],
+    },
+    category: [{
+      coding: [{
+        system: 'http://terminology.hl7.org/CodeSystem/condition-category',
+        code: 'problem-list-item',
+        display: 'Problem List Item',
+      }],
+    }],
+    code: { coding, text: problem.title },
+    subject: { reference: `Patient/${problem.patient_uid}` },
+    onsetDateTime: problem.onset_date || undefined,
+    abatementDateTime: problem.resolved_date || undefined,
+    recordedDate: problem.created_at,
+    note: problem.notes ? [{ text: problem.notes }] : [],
+  };
+  if (problem.status === 'entered_in_error') {
+    resource.verificationStatus = {
+      coding: [{
+        system: 'http://terminology.hl7.org/CodeSystem/condition-ver-status',
+        code: 'entered-in-error',
+      }],
+    };
+  }
+  return resource;
+}
+
+/**
  * Convert VH Health procedure note to FHIR R4 Procedure resource.
  * @param {Object} procedureNote - Internal procedure note record
  * @returns {Object} FHIR Procedure resource

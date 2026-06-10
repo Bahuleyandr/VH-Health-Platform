@@ -1240,6 +1240,15 @@ async function admitPatient(data) {
     auditIdempotencyKey: `admissions:${admission.id}:audit:created`,
   });
 
+  // Roadmap C2 (Phase 1.5, best-effort) — announce the admission to
+  // subscribed third-party systems as ADT^A01.
+  try {
+    const { emitAdmissionAdt } = await import('../hl7/hl7OutboundService.js');
+    await emitAdmissionAdt(admission);
+  } catch (feedErr) {
+    logger.warn(`ADT^A01 feed emission failed (admission stands): ${feedErr?.message}`);
+  }
+
   return admission;
 }
 
@@ -2759,6 +2768,16 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   }
 
   logger.info(`Admission #${admissionId} discharged (${discharge_type}), LOS ${phase1.losDays} days`);
+
+  // Roadmap C2 (Phase 1.5, best-effort) — announce the discharge to
+  // subscribed third-party systems as ADT^A03.
+  try {
+    const { emitDischargeAdt } = await import('../hl7/hl7OutboundService.js');
+    await emitDischargeAdt(phase1.updated);
+  } catch (feedErr) {
+    logger.warn(`ADT^A03 feed emission failed (discharge stands): ${feedErr?.message}`);
+  }
+
   return { ...phase1.updated, los_days: phase1.losDays };
 }
 

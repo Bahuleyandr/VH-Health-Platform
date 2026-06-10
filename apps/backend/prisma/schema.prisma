@@ -5180,6 +5180,49 @@ model health_records {
   @@index([uid])
 }
 
+model hl7_feed_subscriptions {
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  name                  String                  @db.VarChar(120)
+  endpoint_url          String
+  auth_header           String?
+  message_types         String[]                @default(["ADT^A01", "ADT^A03", "ORU^R01"])
+  is_active             Boolean                 @default(true)
+  last_delivery_at      DateTime?               @db.Timestamptz(6)
+  created_by            String?                 @db.Uuid
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_feed_subscriptions_tenant")
+  hl7_outbound_messages hl7_outbound_messages[]
+
+  @@unique([tenant_id, name], map: "uq_hl7_feed_subscriptions_name")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model hl7_outbound_messages {
+  id                     Int                    @id @default(autoincrement())
+  tenant_id              String                 @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  subscription_id        Int
+  message_type           String                 @db.VarChar(20)
+  message_control_id     String?                @db.VarChar(60)
+  hl7_payload            String
+  source_table           String?                @db.VarChar(60)
+  source_id              String?                @db.VarChar(60)
+  patient_uid            String?                @db.Uuid
+  status                 String                 @default("queued") @db.VarChar(12)
+  attempts               Int                    @default(0)
+  last_error             String?
+  next_attempt_at        DateTime               @default(now()) @db.Timestamptz(6)
+  sent_at                DateTime?              @db.Timestamptz(6)
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  tenants                tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hl7_outbound_messages_tenant")
+  hl7_feed_subscriptions hl7_feed_subscriptions @relation(fields: [subscription_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([subscription_id, created_at(sort: Desc)], map: "idx_hl7_outbound_messages_subscription")
+  @@index([status, next_attempt_at], map: "idx_hl7_outbound_messages_due", where: raw("((status)::text = ANY ((ARRAY['queued'::character varying, 'failed'::character varying])::text[]))"))
+}
+
 model hipaa_access_log {
   id                  BigInt   @id @default(autoincrement())
   accessed_by         String?  @db.Uuid
@@ -8889,6 +8932,7 @@ model tenants {
   clinical_ambient_encounters                clinical_ambient_encounters[]
   clinical_document_extraction_events        clinical_document_extraction_events[]
   clinical_document_intake                   clinical_document_intake[]
+  clinical_document_signatures               clinical_document_signatures[]
   clinical_longitudinal_risk                 clinical_longitudinal_risk[]
   clinical_notes                             clinical_notes[]
   clinical_nursing_ambient_sessions          clinical_nursing_ambient_sessions[]
@@ -8916,6 +8960,8 @@ model tenants {
   follow_up_plans                            follow_up_plans[]
   growth_charts                              growth_charts[]
   hipaa_access_log                           hipaa_access_log[]
+  hl7_feed_subscriptions                     hl7_feed_subscriptions[]
+  hl7_outbound_messages                      hl7_outbound_messages[]
   idempotency_keys                           idempotency_keys[]
   incident_reports                           incident_reports[]
   infection_cases                            infection_cases[]
@@ -9642,12 +9688,18 @@ model vitals_chart {
   temperature_route String?   @db.VarChar(10)
   triage_acuity     Int?      @db.SmallInt
   tenant_id         String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  source            String    @default("staff") @db.VarChar(30)
+  source_device     String?   @db.VarChar(120)
+  device_verified   Boolean?
+  verified_by       String?   @db.Uuid
+  verified_at       DateTime? @db.Timestamptz(6)
   tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_vitals_chart_tenant")
 
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_patient_recorded")
   @@index([tenant_id], map: "idx_vitals_chart_tenant_id")
   @@index([encounter_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_encounter_uid", where: raw("(encounter_uid IS NOT NULL)"))
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_triage_acuity", where: raw("(triage_acuity IS NOT NULL)"))
+  @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_device_unverified", where: raw("(((source)::text = 'device'::text) AND (device_verified = false))"))
 }
 
 model wards {
@@ -13297,10 +13349,40 @@ model clinical_audit_events {
   idempotency_key String?  @unique(map: "idx_clinical_audit_events_idempotency", where: raw("(idempotency_key IS NOT NULL)")) @db.VarChar(220)
   occurred_at     DateTime @default(now()) @db.Timestamptz(6)
   created_at      DateTime @default(now()) @db.Timestamptz(6)
+  chain_seq       BigInt?
+  prev_hash       String?  @db.Char(64)
+  chain_hash      String?  @db.Char(64)
 
   @@index([tenant_id, patient_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_patient_time", where: raw("(patient_uid IS NOT NULL)"))
   @@index([tenant_id, actor_uid, occurred_at(sort: Desc)], map: "idx_clinical_audit_events_actor_time", where: raw("(actor_uid IS NOT NULL)"))
   @@index([resource_table, resource_id], map: "idx_clinical_audit_events_resource", where: raw("((resource_table IS NOT NULL) AND (resource_id IS NOT NULL))"))
+  @@index([tenant_id, chain_seq], map: "idx_clinical_audit_events_chain")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model clinical_document_signatures {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id           String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid         String?  @db.Uuid
+  document_type       String   @db.VarChar(60)
+  document_table      String   @db.VarChar(100)
+  document_id         String   @db.VarChar(120)
+  content_hash        String   @db.Char(64)
+  signer_uid          String   @db.Uuid
+  signer_role         String?  @db.VarChar(80)
+  signer_name         String?  @db.VarChar(200)
+  signature_method    String   @default("electronic_attestation") @db.VarChar(30)
+  signature_statement String?
+  esign_txn_ref       String?  @db.VarChar(160)
+  certificate_ref     String?  @db.VarChar(200)
+  audit_event_id      String?  @db.Uuid
+  signed_at           DateTime @default(now()) @db.Timestamptz(6)
+  metadata            Json     @default("{}")
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_document_signatures_tenant")
+
+  @@index([document_table, document_id, signed_at(sort: Desc)], map: "idx_clinical_document_signatures_document")
+  @@index([tenant_id, patient_uid, signed_at(sort: Desc)], map: "idx_clinical_document_signatures_patient")
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
