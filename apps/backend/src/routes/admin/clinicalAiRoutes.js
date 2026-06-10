@@ -1,6 +1,7 @@
 import express from 'express';
 import overviewRoutes from './clinicalAi/overviewRoutes.js';
 import governanceRoutes from './clinicalAi/governanceRoutes.js';
+import outcomeScoreboardRoutes from './clinicalAi/outcomeScoreboardRoutes.js';
 import documentRoutes from './clinicalAi/documentRoutes.js';
 import coreClinicalRoutes from './clinicalAi/coreClinicalRoutes.js';
 import careOperationsRoutes from './clinicalAi/careOperationsRoutes.js';
@@ -29,6 +30,7 @@ const router = express.Router();
 router.use(requireClinicalAiControl);
 router.use('/', overviewRoutes);
 router.use('/', governanceRoutes);
+router.use('/', outcomeScoreboardRoutes);
 router.use('/', documentRoutes);
 router.use('/', coreClinicalRoutes);
 router.use('/', careOperationsRoutes);
