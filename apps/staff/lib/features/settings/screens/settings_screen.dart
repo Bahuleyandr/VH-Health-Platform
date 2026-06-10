@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/providers/locale_provider.dart';
 import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/utils/font_scale.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -311,6 +313,71 @@ class SettingsScreen extends StatelessWidget {
                     themeProvider.setThemeMode(selected.first);
                   },
                 ),
+              ),
+              const Divider(height: 1, indent: 56),
+              // Font size (roadmap E3) — composed with the OS text scale
+              // in main.dart; 16 pt = neutral.
+              ListTile(
+                leading: const Icon(
+                  Icons.format_size,
+                  color: AppTheme.primaryBlue,
+                ),
+                title: Text(s.settingsFontSize),
+                subtitle: Text(s.settingsFontSizeSubtitle),
+                trailing: Text(
+                  '${themeProvider.fontSize.toInt()} pt',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Slider(
+                  value: themeProvider.fontSize,
+                  min: kMinFontPt,
+                  max: kMaxFontPt,
+                  divisions: (kMaxFontPt - kMinFontPt).toInt(),
+                  label: '${themeProvider.fontSize.toInt()} pt',
+                  onChanged: (v) => themeProvider.setFontSize(v),
+                ),
+              ),
+              const Divider(height: 1, indent: 56),
+              // Language override (roadmap E2) — null follows the device
+              // locale; persisted via LocaleProvider.
+              Builder(
+                builder: (context) {
+                  final localeProvider = context.watch<LocaleProvider>();
+                  final current = localeProvider.locale?.languageCode;
+                  return ListTile(
+                    leading: const Icon(
+                      Icons.translate,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    title: Text(s.settingsLanguage),
+                    subtitle: Text(
+                      current == null
+                          ? s.settingsLanguageSystem
+                          : LocaleProvider.languageNames[current] ?? current,
+                    ),
+                    trailing: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: current ?? 'system',
+                        items: [
+                          DropdownMenuItem(
+                            value: 'system',
+                            child: Text(s.settingsLanguageSystem),
+                          ),
+                          for (final entry
+                              in LocaleProvider.languageNames.entries)
+                            DropdownMenuItem(
+                              value: entry.key,
+                              child: Text(entry.value),
+                            ),
+                        ],
+                        onChanged: (code) => localeProvider.setLanguage(code),
+                      ),
+                    ),
+                  );
+                },
               ),
             ],
           ),

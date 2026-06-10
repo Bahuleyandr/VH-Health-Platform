@@ -60,11 +60,16 @@ class AppStrings {
 
   /// Locales the app ships translations for. Wire this list into
   /// `MaterialApp.supportedLocales`.
+  ///
+  /// `ml` (Malayalam) shipped 2026-06-10 as a nurse-facing first pass —
+  /// the highest-traffic clinical screens are translated; everything else
+  /// falls back to English until the next translator pass (roadmap E2).
   static const supportedLocales = <Locale>[
     Locale('en'),
     Locale('hi'),
     Locale('ta'),
     Locale('te'),
+    Locale('ml'),
   ];
 
   // ── Helper ──────────────────────────────────────────────────────────
@@ -347,6 +352,11 @@ class AppStrings {
       _t('settings.theme.subtitle_system');
   String get settingsThemeSubtitleLight => _t('settings.theme.subtitle_light');
   String get settingsThemeSubtitleDark => _t('settings.theme.subtitle_dark');
+  String get settingsLanguage => _t('settings.language');
+  String get settingsLanguageSubtitle => _t('settings.language.subtitle');
+  String get settingsLanguageSystem => _t('settings.language.system');
+  String get settingsFontSize => _t('settings.font_size');
+  String get settingsFontSizeSubtitle => _t('settings.font_size.subtitle');
   String get settingsPushNotifications => _t('settings.push_notifications');
   String get settingsPushNotificationsSubtitle =>
       _t('settings.push_notifications.subtitle');
@@ -1009,6 +1019,115 @@ class AppStrings {
   String ordersCompleteFailed(String e) =>
       '${_t('orders.complete_failed_prefix')} $e';
   String get ordersRetry => _t('orders.retry');
+  String get ordersFilterDiscontinued => _t('orders.filter.discontinued');
+  String get ordersDiscontinue => _t('orders.discontinue');
+  String get ordersCancel => _t('orders.cancel');
+  String get ordersDiscontinueTitle => _t('orders.discontinue_title');
+  String get ordersCancelTitle => _t('orders.cancel_title');
+  String get ordersStopReasonLabel => _t('orders.stop_reason_label');
+  String get ordersStopReasonHint => _t('orders.stop_reason_hint');
+  // REVIEW: clinical-action confirmation
+  String get ordersDiscontinuedToast => _t('orders.discontinued_toast');
+  // REVIEW: clinical-action confirmation
+  String get ordersCancelledToast => _t('orders.cancelled_toast');
+  String ordersStopFailed(String e) => '${_t('orders.stop_failed_prefix')} $e';
+
+  // ── CPOE order composer (roadmap E1) ───────────────────────────────
+  String get composerTitle => _t('composer.title');
+  String composerTitleWithName(String name) =>
+      '${_t('composer.title')} - $name';
+  String get composerSearchLabel => _t('composer.search_label');
+  String get composerSearchHint => _t('composer.search_hint');
+  String get composerSearchHintTestsOnly =>
+      _t('composer.search_hint_tests_only');
+  String get composerSectionMedications => _t('composer.section.medications');
+  String get composerSectionInvestigations =>
+      _t('composer.section.investigations');
+  String get composerOrderSets => _t('composer.order_sets');
+  String get composerTypeRadiology => _t('composer.type.radiology');
+  String get composerTypeConsult => _t('composer.type.consult');
+  String get composerTypeDiet => _t('composer.type.diet');
+  String get composerEmptyBasket => _t('composer.empty_basket');
+  String composerBasketCount(int n) =>
+      _t('composer.basket_count').replaceAll('{n}', '$n');
+  String composerPlaceOrders(int n) =>
+      _t('composer.place_orders').replaceAll('{n}', '$n');
+  String get composerPlacing => _t('composer.placing');
+  // REVIEW: clinical-action confirmation
+  String composerPlacedToast(int n) =>
+      _t('composer.placed_toast').replaceAll('{n}', '$n');
+  String get composerSubmitFailed => _t('composer.submit_failed');
+  String get composerDesktopOnly => _t('composer.desktop_only');
+  String get composerRelogin => _t('composer.relogin');
+  String get composerWarningsTitle => _t('composer.warnings_title');
+  String composerMedItemsSkipped(int n) =>
+      _t('composer.med_items_skipped').replaceAll('{n}', '$n');
+  String get composerRemoveItem => _t('composer.remove_item');
+  String get composerSourceOrderSet => _t('composer.source.order_set');
+  String get composerSourceCatalog => _t('composer.source.catalog');
+  String get composerBlockedChip => _t('composer.blocked_chip');
+  String get composerChipMedication => _t('composer.chip.medication');
+  String get composerChipInvestigation => _t('composer.chip.investigation');
+  String get composerAddToBasket => _t('composer.add_to_basket');
+  String get composerDurationDays => _t('composer.duration_days');
+  String get composerStudyName => _t('composer.study_name');
+  String get composerStudyHint => _t('composer.study_hint');
+  String get composerSpecialty => _t('composer.specialty');
+  String get composerSpecialtyHint => _t('composer.specialty_hint');
+  String get composerDietHint => _t('composer.diet_hint');
+
+  // ── Order sets (composer picker + standalone apply) ────────────────
+  String get orderSetsNoPlaceableItems => _t('order_sets.no_placeable_items');
+  String get orderSetsApplyFailed => _t('order_sets.apply_failed');
+  // REVIEW: clinical-action confirmation
+  String orderSetsPlacedToast(int n) =>
+      _t('order_sets.placed_toast').replaceAll('{n}', '$n');
+  String get orderSetsApplying => _t('order_sets.applying');
+  String orderSetsAddToBasket(int n) =>
+      _t('order_sets.add_to_basket').replaceAll('{n}', '$n');
+  String orderSetsApplyCount(int sel, int total) => _t(
+    'order_sets.apply_count',
+  ).replaceAll('{sel}', '$sel').replaceAll('{total}', '$total');
+
+  // ── One-screen patient summary (roadmap E5) ────────────────────────
+  String get summaryTitle => _t('summary.title');
+  String get summaryTooltip => _t('summary.tooltip');
+  String summaryAdmittedBed(String bed) =>
+      _t('summary.admitted_bed').replaceAll('{bed}', bed);
+  // REVIEW: safety-critical section header
+  String get summaryAllergies => _t('summary.allergies');
+  String get summaryNoKnownAllergies => _t('summary.no_known_allergies');
+  String get summaryProblems => _t('summary.problems');
+  String get summaryNoProblems => _t('summary.no_problems');
+  String get summaryChronic => _t('summary.chronic');
+  String get summaryActiveMeds => _t('summary.active_meds');
+  String get summaryNoActiveMeds => _t('summary.no_active_meds');
+  String get summaryLastVitals => _t('summary.last_vitals');
+  String get summaryNoVitals => _t('summary.no_vitals');
+  String get summaryPendingResults => _t('summary.pending_results');
+  String get summaryNoPendingResults => _t('summary.no_pending_results');
+  String get summarySectionFailed => _t('summary.section_failed');
+  String get summaryTimeline => _t('summary.timeline');
+  String get summaryNotes => _t('summary.notes');
+  String get ordersTitlePrefix => _t('orders.title_prefix');
+  String get vitalsChartTitlePrefix => _t('vitals_chart.title_prefix');
+
+  // ── Inpatient drug chart ───────────────────────────────────────────
+  String get drugChartTitle => _t('drug_chart.title');
+  // REVIEW: clinical action label
+  String get drugChartStopTitle => _t('drug_chart.stop_title');
+  String get drugChartStopReasonLabel => _t('drug_chart.stop_reason_label');
+  String get drugChartStopReasonHint => _t('drug_chart.stop_reason_hint');
+  // REVIEW: clinical action label
+  String get drugChartStopButton => _t('drug_chart.stop_button');
+  String get drugChartAddRow => _t('drug_chart.add_row');
+  String get drugChartAddFirstRow => _t('drug_chart.add_first_row');
+  String get drugChartRemoveRow => _t('drug_chart.remove_row');
+  String get drugChartScan => _t('drug_chart.scan');
+  // REVIEW: clinical-action confirmation
+  String get drugChartSavedToast => _t('drug_chart.saved_toast');
+  String get drugChartEmpty => _t('drug_chart.empty');
+  String get drugChartGiven => _t('drug_chart.given');
 
   // ── Vitals chart screen ────────────────────────────────────────────
   String get vitalsChartTitle => _t('vitals_chart.title');
@@ -2182,6 +2301,9 @@ class AppStrings {
   String get cdsBlockerWarningsHeader => _t('cds.warnings_header');
   String get cdsBlockerAllergyHint => _t('cds.allergy_hint');
   String get cdsBlockerOverrideReasonLabel => _t('cds.override_reason_label');
+  // REVIEW: safety-critical copy
+  String get cdsBlockerNoOverrideHint => _t('cds.blocker_no_override_hint');
+  String get cdsBlockerAdjustOrder => _t('cds.blocker_adjust_order');
   String get cdsBlockerOverrideButton => _t('cds.override_button');
   String get cdsBlockerOverrideSave => _t('cds.override_save');
 
@@ -2462,6 +2584,42 @@ class AppStrings {
       'settings.theme.subtitle_system': 'Follow system setting',
       'settings.theme.subtitle_light': 'Always light',
       'settings.theme.subtitle_dark': 'Always dark',
+      'settings.language': 'Language',
+      'settings.language.subtitle': 'Choose the app language',
+      'settings.language.system': 'System default',
+      'settings.font_size': 'Font size',
+      'settings.font_size.subtitle':
+          'Scales text on top of the system text size',
+      'drug_chart.title': 'Drug Chart',
+      'drug_chart.stop_title': 'Stop medication',
+      'drug_chart.stop_reason_label': 'Reason',
+      'drug_chart.stop_reason_hint':
+          'e.g. course completed, adverse effect, changed plan',
+      'drug_chart.stop_button': 'Stop',
+      'drug_chart.add_row': 'Add row',
+      'drug_chart.add_first_row': 'Add first row',
+      'drug_chart.remove_row': 'Remove row',
+      'drug_chart.scan': 'Scan',
+      'drug_chart.saved_toast': 'Drug order saved and pharmacy intimated',
+      'drug_chart.empty': 'No inpatient drugs charted',
+      'drug_chart.given': 'Given',
+      'summary.title': 'Patient summary',
+      'summary.tooltip': 'Patient summary',
+      'summary.admitted_bed': 'Admitted · Bed {bed}',
+      'summary.allergies': 'Allergies',
+      'summary.no_known_allergies': 'No allergies recorded',
+      'summary.problems': 'Active problems',
+      'summary.no_problems': 'No active problems recorded',
+      'summary.chronic': 'Chronic',
+      'summary.active_meds': 'Active medications',
+      'summary.no_active_meds': 'No active medication orders',
+      'summary.last_vitals': 'Last vitals',
+      'summary.no_vitals': 'No vitals recorded',
+      'summary.pending_results': 'Pending results',
+      'summary.no_pending_results': 'No pending results',
+      'summary.section_failed': 'Could not load this section',
+      'summary.timeline': 'Timeline',
+      'summary.notes': 'Notes',
       'settings.push_notifications': 'Push Notifications',
       'settings.push_notifications.subtitle':
           'Attendance reminders, appointment alerts',
@@ -3041,6 +3199,58 @@ class AppStrings {
       'orders.completed_toast': 'Order completed',
       'orders.complete_failed_prefix': 'Failed to complete order:',
       'orders.retry': 'Retry',
+      'orders.filter.discontinued': 'Discontinued',
+      'orders.discontinue': 'Discontinue',
+      'orders.cancel': 'Cancel order',
+      'orders.discontinue_title': 'Discontinue order',
+      'orders.cancel_title': 'Cancel order',
+      'orders.stop_reason_label': 'Reason (required)',
+      'orders.stop_reason_hint': 'Clinical reason for stopping this order',
+      'orders.discontinued_toast': 'Order discontinued',
+      'orders.cancelled_toast': 'Order cancelled',
+      'orders.stop_failed_prefix': 'Failed to stop order:',
+      'composer.title': 'New Orders',
+      'composer.search_label': 'Search the order catalog',
+      'composer.search_hint': 'Search medications & tests...',
+      'composer.search_hint_tests_only': 'Search tests & imaging...',
+      'composer.section.medications': 'Medications (formulary)',
+      'composer.section.investigations': 'Investigations & imaging',
+      'composer.order_sets': 'Order sets',
+      'composer.type.radiology': 'Radiology / Imaging',
+      'composer.type.consult': 'Consultation / Referral',
+      'composer.type.diet': 'Diet Order',
+      'composer.empty_basket':
+          'Search the catalog, pick an order set, or use the quick-add chips above.\nAll orders are signed together as one batch.',
+      'composer.basket_count': 'In basket: {n}',
+      'composer.place_orders': 'Sign & place ({n})',
+      'composer.placing': 'Placing...',
+      'composer.placed_toast': '{n} order(s) placed',
+      'composer.submit_failed': 'Failed to place orders',
+      'composer.desktop_only':
+          'Clinical orders must be placed from the desktop/tablet Staff app.',
+      'composer.relogin': 'Please log in again before placing clinical orders.',
+      'composer.warnings_title': 'Review CDS warnings',
+      'composer.med_items_skipped':
+          '{n} medication item(s) skipped - doctor role required',
+      'composer.remove_item': 'Remove from basket',
+      'composer.source.order_set': 'Order set',
+      'composer.source.catalog': 'Catalog',
+      'composer.blocked_chip': 'Blocked by safety checks',
+      'composer.chip.medication': 'Medication',
+      'composer.chip.investigation': 'Investigation',
+      'composer.add_to_basket': 'Add to basket',
+      'composer.duration_days': 'Duration (days)',
+      'composer.study_name': 'Study',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.specialty': 'Specialty',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'order_sets.no_placeable_items': 'No placeable order items selected',
+      'order_sets.apply_failed': 'Apply failed',
+      'order_sets.placed_toast': '{n} orders placed from set',
+      'order_sets.applying': 'Placing...',
+      'order_sets.add_to_basket': 'Add {n} to basket',
+      'order_sets.apply_count': 'Place {sel} of {total}',
       // Vitals chart
       'vitals_chart.title': 'Vitals Charting',
       'vitals_chart.title_prefix': 'Vitals',
@@ -4006,6 +4216,9 @@ class AppStrings {
           'Allergy conflict: reference the supervising physician who approved '
           'this override in your reason.',
       'cds.override_reason_label': 'Override reason (required, min 5 chars)',
+      'cds.blocker_no_override_hint':
+          'These safety blockers cannot be overridden on a CPOE order. Adjust the order, or use the prescription workflow where a recorded override is supported.',
+      'cds.blocker_adjust_order': 'Adjust order',
       'cds.override_button': 'Override',
       'cds.override_save': 'Override & save',
       // Code Blue - emergency overlay
@@ -4256,6 +4469,96 @@ class AppStrings {
       'settings.theme.subtitle_system': 'सिस्टम सेटिंग का पालन करें',
       'settings.theme.subtitle_light': 'हमेशा लाइट',
       'settings.theme.subtitle_dark': 'हमेशा डार्क',
+      'settings.language': 'भाषा',
+      'settings.language.subtitle': 'ऐप की भाषा चुनें',
+      'settings.language.system': 'सिस्टम डिफ़ॉल्ट',
+      'settings.font_size': 'फ़ॉन्ट आकार',
+      'settings.font_size.subtitle':
+          'सिस्टम टेक्स्ट आकार के ऊपर टेक्स्ट को बड़ा-छोटा करता है',
+      // ── 2026-06-10 gap-fill: keys added en-only by later sessions ──
+      // REVIEW: hi gap-fill batch — confirm clinical wording (transfer,
+      // discharge, consciousness) before production.
+      'attendance.phone_only_read_only':
+          'यह वर्कस्टेशन हाज़िरी रिकॉर्ड देख सकता है। चेक-इन, चेक-आउट और ब्रेक केवल फ़ोन से होते हैं।',
+      'bed_sheet.discharge_initiated': 'डिस्चार्ज प्रक्रिया शुरू की गई',
+      'bed_sheet.discharge_initiated_short': 'डिस्चार्ज शुरू',
+      'bed_sheet.transfer': 'स्थानांतरण',
+      'bed_sheet.transfer_confirm_prefix': 'मरीज़ को यहाँ ले जाएँ:',
+      'bed_sheet.transfer_confirm_suffix': 'मौजूदा बेड सफ़ाई में चला जाएगा।',
+      'bed_sheet.transfer_consent': 'क्लास/टैरिफ़ बदलाव की सहमति दर्ज की गई है',
+      'bed_sheet.transfer_destination': 'स्थानांतरण गंतव्य',
+      'bed_sheet.transfer_empty': 'अभी कोई बेड उपलब्ध नहीं',
+      'bed_sheet.transfer_patient': 'मरीज़ स्थानांतरित करें',
+      'bed_sheet.transfer_reason_hint': 'कारण / प्राप्तकर्ता यूनिट नोट',
+      'bed_sheet.transfer_search_hint': 'बेड, वार्ड या प्रकार खोजें',
+      'bed_sheet.transfer_succeeded':
+          'मरीज़ स्थानांतरित। पिछला बेड अब सफ़ाई में है।',
+      'clinical_ai.draft.reviewer_note_button': 'नोट के साथ स्वीकारें',
+      'clinical_ai.draft.reviewer_note_hint':
+          'स्वीकारने से पहले आपने क्या जाँचा, एक वाक्य में।',
+      'clinical_ai.draft.reviewer_note_label': 'नोट',
+      'clinical_ai.draft.reviewer_note_min_chars':
+          'समीक्षक नोट कम से कम 3 शब्दों का हो।',
+      'clinical_ai.draft.reviewer_note_title': 'समीक्षक नोट',
+      'clinical_ai.governance.label.ai': 'AI',
+      'clinical_ai.governance.label.blocked': 'अवरुद्ध',
+      'clinical_ai.governance.label.deep_tier': 'डीप टियर',
+      'clinical_ai.governance.label.fallback': 'फ़ॉलबैक',
+      'clinical_ai.governance.label.schema_unavailable': 'स्कीमा अनुपलब्ध',
+      'clinical_ai.governance.reason_prefix': 'कारण:',
+      'profile.field.name': 'नाम',
+      'profile.hr_managed_hint': 'HR/एडमिन द्वारा प्रबंधित',
+      'settings.change_password': 'पासवर्ड बदलें',
+      'settings.change_password.confirm': 'नया पासवर्ड दोबारा लिखें',
+      'settings.change_password.current': 'मौजूदा पासवर्ड',
+      'settings.change_password.dialog_title': 'पासवर्ड बदलें',
+      'settings.change_password.mismatch': 'नए पासवर्ड मेल नहीं खाते',
+      'settings.change_password.new': 'नया पासवर्ड',
+      'settings.change_password.subtitle':
+          'अपना लॉगिन पासवर्ड सुरक्षित रूप से बदलें',
+      'settings.change_password.success': 'पासवर्ड बदल दिया गया',
+      'vitals_chart.conscious.confused': 'भ्रमित',
+      'vitals_chart.no_previous_io': 'कोई पिछली I/O प्रविष्टि नहीं',
+      'vitals_chart.no_previous_vitals': 'कोई पिछले वाइटल्स दर्ज नहीं',
+      'vitals_chart.section.io_today': 'आज का I/O बैलेंस',
+      'vitals_chart.section.last_24h': 'पिछले 24 घंटे के वाइटल्स',
+      'vitals_chart.section.previous_io': 'पिछला I/O',
+      'vitals_chart.section.previous_vitals': 'पिछले वाइटल्स',
+      'vitals_chart.tab.previous_days': 'पिछले दिन',
+      'vitals_chart.tab.today': 'आज',
+      // REVIEW: hi drug chart batch — clinical wording
+      'drug_chart.title': 'ड्रग चार्ट',
+      'drug_chart.stop_title': 'दवा बंद करें',
+      'drug_chart.stop_reason_label': 'कारण',
+      'drug_chart.stop_reason_hint':
+          'जैसे: कोर्स पूरा, प्रतिकूल प्रभाव, योजना बदली',
+      'drug_chart.stop_button': 'बंद करें',
+      'drug_chart.add_row': 'पंक्ति जोड़ें',
+      'drug_chart.add_first_row': 'पहली पंक्ति जोड़ें',
+      'drug_chart.remove_row': 'पंक्ति हटाएँ',
+      'drug_chart.scan': 'स्कैन',
+      'drug_chart.saved_toast':
+          'दवा आदेश सहेजा गया और फ़ार्मेसी को सूचित किया गया',
+      'drug_chart.empty': 'कोई इनपेशेंट दवा चार्ट नहीं',
+      'drug_chart.given': 'दिया गया',
+      // REVIEW: hi patient-summary batch — clinical wording
+      'summary.title': 'रोगी सारांश',
+      'summary.tooltip': 'रोगी सारांश',
+      'summary.admitted_bed': 'भर्ती · बेड {bed}',
+      'summary.allergies': 'एलर्जी',
+      'summary.no_known_allergies': 'कोई एलर्जी दर्ज नहीं',
+      'summary.problems': 'सक्रिय समस्याएँ',
+      'summary.no_problems': 'कोई सक्रिय समस्या दर्ज नहीं',
+      'summary.chronic': 'दीर्घकालिक',
+      'summary.active_meds': 'सक्रिय दवाएँ',
+      'summary.no_active_meds': 'कोई सक्रिय दवा आदेश नहीं',
+      'summary.last_vitals': 'अंतिम वाइटल्स',
+      'summary.no_vitals': 'कोई वाइटल्स दर्ज नहीं',
+      'summary.pending_results': 'लंबित परिणाम',
+      'summary.no_pending_results': 'कोई लंबित परिणाम नहीं',
+      'summary.section_failed': 'यह अनुभाग लोड नहीं हो सका',
+      'summary.timeline': 'टाइमलाइन',
+      'summary.notes': 'नोट्स',
       'settings.push_notifications': 'पुश सूचनाएँ',
       'settings.push_notifications.subtitle':
           'उपस्थिति रिमाइंडर, अपॉइंटमेंट अलर्ट',
@@ -4851,6 +5154,70 @@ class AppStrings {
       'orders.completed_toast': 'आदेश पूर्ण',
       'orders.complete_failed_prefix': 'आदेश पूर्ण करने में विफल:',
       'orders.retry': 'पुनः प्रयास',
+      'orders.filter.discontinued': 'बंद किए गए',
+      // REVIEW: clinical action label
+      'orders.discontinue': 'बंद करें',
+      'orders.cancel': 'आदेश रद्द करें',
+      // REVIEW: clinical action label
+      'orders.discontinue_title': 'आदेश बंद करें',
+      'orders.cancel_title': 'आदेश रद्द करें',
+      'orders.stop_reason_label': 'कारण (आवश्यक)',
+      // REVIEW: clinical wording
+      'orders.stop_reason_hint': 'यह आदेश रोकने का क्लिनिकल कारण',
+      // REVIEW: clinical-action confirmation
+      'orders.discontinued_toast': 'आदेश बंद किया गया',
+      'orders.cancelled_toast': 'आदेश रद्द किया गया',
+      'orders.stop_failed_prefix': 'आदेश रोका नहीं जा सका:',
+      'composer.title': 'नए आदेश',
+      'composer.search_label': 'ऑर्डर कैटलॉग खोजें',
+      'composer.search_hint': 'दवाएँ और जाँचें खोजें...',
+      'composer.search_hint_tests_only': 'जाँचें और इमेजिंग खोजें...',
+      'composer.section.medications': 'दवाएँ (फ़ॉर्मुलरी)',
+      'composer.section.investigations': 'जाँचें और इमेजिंग',
+      'composer.order_sets': 'ऑर्डर सेट',
+      'composer.type.radiology': 'रेडियोलॉजी / इमेजिंग',
+      'composer.type.consult': 'परामर्श / रेफरल',
+      'composer.type.diet': 'आहार आदेश',
+      'composer.empty_basket':
+          'कैटलॉग खोजें, कोई ऑर्डर सेट चुनें, या ऊपर दिए त्वरित विकल्प इस्तेमाल करें।\nसभी आदेश एक साथ एक बैच में साइन होते हैं।',
+      'composer.basket_count': 'बास्केट में: {n}',
+      // REVIEW: clinical action label
+      'composer.place_orders': 'साइन करें और भेजें ({n})',
+      'composer.placing': 'भेजा जा रहा है...',
+      // REVIEW: clinical-action confirmation
+      'composer.placed_toast': '{n} आदेश दर्ज हुए',
+      'composer.submit_failed': 'आदेश दर्ज नहीं हो सके',
+      // REVIEW: device-policy wording
+      'composer.desktop_only':
+          'क्लिनिकल आदेश केवल डेस्कटॉप/टैबलेट स्टाफ़ ऐप से ही दर्ज किए जा सकते हैं।',
+      'composer.relogin':
+          'क्लिनिकल आदेश दर्ज करने से पहले कृपया दोबारा लॉगिन करें।',
+      'composer.warnings_title': 'CDS चेतावनियाँ देखें',
+      // REVIEW: role-policy wording
+      'composer.med_items_skipped':
+          '{n} दवा आइटम छोड़े गए - डॉक्टर भूमिका आवश्यक',
+      'composer.remove_item': 'बास्केट से हटाएँ',
+      'composer.source.order_set': 'ऑर्डर सेट',
+      'composer.source.catalog': 'कैटलॉग',
+      // REVIEW: safety wording
+      'composer.blocked_chip': 'सुरक्षा जाँच द्वारा अवरुद्ध',
+      'composer.chip.medication': 'दवा',
+      'composer.chip.investigation': 'जाँच',
+      'composer.add_to_basket': 'बास्केट में जोड़ें',
+      'composer.duration_days': 'अवधि (दिन)',
+      'composer.study_name': 'स्टडी',
+      'composer.study_hint': 'चेस्ट एक्स-रे PA, CT ब्रेन प्लेन...',
+      'composer.specialty': 'विशेषज्ञता',
+      'composer.specialty_hint': 'कार्डियोलॉजी, नेफ्रोलॉजी...',
+      'composer.diet_hint': 'डायबिटिक आहार, NPO, नरम आहार...',
+      'order_sets.no_placeable_items':
+          'कोई लागू करने योग्य ऑर्डर आइटम चयनित नहीं',
+      'order_sets.apply_failed': 'लागू नहीं हो सका',
+      // REVIEW: clinical-action confirmation
+      'order_sets.placed_toast': 'सेट से {n} आदेश दर्ज हुए',
+      'order_sets.applying': 'भेजा जा रहा है...',
+      'order_sets.add_to_basket': '{n} बास्केट में जोड़ें',
+      'order_sets.apply_count': '{total} में से {sel} दर्ज करें',
       // Vitals chart
       'vitals_chart.title': 'वाइटल्स चार्टिंग',
       'vitals_chart.title_prefix': 'वाइटल्स',
@@ -5985,6 +6352,10 @@ class AppStrings {
       'cds.allergy_hint':
           'एलर्जी संघर्ष: कारण में उस पर्यवेक्षक चिकित्सक का उल्लेख करें जिसने इस ओवरराइड को मंजूरी दी।',
       'cds.override_reason_label': 'ओवरराइड कारण (आवश्यक, न्यूनतम 5 अक्षर)',
+      // REVIEW: safety-critical copy
+      'cds.blocker_no_override_hint':
+          'CPOE आदेश पर ये सुरक्षा अवरोध ओवरराइड नहीं किए जा सकते। आदेश बदलें, या प्रिस्क्रिप्शन वर्कफ़्लो उपयोग करें जहाँ रिकॉर्डेड ओवरराइड समर्थित है।',
+      'cds.blocker_adjust_order': 'आदेश बदलें',
       'cds.override_button': 'ओवरराइड',
       'cds.override_save': 'ओवरराइड और सेव करें',
       // Code Blue - emergency overlay
@@ -6231,6 +6602,100 @@ class AppStrings {
       'settings.theme.subtitle_system': 'சிஸ்டம் அமைப்பைப் பின்பற்று',
       'settings.theme.subtitle_light': 'எப்போதும் லைட்',
       'settings.theme.subtitle_dark': 'எப்போதும் டார்க்',
+      'settings.language': 'மொழி',
+      'settings.language.subtitle': 'ஆப்பின் மொழியைத் தேர்வு செய்யவும்',
+      'settings.language.system': 'கணினி இயல்புநிலை',
+      // REVIEW: AI first-pass
+      'settings.font_size': 'எழுத்து அளவு',
+      // REVIEW: AI first-pass
+      'settings.font_size.subtitle': 'கணினி உரை அளவுக்கு மேல் உரையை அளவிடும்',
+      // ── 2026-06-10 gap-fill: keys added en-only by later sessions ──
+      // REVIEW: ta AI first-pass gap-fill batch — confirm clinical
+      // wording (transfer, discharge, consciousness) before production.
+      'attendance.phone_only_read_only':
+          'இந்த வொர்க்ஸ்டேஷனில் வருகைப் பதிவுகளைப் பார்க்கலாம். செக்-இன், செக்-அவுட், இடைவேளைகள் ஃபோனில் மட்டுமே.',
+      'bed_sheet.discharge_initiated': 'டிஸ்சார்ஜ் செயல்முறை தொடங்கப்பட்டது',
+      'bed_sheet.discharge_initiated_short': 'டிஸ்சார்ஜ் தொடங்கியது',
+      'bed_sheet.transfer': 'மாற்றம்',
+      'bed_sheet.transfer_confirm_prefix': 'நோயாளியை இங்கு மாற்றவும்:',
+      'bed_sheet.transfer_confirm_suffix':
+          'தற்போதைய படுக்கை சுத்தம் செய்யப்படும்.',
+      'bed_sheet.transfer_consent':
+          'வகுப்பு/கட்டண மாற்றத்திற்கான ஒப்புதல் பதிவு செய்யப்பட்டுள்ளது',
+      'bed_sheet.transfer_destination': 'மாற்றும் இடம்',
+      'bed_sheet.transfer_empty': 'இப்போது படுக்கைகள் காலியாக இல்லை',
+      'bed_sheet.transfer_patient': 'நோயாளியை மாற்று',
+      'bed_sheet.transfer_reason_hint': 'காரணம் / பெறும் பிரிவு குறிப்பு',
+      'bed_sheet.transfer_search_hint': 'படுக்கை, வார்டு, வகை தேடுங்கள்',
+      'bed_sheet.transfer_succeeded':
+          'நோயாளி மாற்றப்பட்டார். முந்தைய படுக்கை இப்போது சுத்தத்தில்.',
+      'clinical_ai.draft.reviewer_note_button': 'குறிப்புடன் ஏற்கவும்',
+      'clinical_ai.draft.reviewer_note_hint':
+          'ஏற்கும் முன் நீங்கள் சரிபார்த்ததை ஒரு வாக்கியத்தில்.',
+      'clinical_ai.draft.reviewer_note_label': 'குறிப்பு',
+      'clinical_ai.draft.reviewer_note_min_chars':
+          'மதிப்பாய்வாளர் குறிப்பு குறைந்தது 3 சொற்கள் வேண்டும்.',
+      'clinical_ai.draft.reviewer_note_title': 'மதிப்பாய்வாளர் குறிப்பு',
+      'clinical_ai.governance.label.ai': 'AI',
+      'clinical_ai.governance.label.blocked': 'தடுக்கப்பட்டது',
+      'clinical_ai.governance.label.deep_tier': 'டீப் டயர்',
+      'clinical_ai.governance.label.fallback': 'ஃபால்பேக்',
+      'clinical_ai.governance.label.schema_unavailable': 'ஸ்கீமா கிடைக்கவில்லை',
+      'clinical_ai.governance.reason_prefix': 'காரணம்:',
+      'profile.field.name': 'பெயர்',
+      'profile.hr_managed_hint': 'HR/நிர்வாகத்தால் நிர்வகிக்கப்படுகிறது',
+      'settings.change_password': 'கடவுச்சொல்லை மாற்று',
+      'settings.change_password.confirm': 'புதிய கடவுச்சொல்லை உறுதிப்படுத்து',
+      'settings.change_password.current': 'தற்போதைய கடவுச்சொல்',
+      'settings.change_password.dialog_title': 'கடவுச்சொல்லை மாற்று',
+      'settings.change_password.mismatch': 'புதிய கடவுச்சொற்கள் பொருந்தவில்லை',
+      'settings.change_password.new': 'புதிய கடவுச்சொல்',
+      'settings.change_password.subtitle':
+          'உங்கள் உள்நுழைவு கடவுச்சொல்லை பாதுகாப்பாக மாற்றுங்கள்',
+      'settings.change_password.success': 'கடவுச்சொல் மாற்றப்பட்டது',
+      'vitals_chart.conscious.confused': 'குழப்பம்',
+      'vitals_chart.no_previous_io': 'முந்தைய I/O பதிவுகள் இல்லை',
+      'vitals_chart.no_previous_vitals':
+          'முந்தைய வைட்டல்கள் பதிவு செய்யப்படவில்லை',
+      'vitals_chart.section.io_today': 'இன்றைய I/O பேலன்ஸ்',
+      'vitals_chart.section.last_24h': 'கடந்த 24 மணி வைட்டல்கள்',
+      'vitals_chart.section.previous_io': 'முந்தைய I/O',
+      'vitals_chart.section.previous_vitals': 'முந்தைய வைட்டல்கள்',
+      'vitals_chart.tab.previous_days': 'முந்தைய நாட்கள்',
+      'vitals_chart.tab.today': 'இன்று',
+      // REVIEW: ta AI first-pass drug chart batch — clinical wording
+      'drug_chart.title': 'மருந்து அட்டவணை',
+      'drug_chart.stop_title': 'மருந்தை நிறுத்து',
+      'drug_chart.stop_reason_label': 'காரணம்',
+      'drug_chart.stop_reason_hint':
+          'உதா: சிகிச்சை முடிந்தது, பக்க விளைவு, திட்ட மாற்றம்',
+      'drug_chart.stop_button': 'நிறுத்து',
+      'drug_chart.add_row': 'வரிசை சேர்',
+      'drug_chart.add_first_row': 'முதல் வரிசையைச் சேர்',
+      'drug_chart.remove_row': 'வரிசையை நீக்கு',
+      'drug_chart.scan': 'ஸ்கேன்',
+      'drug_chart.saved_toast':
+          'மருந்து ஆர்டர் சேமிக்கப்பட்டு பார்மசிக்கு அறிவிக்கப்பட்டது',
+      'drug_chart.empty': 'உள்நோயாளி மருந்துகள் எதுவும் பதிவில் இல்லை',
+      'drug_chart.given': 'கொடுக்கப்பட்டது',
+      // REVIEW: ta AI first-pass patient-summary batch — clinical wording
+      'summary.title': 'நோயாளர் சுருக்கம்',
+      'summary.tooltip': 'நோயாளர் சுருக்கம்',
+      'summary.admitted_bed': 'அனுமதி · படுக்கை {bed}',
+      'summary.allergies': 'ஒவ்வாமைகள்',
+      'summary.no_known_allergies': 'ஒவ்வாமைகள் பதிவில் இல்லை',
+      'summary.problems': 'செயலில் உள்ள பிரச்சினைகள்',
+      'summary.no_problems': 'செயலில் உள்ள பிரச்சினைகள் இல்லை',
+      'summary.chronic': 'நாள்பட்ட',
+      'summary.active_meds': 'செயலில் உள்ள மருந்துகள்',
+      'summary.no_active_meds': 'செயலில் உள்ள மருந்து ஆர்டர்கள் இல்லை',
+      'summary.last_vitals': 'கடைசி வைட்டல்கள்',
+      'summary.no_vitals': 'வைட்டல்கள் பதிவில் இல்லை',
+      'summary.pending_results': 'நிலுவை முடிவுகள்',
+      'summary.no_pending_results': 'நிலுவை முடிவுகள் இல்லை',
+      'summary.section_failed': 'இந்தப் பகுதியை ஏற்ற முடியவில்லை',
+      'summary.timeline': 'காலவரிசை',
+      'summary.notes': 'குறிப்புகள்',
       'settings.push_notifications': 'புஷ் அறிவிப்புகள்',
       'settings.push_notifications.subtitle':
           'வருகை நினைவூட்டல்கள், சந்திப்பு எச்சரிக்கைகள்',
@@ -6856,6 +7321,108 @@ class AppStrings {
       'orders.completed_toast': 'ஆணை முடிந்தது',
       'orders.complete_failed_prefix': 'ஆணை முடிக்க முடியவில்லை:',
       'orders.retry': 'மீண்டும் முயற்சி',
+      // REVIEW: AI first-pass
+      'orders.filter.discontinued': 'நிறுத்தப்பட்டவை',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue': 'நிறுத்து',
+      // REVIEW: AI first-pass
+      'orders.cancel': 'ஆர்டரை ரத்து செய்',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue_title': 'ஆர்டரை நிறுத்து',
+      // REVIEW: AI first-pass
+      'orders.cancel_title': 'ஆர்டரை ரத்து செய்',
+      // REVIEW: AI first-pass
+      'orders.stop_reason_label': 'காரணம் (கட்டாயம்)',
+      // REVIEW: AI first-pass, clinical wording
+      'orders.stop_reason_hint':
+          'இந்த ஆர்டரை நிறுத்துவதற்கான மருத்துவக் காரணம்',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'orders.discontinued_toast': 'ஆர்டர் நிறுத்தப்பட்டது',
+      // REVIEW: AI first-pass
+      'orders.cancelled_toast': 'ஆர்டர் ரத்து செய்யப்பட்டது',
+      // REVIEW: AI first-pass
+      'orders.stop_failed_prefix': 'ஆர்டரை நிறுத்த முடியவில்லை:',
+      // REVIEW: AI first-pass
+      'composer.title': 'புதிய ஆர்டர்கள்',
+      // REVIEW: AI first-pass
+      'composer.search_label': 'ஆர்டர் பட்டியலில் தேடுங்கள்',
+      // REVIEW: AI first-pass
+      'composer.search_hint': 'மருந்துகள் & பரிசோதனைகள் தேடுங்கள்...',
+      // REVIEW: AI first-pass
+      'composer.search_hint_tests_only': 'பரிசோதனைகள் & இமேஜிங் தேடுங்கள்...',
+      // REVIEW: AI first-pass
+      'composer.section.medications': 'மருந்துகள் (மருந்தகப் பட்டியல்)',
+      // REVIEW: AI first-pass
+      'composer.section.investigations': 'பரிசோதனைகள் & இமேஜிங்',
+      // REVIEW: AI first-pass
+      'composer.order_sets': 'ஆர்டர் தொகுப்புகள்',
+      // REVIEW: AI first-pass
+      'composer.type.radiology': 'ரேடியாலஜி / இமேஜிங்',
+      // REVIEW: AI first-pass
+      'composer.type.consult': 'ஆலோசனை / பரிந்துரை',
+      // REVIEW: AI first-pass
+      'composer.type.diet': 'உணவு ஆர்டர்',
+      // REVIEW: AI first-pass
+      'composer.empty_basket':
+          'பட்டியலில் தேடுங்கள், ஒரு ஆர்டர் தொகுப்பைத் தேர்வு செய்யுங்கள், அல்லது மேலே உள்ள விரைவு விருப்பங்களைப் பயன்படுத்துங்கள்.\nஅனைத்து ஆர்டர்களும் ஒரே தொகுதியாக ஒப்பமிடப்படும்.',
+      // REVIEW: AI first-pass
+      'composer.basket_count': 'கூடையில்: {n}',
+      // REVIEW: AI first-pass, clinical action label
+      'composer.place_orders': 'ஒப்பமிட்டு அனுப்பு ({n})',
+      // REVIEW: AI first-pass
+      'composer.placing': 'அனுப்பப்படுகிறது...',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'composer.placed_toast': '{n} ஆர்டர்(கள்) பதிவு செய்யப்பட்டன',
+      // REVIEW: AI first-pass
+      'composer.submit_failed': 'ஆர்டர்களைப் பதிவு செய்ய முடியவில்லை',
+      // REVIEW: AI first-pass, device-policy wording
+      'composer.desktop_only':
+          'மருத்துவ ஆர்டர்கள் டெஸ்க்டாப்/டேப்லெட் ஸ்டாஃப் ஆப்பிலிருந்து மட்டுமே பதிவு செய்ய முடியும்.',
+      // REVIEW: AI first-pass
+      'composer.relogin':
+          'மருத்துவ ஆர்டர்களைப் பதிவு செய்யும் முன் மீண்டும் உள்நுழையவும்.',
+      // REVIEW: AI first-pass
+      'composer.warnings_title': 'CDS எச்சரிக்கைகளை சரிபார்க்கவும்',
+      // REVIEW: AI first-pass, role-policy wording
+      'composer.med_items_skipped':
+          '{n} மருந்து உருப்படி(கள்) தவிர்க்கப்பட்டன - மருத்துவர் பங்கு தேவை',
+      // REVIEW: AI first-pass
+      'composer.remove_item': 'கூடையிலிருந்து நீக்கு',
+      // REVIEW: AI first-pass
+      'composer.source.order_set': 'ஆர்டர் தொகுப்பு',
+      // REVIEW: AI first-pass
+      'composer.source.catalog': 'பட்டியல்',
+      // REVIEW: AI first-pass, safety wording
+      'composer.blocked_chip': 'பாதுகாப்புச் சரிபார்ப்பால் தடுக்கப்பட்டது',
+      // REVIEW: AI first-pass
+      'composer.chip.medication': 'மருந்து',
+      // REVIEW: AI first-pass
+      'composer.chip.investigation': 'பரிசோதனை',
+      // REVIEW: AI first-pass
+      'composer.add_to_basket': 'கூடையில் சேர்',
+      // REVIEW: AI first-pass
+      'composer.duration_days': 'காலம் (நாட்கள்)',
+      // REVIEW: AI first-pass
+      'composer.study_name': 'ஸ்டடி',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      // REVIEW: AI first-pass
+      'composer.specialty': 'சிறப்புப் பிரிவு',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      // REVIEW: AI first-pass
+      'order_sets.no_placeable_items':
+          'பதிவு செய்யக்கூடிய ஆர்டர் உருப்படிகள் தேர்வு செய்யப்படவில்லை',
+      // REVIEW: AI first-pass
+      'order_sets.apply_failed': 'பயன்படுத்த முடியவில்லை',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'order_sets.placed_toast':
+          'தொகுப்பிலிருந்து {n} ஆர்டர்கள் பதிவு செய்யப்பட்டன',
+      // REVIEW: AI first-pass
+      'order_sets.applying': 'அனுப்பப்படுகிறது...',
+      // REVIEW: AI first-pass
+      'order_sets.add_to_basket': '{n}-ஐ கூடையில் சேர்',
+      // REVIEW: AI first-pass
+      'order_sets.apply_count': '{total}-இல் {sel} பதிவு செய்',
       // Vitals chart - REVIEW
       'vitals_chart.title': 'வைட்டல்ஸ் சார்ட்டிங்',
       'vitals_chart.title_prefix': 'வைட்டல்ஸ்',
@@ -7186,6 +7753,11 @@ class AppStrings {
       // CDS blocker - REVIEW: clinical-safety, Tamil-fluent clinician must verify
       // REVIEW:
       'cds.blocker_title': 'மருந்துச்சீட்டு தடுக்கப்பட்டது',
+      // REVIEW: AI first-pass, safety-critical copy
+      'cds.blocker_no_override_hint':
+          'CPOE ஆர்டரில் இந்தப் பாதுகாப்புத் தடைகளை மீற முடியாது. ஆர்டரை மாற்றவும், அல்லது பதிவு செய்யப்பட்ட மீறல் ஆதரிக்கப்படும் மருந்துச்சீட்டு வழிமுறையைப் பயன்படுத்தவும்.',
+      // REVIEW: AI first-pass
+      'cds.blocker_adjust_order': 'ஆர்டரை மாற்று',
       // REVIEW:
       'cds.blocker_body':
           'மருத்துவ முடிவு ஆதரவு பின்வரும் சிக்கல்களைக் குறிப்பிட்டுள்ளது. '
@@ -8668,6 +9240,101 @@ class AppStrings {
       'settings.theme.subtitle_system': 'సిస్టమ్ సెట్టింగ్‌ను అనుసరించండి',
       'settings.theme.subtitle_light': 'ఎల్లప్పుడూ లైట్',
       'settings.theme.subtitle_dark': 'ఎల్లప్పుడూ డార్క్',
+      'settings.language': 'భాష',
+      'settings.language.subtitle': 'యాప్ భాషను ఎంచుకోండి',
+      'settings.language.system': 'సిస్టమ్ డిఫాల్ట్',
+      // REVIEW: AI first-pass
+      'settings.font_size': 'ఫాంట్ పరిమాణం',
+      // REVIEW: AI first-pass
+      'settings.font_size.subtitle':
+          'సిస్టమ్ టెక్స్ట్ పరిమాణంపై టెక్స్ట్‌ను స్కేల్ చేస్తుంది',
+      // ── 2026-06-10 gap-fill: keys added en-only by later sessions ──
+      // REVIEW: te AI first-pass gap-fill batch — confirm clinical
+      // wording (transfer, discharge, consciousness) before production.
+      'attendance.phone_only_read_only':
+          'ఈ వర్క్‌స్టేషన్‌లో హాజరు రికార్డులు చూడవచ్చు. చెక్-ఇన్, చెక్-అవుట్, విరామాలు ఫోన్‌లో మాత్రమే.',
+      'bed_sheet.discharge_initiated': 'డిశ్చార్జ్ ప్రక్రియ ప్రారంభించబడింది',
+      'bed_sheet.discharge_initiated_short': 'డిశ్చార్జ్ ప్రారంభమైంది',
+      'bed_sheet.transfer': 'బదిలీ',
+      'bed_sheet.transfer_confirm_prefix': 'రోగిని ఇక్కడికి తరలించండి:',
+      'bed_sheet.transfer_confirm_suffix':
+          'ప్రస్తుత బెడ్ క్లీనింగ్‌కు వెళ్తుంది.',
+      'bed_sheet.transfer_consent':
+          'క్లాస్/టారిఫ్ మార్పు సమ్మతి నమోదు చేయబడింది',
+      'bed_sheet.transfer_destination': 'బదిలీ గమ్యం',
+      'bed_sheet.transfer_empty': 'ప్రస్తుతం బెడ్‌లు ఖాళీగా లేవు',
+      'bed_sheet.transfer_patient': 'రోగిని బదిలీ చేయండి',
+      'bed_sheet.transfer_reason_hint': 'కారణం / స్వీకరించే యూనిట్ నోట్',
+      'bed_sheet.transfer_search_hint': 'బెడ్, వార్డు, రకం వెతకండి',
+      'bed_sheet.transfer_succeeded':
+          'రోగి బదిలీ అయ్యారు. మునుపటి బెడ్ ఇప్పుడు క్లీనింగ్‌లో ఉంది.',
+      'clinical_ai.draft.reviewer_note_button': 'నోట్‌తో ఆమోదించండి',
+      'clinical_ai.draft.reviewer_note_hint':
+          'ఆమోదించే ముందు మీరు తనిఖీ చేసినది ఒక వాక్యంలో.',
+      'clinical_ai.draft.reviewer_note_label': 'నోట్',
+      'clinical_ai.draft.reviewer_note_min_chars':
+          'సమీక్షకుని నోట్ కనీసం 3 పదాలు ఉండాలి.',
+      'clinical_ai.draft.reviewer_note_title': 'సమీక్షకుని నోట్',
+      'clinical_ai.governance.label.ai': 'AI',
+      'clinical_ai.governance.label.blocked': 'నిరోధించబడింది',
+      'clinical_ai.governance.label.deep_tier': 'డీప్ టైర్',
+      'clinical_ai.governance.label.fallback': 'ఫాల్‌బ్యాక్',
+      'clinical_ai.governance.label.schema_unavailable':
+          'స్కీమా అందుబాటులో లేదు',
+      'clinical_ai.governance.reason_prefix': 'కారణం:',
+      'profile.field.name': 'పేరు',
+      'profile.hr_managed_hint': 'HR/అడ్మిన్ నిర్వహణలో',
+      'settings.change_password': 'పాస్‌వర్డ్ మార్చండి',
+      'settings.change_password.confirm': 'కొత్త పాస్‌వర్డ్ నిర్ధారించండి',
+      'settings.change_password.current': 'ప్రస్తుత పాస్‌వర్డ్',
+      'settings.change_password.dialog_title': 'పాస్‌వర్డ్ మార్చండి',
+      'settings.change_password.mismatch': 'కొత్త పాస్‌వర్డ్‌లు సరిపోలడం లేదు',
+      'settings.change_password.new': 'కొత్త పాస్‌వర్డ్',
+      'settings.change_password.subtitle':
+          'మీ లాగిన్ పాస్‌వర్డ్‌ను సురక్షితంగా మార్చుకోండి',
+      'settings.change_password.success': 'పాస్‌వర్డ్ మార్చబడింది',
+      'vitals_chart.conscious.confused': 'అయోమయం',
+      'vitals_chart.no_previous_io': 'మునుపటి I/O నమోదులు లేవు',
+      'vitals_chart.no_previous_vitals': 'మునుపటి వైటల్స్ నమోదు కాలేదు',
+      'vitals_chart.section.io_today': 'నేటి I/O బ్యాలెన్స్',
+      'vitals_chart.section.last_24h': 'గత 24 గంటల వైటల్స్',
+      'vitals_chart.section.previous_io': 'మునుపటి I/O',
+      'vitals_chart.section.previous_vitals': 'మునుపటి వైటల్స్',
+      'vitals_chart.tab.previous_days': 'మునుపటి రోజులు',
+      'vitals_chart.tab.today': 'నేడు',
+      // REVIEW: te AI first-pass drug chart batch — clinical wording
+      'drug_chart.title': 'డ్రగ్ చార్ట్',
+      'drug_chart.stop_title': 'మందు ఆపండి',
+      'drug_chart.stop_reason_label': 'కారణం',
+      'drug_chart.stop_reason_hint':
+          'ఉదా: కోర్సు పూర్తయింది, దుష్ప్రభావం, ప్రణాళిక మార్పు',
+      'drug_chart.stop_button': 'ఆపు',
+      'drug_chart.add_row': 'వరుస చేర్చు',
+      'drug_chart.add_first_row': 'మొదటి వరుస చేర్చు',
+      'drug_chart.remove_row': 'వరుస తొలగించు',
+      'drug_chart.scan': 'స్కాన్',
+      'drug_chart.saved_toast':
+          'మందు ఆర్డర్ సేవ్ చేయబడింది, ఫార్మసీకి తెలియజేయబడింది',
+      'drug_chart.empty': 'ఇన్‌పేషెంట్ మందులు చార్ట్ చేయలేదు',
+      'drug_chart.given': 'ఇవ్వబడింది',
+      // REVIEW: te AI first-pass patient-summary batch — clinical wording
+      'summary.title': 'రోగి సారాంశం',
+      'summary.tooltip': 'రోగి సారాంశం',
+      'summary.admitted_bed': 'అడ్మిట్ · బెడ్ {bed}',
+      'summary.allergies': 'అలర్జీలు',
+      'summary.no_known_allergies': 'అలర్జీలు నమోదు కాలేదు',
+      'summary.problems': 'యాక్టివ్ సమస్యలు',
+      'summary.no_problems': 'యాక్టివ్ సమస్యలు నమోదు లేవు',
+      'summary.chronic': 'దీర్ఘకాలిక',
+      'summary.active_meds': 'యాక్టివ్ మందులు',
+      'summary.no_active_meds': 'యాక్టివ్ మందు ఆర్డర్లు లేవు',
+      'summary.last_vitals': 'చివరి వైటల్స్',
+      'summary.no_vitals': 'వైటల్స్ నమోదు కాలేదు',
+      'summary.pending_results': 'పెండింగ్ ఫలితాలు',
+      'summary.no_pending_results': 'పెండింగ్ ఫలితాలు లేవు',
+      'summary.section_failed': 'ఈ విభాగం లోడ్ కాలేదు',
+      'summary.timeline': 'టైమ్‌లైన్',
+      'summary.notes': 'నోట్స్',
       'settings.push_notifications': 'పుష్ నోటిఫికేషన్‌లు',
       'settings.push_notifications.subtitle':
           'హాజరు రిమైండర్‌లు, అపాయింట్‌మెంట్ హెచ్చరికలు',
@@ -9285,6 +9952,105 @@ class AppStrings {
       'orders.completed_toast': 'ఆర్డర్ పూర్తయింది',
       'orders.complete_failed_prefix': 'ఆర్డర్ పూర్తి చేయడంలో విఫలమైంది:',
       'orders.retry': 'మళ్ళీ ప్రయత్నించు',
+      // REVIEW: AI first-pass
+      'orders.filter.discontinued': 'నిలిపివేసినవి',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue': 'నిలిపివేయి',
+      // REVIEW: AI first-pass
+      'orders.cancel': 'ఆర్డర్ రద్దు చేయి',
+      // REVIEW: AI first-pass, clinical action label
+      'orders.discontinue_title': 'ఆర్డర్ నిలిపివేయి',
+      // REVIEW: AI first-pass
+      'orders.cancel_title': 'ఆర్డర్ రద్దు చేయి',
+      // REVIEW: AI first-pass
+      'orders.stop_reason_label': 'కారణం (తప్పనిసరి)',
+      // REVIEW: AI first-pass, clinical wording
+      'orders.stop_reason_hint': 'ఈ ఆర్డర్ ఆపడానికి వైద్యపరమైన కారణం',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'orders.discontinued_toast': 'ఆర్డర్ నిలిపివేయబడింది',
+      // REVIEW: AI first-pass
+      'orders.cancelled_toast': 'ఆర్డర్ రద్దు చేయబడింది',
+      // REVIEW: AI first-pass
+      'orders.stop_failed_prefix': 'ఆర్డర్ ఆపడం విఫలమైంది:',
+      // REVIEW: AI first-pass
+      'composer.title': 'కొత్త ఆర్డర్లు',
+      // REVIEW: AI first-pass
+      'composer.search_label': 'ఆర్డర్ జాబితాలో వెతకండి',
+      // REVIEW: AI first-pass
+      'composer.search_hint': 'మందులు & పరీక్షలు వెతకండి...',
+      // REVIEW: AI first-pass
+      'composer.search_hint_tests_only': 'పరీక్షలు & ఇమేజింగ్ వెతకండి...',
+      // REVIEW: AI first-pass
+      'composer.section.medications': 'మందులు (ఫార్ములరీ)',
+      // REVIEW: AI first-pass
+      'composer.section.investigations': 'పరీక్షలు & ఇమేజింగ్',
+      // REVIEW: AI first-pass
+      'composer.order_sets': 'ఆర్డర్ సెట్లు',
+      // REVIEW: AI first-pass
+      'composer.type.radiology': 'రేడియాలజీ / ఇమేజింగ్',
+      // REVIEW: AI first-pass
+      'composer.type.consult': 'సంప్రదింపు / రెఫరల్',
+      // REVIEW: AI first-pass
+      'composer.type.diet': 'ఆహార ఆర్డర్',
+      // REVIEW: AI first-pass
+      'composer.empty_basket':
+          'జాబితాలో వెతకండి, ఒక ఆర్డర్ సెట్ ఎంచుకోండి, లేదా పైన ఉన్న త్వరిత ఎంపికలను వాడండి.\nఅన్ని ఆర్డర్లు ఒకే బ్యాచ్‌గా సంతకం చేయబడతాయి.',
+      // REVIEW: AI first-pass
+      'composer.basket_count': 'బుట్టలో: {n}',
+      // REVIEW: AI first-pass, clinical action label
+      'composer.place_orders': 'సంతకం చేసి పంపండి ({n})',
+      // REVIEW: AI first-pass
+      'composer.placing': 'పంపుతోంది...',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'composer.placed_toast': '{n} ఆర్డర్(లు) నమోదు అయ్యాయి',
+      // REVIEW: AI first-pass
+      'composer.submit_failed': 'ఆర్డర్లు నమోదు కాలేదు',
+      // REVIEW: AI first-pass, device-policy wording
+      'composer.desktop_only':
+          'వైద్య ఆర్డర్లు డెస్క్‌టాప్/టాబ్లెట్ స్టాఫ్ యాప్ నుండి మాత్రమే నమోదు చేయగలరు.',
+      // REVIEW: AI first-pass
+      'composer.relogin':
+          'వైద్య ఆర్డర్లు నమోదు చేసే ముందు దయచేసి మళ్ళీ లాగిన్ అవ్వండి.',
+      // REVIEW: AI first-pass
+      'composer.warnings_title': 'CDS హెచ్చరికలను సమీక్షించండి',
+      // REVIEW: AI first-pass, role-policy wording
+      'composer.med_items_skipped':
+          '{n} మందు అంశం(లు) దాటవేయబడ్డాయి - డాక్టర్ పాత్ర అవసరం',
+      // REVIEW: AI first-pass
+      'composer.remove_item': 'బుట్ట నుండి తీసివేయి',
+      // REVIEW: AI first-pass
+      'composer.source.order_set': 'ఆర్డర్ సెట్',
+      // REVIEW: AI first-pass
+      'composer.source.catalog': 'జాబితా',
+      // REVIEW: AI first-pass, safety wording
+      'composer.blocked_chip': 'భద్రతా తనిఖీలచే నిరోధించబడింది',
+      // REVIEW: AI first-pass
+      'composer.chip.medication': 'మందు',
+      // REVIEW: AI first-pass
+      'composer.chip.investigation': 'పరీక్ష',
+      // REVIEW: AI first-pass
+      'composer.add_to_basket': 'బుట్టలో చేర్చు',
+      // REVIEW: AI first-pass
+      'composer.duration_days': 'వ్యవధి (రోజులు)',
+      // REVIEW: AI first-pass
+      'composer.study_name': 'స్టడీ',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      // REVIEW: AI first-pass
+      'composer.specialty': 'ప్రత్యేకత',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      // REVIEW: AI first-pass
+      'order_sets.no_placeable_items': 'నమోదు చేయగల ఆర్డర్ అంశాలు ఎంచుకోబడలేదు',
+      // REVIEW: AI first-pass
+      'order_sets.apply_failed': 'వర్తింపజేయడం విఫలమైంది',
+      // REVIEW: AI first-pass, clinical-action confirmation
+      'order_sets.placed_toast': 'సెట్ నుండి {n} ఆర్డర్లు నమోదు అయ్యాయి',
+      // REVIEW: AI first-pass
+      'order_sets.applying': 'పంపుతోంది...',
+      // REVIEW: AI first-pass
+      'order_sets.add_to_basket': '{n} బుట్టలో చేర్చు',
+      // REVIEW: AI first-pass
+      'order_sets.apply_count': '{total}లో {sel} నమోదు చేయి',
       // Vitals chart - REVIEW
       'vitals_chart.title': 'వైటల్స్ చార్టింగ్',
       'vitals_chart.title_prefix': 'వైటల్స్',
@@ -9621,6 +10387,11 @@ class AppStrings {
           'అలర్జీ సంఘర్షణ: ఈ అతిక్రమణను ఆమోదించిన పర్యవేక్షక వైద్యుడిని మీ కారణంలో పేర్కొనండి.',
       // REVIEW:
       'cds.override_reason_label': 'అతిక్రమణ కారణం (అవసరం, కనీసం 5 అక్షరాలు)',
+      // REVIEW: AI first-pass, safety-critical copy
+      'cds.blocker_no_override_hint':
+          'CPOE ఆర్డర్‌పై ఈ భద్రతా అడ్డంకులను అతిక్రమించలేరు. ఆర్డర్‌ను మార్చండి, లేదా నమోదిత అతిక్రమణకు మద్దతు ఉన్న ప్రిస్క్రిప్షన్ వర్క్‌ఫ్లోను వాడండి.',
+      // REVIEW: AI first-pass
+      'cds.blocker_adjust_order': 'ఆర్డర్ మార్చు',
       // REVIEW:
       'cds.override_button': 'అతిక్రమించు',
       // REVIEW:
@@ -10880,6 +11651,623 @@ class AppStrings {
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'clinical_ai.voice_notes.generation_failed_prefix':
           'SOAP ఉత్పత్తి విఫలమైంది:',
+    },
+
+    // ── Malayalam (ml) ─────────────────────────────────────────────────
+    // Roadmap E2 first pass: the NURSE-FACING core only (actions, labels,
+    // login, dashboard, settings, bed sheet, vitals + vitals chart, MAR
+    // scan, due meds, nursing notes, handover, code blue, CDS, orders +
+    // composer + order sets, notifications, logout/splash/error). All
+    // other keys fall back to English by design until the next pass.
+    //
+    // REVIEW: ml AI first-pass — the ENTIRE map needs review by a
+    // Malayalam-fluent clinician before production rollout in
+    // Malayalam-speaking staff populations. Terminology follows the
+    // patient app's ml register (transliterated loanwords for clinical/
+    // technical terms: ഫാർമസി, അപ്പോയിന്റ്മെന്റ്, ഡോസ്).
+    'ml': {
+      'action.cancel': 'റദ്ദാക്കുക',
+      'action.close': 'അടയ്ക്കുക',
+      'action.confirm': 'സ്ഥിരീകരിക്കുക',
+      'action.delete': 'ഇല്ലാതാക്കുക',
+      'action.edit': 'എഡിറ്റ് ചെയ്യുക',
+      'action.logout': 'ലോഗൗട്ട്',
+      'action.refresh': 'പുതുക്കുക',
+      'action.retry': 'വീണ്ടും ശ്രമിക്കുക',
+      'action.save': 'സേവ് ചെയ്യുക',
+      'action.search': 'തിരയുക',
+      'action.submit': 'സമർപ്പിക്കുക',
+      'label.loading': 'ലോഡ് ചെയ്യുന്നു…',
+      'label.no_data': 'ഡാറ്റ ഇല്ല',
+      'label.no_matches_for': 'പൊരുത്തങ്ങളില്ല:',
+      'label.optional': 'ഓപ്ഷണൽ',
+      'label.required': 'നിർബന്ധം',
+      'dashboard.greeting.morning': 'സുപ്രഭാതം',
+      'dashboard.greeting.afternoon': 'ശുഭ മധ്യാഹ്നം',
+      'dashboard.greeting.evening': 'ശുഭ സായാഹ്നം',
+      'dashboard.checked_in': 'ചെക്ക്-ഇൻ ചെയ്തു',
+      'dashboard.checked_out': 'ചെക്ക്-ഔട്ട് ചെയ്തു',
+      'dashboard.not_checked_in': 'ചെക്ക്-ഇൻ ചെയ്തിട്ടില്ല',
+      'dashboard.quick_actions_header': 'ദ്രുത പ്രവർത്തനങ്ങൾ',
+      'dashboard.recent_patients_header': 'സമീപകാല രോഗികൾ',
+      'dashboard.stat.alerts': 'അലേർട്ടുകൾ',
+      'dashboard.stat.due_meds': 'നൽകേണ്ട മരുന്നുകൾ',
+      'dashboard.stat.inpatients': 'കിടപ്പുരോഗികൾ',
+      'dashboard.stat.review_queue': 'AI റിവ്യൂ',
+      'dashboard.upcoming_appointments': 'വരാനിരിക്കുന്ന അപ്പോയിന്റ്മെന്റുകൾ',
+      'login.employee_id_label': 'എംപ്ലോയീ ഐഡി',
+      'login.password_label': 'പാസ്‌വേഡ്',
+      'login.pin_label': 'പിൻ',
+      'login.sign_in_button': 'സൈൻ ഇൻ',
+      'login.use_biometric': 'ബയോമെട്രിക് ഉപയോഗിക്കുക',
+      'login.use_password': 'പാസ്‌വേഡ് ഉപയോഗിക്കുക',
+      'login.use_pin': 'പിൻ ഉപയോഗിക്കുക',
+      'login.invalid_credentials':
+          'തെറ്റായ ലോഗിൻ വിവരങ്ങൾ. വീണ്ടും ശ്രമിക്കുക.',
+      'login.app_title': 'VHHealth Staff',
+      'login.portal_subtitle': 'ഹോസ്പിറ്റൽ സ്റ്റാഫ് പോർട്ടൽ',
+      'login.screen_title': 'സൈൻ ഇൻ',
+      'login.screen_subtitle':
+          'പോർട്ടലിൽ പ്രവേശിക്കാൻ നിങ്ങളുടെ എംപ്ലോയീ വിവരങ്ങൾ ഉപയോഗിക്കുക',
+      'login.employee_id_hint': '1001',
+      'login.employee_id_required': 'എംപ്ലോയീ നമ്പർ നിർബന്ധമാണ്',
+      'login.employee_id_numbers_only': 'അക്കങ്ങൾ മാത്രം (1–6 അക്കം)',
+      'login.mode.password': 'പാസ്‌വേഡ്',
+      'login.mode.pin': 'പിൻ',
+      'login.mode.quick': 'ക്വിക്ക്',
+      'login.pin_field_label': 'പിൻ',
+      'login.pin_hint': '4–6 അക്കങ്ങൾ',
+      'login.pin_required': 'പിൻ നിർബന്ധമാണ്',
+      'login.pin_min_digits': 'കുറഞ്ഞത് 4 അക്കങ്ങൾ',
+      'login.quick_pin_label': 'പിൻ (അല്ലെങ്കിൽ ബയോമെട്രിക്)',
+      'login.quick_pin_hint': 'വേഗ പ്രവേശനത്തിന് പിൻ നൽകുക',
+      'login.remember_employee_id': 'എംപ്ലോയീ ഐഡി ഓർമ്മിക്കുക',
+      'login.locked_title': 'അക്കൗണ്ട് താൽക്കാലികമായി ലോക്ക് ചെയ്തു',
+      'login.locked_hint':
+          'നിരവധി പരാജയ ശ്രമങ്ങൾ. 15 മിനിറ്റിനു ശേഷം ശ്രമിക്കുക, അല്ലെങ്കിൽ സൂപ്പർവൈസറെ ബന്ധപ്പെടുക.',
+      'login.sign_in_with_password': 'പാസ്‌വേഡ് ഉപയോഗിച്ച് സൈൻ ഇൻ',
+      'login.sign_in_with_pin': 'പിൻ ഉപയോഗിച്ച് സൈൻ ഇൻ',
+      'login.quick_sign_in': 'ക്വിക്ക് സൈൻ ഇൻ',
+      'login.footer': 'VHHealth · സ്റ്റാഫിന് മാത്രം',
+      'dashboard.welcome_back': 'വീണ്ടും സ്വാഗതം',
+      'dashboard.see_all': 'എല്ലാം കാണുക',
+      'dashboard.all_features': 'എല്ലാ ഫീച്ചറുകളും',
+      'dashboard.daily_work': 'ദൈനംദിന ജോലി',
+      'dashboard.op_services': 'OP സേവനങ്ങൾ',
+      'dashboard.ip_services': 'IP സേവനങ്ങൾ',
+      'dashboard.no_op_services': 'ഈ റോളിന് OP സേവനങ്ങൾ ലഭ്യമല്ല',
+      'dashboard.no_ip_services': 'ഈ റോളിന് IP സേവനങ്ങൾ ലഭ്യമല്ല',
+      'dashboard.op_lab_bookings': 'ലാബ് ബുക്കിംഗ് (OP)',
+      'dashboard.ip_lab_bookings': 'ലാബ് ബുക്കിംഗ് (IP)',
+      'dashboard.op_nursing_notes': 'നഴ്സിംഗ് കുറിപ്പുകൾ (OP)',
+      'dashboard.ip_nursing_notes': 'നഴ്സിംഗ് കുറിപ്പുകൾ (IP)',
+      'dashboard.op_pharmacy': 'ഫാർമസി (OP)',
+      'dashboard.ip_pharmacy': 'ഫാർമസി (IP)',
+      'dashboard.op_lab_results': 'ലാബ് ഫലങ്ങൾ (OP)',
+      'dashboard.ip_lab_results': 'ലാബ് ഫലങ്ങൾ (IP)',
+      'dashboard.op_patient_records': 'OP രോഗി രേഖകൾ',
+      'dashboard.ip_patient_records': 'IP രോഗി രേഖകൾ',
+      'dashboard.more_tools': 'കൂടുതൽ ടൂളുകൾ',
+      'dashboard.more_tools_hint':
+          'അവധി, പ്രൊഫൈൽ, ക്രമീകരണങ്ങൾ, മറ്റ് വർക്ക്ഫ്ലോകൾ',
+      'dashboard.recent_activity': 'സമീപകാല പ്രവർത്തനം',
+      'dashboard.expand': 'വികസിപ്പിക്കുക',
+      'dashboard.collapse': 'ചുരുക്കുക',
+      'dashboard.checked_in_title': 'ചെക്ക്-ഇൻ ചെയ്തു',
+      'dashboard.not_checked_in_title': 'ചെക്ക്-ഇൻ ചെയ്തിട്ടില്ല',
+      'dashboard.since_time_prefix': 'മുതൽ:',
+      'dashboard.tap_to_manage': 'ഹാജർ നിയന്ത്രിക്കാൻ ടാപ്പ് ചെയ്യുക',
+      'dashboard.new_live_notification.one': 'പുതിയ തത്സമയ അറിയിപ്പ്',
+      'dashboard.new_live_notification.other': 'പുതിയ തത്സമയ അറിയിപ്പുകൾ',
+      'dashboard.sync_pending.one': 'ഇനം സിങ്കിനായി കാത്തിരിക്കുന്നു',
+      'dashboard.sync_pending.other': 'ഇനങ്ങൾ സിങ്കിനായി കാത്തിരിക്കുന്നു',
+      'dashboard.action.check_in_out': 'ചെക്ക് ഇൻ/ഔട്ട്',
+      'dashboard.action.shift_schedule': 'എന്റെ റോസ്റ്റർ',
+      'dashboard.action.messages': 'സന്ദേശങ്ങൾ',
+      'dashboard.action.prescriptions': 'കുറിപ്പടികൾ',
+      'dashboard.action.investigations': 'പരിശോധനകൾ',
+      'dashboard.action.vitals': 'വൈറ്റൽസ്',
+      'dashboard.action.handover': 'ഷിഫ്റ്റ് കൈമാറ്റം',
+      'dashboard.action.pharmacy': 'ഫാർമസി',
+      'dashboard.action.upload_results': 'ഫലങ്ങൾ അപ്‌ലോഡ് ചെയ്യുക',
+      'bed_sheet.action.open_emr': 'EMR തുറക്കുക',
+      'bed_sheet.action.record_vitals': 'വൈറ്റൽസ് രേഖപ്പെടുത്തുക',
+      'bed_sheet.action.add_note': 'കുറിപ്പ് ചേർക്കുക',
+      'bed_sheet.action.handover': 'കൈമാറ്റം',
+      'bed_sheet.section.patient': 'രോഗി',
+      'bed_sheet.section.admission': 'അഡ്മിഷൻ',
+      'bed_sheet.section.notes': 'കുറിപ്പുകൾ',
+      'bed_sheet.notes_hint':
+          'ഈ ബെഡിനായുള്ള കുറിപ്പ് (കൈമാറ്റം, അപകടങ്ങൾ, IV സൈറ്റ് മുതലായവ)',
+      'bed_sheet.save_notes': 'കുറിപ്പുകൾ സേവ് ചെയ്യുക',
+      'bed_sheet.notes_saved': 'ബെഡ് കുറിപ്പുകൾ സേവ് ചെയ്തു',
+      'bed_sheet.admit_patient': 'രോഗിയെ അഡ്മിറ്റ് ചെയ്യുക',
+      'bed_sheet.discharge': 'ഡിസ്ചാർജ് ആരംഭിക്കുക',
+      'bed_sheet.discharge_initiated': 'ഡിസ്ചാർജ് നടപടികൾ ആരംഭിച്ചു',
+      'bed_sheet.discharge_initiated_short': 'ഡിസ്ചാർജ് ആരംഭിച്ചു',
+      'bed_sheet.transfer': 'ട്രാൻസ്ഫർ',
+      'bed_sheet.transfer_destination': 'ട്രാൻസ്ഫർ ലക്ഷ്യസ്ഥാനം',
+      'bed_sheet.transfer_patient': 'രോഗിയെ ട്രാൻസ്ഫർ ചെയ്യുക',
+      'bed_sheet.transfer_reason_hint':
+          'കാരണം / സ്വീകരിക്കുന്ന യൂണിറ്റ് കുറിപ്പ്',
+      'bed_sheet.transfer_consent':
+          'ക്ലാസ്/താരിഫ് മാറ്റത്തിനുള്ള സമ്മതം രേഖപ്പെടുത്തിയിട്ടുണ്ട്',
+      'bed_sheet.transfer_empty': 'ഇപ്പോൾ ഒഴിവുള്ള ബെഡുകളില്ല',
+      'bed_sheet.transfer_search_hint': 'ബെഡ്, വാർഡ്, തരം എന്നിവ തിരയുക',
+      'bed_sheet.transfer_succeeded':
+          'രോഗിയെ മാറ്റി. മുമ്പത്തെ ബെഡ് ഇപ്പോൾ ക്ലീനിംഗിലാണ്.',
+      'bed_sheet.transfer_confirm_prefix': 'രോഗിയെ മാറ്റേണ്ടത്:',
+      'bed_sheet.transfer_confirm_suffix':
+          'നിലവിലെ ബെഡ് ക്ലീനിംഗിലേക്ക് മാറും.',
+      'bed_sheet.mark_maintenance': 'മെയിന്റനൻസ് അടയാളപ്പെടുത്തുക',
+      'bed_sheet.mark_available': 'ലഭ്യമെന്ന് അടയാളപ്പെടുത്തുക',
+      'bed_sheet.discharge_confirm_prefix': 'ഡിസ്ചാർജ് ആരംഭിക്കേണ്ടത്:',
+      'bed_sheet.discharge_confirm_body':
+          'ഇത് ഡിസ്ചാർജ് സമ്മറി, കൗൺസിലിംഗ്, ഫാർമസി, ബില്ലിംഗ്, കൺസൾട്ട് പരിശോധനകൾ ആരംഭിക്കും. അന്തിമ ഡിസ്ചാർജ് പൂർത്തിയാകുന്നതുവരെ ബെഡ് ഒക്യുപൈഡ് ആയി തുടരും.',
+      'settings.title': 'ക്രമീകരണങ്ങൾ',
+      'settings.section.appearance': 'രൂപം',
+      'settings.section.notifications': 'അറിയിപ്പുകൾ',
+      'settings.section.security': 'സുരക്ഷ',
+      'settings.section.quick_links': 'ദ്രുത ലിങ്കുകൾ',
+      'settings.section.about': 'വിവരങ്ങൾ',
+      'settings.theme.title': 'തീം',
+      'settings.theme.system': 'സിസ്റ്റം',
+      'settings.theme.light': 'ലൈറ്റ്',
+      'settings.theme.dark': 'ഡാർക്ക്',
+      'settings.theme.subtitle_system': 'സിസ്റ്റം ക്രമീകരണം പിന്തുടരുക',
+      'settings.theme.subtitle_light': 'എപ്പോഴും ലൈറ്റ്',
+      'settings.theme.subtitle_dark': 'എപ്പോഴും ഡാർക്ക്',
+      'settings.language': 'ഭാഷ',
+      'settings.language.subtitle': 'ആപ്പിന്റെ ഭാഷ തിരഞ്ഞെടുക്കുക',
+      'settings.language.system': 'സിസ്റ്റം ഡിഫോൾട്ട്',
+      'settings.font_size': 'ഫോണ്ട് വലുപ്പം',
+      'settings.font_size.subtitle':
+          'സിസ്റ്റം ടെക്സ്റ്റ് വലുപ്പത്തിന് മുകളിൽ ടെക്സ്റ്റ് സ്കെയിൽ ചെയ്യുന്നു',
+      'settings.push_notifications': 'പുഷ് അറിയിപ്പുകൾ',
+      'settings.push_notifications.subtitle':
+          'ഹാജർ ഓർമ്മപ്പെടുത്തലുകൾ, അപ്പോയിന്റ്മെന്റ് അലേർട്ടുകൾ',
+      'settings.shift_reminders': 'ഷിഫ്റ്റ് ഓർമ്മപ്പെടുത്തലുകൾ',
+      'settings.shift_reminders.subtitle':
+          'ഷിഫ്റ്റ് തുടങ്ങുംമുമ്പ് അറിയിപ്പ് ലഭിക്കും',
+      'settings.setup_pin': 'പിൻ സജ്ജമാക്കുക',
+      'settings.setup_pin.subtitle':
+          '4–6 അക്ക ക്വിക്ക് പിൻ സജ്ജമാക്കുക/പുതുക്കുക',
+      'settings.setup_pin.dialog_title': 'പിൻ സജ്ജമാക്കുക',
+      'settings.setup_pin.dialog_label': '4–6 അക്ക പിൻ നൽകുക',
+      'settings.setup_pin.success': '✅ പിൻ വിജയകരമായി സജ്ജമാക്കി',
+      'settings.change_password': 'പാസ്‌വേഡ് മാറ്റുക',
+      'settings.change_password.subtitle':
+          'നിങ്ങളുടെ ലോഗിൻ പാസ്‌വേഡ് സുരക്ഷിതമായി പുതുക്കുക',
+      'settings.change_password.dialog_title': 'പാസ്‌വേഡ് മാറ്റുക',
+      'settings.change_password.current': 'നിലവിലെ പാസ്‌വേഡ്',
+      'settings.change_password.new': 'പുതിയ പാസ്‌വേഡ്',
+      'settings.change_password.confirm': 'പുതിയ പാസ്‌വേഡ് സ്ഥിരീകരിക്കുക',
+      'settings.change_password.mismatch':
+          'പുതിയ പാസ്‌വേഡുകൾ പൊരുത്തപ്പെടുന്നില്ല',
+      'settings.change_password.success': 'പാസ്‌വേഡ് മാറ്റി',
+      'settings.biometric.title': 'ബയോമെട്രിക് ലോഗിൻ',
+      'settings.biometric.subtitle':
+          'വിരലടയാളമോ മുഖമോ ഉപയോഗിച്ച് സൈൻ ഇൻ ചെയ്യുക',
+      'settings.biometric.enabled': '✅ ബയോമെട്രിക് പ്രവർത്തനക്ഷമമാക്കി',
+      'settings.biometric.disabled': 'ബയോമെട്രിക് പ്രവർത്തനരഹിതമാക്കി',
+      'settings.manage_devices': 'ഉപകരണങ്ങൾ നിയന്ത്രിക്കുക',
+      'settings.manage_devices.subtitle':
+          'രജിസ്റ്റർ ചെയ്ത ഉപകരണങ്ങൾ കാണുക/നീക്കം ചെയ്യുക',
+      'settings.registered_devices': 'രജിസ്റ്റർ ചെയ്ത ഉപകരണങ്ങൾ',
+      'settings.no_devices': 'ഉപകരണങ്ങളൊന്നും രജിസ്റ്റർ ചെയ്തിട്ടില്ല',
+      'settings.unknown_device': 'അജ്ഞാത ഉപകരണം',
+      'settings.device_removed': '✅ ഉപകരണം നീക്കം ചെയ്തു',
+      'settings.quick_link.profile': 'പ്രൊഫൈൽ',
+      'settings.quick_link.profile.subtitle':
+          'നിങ്ങളുടെ സ്റ്റാഫ് പ്രൊഫൈൽ കാണുക/എഡിറ്റ് ചെയ്യുക',
+      'settings.quick_link.attendance': 'ഹാജർ',
+      'settings.quick_link.attendance.subtitle':
+          'ചെക്ക് ഇൻ/ഔട്ട്, ചരിത്രം കാണുക',
+      'settings.quick_link.leave': 'അവധി',
+      'settings.quick_link.leave.subtitle':
+          'അവധിക്ക് അപേക്ഷിക്കുക, ബാലൻസ് പരിശോധിക്കുക',
+      'settings.about.title': 'VHHealth Staff-നെ കുറിച്ച്',
+      'settings.about.subtitle': 'പതിപ്പ് 1.0.0 · ആപ്പ് വിവരങ്ങളും ഫീച്ചറുകളും',
+      'settings.logout.dialog_title': 'ലോഗൗട്ട്',
+      'settings.logout.dialog_body': 'ലോഗൗട്ട് ചെയ്യണമെന്ന് ഉറപ്പാണോ?',
+      'notifications.title': 'അറിയിപ്പുകൾ',
+      'notifications.empty': 'അറിയിപ്പുകളൊന്നുമില്ല',
+      'notifications.search_hint': 'അറിയിപ്പുകൾ തിരയുക…',
+      'notifications.mark_all_read': 'എല്ലാം വായിച്ചതായി അടയാളപ്പെടുത്തുക',
+      'notifications.live_update': 'തത്സമയ അപ്ഡേറ്റ്',
+      'time.just_now': 'ഇപ്പോൾ',
+      'time.yesterday': 'ഇന്നലെ',
+      'time.today': 'ഇന്ന്',
+      'time.minutes_ago_suffix': ' മിനിറ്റ് മുമ്പ്',
+      'time.hours_ago_suffix': ' മണിക്കൂർ മുമ്പ്',
+      'time.days_ago_suffix': ' ദിവസം മുമ്പ്',
+      'priority.low': 'കുറഞ്ഞത്',
+      'priority.normal': 'സാധാരണ',
+      'priority.high': 'ഉയർന്നത്',
+      'priority.urgent': 'അടിയന്തിരം',
+      'priority.critical': 'ഗുരുതരം',
+      'urgency.low': 'കുറഞ്ഞത്',
+      'urgency.normal': 'സാധാരണ',
+      'urgency.high': 'ഉയർന്നത്',
+      'urgency.critical': 'ഗുരുതരം',
+      'bed_sheet.field.name': 'പേര്',
+      'bed_sheet.field.age': 'പ്രായം',
+      'bed_sheet.field.gender': 'ലിംഗം',
+      'bed_sheet.field.phone': 'ഫോൺ',
+      'bed_sheet.field.chief_complaint': 'പ്രധാന പരാതി',
+      'bed_sheet.field.diagnosis': 'രോഗനിർണയം',
+      'bed_sheet.field.type': 'തരം',
+      'bed_sheet.field.attending': 'ചികിത്സിക്കുന്ന ഡോക്ടർ',
+      'bed_sheet.field.admitted': 'അഡ്മിറ്റ് ചെയ്തത്',
+      'bed_sheet.year_suffix': 'വയസ്സ്',
+      'bed_sheet.doctor_prefix': 'ഡോ.',
+      'bed_sheet.patient_details_unavailable':
+          'ഈ ബെഡിന്റെ രോഗി വിവരങ്ങൾ ലഭ്യമല്ല.',
+      'bed_sheet.no_patient_assigned': 'നിലവിൽ രോഗിയെ നിയോഗിച്ചിട്ടില്ല.',
+      'bed_sheet.saving_label': 'സേവ് ചെയ്യുന്നു…',
+      'bed_sheet.quick_note_hint':
+          'ദ്രുത കുറിപ്പ് (കൈമാറ്റം, അപകടങ്ങൾ, IV സൈറ്റ്…)',
+      'bed_sheet.dictate_quick_note': 'ദ്രുത കുറിപ്പ് ഡിക്ടേറ്റ് ചെയ്യുക',
+      'bed_sheet.this_patient': 'ഈ രോഗി',
+      'bed_sheet.patient_discharged': 'രോഗിയെ ഡിസ്ചാർജ് ചെയ്തു',
+      'bed_sheet.patient_missing_name': 'രോഗിയുടെ പേര് ലഭ്യമല്ല',
+      'bed_sheet.patient_admitted_suffix': 'ഈ ബെഡിൽ അഡ്മിറ്റ് ചെയ്തു',
+      'bed_sheet.marked_as_prefix': 'ബെഡ് അടയാളപ്പെടുത്തി:',
+      'vitals.title': 'വൈറ്റൽസ് എൻട്രി',
+      'vitals.tab.record': 'വൈറ്റൽസ് രേഖപ്പെടുത്തുക',
+      'vitals.tab.recent': 'സമീപകാല വൈറ്റൽസ്',
+      'vitals.header_title': 'രോഗിയുടെ വൈറ്റൽസ് രേഖപ്പെടുത്തുക',
+      'vitals.header_subtitle': 'രോഗി ഐഡി ഉപയോഗിച്ച് വൈറ്റൽസ് നൽകുക',
+      'vitals.patient_id_label': 'രോഗി ഐഡി',
+      'vitals.patient_id_hint': 'രോഗി ഐഡി നൽകുക',
+      'vitals.patient_id_required': 'രോഗി ഐഡി നിർബന്ധമാണ്',
+      'vitals.patient_id_invalid': 'ശരിയായ നമ്പർ നൽകുക',
+      'vitals.bp_header': 'രക്തസമ്മർദ്ദം',
+      'vitals.bp_systolic': 'സിസ്റ്റോളിക്',
+      'vitals.bp_systolic_hint': 'ഉദാ. 120',
+      'vitals.bp_diastolic': 'ഡയസ്റ്റോളിക്',
+      'vitals.bp_diastolic_hint': 'ഉദാ. 80',
+      'vitals.temperature_header': 'താപനില',
+      'vitals.temperature_hint': 'ഉദാ. 98.6',
+      'vitals.pulse_spo2_header': 'പൾസ് & ഓക്സിജൻ സാച്ചുറേഷൻ',
+      'vitals.pulse_label': 'പൾസ്',
+      'vitals.pulse_hint': 'ഉദാ. 72',
+      'vitals.spo2_label': 'SpO₂',
+      'vitals.spo2_hint': 'ഉദാ. 98',
+      'vitals.weight_header': 'ഭാരം',
+      'vitals.weight_hint': 'ഉദാ. 70.5',
+      'vitals.nurse_notes_label': 'നഴ്സ് കുറിപ്പുകൾ (ഓപ്ഷണൽ)',
+      'vitals.nurse_notes_hint': 'നിരീക്ഷണങ്ങളോ ആശങ്കകളോ...',
+      'vitals.validation.invalid': 'അസാധു',
+      'vitals.save_button': 'വൈറ്റൽസ് സേവ് ചെയ്യുക',
+      'vitals.fetch_button': 'എടുക്കുക',
+      'vitals.trends_hint': 'വൈറ്റൽ ട്രെൻഡുകൾ കാണാൻ രോഗി ഐഡി നൽകുക',
+      'vitals.no_records': 'ഈ രോഗിക്ക് വൈറ്റൽ രേഖകളൊന്നുമില്ല',
+      'vitals.recorded_success': 'വൈറ്റൽസ് രേഖപ്പെടുത്തി',
+      'vitals.offline_queued':
+          'കണക്ഷനില്ല - വൈറ്റൽസ് സേവ് ചെയ്തു, ഓൺലൈനാകുമ്പോൾ സിങ്ക് ചെയ്യും',
+      'nursing_notes.title': 'നഴ്സിംഗ് കുറിപ്പുകൾ',
+      'nursing_notes.tab.add': 'കുറിപ്പ് ചേർക്കുക',
+      'nursing_notes.tab.recent': 'സമീപകാല കുറിപ്പുകൾ',
+      'nursing_notes.backend_coming_soon':
+          'സേവ് ചെയ്ത കുറിപ്പുകൾ മാറ്റാനാകാത്ത EMR എൻട്രികളാണ്. തിരുത്തലുകൾ അഡൻഡമായി ചേർക്കണം.',
+      'nursing_notes.patient_phone_label': 'രോഗിയുടെ ഫോൺ നമ്പർ',
+      'nursing_notes.patient_phone_hint': '+91 XXXXX XXXXX',
+      'nursing_notes.phone_required': 'ഫോൺ നിർബന്ധമാണ്',
+      'nursing_notes.phone_invalid': 'ശരിയായ ഫോൺ നമ്പർ നൽകുക',
+      'nursing_notes.type_label': 'കുറിപ്പിന്റെ തരം',
+      'nursing_notes.type_required': 'കുറിപ്പിന്റെ തരം തിരഞ്ഞെടുക്കുക',
+      'nursing_notes.priority_label': 'മുൻഗണന',
+      'nursing_notes.clinical_note_label': 'ക്ലിനിക്കൽ കുറിപ്പ്',
+      'nursing_notes.clinical_note_hint':
+          'നിരീക്ഷണങ്ങൾ, നൽകിയ പരിചരണം, രോഗിയുടെ പ്രതികരണം...',
+      'nursing_notes.note_required': 'കുറിപ്പ് നിർബന്ധമാണ്',
+      'nursing_notes.note_too_short': 'കുറിപ്പ് വളരെ ചെറുതാണ്',
+      'nursing_notes.save_button': 'കുറിപ്പ് സേവ് ചെയ്യുക',
+      'nursing_notes.saved_success': 'നഴ്സിംഗ് കുറിപ്പ് സേവ് ചെയ്തു',
+      'nursing_notes.offline_queued':
+          'ഓഫ്‌ലൈനായി സേവ് ചെയ്തു - കണക്റ്റാകുമ്പോൾ സിങ്ക് ചെയ്യും',
+      'nursing_notes.recent_empty':
+          'ബാക്കെൻഡ് API കണക്റ്റായാൽ നിങ്ങളുടെ സമീപകാല കുറിപ്പുകൾ ഇവിടെ കാണാം.',
+      'nursing_notes.type.observation': 'നിരീക്ഷണം',
+      'nursing_notes.type.medication': 'മരുന്ന് കുറിപ്പ്',
+      'nursing_notes.type.post_procedure': 'പ്രൊസീജറിനു ശേഷം',
+      'nursing_notes.type.intake_output': 'ഇൻടേക്ക്/ഔട്ട്പുട്ട്',
+      'nursing_notes.type.patient_complaint': 'രോഗിയുടെ പരാതി',
+      'nursing_notes.type.wound_care': 'മുറിവ് പരിചരണം',
+      'nursing_notes.type.shift_handover': 'ഷിഫ്റ്റ് കൈമാറ്റം',
+      'nursing_notes.type.emergency_note': 'അടിയന്തിര കുറിപ്പ്',
+      'nursing_notes.type.other': 'മറ്റുള്ളവ',
+      'handover.title': 'കൈമാറ്റ കുറിപ്പുകൾ',
+      'handover.tab.write': 'എഴുതുക',
+      'handover.tab.recent': 'സമീപകാലം',
+      'handover.department_label': 'വിഭാഗം',
+      'handover.urgency_label': 'അടിയന്തിരത',
+      'handover.notes_label': 'കൈമാറ്റ കുറിപ്പുകൾ',
+      'handover.notes_hint':
+          'പ്രധാന നിരീക്ഷണങ്ങൾ, ബാക്കിയുള്ള ജോലികൾ, മരുന്ന് മാറ്റങ്ങൾ...',
+      'handover.notes_required': 'കുറിപ്പുകൾ നിർബന്ധമാണ്',
+      'handover.patient_ref_label': 'രോഗി പരാമർശങ്ങൾ (ഓപ്ഷണൽ)',
+      'handover.patient_ref_hint':
+          'മുറി 201 - ശ്രീ ശർമ്മ, മുറി 305 - ശ്രീമതി പട്ടേൽ',
+      'handover.submit_button': 'കൈമാറ്റം സമർപ്പിക്കുക',
+      'handover.submitting_button': 'സമർപ്പിക്കുന്നു...',
+      'handover.submitted': 'കൈമാറ്റ കുറിപ്പ് സമർപ്പിച്ചു',
+      'handover.recent_empty_title': 'സമീപകാല കൈമാറ്റ കുറിപ്പുകളില്ല',
+      'handover.recent_empty_body':
+          'കഴിഞ്ഞ 24 മണിക്കൂറിലെ കുറിപ്പുകൾ ഇവിടെ കാണാം',
+      'handover.note_fallback_title': 'കൈമാറ്റ കുറിപ്പ്',
+      'patient_picker.title': 'രോഗിയെ കണ്ടെത്തുക',
+      'patient_picker.hint': 'പേര്, ഫോൺ, ABHA ഉപയോഗിച്ച് രോഗിയെ തിരയുക…',
+      'patient_picker.empty':
+          'പൊരുത്തങ്ങളൊന്നുമില്ല - തുടർന്ന് ടൈപ്പ് ചെയ്യുക.',
+      'orders.title': 'രോഗിയുടെ ഓർഡറുകൾ',
+      'orders.title_prefix': 'ഓർഡറുകൾ',
+      'orders.new_order': 'പുതിയ ഓർഡർ',
+      'orders.type.medication': 'മരുന്ന് ഓർഡർ',
+      'orders.type.investigation': 'പരിശോധന ഓർഡർ',
+      'orders.type.nursing': 'നഴ്സിംഗ് ഓർഡർ',
+      'orders.medication_name': 'മരുന്നിന്റെ പേര്',
+      'orders.dosage': 'ഡോസ്',
+      'orders.route': 'റൂട്ട്',
+      'orders.route_hint': 'PO, IV, IM...',
+      'orders.frequency': 'ഫ്രീക്വൻസി',
+      'orders.frequency_hint': 'OD, BD, TDS...',
+      'orders.duration': 'കാലയളവ്',
+      'orders.duration_hint': '5 ദിവസം',
+      'orders.special_instructions': 'പ്രത്യേക നിർദ്ദേശങ്ങൾ',
+      'orders.stat_immediate': 'STAT (ഉടനടി)',
+      'orders.investigation': 'പരിശോധന',
+      'orders.investigation_hint': 'CBC, RFT, CT സ്കാൻ...',
+      'orders.clinical_indication': 'ക്ലിനിക്കൽ സൂചന',
+      'orders.priority': 'മുൻഗണന',
+      'orders.priority.routine': 'പതിവ്',
+      'orders.priority.urgent': 'അടിയന്തിരം',
+      'orders.priority.stat': 'STAT',
+      'orders.fasting_required': 'ഉപവാസം ആവശ്യമാണ്',
+      'orders.description': 'ഓർഡർ വിവരണം',
+      'orders.description_hint': 'മുറിവ് പരിചരണം, പൊസിഷനിംഗ്, നിരീക്ഷണം...',
+      'orders.frequency_hint_nursing': 'ഓരോ 4 മണിക്കൂറിലും, PRN, ഒരിക്കൽ...',
+      'orders.place_order': 'ഓർഡർ നൽകുക',
+      'orders.placed_success': 'ഓർഡർ നൽകി',
+      'orders.place_failed_prefix': 'ഓർഡർ നൽകാനായില്ല:',
+      'orders.clinical_alerts': 'ക്ലിനിക്കൽ അലേർട്ടുകൾ',
+      'orders.proceed_anyway': 'എന്നിരുന്നാലും തുടരുക',
+      'orders.filter.all': 'എല്ലാം',
+      'orders.filter.ordered': 'ഓർഡർ ചെയ്തു',
+      'orders.filter.verified': 'പരിശോധിച്ചു',
+      'orders.filter.completed': 'പൂർത്തിയായി',
+      'orders.filter.cancelled': 'റദ്ദാക്കി',
+      'orders.filter.discontinued': 'നിർത്തിയവ',
+      'orders.no_found': 'ഓർഡറുകളൊന്നുമില്ല',
+      'orders.fallback': 'ഓർഡർ',
+      'orders.verify': 'പരിശോധിക്കുക',
+      'orders.complete': 'പൂർത്തിയാക്കുക',
+      'orders.verified_toast': 'ഓർഡർ പരിശോധിച്ചു',
+      'orders.verify_failed_prefix': 'പരിശോധന പരാജയപ്പെട്ടു:',
+      'orders.completed_toast': 'ഓർഡർ പൂർത്തിയാക്കി',
+      'orders.complete_failed_prefix': 'ഓർഡർ പൂർത്തിയാക്കാനായില്ല:',
+      'orders.retry': 'വീണ്ടും ശ്രമിക്കുക',
+      'orders.discontinue': 'നിർത്തുക',
+      'orders.cancel': 'ഓർഡർ റദ്ദാക്കുക',
+      'orders.discontinue_title': 'ഓർഡർ നിർത്തുക',
+      'orders.cancel_title': 'ഓർഡർ റദ്ദാക്കുക',
+      'orders.stop_reason_label': 'കാരണം (നിർബന്ധം)',
+      'orders.stop_reason_hint': 'ഈ ഓർഡർ നിർത്താനുള്ള ക്ലിനിക്കൽ കാരണം',
+      'orders.discontinued_toast': 'ഓർഡർ നിർത്തി',
+      'orders.cancelled_toast': 'ഓർഡർ റദ്ദാക്കി',
+      'orders.stop_failed_prefix': 'ഓർഡർ നിർത്താനായില്ല:',
+      'composer.title': 'പുതിയ ഓർഡറുകൾ',
+      'composer.search_label': 'ഓർഡർ കാറ്റലോഗിൽ തിരയുക',
+      'composer.search_hint': 'മരുന്നുകളും പരിശോധനകളും തിരയുക...',
+      'composer.search_hint_tests_only': 'പരിശോധനകളും ഇമേജിംഗും തിരയുക...',
+      'composer.section.medications': 'മരുന്നുകൾ (ഫോർമുലറി)',
+      'composer.section.investigations': 'പരിശോധനകളും ഇമേജിംഗും',
+      'composer.order_sets': 'ഓർഡർ സെറ്റുകൾ',
+      'composer.type.radiology': 'റേഡിയോളജി / ഇമേജിംഗ്',
+      'composer.type.consult': 'കൺസൾട്ടേഷൻ / റഫറൽ',
+      'composer.type.diet': 'ഭക്ഷണ ഓർഡർ',
+      'composer.empty_basket':
+          'കാറ്റലോഗിൽ തിരയുക, ഒരു ഓർഡർ സെറ്റ് തിരഞ്ഞെടുക്കുക, അല്ലെങ്കിൽ മുകളിലെ ദ്രുത ഓപ്ഷനുകൾ ഉപയോഗിക്കുക.\nഎല്ലാ ഓർഡറുകളും ഒരു ബാച്ചായി ഒപ്പിടും.',
+      'composer.basket_count': 'ബാസ്കറ്റിൽ: {n}',
+      'composer.place_orders': 'ഒപ്പിട്ട് അയയ്ക്കുക ({n})',
+      'composer.placing': 'അയയ്ക്കുന്നു...',
+      'composer.placed_toast': '{n} ഓർഡർ(കൾ) നൽകി',
+      'composer.submit_failed': 'ഓർഡറുകൾ നൽകാനായില്ല',
+      'composer.desktop_only':
+          'ക്ലിനിക്കൽ ഓർഡറുകൾ ഡെസ്ക്ടോപ്പ്/ടാബ്‌ലെറ്റ് സ്റ്റാഫ് ആപ്പിൽ നിന്ന് മാത്രമേ നൽകാനാകൂ.',
+      'composer.relogin':
+          'ക്ലിനിക്കൽ ഓർഡറുകൾ നൽകുംമുമ്പ് വീണ്ടും ലോഗിൻ ചെയ്യുക.',
+      'composer.warnings_title': 'CDS മുന്നറിയിപ്പുകൾ പരിശോധിക്കുക',
+      'composer.med_items_skipped':
+          '{n} മരുന്ന് ഇനം(ങ്ങൾ) ഒഴിവാക്കി - ഡോക്ടർ റോൾ ആവശ്യമാണ്',
+      'composer.remove_item': 'ബാസ്കറ്റിൽ നിന്ന് നീക്കം ചെയ്യുക',
+      'composer.source.order_set': 'ഓർഡർ സെറ്റ്',
+      'composer.source.catalog': 'കാറ്റലോഗ്',
+      'composer.blocked_chip': 'സുരക്ഷാ പരിശോധനയിൽ തടഞ്ഞു',
+      'composer.chip.medication': 'മരുന്ന്',
+      'composer.chip.investigation': 'പരിശോധന',
+      'composer.add_to_basket': 'ബാസ്കറ്റിൽ ചേർക്കുക',
+      'composer.duration_days': 'കാലയളവ് (ദിവസം)',
+      'composer.study_name': 'സ്റ്റഡി',
+      'composer.study_hint': 'Chest X-ray PA, CT Brain plain...',
+      'composer.specialty': 'സ്പെഷ്യാലിറ്റി',
+      'composer.specialty_hint': 'Cardiology, Nephrology...',
+      'composer.diet_hint': 'Diabetic diet, NPO, soft diet...',
+      'order_sets.no_placeable_items':
+          'നൽകാവുന്ന ഓർഡർ ഇനങ്ങൾ തിരഞ്ഞെടുത്തിട്ടില്ല',
+      'order_sets.apply_failed': 'പ്രയോഗിക്കാനായില്ല',
+      'order_sets.placed_toast': 'സെറ്റിൽ നിന്ന് {n} ഓർഡറുകൾ നൽകി',
+      'order_sets.applying': 'അയയ്ക്കുന്നു...',
+      'order_sets.add_to_basket': '{n} ബാസ്കറ്റിൽ ചേർക്കുക',
+      'order_sets.apply_count': '{total}-ൽ {sel} നൽകുക',
+      'vitals_chart.title': 'വൈറ്റൽസ് ചാർട്ടിംഗ്',
+      'vitals_chart.title_prefix': 'വൈറ്റൽസ്',
+      'vitals_chart.tab.record': 'രേഖപ്പെടുത്തുക',
+      'vitals_chart.tab.last_24h': 'കഴിഞ്ഞ 24 മണിക്കൂർ',
+      'vitals_chart.tab.io_balance': 'I/O ബാലൻസ്',
+      'vitals_chart.tab.today': 'ഇന്ന്',
+      'vitals_chart.tab.previous_days': 'മുൻ ദിവസങ്ങൾ',
+      'vitals_chart.section.last_24h': 'കഴിഞ്ഞ 24 മണിക്കൂർ വൈറ്റൽസ്',
+      'vitals_chart.section.io_today': 'ഇന്നത്തെ I/O ബാലൻസ്',
+      'vitals_chart.section.previous_vitals': 'മുൻ വൈറ്റൽസ്',
+      'vitals_chart.section.previous_io': 'മുൻ I/O',
+      'vitals_chart.record_vitals': 'വൈറ്റൽസ് രേഖപ്പെടുത്തുക',
+      'vitals_chart.heart_rate': 'ഹൃദയമിടിപ്പ് (bpm)',
+      'vitals_chart.bp_sys': 'BP സിസ്റ്റോളിക്',
+      'vitals_chart.bp_dia': 'BP ഡയസ്റ്റോളിക്',
+      'vitals_chart.temp': 'താപനില (°F)',
+      'vitals_chart.spo2': 'SpO2 (%)',
+      'vitals_chart.resp_rate': 'ശ്വസന നിരക്ക്',
+      'vitals_chart.glucose': 'ഗ്ലൂക്കോസ് (mg/dL)',
+      'vitals_chart.pain': 'വേദന (0-10)',
+      'vitals_chart.gcs': 'GCS (3-15)',
+      'vitals_chart.consciousness': 'ബോധനില',
+      'vitals_chart.conscious.alert': 'ഉണർവുള്ള',
+      'vitals_chart.conscious.confused': 'ആശയക്കുഴപ്പം',
+      'vitals_chart.conscious.verbal': 'ശബ്ദത്തോട് പ്രതികരിക്കുന്നു',
+      'vitals_chart.conscious.pain': 'വേദനയോട് പ്രതികരിക്കുന്നു',
+      'vitals_chart.conscious.unresp': 'പ്രതികരണമില്ല',
+      'vitals_chart.save_button': 'വൈറ്റൽസ് സേവ് ചെയ്യുക',
+      'vitals_chart.at_least_one': 'കുറഞ്ഞത് ഒരു വൈറ്റൽ ചിഹ്നമെങ്കിലും നൽകുക',
+      'vitals_chart.recorded_success': 'വൈറ്റൽസ് രേഖപ്പെടുത്തി',
+      'vitals_chart.record_failed_prefix': 'വൈറ്റൽസ് രേഖപ്പെടുത്താനായില്ല:',
+      'vitals_chart.record_io': 'I/O രേഖപ്പെടുത്തുക',
+      'vitals_chart.intake': 'ഇൻടേക്ക്',
+      'vitals_chart.output': 'ഔട്ട്പുട്ട്',
+      'vitals_chart.category': 'വിഭാഗം',
+      'vitals_chart.intake.oral': 'വായിലൂടെ',
+      'vitals_chart.intake.iv': 'IV ഫ്ലൂയിഡുകൾ',
+      'vitals_chart.intake.blood': 'രക്ത ഉൽപ്പന്നങ്ങൾ',
+      'vitals_chart.intake.ng': 'NG ട്യൂബ്',
+      'vitals_chart.cat.other': 'മറ്റുള്ളവ',
+      'vitals_chart.output.urine': 'മൂത്രം',
+      'vitals_chart.output.drain': 'ഡ്രെയിൻ',
+      'vitals_chart.output.emesis': 'ഛർദ്ദി',
+      'vitals_chart.output.stool': 'മലം',
+      'vitals_chart.output.blood_loss': 'രക്തനഷ്ടം',
+      'vitals_chart.amount': 'അളവ് (mL)',
+      'vitals_chart.io_description': 'വിവരണം (ഓപ്ഷണൽ)',
+      'vitals_chart.io_record': 'രേഖപ്പെടുത്തുക',
+      'vitals_chart.io_success': 'I/O രേഖപ്പെടുത്തി',
+      'vitals_chart.io_failed_prefix': 'I/O രേഖപ്പെടുത്താനായില്ല:',
+      'vitals_chart.retry': 'വീണ്ടും ശ്രമിക്കുക',
+      'vitals_chart.no_vitals':
+          'കഴിഞ്ഞ 24 മണിക്കൂറിൽ വൈറ്റൽസ് രേഖപ്പെടുത്തിയിട്ടില്ല',
+      'vitals_chart.col.time': 'തീയതി/സമയം',
+      'vitals_chart.col.hr': 'HR',
+      'vitals_chart.col.bp': 'BP',
+      'vitals_chart.col.temp': 'Temp',
+      'vitals_chart.col.spo2': 'SpO2',
+      'vitals_chart.col.rr': 'RR',
+      'vitals_chart.col.glucose': 'ഗ്ലൂക്കോസ്',
+      'vitals_chart.col.pain': 'വേദന',
+      'vitals_chart.col.gcs': 'GCS',
+      'vitals_chart.col.avpu': 'AVPU',
+      'vitals_chart.intake_label': 'ഇൻടേക്ക്',
+      'vitals_chart.output_label': 'ഔട്ട്പുട്ട്',
+      'vitals_chart.balance_label': 'ബാലൻസ്',
+      'vitals_chart.record_io_entry': 'I/O എൻട്രി രേഖപ്പെടുത്തുക',
+      'vitals_chart.no_io_today': 'ഇന്ന് I/O എൻട്രികളൊന്നുമില്ല',
+      'vitals_chart.no_previous_vitals': 'മുൻ വൈറ്റൽസ് രേഖപ്പെടുത്തിയിട്ടില്ല',
+      'vitals_chart.no_previous_io': 'മുൻ I/O എൻട്രികളില്ല',
+      'vitals_chart.record_for_prefix': 'വൈറ്റൽസ് രേഖപ്പെടുത്തേണ്ടത്:',
+      'vitals_chart.record_patient': 'രോഗിയുടെ വൈറ്റൽസ് രേഖപ്പെടുത്തുക',
+      'vitals_chart.record_now': 'ഇപ്പോൾ വൈറ്റൽസ് രേഖപ്പെടുത്തുക',
+      'due_meds.title': 'നൽകേണ്ട മരുന്നുകൾ',
+      'due_meds.search_hint': 'രോഗിയോ മരുന്നോ തിരയുക…',
+      'due_meds.empty_title': 'നൽകേണ്ട മരുന്നുകളില്ല',
+      'due_meds.empty_body':
+          'വൈറ്റൽസ് രേഖപ്പെടുത്താൻ ബെഡ് ബോർഡിൽ ഒരു ബെഡ് ടാപ്പ് ചെയ്യുക.',
+      'due_meds.held_badge': 'നിർത്തിവച്ചു',
+      'due_meds.unknown_patient': 'അജ്ഞാത രോഗി',
+      'due_meds.unnamed_medication': '(പേരില്ലാത്ത മരുന്ന്)',
+      'mar_scan.title': 'മരുന്ന് നൽകൽ',
+      'mar_scan.step1_prompt':
+          'ഘട്ടം 1/3 - രോഗിയുടെ റിസ്റ്റ്ബാൻഡ് സ്കാൻ ചെയ്യുക',
+      'mar_scan.step2_prompt': 'ഘട്ടം 2/3 - മരുന്നിന്റെ ബാർകോഡ് സ്കാൻ ചെയ്യുക',
+      'mar_scan.step2_subtitle': 'ഇനി മരുന്ന് ലേബലിലെ ബാർകോഡ് സ്കാൻ ചെയ്യുക.',
+      'mar_scan.step3_header': 'ഘട്ടം 3/3 - 5-റൈറ്റ്സ് പരിശോധന',
+      'mar_scan.right_patient': 'ശരിയായ രോഗി',
+      'mar_scan.right_drug': 'ശരിയായ മരുന്ന്',
+      'mar_scan.right_dose': 'ശരിയായ ഡോസ്',
+      'mar_scan.right_route': 'ശരിയായ റൂട്ട്',
+      'mar_scan.right_time': 'ശരിയായ സമയം',
+      'mar_scan.recording': 'രേഖപ്പെടുത്തുന്നു…',
+      'mar_scan.administer': 'മരുന്ന് നൽകുക',
+      'mar_scan.check_failed': '5-റൈറ്റ്സ് പരിശോധന പരാജയപ്പെട്ടു',
+      'mar_scan.override_hint':
+          'ഈ അഡ്മിനിസ്ട്രേഷൻ രേഖപ്പെടുത്താൻ കാരണം രേഖപ്പെടുത്തുക. ഈ എൻട്രി ഓഡിറ്റ് ചെയ്യപ്പെടും.',
+      'mar_scan.override_reason_label':
+          'ഓവർറൈഡ് കാരണം (നിർബന്ധം, കുറഞ്ഞത് 5 അക്ഷരം)',
+      'mar_scan.override_button': 'ഓവർറൈഡ് ചെയ്ത് നൽകുക',
+      'mar_scan.recorded': 'അഡ്മിനിസ്ട്രേഷൻ രേഖപ്പെടുത്തി',
+      'mar_scan.scan_next': 'അടുത്ത ഡോസ് സ്കാൻ ചെയ്യുക',
+      'mar_scan.scan_again': 'വീണ്ടും സ്കാൻ ചെയ്യുക',
+      'mar_scan.try_again': 'വീണ്ടും ശ്രമിക്കുക',
+      'mar_scan.unknown_medication': '(അജ്ഞാത മരുന്ന്)',
+      'cds.blocker_title': 'കുറിപ്പടി തടഞ്ഞു',
+      'cds.blocker_body':
+          'ക്ലിനിക്കൽ ഡിസിഷൻ സപ്പോർട്ട് താഴെപ്പറയുന്ന പ്രശ്നങ്ങൾ കണ്ടെത്തി. ',
+      'cds.warnings_header': 'മുന്നറിയിപ്പുകൾ',
+      'cds.allergy_hint':
+          'അലർജി പ്രശ്നം: അംഗീകാരം നൽകിയ സൂപ്പർവൈസിംഗ് ഫിസിഷ്യനെ പരാമർശിക്കുക ',
+      'cds.override_reason_label':
+          'ഓവർറൈഡ് കാരണം (നിർബന്ധം, കുറഞ്ഞത് 5 അക്ഷരം)',
+      'cds.blocker_no_override_hint':
+          'CPOE ഓർഡറിൽ ഈ സുരക്ഷാ തടസ്സങ്ങൾ ഓവർറൈഡ് ചെയ്യാനാകില്ല. ഓർഡർ മാറ്റുക, അല്ലെങ്കിൽ രേഖപ്പെടുത്തിയ ഓവർറൈഡ് പിന്തുണയുള്ള കുറിപ്പടി വർക്ക്ഫ്ലോ ഉപയോഗിക്കുക.',
+      'cds.blocker_adjust_order': 'ഓർഡർ മാറ്റുക',
+      'cds.override_button': 'ഓവർറൈഡ്',
+      'cds.override_save': 'ഓവർറൈഡ് ചെയ്ത് സേവ് ചെയ്യുക',
+      'code_blue.title': 'കോഡ് ബ്ലൂ',
+      'code_blue.respond': 'ഉടനടി പ്രതികരിക്കുക.',
+      'code_blue.ward_prefix': 'വാർഡ്:',
+      'code_blue.bed_prefix': 'ബെഡ്:',
+      'code_blue.patient_prefix': 'രോഗി ഐഡി:',
+      'code_blue.acknowledge': 'അംഗീകരിച്ചു',
+      'splash.app_title': 'VHHealth Staff',
+      'splash.device_unsupported_title': 'ഉപകരണം പിന്തുണയ്ക്കുന്നില്ല',
+      'splash.device_unsupported_body':
+          'രോഗി ഡാറ്റ സുരക്ഷയ്ക്കായി, ഈ ഉപകരണത്തിൽ VHHealth Staff പ്രവർത്തിക്കില്ല. കാരണം:',
+      'splash.device_unsupported_use_hospital_device':
+          'ആശുപത്രി നൽകിയ, മാറ്റം വരുത്താത്ത ഉപകരണം ഉപയോഗിക്കുക.',
+      'logout.dialog_title': 'ലോഗൗട്ട്?',
+      'logout.dialog_body':
+          'നിങ്ങളുടെ എംപ്ലോയീ ഐഡിയും പാസ്‌വേഡും ഉപയോഗിച്ച് വീണ്ടും സൈൻ ഇൻ ചെയ്യേണ്ടിവരും.',
+      'logout.tooltip': 'ലോഗൗട്ട്',
+      'error.something_went_wrong': 'എന്തോ കുഴപ്പം സംഭവിച്ചു',
+      'error.restart_or_contact':
+          'ആപ്പ് പുനരാരംഭിക്കുക അല്ലെങ്കിൽ സപ്പോർട്ടുമായി ബന്ധപ്പെടുക.',
+      'drug_chart.title': 'ഡ്രഗ് ചാർട്ട്',
+      'drug_chart.stop_title': 'മരുന്ന് നിർത്തുക',
+      'drug_chart.stop_reason_label': 'കാരണം',
+      'drug_chart.stop_reason_hint':
+          'ഉദാ: കോഴ്സ് പൂർത്തിയായി, പാർശ്വഫലം, പ്ലാൻ മാറ്റം',
+      'drug_chart.stop_button': 'നിർത്തുക',
+      'drug_chart.add_row': 'വരി ചേർക്കുക',
+      'drug_chart.add_first_row': 'ആദ്യ വരി ചേർക്കുക',
+      'drug_chart.remove_row': 'വരി നീക്കം ചെയ്യുക',
+      'drug_chart.scan': 'സ്കാൻ',
+      'drug_chart.saved_toast': 'മരുന്ന് ഓർഡർ സേവ് ചെയ്തു, ഫാർമസിയെ അറിയിച്ചു',
+      'drug_chart.empty': 'ഇൻപേഷ്യന്റ് മരുന്നുകളൊന്നും ചാർട്ടിലില്ല',
+      'drug_chart.given': 'നൽകി',
+      'summary.title': 'രോഗി സംഗ്രഹം',
+      'summary.tooltip': 'രോഗി സംഗ്രഹം',
+      'summary.admitted_bed': 'അഡ്മിറ്റ് · ബെഡ് {bed}',
+      'summary.allergies': 'അലർജികൾ',
+      'summary.no_known_allergies': 'അലർജികളൊന്നും രേഖപ്പെടുത്തിയിട്ടില്ല',
+      'summary.problems': 'സജീവ പ്രശ്നങ്ങൾ',
+      'summary.no_problems': 'സജീവ പ്രശ്നങ്ങളൊന്നുമില്ല',
+      'summary.chronic': 'ദീർഘകാല',
+      'summary.active_meds': 'സജീവ മരുന്നുകൾ',
+      'summary.no_active_meds': 'സജീവ മരുന്ന് ഓർഡറുകളില്ല',
+      'summary.last_vitals': 'അവസാന വൈറ്റൽസ്',
+      'summary.no_vitals': 'വൈറ്റൽസ് രേഖപ്പെടുത്തിയിട്ടില്ല',
+      'summary.pending_results': 'തീർപ്പാക്കാത്ത ഫലങ്ങൾ',
+      'summary.no_pending_results': 'തീർപ്പാക്കാത്ത ഫലങ്ങളില്ല',
+      'summary.section_failed': 'ഈ ഭാഗം ലോഡ് ചെയ്യാനായില്ല',
+      'summary.timeline': 'ടൈംലൈൻ',
+      'summary.notes': 'കുറിപ്പുകൾ',
     },
   };
 }

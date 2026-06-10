@@ -14,6 +14,7 @@ import { getHealthRecordsByPhone } from '../../controllers/record/patientRecordC
 import logger from '../../logging/logger.js';
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
+import * as portalAccess from '../../services/portal/portalAccessService.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -322,20 +323,67 @@ router.get('/tpa/claims/:id/documents', requirePatient, wrap(async (req) =>
 ));
 
 // ── Lab results ─────────────────────────────────────────────────────
+// `for_patient` is the ONE sanctioned exception to "never trust a
+// caller-provided patient uid": it only ever resolves through an active
+// proxy grant (E6) and every proxy read is audited with the grant id.
+async function effectivePatientUid(req, scope = 'results') {
+  const resolved = await portalAccess.resolvePortalPatient({
+    requesterUid: patientUidOf(req),
+    forPatientUid: req.query.for_patient || null,
+    scope,
+  });
+  return resolved.patientUid;
+}
+
 router.get('/lab-results', requirePatient, wrap(async (req) =>
   portal.listMyLabResults({
     tenantId: tenantOf(req),
-    patient_uid: patientUidOf(req),
+    patient_uid: await effectivePatientUid(req),
     limit: req.query.limit,
+  }),
+));
+
+// E6 — longitudinal trend series for one test (released results only).
+// Registered before '/lab-results/:id' so 'trends' never parses as an id.
+router.get('/lab-results/trends', requirePatient, wrap(async (req) =>
+  portalAccess.getLabTrend({
+    tenantId: tenantOf(req),
+    patientUid: await effectivePatientUid(req),
+    testCode: req.query.test_code || null,
+    loincCode: req.query.loinc_code || null,
+    months: req.query.months,
   }),
 ));
 
 router.get('/lab-results/:id', requirePatient, wrap(async (req) =>
   portal.getMyLabResult({
     tenantId: tenantOf(req),
-    patient_uid: patientUidOf(req),
+    patient_uid: await effectivePatientUid(req),
     id: req.params.id,
   }),
+));
+
+// ── Proxy access grants (E6 — consent trail) ────────────────────────
+router.post('/proxy/grants', requirePatient, wrap(async (req) =>
+  portalAccess.createProxyGrant({
+    patientUid: patientUidOf(req),
+    proxyUid: req.body.proxy_uid,
+    relationship: req.body.relationship || null,
+    scope: req.body.scope || ['results'],
+    consentMethod: req.body.consent_method,
+    consentRef: req.body.consent_ref || null,
+    expiresAt: req.body.expires_at || null,
+  }, { actorUid: patientUidOf(req), actorRole: null }),
+));
+
+router.get('/proxy/grants', requirePatient, wrap(async (req) =>
+  portalAccess.listProxyGrants(patientUidOf(req)),
+));
+
+router.post('/proxy/grants/:id/revoke', requirePatient, wrap(async (req) =>
+  portalAccess.revokeProxyGrant(req.params.id, {
+    reason: req.body.reason || null,
+  }, { actorUid: patientUidOf(req), actorRole: null }),
 ));
 
 // ── Lab orders (patient-actionable collection + report download) ───

@@ -1,15 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../models/order_draft.dart';
+import '../widgets/patient_summary_sheet.dart';
 
-/// EMR Orders screen — list, create, verify, and complete patient orders.
+/// EMR Orders screen (roadmap E1) — patient order list with full status
+/// visibility (ordered → verified → completed / cancelled / discontinued),
+/// lifecycle actions with mandatory reasons, and entry into the CPOE order
+/// composer. Order CREATION lives in OrderComposerScreen — searchable
+/// catalog, order sets, basket, inline CDS — pushed from the FAB.
 class OrdersScreen extends StatefulWidget {
   final String patientUid;
   final String? patientName;
+  final String? encounterId;
 
-  const OrdersScreen({super.key, required this.patientUid, this.patientName});
+  const OrdersScreen({
+    super.key,
+    required this.patientUid,
+    this.patientName,
+    this.encounterId,
+  });
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -34,10 +48,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
     });
     try {
       final data = await MedicalApiService.getPatientOrders(widget.patientUid);
-      final list = data['orders'];
+      final list = data['orders'] ?? data['data'];
       setState(() {
         _orders = list is List
-            ? list.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+            ? list
+                  .whereType<Map>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .toList()
             : [];
         _loading = false;
       });
@@ -56,46 +73,90 @@ class _OrdersScreenState extends State<OrdersScreen> {
         .toList();
   }
 
-  // ── Status Badge ──
+  Future<void> _openComposer() async {
+    final params = <String>[
+      if (widget.patientName != null && widget.patientName!.isNotEmpty)
+        'name=${Uri.encodeQueryComponent(widget.patientName!)}',
+      if (widget.encounterId != null && widget.encounterId!.isNotEmpty)
+        'encounter=${Uri.encodeQueryComponent(widget.encounterId!)}',
+    ];
+    final query = params.isEmpty ? '' : '?${params.join('&')}';
+    final placed = await context.push<bool>(
+      '/emr/orders/${widget.patientUid}/compose$query',
+    );
+    if (placed == true && mounted) _loadOrders();
+  }
+
+  // ── Status badge ──
 
   Widget _statusBadge(String? status) {
-    Color bg;
+    final s = AppStrings.of(context);
     Color fg;
+    String label;
     switch (status?.toLowerCase()) {
       case 'ordered':
-        bg = AppTheme.primaryBlue.withValues(alpha: 0.12);
         fg = AppTheme.primaryBlue;
-        break;
+        label = s.ordersFilterOrdered;
       case 'verified':
-        bg = AppTheme.accentCyan.withValues(alpha: 0.12);
         fg = AppTheme.accentCyan;
-        break;
+        label = s.ordersFilterVerified;
       case 'completed':
-        bg = AppTheme.successGreen.withValues(alpha: 0.12);
         fg = AppTheme.successGreen;
-        break;
+        label = s.ordersFilterCompleted;
       case 'cancelled':
-        bg = AppTheme.errorRed.withValues(alpha: 0.12);
         fg = AppTheme.errorRed;
-        break;
+        label = s.ordersFilterCancelled;
+      case 'discontinued':
+        fg = const Color(0xFF7B1FA2);
+        label = s.ordersFilterDiscontinued;
       default:
-        bg = AppTheme.textSecondary.withValues(alpha: 0.12);
         fg = AppTheme.textSecondary;
+        label = (status ?? '—').toUpperCase();
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: bg,
+        color: fg.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
-        status?.toUpperCase() ?? 'UNKNOWN',
+        label.toUpperCase(),
         style: TextStyle(color: fg, fontSize: 10, fontWeight: FontWeight.w600),
       ),
     );
   }
 
-  // ── Order Type Icon ──
+  Widget _priorityChip(String? priority) {
+    final s = AppStrings.of(context);
+    final p = priority?.toLowerCase();
+    if (p == null || p == 'routine') return const SizedBox.shrink();
+    final color = p == 'stat' ? AppTheme.errorRed : AppTheme.warningAmber;
+    final label = p == 'stat'
+        ? s.ordersPriorityStat
+        : p == 'urgent'
+        ? s.ordersPriorityUrgent
+        : p.toUpperCase();
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            color: color,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Order type icon ──
 
   IconData _orderTypeIcon(String? type) {
     switch (type?.toLowerCase()) {
@@ -104,6 +165,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
       case 'investigation':
       case 'lab':
         return Icons.biotech;
+      case 'radiology':
+      case 'imaging':
+        return Icons.camera_alt;
+      case 'ecg':
+        return Icons.monitor_heart;
+      case 'consultation':
+      case 'consult':
+        return Icons.people_alt;
       case 'nursing':
         return Icons.medical_services;
       case 'diet':
@@ -122,6 +191,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
       case 'investigation':
       case 'lab':
         return const Color(0xFF558B2F);
+      case 'radiology':
+      case 'imaging':
+      case 'ecg':
+        return const Color(0xFF6A1B9A);
+      case 'consultation':
+      case 'consult':
+        return const Color(0xFFC62828);
       case 'nursing':
         return AppTheme.primaryTeal;
       case 'diet':
@@ -133,15 +209,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
-  // ── Verify / Complete Actions ──
+  // ── Lifecycle actions ──
 
   Future<void> _verifyOrder(int id) async {
+    final s = AppStrings.of(context);
     try {
       await MedicalApiService.verifyOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context).ordersVerifiedToast),
+            content: Text(s.ordersVerifiedToast),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -151,9 +228,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppStrings.of(context).ordersVerifyFailed(e.toString()),
-            ),
+            content: Text(s.ordersVerifyFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -162,12 +237,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Future<void> _completeOrder(int id) async {
+    final s = AppStrings.of(context);
     try {
       await MedicalApiService.completeOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context).ordersCompletedToast),
+            content: Text(s.ordersCompletedToast),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -177,9 +253,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppStrings.of(context).ordersCompleteFailed(e.toString()),
-            ),
+            content: Text(s.ordersCompleteFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -187,458 +261,33 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
-  // ── Create Order ──
-
-  void _showCreateOrderSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: AppTheme.cardSurface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border(top: BorderSide(color: AppTheme.divider)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppTheme.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              AppStrings.of(ctx).ordersNewOrder,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            _orderTypeOption(
-              icon: Icons.medication,
-              label: AppStrings.of(ctx).ordersTypeMedication,
-              color: const Color(0xFFE65100),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showMedicationOrderForm();
-              },
-            ),
-            _orderTypeOption(
-              icon: Icons.biotech,
-              label: AppStrings.of(ctx).ordersTypeInvestigation,
-              color: const Color(0xFF558B2F),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showInvestigationOrderForm();
-              },
-            ),
-            _orderTypeOption(
-              icon: Icons.medical_services,
-              label: AppStrings.of(ctx).ordersTypeNursing,
-              color: AppTheme.primaryTeal,
-              onTap: () {
-                Navigator.pop(ctx);
-                _showNursingOrderForm();
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _orderTypeOption({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        tileColor: color.withValues(alpha: 0.06),
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.15),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(
-          label,
-          style: TextStyle(
-            color: AppTheme.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        trailing: Icon(
-          Icons.arrow_forward_ios,
-          size: 16,
-          color: AppTheme.textSecondary,
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  void _showMedicationOrderForm() {
-    final formKey = GlobalKey<FormState>();
-    final medication = TextEditingController();
-    final dosage = TextEditingController();
-    final frequency = TextEditingController();
-    final route = TextEditingController();
-    final duration = TextEditingController();
-    final instructions = TextEditingController();
-    bool stat = false;
-
+  /// Shared stop flow — cancel (never started) or discontinue (stop an
+  /// active order). Both require a documented reason server-side.
+  Future<void> _stopOrder(int id, {required bool discontinue}) async {
     final s = AppStrings.of(context);
-    _showOrderFormSheet(
-      title: s.ordersTypeMedication,
-      formKey: formKey,
-      fieldsBuilder: (setSheetState) => [
-        TextFormField(
-          controller: medication,
-          decoration: InputDecoration(
-            labelText: s.ordersMedicationName,
-            prefixIcon: const ExcludeSemantics(child: Icon(Icons.medication)),
-            border: const OutlineInputBorder(),
-          ),
-          validator: (v) =>
-              (v == null || v.isEmpty) ? s.admissionRequired : null,
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextFormField(
-                controller: dosage,
-                decoration: InputDecoration(
-                  labelText: s.ordersDosage,
-                  border: const OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? s.admissionRequired : null,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextFormField(
-                controller: route,
-                decoration: InputDecoration(
-                  labelText: s.ordersRoute,
-                  hintText: s.ordersRouteHint,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextFormField(
-                controller: frequency,
-                decoration: InputDecoration(
-                  labelText: s.ordersFrequency,
-                  hintText: s.ordersFrequencyHint,
-                  border: const OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? s.admissionRequired : null,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextFormField(
-                controller: duration,
-                decoration: InputDecoration(
-                  labelText: s.ordersDuration,
-                  hintText: s.ordersDurationHint,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: instructions,
-          decoration: InputDecoration(
-            labelText: s.ordersSpecialInstructions,
-            border: const OutlineInputBorder(),
-          ),
-          maxLines: 2,
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          title: Text(s.ordersStatImmediate),
-          value: stat,
-          onChanged: (v) => setSheetState(() => stat = v),
-          contentPadding: EdgeInsets.zero,
-        ),
-      ],
-      onSubmit: () => _submitOrder(
-        formKey: formKey,
-        // /emr/orders expects the medication payload nested under
-        // `details`. The route accepts the flat form too via a
-        // backwards-compat shim, but new code should post the
-        // canonical shape.
-        data: {
-          'patient_uid': widget.patientUid,
-          'order_type': 'medication',
-          'priority': stat ? 'stat' : 'routine',
-          'details': {
-            'medication_name': medication.text,
-            'dose': dosage.text,
-            'route': route.text,
-            'frequency': frequency.text,
-            'duration': duration.text,
-            'instructions': instructions.text,
-            'stat': stat,
-          },
-        },
-      ),
+    final reason = await _askReason(
+      title: discontinue ? s.ordersDiscontinueTitle : s.ordersCancelTitle,
+      hint: s.ordersStopReasonHint,
     );
-  }
-
-  void _showInvestigationOrderForm() {
-    final formKey = GlobalKey<FormState>();
-    final investigation = TextEditingController();
-    final reason = TextEditingController();
-    String priority = 'routine';
-    bool stat = false;
-
-    final s = AppStrings.of(context);
-    _showOrderFormSheet(
-      title: s.ordersTypeInvestigation,
-      formKey: formKey,
-      fieldsBuilder: (setSheetState) => [
-        TextFormField(
-          controller: investigation,
-          decoration: InputDecoration(
-            labelText: s.ordersInvestigation,
-            prefixIcon: const ExcludeSemantics(child: Icon(Icons.biotech)),
-            hintText: s.ordersInvestigationHint,
-            border: const OutlineInputBorder(),
-          ),
-          validator: (v) =>
-              (v == null || v.isEmpty) ? s.admissionRequired : null,
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: reason,
-          decoration: InputDecoration(
-            labelText: s.ordersClinicalIndication,
-            border: const OutlineInputBorder(),
-          ),
-          maxLines: 2,
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          initialValue: priority,
-          decoration: InputDecoration(
-            labelText: s.ordersPriority,
-            border: const OutlineInputBorder(),
-          ),
-          items: [
-            DropdownMenuItem(
-              value: 'routine',
-              child: Text(s.ordersPriorityRoutine),
-            ),
-            DropdownMenuItem(
-              value: 'urgent',
-              child: Text(s.ordersPriorityUrgent),
-            ),
-            DropdownMenuItem(value: 'stat', child: Text(s.ordersPriorityStat)),
-          ],
-          onChanged: (v) => setSheetState(() => priority = v ?? priority),
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          title: Text(s.ordersFastingRequired),
-          value: stat,
-          onChanged: (v) => setSheetState(() => stat = v),
-          contentPadding: EdgeInsets.zero,
-        ),
-      ],
-      onSubmit: () => _submitOrder(
-        formKey: formKey,
-        data: {
-          'patient_uid': widget.patientUid,
-          'order_type': 'investigation',
-          'priority': priority,
-          'details': {
-            'test_name': investigation.text,
-            'reason': reason.text,
-            'fasting_required': stat,
-          },
-        },
-      ),
-    );
-  }
-
-  void _showNursingOrderForm() {
-    final formKey = GlobalKey<FormState>();
-    final description = TextEditingController();
-    final frequency = TextEditingController();
-    final instructions = TextEditingController();
-
-    final s = AppStrings.of(context);
-    _showOrderFormSheet(
-      title: s.ordersTypeNursing,
-      formKey: formKey,
-      fieldsBuilder: (_) => [
-        TextFormField(
-          controller: description,
-          decoration: InputDecoration(
-            labelText: s.ordersDescription,
-            prefixIcon: const ExcludeSemantics(
-              child: Icon(Icons.medical_services),
-            ),
-            hintText: s.ordersDescriptionHint,
-            border: const OutlineInputBorder(),
-          ),
-          validator: (v) =>
-              (v == null || v.isEmpty) ? s.admissionRequired : null,
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: frequency,
-          decoration: InputDecoration(
-            labelText: s.ordersFrequency,
-            hintText: s.ordersFrequencyHintNursing,
-            border: const OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: instructions,
-          decoration: InputDecoration(
-            labelText: s.ordersSpecialInstructions,
-            border: const OutlineInputBorder(),
-          ),
-          maxLines: 3,
-        ),
-      ],
-      onSubmit: () => _submitOrder(
-        formKey: formKey,
-        data: {
-          'patient_uid': widget.patientUid,
-          'order_type': 'nursing',
-          'details': {
-            'description': description.text,
-            'frequency': frequency.text,
-            'instructions': instructions.text,
-          },
-        },
-      ),
-    );
-  }
-
-  void _showOrderFormSheet({
-    required String title,
-    required GlobalKey<FormState> formKey,
-    required List<Widget> Function(StateSetter) fieldsBuilder,
-    required VoidCallback onSubmit,
-  }) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) => Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          decoration: BoxDecoration(
-            color: AppTheme.cardSurface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            border: Border(top: BorderSide(color: AppTheme.divider)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: AppTheme.divider,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    ...fieldsBuilder(setSheetState),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: onSubmit,
-                        icon: const Icon(Icons.send),
-                        label: Text(AppStrings.of(ctx).ordersPlaceOrder),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _submitOrder({
-    required GlobalKey<FormState> formKey,
-    required Map<String, dynamic> data,
-  }) async {
-    if (!formKey.currentState!.validate()) return;
-    Navigator.of(context).pop();
-
+    if (reason == null || reason.trim().length < 3 || !mounted) return;
     try {
-      // Run CDS check first
-      try {
-        final cdsResult = await MedicalApiService.checkOrder(data);
-        final alerts = cdsResult['alerts'];
-        if (alerts is List && alerts.isNotEmpty && mounted) {
-          final proceed = await _showCdsAlerts(alerts);
-          if (proceed != true) return;
-        }
-      } catch (_) {
-        // CDS check failed — proceed with order anyway
+      if (discontinue) {
+        await MedicalApiService.discontinueClinicalOrder(
+          orderId: id,
+          reason: reason.trim(),
+        );
+      } else {
+        await MedicalApiService.cancelClinicalOrder(
+          orderId: id,
+          reason: reason.trim(),
+        );
       }
-
-      await MedicalApiService.createEmrOrder(data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context).ordersPlacedSuccess),
+            content: Text(
+              discontinue ? s.ordersDiscontinuedToast : s.ordersCancelledToast,
+            ),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -648,9 +297,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              AppStrings.of(context).ordersPlaceFailed(e.toString()),
-            ),
+            content: Text(s.ordersStopFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -658,68 +305,48 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
-  Future<bool?> _showCdsAlerts(List<dynamic> alerts) {
-    return showDialog<bool>(
+  Future<String?> _askReason({required String title, required String hint}) {
+    final s = AppStrings.of(context);
+    final ctrl = TextEditingController();
+    return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.warning_amber, color: AppTheme.warningAmber),
-            const SizedBox(width: 8),
-            Text(AppStrings.of(ctx).ordersClinicalAlerts),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final alert in alerts)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 18,
-                        color: (alert is Map && alert['severity'] == 'high')
-                            ? AppTheme.errorRed
-                            : AppTheme.warningAmber,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          alert is Map
-                              ? (alert['message'] as String? ?? '$alert')
-                              : '$alert',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 2,
+          decoration: InputDecoration(
+            labelText: s.ordersStopReasonLabel,
+            hintText: hint,
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(AppStrings.of(ctx).actionCancel),
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(s.actionCancel),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(AppStrings.of(ctx).ordersProceedAnyway),
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: Text(s.actionConfirm),
           ),
         ],
       ),
     );
   }
 
-  // ── Filter Chips ──
+  // ── Filter chips ──
 
   Widget _buildStatusFilters() {
-    const statuses = [null, 'ordered', 'verified', 'completed', 'cancelled'];
+    const statuses = [
+      null,
+      'ordered',
+      'verified',
+      'completed',
+      'cancelled',
+      'discontinued',
+    ];
     final s = AppStrings.of(context);
     final labels = [
       s.ordersFilterAll,
@@ -727,6 +354,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       s.ordersFilterVerified,
       s.ordersFilterCompleted,
       s.ordersFilterCancelled,
+      s.ordersFilterDiscontinued,
     ];
 
     return SizedBox(
@@ -778,8 +406,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
       title: widget.patientName != null
           ? s.ordersTitleWithName(widget.patientName!)
           : s.ordersTitle,
+      actions: [
+        IconButton(
+          tooltip: s.summaryTooltip,
+          icon: const Icon(Icons.assignment_ind_outlined),
+          onPressed: () => PatientSummarySheet.show(
+            context,
+            patientUid: widget.patientUid,
+            patientName: widget.patientName,
+          ),
+        ),
+      ],
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateOrderSheet,
+        onPressed: _openComposer,
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_circle_outline),
@@ -836,156 +475,148 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           child: ListView.builder(
                             padding: const EdgeInsets.all(12),
                             itemCount: filtered.length,
-                            itemBuilder: (ctx, i) {
-                              final order = filtered[i];
-                              final type = order['order_type'] as String?;
-                              final status = order['status'] as String?;
-                              final orderId = order['id'];
-                              final color = _orderTypeColor(type);
-
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(14),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 18,
-                                            backgroundColor: color.withValues(
-                                              alpha: 0.15,
-                                            ),
-                                            child: Icon(
-                                              _orderTypeIcon(type),
-                                              color: color,
-                                              size: 18,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  order['title'] as String? ??
-                                                      order['medication']
-                                                          as String? ??
-                                                      order['investigation']
-                                                          as String? ??
-                                                      order['description']
-                                                          as String? ??
-                                                      s.ordersFallback,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 14,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  '${(type ?? 'order').toUpperCase()} - ${_formatTimestamp(order['created_at'] as String?)}',
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    color:
-                                                        AppTheme.textSecondary,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          _statusBadge(status),
-                                        ],
-                                      ),
-                                      if (order['dosage'] != null ||
-                                          order['frequency'] != null) ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          [
-                                            order['dosage'],
-                                            order['route'],
-                                            order['frequency'],
-                                          ].where((e) => e != null).join(' | '),
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: AppTheme.textSecondary,
-                                          ),
-                                        ),
-                                      ],
-                                      if (order['ordered_by'] != null) ...[
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.person_outline,
-                                              size: 13,
-                                              color: AppTheme.textSecondary,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              order['ordered_by'] as String,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: AppTheme.textSecondary,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                      // Action buttons
-                                      if (orderId is int &&
-                                          (status?.toLowerCase() == 'ordered' ||
-                                              status?.toLowerCase() ==
-                                                  'verified')) ...[
-                                        const SizedBox(height: 10),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.end,
-                                          children: [
-                                            if (status?.toLowerCase() ==
-                                                'ordered')
-                                              TextButton.icon(
-                                                onPressed: () =>
-                                                    _verifyOrder(orderId),
-                                                icon: const Icon(
-                                                  Icons.check_circle_outline,
-                                                  size: 18,
-                                                ),
-                                                label: Text(s.ordersVerify),
-                                                style: TextButton.styleFrom(
-                                                  foregroundColor:
-                                                      AppTheme.accentCyan,
-                                                ),
-                                              ),
-                                            if (status?.toLowerCase() ==
-                                                'verified')
-                                              TextButton.icon(
-                                                onPressed: () =>
-                                                    _completeOrder(orderId),
-                                                icon: const Icon(
-                                                  Icons.done_all,
-                                                  size: 18,
-                                                ),
-                                                label: Text(s.ordersComplete),
-                                                style: TextButton.styleFrom(
-                                                  foregroundColor:
-                                                      AppTheme.successGreen,
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
+                            itemBuilder: (ctx, i) => _orderCard(s, filtered[i]),
                           ),
                         ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _orderCard(AppStrings s, Map<String, dynamic> order) {
+    final type = order['order_type'] as String?;
+    final status = order['status'] as String?;
+    final orderId = order['id'];
+    final color = _orderTypeColor(type);
+    final display = orderDisplayFields(order);
+    final orderNumber = order['order_number']?.toString();
+    final statusLower = status?.toLowerCase();
+    final active = statusLower == 'ordered' || statusLower == 'verified';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: color.withValues(alpha: 0.15),
+                  child: Icon(_orderTypeIcon(type), color: color, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        display.title.isEmpty
+                            ? s.ordersFallback
+                            : display.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Text(
+                        [
+                          (type ?? 'order').toUpperCase(),
+                          if (orderNumber != null && orderNumber.isNotEmpty)
+                            orderNumber,
+                          _formatTimestamp(order['created_at'] as String?),
+                        ].join(' - '),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _priorityChip(order['priority'] as String?),
+                _statusBadge(status),
+              ],
+            ),
+            if (display.subtitle.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                display.subtitle,
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+              ),
+            ],
+            if (order['ordered_by_name'] != null ||
+                order['ordered_by'] != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    Icons.person_outline,
+                    size: 13,
+                    color: AppTheme.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      (order['ordered_by_name'] ?? order['ordered_by'])
+                          .toString(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (orderId is int && active) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _stopOrder(
+                      orderId,
+                      discontinue: statusLower == 'verified',
+                    ),
+                    icon: const Icon(Icons.block, size: 18),
+                    label: Text(
+                      statusLower == 'verified'
+                          ? s.ordersDiscontinue
+                          : s.ordersCancel,
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.errorRed,
+                    ),
+                  ),
+                  if (statusLower == 'ordered')
+                    TextButton.icon(
+                      onPressed: () => _verifyOrder(orderId),
+                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      label: Text(s.ordersVerify),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.accentCyan,
+                      ),
+                    ),
+                  if (statusLower == 'verified')
+                    TextButton.icon(
+                      onPressed: () => _completeOrder(orderId),
+                      icon: const Icon(Icons.done_all, size: 18),
+                      label: Text(s.ordersComplete),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.successGreen,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

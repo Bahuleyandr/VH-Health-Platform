@@ -107,6 +107,7 @@ import '../../features/emr/screens/admission_case_sheet_screen.dart';
 import '../../features/emr/screens/patient_command_board_screen.dart';
 import '../../features/emr/screens/clinical_notes_screen.dart';
 import '../../features/emr/screens/patient_timeline_screen.dart';
+import '../../features/emr/screens/order_composer_screen.dart';
 import '../../features/emr/screens/orders_screen.dart';
 import '../../features/emr/screens/vitals_chart_screen.dart';
 import '../../features/emr/screens/discharge_hub_list_screen.dart';
@@ -966,11 +967,32 @@ final GoRouter appRouter = GoRouter(
           name: 'emr-orders',
           pageBuilder: (context, state) {
             final uid = state.pathParameters['uid']!;
-            final name = state.uri.queryParameters['name'];
+            final q = state.uri.queryParameters;
             return NoTransitionPage(
-              child: OrdersScreen(patientUid: uid, patientName: name),
+              child: OrdersScreen(
+                patientUid: uid,
+                patientName: q['name'],
+                encounterId: q['encounter'],
+              ),
             );
           },
+          routes: [
+            GoRoute(
+              path: 'compose',
+              name: 'emr-order-composer',
+              pageBuilder: (context, state) {
+                final uid = state.pathParameters['uid']!;
+                final q = state.uri.queryParameters;
+                return NoTransitionPage(
+                  child: OrderComposerScreen(
+                    patientUid: uid,
+                    patientName: q['name'],
+                    encounterId: q['encounter'],
+                  ),
+                );
+              },
+            ),
+          ],
         ),
         GoRoute(
           path: '/emr/vitals/:uid',

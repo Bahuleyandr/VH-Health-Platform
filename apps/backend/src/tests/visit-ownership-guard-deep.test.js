@@ -57,7 +57,7 @@ describe('H2 — visit-ownership guard on note create / sign / complete', () => 
   async function clearPriorVisitRows() {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_notes WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    // clinical_audit_events is append-only (C4 hash chain) — never deleted.
     await prisma.$executeRawUnsafe(`DELETE FROM patient_encounters WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM appointment_status_history

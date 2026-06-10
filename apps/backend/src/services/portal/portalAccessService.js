@@ -1,0 +1,326 @@
+// src/services/portal/portalAccessService.js
+//
+// Roadmap E6 — result release rules + formal proxy access.
+//
+//   * Release semantics: a lab result is patient-visible when it is signed
+//     off AND not on hold AND (the auto-release delay has elapsed OR a
+//     clinician released it early). The delay is
+//     PORTAL_RESULT_RELEASE_DELAY_HOURS (default 24); migration 294
+//     backfilled pre-existing signed-off rows as released so nothing a
+//     patient could already see disappears.
+//   * Doctor hold requires a reason and blocks release until lifted or
+//     overridden by an explicit early release. Both are audited.
+//   * Proxy access: portal_proxy_grants rows are the consent trail
+//     (method/reference/grantor/expiry/revocation). Every proxy read is
+//     audited with the grant id.
+
+import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
+import { recordClinicalAuditEvent } from '../clinical/canonicalClinicalPlatformService.js';
+
+export function releaseDelayHours() {
+  const n = Number(process.env.PORTAL_RESULT_RELEASE_DELAY_HOURS);
+  return Number.isFinite(n) && n >= 0 ? n : 24;
+}
+
+/**
+ * SQL predicate for patient-visible lab results. `delayParam` is the
+ * placeholder (e.g. '$3') that carries releaseDelayHours() at call time.
+ */
+export function releaseVisibilitySql(delayParam) {
+  return `release_hold = false
+    AND (
+      (released_to_patient_at IS NOT NULL AND released_to_patient_at <= NOW())
+      OR (signed_off_at IS NOT NULL AND signed_off_at <= NOW() - make_interval(hours => ${delayParam}::int))
+    )`;
+}
+
+// ── staff: hold / early release ──────────────────────────────────────────
+
+async function getResult(resultId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, test_name, status, signed_off_at, release_hold, released_to_patient_at
+     FROM lab_results WHERE id = $1::int`,
+    Number(resultId),
+  );
+  if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
+  return rows[0];
+}
+
+export async function setResultReleaseHold(resultId, { hold, reason = null }, { actorUid = null, actorRole = null } = {}) {
+  const wantHold = Boolean(hold);
+  if (wantHold && (!reason || !String(reason).trim())) {
+    throw AppError.badRequest('A reason is required to hold a result from the patient', 'PORTAL_HOLD_REASON_REQUIRED');
+  }
+  const result = await getResult(resultId);
+
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE lab_results
+     SET release_hold = $2,
+         release_hold_by = $3::uuid,
+         release_hold_reason = $4,
+         release_hold_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
+         updated_at = NOW()
+     WHERE id = $1::int
+     RETURNING id, release_hold, release_hold_reason, released_to_patient_at`,
+    result.id,
+    wantHold,
+    wantHold ? actorUid : null,
+    wantHold ? String(reason).trim() : null,
+  );
+
+  await recordClinicalAuditEvent({
+    patientUid: result.patient_uid,
+    action: wantHold ? 'lab.result_release_hold' : 'lab.result_release_unhold',
+    resourceTable: 'lab_results',
+    resourceId: String(result.id),
+    actorUid,
+    actorRole,
+    metadata: { test_name: result.test_name, reason: wantHold ? String(reason).trim() : null },
+  });
+
+  return rows[0];
+}
+
+export async function releaseResultNow(resultId, { actorUid = null, actorRole = null } = {}) {
+  const result = await getResult(resultId);
+  if (!result.signed_off_at) {
+    throw AppError.badRequest('Only signed-off results can be released to the patient', 'PORTAL_RELEASE_UNSIGNED');
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE lab_results
+     SET released_to_patient_at = NOW(), release_hold = false,
+         release_hold_by = NULL, release_hold_reason = NULL, release_hold_at = NULL,
+         updated_at = NOW()
+     WHERE id = $1::int
+     RETURNING id, released_to_patient_at, release_hold`,
+    result.id,
+  );
+
+  await recordClinicalAuditEvent({
+    patientUid: result.patient_uid,
+    action: 'lab.result_released_early',
+    resourceTable: 'lab_results',
+    resourceId: String(result.id),
+    actorUid,
+    actorRole,
+    metadata: { test_name: result.test_name, was_on_hold: result.release_hold },
+  });
+
+  return rows[0];
+}
+
+// ── proxy grants (consent trail) ─────────────────────────────────────────
+
+export async function createProxyGrant({
+  patientUid, proxyUid, relationship = null, scope = ['results'],
+  consentMethod, consentRef = null, expiresAt = null,
+}, { actorUid = null, actorRole = null } = {}) {
+  if (!patientUid || !proxyUid) {
+    throw AppError.badRequest('patient_uid and proxy_uid are required', 'PORTAL_PROXY_IDS_REQUIRED');
+  }
+  if (String(patientUid) === String(proxyUid)) {
+    throw AppError.badRequest('A patient cannot be their own proxy', 'PORTAL_PROXY_SELF');
+  }
+  if (!['written', 'verbal_documented', 'otp', 'guardian_minor'].includes(consentMethod)) {
+    throw AppError.badRequest('consent_method must be written, verbal_documented, otp, or guardian_minor', 'PORTAL_CONSENT_METHOD_INVALID');
+  }
+  // The patient grants for themself; staff may record a grant on the
+  // patient's behalf (consent captured out-of-band, referenced here).
+  const isSelfGrant = actorUid && String(actorUid) === String(patientUid);
+  if (!isSelfGrant && !actorRole) {
+    throw AppError.forbidden('Only the patient or staff may create a proxy grant', 'PORTAL_PROXY_GRANTOR_INVALID');
+  }
+
+  const users = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
+    patientUid, proxyUid,
+  );
+  if (users.length !== 2) {
+    throw AppError.notFound('Patient or proxy account not found', 'PORTAL_PROXY_USER_NOT_FOUND');
+  }
+
+  const cleanScope = (Array.isArray(scope) && scope.length ? scope : ['results']).map(String);
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO portal_proxy_grants
+         (patient_uid, proxy_uid, relationship, scope, consent_method, consent_ref, granted_by, expires_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4::text[], $5, $6, $7::uuid, $8::timestamptz)
+       RETURNING *`,
+      patientUid, proxyUid, relationship || null, cleanScope,
+      consentMethod, consentRef || null, actorUid, expiresAt || null,
+    );
+    const grant = rows[0];
+
+    await recordClinicalAuditEvent({
+      patientUid,
+      action: 'portal.proxy_granted',
+      resourceTable: 'portal_proxy_grants',
+      resourceId: String(grant.id),
+      actorUid,
+      actorRole,
+      metadata: {
+        proxy_uid: proxyUid, relationship, scope: cleanScope,
+        consent_method: consentMethod, consent_ref: consentRef, expires_at: expiresAt,
+      },
+    });
+
+    return grant;
+  } catch (err) {
+    if (String(err.message).includes('uq_portal_proxy_grants_active')) {
+      throw AppError.conflict('An active grant for this proxy already exists', 'PORTAL_PROXY_GRANT_EXISTS');
+    }
+    throw err;
+  }
+}
+
+export async function revokeProxyGrant(grantId, { reason = null }, { actorUid = null, actorRole = null } = {}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, proxy_uid, status FROM portal_proxy_grants WHERE id = $1::int`,
+    Number(grantId),
+  );
+  if (!rows.length) throw AppError.notFound('Proxy grant not found', 'PORTAL_PROXY_GRANT_NOT_FOUND');
+  const grant = rows[0];
+  const isOwner = actorUid && String(actorUid) === String(grant.patient_uid);
+  if (!isOwner && !actorRole) {
+    throw AppError.forbidden('Only the patient or staff may revoke a grant', 'PORTAL_PROXY_REVOKE_FORBIDDEN');
+  }
+  if (grant.status !== 'active') {
+    throw AppError.invalidTransition(grant.status, 'revoked', ['active']);
+  }
+
+  const updated = await prisma.$queryRawUnsafe(
+    `UPDATE portal_proxy_grants
+     SET status = 'revoked', revoked_at = NOW(), revoked_by = $2::uuid, revoked_reason = $3, updated_at = NOW()
+     WHERE id = $1::int AND status = 'active'
+     RETURNING id, status, revoked_at`,
+    grant.id, actorUid, reason || null,
+  );
+  if (!updated.length) throw AppError.conflict('Grant state changed concurrently', 'PORTAL_PROXY_RACE');
+
+  await recordClinicalAuditEvent({
+    patientUid: grant.patient_uid,
+    action: 'portal.proxy_revoked',
+    resourceTable: 'portal_proxy_grants',
+    resourceId: String(grant.id),
+    actorUid,
+    actorRole,
+    metadata: { proxy_uid: grant.proxy_uid, reason },
+  });
+
+  return updated[0];
+}
+
+export async function listProxyGrants(uid) {
+  const grantedByMe = await prisma.$queryRawUnsafe(
+    `SELECT id, proxy_uid, relationship, scope, status, consent_method, granted_at, expires_at, revoked_at
+     FROM portal_proxy_grants WHERE patient_uid = $1::uuid ORDER BY granted_at DESC`,
+    uid,
+  );
+  const heldByMe = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, relationship, scope, status, granted_at, expires_at
+     FROM portal_proxy_grants
+     WHERE proxy_uid = $1::uuid AND status = 'active'
+       AND (expires_at IS NULL OR expires_at > NOW())
+     ORDER BY granted_at DESC`,
+    uid,
+  );
+  return { granted_by_me: grantedByMe, held_by_me: heldByMe };
+}
+
+/**
+ * Resolve the effective patient uid for a portal read. Self-access passes
+ * through; proxy access requires an active, unexpired grant covering the
+ * requested scope and is audited with the grant id.
+ */
+export async function resolvePortalPatient({ requesterUid, forPatientUid = null, scope = 'results' }) {
+  if (!forPatientUid || String(forPatientUid) === String(requesterUid)) {
+    return { patientUid: requesterUid, proxy: false };
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, scope FROM portal_proxy_grants
+     WHERE patient_uid = $1::uuid AND proxy_uid = $2::uuid AND status = 'active'
+       AND (expires_at IS NULL OR expires_at > NOW())
+     LIMIT 1`,
+    forPatientUid, requesterUid,
+  );
+  if (!rows.length || !rows[0].scope.includes(scope)) {
+    throw AppError.forbidden('No active proxy grant for this patient', 'PORTAL_PROXY_NOT_GRANTED');
+  }
+
+  // Consent trail: every proxy read is audited (best-effort, never blocks).
+  recordClinicalAuditEvent({
+    patientUid: forPatientUid,
+    action: 'portal.proxy_access',
+    resourceTable: 'portal_proxy_grants',
+    resourceId: String(rows[0].id),
+    actorUid: requesterUid,
+    metadata: { scope },
+    idempotencyKey: `proxy-access-${rows[0].id}-${requesterUid}-${new Date().toISOString().slice(0, 13)}`,
+  }).catch((err) => logger.warn('proxy access audit failed', { error: err.message }));
+
+  return { patientUid: forPatientUid, proxy: true, grantId: rows[0].id };
+}
+
+// ── lab trends (longitudinal series) ─────────────────────────────────────
+
+export async function getLabTrend({ tenantId, patientUid, testCode = null, loincCode = null, months = 24 }) {
+  if (!testCode && !loincCode) {
+    throw AppError.badRequest('test_code or loinc_code is required', 'PORTAL_TREND_TEST_REQUIRED');
+  }
+  const span = Math.min(Math.max(Number(months) || 24, 1), 120);
+  const byLoinc = Boolean(loincCode);
+  const delay = releaseDelayHours();
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, test_code, loinc_code, test_name, value_numeric, unit, reference_range,
+            abnormal_flag, COALESCE(performed_at, received_at) AS observation_datetime
+     FROM lab_results
+     WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+       AND ${byLoinc ? 'loinc_code = $3' : 'test_code = $3'}
+       AND value_numeric IS NOT NULL
+       AND COALESCE(performed_at, received_at) >= NOW() - make_interval(months => $4::int)
+       AND ${releaseVisibilitySql('$5')}
+     ORDER BY COALESCE(performed_at, received_at) ASC`,
+    tenantId || '00000000-0000-4000-8000-000000000001',
+    String(patientUid),
+    byLoinc ? String(loincCode) : String(testCode),
+    span,
+    delay,
+  );
+
+  const values = rows.map((r) => Number(r.value_numeric));
+  return {
+    test_code: byLoinc ? null : String(testCode),
+    loinc_code: byLoinc ? String(loincCode) : (rows[0]?.loinc_code ?? null),
+    test_name: rows[0]?.test_name ?? null,
+    unit: rows[0]?.unit ?? null,
+    months: span,
+    count: rows.length,
+    latest: rows.length ? { value: values[values.length - 1], at: rows[rows.length - 1].observation_datetime } : null,
+    min: values.length ? Math.min(...values) : null,
+    max: values.length ? Math.max(...values) : null,
+    points: rows.map((r) => ({
+      id: r.id,
+      at: r.observation_datetime,
+      value: Number(r.value_numeric),
+      abnormal_flag: r.abnormal_flag,
+      reference_range: r.reference_range,
+    })),
+  };
+}
+
+export default {
+  releaseDelayHours,
+  releaseVisibilitySql,
+  setResultReleaseHold,
+  releaseResultNow,
+  createProxyGrant,
+  revokeProxyGrant,
+  listProxyGrants,
+  resolvePortalPatient,
+  getLabTrend,
+};

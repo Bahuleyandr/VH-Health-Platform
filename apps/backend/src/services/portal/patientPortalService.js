@@ -14,6 +14,7 @@ import { AppError } from '../../utils/AppError.js';
 import * as paymentLinkService from '../billing/paymentLinkService.js';
 import * as pointService from '../gamification/pointService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { releaseVisibilitySql, releaseDelayHours } from './portalAccessService.js';
 
 const ACTIVE_APPOINTMENT_STATUSES = ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'CHECKED_IN'];
 const PENDING_LAB_ORDER_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'SAMPLE_COLLECTED', 'PROCESSING'];
@@ -1785,30 +1786,36 @@ export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {
   // `observation_datetime` for backwards compatibility with the Flutter
   // patient app's lab_results_screen. See finding
   // 2026-05-10-lab-walk-in-patient-lab-results-portal-500.
+  // E6 release rules: signed-off is no longer sufficient — the result must
+  // also be past the auto-release delay (or explicitly released early) and
+  // not on a clinician hold. See portalAccessService.releaseVisibilitySql.
   return prisma.$queryRawUnsafe(
     `SELECT id, test_code, test_name,
             COALESCE(performed_at, received_at) AS observation_datetime,
             value_text, value_numeric, unit, reference_range,
-            abnormal_flag, signed_off_at
+            abnormal_flag, signed_off_at, released_to_patient_at
        FROM lab_results
       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
         AND signed_off_at IS NOT NULL
+        AND ${releaseVisibilitySql('$4')}
       ORDER BY COALESCE(performed_at, received_at) DESC NULLS LAST, id DESC
       LIMIT $3::int`,
-    tenantId, String(patient_uid), Number(limit),
+    tenantId, String(patient_uid), Number(limit), releaseDelayHours(),
   );
 }
 
 export async function getMyLabResult({ tenantId, patient_uid, id }) {
   // Expose the `observation_datetime` alias alongside the row so the
   // Flutter app's detail screen and the list screen see the same field
-  // — match the alias from listMyLabResults above.
+  // — match the alias from listMyLabResults above. Release rules apply
+  // here too (E6): unreleased/held results 404 rather than leak early.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT *, COALESCE(performed_at, received_at) AS observation_datetime
        FROM lab_results
       WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid
-        AND signed_off_at IS NOT NULL`,
-    Number(id), tenantId, String(patient_uid),
+        AND signed_off_at IS NOT NULL
+        AND ${releaseVisibilitySql('$4')}`,
+    Number(id), tenantId, String(patient_uid), releaseDelayHours(),
   );
   if (!rows.length) throw AppError.notFound('Lab result not found');
   return rows[0];

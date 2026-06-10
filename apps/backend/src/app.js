@@ -245,6 +245,7 @@ import researchRoutes from './routes/research/researchRoutes.js';
 import oncologyRoutes from './routes/oncology/oncologyRoutes.js';
 import dentalRoutes from './routes/clinical/dentalRoutes.js';
 import ophthalmologyRoutes from './routes/clinical/ophthalmologyRoutes.js';
+import resultReleaseRoutes from './routes/lab/resultReleaseRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -956,6 +957,10 @@ app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRout
 // the seeded pathologist account from hitting a generic 403 before the
 // tier-specific message ever reaches the client. Finding:
 // 2026-05-10-emergency-walk-in-lab-tech-pathologist-signoff-rbac-blocked.
+// E6 — staff-side result release controls (hold with reason / release
+// early). Mounted BEFORE the generic /lab routers so their narrower
+// LAB_ROUTE_ROLES gate cannot shadow the clinical-staff gate here.
+app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
 app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labPanelRoutes);

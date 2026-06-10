@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../l10n/app_strings.dart';
 import '../config/api_config.dart';
 import '../config/role_config.dart';
 import '../services/patient_api_service.dart';
@@ -19,6 +20,18 @@ import '../utils/patient_identity.dart';
 /// magnifier icon in the AppBar or a Cmd+K shortcut.
 class PatientSearchSheet extends StatefulWidget {
   const PatientSearchSheet({super.key});
+
+  /// Boot-time hook (registered in `main.dart`) that opens the one-screen
+  /// patient summary (roadmap E5). Lives as an injected callback so this
+  /// core widget doesn't import feature code — same pattern as
+  /// `CrashReporter.install`. When null, result rows render without the
+  /// summary shortcut.
+  static void Function(
+    BuildContext context, {
+    required String patientUid,
+    String? patientName,
+  })?
+  summaryOpener;
 
   static Future<void> show(BuildContext context) {
     return showModalBottomSheet(
@@ -273,7 +286,29 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: subtitle.isEmpty ? null : Text(subtitle),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // One-tap patient summary (roadmap E5) — opens the
+              // allergies/meds/problems/vitals/pending-results sheet
+              // WITHOUT leaving the current screen.
+              if (PatientSearchSheet.summaryOpener != null)
+                IconButton(
+                  tooltip: AppStrings.of(context).summaryTooltip,
+                  icon: const Icon(Icons.assignment_ind_outlined),
+                  onPressed: () {
+                    final uid = patientUidFrom(p);
+                    if (uid.isEmpty) return;
+                    PatientSearchSheet.summaryOpener!(
+                      context,
+                      patientUid: uid,
+                      patientName: patientNameFrom(p),
+                    );
+                  },
+                ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
           onTap: () => _openPatient(context, p),
         );
       },

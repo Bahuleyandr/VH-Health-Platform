@@ -74,7 +74,7 @@ function readStrings() {
 
   // Split into per-locale chunks. Each looks like `'en': { ... },`.
   const chunks = {};
-  const localeRegex = /'(en|hi|ta|te)'\s*:\s*\{/g;
+  const localeRegex = /'(en|hi|ta|te|ml)'\s*:\s*\{/g;
   const positions = [];
   for (const m of body.matchAll(localeRegex)) {
     positions.push({ locale: m[1], start: m.index + m[0].length });
@@ -287,14 +287,25 @@ function main() {
   const enKeys = new Set(Object.keys(parsed.en?.entries ?? {}));
   console.log(`English source-of-truth keys: ${enKeys.size}\n`);
 
-  // 1+2. Coverage + missing keys per locale
-  for (const loc of ['hi', 'ta', 'te']) {
+  // 1+2. Coverage + missing keys per locale.
+  // `ml` is a DECLARED-PARTIAL locale (2026-06-10 nurse-facing first
+  // pass; everything else falls back to English by design) — its
+  // coverage is reported but missing keys are not listed and partial
+  // coverage is not a finding.
+  const FULL_LOCALES = ['hi', 'ta', 'te'];
+  const PARTIAL_LOCALES = ['ml'];
+  for (const loc of [...FULL_LOCALES, ...PARTIAL_LOCALES]) {
+    const partial = PARTIAL_LOCALES.includes(loc);
     const got = new Set(Object.keys(parsed[loc]?.entries ?? {}));
     const missing = [];
     for (const k of enKeys) if (!got.has(k)) missing.push(k);
     const cov = (((enKeys.size - missing.length) / enKeys.size) * 100).toFixed(1);
     const reviewN = parsed[loc]?.reviewKeys.size ?? 0;
-    console.log(`[${loc}] coverage ${cov}%  (${enKeys.size - missing.length}/${enKeys.size}),  // REVIEW: flags ${reviewN},  missing ${missing.length}`);
+    console.log(`[${loc}] coverage ${cov}%  (${enKeys.size - missing.length}/${enKeys.size}),  // REVIEW: flags ${reviewN},  missing ${missing.length}${partial ? '  [partial by design — nurse-facing first pass]' : ''}`);
+    if (partial) {
+      console.log('');
+      continue;
+    }
     if (missing.length > 0 && missing.length < 25) {
       for (const k of missing.sort()) console.log(`   missing: ${k}`);
     } else if (missing.length >= 25) {
@@ -321,7 +332,7 @@ function main() {
     return false;
   };
   let copyHits = 0;
-  for (const loc of ['hi', 'ta', 'te']) {
+  for (const loc of ['hi', 'ta', 'te', 'ml']) {
     const dups = [];
     for (const [k, v] of Object.entries(parsed[loc]?.entries ?? {})) {
       const en = parsed.en?.entries[k];
@@ -342,7 +353,7 @@ function main() {
 
   // 4. Length outliers
   console.log('--- 4. Length outliers (translation > 2.5x English chars) ---');
-  for (const loc of ['hi', 'ta', 'te']) {
+  for (const loc of ['hi', 'ta', 'te', 'ml']) {
     const out = [];
     for (const [k, v] of Object.entries(parsed[loc]?.entries ?? {})) {
       const en = parsed.en?.entries[k];

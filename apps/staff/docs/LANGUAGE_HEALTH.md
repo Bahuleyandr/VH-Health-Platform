@@ -1,25 +1,46 @@
 # Staff App - Language Health Report
 
-_Last verified: 2026-05-03. Reproducible via `melos run i18n-health`
-or `node apps/staff/scripts/i18n-verify.mjs`._
+_Last verified: 2026-06-10 (roadmap E2 session). Reproducible via
+`melos run i18n-health` or `node apps/staff/scripts/i18n-verify.mjs`._
 
 This report is the structural verification of the staff app i18n setup.
 It answers "does every key resolve?" - not "is every translation clinically
-approved?" Tamil and Telugu are now structurally complete through an AI
-first-pass fill, but they still require fluent clinical review before
+approved?" Tamil and Telugu are structurally complete through an AI
+first-pass fill; **Malayalam is a declared-partial nurse-facing first pass
+(2026-06-10)** — both still require fluent clinical review before
 production rollout.
 
----
+## What changed 2026-06-10 (roadmap E2)
+
+- **In-app language switcher** (Settings → Appearance → Language) backed
+  by `LocaleProvider` (SharedPreferences-persisted; default = follow the
+  device locale, the historical behaviour).
+- **Malayalam (`ml`) added** as a declared-partial locale: 532
+  nurse-facing keys (actions, labels, login, dashboard, settings, bed
+  sheet, vitals + vitals chart, MAR scan, due meds, nursing notes,
+  handover, code blue, CDS, orders/composer/order sets, drug chart,
+  notifications, logout/splash/error). All other keys fall back to
+  English by design. The verifier reports `ml` separately and does not
+  treat partial coverage as a finding.
+- **hi/ta/te gap-fill**: the 43 keys added en-only by later sessions
+  (bed-sheet transfer, clinical-AI reviewer notes/governance, change
+  password, vitals-chart tabs/sections) are translated again — all three
+  back at 100%.
+- **Drug chart screen de-hardcoded** (`drug_chart.*` keys ×5 locales).
 
 ## Headline numbers
 
-| | en | hi | ta | te |
-|---|---:|---:|---:|---:|
-| Keys present | 1,576 | 1,576 | 1,576 | 1,576 |
-| Coverage vs en | 100% | 100% | 100% | 100% |
-| `// REVIEW:` flags | - | 216 | 619 | 620 |
-| Length outliers | - | 0 | 2 | 0 |
-| Copy-pasted English | - | 1 | 0 | 0 |
+| | en | hi | ta | te | ml |
+|---|---:|---:|---:|---:|---:|
+| Keys present | 1,704 | 1,704 | 1,704 | 1,704 | 532 |
+| Coverage vs en | 100% | 100% | 100% | 100% | 31.2% (partial by design) |
+| `// REVIEW:` flags | - | 229 | 669 | 670 | map-level banner |
+| Length outliers | - | 0 | 2 | 0 | 0 |
+| Copy-pasted English | - | 1 | 3 | 3 | 6 |
+
+The copy-paste hits are intentional catalog-example hints
+(`composer.study_hint` "Chest X-ray PA…" etc.) where clinicians type
+English terms; revisit with the translator pass.
 
 | | |
 |---|---:|
@@ -75,12 +96,19 @@ Before production rollout in Tamil/Telugu-speaking staff populations:
 
 ## Remaining non-blocking cleanup
 
-- **128 unused getters** remain declared on `AppStrings`. They are not
+- **~213 unused getters** remain declared on `AppStrings`. They are not
   user-visible and should be pruned in a separate cleanup-only change.
-- **1 hardcoded English heuristic hit** remains in
-  `lib/core/widgets/debounced_button.dart` (`"Check In"`). Existing notes
-  treat this as non-user-facing/example copy, but it can be revisited with
-  the unused-getter cleanup.
+- **Hardcoded English remains on ~55 screens (~300 heuristic hits)** —
+  screens built after the 05-03 pass (front-office workbench, pharmacy
+  screen, patient records upload, housekeeping roster, prescriptions
+  dialogs, reception counter, discharge hub, order-sets browser, …).
+  The drug chart was de-hardcoded 2026-06-10; pharmacy screen is the
+  next-highest nurse-facing offender. Bottom-nav labels in
+  `staff_scaffold.dart` / `role_config.dart` are pinned by the
+  role-config test suite — localising them needs a coordinated
+  role_config + tests change.
+- **Malayalam beyond the nurse-facing core** (1,172 keys fall back to
+  English) — extend per screen as the pilot demands.
 - **Admin portal and backend notifications** remain English-only and are
   tracked separately.
 

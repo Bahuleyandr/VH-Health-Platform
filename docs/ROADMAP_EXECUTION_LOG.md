@@ -4,6 +4,80 @@ Tracks pillar-by-pillar execution of `EPIC_LEVEL_ROADMAP.md`. One branch per
 pillar (`roadmap/pillar-<x>`); each item lands as its own commit with tests.
 Append per session; newest first.
 
+## Session 2026-06-10 (late night) — Pillar E Flutter items (branch `roadmap/pillar-e`)
+
+Pre-work: an abandoned `roadmap/pillar-d-d5` branch (at main `8edae310`)
+had the D5 stash applied **and staged**; parked it as its own stash entry
+— **stash@{0} is now "WIP D5 rebased-on-main 8edae310 … resume this one"**
+(the original pillar-d stash slid to stash@{1}) — then switched back to
+`roadmap/pillar-e`. Dalekdefender overlay edits left untouched throughout.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| E1 CPOE order composer | ✅ | `0a2341cc` | Staff-app composer over the existing backend CPOE (zero backend changes): formulary + investigation-catalog type-ahead (`/pharmacy-orders/catalog`, `/investigations/catalog`), quick-add forms for med/lab/radiology/ecg/consult/nursing/diet, basket signed atomically via `POST /emr/orders/bulk` (per-item CDS server-side before any row), advisory per-draft CDS pre-check chips (`/emr/cds/check-order`), 400 `CDS_BLOCKER` surfaces structured blockers in `CdsBlockerModal` — new no-override mode because the order endpoints accept none (the prescription flow keeps its recorded-override path). Phone-mode write gate (`CLINICAL_WRITE_DESKTOP_ONLY`/`DEVICE_TYPE_MISSING`) handled with friendly copy. Medication items doctor-gated client-side mirroring `MEDICATION_ORDER_WRITE_ROLES`. **Found+fixed en route:** the Sprint-8 order-sets "apply" only wrote the `clinical_order_set_applications` analytics row while telling the doctor "Applied N orders" — no clinical_orders ever existed; it now places REAL orders through the bulk endpoint (analytics log demoted to best-effort) and doubles as the composer's set picker. OrdersScreen rewritten: renders canonical nested `details`, full status set incl. discontinued, cancel/discontinue with mandatory reasons, order_number + priority chips. 27 unit tests on the pure helpers (payload contract, set-item mapping, CDS envelope parsing, role gate). |
+| E2 staff i18n | ✅ | `6d6c6a1f` | Scope agreed with owner: **user-facing parity, not ARB churn** (the roadmap line predates the staff app's existing 1,7xx-key AppStrings system; a gen-l10n port = ~1.5k call-site rewrites for zero user-visible gain — deliberately deferred). Shipped: `LocaleProvider` + Settings language picker (SharedPreferences-persisted; null = follow device locale, the historical default) wired into `MaterialApp.locale`; **Malayalam added as a declared-partial locale** — 532 nurse-facing keys (vitals/vitals chart, MAR scan, due meds, nursing notes, handover, bed sheet, code blue, CDS, orders/composer/order sets, drug chart, login/dashboard/settings/common), register matched to the patient app's ml ARB, English fallback for the rest by design, `i18n-verify` reports ml separately; **hi/ta/te restored to 100%** (43 keys later sessions had added en-only); drug-chart screen de-hardcoded (`drug_chart.*` ×5 locales). All new clinical strings `// REVIEW:`-flagged for fluent clinical review pre-rollout. `LANGUAGE_HEALTH.md` rewritten with current numbers + the ~300-string hardcoded-English backlog (pharmacy screen next; nav labels need a coordinated role_config+tests change). 8 tests incl. a supportedLocales↔languageNames consistency lock. |
+| E3 accessibility | ✅ | `09935ec2` | **Font-scaling parity**: in-app preference (Settings → Appearance → Font size, 12–22 pt, ThemeProvider-persisted) composed with the OS text scale through a `MediaQuery` `TextScaler` in `main.dart` — so the many hard-coded chip/pill `fontSize:`s scale too (A11y #9), closing the staff-vs-patient `font_scaler` gap; pure `composeTextScaleFactor` with floor = slider-min at neutral OS. **Screen-reader plan executed to the extent a machine can**: `test/a11y/screen_reader_plan_test.dart` pins the semantics tree per plan scenario — S3 toast live regions (Success/ErrorToast announce + flag survives label merge), S8 reduce-motion freeze + `Loading…` live region, S9 scale clamps + preference persistence. Plan doc records the automated coverage; **S1/S2/S4–S7/S10–S12 (the by-ear NVDA/TalkBack pass) stay owner-side** — like the DR drill, code can't listen. |
+| E5 patient summary + tap depth | ✅ | `77655547` | `PatientSummarySheet` — Epic-style density: allergies (loud, first), active problems (**B7's first staff-app surface**), active medication orders, last-vitals line, pending results (result-type orders not completed), quick links to Orders/Vitals/Timeline/Notes. Composed client-side from existing endpoints in parallel (command board, `/problems/patient/:uid`, vitals chart, clinical orders partitioned); each section degrades independently. Reachable in **1 tap** from Timeline/Orders/Composer/Command Board (app-bar/row icon) and **2 taps from ANY screen** via the global patient search (`summaryOpener` injected at boot so the core widget stays feature-free). `docs/TAP_DEPTH_AUDIT.md` records before/after (active problems previously had NO staff surface; "all five together" was impossible) + the follow-up queue. 11 unit tests. |
+| E4 admin i18n | ⏭ skipped | — | Post-pilot per the roadmap and the session brief. |
+| Wrap-up | ✅ | (this commit) | `melos run analyze` + `melos run test` green across the workspace (core + staff 332 + patient). i18n-health: hi/ta/te 100% of 1,7xx keys, ml 31% declared-partial. No backend or schema changes this session — migrations stay at 294; backend suite state unchanged from `8edae310`. |
+
+### Environment notes
+
+- **Desktop Commander cmd sessions don't inherit `%PROGRAMFILES(X86)%`** —
+  `flutter.bat` hard-fails on it. Prefix host-side Flutter/melos runs with
+  `set "PROGRAMFILES(X86)=C:\Program Files (x86)"`.
+- The machine's melos global activation was gone (Dart SDK update wiped
+  pub-cache bin); re-activated `melos 7.8.1` (root pubspec pins ^7.8.1 —
+  the root CLAUDE.md still says 7.5.1).
+- cdsEngine pre-check (`/emr/cds/check-order`) returns `{safe, alerts[]}`
+  with severities critical|warning|info, while `createOrder(sBulk)` hard
+  blockers come back as 400 `CDS_BLOCKER` with
+  `details.{order_index, blockers[], warnings[]}` — two different shapes;
+  the composer treats the former as advisory chips only.
+
+### Owner-side actions queued (Pillar E this session)
+
+1. Malayalam + the new hi/ta/te batches need a fluent clinical review
+   pass before rollout to Malayalam/Tamil/Telugu-speaking wards
+   (`// REVIEW:` flags mark every string; `melos run i18n-health`).
+2. Run the by-ear NVDA/TalkBack scenarios (S1/S2/S4–S7/S10–S12 in
+   `SCREEN_READER_TEST_PLAN.md`) — one tester per platform, 60–90 min.
+3. Seed real order sets (`clinical_order_sets`) for the pilot wards — the
+   composer's one-tap flow is only as good as the bundles loaded.
+4. Small backend follow-up for OP allergies in the summary sheet: expose
+   A10's `getUnifiedActiveAllergies` over HTTP (today the sheet reads the
+   admission-scoped command-board payload, so un-admitted patients show
+   "No allergies recorded").
+5. Merge `roadmap/pillar-e` → main after review (E-pillar UI items are
+   complete; E4 stays post-pilot).
+
+## Session 2026-06-10 (night) — Pillar E start (branch `roadmap/pillar-e`)
+
+Pre-work: merged `roadmap/pillar-d` `--no-ff` → main `8edae310` (suite 57
+chunks + drift + full lint green, per-item review done in-session) and
+pushed; `roadmap/pillar-e` branched from that main.
+
+| Item | State | Commit | Notes |
+|---|---|---|---|
+| E6 portal results + proxy | ✅ | `5a5c87fd` | **Release rules**: portal visibility = signed off AND not held AND (auto-release delay elapsed OR clinician released early). `PORTAL_RESULT_RELEASE_DELAY_HOURS` (default 24, in validateEnv); migration 294 backfills pre-existing signed-off rows as released so nothing patients could already see disappears. Doctor hold needs a reason; early release overrides a hold; both audited. Staff surface `/api/v1/lab/release` (mounted before `/lab` so the narrower lab gate can't shadow it). **Trends**: `/portal/lab-results/trends` — released-only longitudinal numeric series per test (min/max/latest + points). **Proxy access**: `portal_proxy_grants` is the consent trail (method/ref/grantor/expiry/revocation; one active per patient×proxy); `for_patient=` is the one sanctioned exception to never-trust-caller-patient-uid — resolves only through an active grant with matching scope, every proxy read audited with the grant id. 7-test deep round-trip; portal+abdm regression suites green (29 tests). |
+
+Remaining Pillar E is mostly Flutter-side and lands in following sessions:
+E1 CPOE order composer in the staff app (backend orders/order-sets are
+ready — pure UI), E2 staff-app i18n (port the patient app's l10n pipeline;
+nurse-facing screens first), E3 execute `SCREEN_READER_TEST_PLAN.md` +
+font-scaling parity, E5 one-screen patient summary / tap-depth audit, E4
+admin i18n (explicitly post-pilot per the roadmap).
+
+### Owner-side actions queued (Pillar E so far)
+
+1. Confirm the result-release policy with the medical director: default
+   delay 24 h? Which test families should clinicians hold by default
+   (e.g. histopathology)? Hold workflow comms to doctors.
+2. Decide the proxy-consent ceremony at reception (OTP vs written) so
+   `consent_method`/`consent_ref` get real values from day one.
+3. Merge `roadmap/pillar-e` → main after review (or hold until more E
+   items land).
+
 ## Session 2026-06-10 (evening) — Pillar D continuation + C1 encryption (branch `roadmap/pillar-d`)
 
 Pre-work happened in an interrupted earlier half-session: `roadmap/pillar-c`
@@ -190,12 +264,11 @@ managed role + nightly ScheduledBackup apply immediately (intended).
 
 ## Next pillar
 
-Pillar D is complete except **D5 infection control (deferred per user
-2026-06-10; WIP in `stash@{0}` on `roadmap/pillar-d`)** — resume that
-first when green-lit. The C1 encryption follow-up landed this session, so
-the remaining C1 work is owner-side (sandbox + certification runs). After
-D5: Pillar E (experience parity — E1 CPOE surfaced in the staff app, E2
-staff i18n, E3 accessibility, E5 chart ergonomics, E6 patient portal) and
-Pillar F (analytics warehouse) per the phased plan in
-`EPIC_LEVEL_ROADMAP.md`; Pillar G items pair with their loops as those go
-live (G2 stage-1 ward pilot rides B6 med-rec).
+Pillar E is underway on `roadmap/pillar-e` (E6 landed; E1/E2/E3/E5 are
+Flutter-side next). Still parked: **D5 infection control (deferred per
+user 2026-06-10; WIP in `stash@{0}`, taken on `roadmap/pillar-d`)** —
+resume when green-lit. C1's remaining work is owner-side (sandbox
+credentials → M2 dry run validates the new encryption byte-level). After
+Pillar E: Pillar F (analytics warehouse) per the phased plan; Pillar G
+items pair with their loops as those go live (G2 stage-1 ward pilot rides
+B6 med-rec).

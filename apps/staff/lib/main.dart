@@ -15,7 +15,9 @@ import 'core/config/observability_config.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/message_unread_provider.dart';
 import 'core/providers/notification_provider.dart';
+import 'core/providers/locale_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/utils/font_scale.dart';
 import 'core/providers/session_timeout_provider.dart';
 import 'core/providers/websocket_provider.dart';
 import 'core/services/code_blue_notifier.dart';
@@ -26,6 +28,7 @@ import 'core/services/phi_scrubber.dart';
 import 'core/services/sentry_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
 import 'core/widgets/patient_search_sheet.dart';
+import 'features/emr/widgets/patient_summary_sheet.dart';
 import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
@@ -58,6 +61,16 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   VHHttpClient.deviceTypeProvider = () => currentDeviceType;
+
+  // One-screen patient summary (roadmap E5): the global patient search
+  // (magnifier on every app bar / Ctrl+K) offers a summary shortcut per
+  // result row. Injected here so the core widget stays feature-free.
+  PatientSearchSheet.summaryOpener =
+      (context, {required patientUid, patientName}) => PatientSummarySheet.show(
+        context,
+        patientUid: patientUid,
+        patientName: patientName,
+      );
 
   // Desktop platforms (Windows/Linux/macOS) need the sqflite FFI bridge
   // wired before any DB-touching code runs (OfflineQueue, ConnectivitySync-
@@ -300,6 +313,7 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => WebSocketProvider()..init()),
         // Realtime fabric lifecycle owner. Widgets should listen via
@@ -381,6 +395,10 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                     theme: themeProvider.lightTheme,
                     darkTheme: themeProvider.darkTheme,
                     themeMode: themeProvider.themeMode,
+                    // In-app language override (Settings → Language).
+                    // null = follow the device locale, the historical
+                    // behaviour (roadmap E2).
+                    locale: context.watch<LocaleProvider>().locale,
                     // Localization delegates wire built-in Material/
                     // Cupertino translations (date pickers, drawer back
                     // button, etc.) for the supported locales. App-
@@ -399,11 +417,29 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                     // next API call to 401. Lives in the MaterialApp
                     // builder so a ScaffoldMessenger is reachable for the
                     // snackbar.
-                    builder: (context, child) => StaffMessageAlertListener(
-                      child: SessionRevocationListener(
-                        child: child ?? const SizedBox.shrink(),
-                      ),
-                    ),
+                    //
+                    // The MediaQuery wrapper composes the OS text scale
+                    // with the in-app font-size preference (Settings →
+                    // Appearance → Font size) so every text style —
+                    // including hard-coded chip/pill fontSizes — scales
+                    // together (roadmap E3, A11y #9).
+                    builder: (context, child) {
+                      final mq = MediaQuery.of(context);
+                      final factor = composeTextScaleFactor(
+                        systemFactor: mq.textScaler.scale(14) / 14,
+                        userPt: themeProvider.fontSize,
+                      );
+                      return MediaQuery(
+                        data: mq.copyWith(
+                          textScaler: TextScaler.linear(factor),
+                        ),
+                        child: StaffMessageAlertListener(
+                          child: SessionRevocationListener(
+                            child: child ?? const SizedBox.shrink(),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),

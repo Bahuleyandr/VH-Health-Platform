@@ -21,10 +21,9 @@ async function cleanup() {
     `DELETE FROM clinical_timeline_events WHERE source_table = 'patient_problems'
        AND patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM clinical_audit_events WHERE resource_table = 'patient_problems'
-       AND patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
-  ).catch(() => {});
+  // clinical_audit_events is append-only (C4 hash chain) — deleting rows
+  // punches holes that fail document-integrity for the whole tenant.
+  // Test rows may accumulate; assertions are scoped to this run's patient.
   await prisma.$executeRawUnsafe(
     `DELETE FROM patient_problems WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
   ).catch(() => {});

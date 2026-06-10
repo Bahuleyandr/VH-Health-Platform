@@ -1124,9 +1124,75 @@ class MedicalApiService {
     return _post('/emr/orders', data);
   }
 
+  /// POST /emr/orders/bulk — create up to 50 orders atomically (one
+  /// transaction; per-item CDS runs server-side before any row is written).
+  /// Returns the raw [ApiResponse] so the composer can read the structured
+  /// `details.{order_index, blockers, warnings}` payload of a 400
+  /// CDS_BLOCKER envelope — the `_handle` helper would flatten it to a
+  /// message-only Exception.
+  static Future<ApiResponse> createEmrOrdersBulkRaw(
+    List<Map<String, dynamic>> orders, {
+    String? encounterId,
+  }) {
+    return ApiClient.post(
+      '/emr/orders/bulk',
+      body: {
+        'orders': orders,
+        if (encounterId != null && encounterId.isNotEmpty)
+          'encounter_id': encounterId,
+      },
+    );
+  }
+
+  /// GET /investigations/catalog — searchable test catalog (labs, imaging,
+  /// ECG; `search` matches name + code case-insensitively).
+  static Future<List<Map<String, dynamic>>> searchInvestigationCatalog(
+    String search, {
+    String? category,
+    int minLength = 2,
+  }) async {
+    final q = search.trim();
+    if (q.length < minLength) return const [];
+    final data = await _get(
+      '/investigations/catalog',
+      query: {'search': q, 'category': ?category},
+    );
+    final rows = data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
+  }
+
+  /// PUT /emr/orders/:id/cancel — cancel an order with a mandatory reason.
+  static Future<Map<String, dynamic>> cancelClinicalOrder({
+    required int orderId,
+    required String reason,
+  }) async {
+    return _put('/emr/orders/$orderId/cancel', {'reason': reason});
+  }
+
   /// GET /emr/orders/patient/:uid — list orders for a patient
   static Future<Map<String, dynamic>> getPatientOrders(String uid) async {
     return _get('/emr/orders/patient/$uid');
+  }
+
+  /// GET /problems/patient/:uid — longitudinal problem list (B7).
+  static Future<List<Map<String, dynamic>>> getPatientProblems(
+    String uid, {
+    String? status,
+  }) async {
+    final data = await _get(
+      '/problems/patient/$uid',
+      query: {'status': ?status},
+    );
+    final rows = data['problems'] ?? data['data'];
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => row.cast<String, dynamic>())
+        .toList();
   }
 
   /// PUT /emr/orders/:id/verify — verify an order
