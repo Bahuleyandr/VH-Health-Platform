@@ -44,6 +44,10 @@ paths = [
   # category error, not security coverage.
   '''(^|/)apps/backend/backups/''',
   '''(^|/)apps/backend/src/logs/''',
+  # Android signing config — gitignored, machine-local only (real keystore
+  # credentials for local release builds; CI uses repository secrets).
+  # Same worktree-scan class as the backups/logs paths above.
+  '''(^|/)apps/(patient|staff)/android/key\.properties$''',
 ]
 regexes = [
   '''test-api-key''',
@@ -68,4 +72,10 @@ regexes = [
   # This is a well-known public test value, not a real credential.
   '''JBSWY3DPEHPK3PXP''',
   '''af2ca5d7aa1663634f6c11eae3a1f4ceb7517720''',
+  # Shell-variable password references in sealed-secret runbooks
+  # (e.g. --from-literal=password="$REPL_PW" after openssl rand). A
+  # variable reference is definitionally not a literal credential; the
+  # vh-hardcoded-password-assignment rule matches the $NAME shape because
+  # $ sits in its specials class.
+  '''(?i)\b(?:password|passwd|pwd|secret)\b["']?\s*[:=]\s*"\$[A-Za-z_][A-Za-z0-9_]*"''',
 ]

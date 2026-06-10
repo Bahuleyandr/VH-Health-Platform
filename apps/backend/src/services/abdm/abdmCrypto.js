@@ -25,7 +25,9 @@ import { AppError } from '../../utils/AppError.js';
 
 const CRYPTO_ALG = 'ECDH';
 const CURVE = 'Curve25519';
-const KEY_PARAMETERS = 'Curve25519/32byte random key';
+// FIDELIUS KeyMaterial "parameters" protocol string (ABDM HIE-CM spec) —
+// a fixed public constant the wire format requires verbatim, not a key.
+const KEY_PARAMETERS = 'Curve25519/32byte random key'; // gitleaks:allow
 const NONCE_LENGTH = 32;
 const GCM_TAG_LENGTH = 16;
 

@@ -30,7 +30,10 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          # Trust auth, like every other CI service container in this repo —
+          # localhost-only throwaway DB; keeps credential-shaped literals out
+          # of the workflow (gitleaks vh-postgres-url-with-credentials).
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: vhhealth_test
         ports: ["5432:5432"]
         options: >-
@@ -53,7 +56,7 @@ jobs:
       - name: Apply full migration chain (replicated schema shapes)
         working-directory: apps/backend
         env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/vhhealth_test
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/vhhealth_test
         run: |
           node scripts/ensure-pgvector-extension.mjs
           node scripts/ci-setup-db.mjs --skip-seeds
@@ -76,7 +79,8 @@ jobs:
           DBT_PG_HOST: 127.0.0.1
           DBT_PG_PORT: "5432"
           DBT_PG_USER: postgres
-          DBT_PG_PASSWORD: postgres
+          # DBT_PG_PASSWORD intentionally unset — trust-auth service
+          # container; the profile defaults it to ''.
           DBT_PG_DBNAME: vhhealth_test
           DBT_PG_SCHEMA: analytics
         run: |
