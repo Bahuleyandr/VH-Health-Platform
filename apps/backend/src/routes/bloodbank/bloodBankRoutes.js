@@ -5,8 +5,27 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
 import bloodBankService from '../../services/bloodbank/bloodBankService.js';
+import {
+  registerUnit,
+  listUnits,
+  crossmatchUnit,
+  recordBedsideVerification,
+  startTransfusion,
+  completeTransfusion,
+  recordReaction,
+} from '../../services/bloodbank/transfusionSafetyService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { AppError } from '../../utils/AppError.js';
 import { requiredUUID, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+
+// Shared failure mapper for the B5 closed-loop endpoints.
+function handleLoopFailure(res, next, err, context) {
+  if (err instanceof AppError || err?.isOperational) {
+    return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
+  }
+  logger.error(`Transfusion loop ${context} failed:`, { error: err.message });
+  return next(err);
+}
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -97,7 +116,8 @@ router.put('/:id/transfused', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
     const transfusionData = {
-      transfusion_reaction: req.body.transfusion_reaction
+      transfusion_reaction: req.body.transfusion_reaction,
+      verification_override_reason: req.body.verification_override_reason
     };
 
     const result = await bloodBankService.recordTransfusion(parseInt(id, 10), transfusionData);
@@ -108,6 +128,113 @@ router.put('/:id/transfused', paramId(), validate, async (req, res, next) => {
     }
     logger.error('Failed to record transfusion:', { error: err.message });
     next(err);
+  }
+});
+
+// ── Roadmap B5 — transfusion closed loop ───────────────────────────────────
+
+/** POST /blood-bank/units — register a physical unit (stock intake). */
+router.post('/units', requiredEnum('blood_group', ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']), validate, async (req, res, next) => {
+  try {
+    const unit = await registerUnit({
+      unitNumber: req.body.unit_number,
+      bloodGroup: req.body.blood_group,
+      component: req.body.component || 'prbc',
+      expiryDate: req.body.expiry_date,
+      collectedDate: req.body.collected_date || null,
+      volumeMl: req.body.volume_ml ?? null,
+      donorRef: req.body.donor_ref || null,
+      sourceBloodBank: req.body.source_blood_bank || null,
+    }, { actorUid: req.user?.uid || null });
+    return success(res, unit, 'Blood unit registered', 201);
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'register unit');
+  }
+});
+
+/** GET /blood-bank/units — unit stock with real traceability. */
+router.get('/units', async (req, res, next) => {
+  try {
+    const units = await listUnits({
+      status: req.query.status || null,
+      bloodGroup: req.query.blood_group || null,
+      component: req.query.component || null,
+    });
+    return success(res, { units, count: units.length }, 'Blood units');
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'list units');
+  }
+});
+
+/** POST /blood-bank/:id/crossmatch-unit — pin + crossmatch a specific unit. */
+router.post('/:id/crossmatch-unit', paramId(), requiredNumber('unit_id'), validate, async (req, res, next) => {
+  try {
+    const result = await crossmatchUnit(parseInt(req.params.id, 10), {
+      unitId: parseInt(req.body.unit_id, 10),
+      result: req.body.result,
+      overrideReason: req.body.override_reason || null,
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    return success(res, result, 'Unit crossmatch recorded');
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'crossmatch unit');
+  }
+});
+
+/** POST /blood-bank/:id/verify-bedside — two-person scan verification. */
+router.post('/:id/verify-bedside', paramId(), validate, async (req, res, next) => {
+  try {
+    const verification = await recordBedsideVerification(parseInt(req.params.id, 10), {
+      verifierRole: req.body.verifier_role,
+      scannedUnitNumber: req.body.scanned_unit_number,
+      scannedPatientUid: req.body.scanned_patient_uid,
+      overrideReason: req.body.override_reason || null,
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    return success(res, verification, 'Bedside verification recorded');
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'verify bedside');
+  }
+});
+
+/** POST /blood-bank/:id/start-transfusion — requires both verifications. */
+router.post('/:id/start-transfusion', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await startTransfusion(parseInt(req.params.id, 10), {
+      actorUid: req.user?.uid || null, actorRole: req.user?.role || null,
+    });
+    return success(res, result, 'Transfusion started');
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'start transfusion');
+  }
+});
+
+/** POST /blood-bank/:id/complete-transfusion */
+router.post('/:id/complete-transfusion', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await completeTransfusion(parseInt(req.params.id, 10), {
+      notes: req.body.notes || null,
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    return success(res, result, 'Transfusion completed');
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'complete transfusion');
+  }
+});
+
+/** POST /blood-bank/:id/reaction — structured hemovigilance report. */
+router.post('/:id/reaction', paramId(), validate, async (req, res, next) => {
+  try {
+    const reaction = await recordReaction(parseInt(req.params.id, 10), {
+      reactionType: req.body.reaction_type,
+      severity: req.body.severity,
+      onsetAt: req.body.onset_at || null,
+      symptoms: req.body.symptoms || null,
+      vitals: req.body.vitals || null,
+      intervention: req.body.intervention || null,
+      transfusionStopped: req.body.transfusion_stopped !== false,
+      outcome: req.body.outcome || null,
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    return success(res, reaction, 'Transfusion reaction recorded', 201);
+  } catch (err) {
+    return handleLoopFailure(res, next, err, 'record reaction');
   }
 });
 

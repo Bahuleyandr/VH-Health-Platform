@@ -286,16 +286,24 @@ router.post('/mar/schedule', requiredUUID('patient_uid'), validate, guardClinica
  * POST /clinical/mar/:id/administer
  * Record medication administration.
  */
-router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
+router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), optionalString('override_reason', 500), validate, requireMedicationAdministrationRole, guardMarResourceWrite, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { notes, witness_uid } = req.body;
+    const { notes, witness_uid, override_reason } = req.body;
 
+    // B1 — scan-first policy: this non-scan path needs override_reason
+    // (≥5 chars) while MAR_REQUIRE_BARCODE_SCAN is on; the service 409s
+    // with MAR_SCAN_REQUIRED otherwise.
     const record = await marService.recordAdministration(
       parseInt(id, 10),
       req.user.uid,
       notes || null,
-      witness_uid || null
+      witness_uid || null,
+      {
+        overrideReason: override_reason && override_reason.trim().length >= 5
+          ? override_reason.trim()
+          : null,
+      }
     );
     return success(res, record, 'Medication administration recorded');
   } catch (err) {

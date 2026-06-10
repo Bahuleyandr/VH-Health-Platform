@@ -166,8 +166,17 @@ describe('Clinical safety controls', () => {
     expect(aspirinRow).toBeDefined();
     expect(aspirinRow.medication_name).toBe('Aspirin 325mg');
 
-    const administered = await recordAdministration(row.id, CLINICIAN_UID);
+    // B1 (BCMA): the non-scan path now requires an override reason while
+    // MAR_REQUIRE_BARCODE_SCAN is on — bare administration 409s…
+    await expect(recordAdministration(row.id, CLINICIAN_UID))
+      .rejects.toMatchObject({ code: 'MAR_SCAN_REQUIRED', statusCode: 409 });
+
+    // …and succeeds with a documented no-scan override, persisting it.
+    const administered = await recordAdministration(row.id, CLINICIAN_UID, null, null, {
+      overrideReason: 'BCMA test override — scanner unavailable in ER bay',
+    });
     expect(administered.status).toBe('administered');
+    expect(administered.override_reason).toMatch(/scanner unavailable/);
   });
 
   // The fix must not regress the existing ±1min dedupe: re-running the
@@ -204,9 +213,11 @@ describe('Clinical safety controls', () => {
     );
     rows.sort((a, b) => a.id - b.id);
 
-    await recordAdministration(rows[0].id, CLINICIAN_UID);
+    // B1 (BCMA): non-scan administration carries a documented override.
+    const noScan = { overrideReason: 'BCMA test override — duplicate-guard scenario' };
+    await recordAdministration(rows[0].id, CLINICIAN_UID, null, null, noScan);
 
-    await expect(recordAdministration(rows[1].id, CLINICIAN_UID)).rejects.toMatchObject({
+    await expect(recordAdministration(rows[1].id, CLINICIAN_UID, null, null, noScan)).rejects.toMatchObject({
       statusCode: 409,
       code: 'MAR_DUPLICATE_ADMINISTRATION',
       details: { duplicate_id: rows[0].id },

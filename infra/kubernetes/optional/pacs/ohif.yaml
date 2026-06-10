@@ -1,0 +1,92 @@
+# OHIF viewer pointed at Orthanc DICOMweb (roadmap B4). Expose via
+# ingress-nginx + SSO only if remote reading is required; ward PCs reach the
+# Service directly on the LAN.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ohif-config
+  labels:
+    app.kubernetes.io/name: ohif
+    app.kubernetes.io/part-of: vhhealth-pacs
+data:
+  app-config.js: |
+    window.config = {
+      routerBasename: '/',
+      showStudyList: true,
+      dataSources: [
+        {
+          namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+          sourceName: 'dicomweb',
+          configuration: {
+            friendlyName: 'VHHealth Orthanc',
+            name: 'orthanc',
+            wadoUriRoot: 'http://orthanc:8042/wado',
+            qidoRoot: 'http://orthanc:8042/dicom-web',
+            wadoRoot: 'http://orthanc:8042/dicom-web',
+            qidoSupportsIncludeField: false,
+            supportsReject: false,
+            imageRendering: 'wadors',
+            thumbnailRendering: 'wadors',
+            enableStudyLazyLoad: true,
+            supportsFuzzyMatching: false,
+            supportsWildcard: true
+          }
+        }
+      ],
+      defaultDataSourceName: 'dicomweb'
+    };
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ohif-viewer
+  labels:
+    app.kubernetes.io/name: ohif
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ohif
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ohif
+        app.kubernetes.io/part-of: vhhealth-pacs
+    spec:
+      containers:
+        - name: ohif
+          image: ohif/app:v3.9.2
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html/app-config.js
+              subPath: app-config.js
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: ohif-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ohif-viewer
+  labels:
+    app.kubernetes.io/name: ohif
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  selector:
+    app.kubernetes.io/name: ohif
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -134,6 +134,12 @@ describe('D57 pharmacy route contract aliases', () => {
   it('dispenses through POST /pharmacy/dispense with body order_id', async () => {
     const orderId = await seedCounterOrder('D57 top-level dispense route');
 
+    // B1: pharmacist clinical verification gates dispensing.
+    const verified = await admin
+      .post(`/api/v1/pharmacy-orders/orders/${orderId}/verify`)
+      .send({ decision: 'verified' });
+    expect(verified.statusCode).toBe(200);
+
     const res = await admin.post('/api/v1/pharmacy/dispense').send({
       order_id: orderId,
       dispensed_items: [{ name: MED_NAME, qty: 1 }],
@@ -147,6 +153,12 @@ describe('D57 pharmacy route contract aliases', () => {
 
   it('dispenses through POST /pharmacy-orders/orders/:id/dispense', async () => {
     const orderId = await seedCounterOrder('D57 order-scoped dispense route');
+
+    // B1: pharmacist clinical verification gates dispensing.
+    const verified = await admin
+      .post(`/api/v1/pharmacy-orders/orders/${orderId}/verify`)
+      .send({ decision: 'verified' });
+    expect(verified.statusCode).toBe(200);
 
     const res = await admin.post(`/api/v1/pharmacy-orders/orders/${orderId}/dispense`).send({
       dispensed_items: [{ name: MED_NAME, qty: 1 }],

@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import { BCMA_CONFIG } from '../../config/pharmacyConfig.js';
 
 // ===================================================================
 // Medication Administration Record (MAR) Service
@@ -298,7 +299,20 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
  * @param {string|null} witnessUid - For controlled substances
  * @returns {Object} Updated record
  */
-export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null) {
+export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null, options = {}) {
+  // Roadmap B1 — BCMA enforcement: bedside administration is scan-first.
+  // The non-scan path stays available for genuine downtime (dead scanner,
+  // damaged wristband) but requires an explicit override reason, which is
+  // persisted on the row and audited on the canonical event.
+  const noScanOverrideReason = (options.overrideReason || '').trim() || null;
+  if (BCMA_CONFIG.requireScanForMarAdministration && !noScanOverrideReason) {
+    throw AppError.conflict(
+      'Barcode scan is required for administration — use POST /clinical/mar/:id/administer-with-scan, or supply override_reason for a documented no-scan administration',
+      'MAR_SCAN_REQUIRED',
+      { scan_endpoint: '/clinical/mar/:id/administer-with-scan' },
+    );
+  }
+
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, status, patient_uid, medication_name, scheduled_time, tenant_id
        FROM medication_administrations
@@ -352,12 +366,13 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
          administered_at = NOW(),
          administered_by = $2::uuid,
          notes = COALESCE($3, notes),
-         witness_uid = $4::uuid
+         witness_uid = $4::uuid,
+         override_reason = COALESCE($5, override_reason)
      WHERE id = $1
      RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
                administered_at, status, administered_by, notes, witness_uid,
-               tenant_id, created_at, updated_at`,
-    id, administeredBy, notes, witnessUid
+               override_reason, tenant_id, created_at, updated_at`,
+    id, administeredBy, notes, witnessUid, noScanOverrideReason
   );
 
   await recordCanonicalMarEvent({
@@ -365,6 +380,9 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
     eventType: 'mar.administered',
     actorUid: administeredBy,
     previousStatus: existing[0].status,
+    payload: noScanOverrideReason
+      ? { scanner_used: false, no_scan_override: true, no_scan_override_reason: noScanOverrideReason }
+      : { scanner_used: false },
   });
 
   logger.info(`Medication ${id} administered by ${administeredBy}`);

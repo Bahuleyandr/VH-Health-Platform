@@ -22,6 +22,34 @@ export const ORDER_STATUS_TRANSITIONS = {
   CANCELLED:  [],
 };
 
+// ── BCMA / closed-loop medication (roadmap B1) ──────────────────────────────
+
+// Pharmacist clinical-verification axis on pharmacy_orders — orthogonal to
+// ORDER_STATUS so client status enums stay untouched. PREPARING / DISPATCH /
+// DISPENSE are hard-gated on verified|override (migration 278).
+export const CLINICAL_VERIFICATION_STATUS = {
+  PENDING: 'pending',
+  VERIFIED: 'verified',
+  OVERRIDE: 'override',
+  REJECTED: 'rejected',
+};
+
+export const VERIFICATION_CLEARED_STATUSES = [
+  CLINICAL_VERIFICATION_STATUS.VERIFIED,
+  CLINICAL_VERIFICATION_STATUS.OVERRIDE,
+];
+
+// Enforcement switches (env-overridable for staged rollout; both default ON —
+// they ARE the closed loop). Set the env var to 'false' to soften during a
+// pilot-ward rollout only.
+export const BCMA_CONFIG = {
+  // Non-scan MAR administration requires an override reason (audited).
+  requireScanForMarAdministration: process.env.MAR_REQUIRE_BARCODE_SCAN !== 'false',
+  // Pharmacy orders require pharmacist clinical verification before
+  // PREPARING / DISPATCH / counter dispense.
+  requirePharmacistVerification: process.env.PHARMACY_REQUIRE_CLINICAL_VERIFICATION !== 'false',
+};
+
 // Medication categories
 export const MEDICATION_CATEGORIES = {
   ANTIBIOTICS: 'Antibiotics',

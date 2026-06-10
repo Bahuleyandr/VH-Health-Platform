@@ -3,6 +3,7 @@ import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as orderController from '../../controllers/pharmacy/orderController.js';
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
+import * as pharmacyVerificationController from '../../controllers/pharmacy/pharmacyVerificationController.js';
 import { sanitizePharmacyFields } from '../../middleware/sanitizeMiddleware.js';
 import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
@@ -71,10 +72,14 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     // Dispense label / receipt for printing or in-app display. Available
     // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
     ['/:id/label', [], pharmacyOrderController.getDispenseLabel],
-    ['/:id/receipt', [], pharmacyOrderController.getDispenseLabel]
+    ['/:id/receipt', [], pharmacyOrderController.getDispenseLabel],
+    // B1 — med-pack barcode label (requires cleared clinical verification).
+    ['/:id/pack-label', [], pharmacyVerificationController.getPharmacyPackLabel]
   ],
   post: [
     ['/:id/confirm', [], pharmacyOrderController.confirmOrder],
+    // B1 — pharmacist clinical verification gate (before PREPARING/dispense).
+    ['/:id/verify', [], pharmacyVerificationController.verifyPharmacyOrder],
     ['/:id/preparing', [], pharmacyOrderController.markPreparing],
     ['/:id/dispatch', [], pharmacyOrderController.dispatchOrder],
     ['/:id/delivered', [], pharmacyOrderController.markDelivered],

@@ -1,0 +1,112 @@
+# Orthanc — on-prem DICOM store + DICOMweb + modality worklists (roadmap B4).
+# LAN-only by design: no Ingress here. Modalities speak DICOM to :4242;
+# OHIF + backend speak DICOMweb to :8042.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orthanc-config
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: vhhealth-pacs
+data:
+  orthanc.json: |
+    {
+      "Name": "VHHealth PACS",
+      "DicomAet": "VHHEALTH",
+      "DicomPort": 4242,
+      "HttpPort": 8042,
+      "RemoteAccessAllowed": true,
+      "AuthenticationEnabled": true,
+      "RegisteredUsers": { "vhhealth": "CHANGE-ME-sealed-secret" },
+      "DicomWeb": { "Enable": true, "Root": "/dicom-web/" },
+      "Worklists": { "Enable": true, "Database": "/var/lib/orthanc/worklists" },
+      "StableAge": 60,
+      "StorageCompression": false,
+      "MaximumStorageSize": 0,
+      "DicomModalities": {},
+      "OverwriteInstances": false
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: orthanc
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  serviceName: orthanc
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orthanc
+        app.kubernetes.io/part-of: vhhealth-pacs
+    spec:
+      containers:
+        - name: orthanc
+          # Pin + verify digest at enable time (same supply-chain rule as
+          # the platform images; see SECURITY_HARDENING_CHECKLIST.md).
+          image: orthancteam/orthanc:24.10.1
+          ports:
+            - name: dicom
+              containerPort: 4242
+            - name: http
+              containerPort: 8042
+          volumeMounts:
+            - name: config
+              mountPath: /etc/orthanc/orthanc.json
+              subPath: orthanc.json
+            - name: storage
+              mountPath: /var/lib/orthanc/db
+            - name: worklists
+              mountPath: /var/lib/orthanc/worklists
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /system
+              port: 8042
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: orthanc-config
+        - name: worklists
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            # Size for the retention target before enabling (CT ≈ 0.5 GB/study).
+            storage: 500Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orthanc
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  selector:
+    app.kubernetes.io/name: orthanc
+  ports:
+    - name: dicom
+      port: 4242
+      targetPort: dicom
+    - name: http
+      port: 8042
+      targetPort: http
