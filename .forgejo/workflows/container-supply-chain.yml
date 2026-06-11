@@ -9,7 +9,6 @@ on:
       - 'apps/staff/**'
       - 'packages/vhhealth_core/**'
       - 'pubspec.*'
-      - '.forgejo/workflows/container-supply-chain.yml'
   push:
     branches: [main]
     paths:
@@ -18,7 +17,6 @@ on:
       - 'apps/staff/**'
       - 'packages/vhhealth_core/**'
       - 'pubspec.*'
-      - '.forgejo/workflows/container-supply-chain.yml'
   workflow_dispatch:
 
 permissions:
