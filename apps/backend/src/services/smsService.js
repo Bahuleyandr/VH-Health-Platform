@@ -4,6 +4,7 @@
 
 import logger from '../logging/logger.js';
 
+import { maskPhoneForLog } from '../utils/logMasking.js';
 /**
  * Normalize a phone number to intl format (91XXXXXXXXXX)
  */
@@ -26,7 +27,7 @@ export async function sendSMS(phone, message) {
     return;
   }
 
-  logger.info(`[SMS DRY RUN] To: ${intlPhone} | ${message}`);
+  logger.info(`[SMS DRY RUN] To: ${maskPhoneForLog(intlPhone)} | ${message}`);
 }
 
 /**

@@ -16,6 +16,7 @@
  * (or whichever port the Funnel config points at).
  */
 
+import crypto from 'node:crypto';
 import express from 'express';
 import pg from 'pg';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -30,6 +31,12 @@ const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!TOKEN) {
   console.error('FATAL: MCP_BEARER_TOKEN is required');
+  process.exit(1);
+}
+// Audit finding M14: the bearer token is the only auth in front of a DB
+// bridge — enforce real entropy (e.g. `openssl rand -base64 32`).
+if (TOKEN.length < 32) {
+  console.error('FATAL: MCP_BEARER_TOKEN must be at least 32 characters (use `openssl rand -base64 32`)');
   process.exit(1);
 }
 if (!DATABASE_URL) {
@@ -226,8 +233,14 @@ app.use('/mcp', (req, res, next) => {
   // without OAuth scaffolding on this side).
   const headerAuth = req.headers.authorization || '';
   const queryToken = typeof req.query.token === 'string' ? req.query.token : '';
-  const headerOk = headerAuth === `Bearer ${TOKEN}`;
-  const queryOk = queryToken === TOKEN;
+  // Timing-safe comparison (M14) — a plain === leaks match-length timing.
+  const safeEqual = (candidate, expected) => {
+    const a = Buffer.from(String(candidate));
+    const b = Buffer.from(String(expected));
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  };
+  const headerOk = safeEqual(headerAuth, `Bearer ${TOKEN}`);
+  const queryOk = safeEqual(queryToken, TOKEN);
   if (!headerOk && !queryOk) {
     return res.status(401).json({ error: 'unauthorized' });
   }

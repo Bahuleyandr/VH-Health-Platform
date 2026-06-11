@@ -10,15 +10,13 @@ metadata:
   labels:
     app.kubernetes.io/name: vhhealth-backend
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: vhhealth-backend
   ports:
     - name: http
       port: 5000
       targetPort: 5000
-      # Reserved for vhhealth on this cluster. Khata uses 30080.
-      nodePort: 30090
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -39,10 +37,24 @@ spec:
       labels:
         app.kubernetes.io/name: vhhealth-backend
     spec:
+      # Audit finding M17: this internet-reachable (Tailscale) pod ran with
+      # NO securityContext. Restricted-profile settings, matching the prod
+      # deployment posture.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: vhhealth-backend:dev
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           # Cluster.js spawns workers; for single-node dev a single worker
           # is plenty and avoids fighting the kube probe scheduler.
           command: ["node", "src/bin/www.js"]

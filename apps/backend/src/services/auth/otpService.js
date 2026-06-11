@@ -9,6 +9,7 @@ import { OTP_CONFIG, OTP_ERRORS } from '../../config/otpConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 
 const OTP_HASH_ROUNDS = 6; // Lower than password hashing — OTPs are short-lived
@@ -47,17 +48,18 @@ export const requestOtp = async (phone, purpose, userId, req) => {
   const { otp, sessionId } = await storeOTP(normalizedPhone, purpose, userId);
 
   if (!OTP_CONFIG.devMode) {
-    logger.info(`📱 OTP generated for ${normalizedPhone} (stored in DB, no SMS sent)`);
+    logger.info(`📱 OTP generated for ${maskPhoneForLog(normalizedPhone)} (stored in DB, no SMS sent)`);
   }
 
   // Log successful request
   await logActivity(normalizedPhone, purpose, 'request', true, null, req);
 
-  // Only log OTP in development mode — never log plaintext OTP in production
+  // Only log OTP in development mode — never log plaintext OTP in production.
+  // Phone is masked in both branches (audit finding H5).
   if (OTP_CONFIG.devMode) {
-    logger.info(`📱 OTP ${otp} generated for ${normalizedPhone} (${purpose}) - Session: ${sessionId}`);
+    logger.info(`📱 OTP ${otp} generated for ${maskPhoneForLog(normalizedPhone)} (${purpose}) - Session: ${sessionId}`);
   } else {
-    logger.info(`📱 OTP generated for ${normalizedPhone} (${purpose}) - Session: ${sessionId}`);
+    logger.info(`📱 OTP generated for ${maskPhoneForLog(normalizedPhone)} (${purpose}) - Session: ${sessionId}`);
   }
 
   return {

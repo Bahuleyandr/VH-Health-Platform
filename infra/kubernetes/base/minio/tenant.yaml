@@ -142,14 +142,26 @@ spec:
   env:
     - name: MINIO_BROWSER_REDIRECT_URL
       value: "https://minio.vhhealth.hospital.local"
+    # Audit finding L11 (2026-06-10): metrics were "public" (unauthenticated)
+    # — cluster topology + bucket names leaked to anything on the pod
+    # network. "jwt" requires a Prometheus bearer token; generate it with
+    #   mc admin prometheus generate <alias>
+    # and set it on the ServiceMonitor/scrape config (operator step,
+    # documented in docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md §7).
     - name: MINIO_PROMETHEUS_AUTH_TYPE
-      value: "public"
+      value: "jwt"
 
   # Buckets to create on first boot
   buckets:
     - name: vhhealth-records
       region: apsouth1
-      objectLock: false
+      # Audit finding L11: clinical-record objects were deletable/
+      # overwritable (objectLock:false) while only backups were WORM.
+      # NOTE: objectLock can only be set at bucket CREATION — on an existing
+      # cluster the operator must create a new locked bucket and migrate
+      # (operator action; see PHASE0_OPERATOR_ACTIONS doc). New installs get
+      # it from day one.
+      objectLock: true
     - name: vhhealth-backups
       region: apsouth1
       objectLock: true

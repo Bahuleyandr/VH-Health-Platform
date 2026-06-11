@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/api_config.dart';
@@ -10,6 +11,11 @@ import '../config/api_config.dart';
 /// Entries are scoped to the signed-in staff identity so shared tablets and
 /// workstations never show one staff member another staff member's recent PHI
 /// context after an unclean shutdown or account switch.
+///
+/// Storage: [FlutterSecureStorage] (audit finding M10, 2026-06-10 — this PHI
+/// cache previously lived in plaintext SharedPreferences, extractable on a
+/// rooted device or via the `adb backup` path closed by finding H9). Legacy
+/// plaintext entries are purged on first write/clear after upgrade.
 class RecentPatientsService {
   RecentPatientsService._();
 
@@ -17,6 +23,8 @@ class RecentPatientsService {
   static const _indexKey = 'recent_patients_keys';
   static const _keyPrefix = 'recent_patients:staff:';
   static const _maxEntries = 5;
+
+  static const _storage = FlutterSecureStorage();
 
   @visibleForTesting
   static String? debugStaffIdentityOverride;
@@ -49,10 +57,32 @@ class RecentPatientsService {
     }).toList();
   }
 
-  static Future<void> _rememberKey(SharedPreferences prefs, String key) async {
-    final keys = prefs.getStringList(_indexKey) ?? const [];
+  static Future<void> _rememberKey(String key) async {
+    final rawIndex = await _storage.read(key: _indexKey);
+    final keys = (rawIndex == null || rawIndex.isEmpty)
+        ? const <String>[]
+        : List<String>.from(jsonDecode(rawIndex) as List);
     if (keys.contains(key)) return;
-    await prefs.setStringList(_indexKey, [...keys, key]);
+    await _storage.write(key: _indexKey, value: jsonEncode([...keys, key]));
+  }
+
+  /// One-time purge of the pre-M10 plaintext SharedPreferences entries so
+  /// upgraded installs don't keep stale PHI on disk in cleartext.
+  static Future<void> _purgeLegacyPlaintext() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = <String>{
+        _legacyKey,
+        _indexKey,
+        ...?prefs.getStringList(_indexKey),
+        ...prefs.getKeys().where((k) => k.startsWith(_keyPrefix)),
+      };
+      for (final key in keys) {
+        await prefs.remove(key);
+      }
+    } catch (_) {
+      // Non-critical.
+    }
   }
 
   /// Records [uid] + [name] as the most-recently-viewed patient.
@@ -66,8 +96,9 @@ class RecentPatientsService {
       final key = await _currentStorageKey();
       if (key == null) return;
 
-      final prefs = await SharedPreferences.getInstance();
-      var list = _decodeList(prefs.getString(key));
+      await _purgeLegacyPlaintext();
+
+      var list = _decodeList(await _storage.read(key: key));
       list.removeWhere((entry) => entry['uid'] == uid);
       list.insert(0, {
         'uid': uid,
@@ -76,8 +107,8 @@ class RecentPatientsService {
       });
       if (list.length > _maxEntries) list = list.sublist(0, _maxEntries);
 
-      await prefs.setString(key, jsonEncode(list));
-      await _rememberKey(prefs, key);
+      await _storage.write(key: key, value: jsonEncode(list));
+      await _rememberKey(key);
     } catch (_) {
       // Non-critical.
     }
@@ -88,28 +119,32 @@ class RecentPatientsService {
     try {
       final key = await _currentStorageKey();
       if (key == null) return const [];
-      final prefs = await SharedPreferences.getInstance();
-      return _decodeList(prefs.getString(key));
+      return _decodeList(await _storage.read(key: key));
     } catch (_) {
       return const [];
     }
   }
 
-  /// Clears every local recent-patient cache, including the legacy global key.
+  /// Clears every local recent-patient cache, including the legacy plaintext
+  /// SharedPreferences keys from before the M10 migration.
   ///
   /// Logout and idle-timeout use this broad wipe so shared tablets and
   /// workstations do not expose the previous staff member's local PHI context.
   static Future<void> clear() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final currentKey = await _currentStorageKey();
-      final keys = <String>{_legacyKey, ...?prefs.getStringList(_indexKey)};
-      if (currentKey != null) keys.add(currentKey);
-
+      final rawIndex = await _storage.read(key: _indexKey);
+      final keys = <String>{
+        if (rawIndex != null && rawIndex.isNotEmpty)
+          ...List<String>.from(jsonDecode(rawIndex) as List),
+        ?currentKey,
+      };
       for (final key in keys) {
-        await prefs.remove(key);
+        await _storage.delete(key: key);
       }
-      await prefs.remove(_indexKey);
+      await _storage.delete(key: _indexKey);
+
+      await _purgeLegacyPlaintext();
     } catch (_) {
       // Non-critical.
     }

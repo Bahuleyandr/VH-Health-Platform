@@ -104,3 +104,68 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 - P3 patient backlog triage found the concrete SOS nearby-services alias bug and fixed it. Profile setup, investigation booking, dashboard refresh, and medication reminders already had working surfaces; remaining empty-state refinement is product polish, not a release blocker.
 - P3 Clinical AI performance guard adds `npm run check:clinical-ai-bundle` and wires it into admin CI after `next build`.
 - P3 Flutter plugin pass upgraded all resolver-accepted major packages and migrated affected APIs. `device_info_plus` 13, `share_plus` 13, `vector_math` 2.3, and secure-storage platform override cleanup remain documented follow-up constraints rather than forced dependency overrides.
+
+## Security Remediation — 2026-06-10 audit (executed 2026-06-10/11)
+
+Source: `docs/PLATFORM_SECURITY_AUDIT_2026-06-10.md` +
+`docs/REMEDIATION_WORK_ORDER_2026-06-10.md`. Operator/runtime items live in
+`docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md` — items marked *(operator)* are
+"code/manifest ready, awaiting operator verification", NOT closed.
+
+### Phase 0 — emergency
+
+- [x] **H1** Patient dashboard behind jwtAuth + `requireRole('PATIENT')`; phone derived from the token (caller `?phone=` only accepted if own); all queries tenant-scoped. Regression tests `src/tests/dashboard-h1-authz.test.js`.
+- [x] **H2** Appointment router RBAC: mount-level `requireRole(...APPOINTMENT_ROUTE_ROLES)`; dead `wrapAutoRBAC` deleted; missing `appointmentAdminRoutes` rbacConfig key added; staff gates on `/pending` + `/completed/recent`; ADMIN gates on `/admin/*`. Tests `appointment-h2-rbac.test.js`.
+- [x] **H4** SSRF guard (`src/utils/ssrfGuard.js`) on HL7 outbound feeds — loopback/RFC-1918/link-local/metadata/ULA blocked, fail-closed DNS, re-checked before EVERY delivery, optional `HL7_FEED_HOST_ALLOWLIST`. Tests `hl7-ssrf-guard.test.js`. createSubscription confirmed restricted to integration admins (no severity escalation).
+- [x] **H10** CNPG manifest: `vhhealth_readonly` created NOLOGIN at initdb; CNPG `managed.roles` + `passwordSecret` (SealedSecret example added). *(operator: rotate on running clusters)*
+- [x] **H12** dalekdefender deploy: runner-side build → blocking Trivy → keyless cosign sign → **verify** → digest-pinned `kubectl set image` only; no on-host git/build/secret patching. *(operator: GHCR pull creds, sudoers narrowing, Tailscale ACL, PHI policy check)*
+- [ ] Phase-0 runtime verification *(operator — NODE_ENV / AUTH_ENFORCE_TENANT_RLS / CNPG role posture / prisma boot guard)*
+
+### Phase 1 — high
+
+- [x] **H6/M8** Admin portal default-deny route policy (`src/lib/routePolicy.ts`) + CI coverage test (`route-policy-coverage.test.ts`) that fails when a dashboard page lacks a policy entry. Backend role gates on `/api/v1/admin/*`, `/users`, `/records` verified.
+- [x] **H7/H8/L8** Mobile pinning fixed (SPKI base64, verified against the openssl pipeline byte-for-byte) and WIRED (pinned `IOClient` default in `VHHttpClient`, host-restricted, no platform roots); `verifyOrWarn()` at startup in both apps; `<certificates src="user"/>` removed from both netsec configs; placeholder domain replaced.
+- [x] **H9/M10** Staff manifest: `allowBackup=false`, `fullBackupContent=false`, exclude-all `dataExtractionRules`, `usesCleartextTraffic=false`; recent-patients cache moved to secure storage with plaintext purge-on-upgrade.
+- [x] **H5** `utils/logMasking.js` maskers applied at ~37 logger call sites + Winston-level PHI redaction format on every transport; regression test includes a grep-sweep gate (`log-redaction.test.js`).
+- [x] **H11** Digest pinning: `images:` block in `infra/kubernetes/apps/kustomization.yaml` (the tree ArgoCD actually syncs — NOT overlays/prod, which doesn't contain the app deployments) with fail-closed all-zero placeholders + `scripts/update-prod-digests.mjs` + `release-pin-digests.yml` GitOps write-back. *(operator: bootstrap real digests before next sync)*
+
+### Phase 2 — medium
+
+- [x] **M1** `{ algorithms: ['HS256'] }` on all backend `jwt.verify` callers + admin `jose` verify.
+- [x] **M2** Token revocation fails closed (`RevocationCheckUnavailableError` → 503) when no store can answer; clean Redis miss stays authoritative. Tests `unit/tokenBlacklistFailClosed.test.js`.
+- [x] **M3** Access-guard skip restricted to verified SQLSTATE 42P01 + non-production (`services/security/schemaMissingGuard.js`); message-regex matching removed from the two security decision services; skips alert at error level. Tests `unit/schemaMissingGuard.test.js`.
+- [x] **M4** `requireConsent`: tenant-scoped query + PATIENT-self ownership check.
+- [x] **M5** Staff PIN login device-bound (`staff_devices` token required) + per-device/IP lockout + account-wide distributed backstop; staff app sends stored device token.
+- [x] **M6** Payslips: random per-document password (12 chars, unambiguous alphabet) delivered via in-app notification; DOB-derived password + hardcoded owner fallback removed.
+- [x] **M7** `sanitize-html`-based sanitizer + `deepSanitizeStrings` middleware on 15 clinical free-text mounts.
+- [x] **M9** Admin CSP: per-request nonce + `strict-dynamic` from middleware; `'unsafe-inline'` dropped. **Stage 2 open:** remove `'unsafe-eval'` once Sentry/workbox eval usage is eliminated. *(operator: smoke-test portal post-deploy)*
+- [x] **M11** Patient biometric gate fails closed.
+- [x] **M12** Unwired `MessageCrypto` deleted (false E2E assurance). Product owner may revive from git history with a real key-distribution design.
+- [x] **M13** `barmanObjectStore.encryption: AES256`; DR docs reconciled (no `pgbackrest-cipher` ever existed). *(operator: verify first backup vs R2)*
+- [x] **M14** vh-mcp-postgres: NodePort→ClusterIP + deny-all NetworkPolicy; ≥32-char token enforced at boot; timing-safe compare. *(operator: repoint funnel, rotate token)*
+- [x] **M15** Forgejo pipelines: Trivy image+fs scans now blocking (`--exit-code 1`) incl. secrets; scanner images digest-pinned / installer refs version-pinned. OSV stays advisory (backlog triage first).
+- [x] **M16** Kyverno `verifyImages` ClusterPolicy keyed to release-workflow OIDC identity (`base/image-policy/`); ArgoCD `signatureKeys` documented as GPG-commit-only. *(operator: install Kyverno, enable, flip to Enforce)*
+- [x] **M17** dalekdefender: PSS labels (enforce baseline, warn/audit restricted) + restricted securityContexts on backend/admin + `vhhealth_runtime` non-superuser connection role SQL. *(operator: run SQL, repoint DATABASE_URL)*
+- [x] **M18** Orthanc: credentials via `orthanc-users` SealedSecret (env override), non-root securityContext, default-deny NetworkPolicy with modality-VLAN placeholder. *(operator: real CIDR + seal secret before enabling)*
+
+### Phase 3 — hardening (started; remainder is backlog)
+
+- [x] **CI coverage test (backend)** `src/tests/route-role-coverage.test.js` — fails when any post-jwtAuth `/api/v1/*` mount lacks `requireRole` and isn't consciously exempted (exemptions documented inline). The admin twin landed in Phase 1.
+- [x] **L1** Access-token TTL defaults: patient 7d→1h, staff 8h→1h (env-overridable). *(operator: expect one-time re-login wave)*
+- [x] **L3** Storage signed-URL secret separated: `STORAGE_TOKEN_SECRET` env or HMAC-derived sub-key of JWT_SECRET (domain-separated).
+- [x] **L11** MinIO metrics auth `public`→`jwt`; `vhhealth-records` objectLock:true for new installs. *(operator: scrape token + bucket migration on existing cluster)*
+- [x] Dependency-review gate (`.github/workflows/dependency-review.yml`, blocking on high severity).
+- [ ] **H3** Make `tenant_id` explicit in application queries (RLS as defense-in-depth, not sole control) + query-scoping lint. Large module-by-module migration — dashboard + consent paths done in this pass.
+- [ ] **M9 stage 2** Drop `'unsafe-eval'` from admin CSP (Sentry/workbox eval audit).
+- [ ] Mount-level `requireRole` for `/api/v1/quality` and `/api/v1/referrals` (currently controller-level checks; exempted with note in route-role-coverage test).
+- [ ] Semgrep → blocking after initial backlog triage; Firebase App Check + GCP API key restriction; cloudflared→ingress TLS (L10); WS ticket out of URL query (L6); CNI NetworkPolicy enforcement check; DR restore drill + R2 object-lock execution.
+- [ ] Pre-existing functional bugs found while testing H2 (admin appointment endpoints 500 for every caller): BigInt serialization in `getStatusAuditTrail` + `getAllDocumentsAdmin`; `/admin/analytics` queries dropped column `consultation_duration_minutes`.
+- [ ] Pre-existing test failure (NOT introduced by this remediation — verified identical on a clean stash): `infection-control.deep.test.js` › "antibiogram aggregates susceptibility" — `organisms['D5TEST E. coli']` undefined. Needs an owner look at the antibiogram aggregation or the micro_isolates seed.
+
+### Validation — 2026-06-11
+
+- Backend: full lint gate green (eslint --max-warnings=0, raw-params, phi-tenant-id, clinical-ai regions, secrets scan). FULL sharded test suite (58 chunks via `npm run test:ci` against the disposable :55432 DB) green except the ONE pre-existing `infection-control.deep` antibiogram failure listed above (verified identical on a clean stash). Two suites needed updating for intentional behavior changes: `hl7-outbound.deep` (delivers to 127.0.0.1 — now uses the non-production-only `HL7_FEED_ALLOW_PRIVATE_TARGETS` escape hatch, itself covered by a prod-refusal test) and `unit/r2Storage` (token helper updated for the L3 domain-separated secret).
+- Admin: eslint green, `tsc --noEmit` green, full Jest 392/392 green (middleware suite rewritten for default-deny + nonce-CSP), `next build` green.
+- Flutter: `melos run analyze` green; FULL `melos run test` green (patient + staff + core).
+- Infra: `kubectl kustomize` renders prod / apps / dalekdefender overlays; all changed YAML parses; new workflows YAML-validated.
+- NOTE on full `npm test` (single process): OOMs on this workstation at default heap regardless of these changes — use `npm run test:ci` (chunked) locally, as CI does.

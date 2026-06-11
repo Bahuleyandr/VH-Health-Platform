@@ -14,6 +14,7 @@ import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -89,13 +90,13 @@ router.post('/patient-login', async (req, res) => {
         },
       });
       isNewUser = true;
-      logger.info(`[dev-login] created patient ${phone} (${user.uid})`);
+      logger.info(`[dev-login] created patient ${maskPhoneForLog(phone)} (${user.uid})`);
     } else {
       await prisma.users.update({
         where: { uid: user.uid },
         data: { last_sign_in_at: new Date(), updated_at: new Date() },
       });
-      logger.info(`[dev-login] existing patient ${phone} (${user.uid})`);
+      logger.info(`[dev-login] existing patient ${maskPhoneForLog(phone)} (${user.uid})`);
     }
 
     const hospitalNumber = await ensureHospitalNumber({

@@ -3,6 +3,7 @@
 import express from 'express';
 import { notificationController } from '../../controllers/notification/notificationController.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import {
   notificationValidator,
   bulkNotificationValidator,
@@ -33,7 +34,7 @@ router.get('/list', queryValidator, notificationController.getList);
 // DEPRECATED: Use GET /my instead. PII in URL is a security risk.
 // These routes will be removed in a future release.
 router.get('/:phone', phoneParamValidator, (req, res, next) => {
-  logger.warn(`DEPRECATED: GET /notifications/${req.params.phone} — migrate to GET /notifications/my`);
+  logger.warn(`DEPRECATED: GET /notifications/${maskPhoneForLog(req.params.phone)} — migrate to GET /notifications/my`);
   res.set('Deprecation', 'true');
   res.set('Sunset', '2026-07-01');
   next();
@@ -44,7 +45,7 @@ router.get('/user/:user_id', [...userIdParamValidator, ...queryValidator], notif
 router.patch('/:id/read', idParamValidator, notificationController.markAsRead);
 router.patch('/:id/acknowledge', idParamValidator, notificationController.acknowledge);
 router.patch('/:phone/mark-all-read', phoneParamValidator, (req, res, next) => {
-  logger.warn(`DEPRECATED: PATCH /notifications/${req.params.phone}/mark-all-read — migrate to PATCH /notifications/my/mark-all-read`);
+  logger.warn(`DEPRECATED: PATCH /notifications/${maskPhoneForLog(req.params.phone)}/mark-all-read — migrate to PATCH /notifications/my/mark-all-read`);
   res.set('Deprecation', 'true');
   res.set('Sunset', '2026-07-01');
   next();

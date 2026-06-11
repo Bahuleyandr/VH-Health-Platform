@@ -4,6 +4,7 @@ import { AUTH_ACTIONS } from '../../config/authConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import admin from '../../utils/firebaseAdmin.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
@@ -96,7 +97,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
     );
     user = insertResult[0];
     isNewUser = true;
-    logger.info(`🔥 New Firebase user created: ${phone} (${firebaseUid})`);
+    logger.info(`🔥 New Firebase user created: ${maskPhoneForLog(phone)} (${firebaseUid})`);
   } else {
     user = userResult[0];
     
@@ -113,7 +114,7 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
       );
     }
     
-    logger.info(`🔥 Existing Firebase user logged in: ${phone}`);
+    logger.info(`🔥 Existing Firebase user logged in: ${maskPhoneForLog(phone)}`);
   }
   user = await attachHospitalNumber(user);
   
@@ -190,7 +191,7 @@ export const completeUserProfile = async (profileData) => {
   
   const user = await attachHospitalNumber(result[0]);
   
-  logger.info(`👤 Profile completed for user: ${normalizedPhone}`);
+  logger.info(`👤 Profile completed for user: ${maskPhoneForLog(normalizedPhone)}`);
   
   return {
     user: {
@@ -262,7 +263,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     req,
   });
 
-  logger.info(`🔗 Firebase account linked to existing user: ${normalizedPhone}`);
+  logger.info(`🔗 Firebase account linked to existing user: ${maskPhoneForLog(normalizedPhone)}`);
   
   return {
     accessToken,
@@ -297,7 +298,7 @@ export const updateFcmToken = async (phone, fcmToken, deviceId) => {
     [normalizedPhone, deviceId || 'default', fcmToken]
   );
   
-  logger.info(`📱 FCM token updated for user: ${normalizedPhone}`);
+  logger.info(`📱 FCM token updated for user: ${maskPhoneForLog(normalizedPhone)}`);
   
   return {
     phone: normalizedPhone,

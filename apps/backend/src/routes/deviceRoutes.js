@@ -5,6 +5,7 @@ import { wrapAutoRBAC } from '../config/routeWrapper.js';
 import { registerDevice } from '../controllers/deviceController.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
@@ -43,7 +44,7 @@ async function unregisterDeviceHandler(req, res) {
 
     const deviceInfo = result[0];
 
-    logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${normalizedPhone} by ${req.user?.name || 'system'}`);
+    logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${maskPhoneForLog(normalizedPhone)} by ${req.user?.name || 'system'}`);
 
     success(res, {
       phone: normalizedPhone,
@@ -367,7 +368,7 @@ wrapAutoRBAC(
 
             const isNewRegistration = result[0].is_new_registration;
             
-            logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${normalizedPhone} by ${req.user?.name || 'system'}`);
+            logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${maskPhoneForLog(normalizedPhone)} by ${req.user?.name || 'system'}`);
 
             success(res, {
               deviceRegistrationId: result[0].id,

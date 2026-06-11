@@ -12,6 +12,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { assertSafeFeedUrl } from '../../utils/ssrfGuard.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
 
 export const MAX_DELIVERY_ATTEMPTS = 7;
@@ -47,6 +48,11 @@ export async function createSubscription({
   if (!/^https?:\/\//i.test(cleanedUrl)) {
     throw AppError.badRequest('endpoint_url must be an http(s) URL', 'HL7_FEED_BAD_URL');
   }
+  // SSRF guard (audit finding H4): scheme alone is not enough — the stored
+  // URL is later fetched server-side with the subscription's auth header.
+  // Reject loopback/private/link-local/metadata targets and unresolvable
+  // hosts at create time; deliverOne re-checks before every fetch.
+  await assertSafeFeedUrl(cleanedUrl);
   const types = (Array.isArray(messageTypes) ? messageTypes : [messageTypes]).map((t) => String(t).trim());
   const unknown = types.filter((t) => !SUPPORTED_TYPES.includes(t));
   if (types.length === 0 || unknown.length > 0) {
@@ -202,6 +208,20 @@ export async function emitSignedResultsOru({ resultIds = [], patientUid = null }
 // ── Delivery worker ────────────────────────────────────────────────────────
 
 async function deliverOne(message, subscription) {
+  // SSRF guard (audit finding H4): re-validate immediately before EVERY
+  // delivery — not just at create time — so a stored-but-unsafe URL (legacy
+  // row, direct DB edit) or a DNS-rebinding host that now resolves to an
+  // internal address is rejected here. Fail closed: a blocked URL is a
+  // delivery failure, never a fetch.
+  try {
+    await assertSafeFeedUrl(subscription.endpoint_url);
+  } catch (guardErr) {
+    logger.warn('HL7 outbound delivery blocked by SSRF guard', {
+      subscription_id: subscription.subscription_id ?? subscription.id,
+      error: guardErr?.message,
+    });
+    return { ok: false, error: `SSRF_BLOCKED: ${guardErr?.message || 'unsafe endpoint_url'}` };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {

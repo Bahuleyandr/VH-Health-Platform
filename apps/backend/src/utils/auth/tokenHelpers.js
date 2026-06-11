@@ -24,7 +24,10 @@ export const generateToken = (payload, expiresIn = AUTH_CONFIG.jwt.expiresIn) =>
 // Verify JWT token
 export const verifyToken = (token) => {
   try {
-    return jwt.verify(token, AUTH_CONFIG.jwt.secret);
+    // Explicit algorithm allowlist (audit finding M1) — see jwtUtils.js.
+    return jwt.verify(token, AUTH_CONFIG.jwt.secret, {
+      algorithms: [AUTH_CONFIG.jwt.algorithm || 'HS256'],
+    });
   } catch (err) {
     logger.debug('Token verification failed:', err.message);
     return null;

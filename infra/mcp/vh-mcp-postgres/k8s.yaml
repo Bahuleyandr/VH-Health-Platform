@@ -2,6 +2,15 @@
 # vh-mcp-postgres on Dalekdefender k3s.
 # The MCP_BEARER_TOKEN secret is created out-of-band (kubectl create secret).
 # DATABASE_URL points at the in-cluster vhhealth Postgres service.
+#
+# Audit finding M14 (2026-06-10): this Service was a NodePort (30092),
+# reachable from ANY host on the hospital LAN with only a bearer token in
+# front of a DB bridge. It is now ClusterIP + a default-deny NetworkPolicy.
+# OPERATOR: the Tailscale Funnel (or any host-side proxy) that previously
+# pointed at the NodePort must be re-pointed at a
+#   kubectl -n vhhealth port-forward svc/vh-mcp-postgres 10000:8080
+# (port-forward traverses the API server, not the pod network, so the
+# default-deny policy below does not block it).
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,14 +19,30 @@ metadata:
   labels:
     app: vh-mcp-postgres
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: vh-mcp-postgres
   ports:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30092
+---
+# Default-deny ingress for the MCP bridge (M14): nothing on the pod network
+# may reach it; access is exclusively via API-server port-forward.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vh-mcp-postgres-deny-ingress
+  namespace: vhhealth
+  labels:
+    app: vh-mcp-postgres
+spec:
+  podSelector:
+    matchLabels:
+      app: vh-mcp-postgres
+  policyTypes:
+    - Ingress
+  ingress: []
 ---
 apiVersion: apps/v1
 kind: Deployment

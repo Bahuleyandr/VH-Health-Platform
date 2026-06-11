@@ -5,3 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: vhhealth
     deployment-target: dalekdefender
+    # Pod Security Standards (audit finding M17): this namespace previously
+    # had NO PSS labels while running prod code auto-deployed from main.
+    # Enforce baseline (blocks privileged/hostPath/hostNetwork pods) and
+    # warn+audit on restricted; the backend/admin pods carry
+    # restricted-compatible securityContexts. Tighten enforce to
+    # "restricted" once the postgres StatefulSet is migrated to a
+    # non-root-compatible image config.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

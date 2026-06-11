@@ -76,4 +76,11 @@ spec:
       kind: "*"
   orphanedResources:
     warn: true
-  signatureKeys: []  # Placeholder for cosign keys (batch 17).
+  # Audit finding M16: ArgoCD `signatureKeys` verifies GPG-signed GIT
+  # COMMITS only — it cannot verify cosign image signatures, so it stays
+  # empty. Image-signature verification at admission is enforced by Kyverno:
+  # see infra/kubernetes/base/image-policy/kyverno-verify-images.yaml
+  # (keyless cosign keyed to the release workflows' GitHub-OIDC identity).
+  # If commit-signing is adopted later, populate this with the maintainers'
+  # GPG key IDs.
+  signatureKeys: []

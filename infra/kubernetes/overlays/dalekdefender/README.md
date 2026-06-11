@@ -76,7 +76,7 @@ ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl -n vhhealth exec -i v
 # 6) Apply the remaining manifests.
 ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -k infra/kubernetes/overlays/dalekdefender"
 
-# 7) Surface the NodePort over Tailscale at port 8444. Khata owns 8443.
+# 7) Surface the localhost-only backend proxy over Tailscale at port 8444. Khata owns 8443.
 ssh dalekdefender "sudo tailscale serve --bg --https=8444 http://localhost:30090"
 
 # 8) Seed test staff accounts (after backend is up).

@@ -5,6 +5,7 @@ import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 
+import { maskPhoneForLog } from '../utils/logMasking.js';
 const query = async (sql, params = []) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
@@ -70,7 +71,7 @@ export async function sendSMSWithRetry(phone, message, userId = null) {
     const { sendSMS } = await import('./smsService.js');
     await sendSMS(phone, message);
   } catch (err) {
-    logger.warn(`[RetryService] SMS failed for ${phone}, queuing retry: ${err.message}`);
+    logger.warn(`[RetryService] SMS failed for ${maskPhoneForLog(phone)}, queuing retry: ${err.message}`);
     try {
       await query(`
         INSERT INTO failed_notifications (user_id, type, phone, body, error_message, next_retry_at)

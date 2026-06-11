@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma.js';
 import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 import { sendPushNotification } from '../utils/notifications/sendPushNotification.js';
 
 // Phase-2 RLS: cross-tenant script. See src/lib/tenantContext.js.
@@ -33,7 +34,7 @@ const sendAppointmentReminders = async () => runWithSuperAdmin(async () => {
         });
       }
 
-      logger.info(`[Reminder] Sent appointment notification to ${appointment.phone}`);
+      logger.info(`[Reminder] Sent appointment notification to ${maskPhoneForLog(appointment.phone)}`);
     }
 
     logger.info(`✅ Appointment reminders sent for ${appointments.length} user(s).`);

@@ -284,7 +284,7 @@ find infra/kubernetes -name '*.sealed-secret.yaml.example'
 # infra/kubernetes/apps/backend/vhhealth-clinical-ai.sealed-secret.yaml.example
 # infra/kubernetes/apps/backend/vhhealth-db-url.sealed-secret.yaml.example
 # infra/kubernetes/apps/admin/admin-env.sealed-secret.yaml.example
-# infra/kubernetes/base/cnpg/pgbackrest-cipher.sealed-secret.yaml.example
+# infra/kubernetes/base/cnpg/readonly-credentials.sealed-secret.yaml.example
 # infra/kubernetes/base/cloudflared/cloudflared-token.sealed-secret.yaml.example
 ```
 
@@ -337,7 +337,7 @@ Minimum required before backend will start:
 - `vhhealth-db-url` (set **after** CNPG is up — step 6)
 - `vhhealth-firebase` (service account JSON + FIREBASE_PROJECT_ID)
 - `vhhealth-r2` (R2 access keys + bucket)
-- `pgbackrest-cipher` (AES-256 pass for CNPG backup encryption)
+- `vhhealth-pg-readonly` (password for the `vhhealth_readonly` role — audit H10)
 - `cloudflared-token` (Cloudflare Tunnel credentials JSON)
 
 Optional but recommended:
@@ -511,8 +511,12 @@ intervention only on compromise (see `cert-rotation.md`).
     region pinned). No cross-border data transfer in the default path.
   - Audit logs: `audit_log` + `file_access_logs` tables capture every
     PHI access with actor, timestamp, resource.
-  - Encryption at rest: CNPG uses PG17 with `data_checksums`; pgBackRest
-    encrypts backups with AES-256; R2 bucket has server-side encryption.
+  - Encryption at rest: CNPG uses PG17 with `data_checksums`; off-site
+    backups request SSE (AES-256) via `barmanObjectStore.encryption` in
+    cluster.yaml (audit finding M13 — the previous "pgBackRest encrypts
+    with AES-256" claim was aspirational; CNPG uses barman-cloud, and no
+    `pgbackrest-cipher` secret ever existed); R2 additionally encrypts
+    all objects at rest with provider-held keys.
   - Access controls: RBAC on both the application layer
     (`wrapAutoRBAC`) and k8s namespace layer (NetworkPolicy + RBAC).
 

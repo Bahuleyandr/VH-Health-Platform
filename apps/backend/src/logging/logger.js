@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createLogger, format, transports } from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
+import phiRedactionFormat from './phiRedactionFormat.js';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);
@@ -49,13 +50,16 @@ const fileTransportsSilent = isTest;
 // plain text. Dev keeps the human-readable printf format.
 const useJson = process.env.LOG_FORMAT === 'json' || (isProduction && process.env.LOG_FORMAT !== 'text');
 const fileFormat = useJson
-  ? format.combine(format.timestamp(), format.errors({ stack: true }), format.json())
-  : format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat);
+  ? format.combine(phiRedactionFormat(), format.timestamp(), format.errors({ stack: true }), format.json())
+  : format.combine(phiRedactionFormat(), format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat);
 
-// Create Winston logger instance
+// Create Winston logger instance.
+// phiRedactionFormat (audit finding H5) scrubs phone/email/MRN patterns from
+// every record on EVERY transport as a global backstop — call sites must
+// still mask identifiers explicitly via utils/logMasking.js.
 const logger = createLogger({
   level: isTest ? 'error' : 'debug',
-  format: format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat),
+  format: format.combine(phiRedactionFormat(), format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat),
   transports: [
     // Console logger with color. In test, the parent logger's `level: 'error'`
     // already filters out info/debug noise, so we keep this transport on.

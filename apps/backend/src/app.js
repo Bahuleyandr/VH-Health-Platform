@@ -38,6 +38,7 @@ import {
   dashboardRateLimiter
 } from './middleware/rateLimitMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
+import { sanitizeAllBodyStrings } from './middleware/sanitizeMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
 import { sentryScopeMiddleware } from './middleware/sentryScopeMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
@@ -49,6 +50,7 @@ import {
   ADMIN_ROUTE_ROLES,
   ADMISSION_OCCUPANCY_ROUTE_ROLES,
   ADMISSION_SURFACE_ROUTE_ROLES,
+  APPOINTMENT_ROUTE_ROLES,
   ALL_STAFF_MESSAGING_ROUTE_ROLES,
   BED_INSPECTION_ROUTE_ROLES,
   BED_PARENT_ROUTE_ROLES,
@@ -156,7 +158,7 @@ import hl7Routes from './routes/hl7/hl7Routes.js';
 // System settings and logs (admin portal: /api/v1/system/* and /api/v1/logs/*)
 import systemRoutes from './routes/system/index.js';
 
-// Patient dashboard (API key only, no JWT)
+// Patient dashboard (JWT + PATIENT role — see mount in authenticated section)
 
 // Config routes (API key only, no JWT)
 
@@ -483,8 +485,9 @@ app.use('/api/v1', infrastructureRoutes);
 // Mount before global JWT auth so Flutter can call these without a JWT
 // ====================================
 
-// Patient dashboard — Flutter app uses API key only for this
-app.use('/api/v1/dashboard', dashboardRateLimiter, dashboardRoutes);
+// Patient dashboard — moved behind jwtAuth (see mount below). It previously
+// sat here (API-key-only) and disclosed PHI for any phone number — audit
+// finding H1 (2026-06-10).
 
 // Campus config — staff app uses API key only for this
 app.use('/api/v1/config', configRoutes);
@@ -540,8 +543,29 @@ app.use(
   patientVirtualWardRoutes
 );
 
+// Patient dashboard — JWT + PATIENT role required (fix for audit finding H1).
+// The handler derives the phone from the authenticated subject and
+// tenant-scopes every query; it never trusts a caller-supplied phone.
+app.use(
+  '/api/v1/dashboard',
+  dashboardRateLimiter,
+  requireRole('PATIENT'),
+  phiAccessLogger('PATIENT_DASHBOARD'),
+  dashboardRoutes
+);
+
 // Healthcare services - Modularized
-app.use('/api/v1/appointments', patientRateLimiter, phiAccessLogger('APPOINTMENT'), appointmentRoutes);
+// Mount-level role gate (audit finding H2): the router's old wrapAutoRBAC
+// call was dead code, leaving every appointment route open to any
+// authenticated user. Staff-only and admin-only sub-routes re-narrow inside
+// the router; PATIENT is allowed here for booking/own-data routes.
+app.use(
+  '/api/v1/appointments',
+  patientRateLimiter,
+  requireRole(...APPOINTMENT_ROUTE_ROLES),
+  phiAccessLogger('APPOINTMENT'),
+  appointmentRoutes
+);
 app.use('/api/v1/records', patientRateLimiter, requireRole(...RECORD_ROUTE_ROLES), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
 app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
 // Pharmacy inventory and stores/purchase routes are operational supply-chain
@@ -685,9 +709,12 @@ function clinicalParentPatientAccessGuard(req, res, next) {
   return patientAccessGuard('CLINICAL_WORKFLOW')(req, res, next);
 }
 
-app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
-app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
-app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
+// sanitizeAllBodyStrings on clinical free-text mounts: audit finding M7 —
+// stored-XSS protection previously covered only ~9 route files via opt-in
+// field lists; clinical notes/diagnoses/assessments reached storage raw.
+app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
+app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
@@ -722,7 +749,7 @@ app.use(
 );
 
 // Clinical assessments: pain / fall-risk / growth-chart (Phase F2)
-app.use('/api/v1/clinical/assessments', requireRole(...CLINICAL_ASSESSMENT_ROUTE_ROLES), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
+app.use('/api/v1/clinical/assessments', requireRole(...CLINICAL_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
 // Downtime-mode ward packs (roadmap A3) — scheduled printable census/MAR
 // packs for outage operation. PHI by definition → clinical gate + PHI log.
@@ -733,11 +760,11 @@ app.use('/api/v1/downtime', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogge
 app.use('/api/v1/terminology', requireRole(...CLINICAL_STAFF_ROLES), terminologyRoutes);
 
 // Longitudinal problem list (roadmap B7) — PHI by definition.
-app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
+app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
 
 // Unified allergies (roadmap A10 over HTTP; E5 follow-up) — union of all
 // four allergy stores for any patient, admitted or not. PHI by definition.
-app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('ALLERGY'), allergyRoutes);
+app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ALLERGY'), allergyRoutes);
 
 // Drug knowledge base (roadmap B2) — stateless KB evaluation + source
 // status. Reference data; patient-bound screening runs inside
@@ -748,7 +775,7 @@ app.use('/api/v1/drug-kb', requireRole(...CLINICAL_STAFF_ROLES), drugKbRoutes);
 app.use('/api/v1/bcma', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('BCMA'), bcmaRoutes);
 
 // Medication reconciliation (roadmap B6) — admission/transfer/discharge.
-app.use('/api/v1/med-rec', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('MED_REC'), medRecRoutes);
+app.use('/api/v1/med-rec', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('MED_REC'), medRecRoutes);
 
 // PACS / imaging viewer surface (roadmap B4) — study links, OHIF deep
 // links, modality worklist feed.
@@ -783,13 +810,13 @@ app.use('/api/v1/research', requireRole(...CLINICAL_STAFF_ROLES, 'QUALITY_OFFICE
 
 // Oncology/chemo foundations (roadmap D1) — protocols, BSA dosing, cycle
 // scheduling, two-person administration verification, cumulative ceilings.
-app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('ONCOLOGY'), oncologyRoutes);
+app.use('/api/v1/oncology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ONCOLOGY'), oncologyRoutes);
 
 // Dental charting (roadmap D7) — FDI tooth findings + procedure loop.
-app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DENTAL'), dentalRoutes);
+app.use('/api/v1/dental', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('DENTAL'), dentalRoutes);
 
 // Ophthalmology (roadmap D7) — per-eye exams, IOP alerts, refractions.
-app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
+app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPHTHALMOLOGY'), ophthalmologyRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
@@ -921,9 +948,9 @@ app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), phiAccessLog
 app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real
@@ -944,7 +971,7 @@ app.use(
 );
 app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), phiAccessLogger('PCPNDT'), pcpndtRoutes);
-app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
 app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), phiAccessLogger('DIALYSIS'), dialysisRoutes);
@@ -1006,7 +1033,7 @@ app.use(
   admissionAliasRouter,
 );
 app.use('/api/v1/pmjay', requireRole(...BILLING_ROUTE_ROLES), pmjayRoutes);
-app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 // A10 — paediatric immunisation tracking. Receptionists need write access
 // to seed a returning child's schedule; doctors + nurses to record doses.
 app.use('/api/v1/paediatric', requireRole(...PAEDIATRIC_ROUTE_ROLES), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
@@ -1015,7 +1042,7 @@ app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), dashboardsRoute
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
-app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
+app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);

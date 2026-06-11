@@ -3,6 +3,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -92,7 +93,7 @@ export const adminDoctorController = {
 
       const result = await adminDoctorService.createDoctorAccount(req.body);
 
-      logger.info(`[adminDoctorRoutes] Doctor account created: ${req.body.name} (${req.body.phone}) by ${req.user?.uid}`);
+      logger.info(`[adminDoctorRoutes] Doctor account created: ${req.body.name} (${maskPhoneForLog(req.body.phone)}) by ${req.user?.uid}`);
 
       success(res, {
         user: result.user,

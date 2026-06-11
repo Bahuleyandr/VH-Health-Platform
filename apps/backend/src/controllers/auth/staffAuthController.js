@@ -23,15 +23,22 @@ export const login = async (req, res) => {
   }
 };
 
-// Staff login with employee ID and PIN
+// Staff login with employee ID and PIN.
+// M5: PIN login is bound to a registered device — the client must send the
+// deviceToken it received from /register-device.
 export const pinLogin = async (req, res) => {
   try {
-    const { employeeId, pin, deviceType } = req.body;
-    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req, { deviceType });
+    const { employeeId, pin, deviceType, deviceToken } = req.body;
+    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req, { deviceType, deviceToken });
     success(res, result, 'Staff login with PIN successful');
   } catch (err) {
     logger.error('Staff PIN Login Error:', err);
-    error(res, 'Login failed', err.statusCode || HTTP_STATUS.UNAUTHORIZED);
+    error(
+      res,
+      err.code === 'PIN_DEVICE_NOT_REGISTERED' ? err.message : 'Login failed',
+      err.statusCode || HTTP_STATUS.UNAUTHORIZED,
+      err.code ? { code: err.code } : undefined,
+    );
   }
 };
 

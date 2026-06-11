@@ -20,9 +20,11 @@ export function staffAccessGuard(policyCode, options = {}) {
       return next();
     } catch (err) {
       if (shouldSkipStaffAccessCheckError(err)) {
-        logger.warn('Staff access guard skipped because staff governance tables are not migrated', {
+        // M3: only reachable outside production with a verified 42P01.
+        logger.error('SECURITY ALERT: staff access guard SKIPPED (governance table missing, non-prod)', {
           path: req.originalUrl || req.url,
           policyCode,
+          sqlError: err?.message,
         });
         return next();
       }

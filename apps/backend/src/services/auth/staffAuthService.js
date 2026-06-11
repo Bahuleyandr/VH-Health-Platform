@@ -71,6 +71,55 @@ export class StaffAuthService {
     }
   }
 
+  /**
+   * PIN-login lockout (audit finding M5). Two tiers:
+   *   - Per-vantage: ≥ MAX_LOGIN_ATTEMPTS failed PIN attempts in 15 min from
+   *     the SAME ip or device token ⇒ lock that vantage point. A remote
+   *     attacker cannot lock the clinician's own registered device.
+   *   - Account-wide backstop: ≥ 10×MAX failed PIN attempts from anywhere
+   *     ⇒ lock the account and alert (distributed guessing).
+   */
+  static async _checkStaffPinLockout(employeeId, req, deviceToken = null) {
+    const vantageCheck = await query(`
+      SELECT COUNT(*) as cnt FROM auth_logs
+      WHERE phone = $1 AND success = false
+        AND action = 'STAFF_PIN_LOGIN'
+        AND created_at > NOW() - INTERVAL '15 minutes'
+        AND (ip_address = $2 OR ($3::text IS NOT NULL AND device_info = $3::text))
+    `, [employeeId, req?.ip || '', deviceToken ? String(deviceToken) : null]);
+
+    if (parseInt(vantageCheck.rows[0].cnt) >= MAX_LOGIN_ATTEMPTS) {
+      logSecurityEvent('ACCOUNT_LOCKED', {
+        userName: employeeId,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        path: '/api/v1/auth/staff/login-pin',
+        reason: `PIN lockout: ${MAX_LOGIN_ATTEMPTS} failed PIN attempts from this device/IP in 15 minutes`,
+      });
+      trackFailedLogin(req?.ip, employeeId);
+      throw new Error('Too many failed PIN attempts from this device. Try again later or use password login.');
+    }
+
+    const globalCheck = await query(`
+      SELECT COUNT(*) as cnt FROM auth_logs
+      WHERE phone = $1 AND success = false
+        AND action = 'STAFF_PIN_LOGIN'
+        AND created_at > NOW() - INTERVAL '15 minutes'
+    `, [employeeId]);
+
+    if (parseInt(globalCheck.rows[0].cnt) >= MAX_LOGIN_ATTEMPTS * 10) {
+      logSecurityEvent('ACCOUNT_LOCKED', {
+        userName: employeeId,
+        ip: req?.ip,
+        userAgent: req?.headers?.['user-agent'],
+        path: '/api/v1/auth/staff/login-pin',
+        reason: 'PIN lockout backstop: distributed failed-PIN attempts across many sources',
+      });
+      trackFailedLogin(req?.ip, employeeId);
+      throw new Error('Account temporarily locked due to multiple failed attempts');
+    }
+  }
+
   // =================================================================
   // PRIMARY AUTHENTICATION METHODS
   // =================================================================
@@ -499,9 +548,33 @@ export class StaffAuthService {
 
 // Add this new method right after the 'authenticateStaff' method
 
-  static async authenticateStaffWithPin(employeeId, pin, req, { deviceType } = {}) {
+  /**
+   * PIN login (audit finding M5, 2026-06-10). Hardened in three ways:
+   *   1. DEVICE BINDING — a 4-6 digit PIN is only acceptable as a second
+   *      factor on a device the staff member registered with their full
+   *      password. `deviceToken` must match an active staff_devices row for
+   *      this account; PIN login from an unregistered device is rejected.
+   *   2. PER-DEVICE/IP LOCKOUT — failed-PIN counting is keyed on
+   *      (employeeId, deviceToken/IP), so a remote attacker spamming wrong
+   *      PINs locks only THEIR vantage point, not the clinician's real
+   *      device (the old account-wide counter enabled a trivial DoS on any
+   *      clinician mid-shift).
+   *   3. ACCOUNT-WIDE BACKSTOP — a higher distributed-attack cap still
+   *      locks the account (with a loud security event) if failures arrive
+   *      from many sources at once.
+   */
+  static async authenticateStaffWithPin(employeeId, pin, req, { deviceType, deviceToken } = {}) {
     try {
-      await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login-pin');
+      await this._checkStaffPinLockout(employeeId, req, deviceToken);
+
+      // Device binding (M5): PIN login requires a registered, active device.
+      if (!deviceToken || !String(deviceToken).trim()) {
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'No device token (PIN requires registered device)', 'pin', req, deviceToken);
+        const err = new Error('PIN login requires a registered device. Please log in with your password first.');
+        err.statusCode = 403;
+        err.code = 'PIN_DEVICE_NOT_REGISTERED';
+        throw err;
+      }
 
       // Find staff member by employee ID
       const result = await query(`
@@ -529,7 +602,7 @@ export class StaffAuthService {
       const staff = result.rows[0];
 
       if (!staff.is_active) {
-        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req);
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req, deviceToken);
         logSecurityEvent('LOGIN_FAILED', {
           userId: String(staff.uid),
           userName: employeeId,
@@ -542,15 +615,40 @@ export class StaffAuthService {
         throw new Error('Account deactivated');
       }
 
+      // Device binding (M5): the token must belong to an active registered
+      // device of THIS staff member.
+      const deviceResult = await query(`
+        SELECT id FROM staff_devices
+        WHERE device_token = $1 AND staff_id = $2 AND is_active = true
+          AND (trust_expires_at IS NULL OR trust_expires_at > NOW())
+        LIMIT 1
+      `, [deviceToken, staff.id]);
+      if (deviceResult.rows.length === 0) {
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Unregistered device for PIN login', 'pin', req, deviceToken);
+        logSecurityEvent('LOGIN_FAILED', {
+          userId: String(staff.uid),
+          userName: employeeId,
+          userRole: staff.role,
+          ip: req?.ip,
+          userAgent: req?.headers?.['user-agent'],
+          path: '/api/v1/auth/staff/login-pin',
+          reason: 'PIN login attempted from unregistered device (M5 device binding)',
+        });
+        const err = new Error('PIN login requires a registered device. Please log in with your password first.');
+        err.statusCode = 403;
+        err.code = 'PIN_DEVICE_NOT_REGISTERED';
+        throw err;
+      }
+
       // Check if PIN hash exists and is valid
       if (!staff.pin_hash) {
-        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'PIN not set', 'pin', req);
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'PIN not set', 'pin', req, deviceToken);
         throw new Error('PIN not set for this account.');
       }
 
       const isPinValid = await bcrypt.compare(pin, staff.pin_hash);
       if (!isPinValid) {
-        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid PIN', 'pin', req);
+        await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid PIN', 'pin', req, deviceToken);
         logSecurityEvent('LOGIN_FAILED', {
           userId: String(staff.uid),
           userName: employeeId,
@@ -563,7 +661,7 @@ export class StaffAuthService {
         throw new Error('Invalid employee ID or PIN');
       }
 
-      await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', true, null, 'pin', req);
+      await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', true, null, 'pin', req, deviceToken);
 
       const { accessToken } = await issueAccessTokenAndClaimSession({
         userUid: staff.uid,
@@ -768,13 +866,13 @@ export class StaffAuthService {
     return { revokedCount: result.rowCount };
   }
 
-  static async logAuthAttempt(phone, action, success, failureReason, authMethod, req) {
+  static async logAuthAttempt(phone, action, success, failureReason, authMethod, req, deviceInfo = null) {
     try {
       await query(`
         INSERT INTO auth_logs (
-          phone, action, success, failure_reason, auth_method, ip_address, user_agent, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      `, [phone, action, success, failureReason, authMethod, req.ip || '', req.headers['user-agent']]);
+          phone, action, success, failure_reason, auth_method, ip_address, user_agent, device_info, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      `, [phone, action, success, failureReason, authMethod, req.ip || '', req.headers['user-agent'], deviceInfo ? String(deviceInfo) : null]);
     } catch (error) {
       logger.error('Failed to log auth attempt:', error);
     }

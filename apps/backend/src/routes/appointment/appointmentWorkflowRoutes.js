@@ -1,10 +1,15 @@
 // src/routes/appointment/appointmentWorkflowRoutes.js
 import express from 'express';
 import { validationResult } from 'express-validator';
+import {
+  ADMIN_ROUTE_ROLES,
+  APPOINTMENT_STAFF_ROUTE_ROLES,
+} from '../../config/routeRolePolicy.js';
 import * as adminController from '../../controllers/appointment/appointmentAdminController.js';
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { upload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
@@ -53,7 +58,13 @@ router.get('/queue/today/mine', (req, _res, next) => {
   req.params.scope = 'mine';
   return workflowController.getTodayQueue(req, _res, next);
 });
-router.get('/pending', workflowController.getPendingAppointments);
+// Staff-only: cross-patient pending list (audit finding H2 — previously
+// reachable by any authenticated user, including PATIENT).
+router.get(
+  '/pending',
+  requireRole(...APPOINTMENT_STAFF_ROUTE_ROLES),
+  workflowController.getPendingAppointments
+);
 router.get('/doctors/options', workflowController.getDoctorOptions);
 router.get('/slots', workflowController.getAvailableSlots);
 // Don't unconditionally require `patient_name`. When the caller supplies
@@ -76,10 +87,23 @@ router.delete('/patient/records/:id', docController.deletePatientRecord);
 // Document upload (staff)
 router.post('/documents/upload', upload.single('file'), guardAppointmentDocumentUpload, validateFileContent, docController.uploadAppointmentDocument);
 
-// Admin SLA dashboard and audit trail
-router.get('/admin/sla-dashboard', adminController.getAppointmentSLADashboard);
-router.get('/admin/audit-trail', adminController.getStatusAuditTrail);
-router.get('/admin/documents', docController.getAllDocumentsAdmin);
+// Admin SLA dashboard and audit trail — admin-only (audit finding H2: these
+// cross-patient surfaces previously had no role gate at all).
+router.get(
+  '/admin/sla-dashboard',
+  requireRole(...ADMIN_ROUTE_ROLES),
+  adminController.getAppointmentSLADashboard
+);
+router.get(
+  '/admin/audit-trail',
+  requireRole(...ADMIN_ROUTE_ROLES),
+  adminController.getStatusAuditTrail
+);
+router.get(
+  '/admin/documents',
+  requireRole(...ADMIN_ROUTE_ROLES),
+  docController.getAllDocumentsAdmin
+);
 
 // ── Per-appointment actions (parameterized) ──────────────────────────────────
 router.post('/:id/confirm', paramId(), validate, guardAppointmentWrite, workflowController.confirmAppointment);

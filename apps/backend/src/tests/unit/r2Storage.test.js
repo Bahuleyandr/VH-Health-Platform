@@ -38,9 +38,18 @@ const { verifyLocalToken, resolveLocalKey, getSignedFileUrl, isLocalStorage } =
   await import('../../utils/r2Storage.js');
 
 // Helper: build a token the same way signLocalToken does so we can compare.
+// Audit finding L3: the storage token secret is no longer JWT_SECRET itself —
+// it's STORAGE_TOKEN_SECRET when set, else an HMAC-derived sub-key of
+// JWT_SECRET with the domain-separation label below (mirrors r2Storage.js).
+const STORAGE_SECRET = process.env.STORAGE_TOKEN_SECRET
+  || crypto
+    .createHmac('sha256', process.env.JWT_SECRET)
+    .update('vhhealth-storage-token-v1')
+    .digest('hex');
+
 function makeToken(key, expiryMs) {
   const sig = crypto
-    .createHmac('sha256', process.env.JWT_SECRET)
+    .createHmac('sha256', STORAGE_SECRET)
     .update(`${key}|${expiryMs}`)
     .digest('base64url');
   return `${sig}.${expiryMs}`;

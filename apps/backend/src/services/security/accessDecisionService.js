@@ -6,6 +6,7 @@ import {
 } from '../../config/rolePolicyGraph.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import {
   ACCESS_POLICY_CODES,
@@ -200,10 +201,12 @@ function canUseRoleOwnedOperationalAccess(role, policy) {
   return false;
 }
 
+// Audit finding M3: the skip is now an exact-SQLSTATE, non-production-only
+// check (see schemaMissingGuard.js). The old /does not exist/i message regex
+// silently disabled the patient-access check on ANY error containing that
+// phrase (renamed column, dropped function, partial migration).
 function isSchemaMissing(err) {
-  return err?.code === '42P01'
-    || err?.meta?.code === '42P01'
-    || /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+  return isGovernanceSchemaMissing(err);
 }
 
 async function patientByIdOrUid({ tenantId, id = null, uid = null }) {

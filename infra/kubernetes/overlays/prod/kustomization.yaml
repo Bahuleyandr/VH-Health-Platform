@@ -14,6 +14,13 @@ metadata:
   name: vhhealth-platform-prod
 resources:
   - ../../base
+
+# NOTE (audit finding H11): the app-tier Deployments (backend / admin /
+# staff-web) are NOT part of this overlay — ArgoCD syncs them from
+# `infra/kubernetes/apps/` as a separate Application. The digest-pin
+# `images:` block therefore lives in infra/kubernetes/apps/kustomization.yaml
+# (written by scripts/update-prod-digests.mjs via release-pin-digests.yml).
+
 patches:
   # Prod sizing: 2 CPU requested on Postgres (vs base's 1) — we run hot.
   - target:

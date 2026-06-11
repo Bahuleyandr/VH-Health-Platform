@@ -3,10 +3,11 @@
  *
  * Covers:
  *   - parseTokenStructure: structural JWT validation (dev fallback)
- *   - ADMIN_ONLY_PATHS and HR_PLUS_PATHS definitions
- *   - ROLE_RANK ordering
+ *   - DEFAULT-DENY route policy enforcement (audit finding H6/M8) via
+ *     src/lib/routePolicy.ts
  *   - Dashboard routes are protected (redirect to /login when unauthenticated)
  *   - Role-based access control on restricted paths
+ *   - Nonce-based CSP header (audit finding M9)
  *   - Proxy route protection
  *   - Matcher configuration
  */
@@ -27,15 +28,19 @@ jest.mock("jose/jwt/verify", () => ({
 jest.mock("next/server", () => ({
   NextRequest: jest.fn(),
   NextResponse: {
+    // The middleware sets the CSP header on every response (M9), so each
+    // mock response carries a recordable `headers.set`.
     redirect: jest.fn((url: URL) => ({
       type: "redirect",
       url: url.toString(),
+      headers: { set: jest.fn() },
     })),
-    next: jest.fn(() => ({ type: "next" })),
+    next: jest.fn(() => ({ type: "next", headers: { set: jest.fn() } })),
     json: jest.fn((body: unknown, init?: { status?: number }) => ({
       type: "json",
       body,
       status: init?.status,
+      headers: { set: jest.fn() },
     })),
   },
 }));
@@ -62,6 +67,9 @@ function makeRequest(pathname: string, authToken?: string): NextRequest {
       pathname,
     },
     url: `http://localhost:3001${pathname}`,
+    // Plain object is a valid HeadersInit for `new Headers(request.headers)`
+    // in the middleware's CSP/nonce forwarding.
+    headers: {},
     cookies: {
       get: jest.fn((name: string) =>
         name === "auth_token" && authToken ? { value: authToken } : undefined,
@@ -102,16 +110,12 @@ beforeEach(() => {
 // Matcher configuration
 // ---------------------------------------------------------------------------
 describe("middleware matcher config", () => {
-  it("matches dashboard routes", () => {
-    expect(config.matcher).toContain("/dashboard/:path*");
-  });
-
-  it("matches proxy routes", () => {
-    expect(config.matcher).toContain("/api/proxy/:path*");
-  });
-
-  it("has exactly 2 matchers", () => {
-    expect(config.matcher).toHaveLength(2);
+  // M9: the matcher now covers every page (the CSP nonce must be on every
+  // response) while excluding static assets; auth/IP gating stays
+  // path-scoped inside the handler.
+  it("has a single broad matcher that excludes static assets", () => {
+    expect(config.matcher).toHaveLength(1);
+    expect(config.matcher[0]).toContain("_next/static");
   });
 });
 
@@ -562,5 +566,80 @@ describe("middleware — non-matched routes", () => {
 
     expect(mockNext).toHaveBeenCalledTimes(1);
     expect(mockRedirect).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default-deny (audit finding H6/M8): unmapped dashboard segments are denied
+// ---------------------------------------------------------------------------
+describe("middleware — default-deny route policy", () => {
+  it("redirects ANY role away from an unmapped dashboard segment", async () => {
+    const token = fakeJwt({
+      role: "SUPER_ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    // SUPER_ADMIN passes every ROLE check — but an UNMAPPED segment must
+    // still deny, proving the gate is the policy map, not the role.
+    const req = makeRequest("/dashboard/brand-new-unmapped-page", token);
+    await middleware(req);
+
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
+
+  it("denies SUPER_ADMIN-only segments to plain ADMIN (tenants)", async () => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard/tenants", token);
+    await middleware(req);
+
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.pathname).toBe("/dashboard");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nonce-based CSP (audit finding M9)
+// ---------------------------------------------------------------------------
+describe("middleware — CSP header (M9)", () => {
+  it("sets a nonce + strict-dynamic CSP with NO 'unsafe-inline' in script-src", async () => {
+    const token = fakeJwt({
+      role: "ADMIN",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeRequest("/dashboard", token);
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+
+    const cspCall = res.headers.set.mock.calls.find(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    expect(cspCall).toBeDefined();
+    const csp = cspCall![1] as string;
+    expect(csp).toContain("'nonce-");
+    expect(csp).toContain("'strict-dynamic'");
+    const scriptSrc = csp
+      .split(";")
+      .find((d: string) => d.trim().startsWith("script-src"));
+    expect(scriptSrc).toBeDefined();
+    expect(scriptSrc).not.toContain("unsafe-inline");
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  it("sets the CSP on login (unauthenticated) responses too", async () => {
+    const req = makeRequest("/login");
+    const res = (await middleware(req)) as unknown as {
+      headers: { set: jest.Mock };
+    };
+    expect(
+      res.headers.set.mock.calls.some(
+        (c: unknown[]) => c[0] === "Content-Security-Policy",
+      ),
+    ).toBe(true);
   });
 });

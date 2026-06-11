@@ -2,6 +2,7 @@
 
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 import { success, error } from '../utils/responseHelper.js';
 
 export const registerDevice = async (req, res) => {
@@ -28,7 +29,7 @@ export const registerDevice = async (req, res) => {
       'DEVICE_REGISTERED', 'device', JSON.stringify({ phone, platform })
     );
 
-    logger.info(`[DEVICE REGISTERED] Phone: ${phone}, Platform: ${platform}`);
+    logger.info(`[DEVICE REGISTERED] Phone: ${maskPhoneForLog(phone)}, Platform: ${platform}`);
 
     return res.json(success('Device registered successfully.'));
   } catch (err) {

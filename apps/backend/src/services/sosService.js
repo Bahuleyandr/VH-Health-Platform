@@ -4,6 +4,7 @@
 import { SOS_SEVERITY } from '../config/sosConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 import * as locationService from './locationService.js';
 import * as notificationService from './notification/notificationService.js';
 
@@ -119,7 +120,7 @@ export const updateEmergencyContacts = async (phone, contactData) => {
 
   if (result.count === 0) throw new Error('User not found');
 
-  logger.info(`Emergency contacts updated for user: ${phone}`);
+  logger.info(`Emergency contacts updated for user: ${maskPhoneForLog(phone)}`);
   return {
     success: true,
     message: 'Emergency contacts updated successfully',

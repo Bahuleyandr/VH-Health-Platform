@@ -28,11 +28,15 @@ export const SECURITY_CONFIG = {
     resendCooldownMinutes: parseInt(process.env.OTP_RESEND_COOLDOWN || '1'),
   },
 
-  // JWT settings — role-specific expiry for principle of least privilege
+  // JWT settings — role-specific expiry for principle of least privilege.
+  // Audit finding L1 (2026-06-10): patient access tokens defaulted to 7d and
+  // staff to 8h — a stolen token outlived any shift. Access tokens are now
+  // short; clients refresh transparently via the existing rotation
+  // (VHHttpClient single-flight refresh).
   jwt: {
-    defaultExpiry: process.env.JWT_EXPIRES_IN || '7d',            // Patient tokens (mobile app)
+    defaultExpiry: process.env.JWT_EXPIRES_IN || '1h',            // Patient tokens (mobile app)
     adminExpiry: process.env.JWT_ADMIN_EXPIRES_IN || '4h',        // Admin portal tokens
-    staffAccessExpiry: process.env.JWT_STAFF_EXPIRES_IN || '8h',  // Staff app access tokens
+    staffAccessExpiry: process.env.JWT_STAFF_EXPIRES_IN || '1h',  // Staff app access tokens
     refreshExpiry: '30d',
   },
 

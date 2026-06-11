@@ -1,17 +1,40 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import '../config/security_config.dart';
 
 final List<String> kPinnedCertificates = SecurityConfig.pinnedCertFingerprints;
 
 /// Shared TLS certificate pinning utility for VHHealth apps.
+///
+/// Audit finding H7 (2026-06-10): the original implementation was broken in
+/// two ways — it hashed the WHOLE certificate DER and compared the hex digest
+/// against `sha256/<base64-SPKI>` pins (so it would have rejected 100% of
+/// connections had it ever run), and it was never wired into [VHHttpClient]
+/// at all. It now:
+///
+///   * hashes the SubjectPublicKeyInfo (SPKI) — the industry-standard pin
+///     target (survives certificate renewal with the same key), matching the
+///     `openssl ... -pubkey | openssl pkey -pubin -outform DER | dgst -sha256
+///     -binary | base64` extraction documented in [SecurityConfig];
+///   * normalizes `sha256/`-prefixed base64 pins;
+///   * creates the [HttpClient] with `withTrustedRoots: false` so EVERY
+///     connection hits [HttpClient.badCertificateCallback] and the pin is the
+///     sole trust anchor — a MITM proxy with a user-installed (or even
+///     system-trusted) CA presents a different key and is rejected;
+///   * optionally restricts the client to the API host so the pinned client
+///     can never be repurposed for other origins.
+///
+/// Wire-up: `createPinnedHttpClient()` (see pinned_http_client.dart) is the
+/// default client inside `VHHttpClient` on dart:io platforms.
 class CertificatePinner {
   CertificatePinner._();
 
-  static HttpClient createSecureClient() {
-    final client = HttpClient();
-
+  static HttpClient createSecureClient({String? pinnedHost}) {
     if (!SecurityConfig.enableCertPinning) {
+      final client = HttpClient();
       if (kDebugMode) {
         debugPrint(
           'CertificatePinner: pinning DISABLED (debug/dev build). All valid certificates accepted.',
@@ -22,28 +45,35 @@ class CertificatePinner {
     }
 
     if (kPinnedCertificates.isEmpty) {
-      if (kDebugMode) {
-        debugPrint(
-          'CertificatePinner: WARNING — pinning enabled but no fingerprints configured. All connections will be REJECTED.',
-        );
-      }
+      // Fail closed: pinning enabled but unconfigured — reject everything.
+      // SecurityConfig.verifyOrWarn() (called at app startup) throws before
+      // we ever get here, so this is a second line of defence.
+      final client = HttpClient();
       client.badCertificateCallback = (cert, host, port) => false;
       return client;
     }
 
-    final normalizedPins = kPinnedCertificates
-        .map((fp) => fp.toLowerCase().replaceAll(':', ''))
-        .toSet();
+    final normalizedPins = normalizePins(kPinnedCertificates);
+
+    // No platform trust roots: every connection is forced through the
+    // badCertificateCallback below, making the SPKI pin the sole trust
+    // anchor for this client.
+    final context = SecurityContext(withTrustedRoots: false);
+    final client = HttpClient(context: context);
 
     client.badCertificateCallback =
         (X509Certificate cert, String host, int port) {
-          final fingerprint = _sha256Fingerprint(cert);
-          final matches = normalizedPins.contains(fingerprint);
+          if (pinnedHost != null &&
+              pinnedHost.isNotEmpty &&
+              host.toLowerCase() != pinnedHost.toLowerCase()) {
+            // The pinned client only ever talks to the API host.
+            return false;
+          }
+          final bool matches = certMatchesPins(cert, normalizedPins);
           if (!matches && kDebugMode) {
             debugPrint(
-              'CertificatePinner: certificate for $host:$port REJECTED.\n'
-              '  Received fingerprint: $fingerprint\n'
-              '  Pinned fingerprints:  $normalizedPins',
+              'CertificatePinner: certificate for $host:$port REJECTED '
+              '(SPKI pin mismatch).',
             );
           }
           return matches;
@@ -58,16 +88,124 @@ class CertificatePinner {
     return client;
   }
 
-  static String _sha256Fingerprint(X509Certificate cert) {
-    final derBytes = cert.der;
-    final digest = _sha256(derBytes);
-    return digest.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  /// Strips the `sha256/` prefix from each configured pin. Entries without
+  /// the prefix are kept verbatim (already-bare base64).
+  @visibleForTesting
+  static Set<String> normalizePins(List<String> pins) {
+    return pins
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .map((p) => p.startsWith('sha256/') ? p.substring('sha256/'.length) : p)
+        .toSet();
   }
 
-  static List<int> _sha256(List<int> data) {
-    final hash = _Sha256();
-    hash.update(data);
-    return hash.digest();
+  /// True when [cert]'s SPKI SHA-256 (base64) matches one of
+  /// [normalizedPins] (bare base64, no `sha256/` prefix).
+  static bool certMatchesPins(X509Certificate cert, Set<String> normalizedPins) {
+    try {
+      final spkiHash = spkiSha256Base64FromDer(
+        Uint8List.fromList(cert.der),
+      );
+      return normalizedPins.contains(spkiHash);
+    } catch (_) {
+      // Unparsable certificate ⇒ fail closed.
+      return false;
+    }
+  }
+
+  /// Computes the base64 SHA-256 of the SubjectPublicKeyInfo extracted from
+  /// a DER-encoded X.509 certificate. This matches the documented openssl
+  /// pin-extraction pipeline. Throws [FormatException] on malformed DER.
+  @visibleForTesting
+  static String spkiSha256Base64FromDer(Uint8List certDer) {
+    final spki = extractSpkiDer(certDer);
+    final hash = _Sha256()
+      ..update(spki);
+    return base64.encode(hash.digest());
+  }
+
+  /// Extracts the SubjectPublicKeyInfo TLV from a DER X.509 certificate.
+  ///
+  /// Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signature }
+  /// TBSCertificate ::= SEQUENCE {
+  ///   version [0] EXPLICIT OPTIONAL, serialNumber, signature(alg),
+  ///   issuer, validity, subject, subjectPublicKeyInfo, ... }
+  @visibleForTesting
+  static Uint8List extractSpkiDer(Uint8List der) {
+    final cert = _DerElement.parse(der, 0);
+    if (cert.tag != 0x30) {
+      throw const FormatException('Certificate: expected outer SEQUENCE');
+    }
+    final tbs = _DerElement.parse(der, cert.contentStart);
+    if (tbs.tag != 0x30) {
+      throw const FormatException('TBSCertificate: expected SEQUENCE');
+    }
+
+    var offset = tbs.contentStart;
+    final tbsEnd = tbs.contentStart + tbs.contentLength;
+
+    // Optional version, tagged [0] (0xA0).
+    var element = _DerElement.parse(der, offset);
+    if (element.tag == 0xa0) {
+      offset = element.end;
+      element = _DerElement.parse(der, offset);
+    }
+    // serialNumber (INTEGER), signature alg (SEQ), issuer (SEQ),
+    // validity (SEQ), subject (SEQ) — skip 5 elements.
+    for (var i = 0; i < 5; i++) {
+      offset = element.end;
+      if (offset >= tbsEnd) {
+        throw const FormatException('TBSCertificate: truncated before SPKI');
+      }
+      element = _DerElement.parse(der, offset);
+    }
+    // `element` is now subjectPublicKeyInfo.
+    if (element.tag != 0x30) {
+      throw const FormatException('SubjectPublicKeyInfo: expected SEQUENCE');
+    }
+    return Uint8List.sublistView(der, offset, element.end);
+  }
+}
+
+/// Minimal DER TLV reader (tag + definite-form length only — all X.509
+/// certificate fields use definite lengths).
+class _DerElement {
+  _DerElement(this.tag, this.contentStart, this.contentLength);
+
+  final int tag;
+  final int contentStart;
+  final int contentLength;
+
+  int get end => contentStart + contentLength;
+
+  static _DerElement parse(Uint8List bytes, int offset) {
+    if (offset + 2 > bytes.length) {
+      throw const FormatException('DER: truncated element header');
+    }
+    final tag = bytes[offset];
+    var lengthByte = bytes[offset + 1];
+    var contentStart = offset + 2;
+    int contentLength;
+    if (lengthByte < 0x80) {
+      contentLength = lengthByte;
+    } else {
+      final numLengthBytes = lengthByte & 0x7f;
+      if (numLengthBytes == 0 || numLengthBytes > 4) {
+        throw const FormatException('DER: unsupported length encoding');
+      }
+      if (contentStart + numLengthBytes > bytes.length) {
+        throw const FormatException('DER: truncated length');
+      }
+      contentLength = 0;
+      for (var i = 0; i < numLengthBytes; i++) {
+        contentLength = (contentLength << 8) | bytes[contentStart + i];
+      }
+      contentStart += numLengthBytes;
+    }
+    if (contentStart + contentLength > bytes.length) {
+      throw const FormatException('DER: element overruns buffer');
+    }
+    return _DerElement(tag, contentStart, contentLength);
   }
 }
 

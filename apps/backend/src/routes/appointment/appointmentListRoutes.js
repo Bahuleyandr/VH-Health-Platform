@@ -1,6 +1,8 @@
 import express from 'express';
+import { APPOINTMENT_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import * as listController from '../../controllers/appointment/appointmentListController.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import * as validators from '../../validators/appointment/appointmentQueryValidators.js';
 
@@ -22,8 +24,14 @@ router.get('/list', validators.listAppointmentsValidators, listController.listAp
 // 2026-05-09-inpatient-admission-receptionist-no-admission-queue-endpoint.
 router.get('/', validators.listAppointmentsValidators, listController.listAppointments);
 
-// Recent completed appointments for document upload pickers
-router.get('/completed/recent', listController.getRecentCompletedAppointments);
+// Recent completed appointments for document upload pickers.
+// Staff-only: returns OTHER patients' names + visit dates (audit finding H2 —
+// this was reachable by any authenticated user, including PATIENT).
+router.get(
+  '/completed/recent',
+  requireRole(...APPOINTMENT_STAFF_ROUTE_ROLES),
+  listController.getRecentCompletedAppointments
+);
 
 // Get today's appointments
 router.get('/today/list', listController.getTodayAppointments);

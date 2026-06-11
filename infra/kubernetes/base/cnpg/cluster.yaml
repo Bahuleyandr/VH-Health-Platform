@@ -121,6 +121,28 @@ spec:
         inherit: true
         replication: false
         bypassrls: false
+      # vhhealth_readonly — dashboards/exports read role. Audit finding H10
+      # (2026-06-10): the password was previously set INLINE at initdb
+      # ("set-in-sealed-secret" — a predictable literal) and never rotated.
+      # It is now sourced from the vhhealth-pg-readonly secret (SealedSecret;
+      # see readonly-credentials.sealed-secret.yaml.example) and reconciled
+      # continuously by the operator — which also ROTATES the password on
+      # existing clusters once the secret is applied. initdb only creates the
+      # role as NOLOGIN with no password (grants need it to exist).
+      - name: vhhealth_readonly
+        ensure: present
+        comment: >-
+          Read-only role for dashboards and exports. Password managed via
+          the vhhealth-pg-readonly secret — never inline in this manifest.
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        passwordSecret:
+          name: vhhealth-pg-readonly
 
   bootstrap:
     initdb:
@@ -140,8 +162,11 @@ spec:
         - "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
         - "CREATE EXTENSION IF NOT EXISTS citext;"
         - "CREATE EXTENSION IF NOT EXISTS uuid-ossp;"
-        # Create read-only role used by dashboards and exports
-        - "CREATE ROLE vhhealth_readonly WITH LOGIN PASSWORD 'set-in-sealed-secret';"
+        # Read-only role used by dashboards and exports. Created NOLOGIN and
+        # with NO password here (audit finding H10 — never set credentials
+        # inline at initdb). The managed.roles entry above flips it to LOGIN
+        # and applies the password from the vhhealth-pg-readonly secret.
+        - "CREATE ROLE vhhealth_readonly NOLOGIN;"
         - "GRANT CONNECT ON DATABASE vhhealth TO vhhealth_readonly;"
         - "GRANT USAGE ON SCHEMA public TO vhhealth_readonly;"
         - "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO vhhealth_readonly;"
@@ -193,6 +218,15 @@ spec:
         secretAccessKey:
           name: cnpg-backup-credentials
           key: SECRET_ACCESS_KEY
+      # Audit finding M13 (2026-06-10): off-site PHI backups previously had
+      # NO encryption directive — protection relied solely on Cloudflare's
+      # provider-held at-rest keys, while the DR docs claimed AES-256.
+      # `encryption: AES256` makes barman-cloud request SSE on every upload.
+      # OPERATOR: verify the FIRST backup after this change succeeds against
+      # R2 (S3-compat SSE handling differs by provider) and record the result
+      # in docs/SECURITY_HARDENING_CHECKLIST.md; if R2 rejects the SSE
+      # header, escalate — do NOT silently remove this line.
+      encryption: AES256
       wal:
         compression: gzip
         maxParallel: 8

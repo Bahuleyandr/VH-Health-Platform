@@ -30,6 +30,9 @@ async function verifyToken(token: string): Promise<TokenResult> {
     try {
       const { payload } = await jwtVerify(token, secretKey, {
         clockTolerance: 30,
+        // Explicit algorithm allowlist (audit finding M1) — first-party
+        // tokens are HS256 only.
+        algorithms: ["HS256"],
       });
       const role = typeof payload.role === "string" ? payload.role : null;
       return { valid: true, role };
@@ -73,80 +76,12 @@ function parseTokenStructure(token: string): TokenResult {
   }
 }
 
-// Routes restricted to ADMIN | SUPER_ADMIN only
-const ADMIN_ONLY_PATHS = [
-  "/dashboard/payroll",
-  "/dashboard/users",
-  "/dashboard/system-audit",
-  "/dashboard/analytics",
-  "/dashboard/settings",
-  "/dashboard/audit",
-  "/dashboard/admin-management",
-  "/dashboard/clinical-governance",
-];
-
-// Clinical AI is a control-plane surface: ADMIN/SUPER_ADMIN plus IT operators.
-const CLINICAL_AI_CONTROL_PATHS = [
-  "/dashboard/clinical-ai",
-];
-
-const CLINICAL_AI_CONTROL_ROLES = new Set([
-  "ADMIN",
-  "SUPER_ADMIN",
-  "IT",
-  "IT_ADMIN",
-  "IT_STAFF",
-  "SYSTEM_ADMIN",
-]);
-
-// Routes available to HR | ADMIN | SUPER_ADMIN
-const HR_PLUS_PATHS = [
-  "/dashboard/leave-approvals",
-  "/dashboard/incidents",
-  "/dashboard/grievances",
-  "/dashboard/staff-roster",
-  "/dashboard/attendance-audit",
-  "/dashboard/reporting",
-];
-
-const ROLE_RANK: Record<string, number> = {
-  STAFF: 0,
-  GENERAL_STAFF: 0,
-  NURSING_STAFF: 0,
-  NURSING_INCHARGE: 0,
-  OP_STAFF_NURSE: 0,
-  OP_INCHARGE: 0,
-  PHARMACY_STAFF: 0,
-  PHARMACY_INCHARGE: 0,
-  STORES_PURCHASE_INCHARGE: 0,
-  LAB_STAFF: 0,
-  RADIOLOGY_STAFF: 0,
-  HOUSEKEEPING_STAFF: 0,
-  HOUSEKEEPING_INCHARGE: 0,
-  RECEPTIONIST: 0,
-  RECEPTION_INCHARGE: 0,
-  DRIVER: 0,
-  SECURITY: 0,
-  MAINTENANCE: 0,
-  EMERGENCY_RESPONDER: 0,
-  DOCTOR: 1,
-  ANAESTHETIST: 1,
-  DUTY_DOCTOR: 1,
-  MEDICAL_SUPERINTENDENT: 1,
-  CNO: 1,
-  HR: 2,
-  HR_STAFF: 2,
-  ADMIN: 3,
-  SUPER_ADMIN: 4,
-};
-
-function matchesPath(pathname: string, restricted: string): boolean {
-  return pathname === restricted || pathname.startsWith(restricted + "/");
-}
-
-function hasClinicalAiControlRole(role: string | null): boolean {
-  return CLINICAL_AI_CONTROL_ROLES.has((role ?? "").trim().toUpperCase());
-}
+// DEFAULT-DENY route policy (audit finding H6/M8 2026-06-10): every
+// /dashboard segment must have an entry in ROUTE_POLICY; unmapped paths are
+// denied. The map, ranks, and matching live in src/lib/routePolicy.ts and a
+// CI coverage test (src/__tests__/security/route-policy-coverage.test.ts)
+// fails when a page.tsx has no policy entry.
+import { policyForPath, roleSatisfiesPolicy } from "@/lib/routePolicy";
 
 /**
  * Optional IP allowlist. Set `ADMIN_IP_ALLOWLIST` to a comma-separated list
@@ -176,13 +111,59 @@ function isIpAllowed(request: NextRequest): boolean {
   return clientIp !== "" && allowlist.includes(clientIp);
 }
 
+// ── Nonce-based CSP (audit finding M9) ──────────────────────────────────────
+// script-src previously allowed 'unsafe-inline' (next.config.ts), neutering
+// CSP as an XSS backstop. The CSP now comes from this middleware with a
+// per-request nonce + 'strict-dynamic': Next.js App Router picks the nonce up
+// from the request CSP header and stamps it on its own inline scripts.
+// 'unsafe-eval' is still present pending the Sentry/workbox eval removal
+// (staged step 2 of M9 — tracked in docs/PLATFORM_REMEDIATION_PLAN.md);
+// 'unsafe-inline' (the injection-relevant directive) is GONE.
+function buildCsp(nonce: string): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  const wsOrigin = apiUrl.replace(/^http/, "ws");
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`,
+    "style-src 'self' 'unsafe-inline'",
+    `connect-src 'self' ${apiUrl} ${wsOrigin} https://*.sentry.io https://*.ingest.sentry.io`,
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
+
+function withCsp<T extends NextResponse>(response: T, csp: string): T {
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const nonce = btoa(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`,
+  );
+  const csp = buildCsp(nonce);
+  // Forward the nonce + CSP on the REQUEST so Next.js stamps the nonce onto
+  // its framework inline scripts during render.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
+  const isProtectedSurface =
+    pathname.startsWith("/dashboard") || pathname.startsWith("/api/proxy");
+
   // ── IP allowlist (opt-in via env) ─────────────────────────────────────────
-  // Applied only to dashboard + proxy routes (the matcher below). Login is
-  // not gated here — it's covered by the /api/login CSRF origin check.
-  if (!isIpAllowed(request)) {
+  // Applied only to dashboard + proxy routes. Login is not gated here —
+  // it's covered by the /api/login CSRF origin check.
+  if (isProtectedSurface && !isIpAllowed(request)) {
     if (pathname.startsWith("/api/proxy")) {
       return NextResponse.json(
         { message: "Forbidden: IP not allowed" },
@@ -204,40 +185,27 @@ export async function middleware(request: NextRequest) {
     if (!valid) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(loginUrl);
+      return withCsp(NextResponse.redirect(loginUrl), csp);
     }
 
-    const userRank = role ? (ROLE_RANK[role] ?? -1) : -1;
+    // ── DEFAULT-DENY role gate (H6/M8) ───────────────────────────────────
+    // No policy entry ⇒ deny. The dashboard home ("" segment) is mapped to
+    // ANY_AUTHENTICATED, so the redirect target itself always resolves.
+    const policy = policyForPath(pathname);
+    if (!policy) {
+      console.warn(
+        `[middleware] DENY (no route policy entry): ${pathname} — add one to src/lib/routePolicy.ts`,
+      );
+      return withCsp(NextResponse.redirect(new URL("/dashboard", request.url)), csp);
+    }
+    if (!roleSatisfiesPolicy(role, policy)) {
+      return withCsp(NextResponse.redirect(new URL("/dashboard", request.url)), csp);
+    }
 
-    const isClinicalAiControlPath = CLINICAL_AI_CONTROL_PATHS.some((restricted) =>
-      matchesPath(pathname, restricted),
+    return withCsp(
+      NextResponse.next({ request: { headers: requestHeaders } }),
+      csp,
     );
-    if (isClinicalAiControlPath && !hasClinicalAiControlRole(role)) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
-
-    // Block STAFF/DOCTOR from HR+ paths
-    const isHRPlus = userRank >= ROLE_RANK.HR;
-    if (!isHRPlus) {
-      for (const restricted of HR_PLUS_PATHS) {
-        if (matchesPath(pathname, restricted)) {
-          return NextResponse.redirect(new URL("/dashboard", request.url));
-        }
-      }
-    }
-
-    // Block non-ADMIN from admin-only paths
-    const isAdmin = userRank >= ROLE_RANK.ADMIN;
-    if (!isAdmin) {
-      for (const restricted of ADMIN_ONLY_PATHS) {
-        if (matchesPath(pathname, restricted)) {
-          return NextResponse.redirect(new URL("/dashboard", request.url));
-        }
-      }
-    }
-
-    const response = NextResponse.next();
-    return response;
   }
 
   // ── Proxy route protection ──────────────────────────────────────────────────
@@ -251,9 +219,17 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  return withCsp(
+    NextResponse.next({ request: { headers: requestHeaders } }),
+    csp,
+  );
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/proxy/:path*"],
+  // Matches every page (for the nonce CSP) while skipping static assets;
+  // auth + IP-allowlist logic above remains scoped to /dashboard and
+  // /api/proxy inside the handler.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|gif|ico|webp|woff2?)$).*)",
+  ],
 };

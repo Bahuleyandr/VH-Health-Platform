@@ -3,6 +3,7 @@ import { USER_CONFIG } from '../../config/userConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { encryptColumn, searchableHash } from '../../services/security/phiColumnEncryption.js';
 
@@ -183,7 +184,7 @@ export class UserService {
         // Phase E3 follow-up — write the *_encrypted shadow columns.
         await writePhiShadows(updatedUser.id, data);
 
-        logger.info(`User profile updated: ${phone} by ${createdBy}`);
+        logger.info(`User profile updated: ${maskPhoneForLog(phone)} by ${createdBy}`);
         return { user: mapUserSummary(updatedUser), isNew: false };
       }
 
@@ -201,7 +202,7 @@ export class UserService {
       // Phase E3 follow-up — write encrypted shadows + phone_search_hash.
       await writePhiShadows(createdUser.id, { ...data, phone }, { isCreate: true });
 
-      logger.info(`New user created: ${phone} by ${createdBy}`);
+      logger.info(`New user created: ${maskPhoneForLog(phone)} by ${createdBy}`);
       return { user: mapUserSummary(createdUser), isNew: true };
     } catch (error) {
       logger.error('Create/Update Profile Error:', error);

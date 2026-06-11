@@ -16,8 +16,11 @@ GitHub secret, roll the deployment, THEN revoke the old credential.
 - [ ] `API_KEY` + per-client `API_KEY_PATIENT/STAFF/ADMIN` — rotate and
       ship with app config (release builds read from dart-defines).
 - [ ] Database passwords: `vhhealth` (CNPG app secret), `vhhealth_readonly`
-      (was a literal in postInitApplicationSQL — verify it was changed),
-      `qa_writer` (dev-only, local).
+      (2026-06-11: manifest fixed — now CNPG-managed via the
+      `vhhealth-pg-readonly` SealedSecret, audit finding H10. ROTATION on
+      every already-bootstrapped cluster still required — steps in
+      `docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md` §1), `qa_writer`
+      (dev-only, local).
 - [ ] Cloudflare R2 keys (`CF_R2_*` + `cnpg-backup-credentials`).
 - [ ] Firebase service account JSON; Twilio auth token; SMTP creds;
       `SENTRY_DSN` (rotate if it ever appeared in logs).
@@ -35,11 +38,12 @@ Already in place (verify, don't rebuild): image build+SBOM+scan+sign in
 `release-images.yml`, CodeQL, gitleaks, npm audit gates, ArgoCD pinned
 digests in `overlays/prod/kustomization.yaml`.
 
-- [ ] **Signature verification at admission**: today images are signed but
-      the cluster does not VERIFY. Options (pick one, ticket it):
-      sigstore policy-controller, or Kyverno `verifyImages` on the
-      `vhhealth` namespace, keyed to the GitHub OIDC identity of
-      `release-images.yml`.
+- [ ] **Signature verification at admission** (2026-06-11: option CHOSEN and
+      policy WRITTEN — Kyverno `verifyImages` keyed to the release workflows'
+      GitHub OIDC identity, at
+      `infra/kubernetes/base/image-policy/kyverno-verify-images.yaml`.
+      Remaining: install Kyverno, enable the resource, flip Audit→Enforce —
+      steps in `docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md` §6).
 - [ ] **Pen test**: commission an external test before pilot go-live.
       Scope: public surface (api.vhhealth.app via Cloudflare Tunnel),
       auth flows (OTP, staff login, refresh rotation, MFA), IDOR sweep on

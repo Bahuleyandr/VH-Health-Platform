@@ -39,7 +39,13 @@ if (!process.env.JWT_SECRET) {
 
 // Get the JWT_SECRET after attempting to load it
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+// Default access-token TTL (audit finding L1, 2026-06-10): was '7d', which
+// meant a stolen/revoked token stayed honourable for a week (and M2's old
+// fail-open made that worse). Both patient and staff clients refresh
+// transparently via /auth/refresh-token (single-flight in VHHttpClient), so
+// short access tokens cost nothing. Override with JWT_EXPIRES_IN only for
+// breakglass.
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
 // If still no JWT_SECRET, crash on startup — never use a hardcoded fallback
 if (!JWT_SECRET) {
@@ -86,7 +92,10 @@ export function generateToken(payload, expiresIn) {
 export function verifyToken(token) {
   verifyToken.lastError = null;
   try {
-    return jwt.verify(token, JWT_SECRET);
+    // Explicit algorithm allowlist (audit finding M1): without it, adding
+    // any RS/ES/JWKS verification path later opens the classic
+    // alg-confusion hole. All first-party tokens are HS256.
+    return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
   } catch (error) {
     verifyToken.lastError = error.name; // 'TokenExpiredError' | 'JsonWebTokenError' | 'NotBeforeError'
     logger.error('❌ JWT Verification Failed:', error.message || error);
@@ -135,7 +144,8 @@ export function issueSetupToken(admin) {
  */
 export function verifyTokenAllowExpired(token) {
   try {
-    return jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+    // Algorithm allowlist — see verifyToken (audit finding M1).
+    return jwt.verify(token, JWT_SECRET, { ignoreExpiration: true, algorithms: ['HS256'] });
   } catch (error) {
     logger.error('❌ JWT signature verification failed:', error.message || error);
     return null;

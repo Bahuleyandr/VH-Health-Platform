@@ -39,6 +39,12 @@ async function cleanup() {
 
 d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   beforeAll(async () => {
+    // This suite delivers to a local http.Server on 127.0.0.1, which the H4
+    // SSRF guard (utils/ssrfGuard.js) correctly blocks by default. The
+    // test-only escape hatch below disables the private-address checks; it
+    // is hard-refused in production. The guard's own coverage lives in
+    // hl7-ssrf-guard.test.js (which keeps this var unset).
+    process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS = 'true';
     await cleanup();
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (phone, name, role, is_active, gender, birthday, updated_at)
@@ -66,6 +72,7 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   });
 
   afterAll(async () => {
+    delete process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS;
     await cleanup();
     await new Promise((resolve) => { server.close(resolve); });
     await prisma.$disconnect();

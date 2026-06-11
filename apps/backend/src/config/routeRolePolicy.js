@@ -131,6 +131,35 @@ export const PATIENT_REGISTRY_WRITE_ROUTE_ROLES = mergeRoles(
   ]),
 );
 
+// /api/v1/appointments mount-level gate (audit finding H2 2026-06-10: the
+// router previously relied on a dead wrapAutoRBAC call and had NO role gate,
+// so any authenticated user could reach cross-patient list/admin surfaces).
+// PATIENT is included at the mount because booking / own-appointment reads are
+// patient-facing; staff-only and admin-only sub-routes re-narrow below.
+// Billing/diagnostics/pharmacy are included because the appointment list is a
+// declared read surface for them (APPOINTMENT_CONFIG.PERMISSIONS.VIEW_ALL and
+// the role access matrix both grant appointments:read to billing desk, lab,
+// and pharmacy staff); controller-level permission checks re-narrow further.
+export const APPOINTMENT_ROUTE_ROLES = mergeRoles(
+  getRolesForCapabilityGroups([
+    'op_flow',
+    'ip_flow',
+    'nursing_governance',
+    'emergency',
+    'billing',
+    'diagnostics',
+    'pharmacy',
+  ]),
+  rolesFrom(['PATIENT', 'CMO', 'MEDICAL_SUPERINTENDENT', 'CNO', 'MEDICAL_RECORDS']),
+);
+
+// Staff-only appointment surfaces (cross-patient reads: /pending,
+// /completed/recent, queue boards). Everything in the mount set EXCEPT
+// PATIENT — a patient must never read other patients' appointment data.
+export const APPOINTMENT_STAFF_ROUTE_ROLES = APPOINTMENT_ROUTE_ROLES.filter(
+  (role) => role !== 'PATIENT',
+);
+
 export const PHARMACY_ORDER_ROUTE_ROLES = mergeRoles(
   PHARMACY_ROUTE_ROLES,
   getRolesForCapabilityGroups(['ip_flow', 'op_flow']),

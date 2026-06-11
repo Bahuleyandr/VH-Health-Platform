@@ -4,7 +4,7 @@
 # with --build-arg NEXT_PUBLIC_API_URL set so the browser-side bundle has
 # the correct backend URL baked in. Reachable at
 # https://dalekdefender.hippocampus-monitor.ts.net:8445 via Tailscale serve
-# proxying the NodePort.
+# proxying a localhost-only host proxy to the ClusterIP service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,15 +13,13 @@ metadata:
   labels:
     app.kubernetes.io/name: vhhealth-admin
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/name: vhhealth-admin
   ports:
     - name: http
       port: 3001
       targetPort: 3001
-      # Khata frontend = 30080, vhhealth-backend = 30090, admin = 30091.
-      nodePort: 30091
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -42,10 +40,21 @@ spec:
       labels:
         app.kubernetes.io/name: vhhealth-admin
     spec:
+      # Audit finding M17: restricted-profile securityContext (was absent).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: admin
           image: vhhealth-admin:dev
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 3001

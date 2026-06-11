@@ -3,24 +3,8 @@ import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from 'next';
 import type { Configuration as WebpackConfig } from 'webpack';
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.vhhealth.app';
 const uploadSentrySourceMaps =
   process.env.SENTRY_UPLOAD_SOURCE_MAPS === 'true';
-
-function toWebSocketOrigin(url: string) {
-  try {
-    const parsed = new URL(url);
-    parsed.protocol = parsed.protocol === 'http:' ? 'ws:' : 'wss:';
-    parsed.pathname = '';
-    parsed.search = '';
-    parsed.hash = '';
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    if (url.startsWith('http://')) return url.replace(/^http:\/\//, 'ws://');
-    if (url.startsWith('https://')) return url.replace(/^https:\/\//, 'wss://');
-    return url;
-  }
-}
 
 const nextConfig: NextConfig = {
   // output: 'standalone' — DO NOT enable on Vercel; use only for self-hosted Docker/Node deployments
@@ -43,10 +27,11 @@ const nextConfig: NextConfig = {
 
   async headers() {
     const allowedOrigin = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
-    const webSocketOrigin = toWebSocketOrigin(apiUrl);
-    // unsafe-eval is required in production by Sentry SDK and workbox (PWA service worker)
-    // Removing it causes EvalError in prod. It was mistakenly blocked in prod only.
-    const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+    // Audit finding M9: the Content-Security-Policy is now emitted by
+    // src/middleware.ts with a per-request nonce + 'strict-dynamic' and NO
+    // 'unsafe-inline'. Keeping a second static CSP here would make browsers
+    // enforce the INTERSECTION of both policies and defeat the nonce, so
+    // this file intentionally no longer sets one.
     return [
       {
         source: '/api/proxy/:path*',
@@ -70,22 +55,6 @@ const nextConfig: NextConfig = {
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          {
-            key: 'Content-Security-Policy',
-            value: [
-              "default-src 'self'",
-              scriptSrc,
-              "style-src 'self' 'unsafe-inline'",
-              `connect-src 'self' ${apiUrl} ${webSocketOrigin} https://*.sentry.io https://*.ingest.sentry.io`,
-              "img-src 'self' data: blob:",
-              "font-src 'self' data:",
-              "worker-src 'self' blob:",
-              "child-src 'self' blob:",
-              "frame-ancestors 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-            ].join('; '),
-          },
           { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
         ],
       },

@@ -25,10 +25,19 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
+    <!-- allowBackup/fullBackupContent/dataExtractionRules (audit finding H9):
+         the clinical EMR app previously omitted android:allowBackup, which
+         DEFAULTS TO TRUE — `adb backup` on a ward/kiosk device could extract
+         the app data dir including the secure-storage blob and the
+         recent-patients cache. Mirrors the patient app's hardening. -->
     <application
         android:label="VH Health Staff"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"

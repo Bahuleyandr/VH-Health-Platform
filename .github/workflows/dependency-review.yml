@@ -1,0 +1,27 @@
+name: Dependency Review
+
+# Phase-3 hardening (2026-06-10 remediation plan): blocks PRs that introduce
+# dependencies with known HIGH/CRITICAL vulnerabilities. Complements the
+# blocking `npm audit` in the Forgejo security sweep — this gate runs on the
+# GitHub merge path itself.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Dependency review (blocking on high severity)
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

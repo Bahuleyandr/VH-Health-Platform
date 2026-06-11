@@ -1,34 +1,43 @@
 name: Deploy dalekdefender
 
 # Auto-deploy backend + admin to the dalekdefender single-node k3s test rig
-# whenever a relevant change lands on main. Triggered by changes to the
-# backend or admin source, the dalekdefender overlay, or the Dockerfiles.
+# whenever a relevant change lands on main.
 #
-# Motivation: the vh-health-swarm runs continuously against dalekdefender.
-# When main moves ahead but dalekdefender stays behind, the swarm re-files
-# findings for bugs that have already been fixed upstream. The 2026-05-15→16
-# tick burst was 73% stale-by-existing-code purely because of this lag.
-# Auto-deploying on every main push closes the gap and improves the
-# signal-to-noise ratio on swarm findings.
+# ── Security rework (audit finding H12, 2026-06-10) ─────────────────────────
+# The previous version of this workflow SSHed to the host and ran
+# `git reset --hard` + a local docker build + `k3s ctr images import` +
+# `kubectl set image` with passwordless sudo, and imperatively patched
+# kubernetes Secrets (Sentry DSNs). That meant: unsigned, unscanned images
+# under a mutable tag, code execution on a privileged host from any push to
+# main, and secret material flowing through CI logs/processes.
 #
-# Architecture:
-#   GHA runner → Tailscale OAuth ephemeral node → ssh dalekdefender →
-#   git pull + docker build + k3s ctr import + kubectl rollout restart.
+# This version routes through the same controls as release-images.yml:
+#   1. Build BOTH images on the GitHub runner (standard Dockerfiles).
+#   2. Push to GHCR under an immutable `dalek-<sha>` tag.
+#   3. Trivy scan (blocking on fixable CRITICAL/HIGH) + keyless cosign sign,
+#      then cosign VERIFY the registry copy against this workflow's OIDC
+#      identity before anything is deployed.
+#   4. The SSH step only pins the deployments to the verified @sha256 digest
+#      and waits for rollout — no git, no on-host build, no secret patching.
 #
-# The dalekdefender host runs the heavy work; the GHA runner only
-# coordinates and times out. Build time is ~3 min for backend, ~5 min for
-# admin (Next.js), so the full deploy completes in under 10 min.
+# Secrets management: the rig's SENTRY_DSN / NEXT_PUBLIC_SENTRY_DSN now live
+# solely in the overlay-managed Secrets (operator-applied, SealedSecret
+# preferred); this workflow never writes Secrets. The admin DSN is baked at
+# build time from the GH secret like every other NEXT_PUBLIC_* value.
 #
-# Required secrets:
-#   - TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET: Tailscale OAuth client granting
-#     the runner an ephemeral node under tag:gha-deploy. Configure
-#     in https://login.tailscale.com/admin/settings/oauth.
-#   - DALEKDEFENDER_SSH_KEY: PEM-formatted private key. Public half goes
-#     into ~/.ssh/authorized_keys on dalekdefender for the deploy user.
+# OPERATOR ACTIONS still required (cannot be done from this repo):
+#   - k3s on dalekdefender must be able to pull from GHCR: add a read-only
+#     token in /etc/rancher/k3s/registries.yaml (or make the packages public).
+#   - Narrow /etc/sudoers.d on the host: the deploy user now needs ONLY
+#     `kubectl set image`, `kubectl set env`, `kubectl rollout status`
+#     (no docker, no k3s ctr).
+#   - Restrict the Tailscale ACL so tag:gha-deploy can reach dalekdefender:22
+#     and nothing else.
+#   - Confirm no real PHI lives on this rig; keep it firewalled from
+#     anything resembling production data.
 #
-# Required Tailscale ACL: tag:gha-deploy must be allowed to SSH the
-# dalekdefender device. Example ACL fragment:
-#   {"action": "accept", "src": ["tag:gha-deploy"], "dst": ["dalekdefender:22"]}
+# Required secrets: TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET, DALEKDEFENDER_SSH_KEY,
+# SENTRY_DSN_ADMIN (optional, baked into the admin build).
 
 on:
   push:
@@ -45,12 +54,128 @@ concurrency:
   group: deploy-dalekdefender
   cancel-in-progress: false
 
+permissions:
+  id-token: write   # cosign keyless signing via OIDC
+  packages: write   # push dalek-<sha> images to ghcr.io
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  COSIGN_YES: "true"
+
 jobs:
+  build-sign-scan:
+    name: Build, scan, sign dalek images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      backend-image: ${{ steps.images.outputs.backend }}
+      backend-digest: ${{ steps.build-backend.outputs.digest }}
+      admin-image: ${{ steps.images.outputs.admin }}
+      admin-digest: ${{ steps.build-admin.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image names
+        id: images
+        run: |
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "backend=${REGISTRY}/${owner_lc}/vh-health-platform-backend" >> "$GITHUB_OUTPUT"
+          echo "admin=${REGISTRY}/${owner_lc}/vh-health-platform-adminportal" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push backend image (dalek-<sha>)
+        id: build-backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.images.outputs.backend }}:dalek-${{ github.sha }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=dalek-backend
+          cache-to: type=gha,scope=dalek-backend,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Build and push admin image (dalek-<sha>)
+        id: build-admin
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/admin
+          file: ./apps/admin/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.images.outputs.admin }}:dalek-${{ github.sha }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.SENTRY_DSN_ADMIN }}
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender
+            NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }}
+            NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1
+            NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=0
+            NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=0
+          cache-from: type=gha,scope=dalek-admin
+          cache-to: type=gha,scope=dalek-admin,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
+        with:
+          version: v0.70.0
+          cache: true
+
+      - name: Scan images with Trivy (blocking)
+        env:
+          BACKEND_REF: ${{ steps.images.outputs.backend }}@${{ steps.build-backend.outputs.digest }}
+          ADMIN_REF: ${{ steps.images.outputs.admin }}@${{ steps.build-admin.outputs.digest }}
+        run: |
+          mkdir -p .cache/trivy
+          for ref in "$BACKEND_REF" "$ADMIN_REF"; do
+            trivy image \
+              --platform linux/amd64 \
+              --scanners vuln \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --vuln-type os,library \
+              --cache-dir .cache/trivy \
+              "$ref"
+          done
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4
+
+      - name: Sign images (keyless via OIDC)
+        env:
+          BACKEND_REF: ${{ steps.images.outputs.backend }}@${{ steps.build-backend.outputs.digest }}
+          ADMIN_REF: ${{ steps.images.outputs.admin }}@${{ steps.build-admin.outputs.digest }}
+        run: |
+          cosign sign --yes "$BACKEND_REF"
+          cosign sign --yes "$ADMIN_REF"
+
   deploy:
+    name: Pin verified digests on dalekdefender
+    needs: build-sign-scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Probe deploy prerequisites
+        id: prereq
         run: |
           missing=()
           if [ -z "${{ secrets.TS_OAUTH_CLIENT_ID }}" ]; then missing+=(TS_OAUTH_CLIENT_ID); fi
@@ -61,7 +186,23 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-        id: prereq
+
+      - name: Install cosign
+        if: steps.prereq.outputs.skip != 'true'
+        uses: sigstore/cosign-installer@v4
+
+      - name: Verify image signatures before deploy
+        if: steps.prereq.outputs.skip != 'true'
+        env:
+          BACKEND_REF: ${{ needs.build-sign-scan.outputs.backend-image }}@${{ needs.build-sign-scan.outputs.backend-digest }}
+          ADMIN_REF: ${{ needs.build-sign-scan.outputs.admin-image }}@${{ needs.build-sign-scan.outputs.admin-digest }}
+        run: |
+          for ref in "$BACKEND_REF" "$ADMIN_REF"; do
+            cosign verify \
+              --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/deploy-dalekdefender\.yml@.*$" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$ref"
+          done
 
       - name: Tailscale connect
         if: steps.prereq.outputs.skip != 'true'
@@ -78,112 +219,35 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
 
-      - name: Drive rebuild + rollout on dalekdefender
+      - name: Pin deployments to verified digests
         if: steps.prereq.outputs.skip != 'true'
         env:
-          # Tailscale SSH is active on dalekdefender — it intercepts port 22
-          # connections and tries to map them onto a local user. The runner's
-          # default OS user is `runner`, which doesn't exist on dalekdefender.
-          # Specify the host user explicitly so Tailscale SSH accepts.
-          # `bahuleyan` owns ~/VH-Health-Platform and the sudo-no-password
-          # entries for docker/kubectl used by the deploy commands.
+          # Tailscale SSH maps the connection onto a host user; `bahuleyan`
+          # holds the (now kubectl-only) sudoers entries for the deploy.
           DALEK_HOST: bahuleyan@dalekdefender
-          SENTRY_DSN_BACKEND: ${{ secrets.SENTRY_DSN_BACKEND }}
-          SENTRY_DSN_ADMIN: ${{ secrets.SENTRY_DSN_ADMIN }}
+          BACKEND_REF: ${{ needs.build-sign-scan.outputs.backend-image }}@${{ needs.build-sign-scan.outputs.backend-digest }}
+          ADMIN_REF: ${{ needs.build-sign-scan.outputs.admin-image }}@${{ needs.build-sign-scan.outputs.admin-digest }}
+          GIT_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          SENTRY_DSN_BACKEND_B64="$(printf '%s' "${SENTRY_DSN_BACKEND:-}" | base64 -w0)"
-          SENTRY_DSN_ADMIN_B64="$(printf '%s' "${SENTRY_DSN_ADMIN:-}" | base64 -w0)"
           ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
               "$DALEK_HOST" \
-              "SENTRY_DSN_BACKEND_B64='$SENTRY_DSN_BACKEND_B64' SENTRY_DSN_ADMIN_B64='$SENTRY_DSN_ADMIN_B64' bash -s" <<'REMOTE'
+              "BACKEND_REF='$BACKEND_REF' ADMIN_REF='$ADMIN_REF' GIT_COMMIT='$GIT_COMMIT' bash -s" <<'REMOTE'
           set -euo pipefail
-
-          cd ~/VH-Health-Platform
-
-          # Drop any local working-tree drift (Dockerfile.dalek is generated
-          # below; package-lock.json sometimes drifts from `npm install`
-          # during prior manual builds). Safe — main is the source of truth.
-          git checkout -- . 2>/dev/null || true
-          git clean -fd apps/backend/Dockerfile.dalek apps/admin/Dockerfile.dalek 2>/dev/null || true
-
-          git fetch origin main
-          git checkout main
-          git reset --hard origin/main
-
-          # Stamp the deployed commit into the build so the swarm's
-          # live-recheck can read it back from /health/version.
-          GIT_COMMIT=$(git rev-parse HEAD)
-          GIT_TAG=$(git rev-parse --short=12 HEAD)
-          BACKEND_IMAGE="vhhealth-backend:${GIT_TAG}"
-          ADMIN_IMAGE="vhhealth-admin:${GIT_TAG}"
-          echo "Deploying commit $GIT_COMMIT"
-
-          ADMIN_SENTRY_DSN=""
-          if [ -n "${SENTRY_DSN_BACKEND_B64:-}" ]; then
-            sudo -n kubectl -n vhhealth patch secret vhhealth-backend \
-              --type merge \
-              -p "{\"data\":{\"SENTRY_DSN\":\"${SENTRY_DSN_BACKEND_B64}\"}}"
-          fi
-          if [ -n "${SENTRY_DSN_ADMIN_B64:-}" ]; then
-            sudo -n kubectl -n vhhealth patch secret vhhealth-admin \
-              --type merge \
-              -p "{\"data\":{\"NEXT_PUBLIC_SENTRY_DSN\":\"${SENTRY_DSN_ADMIN_B64}\"}}"
-            ADMIN_SENTRY_DSN="$(printf '%s' "$SENTRY_DSN_ADMIN_B64" | base64 -d)"
-          fi
-          if [ -z "$ADMIN_SENTRY_DSN" ]; then
-            ADMIN_SENTRY_DSN="$(
-              sudo -n kubectl -n vhhealth get secret vhhealth-admin \
-                -o jsonpath='{.data.NEXT_PUBLIC_SENTRY_DSN}' 2>/dev/null \
-                | base64 -d 2>/dev/null || true
-            )"
-          fi
-
-          # Generate the Dockerfile.dalek variants — the upstream
-          # Dockerfiles include an `apk add curl` + HEALTHCHECK step
-          # that hangs on this host's docker DNS; strip them. k8s
-          # probes do their own HTTP check anyway.
-          for app in backend admin; do
-            cd ~/VH-Health-Platform/apps/$app
-            sed '/apk add --no-cache curl/d; /HEALTHCHECK/,/CMD curl/d' Dockerfile > Dockerfile.dalek
-          done
-
-          # Build + import backend image.
-          cd ~/VH-Health-Platform/apps/backend
-          sudo -n docker build \
-            -t "$BACKEND_IMAGE" \
-            --build-arg GIT_COMMIT="$GIT_COMMIT" \
-            -f Dockerfile.dalek .
-          sudo -n docker save "$BACKEND_IMAGE" | sudo -n k3s ctr images import -
-
-          # Build + import admin image.
-          cd ~/VH-Health-Platform/apps/admin
-          sudo -n docker build \
-            -t "$ADMIN_IMAGE" \
-            --build-arg NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444 \
-            --build-arg NEXT_PUBLIC_SENTRY_DSN="$ADMIN_SENTRY_DSN" \
-            --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
-            --build-arg NEXT_PUBLIC_SENTRY_RELEASE="$GIT_COMMIT" \
-            --build-arg NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1 \
-            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=0 \
-            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=0 \
-            --build-arg GIT_COMMIT="$GIT_COMMIT" \
-            -f Dockerfile.dalek .
-          sudo -n docker save "$ADMIN_IMAGE" | sudo -n k3s ctr images import -
-
-          # Roll both deployments + wait for readiness.
-          sudo -n kubectl -n vhhealth set image deploy/vhhealth-backend backend="$BACKEND_IMAGE"
-          sudo -n kubectl -n vhhealth set image deploy/vhhealth-admin admin="$ADMIN_IMAGE"
-          sudo -n kubectl -n vhhealth set env deploy/vhhealth-backend GIT_COMMIT="$GIT_COMMIT"
-          sudo -n kubectl -n vhhealth set env deploy/vhhealth-admin GIT_COMMIT="$GIT_COMMIT"
+          # Digest-pinned, signature-verified images only. No git checkout,
+          # no on-host build, no secret writes (H12). containerd pulls the
+          # digests from GHCR via /etc/rancher/k3s/registries.yaml creds.
+          sudo -n kubectl -n vhhealth set image deploy/vhhealth-backend backend="$BACKEND_REF"
+          sudo -n kubectl -n vhhealth set image deploy/vhhealth-admin admin="$ADMIN_REF"
           sudo -n kubectl -n vhhealth set env deploy/vhhealth-backend \
+            GIT_COMMIT="$GIT_COMMIT" \
             SENTRY_ENVIRONMENT=dalekdefender \
             SENTRY_TRACES_SAMPLE_RATE=0.1
           sudo -n kubectl -n vhhealth set env deploy/vhhealth-admin \
+            GIT_COMMIT="$GIT_COMMIT" \
             NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
             NEXT_PUBLIC_SENTRY_RELEASE="$GIT_COMMIT"
           sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-backend --timeout=300s
           sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-admin --timeout=300s
-
-          echo "Deploy complete: commit $GIT_COMMIT live on dalekdefender."
+          echo "Deploy complete: commit $GIT_COMMIT live on dalekdefender (digest-pinned)."
           REMOTE

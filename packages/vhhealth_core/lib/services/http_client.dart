@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/api_response.dart';
 import 'auth_service.dart';
+import 'pinned_http_client.dart';
 
 /// Production-grade HTTP client for all VHHealth backend API calls.
 ///
@@ -46,7 +47,12 @@ class VHHttpClient {
   static String? Function()? deviceTypeProvider;
 
   // ── Injectable HTTP client (for tests) ─────────────────────────────────
-  static http.Client _client = http.Client();
+  // Default: the SPKI-pinned production client (audit finding H7 — the
+  // pinner existed but was never wired in; all traffic went through a plain
+  // http.Client). createPinnedHttpClient() returns a plain client in dev
+  // builds and on web; in --dart-define=PRODUCTION=true mobile builds it is
+  // an IOClient pinned to CERT_PIN_HASHES and restricted to the API host.
+  static http.Client _client = createPinnedHttpClient();
 
   /// Replace the internal [http.Client] with a mock for testing.
   /// Always pair with [resetClientForTesting] in tearDown.
@@ -55,10 +61,10 @@ class VHHttpClient {
     _client = client;
   }
 
-  /// Restore the default [http.Client]. Call in test tearDown.
+  /// Restore the default (pinned) client. Call in test tearDown.
   @visibleForTesting
   static void resetClientForTesting() {
-    _client = http.Client();
+    _client = createPinnedHttpClient();
   }
 
   // ── Convenience HTTP methods ──────────────────────────────────────────

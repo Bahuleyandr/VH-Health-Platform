@@ -33,7 +33,7 @@ import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart'
-    show RealtimeProvider, VHHttpClient;
+    show RealtimeProvider, SecurityConfig, VHHttpClient;
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 /// Background FCM handler for Code Blue data messages. Must be a top-level
@@ -60,6 +60,10 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fail fast on misconfigured production builds (audit finding H7): throws
+  // when PRODUCTION=true but CERT_PIN_HASHES is missing/malformed, so an
+  // unpinned clinical build can never ship.
+  SecurityConfig.verifyOrWarn();
   VHHttpClient.deviceTypeProvider = () => currentDeviceType;
 
   // One-screen patient summary (roadmap E5): the global patient search

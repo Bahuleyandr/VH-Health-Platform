@@ -7,6 +7,7 @@
 import { ORDER_STATUS, ORDER_STATUS_TRANSITIONS } from '../../config/pharmacyConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { emitPharmacyOrderEvent } from '../clinical/canonicalOperationalBridgeService.js';
 
@@ -81,7 +82,7 @@ export const createOrder = async (orderData) => {
       priority, status, prescribed_by, delivery_type, ordered_at, updated_at
   `;
 
-  logger.info(`Pharmacy order created: ${order[0].id} for ${phone}`);
+  logger.info(`Pharmacy order created: ${order[0].id} for ${maskPhoneForLog(phone)}`);
   await emitPharmacyOrderEvent({
     order: order[0],
     actorUid: requestedBy,

@@ -5,6 +5,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, issueSetupToken, verifyToken, verifyTokenAllowExpired } from '../../utils/jwtUtils.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -113,7 +114,7 @@ export class AuthService {
       });
 
       if (isNewUser) {
-        logger.info(`New user registered: ${normalizedPhone}`);
+        logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
       }
 
       const token = generateToken({
@@ -1119,7 +1120,7 @@ export class AuthService {
       });
 
       if (isNewUser) {
-        logger.info(`New user registered: ${normalizedPhone}`);
+        logger.info(`New user registered: ${maskPhoneForLog(normalizedPhone)}`);
       }
 
       const token = generateToken({

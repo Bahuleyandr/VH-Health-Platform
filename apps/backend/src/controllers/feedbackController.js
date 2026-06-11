@@ -3,6 +3,7 @@
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 import feedbackService from '../services/feedback/feedbackService.js';
 import { resolveDoctorFilterId } from '../services/doctor/doctorRefService.js';
 import prisma from '../lib/prisma.js';
@@ -283,7 +284,7 @@ export async function submitFeedbackEnhanced(req, res) {
       anonymous, improvement_suggestions
     });
 
-    logger.info(`Feedback submitted: ${phone} rated ${rating}/5 (${category}) by ${req.user?.name || 'system'}`);
+    logger.info(`Feedback submitted: ${maskPhoneForLog(phone)} rated ${rating}/5 (${category}) by ${req.user?.name || 'system'}`);
 
     success(res, {
       feedbackId: feedback.id,
@@ -324,7 +325,7 @@ export async function submitQuickRating(req, res) {
       appointment_id
     });
 
-    logger.info(`Quick rating submitted: ${normalizedPhone} rated ${rating}/5 by ${req.user?.name || 'system'}`);
+    logger.info(`Quick rating submitted: ${maskPhoneForLog(normalizedPhone)} rated ${rating}/5 by ${req.user?.name || 'system'}`);
 
     success(res, {
       ...result,

@@ -5,6 +5,7 @@ import { Router } from 'express';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
+import { maskPhoneForLog } from '../utils/logMasking.js';
 const router = Router();
 
 /**
@@ -56,7 +57,7 @@ router.get('/my-data', async (req, res) => {
     };
 
     // Audit log
-    logger.info(`📦 Data export requested by user ${uid} (${phone})`);
+    logger.info(`📦 Data export requested by user ${uid} (${maskPhoneForLog(phone)})`);
 
     res.setHeader('Content-Disposition', `attachment; filename="patient-data-${uid}.json"`);
     res.setHeader('Content-Type', 'application/json');
@@ -128,7 +129,7 @@ router.delete('/my-data', async (req, res) => {
       }
     }
 
-    logger.info(`🗑️ Data deletion requested by user ${uid} (${phone}) — soft-deleted across ${results.length} tables`);
+    logger.info(`🗑️ Data deletion requested by user ${uid} (${maskPhoneForLog(phone)}) — soft-deleted across ${results.length} tables`);
 
     return res.json({
       message: 'Your data has been marked for deletion. It will be retained for the legally required period before permanent removal.',

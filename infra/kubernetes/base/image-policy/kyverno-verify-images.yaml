@@ -1,0 +1,60 @@
+# image-policy/kyverno-verify-images.yaml — admission-time signature checks
+#
+# Audit finding M16 (2026-06-10): images were cosign-signed by the release
+# pipeline but NEVER verified anywhere — ArgoCD `signatureKeys` was an empty
+# placeholder (and is a GPG-commit feature anyway, not an image check), so a
+# registry compromise or a manual `kubectl set image` would run unsigned code
+# next to PHI. This Kyverno ClusterPolicy verifies keyless-cosign signatures
+# at admission, keyed to the GitHub-OIDC identities of the ONLY two workflows
+# allowed to publish runnable images:
+#   - .github/workflows/release-images.yml      (signed releases)
+#   - .github/workflows/deploy-dalekdefender.yml (test-rig deploys)
+#
+# PREREQUISITE (operator): install Kyverno ≥ 1.12 first —
+#   kubectl create ns kyverno
+#   kubectl apply -f https://github.com/kyverno/kyverno/releases/download/v1.12.5/install.yaml
+# then add `- image-policy` to base/kustomization.yaml resources. The policy
+# starts in Audit mode; flip validationFailureAction to Enforce after one
+# clean sync (see docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md §6).
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-vhhealth-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify VH Health image signatures
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Requires keyless cosign signatures (GitHub Actions OIDC) on all VH
+      Health application images before pods are admitted (audit finding M16).
+spec:
+  # Start in Audit; operator flips to Enforce after verifying a clean sync.
+  validationFailureAction: Audit
+  webhookTimeoutSeconds: 30
+  failurePolicy: Fail
+  rules:
+    - name: verify-app-image-signatures
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [vhhealth, vhhealth-platform]
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/bahuleyandr/vh-health-platform-backend*"
+            - "ghcr.io/bahuleyandr/vh-health-platform-adminportal*"
+            - "ghcr.io/bahuleyandr/vhhealth-staff-web*"
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subjectRegExp: "^https://github\\.com/Bahuleyandr/VH-Health-Platform/\\.github/workflows/(release-images|deploy-dalekdefender)\\.yml@.*$"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          # Resolve tags to digests at admission so what was verified is
+          # exactly what runs (complements the H11 digest pinning).
+          mutateDigest: true
+          verifyDigest: true
+          required: true

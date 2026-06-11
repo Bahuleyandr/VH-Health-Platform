@@ -1,6 +1,14 @@
 # Orthanc — on-prem DICOM store + DICOMweb + modality worklists (roadmap B4).
 # LAN-only by design: no Ingress here. Modalities speak DICOM to :4242;
 # OHIF + backend speak DICOMweb to :8042.
+#
+# Audit finding M18 (2026-06-10) — hardened before first enable:
+#   * RegisteredUsers no longer ships as a literal in this ConfigMap; the
+#     credentials come from the `orthanc-users` Secret (SealedSecret — see
+#     registered-users.sealed-secret.yaml.example) via ORTHANC__REGISTERED_USERS.
+#   * Pod runs non-root with a restricted securityContext (was root, none).
+#   * Default-deny NetworkPolicy: only the backend (DICOMweb, :8042) and the
+#     modality VLAN (DICOM, :4242 — fill in the real CIDR) may connect.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -18,7 +26,6 @@ data:
       "HttpPort": 8042,
       "RemoteAccessAllowed": true,
       "AuthenticationEnabled": true,
-      "RegisteredUsers": { "vhhealth": "CHANGE-ME-sealed-secret" },
       "DicomWeb": { "Enable": true, "Root": "/dicom-web/" },
       "Worklists": { "Enable": true, "Database": "/var/lib/orthanc/worklists" },
       "StableAge": 60,
@@ -47,11 +54,33 @@ spec:
         app.kubernetes.io/name: orthanc
         app.kubernetes.io/part-of: vhhealth-pacs
     spec:
+      # M18: non-root + restricted profile. The orthancteam image supports
+      # arbitrary UIDs as long as the volumes are group-writable (fsGroup).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: orthanc
           # Pin + verify digest at enable time (same supply-chain rule as
           # the platform images; see SECURITY_HARDENING_CHECKLIST.md).
           image: orthancteam/orthanc:24.10.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # M18: credentials sourced from the orthanc-users Secret
+            # (SealedSecret), never from the ConfigMap. Orthanc env-var
+            # configuration (ORTHANC__X) overrides orthanc.json keys.
+            - name: ORTHANC__REGISTERED_USERS
+              valueFrom:
+                secretKeyRef:
+                  name: orthanc-users
+                  key: registered_users_json
           ports:
             - name: dicom
               containerPort: 4242
@@ -110,3 +139,41 @@ spec:
     - name: http
       port: 8042
       targetPort: http
+---
+# M18: default-deny ingress for the PACS pod; explicitly allow ONLY
+#   * DICOMweb (:8042) from the vhhealth backend pods, and
+#   * DICOM (:4242) from the imaging-modality VLAN.
+# OPERATOR: replace the placeholder CIDR with the real modality VLAN before
+# enabling, and confirm the CNI enforces NetworkPolicies on this cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orthanc-ingress
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - port: 8042
+          protocol: TCP
+    - from:
+        # PLACEHOLDER — imaging modality VLAN. MUST be narrowed to the real
+        # CIDR (e.g. 10.30.40.0/24) before this manifest is enabled.
+        - ipBlock:
+            cidr: 192.0.2.0/24
+      ports:
+        - port: 4242
+          protocol: TCP

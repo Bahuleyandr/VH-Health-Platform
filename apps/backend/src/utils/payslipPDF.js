@@ -1,6 +1,23 @@
 // src/utils/payslipPDF.js
 // PDFKit-based payslip generator
+import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
+
+// Unambiguous alphabet (no 0/O, 1/l/I) — the password is typed by hand.
+const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+
+/**
+ * Random per-document PDF password (audit finding M6 — the old password was
+ * the staff member's DOB as DDMMYYYY: ~8 digits, guessable from HR data and
+ * brute-forceable). 12 chars over a 55-symbol alphabet ≈ 69 bits of entropy.
+ */
+export function generatePayslipPassword(length = 12) {
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += PASSWORD_ALPHABET[crypto.randomInt(PASSWORD_ALPHABET.length)];
+  }
+  return out;
+}
 
 function getMonthName(m) {
   return ['January','February','March','April','May','June','July','August','September','October','November','December'][m - 1];
@@ -24,32 +41,31 @@ function numberToWords(n) {
 }
 
 /**
- * Generate a PDF payslip buffer.
+ * Generate a PDF payslip.
+ *
+ * Audit finding M6 (2026-06-10): the user password was previously derived
+ * from the staff member's DOB (`DDMMYYYY` — guessable + brute-forceable) and
+ * the owner password fell back to a HARDCODED constant. Now:
+ *   - the user password is ALWAYS a fresh random per-document password
+ *     (returned to the caller for out-of-band delivery — never store it
+ *     beside the PDF);
+ *   - the owner password comes from PDF_OWNER_PASSWORD, or fails closed to
+ *     a random throwaway (owner permissions become unrecoverable rather
+ *     than protected by a known constant).
+ *
  * @param {Object} payslipData - from calculatePayslip()
- * @param {Object} staffDetails - { name, role, department, birthday, dob }
- * @returns {Promise<Buffer>}
+ * @param {Object} staffDetails - { name, role, department }
+ * @returns {Promise<{buffer: Buffer, userPassword: string}>}
  */
 export async function generatePayslipPDF(payslipData, staffDetails) {
-  // Determine password from DOB (birthday field in users table, or dob from staff_salary)
-  const dobRaw = staffDetails?.birthday || staffDetails?.dob || null;
-  let pdfPassword = null;
-  if (dobRaw) {
-    const dob = new Date(dobRaw);
-    if (!isNaN(dob.getTime())) {
-      const dd = String(dob.getDate()).padStart(2, '0');
-      const mm = String(dob.getMonth() + 1).padStart(2, '0');
-      const yyyy = dob.getFullYear();
-      pdfPassword = `${dd}${mm}${yyyy}`;
-    }
-  }
+  const pdfPassword = generatePayslipPassword();
+  const ownerPassword = process.env.PDF_OWNER_PASSWORD || generatePayslipPassword(24);
 
-  return new Promise((resolve, reject) => {
+  const buffer = await new Promise((resolve, reject) => {
     const doc = new PDFDocument({
-      ...(pdfPassword && {
-        userPassword: pdfPassword,
-        ownerPassword: process.env.PDF_OWNER_PASSWORD || 'VHHealth@Admin2026',
-        permissions: { printing: 'highResolution', modifying: false, copying: false, annotating: false }
-      }),
+      userPassword: pdfPassword,
+      ownerPassword,
+      permissions: { printing: 'highResolution', modifying: false, copying: false, annotating: false },
       margins: { top: 40, bottom: 40, left: 40, right: 40 },
       size: 'A4',
     });
@@ -245,11 +261,11 @@ export async function generatePayslipPDF(payslipData, staffDetails) {
     doc.fillColor('#888').fontSize(7).font('Helvetica')
       .text('This is a computer-generated payslip and does not require a signature.', leftX, footerY + 6, { align: 'center', width: pageWidth })
       .text(`Generated on: ${new Date().toLocaleDateString('en-IN')} | ${getMonthName(payslipData.month)} ${payslipData.year} | Venkataeswara Hospitals`, leftX, footerY + 16, { align: 'center', width: pageWidth });
-    if (pdfPassword) {
-      doc.fillColor('#007A64').fontSize(7).font('Helvetica-Bold')
-        .text('This payslip is password-protected. Password: your date of birth in DDMMYYYY format.', leftX, footerY + 26, { align: 'center', width: pageWidth });
-    }
+    doc.fillColor('#007A64').fontSize(7).font('Helvetica-Bold')
+      .text('This payslip is password-protected. Your one-time password was sent to you in the VH Health staff app.', leftX, footerY + 26, { align: 'center', width: pageWidth });
 
     doc.end();
   });
+
+  return { buffer, userPassword: pdfPassword };
 }

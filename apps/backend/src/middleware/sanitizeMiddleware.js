@@ -1,7 +1,7 @@
 // src/middleware/sanitizeMiddleware.js - P1 Security: Stored XSS prevention
 // Sanitizes user-provided text fields before they reach controllers/services.
 
-import { sanitizeFields } from '../utils/sanitize.js';
+import { deepSanitizeStrings, sanitizeFields } from '../utils/sanitize.js';
 
 /**
  * Creates middleware that sanitizes specified fields in req.body.
@@ -15,6 +15,21 @@ export function sanitizeBody(...fields) {
     }
     next();
   };
+}
+
+/**
+ * Deep sanitizer for clinical free-text mounts (audit finding M7): strips
+ * HTML from EVERY string in req.body (recursively), instead of relying on
+ * per-route opt-in field lists that covered only a fraction of the clinical
+ * documentation surface. Credential/signature-like keys are skipped — see
+ * utils/sanitize.js. Mounted in app.js on the clinical documentation routers
+ * (notes, diagnoses, assessments, discharge, ICU, theatre, maternity, ...).
+ */
+export function sanitizeAllBodyStrings(req, _res, next) {
+  if (req.body && typeof req.body === 'object') {
+    deepSanitizeStrings(req.body);
+  }
+  next();
 }
 
 // Pre-configured sanitizers for specific domains

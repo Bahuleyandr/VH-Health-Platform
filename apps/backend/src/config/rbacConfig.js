@@ -56,6 +56,10 @@ export default {
   adminDoctorRoutes: [ADMIN],
   adminUserRoutes: [ADMIN],
   adminAppointmentRoutes: [ADMIN],
+  // Key used by routes/appointment/appointmentAdminRoutes.js wrapAutoRBAC.
+  // It was previously MISSING here, so `rbacConfig[configKey] || []` resolved
+  // to [] and the wrapper attached no role check (audit finding H2).
+  appointmentAdminRoutes: [ADMIN],
   adminNotificationRoutes: [ADMIN],
   adminRecordRoutes: [ADMIN],
   adminInvestigationRoutes: [ADMIN],

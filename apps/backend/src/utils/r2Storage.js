@@ -54,9 +54,18 @@ const PUBLIC_BASE_URL = process.env.STORAGE_PUBLIC_BASE_URL
   || process.env.PUBLIC_BASE_URL
   || 'http://localhost:5000';
 
-// Token-signing secret. Reuses JWT_SECRET so we don't add another env var.
+// Token-signing secret (audit finding L3, 2026-06-10): previously this
+// REUSED JWT_SECRET verbatim, coupling the auth and storage trust domains —
+// a leak of either secret compromised both. Now:
+//   * STORAGE_TOKEN_SECRET env wins when set (full domain separation);
+//   * otherwise an HKDF-style sub-key is derived from JWT_SECRET with a
+//     fixed domain-separation label, so storage tokens can never be replayed
+//     as JWTs (and vice versa) even without new env plumbing.
 // Validated at first signed-URL request — startup doesn't crash without it.
-const TOKEN_SECRET = process.env.JWT_SECRET;
+const TOKEN_SECRET = process.env.STORAGE_TOKEN_SECRET
+  || (process.env.JWT_SECRET
+    ? crypto.createHmac('sha256', process.env.JWT_SECRET).update('vhhealth-storage-token-v1').digest('hex')
+    : undefined);
 
 if (R2_AVAILABLE) {
   logger.info('✅ R2 storage configured');

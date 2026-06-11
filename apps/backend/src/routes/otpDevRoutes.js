@@ -6,6 +6,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 import { OTPService } from '../services/otpService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -131,7 +132,7 @@ if (isDevelopment) {
 
       const sessionId = result[0]?.session_id || 'dev-session';
 
-      logger.info(`🧪 [DEV] Test OTP generated for ${normalizedPhone}: ${otpCode}`);
+      logger.info(`🧪 [DEV] Test OTP generated for ${maskPhoneForLog(normalizedPhone)}: ${otpCode}`);
 
       success(res, {
         phone: normalizedPhone,
@@ -168,7 +169,7 @@ if (isDevelopment) {
       const verificationResult = await OTPService.verifyOTP(normalizedPhone, otp);
 
       if (verificationResult.verified) {
-        logger.info(`🧪 [DEV] Test OTP verified for ${normalizedPhone}`);
+        logger.info(`🧪 [DEV] Test OTP verified for ${maskPhoneForLog(normalizedPhone)}`);
         
         success(res, {
           verified: true,
@@ -184,7 +185,7 @@ if (isDevelopment) {
         }, 'Test OTP verification successful');
 
       } else {
-        logger.warn(`🧪 [DEV] Test OTP verification failed for ${normalizedPhone}: ${verificationResult.error}`);
+        logger.warn(`🧪 [DEV] Test OTP verification failed for ${maskPhoneForLog(normalizedPhone)}: ${verificationResult.error}`);
         
         error(res, verificationResult.error || 'Invalid or expired OTP', HTTP_STATUS.BAD_REQUEST, {
           verified: false,
@@ -219,7 +220,7 @@ if (isDevelopment) {
         WHERE phone = $1
       `, normalizedPhone);
 
-      logger.info(`🧪 [DEV] Cleared ${result.length} OTP records for ${normalizedPhone}`);
+      logger.info(`🧪 [DEV] Cleared ${result.length} OTP records for ${maskPhoneForLog(normalizedPhone)}`);
 
       success(res, {
         phone: normalizedPhone,

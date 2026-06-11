@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../logMasking.js';
 import { sendAppointmentReminderSMS } from '../../services/smsService.js';
 import { sendStaffNotifications } from '../../services/notification/staffNotificationService.js';
 import { sendPushNotification } from './sendPushNotification.js';
@@ -255,7 +256,7 @@ async function sendAppointmentRemindersInner() {
 
       try {
         await sendPushNotification(notification.token, notification.title, notification.body, notification.data);
-        logger.info(`✅ Reminder sent to ${appt.phone}`);
+        logger.info(`✅ Reminder sent to ${maskPhoneForLog(appt.phone)}`);
 
         // Store as in-app notification
         await prisma.$queryRawUnsafe(
@@ -264,7 +265,7 @@ async function sendAppointmentRemindersInner() {
           appt.phone, notification.title, notification.body, 'reminder'
         );
       } catch (err) {
-        logger.error(`❌ Failed to send reminder to ${appt.phone}: ${err.message}`);
+        logger.error(`❌ Failed to send reminder to ${maskPhoneForLog(appt.phone)}: ${err.message}`);
       }
     }
   } catch (err) {

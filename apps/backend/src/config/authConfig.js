@@ -7,7 +7,8 @@ import { HTTP_STATUS } from './responseCodes.js'; // Or the correct path
 export const AUTH_CONFIG = {
   jwt: {
     secret: process.env.JWT_SECRET,
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    // Audit finding L1: short access tokens (was '7d') + 30d rotating refresh.
+    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
     algorithm: 'HS256'
   },

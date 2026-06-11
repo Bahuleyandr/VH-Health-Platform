@@ -15,6 +15,22 @@ import logger from '../logging/logger.js';
 const BLACKLIST_PREFIX = 'blacklist:';
 
 /**
+ * Thrown when NO revocation store could answer (Redis unavailable AND DB
+ * errored). Audit finding M2 (2026-06-10): these checks previously returned
+ * `false` (accept) in that case, so a revoked / force-logged-out token was
+ * honoured for its full ≤7-day life during any store blip. Callers
+ * (jwtMiddleware) must fail CLOSED on this error — deny with 503 + alert.
+ */
+export class RevocationCheckUnavailableError extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.name = 'RevocationCheckUnavailableError';
+    this.code = 'REVOCATION_CHECK_UNAVAILABLE';
+    this.cause = cause;
+  }
+}
+
+/**
  * Blacklist a token by its jti. Sets Redis key with TTL, and persists to DB.
  * @param {string} jti - JWT ID to blacklist
  * @param {number} expiresAt - Token expiry as Unix timestamp (seconds)
@@ -77,13 +93,17 @@ export async function isTokenBlacklisted(jti) {
     );
     return result.length > 0;
   } catch (err) {
-    // If both Redis and DB fail, allow the token (fail-open for availability)
-    // Security tradeoff: prefer availability over blocking legitimate users
-    logger.error('Token blacklist check failed (both Redis and DB)', {
+    // FAIL CLOSED (audit finding M2): neither store could answer, so we
+    // cannot prove the token wasn't revoked. The caller turns this into a
+    // 503 — "I can't tell if this is allowed" means "deny" on a PHI system.
+    logger.error('Token blacklist check failed (both Redis and DB) — failing CLOSED', {
       error: err?.message,
       code: err?.code,
     });
-    return false;
+    throw new RevocationCheckUnavailableError(
+      'Token revocation store unreachable (Redis and DB both failed)',
+      err,
+    );
   }
 }
 
@@ -128,13 +148,15 @@ export async function revokeAllUserTokens(userId) {
 export async function isUserTokensRevoked(userId, tokenIssuedAt) {
   if (!userId) return false;
 
+  let redisAnswered = false;
   try {
     const result = await cacheGet(`${BLACKLIST_PREFIX}user:${userId}`);
+    redisAnswered = isRedisConnected();
     if (result && result.revokedAt && result.revokedAt > tokenIssuedAt) {
       return true;
     }
   } catch {
-    // Fall through to DB
+    redisAnswered = false; // fall through to DB
   }
 
   try {
@@ -152,8 +174,23 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
     if (result.length > 0) {
       return true;
     }
-  } catch {
-    // Fail-open
+  } catch (err) {
+    // A clean Redis miss is authoritative (revoke-all always writes Redis
+    // with a 30-day TTL ≥ max token lifetime); a DB error alone is then
+    // tolerable. But if NEITHER store answered, fail CLOSED (audit M2).
+    if (!redisAnswered) {
+      logger.error('Revoke-all check failed (both Redis and DB) — failing CLOSED', {
+        error: err?.message,
+        code: err?.code,
+      });
+      throw new RevocationCheckUnavailableError(
+        'User token-revocation store unreachable (Redis and DB both failed)',
+        err,
+      );
+    }
+    logger.warn('Revoke-all DB check failed; trusting clean Redis answer', {
+      error: err?.message,
+    });
   }
 
   return false;

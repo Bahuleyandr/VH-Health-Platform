@@ -7,6 +7,7 @@ import {
 } from '../../config/rolePolicyGraph.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { isGovernanceSchemaMissing } from './schemaMissingGuard.js';
 import { normalizeRole } from '../../utils/roles.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import {
@@ -213,10 +214,10 @@ function denyDecision(args, reason, extras = {}) {
   });
 }
 
+// Audit finding M3: exact-SQLSTATE + non-production-only skip (see
+// schemaMissingGuard.js) — never the /does not exist/i message regex.
 function isSchemaMissing(err) {
-  return err?.code === '42P01'
-    || err?.meta?.code === '42P01'
-    || /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+  return isGovernanceSchemaMissing(err);
 }
 
 export function shouldSkipStaffAccessCheckError(err) {

@@ -6,10 +6,14 @@
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
     </domain-config>
+    <!-- System CAs only (audit finding H8): user-installed CAs were
+         previously re-trusted here, letting any proxy/MDM/malicious CA MITM
+         all PHI traffic on this clinical app. Do NOT re-add
+         <certificates src="user"/>. App-layer SPKI pinning
+         (CertificatePinner, finding H7) is the second control. -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system"/>
-            <certificates src="user"/>
         </trust-anchors>
     </base-config>
 </network-security-config>

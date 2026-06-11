@@ -14,7 +14,13 @@ export 'services/crash_reporter.dart';
 export 'services/device_integrity_service.dart';
 export 'services/device_trust_service.dart';
 export 'services/http_client.dart';
-export 'services/message_crypto.dart';
+// NOTE (audit finding M12, 2026-06-10): services/message_crypto.dart
+// (X25519+HKDF+AES-GCM "E2E" helper) was DELETED — it was never wired into
+// the patient↔hospital messaging path, so it only created a false assurance
+// that "secure messages" were end-to-end encrypted (they are server-side
+// plaintext over TLS). If product later wants true E2E messaging, recover
+// the module from git history and wire it in with a real key-distribution
+// design — do not re-export it unwired.
 export 'services/mtls_client_service.dart';
 export 'services/realtime_client.dart';
 export 'services/realtime_provider.dart';

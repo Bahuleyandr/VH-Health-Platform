@@ -87,8 +87,12 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
       return next();
     } catch (err) {
       if (shouldSkipAccessCheckError(err)) {
-        logger.warn('Patient access guard skipped because governance tables are not migrated', {
+        // M3: only reachable outside production with a verified 42P01.
+        // Alert at error level — a skipped PHI access check must never be
+        // background noise.
+        logger.error('SECURITY ALERT: patient access guard SKIPPED (governance table missing, non-prod)', {
           path: req.originalUrl || req.url,
+          sqlError: err?.message,
         });
         return next();
       }
@@ -143,9 +147,11 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
       return next();
     } catch (err) {
       if (shouldSkipAccessCheckError(err)) {
-        logger.warn('Patient resource access guard skipped because governance tables are not migrated', {
+        // M3: only reachable outside production with a verified 42P01.
+        logger.error('SECURITY ALERT: patient resource access guard SKIPPED (governance table missing, non-prod)', {
           path: req.originalUrl || req.url,
           resourceType,
+          sqlError: err?.message,
         });
         return next();
       }

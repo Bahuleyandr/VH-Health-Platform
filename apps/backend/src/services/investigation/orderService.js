@@ -13,6 +13,7 @@ import {
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 async function bestEffortInvestigationCanonical(label, input) {
@@ -388,7 +389,7 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
     },
   }).catch((err) => logger.warn(`legacy investigation notification failed: ${err.message}`));
 
-  logger.info(`Legacy investigation created: ${test_name} for ${phone}`);
+  logger.info(`Legacy investigation created: ${test_name} for ${maskPhoneForLog(phone)}`);
   return investigation;
 };
 

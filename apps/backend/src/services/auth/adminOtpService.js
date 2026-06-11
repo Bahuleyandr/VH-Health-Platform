@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { OTP_CONFIG } from '../../config/otpConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import * as otpService from './otpService.js';
@@ -214,7 +215,7 @@ export const forceSendOtp = async (phone, purpose, reason, bypassLimits, adminUi
   // Log the admin action
   await otpService.logActivity(normalizedPhone, purpose, 'admin_force_send', true, reason, req);
   
-  logger.info(`📨 Admin force-sent OTP for ${normalizedPhone} - Reason: ${reason}`);
+  logger.info(`📨 Admin force-sent OTP for ${maskPhoneForLog(normalizedPhone)} - Reason: ${reason}`);
   
   return {
     phone: normalizedPhone,
@@ -344,7 +345,7 @@ export const revokeOtp = async (phone, purpose, reason, adminUid, _req) => {
     [normalizedPhone_, purpose],
   );
   const revokedCount = result.rowCount || 0;
-  logger.info(`🔒 Admin revoked ${revokedCount} OTP sessions for ${normalizedPhone_} (${purpose}) - Reason: ${reason}`);
+  logger.info(`🔒 Admin revoked ${revokedCount} OTP sessions for ${maskPhoneForLog(normalizedPhone_)} (${purpose}) - Reason: ${reason}`);
   return {
     phone: normalizedPhone_,
     purpose,

@@ -368,16 +368,26 @@ export const runPayroll = async (req, res) => {
           });
         }
 
-        // Generate and upload PDF
+        // Generate and upload PDF. The PDF is locked with a RANDOM
+        // per-document password (audit finding M6 — previously DOB-derived
+        // and brute-forceable) delivered out-of-band via the staff member's
+        // in-app notification channel; it is never stored beside the PDF.
         if (generatePayslipPDF) {
           try {
-            const pdfBuf = await generatePayslipPDF(calc, staff);
+            const { buffer: pdfBuf, userPassword } = await generatePayslipPDF(calc, staff);
             const pdfKey = `payroll/${year}/${String(month).padStart(2, '0')}/payslip_${staff.staff_uid}_${year}_${String(month).padStart(2, '0')}.pdf`;
             await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
             await prisma.payslips.update({
               where: { id: saved.id },
               data: { pdf_key: pdfKey, pdf_generated_at: new Date() },
               select: { id: true },
+            });
+            await dispatch({
+              userId: staff.staff_uid,
+              title: `Payslip ${String(month).padStart(2, '0')}/${year} ready`,
+              body: `Your payslip PDF is ready. Open it with this one-time password: ${userPassword}`,
+              channels: ['inapp'],
+              type: 'payslip_password',
             });
           } catch (pdfErr) {
             logger.warn(`PDF generation failed for staff ${staff.staff_uid}: ${pdfErr.message}`);
@@ -457,13 +467,21 @@ export const issuePayslips = async (req, res) => {
       for (const p of editedPayslips) {
         try {
           const staffRes = await prisma.$queryRawUnsafe('SELECT uid, name, email, phone, role, department, employee_id FROM users WHERE uid=$1', p.staff_uid);
-          const pdfBuf = await generatePayslipPDF(p, staffRes[0] || {});
+          // Random per-document password, delivered out-of-band (M6).
+          const { buffer: pdfBuf, userPassword } = await generatePayslipPDF(p, staffRes[0] || {});
           const pdfKey = `payroll/${year}/${String(month).padStart(2,'0')}/payslip_${p.staff_uid}_${year}_${String(month).padStart(2,'0')}.pdf`;
           await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
           await prisma.payslips.update({
             where: { id: p.id },
             data: { pdf_key: pdfKey, pdf_generated_at: new Date() },
             select: { id: true },
+          });
+          await dispatch({
+            userId: p.staff_uid,
+            title: `Payslip ${String(month).padStart(2, '0')}/${year} ready`,
+            body: `Your payslip PDF is ready. Open it with this one-time password: ${userPassword}`,
+            channels: ['inapp'],
+            type: 'payslip_password',
           });
         } catch (pdfErr) {
           logger.warn(`PDF regen failed for payslip ${p.id}: ${pdfErr.message}`);

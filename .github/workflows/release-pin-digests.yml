@@ -1,0 +1,54 @@
+name: Pin prod image digests
+
+# GitOps write-back for audit finding H11: after a signed release image is
+# published (release-images.yml on a backend-v* / admin-v* / staff-web-v*
+# tag), resolve the new tag to its immutable sha256 digest and commit it into
+# infra/kubernetes/apps/kustomization.yaml (the tree the ArgoCD `apps`
+# Application syncs). Prod never tracks a mutable tag.
+
+on:
+  workflow_run:
+    workflows: ["Release Container Images"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  pin-digests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only act on successful runs that were triggered by a release tag.
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'backend-v') ||
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'admin-v') ||
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'staff-web-v')
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Resolve digest and update overlay
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          node scripts/update-prod-digests.mjs --tag "$RELEASE_TAG"
+
+      - name: Commit digest bump
+        env:
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if git diff --quiet; then
+            echo "No digest change — overlay already pinned to this release."
+            exit 0
+          fi
+          git config user.name "vh-digest-bot"
+          git config user.email "noreply@vhhealth.app"
+          git add infra/kubernetes/apps/kustomization.yaml
+          git commit -m "chore(prod): pin ${RELEASE_TAG} image digest (H11 GitOps write-back)"
+          git push origin main

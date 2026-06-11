@@ -2,7 +2,11 @@
 import logger from '../logging/logger.js';
 import prisma from '../lib/prisma.js';
 import { verifyToken } from '../utils/jwtUtils.js';
-import { isTokenBlacklisted, isUserTokensRevoked } from '../utils/tokenBlacklist.js';
+import {
+  isTokenBlacklisted,
+  isUserTokensRevoked,
+  RevocationCheckUnavailableError,
+} from '../utils/tokenBlacklist.js';
 
 // Process-local memo for the uid→users.id fallback below. The mapping is
 // stable for the lifetime of a uid (users.id is never reassigned), so
@@ -93,31 +97,47 @@ export default async function jwtMiddleware(req, res, next) {
     });
   }
 
-  // Check token blacklist (jti-based revocation)
-  if (decoded.jti) {
-    const blacklisted = await isTokenBlacklisted(decoded.jti);
-    if (blacklisted) {
-      logger.warn(`JWT denied: token ${decoded.jti} is blacklisted`);
-      return res.status(401).json({
-        success: false,
-        error: 'Token has been revoked',
-        code: 'TOKEN_REVOKED'
-      });
+  // Check token blacklist (jti-based revocation) + revoke-all. FAIL CLOSED
+  // (audit finding M2): when no revocation store can answer, deny with 503
+  // instead of honouring a possibly-revoked token.
+  try {
+    if (decoded.jti) {
+      const blacklisted = await isTokenBlacklisted(decoded.jti);
+      if (blacklisted) {
+        logger.warn(`JWT denied: token ${decoded.jti} is blacklisted`);
+        return res.status(401).json({
+          success: false,
+          error: 'Token has been revoked',
+          code: 'TOKEN_REVOKED'
+        });
+      }
     }
-  }
 
-  // Check if all user tokens were revoked (force-logout)
-  const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
-  if (uid && decoded.iat) {
-    const revoked = await isUserTokensRevoked(String(uid), decoded.iat);
-    if (revoked) {
-      logger.warn(`JWT denied: all tokens revoked for user ${uid}`);
-      return res.status(401).json({
+    // Check if all user tokens were revoked (force-logout)
+    const uid = decoded.uid ?? decoded.user_id ?? decoded.userId ?? decoded.sub ?? decoded.id;
+    if (uid && decoded.iat) {
+      const revoked = await isUserTokensRevoked(String(uid), decoded.iat);
+      if (revoked) {
+        logger.warn(`JWT denied: all tokens revoked for user ${uid}`);
+        return res.status(401).json({
+          success: false,
+          error: 'All sessions have been revoked. Please log in again.',
+          code: 'TOKEN_REVOKED'
+        });
+      }
+    }
+  } catch (err) {
+    if (err instanceof RevocationCheckUnavailableError) {
+      logger.error('JWT denied (fail closed): revocation stores unreachable', {
+        error: err.message,
+      });
+      return res.status(503).json({
         success: false,
-        error: 'All sessions have been revoked. Please log in again.',
-        code: 'TOKEN_REVOKED'
+        error: 'Authentication service temporarily unavailable. Please retry.',
+        code: 'REVOCATION_CHECK_UNAVAILABLE',
       });
     }
+    throw err;
   }
 
   const hasura = getHasuraClaims(decoded);

@@ -2,6 +2,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { sendSMS } from '../../services/smsService.js';
 import { sendPushNotification } from './sendPushNotification.js';
 import { NotificationTemplates } from './templates.js';
@@ -49,7 +50,7 @@ export async function sendInvestigationNotifications() {
         if (row.phone) {
           try {
             await sendSMS(row.phone, message);
-            logger.info(`📱 SMS sent for investigation ID ${row.id} to ${row.phone}`);
+            logger.info(`📱 SMS sent for investigation ID ${row.id} to ${maskPhoneForLog(row.phone)}`);
           } catch (smsErr) {
             logger.error(`❌ SMS failed for investigation ${row.id}: ${smsErr.message}`);
           }

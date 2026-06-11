@@ -111,6 +111,7 @@
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
     "qrcode": "^1.5.4",
+    "sanitize-html": "^2.17.5",
     "sharp": "^0.34.5",
     "source-map-support": "^0.5.21",
     "swagger-ui-express": "^5.0.1",

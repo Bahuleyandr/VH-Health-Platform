@@ -33,17 +33,49 @@ export function requireConsent(consentType) {
         });
       }
 
-      // Query for active consent (granted = true, not revoked)
+      // ── Ownership check (audit finding M4) ─────────────────────────────
+      // Consent EXISTENCE is not AUTHORIZATION: the patient uid comes
+      // straight from params/body/query, so without this check any PATIENT
+      // could probe other patients' data on routes that rely on
+      // requireConsent for scoping (IDOR). A PATIENT may only act on their
+      // own record (jwtMiddleware's acting-as hop already rewrites req.user
+      // to the dependent for guardian flows). Staff roles pass — their
+      // access is governed by the route's requireRole + patientAccessGuard.
+      const callerRole = String(req.user?.role || '').toUpperCase();
+      if (callerRole === 'PATIENT' && String(req.user?.uid) !== String(patientUid)) {
+        logger.warn('Consent check denied: PATIENT requested another patient uid', {
+          path: req.originalUrl || req.url,
+        });
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+        });
+      }
+
+      // Tenant scoping (audit finding M4): the consent row must belong to
+      // the caller's tenant — a consent in another hospital must never
+      // authorize access here.
+      const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId;
+      if (!tenantId) {
+        logger.error('Consent check failed closed: no tenant context on request');
+        return res.status(403).json({
+          success: false,
+          message: 'Tenant context required for consent verification',
+        });
+      }
+
+      // Query for active consent (granted = true, not revoked, same tenant)
       const result = await prisma.$queryRawUnsafe(
         `SELECT id, consent_type, granted, granted_at
          FROM patient_consents
          WHERE patient_uid = $1
            AND consent_type = $2
+           AND tenant_id = $3::uuid
            AND granted = true
            AND revoked_at IS NULL
          ORDER BY granted_at DESC
          LIMIT 1`,
-        patientUid, consentType
+        patientUid, consentType, tenantId
       );
 
       const userId = normalizeAuditLogUserId(

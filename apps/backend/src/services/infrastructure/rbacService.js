@@ -1,6 +1,7 @@
 // services/infrastructure/rbacService.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import {
   ROLE_HIERARCHY,
@@ -345,7 +346,7 @@ export class RBACService {
       });
 
       if (!result.unchanged) {
-        logger.info(`🔄 Role changed: ${normalizedPhone} from ${result.oldRole} to ${result.newRole} by ${adminInfo.uid}`);
+        logger.info(`🔄 Role changed: ${maskPhoneForLog(normalizedPhone)} from ${result.oldRole} to ${result.newRole} by ${adminInfo.uid}`);
       }
       return result;
     } catch (error) {
@@ -587,7 +588,7 @@ export class RBACService {
         return row;
       });
 
-      logger.info(`🔒 User account ${action}ed: ${normalizedPhone} by admin ${adminInfo.uid}`);
+      logger.info(`🔒 User account ${action}ed: ${maskPhoneForLog(normalizedPhone)} by admin ${adminInfo.uid}`);
 
       return {
         phone: normalizedPhone,

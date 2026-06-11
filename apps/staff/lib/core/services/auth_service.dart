@@ -95,11 +95,17 @@ class AuthService {
     throw Exception(response.message ?? 'Login failed');
   }
 
-  /// Staff PIN login
+  /// Staff PIN login.
+  ///
+  /// Audit finding M5: PIN login is bound to a registered device — the
+  /// backend rejects PIN attempts without the deviceToken issued at
+  /// /register-device (code PIN_DEVICE_NOT_REGISTERED). Callers should fall
+  /// back to password login when no device token is stored.
   static Future<Map<String, dynamic>> pinLogin({
     required String employeeId,
     required String pin,
   }) async {
+    final deviceToken = await getDeviceToken();
     final response = await ApiClient.post(
       '/auth/staff/login-pin',
       auth: false,
@@ -107,6 +113,7 @@ class AuthService {
         'employeeId': employeeId,
         'pin': pin,
         'deviceType': currentDeviceType,
+        'deviceToken': ?deviceToken,
       },
     );
 

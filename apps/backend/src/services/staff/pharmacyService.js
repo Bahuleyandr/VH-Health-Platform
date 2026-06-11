@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { emitPharmacyOrderEvent } from '../clinical/canonicalOperationalBridgeService.js';
 
 export const updatePharmacyOrderStatus = async (data) => {
@@ -88,7 +89,7 @@ export const updatePharmacyOrderStatus = async (data) => {
     
   );
 
-  logger.info(`💊 Pharmacy order ${order_id} updated to ${status} by ${updatedByName} for patient ${phone}`);
+  logger.info(`💊 Pharmacy order ${order_id} updated to ${status} by ${updatedByName} for patient ${maskPhoneForLog(phone)}`);
 
   return {
     order: {

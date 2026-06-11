@@ -52,6 +52,48 @@ void main() {
       expect(await RecentPatientsService.getAll(), isEmpty);
     });
 
+    test(
+      'stores entries in secure storage, never plaintext SharedPreferences (M10)',
+      () async {
+        RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
+        await RecentPatientsService.add('patient-a', 'Alice');
+
+        // The cache is readable through the service…
+        final recents = await RecentPatientsService.getAll();
+        expect(recents.map((entry) => entry['uid']), ['patient-a']);
+
+        // …but NOTHING about it lands in plaintext SharedPreferences.
+        final prefs = await SharedPreferences.getInstance();
+        final phiKeys = prefs
+            .getKeys()
+            .where((k) => k.startsWith('recent_patients'))
+            .toList();
+        expect(phiKeys, isEmpty);
+      },
+    );
+
+    test(
+      'migrating wipes pre-existing plaintext recents on first write (M10)',
+      () async {
+        // Simulate an upgraded install that still has the old plaintext cache.
+        SharedPreferences.setMockInitialValues({
+          'recent_patients:staff:staff-a': jsonEncode([
+            {'uid': 'old-plaintext-patient', 'name': 'Old'},
+          ]),
+          'recent_patients_keys': ['recent_patients:staff:staff-a'],
+        });
+
+        RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
+        await RecentPatientsService.add('patient-a', 'Alice');
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getKeys().where((k) => k.startsWith('recent_patients')),
+          isEmpty,
+        );
+      },
+    );
+
     test('logout cleanup removes scoped and legacy recent caches', () async {
       RecentPatientsService.debugStaffIdentityOverride = 'staff-a';
       await RecentPatientsService.add('patient-a', 'Alice');

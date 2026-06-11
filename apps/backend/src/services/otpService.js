@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { OTP_CONFIG } from '../config/otpConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import { maskPhoneForLog } from '../utils/logMasking.js';
 
 export class OTPService {
   static generateOTP(length = OTP_CONFIG.length) {
@@ -118,7 +119,7 @@ export class OTPService {
       });
     } catch (err) {
       logger.warn('OTP log fallback:', err.message);
-      logger.info(`[OTP_LOG] ${phone} | ${purpose} | ${action} | ${success ? 'SUCCESS' : 'FAIL'} | ${failureReason || ''}`);
+      logger.info(`[OTP_LOG] ${maskPhoneForLog(phone)} | ${purpose} | ${action} | ${success ? 'SUCCESS' : 'FAIL'} | ${failureReason || ''}`);
     }
   }
 
