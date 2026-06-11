@@ -13,12 +13,14 @@ RUN npx prisma generate
 # ---- Production Stage ----
 FROM ${NODE_IMAGE} AS production
 
-RUN apk add --no-cache curl poppler-utils tesseract-ocr tesseract-ocr-data-eng
+RUN apk upgrade --no-cache libcrypto3 libssl3 && \
+    apk add --no-cache curl poppler-utils tesseract-ocr tesseract-ocr-data-eng
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma

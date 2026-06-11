@@ -49,7 +49,9 @@ RUN npm run build
 # ---- Runner Stage ----
 FROM node:22-alpine AS runner
 
-RUN apk add --no-cache curl
+RUN apk upgrade --no-cache libcrypto3 libssl3 && \
+    apk add --no-cache curl && \
+    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app
 
