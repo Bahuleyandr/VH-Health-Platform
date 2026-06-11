@@ -40,7 +40,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@127.0.0.1:5432/vhhealth
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@postgres:5432/vhhealth
       API_KEY: vhhealth-local-api-key
       BACKEND_API_KEY: vhhealth-local-api-key
       JWT_SECRET: vhhealth-local-admin-smoke-secret-123456789
@@ -148,7 +148,7 @@ jobs:
           -BackendBase http://127.0.0.1:5206
           -ApiKey $env:API_KEY
           -JwtSecret $env:JWT_SECRET
-          -PgHost 127.0.0.1
+          -PgHost postgres
           -PgPort 5432
           -PgUser vhhealth
           -PgDatabase vhhealth
@@ -161,7 +161,7 @@ jobs:
           -BackendBase http://127.0.0.1:5206
           -ApiKey $env:API_KEY
           -JwtSecret $env:JWT_SECRET
-          -PgHost 127.0.0.1
+          -PgHost postgres
           -PgPort 5432
           -PgUser vhhealth
           -PgDatabase vhhealth
@@ -174,7 +174,7 @@ jobs:
           -BackendBase http://127.0.0.1:5206
           -ApiKey $env:API_KEY
           -JwtSecret $env:JWT_SECRET
-          -PgHost 127.0.0.1
+          -PgHost postgres
           -PgPort 5432
           -PgUser vhhealth
           -PgDatabase vhhealth
@@ -187,7 +187,7 @@ jobs:
           -BackendBase http://127.0.0.1:5206
           -ApiKey $env:API_KEY
           -JwtSecret $env:JWT_SECRET
-          -PgHost 127.0.0.1
+          -PgHost postgres
           -PgPort 5432
           -PgUser vhhealth
           -PgDatabase vhhealth
@@ -202,7 +202,7 @@ jobs:
           -BackendBase http://127.0.0.1:5206
           -ApiKey $env:API_KEY
           -JwtSecret $env:JWT_SECRET
-          -PgHost 127.0.0.1
+          -PgHost postgres
           -PgPort 5432
           -PgUser vhhealth
           -PgDatabase vhhealth
@@ -214,7 +214,7 @@ jobs:
           ./scripts/check-clinical-ai-tenant-preflight.ps1
           -BackendBase http://127.0.0.1:5206
           -PilotStage ci_first_pilot_smoke
-          -PgHost 127.0.0.1
+          -PgHost postgres
           -PgPort 5432
           -PgUser vhhealth
           -PgDatabase vhhealth

@@ -59,7 +59,7 @@ jobs:
       - name: Apply full migration chain (replicated schema shapes)
         working-directory: apps/backend
         env:
-          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/vhhealth_test
+          DATABASE_URL: postgresql://postgres@postgres:5432/vhhealth_test
         run: |
           node scripts/ensure-pgvector-extension.mjs
           node scripts/ci-setup-db.mjs --skip-seeds
@@ -72,7 +72,7 @@ jobs:
       - name: dbt build (models + tests)
         working-directory: infra/kubernetes/optional/analytics-warehouse/dbt
         env:
-          DBT_PG_HOST: 127.0.0.1
+          DBT_PG_HOST: postgres
           DBT_PG_PORT: '5432'
           DBT_PG_USER: postgres
           DBT_PG_DBNAME: vhhealth_test
