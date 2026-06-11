@@ -17,24 +17,38 @@ import {
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
+const TEST_TENANT_ID = '22222222-2222-4222-8222-222222222222';
 const PHONE = `+9199916${String(Date.now() % 10000).padStart(4, '0')}`;
 let patientUid;
 let server;
 let baseUrl;
 const received = [];
+const tenantAuthClient = (role = 'ADMIN') => authClient(role, { tenant_id: TEST_TENANT_ID });
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
-    `DELETE FROM hl7_outbound_messages WHERE subscription_id IN
-       (SELECT id FROM hl7_feed_subscriptions WHERE name LIKE 'C2TEST%')`,
+    `DELETE FROM hl7_outbound_messages
+      WHERE tenant_id = $1::uuid
+         OR subscription_id IN (
+              SELECT id FROM hl7_feed_subscriptions
+               WHERE tenant_id = $1::uuid OR name LIKE 'C2TEST%'
+            )`,
+    TEST_TENANT_ID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM hl7_feed_subscriptions WHERE name LIKE 'C2TEST%'`,
+    `DELETE FROM hl7_feed_subscriptions WHERE tenant_id = $1::uuid OR name LIKE 'C2TEST%'`,
+    TEST_TENANT_ID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM lab_results WHERE test_name = 'C2TEST-GLU'`,
+    `DELETE FROM lab_results
+      WHERE test_name = 'C2TEST-GLU'
+         OR patient_uid IN (SELECT uid FROM users WHERE tenant_id = $1::uuid)`,
+    TEST_TENANT_ID,
   ).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = 'C2TEST Patient'`).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users WHERE tenant_id = $1::uuid OR name = 'C2TEST Patient'`,
+    TEST_TENANT_ID,
+  ).catch(() => {});
 }
 
 d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
@@ -46,9 +60,16 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
     // hl7-ssrf-guard.test.js (which keeps this var unset).
     process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS = 'true';
     await cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name, region, compliance_profile, status, created_at, updated_at)
+       VALUES ($1::uuid, 'c2test-hl7', 'C2TEST HL7', 'IN', 'DPDP', 'active', NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET status = 'active', updated_at = NOW()`,
+      TEST_TENANT_ID,
+    );
     const p = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (phone, name, role, is_active, gender, birthday, updated_at)
-       VALUES ($1, 'C2TEST Patient', 'PATIENT', true, 'female', '1990-02-02', NOW()) RETURNING uid`,
+      `INSERT INTO users (tenant_id, phone, name, role, is_active, gender, birthday, updated_at)
+       VALUES ($1::uuid, $2, 'C2TEST Patient', 'PATIENT', true, 'female', '1990-02-02', NOW()) RETURNING uid`,
+      TEST_TENANT_ID,
       PHONE,
     );
     patientUid = p[0].uid;
@@ -79,25 +100,27 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   });
 
   test('subscription management: integration-admin only; validation enforced', async () => {
-    const nurse = await authClient('NURSING_STAFF')
+    const nurse = await tenantAuthClient('NURSING_STAFF')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST nope', endpoint_url: `${baseUrl}/ok` });
     expect(nurse.status).toBe(403);
 
-    const badUrl = await authClient('ADMIN')
+    const badUrl = await tenantAuthClient('ADMIN')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST bad', endpoint_url: 'mllp://1.2.3.4:2575' });
     expect(badUrl.status).toBe(400);
 
-    const ok = await authClient('ADMIN')
+    const ok = await tenantAuthClient('ADMIN')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST receiver', endpoint_url: `${baseUrl}/ok`, message_types: ['ADT^A01', 'ORU^R01'] });
     expect(ok.status).toBe(201);
+    expect(ok.body.data.subscription.tenant_id).toBe(TEST_TENANT_ID);
 
-    const flaky = await authClient('ADMIN')
+    const flaky = await tenantAuthClient('ADMIN')
       .post('/api/v1/hl7-feeds/subscriptions')
       .send({ name: 'C2TEST flaky', endpoint_url: `${baseUrl}/fail`, message_types: ['ADT^A01'] });
     expect(flaky.status).toBe(201);
+    expect(flaky.body.data.subscription.tenant_id).toBe(TEST_TENANT_ID);
   });
 
   test('admission emission fans out to matching subscriptions only', async () => {
@@ -125,7 +148,7 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   });
 
   test('delivery worker: success → sent with HL7 content type; failure → backoff', async () => {
-    const stats = await deliverPendingFeedMessages({ limit: 10 });
+    const stats = await deliverPendingFeedMessages({ limit: 10, tenantId: TEST_TENANT_ID });
     expect(stats.picked).toBe(2);
     expect(stats.sent).toBe(1);
     expect(stats.failed).toBe(1);
@@ -169,18 +192,18 @@ d('Outbound HL7v2 feeds — deep round-trip (roadmap C2)', () => {
   });
 
   test('message list + replay surface', async () => {
-    const list = await authClient('ADMIN')
+    const list = await tenantAuthClient('ADMIN')
       .get('/api/v1/hl7-feeds/messages')
       .query({ status: 'failed' });
     expect(list.status).toBe(200);
     const failed = list.body.data.messages.find((m) => m.subscription_name === 'C2TEST flaky');
     expect(failed).toBeDefined();
 
-    const replay = await authClient('ADMIN').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
+    const replay = await tenantAuthClient('ADMIN').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
     expect(replay.status).toBe(200);
     expect(replay.body.data.message.status).toBe('queued');
 
-    const nurse = await authClient('NURSING_STAFF').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
+    const nurse = await tenantAuthClient('NURSING_STAFF').post(`/api/v1/hl7-feeds/messages/${failed.id}/replay`);
     expect(nurse.status).toBe(403);
   });
 });

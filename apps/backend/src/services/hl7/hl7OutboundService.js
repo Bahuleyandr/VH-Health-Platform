@@ -13,6 +13,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertSafeFeedUrl } from '../../utils/ssrfGuard.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
 
 export const MAX_DELIVERY_ATTEMPTS = 7;
@@ -32,16 +33,20 @@ function extractControlId(hl7) {
 
 // ── Subscriptions ──────────────────────────────────────────────────────────
 
-export async function listSubscriptions() {
+export async function listSubscriptions({ tenantId = null } = {}) {
   return prisma.$queryRawUnsafe(
     `SELECT id, name, endpoint_url, message_types, is_active, last_delivery_at, created_at
-       FROM hl7_feed_subscriptions ORDER BY id`,
+       FROM hl7_feed_subscriptions
+      WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+      ORDER BY id`,
+    tenantId,
   );
 }
 
 export async function createSubscription({
   name, endpointUrl, authHeader = null, messageTypes = ['ADT^A01', 'ADT^A03', 'ORU^R01'],
 } = {}, context = {}) {
+  const tenantId = context.tenantId || DEFAULT_TENANT_ID;
   const cleanedName = (name || '').trim();
   const cleanedUrl = (endpointUrl || '').trim();
   if (!cleanedName) throw AppError.badRequest('name is required', 'HL7_FEED_NAME_REQUIRED');
@@ -62,25 +67,26 @@ export async function createSubscription({
     );
   }
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO hl7_feed_subscriptions (name, endpoint_url, auth_header, message_types, created_by)
-     VALUES ($1, $2, $3, $4::text[], $5::uuid)
+    `INSERT INTO hl7_feed_subscriptions (tenant_id, name, endpoint_url, auth_header, message_types, created_by)
+     VALUES ($1::uuid, $2, $3, $4, $5::text[], $6::uuid)
      ON CONFLICT (tenant_id, name) DO UPDATE SET
        endpoint_url = EXCLUDED.endpoint_url,
        auth_header = EXCLUDED.auth_header,
        message_types = EXCLUDED.message_types,
        is_active = true,
        updated_at = NOW()
-     RETURNING id, name, endpoint_url, message_types, is_active, created_at`,
-    cleanedName, cleanedUrl, authHeader, types, context.actorUid || null,
+     RETURNING id, tenant_id, name, endpoint_url, message_types, is_active, created_at`,
+    tenantId, cleanedName, cleanedUrl, authHeader, types, context.actorUid || null,
   );
   return rows[0];
 }
 
-export async function deactivateSubscription(id) {
+export async function deactivateSubscription(id, { tenantId = null } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE hl7_feed_subscriptions SET is_active = false, updated_at = NOW()
-      WHERE id = $1 RETURNING id, name, is_active`,
-    id,
+      WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      RETURNING id, name, is_active`,
+    id, tenantId,
   );
   if (!rows.length) throw AppError.notFound('Subscription not found');
   return rows[0];
@@ -248,16 +254,18 @@ async function deliverOne(message, subscription) {
   }
 }
 
-export async function deliverPendingFeedMessages({ limit = 25 } = {}) {
+export async function deliverPendingFeedMessages({ limit = 25, tenantId = null } = {}) {
   const due = await prisma.$queryRawUnsafe(
     `SELECT m.id, m.subscription_id, m.hl7_payload, m.attempts, m.message_type,
             s.endpoint_url, s.auth_header
        FROM hl7_outbound_messages m
        JOIN hl7_feed_subscriptions s ON s.id = m.subscription_id AND s.is_active
       WHERE m.status IN ('queued', 'failed') AND m.next_attempt_at <= NOW()
+        AND ($2::uuid IS NULL OR m.tenant_id = $2::uuid)
       ORDER BY m.id
       LIMIT $1::int`,
     Math.min(Number.parseInt(limit, 10) || 25, 200),
+    tenantId,
   );
   const stats = { picked: due.length, sent: 0, failed: 0, dead: 0 };
   for (const message of due) {
@@ -290,10 +298,11 @@ export async function deliverPendingFeedMessages({ limit = 25 } = {}) {
   return stats;
 }
 
-export async function listFeedMessages({ status = null, limit = 50 } = {}) {
+export async function listFeedMessages({ status = null, limit = 50, tenantId = null } = {}) {
   const params = [];
   let where = '1=1';
   if (status) { params.push(status); where += ` AND m.status = $${params.length}`; }
+  if (tenantId) { params.push(tenantId); where += ` AND m.tenant_id = $${params.length}::uuid`; }
   params.push(Math.min(Number.parseInt(limit, 10) || 50, 200));
   return prisma.$queryRawUnsafe(
     `SELECT m.id, m.subscription_id, s.name AS subscription_name, m.message_type,
@@ -308,13 +317,14 @@ export async function listFeedMessages({ status = null, limit = 50 } = {}) {
   );
 }
 
-export async function replayFeedMessage(id) {
+export async function replayFeedMessage(id, { tenantId = null } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE hl7_outbound_messages SET
        status = 'queued', attempts = 0, last_error = NULL, next_attempt_at = NOW()
      WHERE id = $1 AND status IN ('failed', 'dead', 'sent')
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
      RETURNING id, status`,
-    id,
+    id, tenantId,
   );
   if (!rows.length) throw AppError.notFound('Message not found or not replayable');
   return rows[0];

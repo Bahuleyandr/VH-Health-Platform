@@ -46,8 +46,8 @@ export default function getClient() {
  * Use this for routes that require authentication
  * @param {string} role - JWT role (default: ADMIN)
  */
-export function authClient(role = 'ADMIN') {
-  const token = generateTestToken(role);
+export function authClient(role = 'ADMIN', overrides = {}) {
+  const token = generateTestToken(role, overrides);
   return {
     get: (path) => request(app).get(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (path) => request(app).post(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),

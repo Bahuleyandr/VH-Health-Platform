@@ -21,6 +21,7 @@ import { canManageIntegrations, isAdmin } from '../../utils/roleHelpers.js';
 const router = express.Router();
 
 const canManage = (role) => canManageIntegrations(role) || isAdmin(role) || role === 'SUPER_ADMIN';
+const requestTenantId = (req) => req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
 
 function handleFailure(res, err, context) {
   if (err instanceof AppError) {
@@ -32,7 +33,7 @@ function handleFailure(res, err, context) {
 
 router.get('/subscriptions', async (req, res) => {
   try {
-    const subscriptions = await listSubscriptions();
+    const subscriptions = await listSubscriptions({ tenantId: requestTenantId(req) });
     return success(res, { subscriptions, count: subscriptions.length }, 'HL7 feed subscriptions');
   } catch (err) {
     return handleFailure(res, err, 'list subscriptions');
@@ -49,7 +50,7 @@ router.post('/subscriptions', async (req, res) => {
       endpointUrl: req.body.endpoint_url,
       authHeader: req.body.auth_header || null,
       messageTypes: req.body.message_types || undefined,
-    }, { actorUid: req.user?.uid || null });
+    }, { actorUid: req.user?.uid || null, tenantId: requestTenantId(req) });
     return success(res, { subscription }, 'Subscription saved', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'create subscription');
@@ -61,7 +62,9 @@ router.delete('/subscriptions/:id', async (req, res) => {
     if (!canManage(req.user?.role)) {
       return error(res, 'Only integration admins can manage HL7 feeds', HTTP_STATUS.FORBIDDEN);
     }
-    const subscription = await deactivateSubscription(Number.parseInt(req.params.id, 10));
+    const subscription = await deactivateSubscription(Number.parseInt(req.params.id, 10), {
+      tenantId: requestTenantId(req),
+    });
     return success(res, { subscription }, 'Subscription deactivated');
   } catch (err) {
     return handleFailure(res, err, 'deactivate subscription');
@@ -73,6 +76,7 @@ router.get('/messages', async (req, res) => {
     const messages = await listFeedMessages({
       status: req.query.status || null,
       limit: req.query.limit,
+      tenantId: requestTenantId(req),
     });
     return success(res, { messages, count: messages.length }, 'Outbound HL7 messages');
   } catch (err) {
@@ -85,7 +89,9 @@ router.post('/messages/:id/replay', async (req, res) => {
     if (!canManage(req.user?.role)) {
       return error(res, 'Only integration admins can replay messages', HTTP_STATUS.FORBIDDEN);
     }
-    const message = await replayFeedMessage(Number.parseInt(req.params.id, 10));
+    const message = await replayFeedMessage(Number.parseInt(req.params.id, 10), {
+      tenantId: requestTenantId(req),
+    });
     return success(res, { message }, 'Message requeued');
   } catch (err) {
     return handleFailure(res, err, 'replay message');
@@ -98,7 +104,10 @@ router.post('/deliver-now', async (req, res) => {
     if (!canManage(req.user?.role)) {
       return error(res, 'Only integration admins can trigger delivery', HTTP_STATUS.FORBIDDEN);
     }
-    const stats = await deliverPendingFeedMessages({ limit: req.body?.limit });
+    const stats = await deliverPendingFeedMessages({
+      limit: req.body?.limit,
+      tenantId: requestTenantId(req),
+    });
     return success(res, stats, 'Delivery pass complete');
   } catch (err) {
     return handleFailure(res, err, 'deliver messages');
