@@ -83,24 +83,98 @@ function parseTokenStructure(token: string): TokenResult {
 // fails when a page.tsx has no policy entry.
 import { policyForPath, roleSatisfiesPolicy } from "@/lib/routePolicy";
 
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
+function trustedRedirectBase(request: NextRequest): string {
+  if (!isProductionRuntime()) {
+    return request.url;
+  }
+
+  const configured =
+    process.env.ADMIN_CANONICAL_ORIGIN ||
+    process.env.NEXT_PUBLIC_ALLOWED_ORIGIN ||
+    "https://admin.vhhealth.app";
+
+  try {
+    const parsed = new URL(configured);
+    if (parsed.protocol !== "https:") {
+      throw new Error("admin canonical origin must use https");
+    }
+    return parsed.origin;
+  } catch (error) {
+    console.error(
+      `[middleware] Invalid ADMIN_CANONICAL_ORIGIN/NEXT_PUBLIC_ALLOWED_ORIGIN: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return "https://admin.vhhealth.app";
+  }
+}
+
+function trustedRedirectUrl(path: string, request: NextRequest): URL {
+  return new URL(path, trustedRedirectBase(request));
+}
+
 /**
  * Optional IP allowlist. Set `ADMIN_IP_ALLOWLIST` to a comma-separated list
- * of exact client IPs (e.g. "203.0.113.10,203.0.113.11"). When unset, the
- * allowlist is disabled and every client is accepted — the previous behaviour.
+ * of exact client IPs or IPv4 CIDR ranges (e.g. "203.0.113.10,10.10.0.0/16").
+ * When unset, development accepts traffic and production fails closed.
  *
  * Matches against the first entry in `X-Forwarded-For` (what reverse proxies
  * send) falling back to the raw remote address. Intended as a second layer
  * of defence alongside auth, not a replacement.
  */
-function isIpAllowed(request: NextRequest): boolean {
+function parseIpAllowlist(): string[] {
   const raw = process.env.ADMIN_IP_ALLOWLIST;
-  if (!raw || raw.trim() === "") return true; // allowlist disabled
+  if (!raw || raw.trim() === "") return [];
 
-  const allowlist = raw
+  return raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (allowlist.length === 0) return true;
+}
+
+function ipv4ToNumber(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+
+  let value = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet < 0 || octet > 255) return null;
+    value = ((value << 8) + octet) >>> 0;
+  }
+  return value >>> 0;
+}
+
+function ipMatchesAllowlistEntry(ip: string, entry: string): boolean {
+  if (ip === entry) return true;
+
+  const normalizedIp = ip.replace(/^::ffff:/, "");
+  if (normalizedIp === entry) return true;
+
+  if (!entry.includes("/")) return false;
+
+  const [network, bitsRaw] = entry.split("/");
+  if (!network || !/^\d{1,2}$/.test(bitsRaw || "")) return false;
+
+  const bits = Number(bitsRaw);
+  if (bits < 0 || bits > 32) return false;
+
+  const ipNum = ipv4ToNumber(normalizedIp);
+  const netNum = ipv4ToNumber(network);
+  if (ipNum == null || netNum == null) return false;
+
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return (ipNum & mask) === (netNum & mask);
+}
+
+function isIpAllowed(request: NextRequest): boolean {
+  const allowlist = parseIpAllowlist();
+  if (allowlist.length === 0) return !isProductionRuntime();
 
   const forwarded = request.headers.get("x-forwarded-for");
   const clientIp =
@@ -108,7 +182,7 @@ function isIpAllowed(request: NextRequest): boolean {
     request.headers.get("x-real-ip") ||
     "";
 
-  return clientIp !== "" && allowlist.includes(clientIp);
+  return clientIp !== "" && allowlist.some((entry) => ipMatchesAllowlistEntry(clientIp, entry));
 }
 
 // ── Nonce-based CSP (audit finding M9) ──────────────────────────────────────
@@ -183,7 +257,7 @@ export async function middleware(request: NextRequest) {
     const { valid, role } = await verifyToken(token ?? "");
 
     if (!valid) {
-      const loginUrl = new URL("/login", request.url);
+      const loginUrl = trustedRedirectUrl("/login", request);
       loginUrl.searchParams.set("redirect", pathname);
       return withCsp(NextResponse.redirect(loginUrl), csp);
     }
@@ -196,10 +270,10 @@ export async function middleware(request: NextRequest) {
       console.warn(
         `[middleware] DENY (no route policy entry): ${pathname} — add one to src/lib/routePolicy.ts`,
       );
-      return withCsp(NextResponse.redirect(new URL("/dashboard", request.url)), csp);
+      return withCsp(NextResponse.redirect(trustedRedirectUrl("/dashboard", request)), csp);
     }
     if (!roleSatisfiesPolicy(role, policy)) {
-      return withCsp(NextResponse.redirect(new URL("/dashboard", request.url)), csp);
+      return withCsp(NextResponse.redirect(trustedRedirectUrl("/dashboard", request)), csp);
     }
 
     return withCsp(

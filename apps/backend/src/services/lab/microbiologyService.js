@@ -66,17 +66,25 @@ export async function getOrder({ tenantId, id }) {
   );
   if (!rows.length) throw AppError.notFound('Microbiology order not found');
   const isolates = await prisma.$queryRawUnsafe(
-    `SELECT * FROM micro_isolates WHERE order_id = $1::int ORDER BY id`,
-    rows[0].id,
+    `SELECT i.*
+       FROM micro_isolates i
+       JOIN micro_orders o ON o.id = i.order_id
+      WHERE i.order_id = $1::int
+        AND o.tenant_id = $2::uuid
+      ORDER BY i.id`,
+    rows[0].id, tenantId,
   );
   for (const iso of isolates) {
     iso.sensitivities = await prisma.$queryRawUnsafe(
-      `SELECT id, antibiotic_code, antibiotic_name, result, mic_value,
+      `SELECT s.id, s.antibiotic_code, s.antibiotic_name, s.result, s.mic_value,
               mic_unit, zone_diameter_mm, method, notes
-         FROM micro_sensitivities
-        WHERE isolate_id = $1::int
-        ORDER BY antibiotic_name`,
-      iso.id,
+         FROM micro_sensitivities s
+         JOIN micro_isolates i ON i.id = s.isolate_id
+         JOIN micro_orders o ON o.id = i.order_id
+        WHERE s.isolate_id = $1::int
+          AND o.tenant_id = $2::uuid
+        ORDER BY s.antibiotic_name`,
+      iso.id, tenantId,
     );
   }
   return { ...rows[0], isolates };
@@ -134,6 +142,7 @@ export async function transitionOrder({
 // ── Isolates ────────────────────────────────────────────────────────
 
 export async function addIsolate({
+  tenantId,
   order_id, organism_name, organism_code, colony_count,
   is_mrsa, is_esbl, is_amp_c, is_carbapenemase, is_vre, is_xdr, comments,
 }) {
@@ -143,19 +152,24 @@ export async function addIsolate({
     `INSERT INTO micro_isolates
        (order_id, organism_name, organism_code, colony_count,
         is_mrsa, is_esbl, is_amp_c, is_carbapenemase, is_vre, is_xdr, comments)
-     VALUES ($1::int, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     SELECT o.id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+       FROM micro_orders o
+      WHERE o.id = $1::int
+        AND o.tenant_id = $12::uuid
      RETURNING *`,
     Number(order_id), String(organism_name),
     organism_code || null, colony_count || null,
     !!is_mrsa, !!is_esbl, !!is_amp_c, !!is_carbapenemase, !!is_vre, !!is_xdr,
-    comments || null,
+    comments || null, tenantId,
   );
+  if (!rows.length) throw AppError.notFound('Microbiology order not found');
   return rows[0];
 }
 
 // ── Sensitivities ───────────────────────────────────────────────────
 
 export async function addSensitivity({
+  tenantId,
   isolate_id, antibiotic_code, antibiotic_name, result,
   mic_value, mic_unit, zone_diameter_mm, method, notes,
 }) {
@@ -164,6 +178,16 @@ export async function addSensitivity({
   if (!VALID_RESULT.includes(result)) {
     throw AppError.badRequest(`result must be one of: ${VALID_RESULT.join(', ')}`);
   }
+  const isolateRows = await prisma.$queryRawUnsafe(
+    `SELECT i.id
+       FROM micro_isolates i
+       JOIN micro_orders o ON o.id = i.order_id
+      WHERE i.id = $1::int
+        AND o.tenant_id = $2::uuid
+      LIMIT 1`,
+    Number(isolate_id), tenantId,
+  );
+  if (!isolateRows.length) throw AppError.notFound('Microbiology isolate not found');
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO micro_sensitivities
        (isolate_id, antibiotic_code, antibiotic_name, result,

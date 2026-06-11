@@ -2,6 +2,8 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
+import { maskEmail, maskPhone } from '../piiMask.js';
 
 /**
  * Build a tsquery from user input. For short queries (< 3 chars), returns null (use ILIKE).
@@ -14,61 +16,96 @@ function buildTsQuery(query) {
   return terms;
 }
 
-export async function searchUsers(query, limit = 20) {
+function tenantOf(context = {}) {
+  return context.tenantId || context.tenant_id || DEFAULT_TENANT_ID;
+}
+
+function normalizeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function canSeeRawUserContact(context = {}) {
+  return ['ADMIN', 'SUPER_ADMIN'].includes(normalizeRole(context.role));
+}
+
+function formatUserSearchResult(row, context) {
+  const canSeeRaw = canSeeRawUserContact(context);
+  return {
+    ...row,
+    phone: canSeeRaw ? row.phone : maskPhone(row.phone),
+    email: canSeeRaw ? row.email : (row.email ? maskEmail(row.email) : null),
+    type: 'user',
+  };
+}
+
+export async function searchUsers(query, limit = 20, context = {}) {
   const tsQuery = buildTsQuery(query);
+  const tenantId = tenantOf(context);
 
   if (tsQuery) {
     const result = await prisma.$queryRawUnsafe(`
-      SELECT id, name, phone, email, role,
+      SELECT id, uid, name, phone, email, role,
         ts_rank(search_vector, to_tsquery('english', $1)) AS rank,
         ts_headline('english', coalesce(name, '') || ' ' || coalesce(email, ''),
           to_tsquery('english', $1), 'StartSel=<b>, StopSel=</b>, MaxWords=50') AS highlight
       FROM users
-      WHERE search_vector @@ to_tsquery('english', $1)
+      WHERE tenant_id = $2::uuid
+        AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
+        AND search_vector @@ to_tsquery('english', $1)
       ORDER BY rank DESC
-      LIMIT $2
-    `, tsQuery, limit);
-    return result.map(r => ({ ...r, type: 'user' }));
+      LIMIT $3
+    `, tsQuery, tenantId, limit);
+    return result.map(r => formatUserSearchResult(r, context));
   }
 
   // Fallback: ILIKE for short queries
   const result = await prisma.$queryRawUnsafe(`
-    SELECT id, name, phone, email, role, 0 AS rank
+    SELECT id, uid, name, phone, email, role, 0 AS rank
     FROM users
-    WHERE name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1
-    LIMIT $2
-  `, `%${query.trim()}%`, limit);
-  return result.map(r => ({ ...r, type: 'user' }));
+    WHERE tenant_id = $2::uuid
+      AND role NOT IN ('ADMIN', 'SUPER_ADMIN')
+      AND (name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1)
+    LIMIT $3
+  `, `%${query.trim()}%`, tenantId, limit);
+  return result.map(r => formatUserSearchResult(r, context));
 }
 
-export async function searchDoctors(query, limit = 20) {
+export async function searchDoctors(query, limit = 20, context = {}) {
   const tsQuery = buildTsQuery(query);
+  const tenantId = tenantOf(context);
 
   if (tsQuery) {
     const result = await prisma.$queryRawUnsafe(`
-      SELECT id, name, specialization, qualification, phone, is_active,
-        ts_rank(search_vector, to_tsquery('english', $1)) AS rank,
-        ts_headline('english', coalesce(name, '') || ' ' || coalesce(specialization, ''),
+      SELECT d.id, d.name, d.specialty AS specialization, d.qualifications AS qualification,
+        u.phone, d.is_active,
+        ts_rank(d.search_vector, to_tsquery('english', $1)) AS rank,
+        ts_headline('english', coalesce(d.name, '') || ' ' || coalesce(d.specialty, ''),
           to_tsquery('english', $1), 'StartSel=<b>, StopSel=</b>, MaxWords=50') AS highlight
-      FROM doctors
-      WHERE search_vector @@ to_tsquery('english', $1)
+      FROM doctors d
+      LEFT JOIN users u ON u.id = d.user_id
+      WHERE COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+        AND d.search_vector @@ to_tsquery('english', $1)
       ORDER BY rank DESC
-      LIMIT $2
-    `, tsQuery, limit);
-    return result.map(r => ({ ...r, type: 'doctor' }));
+      LIMIT $3
+    `, tsQuery, tenantId, limit);
+    return result.map(r => ({ ...r, phone: maskPhone(r.phone), type: 'doctor' }));
   }
 
   const result = await prisma.$queryRawUnsafe(`
-    SELECT id, name, specialization, qualification, phone, is_active, 0 AS rank
-    FROM doctors
-    WHERE name ILIKE $1 OR specialization ILIKE $1 OR qualification ILIKE $1
-    LIMIT $2
-  `, `%${query.trim()}%`, limit);
-  return result.map(r => ({ ...r, type: 'doctor' }));
+    SELECT d.id, d.name, d.specialty AS specialization, d.qualifications AS qualification,
+      u.phone, d.is_active, 0 AS rank
+    FROM doctors d
+    LEFT JOIN users u ON u.id = d.user_id
+    WHERE COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+      AND (d.name ILIKE $1 OR d.specialty ILIKE $1 OR d.qualifications ILIKE $1)
+    LIMIT $3
+  `, `%${query.trim()}%`, tenantId, limit);
+  return result.map(r => ({ ...r, phone: maskPhone(r.phone), type: 'doctor' }));
 }
 
-export async function searchAppointments(query, limit = 20) {
+export async function searchAppointments(query, limit = 20, context = {}) {
   const tsQuery = buildTsQuery(query);
+  const tenantId = tenantOf(context);
 
   if (tsQuery) {
     const result = await prisma.$queryRawUnsafe(`
@@ -80,28 +117,30 @@ export async function searchAppointments(query, limit = 20) {
       FROM appointments a
       WHERE to_tsvector('english', coalesce(a.reason, '') || ' ' || coalesce(a.notes, ''))
         @@ to_tsquery('english', $1)
+        AND a.tenant_id = $2::uuid
       ORDER BY rank DESC
-      LIMIT $2
-    `, tsQuery, limit);
+      LIMIT $3
+    `, tsQuery, tenantId, limit);
     return result.map(r => ({ ...r, type: 'appointment' }));
   }
 
   const result = await prisma.$queryRawUnsafe(`
     SELECT id, reason, notes, status, appointment_date, patient_id, doctor_id, 0 AS rank
     FROM appointments
-    WHERE reason ILIKE $1 OR notes ILIKE $1
-    LIMIT $2
-  `, `%${query.trim()}%`, limit);
+    WHERE tenant_id = $2::uuid
+      AND (reason ILIKE $1 OR notes ILIKE $1)
+    LIMIT $3
+  `, `%${query.trim()}%`, tenantId, limit);
   return result.map(r => ({ ...r, type: 'appointment' }));
 }
 
-export async function searchGlobal(query, limit = 50) {
+export async function searchGlobal(query, limit = 50, context = {}) {
   const perType = Math.ceil(limit / 3);
   try {
     const [users, doctors, appointments] = await Promise.all([
-      searchUsers(query, perType),
-      searchDoctors(query, perType),
-      searchAppointments(query, perType),
+      searchUsers(query, perType, context),
+      searchDoctors(query, perType, context),
+      searchAppointments(query, perType, context),
     ]);
 
     const results = [...users, ...doctors, ...appointments]

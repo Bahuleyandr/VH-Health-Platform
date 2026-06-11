@@ -61,6 +61,42 @@ function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
+function tenantIdOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || null;
+}
+
+function tenantOptions(req) {
+  const tenantId = tenantIdOf(req);
+  if (!tenantId) {
+    const err = new Error('Tenant context is required');
+    err.statusCode = HTTP_STATUS.FORBIDDEN;
+    err.code = 'TENANT_CONTEXT_REQUIRED';
+    throw err;
+  }
+  return { tenantId };
+}
+
+function admissionActor(req) {
+  const { tenantId } = tenantOptions(req);
+  return {
+    uid: req.user?.uid,
+    id: req.user?.id,
+    role: req.user?.role,
+    tenantId,
+  };
+}
+
+async function assertAdmissionInTenant(req, admissionId) {
+  return admissionService.getAdmissionDetail(admissionId, {
+    userId: req.user?.uid,
+    actorId: req.user?.id,
+    userRole: req.user?.role,
+    tenantId: tenantOptions(req).tenantId,
+    ip: req.ip,
+    requestId: req.id,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // GET /command-board — live inpatient command board foundation.
 //
@@ -132,8 +168,8 @@ router.get(
 // ---------------------------------------------------------------------------
 router.get(
   '/ward-options',
-  wrapAsync(async (_req, res) => {
-    const wards = await admissionService.listAdmissionWardOptions();
+  wrapAsync(async (req, res) => {
+    const wards = await admissionService.listAdmissionWardOptions(tenantOptions(req));
     success(res, { wards, count: wards.length }, 'Admission ward options retrieved');
   })
 );
@@ -147,6 +183,7 @@ router.get(
     const beds = await admissionService.listAdmissionBedOptions({
       wardId: req.query?.ward_id,
       wardLabel: req.query?.ward_label || req.query?.ward || req.query?.label,
+      tenantId: tenantOptions(req).tenantId,
     });
     success(res, { beds, count: beds.length }, 'Admission bed options retrieved');
   })
@@ -216,7 +253,7 @@ router.post(
     if (!resolved.bed_id && body.bed) {
       const bedLabel = String(body.bed).trim();
       const wardLabel = body.ward ? String(body.ward).trim() : null;
-      const found = await admissionService.findBedByLabel(bedLabel, wardLabel);
+      const found = await admissionService.findBedByLabel(bedLabel, wardLabel, tenantOptions(req));
       if (found?.id) resolved.bed_id = found.id;
     }
 
@@ -231,6 +268,7 @@ router.post(
       await admissionService.ensureCounterTreatmentConsent({
         patientUid: resolved.patient_uid,
         grantedBy: req.user?.uid,
+        tenantId: tenantOptions(req).tenantId,
       });
     }
 
@@ -298,11 +336,14 @@ router.post(
            FROM appointments a
            JOIN users u ON u.id = a.patient_id
           WHERE u.uid = $1::uuid
+            AND u.tenant_id = $2::uuid
+            AND a.tenant_id = $2::uuid
             AND DATE(a.appointment_date) = CURRENT_DATE
             AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
           ORDER BY a.created_at DESC
           LIMIT 1`,
         patientUid,
+        tenantOptions(req).tenantId,
       );
       if (!rows.length) {
         return error(
@@ -338,7 +379,7 @@ router.post(
       return error(res, 'bed_id is required (integer)', HTTP_STATUS.BAD_REQUEST);
     }
     const assignedBy = req.user?.uid;
-    const admission = await admissionService.assignBedToAdmission(admissionId, bedId, assignedBy);
+    const admission = await admissionService.assignBedToAdmission(admissionId, bedId, assignedBy, tenantOptions(req));
     success(res, { admission }, 'Bed assigned to admission');
   })
 );
@@ -359,7 +400,7 @@ router.post(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
     const requestedBy = req.user?.uid;
-    const result = await admissionService.markForDischarge(admissionId, requestedBy, req.user?.role);
+    const result = await admissionService.markForDischarge(admissionId, requestedBy, req.user?.role, tenantOptions(req));
     success(res, result, 'Admission marked for discharge — draft summary generated, consults opened', HTTP_STATUS.CREATED);
   })
 );
@@ -388,7 +429,7 @@ router.post(
       consultType,
       completedBy,
       notes,
-      { role: req.user?.role }
+      { role: req.user?.role, ...tenantOptions(req) }
     );
     success(res, { consult: updated }, `${consultType} consult logged as complete`);
   })
@@ -412,7 +453,7 @@ router.post(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
     const dispensedBy = req.user?.uid;
-    const updated = await admissionService.markDischargeDrugsDispensed(admissionId, dispensedBy);
+    const updated = await admissionService.markDischargeDrugsDispensed(admissionId, dispensedBy, tenantOptions(req));
     success(res, { admission: updated }, 'Discharge drugs marked as dispensed');
   })
 );
@@ -423,10 +464,7 @@ router.post(
 router.get(
   '/discharge-hub',
   wrapAsync(async (req, res) => {
-    const hub = await admissionService.listDischargeHubAdmissions({
-      uid: req.user?.uid,
-      role: req.user?.role,
-    });
+    const hub = await admissionService.listDischargeHubAdmissions(admissionActor(req));
     success(res, hub, 'Discharge hub worklist retrieved');
   })
 );
@@ -442,10 +480,7 @@ router.get(
     if (isNaN(admissionId)) {
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
-    const hub = await admissionService.getDischargeHub(admissionId, {
-      uid: req.user?.uid,
-      role: req.user?.role,
-    });
+    const hub = await admissionService.getDischargeHub(admissionId, admissionActor(req));
     success(res, hub, 'Discharge hub retrieved');
   })
 );
@@ -465,7 +500,7 @@ router.post(
     const dischargedBy = req.user?.uid;
     const dischargeData = req.body;
 
-    const admission = await admissionService.dischargePatient(admissionId, dischargeData, dischargedBy);
+    const admission = await admissionService.dischargePatient(admissionId, dischargeData, dischargedBy, tenantOptions(req));
     success(res, { admission }, 'Patient discharged successfully');
   })
 );
@@ -494,7 +529,8 @@ router.post(
       to_ward_id || null,
       parseInt(to_bed_id, 10),
       reason || null,
-      transferredBy
+      transferredBy,
+      tenantOptions(req),
     );
     success(res, { admission }, 'Patient transferred successfully');
   })
@@ -532,7 +568,7 @@ router.get(
   '/admissions/stats',
   wrapAsync(async (req, res) => {
     const { date_from, date_to } = req.query;
-    const stats = await admissionService.getAdmissionStats(date_from || null, date_to || null);
+    const stats = await admissionService.getAdmissionStats(date_from || null, date_to || null, tenantOptions(req));
     success(res, stats, 'Admission statistics retrieved');
   })
 );
@@ -545,7 +581,7 @@ router.get(
   guardAdmissionPatientView,
   wrapAsync(async (req, res) => {
     const { uid } = req.params;
-    const history = await admissionService.getPatientAdmissionHistory(uid);
+    const history = await admissionService.getPatientAdmissionHistory(uid, tenantOptions(req));
     success(res, { admissions: history, count: history.length }, 'Patient admission history retrieved');
   })
 );
@@ -592,7 +628,7 @@ router.put(
     }
 
     const updatedBy = req.user?.uid;
-    const admission = await admissionService.updateCodeStatus(admissionId, code_status, updatedBy);
+    const admission = await admissionService.updateCodeStatus(admissionId, code_status, updatedBy, tenantOptions(req));
     success(res, { admission }, 'Code status updated');
   })
 );
@@ -615,7 +651,7 @@ router.put(
     }
 
     const updatedBy = req.user?.uid;
-    const admission = await admissionService.updateAttendingDoctor(admissionId, doctor_uid, updatedBy);
+    const admission = await admissionService.updateAttendingDoctor(admissionId, doctor_uid, updatedBy, tenantOptions(req));
     success(res, { admission }, 'Attending doctor updated');
   })
 );
@@ -639,6 +675,7 @@ router.put(
       admissionId,
       req.body?.next_review_at ?? null,
       updatedBy,
+      tenantOptions(req),
     );
     success(res, { admission }, 'Next review time updated');
   })
@@ -656,10 +693,7 @@ router.get(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const result = await admissionService.getAdmissionCaseSheet(admissionId, {
-      uid: req.user?.uid,
-      role: req.user?.role,
-    });
+    const result = await admissionService.getAdmissionCaseSheet(admissionId, admissionActor(req));
     success(res, result, 'Admission case sheet retrieved');
   })
 );
@@ -682,6 +716,7 @@ router.put(
       req.body?.case_sheet || req.body || {},
       req.user?.uid,
       req.user?.role,
+      tenantOptions(req),
     );
     success(res, result, `Admission case sheet ${result.action}`);
   })
@@ -705,6 +740,7 @@ router.post(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
 
+    await assertAdmissionInTenant(req, admissionId);
     const summary = await dischargeSummaryGenerator.generateDischargeSummary(
       admissionId,
       req.user?.uid,
@@ -733,6 +769,7 @@ router.get(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
 
+    await assertAdmissionInTenant(req, admissionId);
     const summary = await dischargeSummaryGenerator.getLatestDischargeSummary(admissionId);
     success(res, { discharge_summary: summary }, summary ? 'Discharge summary retrieved' : 'No discharge summary found');
   })
@@ -761,6 +798,7 @@ router.put(
       return error(res, 'discharge_summary is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    await assertAdmissionInTenant(req, admissionId);
     const result = await dischargeSummaryGenerator.saveDischargeSummary(
       admissionId,
       discharge_summary,
@@ -792,6 +830,7 @@ router.post(
     }
 
     const doctorUid = req.user?.uid;
+    await assertAdmissionInTenant(req, admissionId);
     const result = await dischargeSummaryGenerator.signDischargeSummary(admissionId, doctorUid);
 
     success(res, result, 'Discharge summary signed — now official and immutable');
@@ -816,6 +855,7 @@ async function respondWithAdmissionAiDraft(req, res, moduleKey, message) {
   const admissionId = parseAdmissionId(req, res);
   if (admissionId === null) return;
 
+  await assertAdmissionInTenant(req, admissionId);
   const draft = await generateAdmissionAiDraft(admissionId, moduleKey, req.user?.uid || null, req);
   success(res, draft, message);
 }
@@ -899,8 +939,10 @@ async function respondWithDischargeReadiness(req, res) {
   const admissionId = parseAdmissionId(req, res);
   if (admissionId === null) return;
 
+  await assertAdmissionInTenant(req, admissionId);
   const readiness = await admissionService.getDischargeReadiness(admissionId, {
     discharge_type: req.query?.discharge_type || req.query?.dischargeType || 'home',
+    ...tenantOptions(req),
   });
 
   try {
@@ -991,6 +1033,7 @@ router.post(
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
+    await assertAdmissionInTenant(req, admissionId);
     const result = await generateTeachBackSession({
       req,
       admissionId,
@@ -1009,6 +1052,7 @@ router.post(
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
+    await assertAdmissionInTenant(req, admissionId);
     if (!req.body?.patient_uid) {
       return error(res, 'patient_uid is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -1033,6 +1077,7 @@ router.post(
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
+    await assertAdmissionInTenant(req, admissionId);
     if (!req.body?.patient_uid) {
       return error(res, 'patient_uid is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -1122,6 +1167,7 @@ router.post(
   wrapAsync(async (req, res) => {
     const admissionId = parseAdmissionId(req, res);
     if (admissionId === null) return;
+    await assertAdmissionInTenant(req, admissionId);
     const result = await scoreLongitudinalRisk({ admissionId, req });
     success(res, result, 'Longitudinal risk score computed');
   })

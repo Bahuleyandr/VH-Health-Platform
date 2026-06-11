@@ -9,6 +9,7 @@ export const ABDM_CONFIG = {
   hipId: process.env.ABDM_HIP_ID || '',
   hipName: process.env.ABDM_HIP_NAME || 'Venkataeswara Hospitals',
   callbackUrl: process.env.ABDM_CALLBACK_URL || '',
+  callbackSecret: process.env.ABDM_CALLBACK_SECRET || '',
   enabled: process.env.ABDM_ENABLED === 'true',
 
   PURPOSES: ['CAREMGT', 'BREAK_THE_GLASS', 'PUBHLTH', 'HPAYMT', 'DSRCH'],

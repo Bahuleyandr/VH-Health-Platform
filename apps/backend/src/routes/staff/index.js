@@ -14,8 +14,10 @@ import * as workflowController from '../../controllers/appointment/appointmentWo
 import { OP_FLOW_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import * as orderService from '../../services/investigation/orderService.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isStaff } from '../../utils/roleHelpers.js';
 import { uploadFileToR2 } from '../../utils/r2Storage.js';
@@ -28,6 +30,19 @@ const upload = multer({
 });
 
 const walkInRoles = requireRole(...OP_FLOW_ROUTE_ROLES, 'PATIENT');
+const guardPrescriptionAppointmentUpload = patientAccessGuardForResource('PRESCRIPTION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'appointment',
+  idSelector: (req) => req.body?.appointment_id,
+});
+const guardStaffConsultationWrite = patientAccessGuard('MEDICAL_RECORD', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  requirePatientContext: true,
+});
+const guardStaffInvestigationWrite = patientAccessGuard('INVESTIGATION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  requirePatientContext: true,
+});
 
 function canUseStaffMedical(role) {
   const normalizedRole = String(role || '').toUpperCase();
@@ -50,6 +65,10 @@ function storageSafeName(name = 'upload') {
 function parsePositiveInt(value) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function tenantIdOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
 }
 
 function normalizeAppointmentDocument(row) {
@@ -90,6 +109,7 @@ router.post('/replacements', replacementController.requestReplacement);
 // appointment_documents, but the page owns a staff-scoped URL contract.
 router.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
   try {
+    const tenantId = tenantIdOf(req);
     const uploadedById = parsePositiveInt(req.user?.id);
     const role = String(req.user?.role || '').toUpperCase();
     const canViewAll = role === 'ADMIN' || role === 'SUPER_ADMIN';
@@ -105,12 +125,13 @@ router.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
         ad.file_size,
         ad.created_at AS uploaded_at
       FROM appointment_documents ad
-      LEFT JOIN appointments a ON a.id = ad.appointment_id
-      LEFT JOIN users p ON p.id = ad.patient_id
-      WHERE $2::boolean = TRUE OR ad.uploaded_by = $1::int
+      JOIN appointments a ON a.id = ad.appointment_id AND a.tenant_id = $4::uuid
+      LEFT JOIN users p ON p.id = ad.patient_id AND p.tenant_id = $4::uuid
+      WHERE ad.tenant_id = $4::uuid
+        AND ($2::boolean = TRUE OR ad.uploaded_by = $1::int)
       ORDER BY ad.created_at DESC
       LIMIT $3::int
-    `, uploadedById, canViewAll, limit);
+    `, uploadedById, canViewAll, limit, tenantId);
 
     return success(res, rows.map(normalizeAppointmentDocument), 'Prescription uploads retrieved');
   } catch (err) {
@@ -119,16 +140,18 @@ router.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
   }
 });
 
-router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'), async (req, res) => {
+router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'), guardPrescriptionAppointmentUpload, async (req, res) => {
   try {
+    const tenantId = tenantIdOf(req);
     const appointmentId = parsePositiveInt(req.body?.appointment_id);
     if (!appointmentId || !req.file) {
       return error(res, 'appointment_id and file are required', 400);
     }
 
     const appointments = await prisma.$queryRawUnsafe(
-      'SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1::int',
+      'SELECT id, patient_id, doctor_id, tenant_id FROM appointments WHERE id=$1::int AND tenant_id=$2::uuid',
       appointmentId,
+      tenantId,
     );
     const appointment = appointments[0];
     if (!appointment) {
@@ -148,8 +171,8 @@ router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'),
     const rows = await prisma.$queryRawUnsafe(`
       INSERT INTO appointment_documents
         (appointment_id, patient_id, doctor_id, uploaded_by, upload_role,
-         document_type, file_key, file_url, file_name, file_size, file_mime, notes)
-      VALUES ($1::int, $2::int, $3::int, $4::int, $5, $6, $7, $8, $9, $10::bigint, $11, $12)
+         document_type, file_key, file_url, file_name, file_size, file_mime, notes, tenant_id)
+      VALUES ($1::int, $2::int, $3::int, $4::int, $5, $6, $7, $8, $9, $10::bigint, $11, $12, $13::uuid)
       RETURNING id, appointment_id, patient_id, doctor_id, uploaded_by, upload_role, document_type,
         file_key, file_url, file_name, file_size, file_mime, notes, created_at AS uploaded_at
     `,
@@ -165,6 +188,7 @@ router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'),
       req.file.size,
       req.file.mimetype,
       req.body?.notes || null,
+      tenantId,
     );
 
     return success(res, normalizeAppointmentDocument(rows[0]), 'Document uploaded successfully', 201);
@@ -177,8 +201,9 @@ router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'),
 // Staff app compatibility: clinical uploads previously posted to
 // /staff/medical/*, while canonical records/investigation modules live under
 // /records and /investigations. Keep the staff URLs as thin adapters.
-router.post('/medical/consultations', requireStaffMedical, async (req, res) => {
+router.post('/medical/consultations', requireStaffMedical, guardStaffConsultationWrite, async (req, res) => {
   try {
+    const tenantId = tenantIdOf(req);
     const phone = normalizePhone(req.body?.phone);
     const consultationType = req.body?.consultationType || req.body?.consultation_type || 'Consultation';
     const notes = req.body?.notes || null;
@@ -188,7 +213,7 @@ router.post('/medical/consultations', requireStaffMedical, async (req, res) => {
     }
 
     const patient = await prisma.users.findFirst({
-      where: { phone },
+      where: { phone, tenant_id: tenantId, role: 'PATIENT' },
       select: { id: true, uid: true, name: true },
     });
     if (!patient) {
@@ -212,6 +237,7 @@ router.post('/medical/consultations', requireStaffMedical, async (req, res) => {
         },
         privacy_level: 'RESTRICTED',
         created_by: req.user?.uid || null,
+        tenant_id: tenantId,
       },
       select: {
         id: true,
@@ -232,8 +258,9 @@ router.post('/medical/consultations', requireStaffMedical, async (req, res) => {
   }
 });
 
-router.post('/medical/investigations', requireStaffMedical, upload.single('file'), async (req, res) => {
+router.post('/medical/investigations', requireStaffMedical, upload.single('file'), guardStaffInvestigationWrite, async (req, res) => {
   try {
+    const tenantId = tenantIdOf(req);
     const phone = normalizePhone(req.body?.phone);
     const testName = req.body?.test_name || req.body?.testType || req.body?.test_type;
     if (!phone || !testName) {
@@ -252,6 +279,7 @@ router.post('/medical/investigations', requireStaffMedical, upload.single('file'
       test_name: String(testName),
       file_key: fileKey,
       createdBy: req.user?.uid || null,
+      tenantId,
     });
 
     const patch = {};

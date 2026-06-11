@@ -47,13 +47,28 @@ function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
+function tenantIdOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || null;
+}
+
+function tenantOptions(req) {
+  const tenantId = tenantIdOf(req);
+  if (!tenantId) {
+    const err = new Error('Tenant context is required');
+    err.statusCode = HTTP_STATUS.FORBIDDEN;
+    err.code = 'TENANT_CONTEXT_REQUIRED';
+    throw err;
+  }
+  return { tenantId };
+}
+
 // ---------------------------------------------------------------------------
 // GET /occupancy — Occupancy dashboard stats
 // ---------------------------------------------------------------------------
 router.get(
   '/occupancy',
   wrapAsync(async (req, res) => {
-    const stats = await bedManagementService.getBedOccupancy();
+    const stats = await bedManagementService.getBedOccupancy(tenantOptions(req));
     success(res, stats, 'Bed occupancy retrieved');
   })
 );
@@ -67,7 +82,8 @@ router.get(
     const { ward_id, bed_type } = req.query;
     const beds = await bedManagementService.getAvailableBeds(
       ward_id ? parseInt(ward_id, 10) : null,
-      bed_type || null
+      bed_type || null,
+      tenantOptions(req),
     );
     success(res, { beds, count: beds.length }, 'Available beds retrieved');
   })
@@ -94,6 +110,7 @@ router.post(
       patient_uid,
       expected_discharge || null,
       req.user?.role || null,
+      tenantOptions(req),
     );
     success(res, { bed }, 'Patient admitted', HTTP_STATUS.CREATED);
   })
@@ -116,10 +133,12 @@ router.post(
     const bedId = parseInt(req.params.id, 10);
     const requestedBy = req.user?.uid || null;
 
-    const bedAdmission = await bedManagementService.getActiveAdmissionForBed(bedId);
+    const bedAdmission = await bedManagementService.getActiveAdmissionForBed(bedId, tenantOptions(req));
     const result = await admissionService.markForDischarge(
       Number(bedAdmission.admission_id),
       requestedBy,
+      req.user?.role,
+      tenantOptions(req),
     );
     success(
       res,
@@ -173,7 +192,7 @@ router.post(
       reason || null,
       transferredBy,
       req.user?.role || null,
-      { acknowledgeClassChange: ackFlag },
+      { acknowledgeClassChange: ackFlag, ...tenantOptions(req) },
     );
     success(res, result, 'Patient transferred');
   })
@@ -196,6 +215,7 @@ router.post(
       cleaningTicketId: req.body?.cleaning_ticket_id || null,
       cleanerId: req.body?.cleaner_id || null,
       notes: req.body?.notes || null,
+      ...tenantOptions(req),
     });
     success(res, { bed }, 'Bed marked as available');
   })
@@ -209,7 +229,7 @@ router.get(
   guardBedResourceView,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
-    const history = await bedManagementService.getBedHistory(bedId);
+    const history = await bedManagementService.getBedHistory(bedId, tenantOptions(req));
     success(res, { history, count: history.length }, 'Bed history retrieved');
   })
 );

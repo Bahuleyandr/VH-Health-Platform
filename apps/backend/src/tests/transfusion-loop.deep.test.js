@@ -11,6 +11,7 @@ import { authClient } from './testClient.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const RUN = String(Date.now() % 100000).padStart(5, '0');
 const PHONE = `+9199910${String(Date.now() % 10000).padStart(4, '0')}`;
@@ -183,7 +184,11 @@ d('Transfusion closed loop — deep round-trip (roadmap B5)', () => {
       verifierRole: 'second',
       scannedUnitNumber: unitNumber,
       scannedPatientUid: patientUid,
-    }, { actorUid: 'b5b5b5b5-2222-4222-8222-b5b5b5b5fd02', actorRole: 'NURSING_INCHARGE' });
+    }, {
+      tenantId: DEFAULT_TENANT_ID,
+      actorUid: 'b5b5b5b5-2222-4222-8222-b5b5b5b5fd02',
+      actorRole: 'NURSING_INCHARGE',
+    });
     expect(second.all_checks_passed).toBe(true);
 
     const start = await authClient('NURSING_STAFF')

@@ -18,6 +18,10 @@ import { attachUserContext } from './middleware/attachUserContext.js';
 import { auditLogMiddleware } from './middleware/auditLog.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
+import {
+  requireProductionInfrastructureAdmin,
+  requireProductionMonitoringAccess,
+} from './middleware/infrastructureAccessMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
 import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
@@ -286,6 +290,33 @@ import './utils/validateEnv.js';
 const app = express();
 app.set('trust proxy', 1); // Required for Render or Cloudflare
 
+function getCanonicalHttpsOrigin() {
+  const configuredOrigin =
+    process.env.PUBLIC_BASE_URL ||
+    process.env.API_PUBLIC_URL ||
+    (process.env.INGRESS_PUBLIC_HOST ? `https://${process.env.INGRESS_PUBLIC_HOST}` : '') ||
+    'https://api.vhhealth.app';
+
+  try {
+    const parsed = new URL(configuredOrigin);
+    if (parsed.protocol !== 'https:') {
+      throw new Error('must use https');
+    }
+    return parsed.origin;
+  } catch (err) {
+    logger.error(`Invalid production HTTPS redirect origin: ${err.message}`);
+    return null;
+  }
+}
+
+function toSafeRedirectPath(originalUrl) {
+  const rawPath = String(originalUrl || '/');
+  if (rawPath.startsWith('/') && !rawPath.startsWith('//')) {
+    return rawPath;
+  }
+  return `/${rawPath.replace(/^\/+/, '')}`;
+}
+
 const CLINICAL_STAFF_ROLES = CLINICAL_STAFF_ROUTE_ROLES;
 const EMR_TIMELINE_READ_ROLES = EMR_TIMELINE_READ_ROUTE_ROLES;
 const ADMISSION_SURFACE_ROLES = ADMISSION_SURFACE_ROUTE_ROLES;
@@ -369,7 +400,14 @@ app.use(helmet({
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
     if (req.headers['x-forwarded-proto'] !== 'https') {
-      return res.redirect(301, `https://${req.headers.host}${req.url}`);
+      const canonicalOrigin = getCanonicalHttpsOrigin();
+      if (!canonicalOrigin) {
+        return res.status(500).json({
+          success: false,
+          message: 'Production HTTPS redirect origin is not configured',
+        });
+      }
+      return res.redirect(301, `${canonicalOrigin}${toSafeRedirectPath(req.originalUrl || req.url)}`);
     }
     next();
   });
@@ -408,7 +446,7 @@ if (!isProduction) {
   app.use('/api-docs', (req, res) => error(res, 'Not found', 404));
 }
 // Rate-limit public endpoints to prevent abuse/recon
-app.use('/metrics', genericLimiter, metricsRoutes);
+app.use('/metrics', genericLimiter, requireProductionMonitoringAccess, metricsRoutes);
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
 // Local-disk storage stream — mounted BEFORE both validateApiKey and jwtAuth
@@ -478,7 +516,9 @@ app.use('/health', genericLimiter, uptimeRoutes);
 app.use(validateApiKey);
 
 // Infrastructure routes (debug, swagger, version, rbac) — require API key
-app.use('/api/v1', infrastructureRoutes);
+// In production, API-key-only is not enough for API catalogs and diagnostics:
+// require an admin-tier JWT before routing into this infrastructure namespace.
+app.use('/api/v1', requireProductionInfrastructureAdmin, infrastructureRoutes);
 
 // ====================================
 // API KEY ONLY ROUTES (no JWT required)

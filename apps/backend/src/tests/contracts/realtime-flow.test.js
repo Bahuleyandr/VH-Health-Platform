@@ -163,6 +163,12 @@ describe('realtime fabric contract', () => {
     expect(authorizeChannel('staff:code-blue', { role: 'NURSING_STAFF', userId: '77' }).allowed).toBe(true);
   });
 
+  test('legacy global channels are gated to staff roles', () => {
+    expect(authorizeChannel('appointment-updates', { role: 'PATIENT', userId: '42' }).allowed).toBe(false);
+    expect(authorizeChannel('appointment-updates', { role: 'RECEPTIONIST', userId: '77' }).allowed).toBe(true);
+    expect(authorizeChannel('queue-updates', { role: 'PATIENT', userId: '42' }).allowed).toBe(false);
+  });
+
   test.skip('end-to-end: emitBedEvent → staff:beds + admin:beds fan-out', async () => {
     const ws = connect(port);
     await new Promise((r) => ws.once('open', r));

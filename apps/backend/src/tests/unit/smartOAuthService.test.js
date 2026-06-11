@@ -174,9 +174,10 @@ describe('registerSmartApp', () => {
       allowedScopes: ['system/*.read'],
     });
     expect(result.plaintext_client_secret).toMatch(/^vh_smart_/);
-    // Verify the hash flowed into the INSERT params, not the plaintext.
+    // Verify the encrypted value + hash flowed into the INSERT params, not the plaintext.
     const params = queryUnsafeMock.mock.calls[0].slice(1);
-    expect(params.some((p) => p === result.plaintext_client_secret)).toBe(true); // ciphertext placeholder
+    expect(params.some((p) => p === result.plaintext_client_secret)).toBe(false);
+    expect(params.some((p) => typeof p === 'string' && p.startsWith('enc:v1:'))).toBe(true);
     expect(params.some((p) => typeof p === 'string' && /^[0-9a-f]{64}$/.test(p))).toBe(true); // hash
   });
 

@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 const findUniqueMock = jest.fn();
+const findFirstMock = jest.fn();
 const updateMock = jest.fn();
 const auditCreateMock = jest.fn();
 const queryUnsafeMock = jest.fn();
@@ -9,6 +10,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     admissions: {
       findUnique: findUniqueMock,
+      findFirst: findFirstMock,
       update: updateMock,
     },
     audit_logs: {
@@ -44,10 +46,12 @@ const admissionService = (await import('../../services/emr/admissionService.js')
 
 const PATIENT = '11111111-1111-4111-8111-111111111111';
 const PHARMACY = '22222222-2222-4222-8222-222222222222';
+const TENANT = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   jest.useFakeTimers().setSystemTime(new Date('2026-05-23T12:00:00.000Z'));
   findUniqueMock.mockReset();
+  findFirstMock.mockReset();
   updateMock.mockReset();
   auditCreateMock.mockReset();
   queryUnsafeMock.mockReset();
@@ -58,6 +62,22 @@ afterEach(() => {
 });
 
 describe('admissionService.markDischargeDrugsDispensed evidence gate', () => {
+  it('uses tenant-scoped admission lookup before stamping dispense', async () => {
+    findFirstMock.mockResolvedValueOnce(null);
+
+    await expect(admissionService.markDischargeDrugsDispensed(42, PHARMACY, { tenantId: TENANT }))
+      .rejects.toMatchObject({
+        statusCode: 404,
+      });
+
+    expect(findFirstMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 42, tenant_id: TENANT },
+    }));
+    expect(findUniqueMock).not.toHaveBeenCalled();
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
   it('rejects loose dispense stamping without pharmacy or med-rec evidence', async () => {
     findUniqueMock.mockResolvedValueOnce({
       id: 42,

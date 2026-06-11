@@ -16,6 +16,11 @@ const validate = (req, res, next) => {
 
 const router = Router();
 
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
+}
+
 /**
  * POST /theatre/schedule
  * Schedule a new surgery
@@ -35,7 +40,8 @@ router.post('/schedule', requiredUUID('patient_uid'), requiredString('procedure_
       estimated_duration: req.body.estimated_duration,
       equipment_needed: req.body.equipment_needed,
       blood_arranged: req.body.blood_arranged,
-      consent_obtained: req.body.consent_obtained
+      consent_obtained: req.body.consent_obtained,
+      tenantId: tenantOf(req),
     };
 
     const schedule = await theatreService.scheduleSurgery(scheduleData);
@@ -58,7 +64,8 @@ router.get('/today', async (req, res, next) => {
     const filters = {
       ot_room: req.query.ot_room,
       status: req.query.status,
-      date: req.query.date
+      date: req.query.date,
+      tenantId: tenantOf(req),
     };
 
     const schedules = await theatreService.getTodaySchedule(filters);
@@ -79,7 +86,7 @@ router.get('/today', async (req, res, next) => {
 router.get('/availability', async (req, res, next) => {
   try {
     const { date } = req.query;
-    const result = await theatreService.getAvailableRooms(date);
+    const result = await theatreService.getAvailableRooms(date, { tenantId: tenantOf(req) });
     return success(res, result, 'OT room availability retrieved');
   } catch (err) {
     if (err.isOperational) {
@@ -99,7 +106,9 @@ router.put('/:id/status', paramId(), validate, async (req, res, next) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const result = await theatreService.updateStatus(parseInt(id, 10), status, req.user?.uid);
+    const result = await theatreService.updateStatus(parseInt(id, 10), status, req.user?.uid, {
+      tenantId: tenantOf(req),
+    });
     return success(res, result, 'Surgery status updated successfully');
   } catch (err) {
     if (err.isOperational) {
@@ -120,7 +129,7 @@ router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
     const { checklist } = req.body;
 
     const result = await theatreService.completeChecklist(parseInt(id, 10), checklist, {
-      tenantId: req.tenantId,
+      tenantId: tenantOf(req),
       completedBy: req.user?.uid || null,
     });
     return success(res, result, 'Pre-op checklist updated successfully');
@@ -140,7 +149,9 @@ router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
 router.delete('/:id', paramId(), validate, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const result = await theatreService.cancelSurgery(parseInt(id, 10), req.user?.uid);
+    const result = await theatreService.cancelSurgery(parseInt(id, 10), req.user?.uid, {
+      tenantId: tenantOf(req),
+    });
     return success(res, result, 'Surgery cancelled successfully');
   } catch (err) {
     if (err.isOperational) {

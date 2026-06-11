@@ -17,8 +17,12 @@ import { isAdmin, isStaff, isDoctor } from '../../utils/roleHelpers.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
+}
+
+function canManageSharedPhrases(role) {
+  return ['ADMIN', 'SUPER_ADMIN'].includes(String(role || '').trim().toUpperCase());
 }
 
 function wrap(handler) {
@@ -73,6 +77,7 @@ router.post('/phrases', requireDoctorOrAdmin, wrap(async (req) =>
     tenantId: tenantOf(req),
     owner_uid: req.user?.uid,
     ...req.body,
+    can_manage_shared: canManageSharedPhrases(req.user?.role),
   }),
 ));
 
@@ -82,6 +87,7 @@ router.patch('/phrases/:id', requireDoctorOrAdmin, wrap(async (req) =>
     id: req.params.id,
     owner_uid: req.user?.uid,
     ...req.body,
+    can_manage_shared: canManageSharedPhrases(req.user?.role),
   }),
 ));
 
@@ -90,6 +96,7 @@ router.delete('/phrases/:id', requireDoctorOrAdmin, wrap(async (req) =>
     tenantId: tenantOf(req),
     id: req.params.id,
     owner_uid: req.user?.uid,
+    can_manage_shared: canManageSharedPhrases(req.user?.role),
   }),
 ));
 

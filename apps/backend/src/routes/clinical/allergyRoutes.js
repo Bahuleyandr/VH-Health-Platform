@@ -13,15 +13,20 @@
 import express from 'express';
 import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const guardAllergyView = patientAccessGuard('ALLERGY', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
 
-router.get('/patient/:patientUid/unified', async (req, res) => {
+router.get('/patient/:patientUid/unified', guardAllergyView, async (req, res) => {
   try {
     const patientUid = String(req.params.patientUid || '').trim();
     if (!UUID_RE.test(patientUid)) {

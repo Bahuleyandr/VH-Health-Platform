@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { deriveTenantIdFromRequest } from '../../services/security/accessDecisionService.js';
 import { success } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -37,6 +38,10 @@ router.get('/audit/search', async (req, res, next) => {
     const conditions = [];
     const params = [];
     let paramIndex = 1;
+    const tenantId = deriveTenantIdFromRequest(req);
+
+    conditions.push(`metadata->>'tenant_id' = $${paramIndex++}`);
+    params.push(tenantId);
 
     if (staff_uid) {
       conditions.push(`user_id = $${paramIndex++}`);
@@ -44,8 +49,9 @@ router.get('/audit/search', async (req, res, next) => {
     }
 
     if (patient_uid) {
-      conditions.push(`request_summary LIKE $${paramIndex++}`);
-      params.push(`%${patient_uid}%`);
+      conditions.push(`(metadata->>'patient_uid' = $${paramIndex} OR metadata->>'patient_id' = $${paramIndex})`);
+      params.push(String(patient_uid));
+      paramIndex++;
     }
 
     if (date_from) {
@@ -86,7 +92,7 @@ router.get('/audit/search', async (req, res, next) => {
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, user_id, user_name, user_role, ip_address, method, path,
-              module, action, query_params, request_summary,
+              module, action, resource, resource_id, metadata, query_params, request_summary,
               status_code, response_time_ms, success, user_agent, created_at
        FROM audit_log
        ${whereClause}

@@ -29,6 +29,20 @@ const TENANT_DEFAULT = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(t) { return t || TENANT_DEFAULT; }
 
+async function assertPatientInTenant(patientUid, tenantId) {
+  const tid = tenantOr(tenantId);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, birthday::text AS birthday
+       FROM users
+      WHERE uid = $1::uuid
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    patientUid, tid,
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found', 'PAEDIATRIC_PATIENT_NOT_FOUND');
+  return rows[0];
+}
+
 function dateOnly(value) {
   if (!value) return null;
   const text = String(value);
@@ -66,21 +80,16 @@ async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
   const existing = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*)::int AS count
        FROM patient_immunisations
-      WHERE patient_uid = $1::uuid`,
-    patientUid,
+      WHERE patient_uid = $1::uuid
+        AND tenant_id = $2::uuid`,
+    patientUid, tid,
   );
   if (Number(existing?.[0]?.count || 0) > 0) {
     return { seeded: false, reason: 'already_seeded' };
   }
 
-  const patient = await prisma.$queryRawUnsafe(
-    `SELECT birthday::text AS birthday
-       FROM users
-      WHERE uid = $1::uuid
-      LIMIT 1`,
-    patientUid,
-  );
-  const dob = patient?.[0]?.birthday;
+  const patient = await assertPatientInTenant(patientUid, tid);
+  const dob = patient?.birthday;
   if (!dob) {
     return { seeded: false, reason: 'missing_dob' };
   }
@@ -106,6 +115,7 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
   const tid = tenantOr(tenantId);
   const dobDate = new Date(dob);
   if (Number.isNaN(dobDate.getTime())) throw AppError.badRequest('dob must be a valid date');
+  await assertPatientInTenant(patientUid, tid);
 
   // Look up active catalogue rows once, project due_date in app code so
   // the SQL stays simple and we control date arithmetic explicitly.
@@ -129,9 +139,16 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
        VALUES ($1::uuid, $2, $3::date, $4::uuid)
        ON CONFLICT (patient_uid, vaccine_catalogue_id)
        DO UPDATE SET due_date = EXCLUDED.due_date, updated_at = NOW()
+       WHERE patient_immunisations.tenant_id = EXCLUDED.tenant_id
        RETURNING (xmax = 0) AS was_insert`,
       patientUid, Number(row.id), dueIso, tid,
     );
+    if (!result.length) {
+      throw AppError.conflict(
+        'Patient immunisation row conflicts with another tenant',
+        'PAEDIATRIC_IMMUNISATION_TENANT_CONFLICT',
+      );
+    }
     if (result?.[0]?.was_insert) inserted += 1; else updated += 1;
   }
 
@@ -162,11 +179,13 @@ export async function listForPatient(patientUid, { tenantId } = {}) {
             pi.created_at, pi.updated_at,
             vc.code, vc.display_name, vc.dose_number,
             vc.recommended_age_days, vc.window_days
-       FROM patient_immunisations pi
+      FROM patient_immunisations pi
        JOIN vaccine_catalogue vc ON vc.id = pi.vaccine_catalogue_id
+        AND vc.tenant_id = pi.tenant_id
       WHERE pi.patient_uid = $1::uuid
+        AND pi.tenant_id = $2::uuid
       ORDER BY pi.due_date ASC, vc.code ASC, vc.dose_number ASC NULLS FIRST`,
-    patientUid,
+    patientUid, tenantOr(tenantId),
   );
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -213,11 +232,13 @@ export async function listDueForPatient(patientUid, { asOf = null, tenantId = nu
                   ELSE 'upcoming' END) AS bucket
        FROM patient_immunisations pi
        JOIN vaccine_catalogue vc ON vc.id = pi.vaccine_catalogue_id
+        AND vc.tenant_id = pi.tenant_id
       WHERE pi.patient_uid = $1::uuid
+        AND pi.tenant_id = $4::uuid
         AND pi.status = 'scheduled'
         AND ($3::date IS NULL OR pi.due_date > $3::date)
       ORDER BY pi.due_date ASC`,
-    patientUid, checkpointIso, reviewCutoffIso,
+    patientUid, checkpointIso, reviewCutoffIso, tenantOr(tenantId),
   );
 }
 
@@ -237,7 +258,9 @@ export async function recordDose({
   siteOfInjection,
   adverseEvent,
   notes,
+  tenantId,
 }) {
+  const tid = tenantOr(tenantId);
   const id = Number.parseInt(immunisationId, 10);
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('immunisationId must be a positive integer');
@@ -265,6 +288,7 @@ export async function recordDose({
             notes = COALESCE($10, notes),
             updated_at = NOW()
       WHERE id = $1
+        AND tenant_id = $11::uuid
       RETURNING id, patient_uid, status, given_at, given_by, vaccine_catalogue_id`,
     id, status,
     givenAt ?? (status === 'given' ? new Date().toISOString() : null),
@@ -275,6 +299,7 @@ export async function recordDose({
     siteOfInjection ?? null,
     adverseEvent ?? null,
     notes ?? null,
+    tid,
   );
   if (!result.length) throw AppError.notFound(`Immunisation row ${id} not found`);
   return result[0];

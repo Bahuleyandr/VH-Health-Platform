@@ -9,6 +9,7 @@ import authRoutes from './authRoutes.js';
 import firebaseAuthRoutes from './firebaseAuthRoutes.js';
 import otpRoutes from './otpRoutes.js';
 import staffAuthRoutes from './staffAuthRoutes.js';
+import { isDevAuthEnabled } from '../../utils/authCompatibilityGates.js';
 
 const router = express.Router();
 
@@ -53,31 +54,21 @@ router.use('/admin/otp', adminOtpRoutes); // Admin OTP at /api/v1/auth/admin/otp
 router.use('/admin', adminAuthRoutes); // Admin auth at /api/v1/auth/admin/* (USERNAME/PASSWORD)
 router.use('/staff', staffAuthRoutes); // Staff auth at /api/v1/auth/staff/* (EMPLOYEE ID + PIN)
 
-// Dev-only shortcuts — let the patient app obtain a real JWT without a
-// Firebase OTP round-trip (needed for emulator / CI / swarm-QA runs
-// where a phone-verified Firebase session cannot exist).
+// Dev-only shortcuts — let a local harness obtain a real patient JWT without a
+// Firebase OTP round-trip when explicitly enabled.
 //
-// Production must stay fail-closed: only mount when ENABLE_DEV_AUTH is
-// explicitly 'true' and NODE_ENV is not 'production'. In non-production
-// environments (development / test / unset), the route is mounted by
-// default so QA harnesses don't need to thread a flag through every
-// orchestrator script — the swarm previously hit this gate repeatedly
-// (findings 2026-05-{10,12,13}-*-patient-dev-login*). To explicitly
-// disable in dev/test, set ENABLE_DEV_AUTH=false.
+// Production must stay fail-closed: this route is never mounted when
+// NODE_ENV is production, even if ENABLE_DEV_AUTH is accidentally set. In
+// non-production environments it is disabled by default and mounted only when
+// ENABLE_DEV_AUTH=true.
 //
 // SECURITY: the route is still gated by the standard x-api-key check
 // (validateApiKey) and creates only PATIENT-role JWTs — it cannot escalate
 // to staff/admin even if accidentally exposed.
-const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const devAuthFlag = process.env.ENABLE_DEV_AUTH;
-const devAuthFlagSet = devAuthFlag !== undefined && devAuthFlag !== '';
-const enableDevAuth = isProd
-  ? String(devAuthFlag || '').toLowerCase() === 'true'
-  : (!devAuthFlagSet || String(devAuthFlag || '').toLowerCase() !== 'false');
-if (enableDevAuth) {
+if (isDevAuthEnabled()) {
   const { default: devAuthRoutes } = await import('./devAuthRoutes.js');
   router.use('/dev', devAuthRoutes);
-  logger.warn(`  - Dev Auth:    /api/v1/auth/dev/* (NODE_ENV=${process.env.NODE_ENV || 'unset'}, ENABLE_DEV_AUTH=${devAuthFlag ?? 'unset'})`);
+  logger.warn(`  - Dev Auth:    /api/v1/auth/dev/* (NODE_ENV=${process.env.NODE_ENV || 'unset'}, ENABLE_DEV_AUTH=${process.env.ENABLE_DEV_AUTH ?? 'unset'})`);
 }
 
 // Apply RBAC wrapper to the entire auth module

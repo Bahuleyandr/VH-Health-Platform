@@ -7,6 +7,7 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Shared `select` shape for create + update return values — callers see a
 // stable object regardless of which method produced it.
@@ -36,6 +37,24 @@ const toTextArray = (value) => {
   return [];
 };
 
+function tenantOr(value) {
+  return String(value || '').trim() || DEFAULT_TENANT_ID;
+}
+
+async function assertPatientInTenant(tenantId, patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantId,
+    patientUid,
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+}
+
 class DietaryService {
 
   /**
@@ -45,8 +64,9 @@ class DietaryService {
     const {
       patient_uid, encounter_id, diet_type, restrictions = [],
       allergies = [], meal_preferences, calories_target,
-      special_instructions, ordered_by
+      special_instructions, tenant_id, ordered_by
     } = data;
+    const tenantId = tenantOr(tenant_id);
 
     if (!patient_uid || !diet_type || !ordered_by) {
       throw AppError.badRequest('Missing required fields: patient_uid, diet_type, ordered_by');
@@ -58,9 +78,11 @@ class DietaryService {
 
     const normalizedRestrictions = toTextArray(restrictions);
     const normalizedAllergies = toTextArray(allergies);
+    await assertPatientInTenant(tenantId, patient_uid);
 
     const order = await prisma.diet_orders.create({
       data: {
+        tenant_id: tenantId,
         patient_uid,
         encounter_id: encounter_id || null,
         diet_type,
@@ -83,6 +105,7 @@ class DietaryService {
    * Get all active diet orders (optionally filtered)
    */
   async getActiveOrders(filters = {}) {
+    const tenantId = tenantOr(filters.tenantId || filters.tenant_id);
     const listQuery = parseListQuery(filters, {
       defaultLimit: 50,
       maxLimit: 100,
@@ -90,7 +113,9 @@ class DietaryService {
     });
 
     const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM diet_orders WHERE status = 'active'`
+      `SELECT COUNT(*) FROM diet_orders
+        WHERE tenant_id = $1::uuid AND status = 'active'`,
+      tenantId,
     );
     const total = parseInt(countResult[0].count, 10);
 
@@ -99,10 +124,10 @@ class DietaryService {
               meal_preferences, calories_target, special_instructions, status,
               ordered_by, reviewed_by, created_at
        FROM diet_orders
-       WHERE status = 'active'
+       WHERE tenant_id = $1::uuid AND status = 'active'
        ORDER BY created_at DESC
-       LIMIT $1 OFFSET $2`,
-      listQuery.limit, listQuery.offset
+       LIMIT $2 OFFSET $3`,
+      tenantId, listQuery.limit, listQuery.offset
     );
     const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
@@ -118,11 +143,12 @@ class DietaryService {
   async updateDietPlan(id, data) {
     const {
       diet_type, restrictions, allergies, meal_preferences,
-      calories_target, special_instructions, status, reviewed_by
+      calories_target, special_instructions, status, tenantId: rawTenantId, reviewed_by
     } = data;
+    const tenantId = tenantOr(rawTenantId || data.tenant_id);
 
-    const existing = await prisma.diet_orders.findUnique({
-      where: { id: parseInt(id, 10) },
+    const existing = await prisma.diet_orders.findFirst({
+      where: { id: parseInt(id, 10), tenant_id: tenantId },
       select: { id: true, status: true },
     });
 
@@ -169,6 +195,8 @@ class DietaryService {
    * Get diet order history for a patient
    */
   async getPatientDietHistory(patientUid, filters = {}) {
+    const tenantId = tenantOr(filters.tenantId || filters.tenant_id);
+    await assertPatientInTenant(tenantId, patientUid);
     const listQuery = parseListQuery(filters, {
       defaultLimit: 20,
       maxLimit: 100,
@@ -176,8 +204,9 @@ class DietaryService {
     });
 
     const countResult = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM diet_orders WHERE patient_uid = $1::uuid`,
-      patientUid
+      `SELECT COUNT(*) FROM diet_orders
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`,
+      tenantId, patientUid
     );
     const total = parseInt(countResult[0].count, 10);
 
@@ -186,10 +215,10 @@ class DietaryService {
               meal_preferences, calories_target, special_instructions, status,
               ordered_by, reviewed_by, created_at
        FROM diet_orders
-       WHERE patient_uid = $1::uuid
+       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
        ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      patientUid, listQuery.limit, listQuery.offset
+       LIMIT $3 OFFSET $4`,
+      tenantId, patientUid, listQuery.limit, listQuery.offset
     );
     const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
@@ -204,13 +233,14 @@ class DietaryService {
    */
   async getDietWorklist(filters = {}) {
     const { status, diet_type } = filters;
+    const tenantId = tenantOr(filters.tenantId || filters.tenant_id);
     const listQuery = parseListQuery(filters, {
       defaultLimit: 50,
       maxLimit: 100,
       defaultSortBy: 'created_at'
     });
-    const conditions = [];
-    const params = [];
+    const conditions = [`tenant_id = $1::uuid`];
+    const params = [tenantId];
 
     if (status) {
       params.push(status);

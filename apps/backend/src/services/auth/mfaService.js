@@ -3,20 +3,21 @@
  *
  * RFC 6238 TOTP (default sha1 / 6 digits / 30s period) with replay
  * prevention via (device_id, step) uniqueness in mfa_challenges. Stores
- * shared secret as ciphertext placeholder + ciphertext_hash for
- * duplicate-enrollment detection. Backup codes are hashed + salted.
+ * shared secrets encrypted with TOTP_ENCRYPTION_KEY plus ciphertext_hash
+ * for duplicate-enrollment detection. Backup codes are hashed + salted.
  *
  * Schema is in migration 120: mfa_devices / mfa_backup_codes /
  * mfa_challenges. The crypto helpers here are deliberately small —
- * generation + verification work directly off the secret bytes; key
- * encryption-at-rest is layered above this service when ENCRYPTION_KEY
- * is configured (production deployment task).
+ * generation + verification work directly off decrypted secret bytes.
+ * Legacy rows that predate encryption still require operator backfill or
+ * rotation; see src/scripts/security/audit-secret-encryption.js.
  */
 
 import crypto from 'crypto';
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { decryptSecret as decryptTotpSecret, encryptSecret as encryptTotpSecret } from '../../utils/totpUtils.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const TEXT_MAX = 8000;
@@ -183,6 +184,19 @@ function fingerprintSecret(secret) {
   return crypto.createHash('sha256').update(`vhmfa:${secret}`).digest('hex').slice(0, 64);
 }
 
+function isEncryptedTotpSecret(value) {
+  const parts = String(value || '').split(':');
+  return parts.length === 3
+    && parts.every(Boolean)
+    && parts.every((part) => /^[0-9a-f]+$/i.test(part));
+}
+
+function decryptStoredTotpSecret(value) {
+  if (!value) return value;
+  if (!isEncryptedTotpSecret(value)) return value;
+  return decryptTotpSecret(value);
+}
+
 /** Hash a backup code with a per-row salt. */
 function hashBackupCode(code, salt) {
   return crypto.createHmac('sha256', salt).update(code).digest('hex');
@@ -221,7 +235,13 @@ export async function enrollTotpDevice({
   const tid = resolveTenantId({ tenantId });
   const cleanUid = maybeUuid(userUid, 'user_uid', { required: true });
   const cleanAlgo = normalizeEnum(algorithm, ALGORITHMS, 'algorithm') || DEFAULT_ALGORITHM;
-  const secret = encryptedSecret || generateTotpSecret();
+  const providedSecret = encryptedSecret || generateTotpSecret();
+  const secret = isEncryptedTotpSecret(providedSecret)
+    ? decryptTotpSecret(providedSecret)
+    : providedSecret;
+  const encryptedSecretForStorage = isEncryptedTotpSecret(providedSecret)
+    ? providedSecret
+    : encryptTotpSecret(secret);
   const hash = fingerprintSecret(secret);
 
   try {
@@ -232,7 +252,7 @@ export async function enrollTotpDevice({
           algorithm, digits, period_seconds, status)
        VALUES ($1::uuid, $2::uuid, 'totp', $3, $4, $5, $6, $7, $8, 'pending')
        RETURNING ${DEVICE_RETURNING}`,
-      tid, cleanUid, safeText(displayName, 160), secret, hash,
+      tid, cleanUid, safeText(displayName, 160), encryptedSecretForStorage, hash,
       cleanAlgo, digits, period,
     );
     return { device: rows[0], otpauth_url: buildOtpAuthUrl({
@@ -259,16 +279,24 @@ function buildOtpAuthUrl({ secret, displayName, userUid, algorithm, digits, peri
 export async function verifyAndActivateDevice({
   tenantId = null,
   deviceId,
+  userUid = null,
   code,
   ipAddress = null,
   userAgent = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const id = normalizeId(deviceId, 'device id');
+  const cleanUid = userUid ? maybeUuid(userUid, 'user_uid') : null;
+  const filters = ['id = $1', 'tenant_id = $2::uuid'];
+  const params = [id, tid];
+  if (cleanUid) {
+    params.push(cleanUid);
+    filters.push(`user_uid = $${params.length}::uuid`);
+  }
   const dev = await prisma.$queryRawUnsafe(
     `SELECT id, tenant_id, user_uid, secret_ciphertext, algorithm, digits, period_seconds, status
-     FROM mfa_devices WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
-    id, tid,
+     FROM mfa_devices WHERE ${filters.join(' AND ')} LIMIT 1`,
+    ...params,
   );
   if (!dev[0]) throw AppError.notFound('MFA device not found');
   const device = dev[0];
@@ -277,7 +305,7 @@ export async function verifyAndActivateDevice({
   }
 
   const step = verifyTotpCode({
-    secret: device.secret_ciphertext,
+    secret: decryptStoredTotpSecret(device.secret_ciphertext),
     code,
     algorithm: device.algorithm,
     digits: device.digits,
@@ -357,7 +385,7 @@ export async function authenticateTotp({
   const device = dev[0];
 
   const step = verifyTotpCode({
-    secret: device.secret_ciphertext,
+    secret: decryptStoredTotpSecret(device.secret_ciphertext),
     code,
     algorithm: device.algorithm,
     digits: device.digits,
@@ -428,16 +456,23 @@ export async function consumeBackupCode({
 }
 
 export async function revokeDevice({
-  tenantId = null, deviceId,
+  tenantId = null, deviceId, userUid = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const id = normalizeId(deviceId, 'device id');
+  const cleanUid = userUid ? maybeUuid(userUid, 'user_uid') : null;
+  const filters = ['id = $1', 'tenant_id = $2::uuid', "status <> 'revoked'"];
+  const params = [id, tid];
+  if (cleanUid) {
+    params.push(cleanUid);
+    filters.push(`user_uid = $${params.length}::uuid`);
+  }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE mfa_devices
      SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND tenant_id = $2::uuid AND status <> 'revoked'
+     WHERE ${filters.join(' AND ')}
      RETURNING ${DEVICE_RETURNING}`,
-    id, tid,
+    ...params,
   );
   if (!rows[0]) throw AppError.notFound('Device not found or already revoked');
   return rows[0];

@@ -23,6 +23,15 @@ const PATIENT_ALLOWED_MIMES = [
   'image/jpeg', 'image/jpg', 'image/png', 'application/pdf'
 ];
 
+const GENERIC_DOCUMENT_UPLOAD_ALLOWED_MIMES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+
 const FALLBACK_MIME_BY_EXTENSION = new Map([
   ['jpg', 'image/jpeg'],
   ['jpeg', 'image/jpeg'],
@@ -285,6 +294,23 @@ export function validatePatientUpload(req, res, next) {
         success: false,
         message: `File "${file.originalname}" exceeds the ${maxSize / (1024 * 1024)}MB limit for ${isImage ? 'images' : 'PDFs'}.`,
         error: 'FILE_TOO_LARGE'
+      });
+    }
+  }
+  next();
+}
+
+export function validateGenericDocumentUpload(req, res, next) {
+  const files = req.files || (req.file ? [req.file] : []);
+  if (files.length === 0) return next();
+
+  for (const file of files) {
+    normalizeUploadMimeType(file);
+    if (!GENERIC_DOCUMENT_UPLOAD_ALLOWED_MIMES.includes(file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        message: `File type "${file.mimetype}" is not allowed. Accepted types: JPEG, PNG, PDF, DOC, DOCX.`,
+        error: 'INVALID_FILE_TYPE'
       });
     }
   }

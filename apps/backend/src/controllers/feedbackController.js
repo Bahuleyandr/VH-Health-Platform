@@ -6,12 +6,59 @@ import logger from '../logging/logger.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import feedbackService from '../services/feedback/feedbackService.js';
 import { resolveDoctorFilterId } from '../services/doctor/doctorRefService.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import prisma from '../lib/prisma.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
-import { resolvePhoneFromRequest, resolvePhoneFromUID } from '../utils/resolveIdentity.js';
+import { resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 import { success, error } from '../utils/responseHelper.js';
 import { isClinical, isAdmin } from '../utils/roleHelpers.js';
 import { parseListQuery } from '../utils/listQuery.js';
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+}
+
+function isAdminRole(role) {
+  return isAdmin(role) || String(role || '').trim().toUpperCase() === 'SUPER_ADMIN';
+}
+
+function canReadOtherFeedback(role) {
+  return isAdminRole(role) || isClinical(role);
+}
+
+async function resolveAuthenticatedFeedbackPhone(req, requestedPhone) {
+  const normalizedRequested = normalizePhone(requestedPhone || '');
+  if (isAdminRole(req.user?.role) && normalizedRequested) {
+    return normalizedRequested;
+  }
+
+  const tokenPhone = normalizePhone(req.user?.phone || '');
+  if (tokenPhone) {
+    if (normalizedRequested && normalizedRequested !== tokenPhone) {
+      const err = new Error('Can only access feedback for yourself');
+      err.statusCode = HTTP_STATUS.FORBIDDEN;
+      throw err;
+    }
+    return tokenPhone;
+  }
+
+  if (!req.user?.uid) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT phone
+       FROM users
+      WHERE uid = $1::uuid AND tenant_id = $2::uuid
+      LIMIT 1`,
+    req.user.uid,
+    tenantOf(req),
+  );
+  const resolved = normalizePhone(rows[0]?.phone || '');
+  if (normalizedRequested && resolved && normalizedRequested !== resolved) {
+    const err = new Error('Can only access feedback for yourself');
+    err.statusCode = HTTP_STATUS.FORBIDDEN;
+    throw err;
+  }
+  return resolved;
+}
 
 // Submit Feedback using resolved phone
 // Supports both star-rating feedback and "Ask a Doubt" (question) from Flutter app.
@@ -19,7 +66,7 @@ import { parseListQuery } from '../utils/listQuery.js';
 //   ALTER TABLE feedback ADD COLUMN IF NOT EXISTS question TEXT;
 export async function submitFeedback(req, res) {
   try {
-    const phone = resolvePhoneFromRequest(req);
+    const phone = await resolveAuthenticatedFeedbackPhone(req, req.body.phone || req.body.phoneNumber);
     const { rating, comment, question } = req.body;
 
     // phone is required; rating and question are both optional (at least one is expected)
@@ -32,6 +79,9 @@ export async function submitFeedback(req, res) {
 
     success(res, result, 'Feedback submitted successfully');
   } catch (err) {
+    if (err.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
     logger.error(err.stack || err.toString());
     error(res, 'Failed to submit feedback');
   }
@@ -41,13 +91,17 @@ export async function submitFeedback(req, res) {
 export async function getFeedbackByUID(req, res) {
   try {
     const uid = req.params.uid;
+    if (!canReadOtherFeedback(req.user?.role) && String(uid) !== String(req.user?.uid)) {
+      return error(res, 'Can only view your own feedback', HTTP_STATUS.FORBIDDEN);
+    }
+
     const resolvedPhone = await resolvePhoneFromUID(uid);
 
     if (!resolvedPhone) {
       return error(res, 'UID not found in users table', 404);
     }
 
-    const data = await feedbackService.getFeedbackByPhone(resolvedPhone);
+    const data = await feedbackService.getFeedbackByPhone(resolvedPhone, tenantOf(req));
 
     if (data.totalCount === 0) {
       return error(res, 'No feedback found for this phone', 404);
@@ -63,18 +117,13 @@ export async function getFeedbackByUID(req, res) {
 // Get User's Feedback History
 export async function getMyFeedback(req, res) {
   try {
-    const phone = normalizePhone(req.user?.phone || req.query.phone);
+    const phone = await resolveAuthenticatedFeedbackPhone(req, req.query.phone);
 
     if (!phone) {
       return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Role-based access control - users can only see their own feedback
-    if (req.user?.phone && normalizePhone(req.user.phone) !== phone && req.user?.role !== 'ADMIN') {
-      return error(res, 'Can only view your own feedback', HTTP_STATUS.FORBIDDEN);
-    }
-
-    const result = await feedbackService.getFeedbackByPhone(phone);
+    const result = await feedbackService.getFeedbackByPhone(phone, tenantOf(req));
 
     success(res, {
       ...result,
@@ -82,6 +131,7 @@ export async function getMyFeedback(req, res) {
     }, 'Feedback history retrieved successfully');
 
   } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Get Feedback Error:', err);
     error(res, 'Failed to retrieve feedback', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -90,14 +140,9 @@ export async function getMyFeedback(req, res) {
 // Feedback Statistics for User
 export async function getMyStats(req, res) {
   try {
-    const phone = normalizePhone(req.user?.phone || req.query.phone);
+    const phone = await resolveAuthenticatedFeedbackPhone(req, req.query.phone);
 
-    // Role-based access control
-    if (req.user?.phone && normalizePhone(req.user.phone) !== phone && req.user?.role !== 'ADMIN') {
-      return error(res, 'Can only view your own statistics', HTTP_STATUS.FORBIDDEN);
-    }
-
-    const statistics = await feedbackService.getFeedbackStats(phone);
+    const statistics = await feedbackService.getFeedbackStats(phone, tenantOf(req));
 
     success(res, {
       statistics,
@@ -105,6 +150,7 @@ export async function getMyStats(req, res) {
     }, 'Feedback statistics retrieved successfully');
 
   } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Feedback Stats Error:', err);
     error(res, 'Failed to retrieve feedback statistics', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -114,7 +160,7 @@ export async function getMyStats(req, res) {
 export async function getFeedbackDashboard(req, res) {
   try {
     // Role-based access control
-    if (!isClinical(req.user?.role) && !isAdmin(req.user?.role)) {
+    if (!isClinical(req.user?.role) && !isAdminRole(req.user?.role)) {
       return error(res, 'Staff access required for feedback dashboard', HTTP_STATUS.FORBIDDEN);
     }
 
@@ -128,7 +174,7 @@ export async function getFeedbackDashboard(req, res) {
       default: interval = '30 days';
     }
 
-    const dashboardData = await feedbackService.getDashboard(interval);
+    const dashboardData = await feedbackService.getDashboard(interval, tenantOf(req));
 
     success(res, {
       timeframe,
@@ -147,7 +193,7 @@ export async function getFeedbackDashboard(req, res) {
 export async function getRecentFeedback(req, res) {
   try {
     // Role-based access control
-    if (!isClinical(req.user?.role) && !isAdmin(req.user?.role)) {
+    if (!isClinical(req.user?.role) && !isAdminRole(req.user?.role)) {
       return error(res, 'Staff access required for recent feedback', HTTP_STATUS.FORBIDDEN);
     }
 
@@ -170,7 +216,7 @@ export async function getRecentFeedback(req, res) {
       department_id: req.query.department_id
     };
 
-    const result = await feedbackService.getRecentFeedback(filters, req.user?.role, req.user?.id);
+    const result = await feedbackService.getRecentFeedback(filters, req.user?.role, req.user?.id, tenantOf(req));
 
     success(res, {
       ...result,
@@ -194,13 +240,13 @@ export async function getRecentFeedback(req, res) {
 export async function getFeedbackAnalytics(req, res) {
   try {
     // Role-based access control
-    if (!isClinical(req.user?.role) && !isAdmin(req.user?.role)) {
+    if (!isClinical(req.user?.role) && !isAdminRole(req.user?.role)) {
       return error(res, 'Staff access required for feedback analytics', HTTP_STATUS.FORBIDDEN);
     }
 
     const { groupBy = 'day' } = req.query;
 
-    const analyticsData = await feedbackService.getAnalytics(req.user?.role, req.user?.id, groupBy);
+    const analyticsData = await feedbackService.getAnalytics(req.user?.role, req.user?.id, groupBy, tenantOf(req));
 
     success(res, {
       ...analyticsData,
@@ -218,13 +264,13 @@ export async function getFeedbackAnalytics(req, res) {
 export async function getFeedbackReport(req, res) {
   try {
     // Role-based access control
-    if (req.user?.role !== 'ADMIN') {
+    if (!isAdminRole(req.user?.role)) {
       return error(res, 'Admin access required for feedback reports', HTTP_STATUS.FORBIDDEN);
     }
 
     const { format = 'json', startDate, endDate } = req.query;
 
-    const reportData = await feedbackService.getReport({ startDate, endDate });
+    const reportData = await feedbackService.getReport({ startDate, endDate }, tenantOf(req));
 
     if (format === 'csv') {
       let csv = 'Metric,Value\n';
@@ -257,7 +303,6 @@ export async function submitFeedbackEnhanced(req, res) {
     return error(res, RESPONSE_MESSAGES.VALIDATION_FAILED, HTTP_STATUS.BAD_REQUEST, errors.array());
   }
 
-  const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
   const {
     rating, comment, category = 'general',
     appointment_id, doctor_id, department_id,
@@ -265,13 +310,10 @@ export async function submitFeedbackEnhanced(req, res) {
   } = req.body;
 
   try {
-    // Role-based access control - users can only submit feedback for themselves
-    if (req.user?.phone && normalizePhone(req.user.phone) !== phone && req.user?.role !== 'ADMIN') {
-      return error(res, 'Can only submit feedback for yourself', HTTP_STATUS.FORBIDDEN);
-    }
+    const phone = await resolveAuthenticatedFeedbackPhone(req, req.body.phone || req.body.phoneNumber);
 
     // Check if user exists
-    const user = await feedbackService.getUserByPhone(phone);
+    const user = await feedbackService.getUserByPhone(phone, tenantOf(req));
 
     if (!user) {
       return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
@@ -296,6 +338,7 @@ export async function submitFeedbackEnhanced(req, res) {
     }, RESPONSE_MESSAGES.FEEDBACK_SUBMITTED);
 
   } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Submit Feedback Error:', err.stack || err.toString());
     error(res, 'Failed to submit feedback', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -305,16 +348,14 @@ export async function submitFeedbackEnhanced(req, res) {
 export async function submitQuickRating(req, res) {
   const { phone, rating, appointment_id, category = 'quick' } = req.body;
 
-  if (!phone || !rating || rating < 1 || rating > 5) {
-    return error(res, 'Valid phone and rating (1-5) required', HTTP_STATUS.BAD_REQUEST);
+  if (!rating || rating < 1 || rating > 5) {
+    return error(res, 'Valid rating (1-5) required', HTTP_STATUS.BAD_REQUEST);
   }
 
   try {
-    const normalizedPhone = normalizePhone(phone);
-
-    // Role-based access control
-    if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
-      return error(res, 'Can only submit rating for yourself', HTTP_STATUS.FORBIDDEN);
+    const normalizedPhone = await resolveAuthenticatedFeedbackPhone(req, phone);
+    if (!normalizedPhone) {
+      return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
     }
 
     const result = await feedbackService.submitQuickRating({
@@ -333,6 +374,7 @@ export async function submitQuickRating(req, res) {
     }, 'Quick rating submitted successfully');
 
   } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Quick Rating Error:', err);
     error(res, 'Failed to submit rating', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -342,7 +384,7 @@ export async function submitQuickRating(req, res) {
 export async function respondToFeedback(req, res) {
   try {
     // Role-based access control
-    if (!isClinical(req.user?.role) && !isAdmin(req.user?.role)) {
+    if (!isClinical(req.user?.role) && !isAdminRole(req.user?.role)) {
       return error(res, 'Staff access required to respond to feedback', HTTP_STATUS.FORBIDDEN);
     }
 
@@ -354,7 +396,7 @@ export async function respondToFeedback(req, res) {
     }
 
     // Check if feedback exists and if doctor can respond to their own feedback
-    const feedback = await feedbackService.getFeedbackById(feedback_id);
+    const feedback = await feedbackService.getFeedbackById(feedback_id, tenantOf(req));
 
     if (!feedback) {
       return error(res, 'Feedback not found', HTTP_STATUS.NOT_FOUND);
@@ -388,11 +430,11 @@ export async function deleteFeedback(req, res) {
     const { reason = 'Admin deletion' } = req.body;
 
     // Role-based access control
-    if (req.user?.role !== 'ADMIN') {
+    if (!isAdminRole(req.user?.role)) {
       return error(res, 'Admin access required to delete feedback', HTTP_STATUS.FORBIDDEN);
     }
 
-    const deletedFeedback = await feedbackService.deleteFeedback(feedback_id, req.user?.uid, reason);
+    const deletedFeedback = await feedbackService.deleteFeedback(feedback_id, req.user?.uid, reason, tenantOf(req));
 
     if (!deletedFeedback) {
       return error(res, 'Feedback not found', HTTP_STATUS.NOT_FOUND);

@@ -13,6 +13,11 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
 
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
+}
+
 function wrap(handler) {
   return async (req, res, _next) => {
     try {
@@ -58,16 +63,17 @@ router.get('/procedures', requireStaffOrAdmin, wrap(async (req) =>
 
 // ── Booking ──────────────────────────────────────────────────────────
 router.post('/bookings/conflict-check', requireStaffOrAdmin, wrap(async (req) =>
-  orBoard.findConflicts(req.body),
+  orBoard.findConflicts({ ...req.body, tenantId: tenantOf(req) }),
 ));
 
 router.post('/bookings', requireStaffOrAdmin, wrap(async (req) =>
-  orBoard.scheduleWithConflictCheck(req.body),
+  orBoard.scheduleWithConflictCheck({ ...req.body, tenantId: tenantOf(req) }),
 ));
 
 // ── OR board (today's view) ─────────────────────────────────────────
 router.get('/board', requireStaffOrAdmin, wrap(async (req) =>
   orBoard.getOrBoard({
+    tenantId: tenantOf(req),
     date: req.query.date,
     ot_room: req.query.ot_room,
   }),
@@ -75,6 +81,7 @@ router.get('/board', requireStaffOrAdmin, wrap(async (req) =>
 
 router.get('/throughput/daily', requireStaffOrAdmin, wrap(async (req) =>
   orBoard.getDailyThroughput({
+    tenantId: tenantOf(req),
     date: req.query.date,
     ot_room: req.query.ot_room,
   }),
@@ -82,6 +89,7 @@ router.get('/throughput/daily', requireStaffOrAdmin, wrap(async (req) =>
 
 router.get('/safety/weekly', requireStaffOrAdmin, wrap(async (req) =>
   orBoard.getWeeklySafetyCompliance({
+    tenantId: tenantOf(req),
     from: req.query.from,
     to: req.query.to,
   }),

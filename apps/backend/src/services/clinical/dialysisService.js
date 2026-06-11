@@ -59,10 +59,72 @@ function computeKtv({ urea_pre_mg_dl, urea_post_mg_dl, duration_min,
   return Math.round(ktv * 100) / 100;                   // 2 decimals
 }
 
+async function assertPatientInTenant(tenantId, patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantOr(tenantId),
+    String(patientUid),
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+}
+
+async function getDialysisPatientInTenant(tenantId, dialysisPatientId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid
+       FROM dialysis_patients
+      WHERE id = $1 AND tenant_id = $2::uuid`,
+    parseInt(dialysisPatientId, 10),
+    tenantOr(tenantId),
+  );
+  const patient = unwrap(rows);
+  if (!patient) throw AppError.notFound('Dialysis patient not found');
+  return patient;
+}
+
+async function getDialysisSessionInTenant(tenantId, sessionId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT s.id, s.status, s.dialysis_patient_id, p.patient_uid
+       FROM dialysis_sessions s
+       JOIN dialysis_patients p
+         ON p.id = s.dialysis_patient_id
+        AND p.tenant_id = s.tenant_id
+      WHERE s.id = $1 AND s.tenant_id = $2::uuid`,
+    parseInt(sessionId, 10),
+    tenantOr(tenantId),
+  );
+  const session = unwrap(rows);
+  if (!session) throw AppError.notFound('Session not found');
+  return session;
+}
+
+async function getAccessInTenant(tenantId, accessId, dialysisPatientId = null) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT va.id, va.dialysis_patient_id
+       FROM vascular_access va
+       JOIN dialysis_patients p
+         ON p.id = va.dialysis_patient_id
+      WHERE va.id = $1
+        AND p.tenant_id = $2::uuid`,
+    parseInt(accessId, 10),
+    tenantOr(tenantId),
+  );
+  const access = unwrap(rows);
+  if (!access) throw AppError.notFound('Access not found');
+  if (dialysisPatientId && Number(access.dialysis_patient_id) !== Number(dialysisPatientId)) {
+    throw AppError.forbidden('Access belongs to a different dialysis patient');
+  }
+  return access;
+}
+
 // ── Patients ──────────────────────────────────────────────────────
 
 export async function enrolPatient({ tenantId, ...body }) {
   if (!body.patient_uid) throw AppError.badRequest('patient_uid required');
+  await assertPatientInTenant(tenantId, body.patient_uid);
   if (body.modality && !VALID_MODALITIES.includes(body.modality)) {
     throw AppError.badRequest(`modality must be one of: ${VALID_MODALITIES.join(', ')}`);
   }
@@ -114,8 +176,10 @@ export async function getPatient({ tenantId, id }) {
     `SELECT * FROM vascular_access WHERE dialysis_patient_id = $1 ORDER BY active DESC, created_date DESC`,
     pat.id);
   const recentSessions = await prisma.$queryRawUnsafe(
-    `SELECT * FROM dialysis_sessions WHERE dialysis_patient_id = $1 ORDER BY session_date DESC LIMIT 10`,
-    pat.id);
+    `SELECT * FROM dialysis_sessions
+      WHERE tenant_id = $1::uuid AND dialysis_patient_id = $2
+      ORDER BY session_date DESC LIMIT 10`,
+    tenantOr(tenantId), pat.id);
   const serology = await prisma.$queryRawUnsafe(
     `SELECT * FROM dialysis_serology WHERE dialysis_patient_id = $1 ORDER BY test_date DESC LIMIT 10`,
     pat.id);
@@ -144,18 +208,19 @@ export async function updateDryWeight({ tenantId, id, dry_weight_kg }) {
 
 // ── Vascular access ───────────────────────────────────────────────
 
-export async function addAccess({ dialysis_patient_id, ...body }) {
+export async function addAccess({ tenantId, dialysis_patient_id, ...body }) {
   if (!body.access_type) throw AppError.badRequest('access_type required');
   if (!VALID_ACCESS_TYPES.includes(body.access_type)) {
     throw AppError.badRequest(`access_type invalid; must be one of: ${VALID_ACCESS_TYPES.join(', ')}`);
   }
   if (!body.created_date) throw AppError.badRequest('created_date required');
+  const patient = await getDialysisPatientInTenant(tenantId, dialysis_patient_id);
 
   // Deactivate previous active access (only one active at a time).
   await prisma.$queryRawUnsafe(
     `UPDATE vascular_access SET active = false, abandoned_date = COALESCE(abandoned_date, CURRENT_DATE)
      WHERE dialysis_patient_id = $1 AND active = true`,
-    parseInt(dialysis_patient_id, 10));
+    patient.id);
 
   const sql = `
     INSERT INTO vascular_access
@@ -164,14 +229,15 @@ export async function addAccess({ dialysis_patient_id, ...body }) {
     VALUES ($1, $2, $3, $4::date, $5::date, true, $6::date, $7, $8::date, $9)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(dialysis_patient_id, 10), body.access_type,
+    patient.id, body.access_type,
     body.side || null, body.created_date, body.first_used_date || null,
     body.last_qa_check_date || null, body.qa_flow_ml_min || null,
     body.last_doppler_date || null, body.notes || null);
   return unwrap(rows);
 }
 
-export async function abandonAccess({ id, reason }) {
+export async function abandonAccess({ tenantId, id, reason }) {
+  const access = await getAccessInTenant(tenantId, id);
   const sql = `
     UPDATE vascular_access
     SET active = false,
@@ -179,7 +245,7 @@ export async function abandonAccess({ id, reason }) {
         abandoned_reason = $1
     WHERE id = $2
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql, reason || null, parseInt(id, 10));
+  const rows = await prisma.$queryRawUnsafe(sql, reason || null, access.id);
   const r = unwrap(rows);
   if (!r) throw AppError.notFound('Access not found');
   return r;
@@ -202,8 +268,8 @@ export async function prescribe({ tenantId, dialysis_patient_id, prescribed_by, 
     await tx.$queryRawUnsafe(
       `UPDATE dialysis_prescriptions
        SET status = 'superseded', superseded_at = NOW(), updated_at = NOW()
-       WHERE dialysis_patient_id = $1 AND status = 'active'`,
-      pat.id);
+       WHERE tenant_id = $1::uuid AND dialysis_patient_id = $2 AND status = 'active'`,
+      tenantOr(tenantId), pat.id);
 
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO dialysis_prescriptions
@@ -236,10 +302,10 @@ export async function prescribe({ tenantId, dialysis_patient_id, prescribed_by, 
            dry_weight_kg = COALESCE($6::numeric, dry_weight_kg),
            dry_weight_set_at = CASE WHEN $6::numeric IS NOT NULL THEN NOW() ELSE dry_weight_set_at END,
            updated_at = NOW()
-       WHERE id = $1`,
+       WHERE id = $1 AND tenant_id = $7::uuid`,
       pat.id, prescription.modality, prescription.duration_minutes,
       prescription.dialyser, prescription.anticoag,
-      body.target_dry_weight_kg || null);
+      body.target_dry_weight_kg || null, tenantOr(tenantId));
 
     await recordCanonicalClinicalEvent({
       tenantId: tenantOr(tenantId),
@@ -262,11 +328,12 @@ export async function prescribe({ tenantId, dialysis_patient_id, prescribed_by, 
 }
 
 export async function getPrescriptions({ tenantId, dialysis_patient_id }) {
+  const patient = await getDialysisPatientInTenant(tenantId, dialysis_patient_id);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM dialysis_prescriptions
      WHERE dialysis_patient_id = $1 AND tenant_id = $2::uuid
      ORDER BY status = 'active' DESC, created_at DESC`,
-    parseInt(dialysis_patient_id, 10), tenantOr(tenantId));
+    patient.id, tenantOr(tenantId));
   return { active: rows.find((r) => r.status === 'active') || null, history: rows };
 }
 
@@ -275,22 +342,26 @@ export async function getPrescriptions({ tenantId, dialysis_patient_id }) {
 export async function scheduleSession({ tenantId, ...body }) {
   if (!body.dialysis_patient_id) throw AppError.badRequest('dialysis_patient_id required');
   if (!body.session_date) throw AppError.badRequest('session_date required');
+  const patient = await getDialysisPatientInTenant(tenantId, body.dialysis_patient_id);
 
   // Resolve the active access if not provided.
   let accessId = body.vascular_access_id || null;
   if (!accessId) {
     const accRows = await prisma.$queryRawUnsafe(
       `SELECT id FROM vascular_access WHERE dialysis_patient_id = $1 AND active = true LIMIT 1`,
-      parseInt(body.dialysis_patient_id, 10));
+      patient.id);
     accessId = unwrap(accRows)?.id || null;
+  } else {
+    const access = await getAccessInTenant(tenantId, accessId, patient.id);
+    accessId = access.id;
   }
 
   // Inherit from the active prescription (D7) for anything not supplied.
   const rxRows = await prisma.$queryRawUnsafe(
     `SELECT id, modality, dialyser, anticoag, anticoag_loading, anticoag_maintenance, max_uf_ml_per_session
      FROM dialysis_prescriptions
-     WHERE dialysis_patient_id = $1 AND status = 'active' LIMIT 1`,
-    parseInt(body.dialysis_patient_id, 10));
+     WHERE tenant_id = $1::uuid AND dialysis_patient_id = $2 AND status = 'active' LIMIT 1`,
+    tenantOr(tenantId), patient.id);
   const rx = unwrap(rxRows) || null;
 
   const sql = `
@@ -306,7 +377,7 @@ export async function scheduleSession({ tenantId, ...body }) {
             'scheduled', $14, $15, $16, $17)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(body.dialysis_patient_id, 10), accessId,
+    patient.id, accessId,
     body.session_date, body.machine_no || null, body.station_no || null,
     body.modality || rx?.modality || 'hd',
     body.dialyser || rx?.dialyser || null, body.reuse_count || null,
@@ -438,7 +509,8 @@ export async function listSessions({ tenantId, date, status, dialysis_patient_id
   if (date) { args.push(date); conds.push(`session_date = $${args.length}::date`); }
   if (status) { args.push(status); conds.push(`status = $${args.length}`); }
   if (dialysis_patient_id) {
-    args.push(parseInt(dialysis_patient_id, 10));
+    const patient = await getDialysisPatientInTenant(tenantId, dialysis_patient_id);
+    args.push(patient.id);
     conds.push(`dialysis_patient_id = $${args.length}`);
   }
   const lim = Math.min(parseInt(limit, 10) || 200, 1000);
@@ -457,8 +529,9 @@ export async function todayBoard({ tenantId }) {
 
 // ── Intra-dialysis observations ───────────────────────────────────
 
-export async function logObservation({ session_id, recorded_by, source, source_device, ...body }) {
+export async function logObservation({ tenantId, session_id, recorded_by, source, source_device, ...body }) {
   if (!session_id) throw AppError.badRequest('session_id required');
+  const session = await getDialysisSessionInTenant(tenantId, session_id);
   // UF rate alert: > 13 mL/kg/hr is the KDOQI cutoff for harmful UF.
   // Surface it via the event_note auto-fill (don't block).
   let eventNote = body.event_note || null;
@@ -480,7 +553,7 @@ export async function logObservation({ session_id, recorded_by, source, source_d
             COALESCE($19, 'staff'), $20)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(session_id, 10), body.recorded_at || null,
+    session.id, body.recorded_at || null,
     body.bp_systolic || null, body.bp_diastolic || null,
     body.pulse || null, body.spo2 || null, body.temp_c || null,
     body.blood_flow_ml_min || null, body.uf_rate_ml_hr || null,
@@ -524,6 +597,7 @@ export async function recordSessionEvent({ tenantId, session_id, recorded_by, ac
     `SELECT s.id, s.status, p.patient_uid
      FROM dialysis_sessions s
      JOIN dialysis_patients p ON p.id = s.dialysis_patient_id
+      AND p.tenant_id = s.tenant_id
      WHERE s.id = $1 AND s.tenant_id = $2::uuid`,
     parseInt(session_id, 10), tenantOr(tenantId));
   const sess = unwrap(sessRows);
@@ -562,8 +636,10 @@ export async function recordSessionEvent({ tenantId, session_id, recorded_by, ac
     const flag = SESSION_FLAG_BY_EVENT[body.event_type];
     if (flag) {
       await tx.$queryRawUnsafe(
-        `UPDATE dialysis_sessions SET ${flag} = true, updated_at = NOW() WHERE id = $1`,
-        sess.id);
+        `UPDATE dialysis_sessions
+            SET ${flag} = true, updated_at = NOW()
+          WHERE id = $1 AND tenant_id = $2::uuid`,
+        sess.id, tenantOr(tenantId));
     }
 
     await recordCanonicalClinicalEvent({
@@ -587,22 +663,27 @@ export async function recordSessionEvent({ tenantId, session_id, recorded_by, ac
   });
 }
 
-export async function listSessionEvents({ session_id }) {
+export async function listSessionEvents({ tenantId, session_id }) {
+  const session = await getDialysisSessionInTenant(tenantId, session_id);
   return prisma.$queryRawUnsafe(
-    `SELECT * FROM dialysis_session_events WHERE session_id = $1 ORDER BY occurred_at`,
-    parseInt(session_id, 10));
+    `SELECT * FROM dialysis_session_events
+      WHERE tenant_id = $1::uuid AND session_id = $2
+      ORDER BY occurred_at`,
+    tenantOr(tenantId), session.id);
 }
 
-export async function listObservations({ session_id }) {
+export async function listObservations({ tenantId, session_id }) {
+  const session = await getDialysisSessionInTenant(tenantId, session_id);
   return prisma.$queryRawUnsafe(
     `SELECT * FROM dialysis_intra_obs WHERE session_id = $1 ORDER BY recorded_at`,
-    parseInt(session_id, 10));
+    session.id);
 }
 
 // ── Serology ──────────────────────────────────────────────────────
 
-export async function recordSerology({ dialysis_patient_id, ...body }) {
+export async function recordSerology({ tenantId, dialysis_patient_id, ...body }) {
   if (!dialysis_patient_id) throw AppError.badRequest('dialysis_patient_id required');
+  const patient = await getDialysisPatientInTenant(tenantId, dialysis_patient_id);
 
   // Look up most recent prior — if any positive marker turned positive
   // since then, flag as seroconversion (drives isolation + cluster
@@ -610,7 +691,7 @@ export async function recordSerology({ dialysis_patient_id, ...body }) {
   const priorRows = await prisma.$queryRawUnsafe(
     `SELECT hbsag, anti_hcv, hiv FROM dialysis_serology
      WHERE dialysis_patient_id = $1 ORDER BY test_date DESC LIMIT 1`,
-    parseInt(dialysis_patient_id, 10));
+    patient.id);
   const prior = unwrap(priorRows);
 
   const isSeroconv = (() => {
@@ -629,7 +710,7 @@ export async function recordSerology({ dialysis_patient_id, ...body }) {
             $3, $4, $5, $6, $7, $8, $9, $10)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(dialysis_patient_id, 10), body.test_date || null,
+    patient.id, body.test_date || null,
     body.hbsag || null, body.hbs_titre || null, body.anti_hcv || null,
     body.hcv_pcr || null, body.hiv || null, isSeroconv,
     body.reported_by || null, body.notes || null);
@@ -642,11 +723,11 @@ export async function recordSerology({ dialysis_patient_id, ...body }) {
            hcv_status   = COALESCE(NULLIF($2, 'pending'), hcv_status),
            hiv_status   = COALESCE(NULLIF($3, 'pending'), hiv_status),
            updated_at = NOW()
-       WHERE id = $4`,
+       WHERE id = $4 AND tenant_id = $5::uuid`,
       body.hbsag === 'positive' ? 'positive' : null,
       body.anti_hcv === 'positive' ? 'positive' : null,
       body.hiv === 'positive' ? 'positive' : null,
-      parseInt(dialysis_patient_id, 10));
+      patient.id, tenantOr(tenantId));
   }
   return unwrap(rows);
 }

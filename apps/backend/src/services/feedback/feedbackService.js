@@ -2,14 +2,22 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+
+const FEEDBACK_TENANT_JOIN = "LEFT JOIN users fu ON (fu.uid = f.uid OR fu.phone = f.phone)";
+const FEEDBACK_TENANT_EXPR = `COALESCE(fu.tenant_id, '${DEFAULT_TENANT_ID}'::uuid)`;
+
+function shiftSqlParams(sql, delta) {
+  return sql.replace(/\$(\d+)/g, (_match, number) => `$${Number(number) + delta}`);
+}
 
 class FeedbackService {
   /**
    * Get feedback history for a phone number.
    * Extracted from getMyFeedback controller.
    */
-  async getFeedbackByPhone(phone) {
+  async getFeedbackByPhone(phone, tenantId = DEFAULT_TENANT_ID) {
     const result = await prisma.$queryRawUnsafe(
       `SELECT
         f.id, f.rating, f.comment, f.category, f.created_at,
@@ -19,12 +27,15 @@ class FeedbackService {
         dept.name as department_name,
         a.appointment_date as appointment_date
        FROM feedback f
+       ${FEEDBACK_TENANT_JOIN}
        LEFT JOIN doctors d ON f.doctor_id = d.id
        LEFT JOIN departments dept ON f.department_id = dept.id
        LEFT JOIN appointments a ON f.appointment_id = a.id
        WHERE f.phone = $1
+         AND ${FEEDBACK_TENANT_EXPR} = $2::uuid
        ORDER BY f.created_at DESC`,
-      phone
+      phone,
+      tenantId,
     );
 
     const averageRating = this.calculateAverageRating(result);
@@ -40,7 +51,7 @@ class FeedbackService {
    * Get feedback statistics for a phone number.
    * Extracted from getMyStats controller.
    */
-  async getFeedbackStats(phone) {
+  async getFeedbackStats(phone, tenantId = DEFAULT_TENANT_ID) {
     const result = await prisma.$queryRawUnsafe(
       `SELECT
         COUNT(*)::int as total_feedback,
@@ -51,10 +62,13 @@ class FeedbackService {
         array_agg(DISTINCT category) as categories_used,
         MIN(created_at) as first_feedback,
         MAX(created_at) as latest_feedback,
-        COUNT(*) FILTER (WHERE response_status = 'responded')::int as responded_count
-       FROM feedback
-       WHERE phone = $1`,
-      phone
+         COUNT(*) FILTER (WHERE response_status = 'responded')::int as responded_count
+       FROM feedback f
+       ${FEEDBACK_TENANT_JOIN}
+       WHERE f.phone = $1
+         AND ${FEEDBACK_TENANT_EXPR} = $2::uuid`,
+      phone,
+      tenantId,
     );
 
     return result[0];
@@ -66,7 +80,7 @@ class FeedbackService {
    *
    * @param {string} interval - One of '7 days', '30 days', '90 days' (must be pre-validated/whitelisted by caller)
    */
-  async getDashboard(interval) {
+  async getDashboard(interval, tenantId = DEFAULT_TENANT_ID) {
     // Overall statistics
     // Safety: `interval` must be whitelisted by the caller (only '7 days', '30 days', '90 days').
     // PostgreSQL does not support parameterized INTERVAL literals directly.
@@ -76,11 +90,13 @@ class FeedbackService {
         ROUND(AVG(rating), 2) as average_rating,
         COUNT(*) FILTER (WHERE rating >= 4) as positive_count,
         COUNT(*) FILTER (WHERE rating <= 2) as negative_count,
-        COUNT(DISTINCT phone) as unique_users,
+        COUNT(DISTINCT f.phone) as unique_users,
         COUNT(*) FILTER (WHERE response_status = 'responded') as responded_count
-      FROM feedback
-      WHERE created_at > NOW() - INTERVAL '${interval}'
-    `);
+      FROM feedback f
+      ${FEEDBACK_TENANT_JOIN}
+      WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid
+        AND f.created_at > NOW() - INTERVAL '${interval}'
+    `, tenantId);
 
     // Feedback by category
     const categoryStats = await prisma.$queryRawUnsafe(`
@@ -88,11 +104,13 @@ class FeedbackService {
         category,
         COUNT(*) as count,
         ROUND(AVG(rating), 2) as avg_rating
-      FROM feedback
-      WHERE created_at > NOW() - INTERVAL '${interval}'
-      GROUP BY category
+      FROM feedback f
+      ${FEEDBACK_TENANT_JOIN}
+      WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid
+        AND f.created_at > NOW() - INTERVAL '${interval}'
+      GROUP BY f.category
       ORDER BY count DESC
-    `);
+    `, tenantId);
 
     // Daily trend
     const dailyTrend = await prisma.$queryRawUnsafe(`
@@ -100,12 +118,14 @@ class FeedbackService {
         DATE(created_at) as date,
         COUNT(*) as feedback_count,
         ROUND(AVG(rating), 2) as avg_rating
-      FROM feedback
-      WHERE created_at > NOW() - INTERVAL '${interval}'
-      GROUP BY DATE(created_at)
+      FROM feedback f
+      ${FEEDBACK_TENANT_JOIN}
+      WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid
+        AND f.created_at > NOW() - INTERVAL '${interval}'
+      GROUP BY DATE(f.created_at)
       ORDER BY date DESC
       LIMIT 30
-    `);
+    `, tenantId);
 
     return {
       overallStats: overallStats[0],
@@ -122,7 +142,7 @@ class FeedbackService {
    * @param {string} userRole - Role of the requesting user
    * @param {number|string} userId - DB id of the requesting user (used for DOCTOR scoping)
    */
-  async getRecentFeedback(filters, userRole, userId) {
+  async getRecentFeedback(filters, userRole, userId, tenantId = DEFAULT_TENANT_ID) {
     const {
       category, rating, priority = 'all',
       doctor_id, department_id
@@ -134,8 +154,8 @@ class FeedbackService {
       defaultSortBy: 'created_at'
     });
     let whereClause = 'WHERE 1=1';
-    const params = [listQuery.limit, listQuery.offset];
-    let paramIndex = 3;
+    const params = [listQuery.limit, listQuery.offset, tenantId];
+    let paramIndex = 4;
 
     if (category) {
       whereClause += ` AND f.category = $${paramIndex}`;
@@ -188,19 +208,25 @@ class FeedbackService {
           ELSE 'neutral'
         END as priority_level
       FROM feedback f
+      ${FEEDBACK_TENANT_JOIN}
       LEFT JOIN users u ON f.phone = u.phone
       LEFT JOIN doctors d ON f.doctor_id = d.id
       LEFT JOIN departments dept ON f.department_id = dept.id
-      ${whereClause}
+      ${whereClause} AND ${FEEDBACK_TENANT_EXPR} = $3::uuid
       ORDER BY f.created_at DESC
       LIMIT $1 OFFSET $2
     `,
       ...params,
     );
 
+    const totalWhereClause = shiftSqlParams(whereClause, -2);
     const total = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM feedback f ${whereClause}`,
-      ...params.slice(2)
+      `SELECT COUNT(*)
+         FROM feedback f
+         ${FEEDBACK_TENANT_JOIN}
+        ${totalWhereClause} AND ${FEEDBACK_TENANT_EXPR} = $1::uuid`,
+      tenantId,
+      ...params.slice(3),
     );
     const totalCount = Number(total[0]?.count || 0);
 
@@ -218,7 +244,7 @@ class FeedbackService {
    * @param {number|string} userId - DB id of the requesting user
    * @param {string} groupBy - Time grouping for trends (hour/day/week/month)
    */
-  async getAnalytics(userRole, userId, groupBy = 'day') {
+  async getAnalytics(userRole, userId, groupBy = 'day', tenantId = DEFAULT_TENANT_ID) {
     // Doctor performance rankings
     const doctorParams = [];
     let doctorQuery = `
@@ -230,8 +256,11 @@ class FeedbackService {
         COUNT(*) FILTER (WHERE f.rating <= 2) as negative_feedback
       FROM doctors d
       LEFT JOIN feedback f ON d.id = f.doctor_id
-      WHERE f.created_at > NOW() - INTERVAL '30 days'
+      ${FEEDBACK_TENANT_JOIN}
+      WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid
+        AND f.created_at > NOW() - INTERVAL '30 days'
     `;
+    doctorParams.push(tenantId);
 
     // If user is a doctor, only show their own analytics
     if (userRole === 'DOCTOR') {
@@ -258,11 +287,13 @@ class FeedbackService {
           ROUND(COUNT(*) FILTER (WHERE f.rating >= 4) * 100.0 / COUNT(*), 1) as positive_percentage
         FROM departments dept
         LEFT JOIN feedback f ON dept.id = f.department_id
-        WHERE f.created_at > NOW() - INTERVAL '30 days'
+        ${FEEDBACK_TENANT_JOIN}
+        WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid
+          AND f.created_at > NOW() - INTERVAL '30 days'
         GROUP BY dept.id, dept.name
         HAVING COUNT(f.id) > 0
         ORDER BY average_rating DESC
-      `);
+      `, tenantId);
       departmentPerformance = deptResult;
     }
 
@@ -270,25 +301,27 @@ class FeedbackService {
     const allowedGroupBy = ['hour', 'day', 'week', 'month'];
     const safeGroupBy = allowedGroupBy.includes(groupBy) ? groupBy : 'day';
 
-    const trendParams = [];
+    const trendParams = [tenantId];
     let trendDoctorFilter = '';
     if (userRole === 'DOCTOR') {
       trendParams.push(userId);
-      trendDoctorFilter = `AND doctor_id = $${trendParams.length}`;
+      trendDoctorFilter = `AND f.doctor_id = $${trendParams.length}`;
     }
 
     // Safety: `safeGroupBy` is whitelisted above, so interpolation is safe
     const satisfactionTrends = await prisma.$queryRawUnsafe(
       `
       SELECT
-        DATE_TRUNC('${safeGroupBy}', created_at) as period,
+        DATE_TRUNC('${safeGroupBy}', f.created_at) as period,
         ROUND(AVG(rating), 2) as avg_rating,
         COUNT(*) as feedback_count,
         ROUND(COUNT(*) FILTER (WHERE rating >= 4) * 100.0 / COUNT(*), 1) as satisfaction_percentage
-      FROM feedback
-      WHERE created_at > NOW() - INTERVAL '90 days'
+      FROM feedback f
+      ${FEEDBACK_TENANT_JOIN}
+      WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid
+      AND f.created_at > NOW() - INTERVAL '90 days'
       ${trendDoctorFilter}
-      GROUP BY DATE_TRUNC('${safeGroupBy}', created_at)
+      GROUP BY DATE_TRUNC('${safeGroupBy}', f.created_at)
       ORDER BY period DESC
     `,
       ...trendParams,
@@ -307,14 +340,14 @@ class FeedbackService {
    *
    * @param {object} params - { startDate, endDate }
    */
-  async getReport(params) {
+  async getReport(params, tenantId = DEFAULT_TENANT_ID) {
     const { startDate, endDate } = params;
 
-    let dateFilter = '';
-    const queryParams = [];
+    let dateFilter = `WHERE ${FEEDBACK_TENANT_EXPR} = $1::uuid`;
+    const queryParams = [tenantId];
 
     if (startDate && endDate) {
-      dateFilter = 'WHERE created_at BETWEEN $1 AND $2';
+      dateFilter += ' AND f.created_at BETWEEN $2 AND $3';
       queryParams.push(startDate, endDate);
     }
 
@@ -330,7 +363,8 @@ class FeedbackService {
         COUNT(*) FILTER (WHERE rating = 1) as one_star,
         COUNT(DISTINCT phone) as unique_users,
         COUNT(*) FILTER (WHERE response_status = 'responded') as responded_count
-      FROM feedback
+      FROM feedback f
+      ${FEEDBACK_TENANT_JOIN}
       ${dateFilter}
     `,
       ...queryParams,
@@ -446,10 +480,18 @@ class FeedbackService {
    * Delete feedback and log admin action.
    * Extracted from deleteFeedback controller.
    */
-  async deleteFeedback(feedbackId, adminUid, reason) {
+  async deleteFeedback(feedbackId, adminUid, reason, tenantId = DEFAULT_TENANT_ID) {
     const result = await prisma.$queryRawUnsafe(
-      'DELETE FROM feedback WHERE id = $1 RETURNING id, uid, phone, type, comment, rating, status, created_at, updated_at',
+      `DELETE FROM feedback f
+       WHERE f.id = $1
+         AND EXISTS (
+           SELECT 1 FROM users fu
+            WHERE (fu.uid = f.uid OR fu.phone = f.phone)
+              AND COALESCE(fu.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+         )
+       RETURNING f.id, f.uid, f.phone, NULL::text AS type, f.comment, f.rating, f.status, f.created_at, f.updated_at`,
       feedbackId,
+      tenantId,
     );
 
     if (result.length === 0) {
@@ -478,10 +520,11 @@ class FeedbackService {
   /**
    * Look up a user by phone. Used for validation before submitting feedback.
    */
-  async getUserByPhone(phone) {
+  async getUserByPhone(phone, tenantId = DEFAULT_TENANT_ID) {
     const result = await prisma.$queryRawUnsafe(
-      'SELECT uid, name FROM users WHERE phone = $1',
+      'SELECT uid, name FROM users WHERE phone = $1 AND tenant_id = $2::uuid',
       phone,
+      tenantId,
     );
     return result[0] || null;
   }
@@ -489,10 +532,15 @@ class FeedbackService {
   /**
    * Look up feedback by ID. Used for permission checks before responding.
    */
-  async getFeedbackById(feedbackId) {
+  async getFeedbackById(feedbackId, tenantId = DEFAULT_TENANT_ID) {
     const result = await prisma.$queryRawUnsafe(
-      'SELECT id, phone, rating, doctor_id FROM feedback WHERE id = $1',
+      `SELECT f.id, f.phone, f.rating, f.doctor_id
+         FROM feedback f
+         ${FEEDBACK_TENANT_JOIN}
+        WHERE f.id = $1
+          AND ${FEEDBACK_TENANT_EXPR} = $2::uuid`,
       feedbackId,
+      tenantId,
     );
     return result[0] || null;
   }

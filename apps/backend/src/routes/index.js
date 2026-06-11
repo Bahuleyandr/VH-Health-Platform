@@ -53,8 +53,12 @@ async function initializeRoutes() {
       }
     }
     
-    // Start health monitoring in production
-    if (process.env.NODE_ENV === 'production') {
+    // Start health monitoring in production unless an explicit harness/ops
+    // override disables the interval.
+    if (
+      process.env.NODE_ENV === 'production' &&
+      String(process.env.ROUTE_HEALTH_MONITOR_ENABLED || 'true').toLowerCase() !== 'false'
+    ) {
       routeHealthService.startHealthMonitoring(routes);
     }
     

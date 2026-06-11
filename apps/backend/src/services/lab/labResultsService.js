@@ -49,11 +49,15 @@ function valueForCriticalThreshold(value, resultUnit, thresholdUnit) {
 // already-running (IN_PROGRESS) are left alone. See migration 217.
 const INVESTIGATION_PRE_RESULT_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED'];
 
-async function resolveInvestigationIdForBooking(client, bookingId) {
+async function resolveInvestigationIdForBooking(client, bookingId, tenantId) {
   if (bookingId == null) return null;
   const rows = await client.$queryRawUnsafe(
-    `SELECT investigation_id FROM investigation_bookings WHERE id = $1 LIMIT 1`,
-    Number(bookingId),
+    `SELECT investigation_id
+       FROM investigation_bookings
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    Number(bookingId), tenantId,
   );
   return rows[0]?.investigation_id ?? null;
 }
@@ -128,12 +132,16 @@ export async function ingestOruMessage(message, { tenantId, source }) {
   const placerOrderId = parsed.orc?.placerOrderNumber;
   if (placerOrderId && /^\d+$/.test(String(placerOrderId))) {
     const matches = await prisma.$queryRawUnsafe(
-      `SELECT id, investigation_id FROM investigation_bookings WHERE id = $1::int LIMIT 1`,
-      Number(placerOrderId),
+      `SELECT id, investigation_id
+         FROM investigation_bookings
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      Number(placerOrderId), tenantId,
     );
     if (matches.length) bookingId = matches[0].id;
   }
-  const investigationId = await resolveInvestigationIdForBooking(prisma, bookingId);
+  const investigationId = await resolveInvestigationIdForBooking(prisma, bookingId, tenantId);
 
   const obxRows = parsed.obx || [];
   if (!obxRows.length) {
@@ -183,9 +191,11 @@ export async function ingestOruMessage(message, { tenantId, source }) {
               result_uploaded_at = COALESCE(result_uploaded_at, NOW()),
               updated_at = NOW()
         WHERE id = $1
+          AND tenant_id = $3::uuid
           AND status = ANY($2::text[])`,
       investigationId,
       INVESTIGATION_PRE_RESULT_STATUSES,
+      tenantId,
     );
   }
 
@@ -245,8 +255,11 @@ export async function detectCriticalsForResults({ tenantId, results }) {
 
     // Mark the result + create the alert.
     await prisma.$executeRawUnsafe(
-      `UPDATE lab_results SET is_critical = true, updated_at = NOW() WHERE id = $1::int`,
-      r.id,
+      `UPDATE lab_results
+          SET is_critical = true, updated_at = NOW()
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid`,
+      r.id, tenantId,
     );
     r.is_critical = true;
 
@@ -277,29 +290,34 @@ export async function detectCriticalsForResults({ tenantId, results }) {
       const recipients = await prisma.$queryRawUnsafe(
         `SELECT DISTINCT u.id, u.uid, u.phone, u.name
            FROM users u
-          WHERE u.uid IN (
+          WHERE u.tenant_id = $2::uuid
+            AND u.uid IN (
                   SELECT DISTINCT requested_by FROM investigations
                    WHERE patient_uid = $1::uuid
+                     AND tenant_id = $2::uuid
                      AND requested_by IS NOT NULL
                      AND status NOT IN ('CANCELLED')
                   UNION
                   SELECT DISTINCT ordered_by FROM clinical_orders
                    WHERE patient_uid = $1::uuid
+                     AND tenant_id = $2::uuid
                      AND ordered_by IS NOT NULL
                      AND status NOT IN ('cancelled')
                   UNION
                   SELECT DISTINCT attending_doctor FROM admissions
                    WHERE patient_uid = $1::uuid
+                     AND tenant_id = $2::uuid
                      AND attending_doctor IS NOT NULL
                      AND status IN ('admitted', 'transferred')
                   UNION
                   SELECT DISTINCT attending_doctor_uid FROM emergency_visits
                    WHERE patient_uid = $1::uuid
+                     AND tenant_id = $2::uuid
                      AND attending_doctor_uid IS NOT NULL
                      AND status NOT IN ('discharged', 'left_without_being_seen')
                 )
           LIMIT 10`,
-        r.patient_uid,
+        r.patient_uid, tenantId,
       );
       const alertTitle = `CRITICAL lab: ${r.test_name}`;
       const alertBody = `${r.test_name} = ${r.value_text}${r.unit ? ' ' + r.unit : ''} (threshold ${breachedSide} ${breachedValue}). Patient: ${r.patient_uid}.`;
@@ -426,7 +444,7 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
     ? Number(sanitised.investigation_id)
     : null;
   if (resolvedInvestigationId == null && sanitised.booking_id != null) {
-    resolvedInvestigationId = await resolveInvestigationIdForBooking(prisma, sanitised.booking_id);
+    resolvedInvestigationId = await resolveInvestigationIdForBooking(prisma, sanitised.booking_id, tenantId);
   }
   sanitised.investigation_id = Number.isFinite(resolvedInvestigationId)
     ? resolvedInvestigationId : null;
@@ -457,10 +475,11 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
          FROM lab_results
         WHERE investigation_id = $1::int
           AND UPPER(test_code) = UPPER($2)
+          AND tenant_id = $3::uuid
           AND status IN ('final', 'corrected', 'verified', 'amended')
         ORDER BY id DESC
         LIMIT 1`,
-      sanitised.investigation_id, sanitised.test_code,
+      sanitised.investigation_id, sanitised.test_code, tenantId,
     );
     if (dupRows.length > 0) {
       throw AppError.conflict(
@@ -500,9 +519,11 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
               result_uploaded_at = COALESCE(result_uploaded_at, NOW()),
               updated_at = NOW()
         WHERE id = $1
+          AND tenant_id = $3::uuid
           AND status = ANY($2::text[])`,
       created.investigation_id,
       INVESTIGATION_PRE_RESULT_STATUSES,
+      tenantId,
     );
   }
 
@@ -519,8 +540,11 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   let finalResult = created;
   if (alerts.length > 0) {
     const refreshed = await prisma.$queryRawUnsafe(
-      `SELECT * FROM lab_results WHERE id = $1::int LIMIT 1`,
-      created.id,
+      `SELECT * FROM lab_results
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      created.id, tenantId,
     );
     if (refreshed.length) finalResult = refreshed[0];
   }
@@ -624,13 +648,16 @@ export async function signOffResults({
       const recipients = await prisma.$queryRawUnsafe(
         `SELECT u.id, u.uid, u.phone, u.name, false AS is_guardian
            FROM users u
-          WHERE u.uid = $1::uuid AND u.phone IS NOT NULL
+          WHERE u.uid = $1::uuid AND u.tenant_id = $2::uuid AND u.phone IS NOT NULL
           UNION
          SELECT g.id, g.uid, g.phone, g.name, true AS is_guardian
            FROM users p
            JOIN users g ON g.id = p.guardian_user_id
-          WHERE p.uid = $1::uuid AND g.phone IS NOT NULL`,
-        resultPatientUid,
+          WHERE p.uid = $1::uuid
+            AND p.tenant_id = $2::uuid
+            AND g.tenant_id = $2::uuid
+            AND g.phone IS NOT NULL`,
+        resultPatientUid, tenantId,
       );
       const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
       const title = 'Lab results ready';
@@ -686,17 +713,20 @@ export async function signOffResults({
       const invRows = await prisma.$queryRawUnsafe(
         `SELECT DISTINCT investigation_id
            FROM lab_results
-          WHERE id = ANY($1::int[]) AND investigation_id IS NOT NULL`,
-        ids,
+          WHERE id = ANY($1::int[])
+            AND tenant_id = $2::uuid
+            AND investigation_id IS NOT NULL`,
+        ids, tenantId,
       );
       for (const { investigation_id } of invRows) {
         const pending = await prisma.$queryRawUnsafe(
           `SELECT 1 FROM lab_results
             WHERE investigation_id = $1::int
+              AND tenant_id = $2::uuid
               AND status IS DISTINCT FROM 'final'
               AND status IS DISTINCT FROM 'corrected'
             LIMIT 1`,
-          investigation_id,
+          investigation_id, tenantId,
         );
         if (pending.length === 0) {
           await prisma.$executeRawUnsafe(
@@ -763,6 +793,7 @@ export async function listOpenCriticalAlerts({ tenantId, limit = 50 }) {
 }
 
 export async function acknowledgeAlert(alertId, {
+  tenantId,
   acknowledged_by, acknowledged_by_name, read_back_method, notes,
 }) {
   const rows = await prisma.$queryRawUnsafe(
@@ -772,10 +803,12 @@ export async function acknowledgeAlert(alertId, {
             acknowledged_by_name = $2,
             read_back_method = $3,
             notes = COALESCE($4, notes)
-      WHERE id = $5::int AND acknowledged_at IS NULL
+      WHERE id = $5::int
+        AND tenant_id = $6::uuid
+        AND acknowledged_at IS NULL
       RETURNING *`,
     String(acknowledged_by), acknowledged_by_name || null,
-    read_back_method || null, notes || null, Number(alertId),
+    read_back_method || null, notes || null, Number(alertId), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Alert not found or already acknowledged');
   await emitCriticalLabAlertAcknowledged({
@@ -859,9 +892,7 @@ export async function getResultsForPatient({
  * null bed_number on the worklist even when bed assignment was complete.
  * Finding: 2026-05-12-inpatient-admission-lab-tech-48e85048.
  */
-// TODO: tenantId is accepted but not yet scoped into the query — see
-// the in-flight finding about tenant isolation on lab worklists.
-export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = {}) {
+export async function listIpdLabWorklist({ tenantId, limit = 100 } = {}) {
   const lim = Math.max(1, Math.min(500, Number(limit) || 100));
   return prisma.$queryRawUnsafe(
     `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
@@ -872,10 +903,14 @@ export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = 
             a.bed_id, a.room_category, a.attending_doctor
        FROM investigations i
        JOIN users u ON u.id = i.patient_id
+            AND u.tenant_id = $1::uuid
        JOIN admissions a ON a.patient_uid = u.uid
+            AND a.tenant_id = $1::uuid
             AND a.status IN ('admitted', 'transferred')
   LEFT JOIN beds b ON b.id = a.bed_id
-      WHERE i.status NOT IN ('COMPLETED', 'CANCELLED')
+        AND b.tenant_id = $1::uuid
+      WHERE i.tenant_id = $1::uuid
+        AND i.status NOT IN ('COMPLETED', 'CANCELLED')
         AND UPPER(COALESCE(i.test_type, 'LAB')) IN ('LAB', 'PATHOLOGY', 'BLOOD',
                                                      'BIOCHEM', 'BIOCHEMISTRY',
                                                      'HEMATOLOGY', 'HAEMATOLOGY',
@@ -884,8 +919,8 @@ export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = 
         CASE i.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2
                        WHEN 'NORMAL' THEN 3 ELSE 4 END,
         i.requested_at ASC
-      LIMIT $1::int`,
-    lim,
+      LIMIT $2::int`,
+    tenantId, lim,
   );
 }
 
@@ -907,18 +942,19 @@ export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = 
  *   2026-05-08-obstetric-anc-lab-tech-no-worklist-endpoint
  */
 export async function listLabWorklist({
-  tenantId: _tenantId,
+  tenantId,
   limit = 100,
   priority,
   source,
 } = {}) {
   const lim = Math.max(1, Math.min(500, Number(limit) || 100));
-  const params = [];
+  const params = [tenantId];
   // Lab worklist is lab-only — radiology orders belong on the radiology
   // worklist, and surfacing them here forces lab techs to triage work
   // that isn't theirs. Same defence as listIpdLabWorklist. Finding:
   // 2026-05-10-inpatient-admission-lab-tech-ipd-worklist-includes-radiology.
   const filters = [
+    `i.tenant_id = $1::uuid`,
     `i.status NOT IN ('COMPLETED', 'CANCELLED')`,
     // Lab worklist allowlist — matches what the manual driver findings
     // call "laboratory/pathology" while preserving the legacy lowercase
@@ -972,12 +1008,16 @@ export async function listLabWorklist({
             END AS source
        FROM investigations i
        JOIN users u ON u.id = i.patient_id
+            AND u.tenant_id = $1::uuid
   LEFT JOIN admissions a
          ON a.patient_uid = u.uid
+        AND a.tenant_id = $1::uuid
         AND a.status IN ('admitted', 'transferred')
   LEFT JOIN beds b ON b.id = a.bed_id
+        AND b.tenant_id = $1::uuid
   LEFT JOIN emergency_visits ev
          ON ev.patient_uid = u.uid
+        AND ev.tenant_id = $1::uuid
         AND ev.status NOT IN ('discharged', 'transferred', 'left_against_advice',
                               'lwbs', 'expired', 'archived')
       WHERE ${filters.join(' AND ')}

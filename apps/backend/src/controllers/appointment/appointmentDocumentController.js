@@ -78,7 +78,11 @@ function isMissingSchemaError(err) {
     /does not exist|relation .* does not exist/i.test(String(err?.message || ''));
 }
 
-async function loadPatientRecordExtractionMap(records, patientId) {
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+}
+
+async function loadPatientRecordExtractionMap(records, patientId, tenantId = DEFAULT_TENANT_ID) {
   const keys = records
     .map((record) => String(record.file_key || '').trim())
     .filter(Boolean);
@@ -103,9 +107,12 @@ async function loadPatientRecordExtractionMap(records, patientId) {
          FROM clinical_document_intake cdi
          JOIN users pu ON pu.uid = cdi.patient_uid
         WHERE cdi.storage_key IN (${placeholders})
-          AND pu.id = $${keys.length + 1}
+          AND cdi.tenant_id = $${keys.length + 1}::uuid
+          AND pu.tenant_id = $${keys.length + 1}::uuid
+          AND pu.id = $${keys.length + 2}
         ORDER BY cdi.storage_key, cdi.created_at DESC`,
       ...keys,
+      tenantId,
       patientId
     );
     return new Map(rows.map((row) => [row.storage_key, row]));
@@ -124,8 +131,9 @@ async function findPatientRecordWithExtraction(req, recordId, { includeRawText =
   }
 
   const role = String(req.user?.role || '').toUpperCase();
-  const patientOnlyClause = role === 'PATIENT' ? 'AND pr.patient_id = $2' : '';
-  const params = role === 'PATIENT' ? [id, req.user?.id] : [id];
+  const tenantId = tenantOf(req);
+  const patientOnlyClause = role === 'PATIENT' ? 'AND pr.patient_id = $3' : '';
+  const params = role === 'PATIENT' ? [id, tenantId, req.user?.id] : [id, tenantId];
   const rows = await prisma.$queryRawUnsafe(
     `SELECT pr.id, pr.patient_id, pr.document_type, pr.title, pr.file_key,
             pr.file_url, pr.file_name, pr.file_size, pr.file_mime,
@@ -152,8 +160,10 @@ async function findPatientRecordWithExtraction(req, recordId, { includeRawText =
             AND cdi.tenant_id = pr.tenant_id
           ORDER BY cdi.created_at DESC
           LIMIT 1
-       ) cdi ON TRUE
+      ) cdi ON TRUE
       WHERE pr.id = $1
+        AND pr.tenant_id = $2::uuid
+        AND pu.tenant_id = $2::uuid
         ${patientOnlyClause}
       LIMIT 1`,
     ...params
@@ -172,12 +182,14 @@ async function resolvePatientForRecordUpload(req) {
   if (role === 'PATIENT') {
     return req.user?.id;
   }
+  const tenantId = tenantOf(req);
 
   const explicitId = parseInt(req.body.patient_id, 10);
   if (Number.isFinite(explicitId)) {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, role FROM users WHERE id=$1 LIMIT 1`,
+      `SELECT id, role FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1`,
       explicitId,
+      tenantId,
     );
     if (!rows.length) {
       const err = new Error('Patient not found');
@@ -203,11 +215,13 @@ async function resolvePatientForRecordUpload(req) {
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, role
        FROM users
-      WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
+      WHERE tenant_id = $3::uuid
+        AND (phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2)
       ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
       LIMIT 1`,
     patientPhone,
     `%${last10}`,
+    tenantId,
   );
 
   if (existing.length > 0) {
@@ -221,11 +235,12 @@ async function resolvePatientForRecordUpload(req) {
 
   const patientName = String(req.body.patient_name || '').trim() || 'New Patient';
   const created = await prisma.$queryRawUnsafe(
-    `INSERT INTO users (phone, name, role, registered_at, updated_at)
-     VALUES ($1, $2, 'PATIENT', NOW(), NOW())
+    `INSERT INTO users (phone, name, role, tenant_id, registered_at, updated_at)
+     VALUES ($1, $2, 'PATIENT', $3::uuid, NOW(), NOW())
      RETURNING id`,
     patientPhone,
     patientName,
+    tenantId,
   );
   return created[0].id;
 }
@@ -235,6 +250,7 @@ async function resolvePatientForRecordList(req) {
   if (role === 'PATIENT') {
     return req.user?.id;
   }
+  const tenantId = tenantOf(req);
 
   const explicitId = parseInt(req.query.patient_id, 10);
   const patientUid = String(req.query.patient_uid || '').trim();
@@ -243,24 +259,28 @@ async function resolvePatientForRecordList(req) {
   let rows = [];
   if (Number.isFinite(explicitId)) {
     rows = await prisma.$queryRawUnsafe(
-      `SELECT id, role FROM users WHERE id=$1 LIMIT 1`,
+      `SELECT id, role FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1`,
       explicitId,
+      tenantId,
     );
   } else if (patientUid) {
     rows = await prisma.$queryRawUnsafe(
-      `SELECT id, role FROM users WHERE uid=$1::uuid LIMIT 1`,
+      `SELECT id, role FROM users WHERE uid=$1::uuid AND tenant_id=$2::uuid LIMIT 1`,
       patientUid,
+      tenantId,
     );
   } else if (patientPhone) {
     const last10 = patientPhone.replace(/\D/g, '').slice(-10);
     rows = await prisma.$queryRawUnsafe(
       `SELECT id, role
          FROM users
-        WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
+        WHERE tenant_id = $3::uuid
+          AND (phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2)
         ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
         LIMIT 1`,
       patientPhone,
       `%${last10}`,
+      tenantId,
     );
   } else {
     const err = new Error('patient_id, patient_uid, or patient_phone is required');
@@ -347,6 +367,7 @@ function normalizeOptionalIsoDate(value, fieldName) {
 export const uploadAppointmentDocument = async (req, res) => {
   try {
     const { appointment_id, document_type, notes } = req.body;
+    const tenantId = tenantOf(req);
     const uploadedById = req.user?.id;
     const uploadRole = req.user?.role === 'PATIENT' ? 'patient' : 'staff';
 
@@ -354,7 +375,11 @@ export const uploadAppointmentDocument = async (req, res) => {
       return error(res, 'appointment_id and file are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const appt = await prisma.$queryRawUnsafe('SELECT id, patient_id, doctor_id FROM appointments WHERE id=$1::int', appointment_id);
+    const appt = await prisma.$queryRawUnsafe(
+      'SELECT id, patient_id, doctor_id, tenant_id FROM appointments WHERE id=$1::int AND tenant_id=$2::uuid',
+      appointment_id,
+      tenantId,
+    );
     if (!appt.length) return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     const a = appt[0];
 
@@ -374,18 +399,23 @@ export const uploadAppointmentDocument = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO appointment_documents
         (appointment_id, patient_id, doctor_id, uploaded_by, upload_role,
-         document_type, file_key, file_url, file_name, file_size, file_mime, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      RETURNING id, appointment_id, patient_id, doctor_id, uploaded_by, upload_role, document_type, file_key, file_url, file_name, file_size, file_mime, notes, created_at
+         document_type, file_key, file_url, file_name, file_size, file_mime, notes, tenant_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::uuid)
+      RETURNING id, appointment_id, patient_id, doctor_id, uploaded_by, upload_role, document_type, file_key, file_url, file_name, file_size, file_mime, notes, tenant_id, created_at
     `,
       appointment_id, a.patient_id, a.doctor_id, uploadedById, uploadRole,
       document_type || 'prescription', fileKey, fileUrl,
       req.file.originalname, req.file.size, req.file.mimetype, notes || null,
+      tenantId,
     );
 
     // Notify patient if staff upload
     if (uploadRole === 'staff' && a.patient_id) {
-      const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', a.patient_id);
+      const patient = await prisma.$queryRawUnsafe(
+        'SELECT device_token FROM users WHERE id=$1 AND tenant_id=$2::uuid',
+        a.patient_id,
+        tenantId,
+      );
       if (patient[0]?.device_token) {
         setImmediate(async () => {
           try {
@@ -423,6 +453,7 @@ export const uploadAppointmentDocument = async (req, res) => {
 export const getAppointmentDocuments = async (req, res) => {
   try {
     const { appointment_id } = req.params;
+    const tenantId = tenantOf(req);
     const apptId = parseInt(appointment_id, 10);
     if (!Number.isInteger(apptId) || apptId <= 0) {
       return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
@@ -432,20 +463,25 @@ export const getAppointmentDocuments = async (req, res) => {
       prisma.$queryRawUnsafe(
         `SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name
          FROM appointment_documents ad
-         LEFT JOIN users u ON ad.uploaded_by = u.id
-         WHERE ad.appointment_id=$1::int AND ad.is_visible_to_patient=TRUE
+         JOIN appointments a ON a.id = ad.appointment_id AND a.tenant_id = $2::uuid
+         LEFT JOIN users u ON ad.uploaded_by = u.id AND u.tenant_id = $2::uuid
+         WHERE ad.appointment_id=$1::int AND ad.tenant_id = $2::uuid AND ad.is_visible_to_patient=TRUE
          ORDER BY ad.created_at DESC`,
         apptId,
+        tenantId,
       ),
       prisma.$queryRawUnsafe(
         `SELECT ep.id, ep.appointment_id, ep.patient_id, ep.doctor_id,
                 ep.prescription_number, ep.pdf_key, ep.created_at,
                 d.name AS doctor_name
            FROM e_prescriptions ep
-           LEFT JOIN users d ON d.id = ep.doctor_id
+           JOIN appointments a ON a.id = ep.appointment_id AND a.tenant_id = $2::uuid
+           LEFT JOIN users d ON d.id = ep.doctor_id AND d.tenant_id = $2::uuid
           WHERE ep.appointment_id = $1::int
+            AND ep.tenant_id = $2::uuid
           ORDER BY ep.created_at DESC`,
         apptId,
+        tenantId,
       ),
     ]);
 
@@ -503,6 +539,7 @@ export const getAppointmentDocuments = async (req, res) => {
  */
 export const getPatientAllRecords = async (req, res) => {
   try {
+    const tenantId = tenantOf(req);
     const patientId = await resolvePatientForRecordList(req);
     const hasAccess = await ensurePatientRecordAccess(req, res, {
       patientId,
@@ -531,19 +568,20 @@ export const getPatientAllRecords = async (req, res) => {
           a.appointment_date, a.appointment_time,
           d.name as doctor_name, doc.department as doctor_department
         FROM appointment_documents ad
-        JOIN appointments a ON ad.appointment_id = a.id
-        LEFT JOIN users d ON a.doctor_id = d.id
+        JOIN appointments a ON ad.appointment_id = a.id AND a.tenant_id = $2::uuid
+        LEFT JOIN users d ON a.doctor_id = d.id AND d.tenant_id = $2::uuid
         LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
-        WHERE ad.patient_id=$1 AND ad.is_visible_to_patient=TRUE
+        WHERE ad.patient_id=$1 AND ad.tenant_id = $2::uuid AND ad.is_visible_to_patient=TRUE
         ORDER BY ad.created_at DESC
-      `, patientId),
+      `, patientId, tenantId),
       safeQuery(
-        `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, tenant_id, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
-        patientId
+        `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, tenant_id, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 AND tenant_id=$2::uuid ORDER BY created_at DESC`,
+        patientId,
+        tenantId,
       ),
     ]);
 
-    const extractionMap = await loadPatientRecordExtractionMap(ownRecords, patientId);
+    const extractionMap = await loadPatientRecordExtractionMap(ownRecords, patientId, tenantId);
     const ownRecordsWithExtraction = ownRecords.map((record) => {
       const extractionRow = extractionMap.get(String(record.file_key || ''));
       return extractionRow
@@ -579,6 +617,7 @@ export const getPatientAllRecords = async (req, res) => {
  */
 export const uploadPatientRecord = async (req, res) => {
   try {
+    const tenantId = tenantOf(req);
     const patientId = await resolvePatientForRecordUpload(req);
     await ensurePatientRecordAccess(req, res, {
       patientId,
@@ -615,14 +654,15 @@ export const uploadPatientRecord = async (req, res) => {
       patientId, normalizedDocumentType, normalizedTitle,
       fileKey, fileUrl, req.file.originalname, req.file.size, req.file.mimetype,
       source_hospital || null, normalizedRecordDate, notes || null,
-      req.tenantId || DEFAULT_TENANT_ID,
+      tenantId,
     );
 
     let aiExtraction = null;
     try {
       const patientRows = await prisma.$queryRawUnsafe(
-        'SELECT uid FROM users WHERE id=$1 LIMIT 1',
-        patientId
+        'SELECT uid FROM users WHERE id=$1 AND tenant_id=$2::uuid LIMIT 1',
+        patientId,
+        tenantId,
       );
       aiExtraction = await ingestClinicalDocumentUpload({
         req,
@@ -834,6 +874,7 @@ export const reviewPatientRecordExtraction = async (req, res) => {
 export const deletePatientRecord = async (req, res) => {
   try {
     const { id } = req.params;
+    const tenantId = tenantOf(req);
     const row = await findPatientRecordWithExtraction(req, id);
     const hasAccess = await ensurePatientRecordAccess(req, res, {
       patientId: row.patient_id,
@@ -842,7 +883,12 @@ export const deletePatientRecord = async (req, res) => {
       recordType: 'PATIENT_RECORD',
     });
     if (!hasAccess) return;
-    const record = await prisma.$queryRawUnsafe('SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2', id, row.patient_id);
+    const record = await prisma.$queryRawUnsafe(
+      'SELECT id, file_key FROM patient_records WHERE id=$1 AND patient_id=$2 AND tenant_id=$3::uuid',
+      id,
+      row.patient_id,
+      tenantId,
+    );
     if (!record.length) return error(res, 'Record not found', HTTP_STATUS.NOT_FOUND);
 
     const fileKey = record[0].file_key;
@@ -850,7 +896,7 @@ export const deletePatientRecord = async (req, res) => {
       try { await deleteObject(fileKey); } catch (e) { logger.warn('R2 delete failed:', e.message); }
     });
 
-    await prisma.$queryRawUnsafe('DELETE FROM patient_records WHERE id=$1', id);
+    await prisma.$queryRawUnsafe('DELETE FROM patient_records WHERE id=$1 AND tenant_id=$2::uuid', id, tenantId);
     success(res, { deleted: true }, 'Record deleted');
   } catch (err) {
     logger.error('Delete Patient Record Error:', err);
@@ -864,8 +910,9 @@ export const deletePatientRecord = async (req, res) => {
 export const getAllDocumentsAdmin = async (req, res) => {
   try {
     const { from_date, to_date, limit = 50, offset = 0 } = req.query;
-    let where = 'WHERE 1=1';
-    const params = [];
+    const tenantId = tenantOf(req);
+    let where = 'WHERE ad.tenant_id = $1::uuid';
+    const params = [tenantId];
 
     if (from_date) { params.push(from_date); where += ` AND DATE(ad.created_at) >= $${params.length}`; }
     if (to_date) { params.push(to_date); where += ` AND DATE(ad.created_at) <= $${params.length}`; }
@@ -878,10 +925,10 @@ export const getAllDocumentsAdmin = async (req, res) => {
         p.name as patient_name, d.name as doctor_name,
         a.appointment_date, a.appointment_time
       FROM appointment_documents ad
-      LEFT JOIN users u ON ad.uploaded_by = u.id
-      LEFT JOIN users p ON ad.patient_id = p.id
-      LEFT JOIN users d ON ad.doctor_id = d.id
-      LEFT JOIN appointments a ON ad.appointment_id = a.id
+      LEFT JOIN users u ON ad.uploaded_by = u.id AND u.tenant_id = $1::uuid
+      LEFT JOIN users p ON ad.patient_id = p.id AND p.tenant_id = $1::uuid
+      LEFT JOIN users d ON ad.doctor_id = d.id AND d.tenant_id = $1::uuid
+      LEFT JOIN appointments a ON ad.appointment_id = a.id AND a.tenant_id = $1::uuid
       ${where}
       ORDER BY ad.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}

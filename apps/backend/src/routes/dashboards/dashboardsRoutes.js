@@ -17,6 +17,12 @@ import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin } from '../../utils/roleHelpers.js';
 
 const router = Router();
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    DEFAULT_TENANT;
+}
 
 function wrap(handler) {
   return async (req, res, _next) => {
@@ -38,12 +44,13 @@ function requireAdmin(req, res, next) {
 }
 
 // ── Direct snapshot queries ─────────────────────────────────────────
-router.get('/snapshot/daily-ops', requireAdmin, wrap(async () =>
-  snapshot.getDailyOpsSnapshot(),
+router.get('/snapshot/daily-ops', requireAdmin, wrap(async (req) =>
+  snapshot.getDailyOpsSnapshot({ tenantId: tenantOf(req) }),
 ));
 
 router.get('/snapshot/opd-daily', requireAdmin, wrap(async (req) =>
   snapshot.getOpdDaily({
+    tenantId: tenantOf(req),
     from: req.query.from,
     to: req.query.to,
     // Roadmap A9: canonicalize to users.id whichever id space the caller used.
@@ -55,24 +62,27 @@ router.get('/snapshot/opd-daily', requireAdmin, wrap(async (req) =>
 
 router.get('/snapshot/ip-occupancy', requireAdmin, wrap(async (req) =>
   snapshot.getIpOccupancy({
+    tenantId: tenantOf(req),
     from: req.query.from,
     to: req.query.to,
     ward: req.query.ward,
   }),
 ));
 
-router.get('/snapshot/doctor-productivity', requireAdmin, wrap(async () =>
-  snapshot.getDoctorProductivity30d(),
+router.get('/snapshot/doctor-productivity', requireAdmin, wrap(async (req) =>
+  snapshot.getDoctorProductivity30d({ tenantId: tenantOf(req) }),
 ));
 
 router.get('/snapshot/payer-mix', requireAdmin, wrap(async (req) =>
   snapshot.getPayerMixMonthly({
+    tenantId: tenantOf(req),
     months: req.query.months || 6,
   }),
 ));
 
 router.get('/snapshot/lab-tat', requireAdmin, wrap(async (req) =>
   snapshot.getLabTatSummary({
+    tenantId: tenantOf(req),
     from: req.query.from,
     to: req.query.to,
   }),
@@ -88,6 +98,7 @@ router.post('/embed/url', requireAdmin, wrap(async (req) =>
     key: req.body.key,
     params: req.body.params || {},
     ttlSeconds: req.body.ttlSeconds,
+    tenantId: tenantOf(req),
   }),
 ));
 

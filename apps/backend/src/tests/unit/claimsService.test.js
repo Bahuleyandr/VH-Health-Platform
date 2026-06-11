@@ -335,6 +335,9 @@ describe('submitPreauth standard document bundle', () => {
       if (text.includes("AND doc_type = 'clinical_summary'")) {
         return [];
       }
+      if (text.includes('FROM insurance_preauth') && text.includes('tenant_id =')) {
+        return [{ id: params[0] }];
+      }
       if (text.includes('INSERT INTO tpa_claim_documents')) {
         insertedDocTypes.push(params[2]);
         return [{

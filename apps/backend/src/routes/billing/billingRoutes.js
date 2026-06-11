@@ -7,8 +7,10 @@ import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import billingService from '../../services/billing/billingService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 import { requiredUUID, requiredString, requiredNumber, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -17,6 +19,18 @@ const validate = (req, res, next) => {
 };
 
 const router = Router();
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || DEFAULT_TENANT_ID;
+}
+
+function ensurePatientSelfAccess(req, patientUid) {
+  if (!isPatient(req.user?.role)) return null;
+  if (String(req.user?.uid || '').toLowerCase() === String(patientUid || '').toLowerCase()) {
+    return null;
+  }
+  return 'Patients can only access their own billing records';
+}
 
 /**
  * POST /billing/invoice
@@ -41,6 +55,7 @@ router.post('/invoice', requireIdempotencyKey({ required: false, scope: 'invoice
       notes: req.body.notes,
       issued_by: req.user?.uid || null,
       due_date: req.body.due_date,
+      tenant_id: tenantOf(req),
     };
 
     const invoice = await billingService.createInvoice(invoiceData);
@@ -62,6 +77,10 @@ router.post('/invoice', requireIdempotencyKey({ required: false, scope: 'invoice
 router.get('/invoices/patient/:patientUid', async (req, res, next) => {
   try {
     const { patientUid } = req.params;
+    const patientAccessError = ensurePatientSelfAccess(req, patientUid);
+    if (patientAccessError) {
+      return error(res, patientAccessError, 403);
+    }
     const filters = {
       status: req.query.status,
       type: req.query.type,
@@ -71,7 +90,9 @@ router.get('/invoices/patient/:patientUid', async (req, res, next) => {
       date_to: req.query.date_to,
     };
 
-    const result = await billingService.getPatientInvoices(patientUid, filters);
+    const result = await billingService.getPatientInvoices(patientUid, filters, {
+      tenantId: tenantOf(req),
+    });
 
     return success(res, result.invoices, 'Patient invoices retrieved', 200, {
       pagination: result.pagination,
@@ -96,7 +117,13 @@ router.get('/invoice/:id', async (req, res, next) => {
       return error(res, 'Invalid invoice ID', 400);
     }
 
-    const invoice = await billingService.getInvoiceDetail(invoiceId);
+    const invoice = await billingService.getInvoiceDetail(invoiceId, {
+      tenantId: tenantOf(req),
+      requester: {
+        role: req.user?.role,
+        uid: req.user?.uid,
+      },
+    });
 
     return success(res, invoice, 'Invoice detail retrieved');
   } catch (err) {
@@ -131,7 +158,8 @@ router.post('/invoice/:id/payment', requireIdempotencyKey({ required: false, sco
       amount,
       method,
       processedBy,
-      transaction_ref
+      transaction_ref,
+      tenantOf(req)
     );
 
     return success(res, result, 'Payment recorded successfully');
@@ -194,6 +222,7 @@ router.post('/insurance/claim', requireIdempotencyKey({ required: false, scope: 
       policy_number: req.body.policy_number,
       claim_amount: req.body.claim_amount,
       documents: req.body.documents,
+      tenant_id: tenantOf(req),
     };
 
     const claim = await billingService.submitInsuranceClaim(claimData);
@@ -214,14 +243,24 @@ router.post('/insurance/claim', requireIdempotencyKey({ required: false, scope: 
  */
 router.get('/insurance/claims', async (req, res, next) => {
   try {
+    let patientUid = req.query.patient_uid;
+    if (isPatient(req.user?.role)) {
+      if (patientUid && String(patientUid).toLowerCase() !== String(req.user?.uid || '').toLowerCase()) {
+        return error(res, 'Patients can only access their own insurance claims', 403);
+      }
+      patientUid = req.user?.uid;
+    }
+
     const filters = {
-      patient_uid: req.query.patient_uid,
+      patient_uid: patientUid,
       status: req.query.status,
       page: req.query.page,
       limit: req.query.limit,
     };
 
-    const result = await billingService.getInsuranceClaims(filters);
+    const result = await billingService.getInsuranceClaims(filters, {
+      tenantId: tenantOf(req),
+    });
 
     return success(res, result.claims, 'Insurance claims retrieved', 200, {
       pagination: result.pagination,

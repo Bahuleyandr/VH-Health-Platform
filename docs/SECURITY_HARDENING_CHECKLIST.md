@@ -24,6 +24,15 @@ GitHub secret, roll the deployment, THEN revoke the old credential.
 - [ ] Cloudflare R2 keys (`CF_R2_*` + `cnpg-backup-credentials`).
 - [ ] Firebase service account JSON; Twilio auth token; SMTP creds;
       `SENTRY_DSN` (rotate if it ever appeared in logs).
+- [ ] Signed integration secrets: `HL7_INBOUND_SHARED_SECRET` (required in
+      production) and `ABDM_CALLBACK_SECRET` (required when
+      `ABDM_ENABLED=true`). Generate with `openssl rand -base64 32`, seal via
+      `vhhealth-backend-env`, and restart all backend pods.
+- [ ] Legacy secret-bearing DB rows: run
+      `npm run security:audit-secret-encryption -- --json` from
+      `apps/backend`. Rotate or backfill every reported row before pilot
+      sign-off; the current app encrypts new writes but cannot safely rotate
+      existing partner/TOTP/SMART/HL7 credentials without operator approval.
 - [ ] Forgejo Actions secrets re-entered after rotation
       (`VH_API_KEY`, Android signing secrets).
 - [ ] Purge local artifacts: `.env*` backups, `output/logs/*`,
@@ -60,6 +69,22 @@ digests in `overlays/prod/kustomization.yaml`.
 
 - No secrets in tracked files (gitleaks in lefthook + CI).
 - All env secrets validated at boot (`validateEnv.js`) — app crashes on
-  missing `JWT_SECRET`/`DATABASE_URL`/`API_KEY`.
+  missing `JWT_SECRET`/`DATABASE_URL`/`API_KEY`, production
+  `HL7_INBOUND_SHARED_SECRET`, or ABDM callback signing config when
+  `ABDM_ENABLED=true`.
 - API keys compared timing-safe; tokens carry `jti` and are blacklisted on
   logout/rotation.
+- Legacy Firebase body-only registration stays disabled by default; do not set
+  `ENABLE_LEGACY_FIREBASE_REGISTER=true` outside a local compatibility harness,
+  and it is ignored in production.
+- Legacy phone-only auth and dev patient-login shortcuts stay disabled by
+  default; do not set `ENABLE_LEGACY_PHONE_AUTH=true` or `ENABLE_DEV_AUTH=true`
+  outside a local compatibility harness, and both are ignored in production.
+- The admin SMART-on-FHIR authorize-code helper stays disabled by default in
+  every environment; do not set `SMART_FHIR_ADMIN_AUTHORIZE_ENABLED=true`
+  outside a local integration test harness.
+- Patient and staff Android release jobs must define
+  `PATIENT_CERT_PIN_HASHES` / `STAFF_CERT_PIN_HASHES` Forgejo variables with
+  current + next-rotation `sha256/<SPKI base64>` hashes. Release workflows pass
+  `PRODUCTION=true` and `CERT_PIN_HASHES`; missing pin variables must block the
+  signed APK/AAB build.

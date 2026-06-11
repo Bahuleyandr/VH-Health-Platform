@@ -245,4 +245,38 @@ describe('accessDecisionService', () => {
     expect(patient).toEqual({ id: 15, uid: PATIENT_UID });
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(encounterId);
   });
+
+  it('resolves owned clinical resource ids through tenant-scoped patient joins', async () => {
+    const problemId = '33333333-3333-4333-8333-333333333333';
+    const medRecId = '44444444-4444-4444-8444-444444444444';
+    const patientEncounterId = '55555555-5555-4555-8555-555555555555';
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce(patientLookup());
+
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'patient_problem',
+      resourceId: problemId,
+    });
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'medication_reconciliation',
+      resourceId: medRecId,
+    });
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'patient_encounter',
+      resourceId: patientEncounterId,
+    });
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'radiology_order',
+      resourceId: '12',
+    });
+
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('FROM patient_problems');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][1]).toBe('00000000-0000-4000-8000-000000000001');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toContain('FROM medication_reconciliations');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[2][0]).toContain('FROM patient_encounters');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[3][0]).toContain('FROM radiology_orders');
+  });
 });

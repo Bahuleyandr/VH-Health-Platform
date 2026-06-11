@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 
 // Token cache
 let cachedToken = null;
@@ -201,6 +202,11 @@ async function sendHealthData(transactionId, entries, senderKeyMaterial, { dataP
   if (dataPushUrl) {
     let response;
     try {
+      await assertSafeOutboundUrl(dataPushUrl, {
+        label: 'dataPushUrl',
+        allowlistEnv: 'ABDM_DATA_PUSH_HOST_ALLOWLIST',
+        allowPrivateEnv: 'ABDM_DATA_PUSH_ALLOW_PRIVATE_TARGETS',
+      });
       response = await fetch(dataPushUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -21,6 +21,7 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 
 const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'select'];
 const BINDING_SOURCES = ['vitals_latest', 'lab_latest', 'demographics'];
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Whitelisted vitals_chart columns a binding may pull — never interpolate
 // caller input into SQL outside this map.
@@ -31,12 +32,17 @@ const VITALS_BINDABLE = new Set([
 ]);
 const DEMOGRAPHIC_BINDABLE = new Set(['gender', 'age_years']);
 
+function normalizeTenantId(tenantId) {
+  return tenantId || DEFAULT_TENANT_ID;
+}
+
 // ─────────────────────────────── registries ───────────────────────────────
 
 export async function createRegistry({
   code, title, kind = 'registry', trialId = null, description = null,
   principalInvestigatorUid = null,
-}, { actorUid = null } = {}) {
+}, { actorUid = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   const trimmedCode = String(code || '').trim().toUpperCase();
   if (!trimmedCode || !/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(trimmedCode)) {
     throw AppError.badRequest('Registry code must be 2-40 chars of A-Z, 0-9, dash/underscore', 'RESEARCH_CODE_INVALID');
@@ -49,9 +55,10 @@ export async function createRegistry({
   }
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO research_registries (code, title, kind, trial_id, description, principal_investigator_uid, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::uuid)
-       RETURNING id, code, title, kind, trial_id, status, created_at`,
+      `INSERT INTO research_registries (tenant_id, code, title, kind, trial_id, description, principal_investigator_uid, created_by)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, $8::uuid)
+       RETURNING id, tenant_id, code, title, kind, trial_id, status, created_at`,
+      scopedTenantId,
       trimmedCode,
       String(title).trim(),
       kind,
@@ -69,16 +76,21 @@ export async function createRegistry({
   }
 }
 
-export async function listRegistries({ status = null } = {}) {
-  const where = status ? `WHERE r.status = $1` : '';
-  const params = status ? [status] : [];
+export async function listRegistries({ status = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
+  const params = [scopedTenantId];
+  let where = 'WHERE r.tenant_id = $1::uuid';
+  if (status) {
+    params.push(status);
+    where += ` AND r.status = $2`;
+  }
   return prisma.$queryRawUnsafe(
     `SELECT r.id, r.code, r.title, r.kind, r.trial_id, r.status,
             r.principal_investigator_uid, r.created_at,
             (SELECT COUNT(*)::int FROM research_enrollments e
-              WHERE e.registry_id = r.id AND e.status IN ('screening', 'enrolled')) AS active_enrollments,
+              WHERE e.tenant_id = r.tenant_id AND e.registry_id = r.id AND e.status IN ('screening', 'enrolled')) AS active_enrollments,
             (SELECT COUNT(*)::int FROM research_crf_forms f
-              WHERE f.registry_id = r.id AND f.status = 'published') AS published_forms
+              WHERE f.tenant_id = r.tenant_id AND f.registry_id = r.id AND f.status = 'published') AS published_forms
      FROM research_registries r
      ${where}
      ORDER BY r.created_at DESC`,
@@ -86,10 +98,14 @@ export async function listRegistries({ status = null } = {}) {
   );
 }
 
-async function getRegistry(registryId) {
+async function getRegistry(registryId, tenantId = DEFAULT_TENANT_ID) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, tenant_id, code, title, kind, status FROM research_registries WHERE id = $1`,
+    `SELECT id, tenant_id, code, title, kind, status
+       FROM research_registries
+      WHERE id = $1
+        AND tenant_id = $2::uuid`,
     Number(registryId),
+    normalizeTenantId(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Registry not found', 'RESEARCH_REGISTRY_NOT_FOUND');
   return rows[0];
@@ -148,18 +164,20 @@ function validateFieldSchema(fields) {
   }));
 }
 
-export async function createCrfForm(registryId, { name, fields }, { actorUid = null } = {}) {
-  const registry = await getRegistry(registryId);
+export async function createCrfForm(registryId, { name, fields }, { actorUid = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
+  const registry = await getRegistry(registryId, scopedTenantId);
   const trimmedName = String(name || '').trim();
   if (!trimmedName) throw AppError.badRequest('Form name is required', 'RESEARCH_FORM_NAME_REQUIRED');
   const schema = validateFieldSchema(fields);
 
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO research_crf_forms (registry_id, name, version, field_schema, created_by)
-     VALUES ($1, $2::varchar,
-             COALESCE((SELECT MAX(version) FROM research_crf_forms WHERE registry_id = $1 AND name = $2::varchar), 0) + 1,
-             $3::jsonb, $4::uuid)
-     RETURNING id, registry_id, name, version, status, field_schema, created_at`,
+    `INSERT INTO research_crf_forms (tenant_id, registry_id, name, version, field_schema, created_by)
+     VALUES ($1::uuid, $2, $3::varchar,
+             COALESCE((SELECT MAX(version) FROM research_crf_forms WHERE tenant_id = $1::uuid AND registry_id = $2 AND name = $3::varchar), 0) + 1,
+             $4::jsonb, $5::uuid)
+     RETURNING id, tenant_id, registry_id, name, version, status, field_schema, created_at`,
+    scopedTenantId,
     registry.id,
     trimmedName,
     JSON.stringify(schema),
@@ -168,16 +186,20 @@ export async function createCrfForm(registryId, { name, fields }, { actorUid = n
   return rows[0];
 }
 
-export async function publishCrfForm(formId) {
+export async function publishCrfForm(formId, { tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE research_crf_forms SET status = 'published', published_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'draft'
-     RETURNING id, registry_id, name, version, status, published_at`,
+     WHERE id = $1 AND tenant_id = $2::uuid AND status = 'draft'
+     RETURNING id, tenant_id, registry_id, name, version, status, published_at`,
     Number(formId),
+    scopedTenantId,
   );
   if (!rows.length) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT status FROM research_crf_forms WHERE id = $1`, Number(formId),
+      `SELECT status FROM research_crf_forms WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(formId),
+      scopedTenantId,
     );
     if (!existing.length) throw AppError.notFound('CRF form not found', 'RESEARCH_FORM_NOT_FOUND');
     throw AppError.invalidTransition(existing[0].status, 'published', ['draft']);
@@ -185,15 +207,15 @@ export async function publishCrfForm(formId) {
   return rows[0];
 }
 
-export async function listForms(registryId, { status = null } = {}) {
-  const params = [Number(registryId)];
-  let where = 'WHERE registry_id = $1';
+export async function listForms(registryId, { status = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const params = [Number(registryId), normalizeTenantId(tenantId)];
+  let where = 'WHERE registry_id = $1 AND tenant_id = $2::uuid';
   if (status) {
     params.push(status);
-    where += ` AND status = $2`;
+    where += ` AND status = $3`;
   }
   return prisma.$queryRawUnsafe(
-    `SELECT id, registry_id, name, version, status, field_schema, published_at, created_at
+    `SELECT id, tenant_id, registry_id, name, version, status, field_schema, published_at, created_at
      FROM research_crf_forms ${where}
      ORDER BY name, version DESC`,
     ...params,
@@ -204,8 +226,9 @@ export async function listForms(registryId, { status = null } = {}) {
 
 export async function enrollPatient(registryId, {
   patientUid, subjectCode = null, matchId = null, consentRef = null, status = 'enrolled',
-}, { actorUid = null, actorRole = null } = {}) {
-  const registry = await getRegistry(registryId);
+}, { actorUid = null, actorRole = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
+  const registry = await getRegistry(registryId, scopedTenantId);
   if (registry.status !== 'active') {
     throw AppError.invalidTransition(registry.status, 'enrolling', ['active']);
   }
@@ -214,17 +237,39 @@ export async function enrollPatient(registryId, {
     throw AppError.badRequest('Enrollment status must start as screening or enrolled', 'RESEARCH_STATUS_INVALID');
   }
   const patient = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`, patientUid,
+    `SELECT uid FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid AND role = 'PATIENT' LIMIT 1`,
+    patientUid,
+    scopedTenantId,
   );
   if (!patient.length) throw AppError.notFound('Patient not found', 'RESEARCH_PATIENT_NOT_FOUND');
+  if (consentRef) {
+    const consentRows = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM patient_consents
+        WHERE id::text = $1
+          AND patient_uid = $2::uuid
+          AND tenant_id = $3::uuid
+          AND granted = true
+          AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())
+        LIMIT 1`,
+      String(consentRef),
+      patientUid,
+      scopedTenantId,
+    );
+    if (!consentRows.length) {
+      throw AppError.badRequest('consent_ref must reference an active consent for this patient and tenant', 'RESEARCH_CONSENT_REF_INVALID');
+    }
+  }
 
   try {
     return await prisma.$transaction(async (tx) => {
       const inserted = await tx.$queryRawUnsafe(
         `INSERT INTO research_enrollments
-           (registry_id, patient_uid, subject_code, status, match_id, consent_ref, enrolled_by)
-         VALUES ($1, $2::uuid, COALESCE($3, 'PENDING-' || gen_random_uuid()), $4, $5, $6, $7::uuid)
-         RETURNING id, registry_id, patient_uid, subject_code, status, enrolled_at`,
+           (tenant_id, registry_id, patient_uid, subject_code, status, match_id, consent_ref, enrolled_by)
+         VALUES ($1::uuid, $2, $3::uuid, COALESCE($4, 'PENDING-' || gen_random_uuid()), $5, $6, $7, $8::uuid)
+         RETURNING id, tenant_id, registry_id, patient_uid, subject_code, status, enrolled_at`,
+        scopedTenantId,
         registry.id,
         patientUid,
         subjectCode ? String(subjectCode).trim() : null,
@@ -239,17 +284,18 @@ export async function enrollPatient(registryId, {
         const updated = await tx.$queryRawUnsafe(
           `UPDATE research_enrollments
            SET subject_code = $2 || '-' || LPAD($3::text, 4, '0')
-           WHERE id = $1
-           RETURNING id, registry_id, patient_uid, subject_code, status, enrolled_at`,
+           WHERE id = $1 AND tenant_id = $4::uuid
+           RETURNING id, tenant_id, registry_id, patient_uid, subject_code, status, enrolled_at`,
           enrollment.id,
           registry.code,
           String(enrollment.id),
+          scopedTenantId,
         );
         enrollment = updated[0];
       }
 
       await recordCanonicalClinicalEvent({
-        tenantId: registry.tenant_id,
+        tenantId: scopedTenantId,
         patientUid,
         eventType: 'research.enrolled',
         sourceTable: 'research_enrollments',
@@ -273,7 +319,8 @@ export async function enrollPatient(registryId, {
   }
 }
 
-export async function withdrawEnrollment(enrollmentId, { reason }, { actorUid = null, actorRole = null } = {}) {
+export async function withdrawEnrollment(enrollmentId, { reason }, { actorUid = null, actorRole = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   if (!reason || !String(reason).trim()) {
     throw AppError.badRequest('Withdrawal reason is required', 'RESEARCH_WITHDRAW_REASON_REQUIRED');
   }
@@ -281,14 +328,17 @@ export async function withdrawEnrollment(enrollmentId, { reason }, { actorUid = 
     const rows = await tx.$queryRawUnsafe(
       `UPDATE research_enrollments
        SET status = 'withdrawn', withdrawn_at = NOW(), withdrawal_reason = $2, updated_at = NOW()
-       WHERE id = $1 AND status IN ('screening', 'enrolled')
-       RETURNING id, registry_id, patient_uid, subject_code, status, withdrawn_at`,
+       WHERE id = $1 AND tenant_id = $3::uuid AND status IN ('screening', 'enrolled')
+       RETURNING id, tenant_id, registry_id, patient_uid, subject_code, status, withdrawn_at`,
       Number(enrollmentId),
       String(reason).trim(),
+      scopedTenantId,
     );
     if (!rows.length) {
       const existing = await tx.$queryRawUnsafe(
-        `SELECT status FROM research_enrollments WHERE id = $1`, Number(enrollmentId),
+        `SELECT status FROM research_enrollments WHERE id = $1 AND tenant_id = $2::uuid`,
+        Number(enrollmentId),
+        scopedTenantId,
       );
       if (!existing.length) throw AppError.notFound('Enrollment not found', 'RESEARCH_ENROLLMENT_NOT_FOUND');
       throw AppError.invalidTransition(existing[0].status, 'withdrawn', ['screening', 'enrolled']);
@@ -296,6 +346,7 @@ export async function withdrawEnrollment(enrollmentId, { reason }, { actorUid = 
     const enrollment = rows[0];
 
     await recordCanonicalClinicalEvent({
+      tenantId: scopedTenantId,
       patientUid: enrollment.patient_uid,
       eventType: 'research.withdrawn',
       sourceTable: 'research_enrollments',
@@ -310,17 +361,17 @@ export async function withdrawEnrollment(enrollmentId, { reason }, { actorUid = 
   });
 }
 
-export async function listEnrollments(registryId, { status = null } = {}) {
-  const params = [Number(registryId)];
-  let where = 'WHERE e.registry_id = $1';
+export async function listEnrollments(registryId, { status = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const params = [Number(registryId), normalizeTenantId(tenantId)];
+  let where = 'WHERE e.registry_id = $1 AND e.tenant_id = $2::uuid';
   if (status) {
     params.push(status);
-    where += ` AND e.status = $2`;
+    where += ` AND e.status = $3`;
   }
   return prisma.$queryRawUnsafe(
-    `SELECT e.id, e.registry_id, e.patient_uid, e.subject_code, e.status, e.match_id,
+    `SELECT e.id, e.tenant_id, e.registry_id, e.patient_uid, e.subject_code, e.status, e.match_id,
             e.consent_ref, e.enrolled_at, e.withdrawn_at,
-            (SELECT COUNT(*)::int FROM research_crf_responses r WHERE r.enrollment_id = e.id) AS response_count
+            (SELECT COUNT(*)::int FROM research_crf_responses r WHERE r.tenant_id = e.tenant_id AND r.enrollment_id = e.id) AS response_count
      FROM research_enrollments e
      ${where}
      ORDER BY e.enrolled_at DESC`,
@@ -330,15 +381,19 @@ export async function listEnrollments(registryId, { status = null } = {}) {
 
 // ─────────────────────────── binding resolution ───────────────────────────
 
-async function resolveBinding(binding, patientUid, db = prisma) {
+async function resolveBinding(binding, patientUid, tenantId = DEFAULT_TENANT_ID, db = prisma) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   if (binding.source === 'vitals_latest') {
     const column = binding.column;
     if (!VITALS_BINDABLE.has(column)) return null; // schema validated at create; belt-and-braces
     const rows = await db.$queryRawUnsafe(
       `SELECT ${column} AS value, recorded_at FROM vitals_chart
-       WHERE patient_uid = $1::uuid AND ${column} IS NOT NULL
+       WHERE patient_uid = $1::uuid
+         AND tenant_id = $2::uuid
+         AND ${column} IS NOT NULL
        ORDER BY recorded_at DESC LIMIT 1`,
       patientUid,
+      scopedTenantId,
     );
     if (!rows.length) return null;
     return { value: Number(rows[0].value), detail: `vitals_chart.${column} @ ${rows[0].recorded_at?.toISOString?.() || rows[0].recorded_at}` };
@@ -347,9 +402,12 @@ async function resolveBinding(binding, patientUid, db = prisma) {
     const byLoinc = Boolean(binding.loinc_code);
     const rows = await db.$queryRawUnsafe(
       `SELECT value_numeric, value_text, unit, created_at FROM lab_results
-       WHERE patient_uid = $1::uuid AND ${byLoinc ? 'loinc_code = $2' : 'LOWER(test_name) = LOWER($2)'}
+       WHERE patient_uid = $1::uuid
+         AND tenant_id = $2::uuid
+         AND ${byLoinc ? 'loinc_code = $3' : 'LOWER(test_name) = LOWER($3)'}
        ORDER BY created_at DESC LIMIT 1`,
       patientUid,
+      scopedTenantId,
       byLoinc ? String(binding.loinc_code) : String(binding.test_name),
     );
     if (!rows.length) return null;
@@ -360,8 +418,14 @@ async function resolveBinding(binding, patientUid, db = prisma) {
   }
   if (binding.source === 'demographics') {
     const rows = await db.$queryRawUnsafe(
-      `SELECT gender, birthday FROM users WHERE uid = $1::uuid LIMIT 1`,
+      `SELECT gender, birthday
+         FROM users
+        WHERE uid = $1::uuid
+          AND tenant_id = $2::uuid
+          AND role = 'PATIENT'
+        LIMIT 1`,
       patientUid,
+      scopedTenantId,
     );
     if (!rows.length) return null;
     if (binding.column === 'gender') {
@@ -421,11 +485,13 @@ function validateResponseData(schema, data) {
 
 export async function captureCrfResponse(formId, {
   enrollmentId, visitLabel = 'baseline', data = {}, autofill = true,
-}, { actorUid = null } = {}) {
+}, { actorUid = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   const forms = await prisma.$queryRawUnsafe(
-    `SELECT f.id, f.registry_id, f.name, f.version, f.status, f.field_schema
-     FROM research_crf_forms f WHERE f.id = $1`,
+    `SELECT f.id, f.tenant_id, f.registry_id, f.name, f.version, f.status, f.field_schema
+     FROM research_crf_forms f WHERE f.id = $1 AND f.tenant_id = $2::uuid`,
     Number(formId),
+    scopedTenantId,
   );
   if (!forms.length) throw AppError.notFound('CRF form not found', 'RESEARCH_FORM_NOT_FOUND');
   const form = forms[0];
@@ -434,8 +500,12 @@ export async function captureCrfResponse(formId, {
   }
 
   const enrollments = await prisma.$queryRawUnsafe(
-    `SELECT id, registry_id, patient_uid, subject_code, status FROM research_enrollments WHERE id = $1`,
+    `SELECT id, tenant_id, registry_id, patient_uid, subject_code, status
+       FROM research_enrollments
+      WHERE id = $1
+        AND tenant_id = $2::uuid`,
     Number(enrollmentId),
+    scopedTenantId,
   );
   if (!enrollments.length) throw AppError.notFound('Enrollment not found', 'RESEARCH_ENROLLMENT_NOT_FOUND');
   const enrollment = enrollments[0];
@@ -456,7 +526,7 @@ export async function captureCrfResponse(formId, {
       if (!field.binding) continue;
       if (merged[field.key] !== undefined && merged[field.key] !== null && merged[field.key] !== '') continue;
       try {
-        const resolved = await resolveBinding(field.binding, enrollment.patient_uid);
+        const resolved = await resolveBinding(field.binding, enrollment.patient_uid, scopedTenantId);
         if (resolved !== null) {
           merged[field.key] = resolved.value;
           autofilled[field.key] = {
@@ -483,8 +553,8 @@ export async function captureCrfResponse(formId, {
 
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id, status FROM research_crf_responses
-     WHERE enrollment_id = $1 AND form_id = $2 AND visit_label = $3`,
-    enrollment.id, form.id, String(visitLabel).trim(),
+     WHERE enrollment_id = $1 AND form_id = $2 AND visit_label = $3 AND tenant_id = $4::uuid`,
+    enrollment.id, form.id, String(visitLabel).trim(), scopedTenantId,
   );
   if (existing.length && existing[0].status !== 'draft') {
     throw AppError.invalidTransition(existing[0].status, 'draft edit', ['draft']);
@@ -492,12 +562,13 @@ export async function captureCrfResponse(formId, {
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO research_crf_responses
-       (form_id, enrollment_id, visit_label, data, autofilled, recorded_by)
-     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::uuid)
+       (tenant_id, form_id, enrollment_id, visit_label, data, autofilled, recorded_by)
+     VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6::jsonb, $7::uuid)
      ON CONFLICT (enrollment_id, form_id, visit_label)
      DO UPDATE SET data = EXCLUDED.data, autofilled = EXCLUDED.autofilled,
                    recorded_by = EXCLUDED.recorded_by, updated_at = NOW()
-     RETURNING id, form_id, enrollment_id, visit_label, data, autofilled, status, created_at, updated_at`,
+     RETURNING id, tenant_id, form_id, enrollment_id, visit_label, data, autofilled, status, created_at, updated_at`,
+    scopedTenantId,
     form.id,
     enrollment.id,
     String(visitLabel).trim(),
@@ -508,16 +579,19 @@ export async function captureCrfResponse(formId, {
   return { ...rows[0], missing_required: errors.filter((e) => e.endsWith('is required')) };
 }
 
-export async function submitCrfResponse(responseId, { actorUid = null, actorRole = null } = {}) {
+export async function submitCrfResponse(responseId, { actorUid = null, actorRole = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT r.id, r.status, r.data, r.visit_label, r.form_id, r.enrollment_id,
+    `SELECT r.id, r.tenant_id, r.status, r.data, r.visit_label, r.form_id, r.enrollment_id,
             f.field_schema, f.name AS form_name, f.version AS form_version, f.registry_id,
             e.patient_uid, e.subject_code
      FROM research_crf_responses r
-     JOIN research_crf_forms f ON f.id = r.form_id
-     JOIN research_enrollments e ON e.id = r.enrollment_id
-     WHERE r.id = $1`,
+     JOIN research_crf_forms f ON f.id = r.form_id AND f.tenant_id = r.tenant_id
+     JOIN research_enrollments e ON e.id = r.enrollment_id AND e.tenant_id = r.tenant_id
+     WHERE r.id = $1
+       AND r.tenant_id = $2::uuid`,
     Number(responseId),
+    scopedTenantId,
   );
   if (!rows.length) throw AppError.notFound('CRF response not found', 'RESEARCH_RESPONSE_NOT_FOUND');
   const response = rows[0];
@@ -536,13 +610,15 @@ export async function submitCrfResponse(responseId, { actorUid = null, actorRole
     const updated = await tx.$queryRawUnsafe(
       `UPDATE research_crf_responses
        SET status = 'submitted', submitted_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND status = 'draft'
-       RETURNING id, form_id, enrollment_id, visit_label, status, submitted_at`,
+       WHERE id = $1 AND tenant_id = $2::uuid AND status = 'draft'
+       RETURNING id, tenant_id, form_id, enrollment_id, visit_label, status, submitted_at`,
       response.id,
+      scopedTenantId,
     );
     if (!updated.length) throw AppError.conflict('Response state changed concurrently', 'RESEARCH_RESPONSE_RACE');
 
     await recordCanonicalClinicalEvent({
+      tenantId: scopedTenantId,
       patientUid: response.patient_uid,
       eventType: 'research.crf_submitted',
       sourceTable: 'research_crf_responses',
@@ -562,18 +638,22 @@ export async function submitCrfResponse(responseId, { actorUid = null, actorRole
   });
 }
 
-export async function verifyCrfResponse(responseId, { actorUid = null } = {}) {
+export async function verifyCrfResponse(responseId, { actorUid = null, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE research_crf_responses
      SET status = 'verified', verified_by = $2::uuid, verified_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND status = 'submitted'
-     RETURNING id, status, verified_by, verified_at`,
+     WHERE id = $1 AND tenant_id = $3::uuid AND status = 'submitted'
+     RETURNING id, tenant_id, status, verified_by, verified_at`,
     Number(responseId),
     actorUid,
+    scopedTenantId,
   );
   if (!rows.length) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT status FROM research_crf_responses WHERE id = $1`, Number(responseId),
+      `SELECT status FROM research_crf_responses WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(responseId),
+      scopedTenantId,
     );
     if (!existing.length) throw AppError.notFound('CRF response not found', 'RESEARCH_RESPONSE_NOT_FOUND');
     throw AppError.invalidTransition(existing[0].status, 'verified', ['submitted']);
@@ -589,8 +669,9 @@ function csvEscape(value) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export async function exportRegistry(registryId, { format = 'csv', includePhi = false } = {}) {
-  const registry = await getRegistry(registryId);
+export async function exportRegistry(registryId, { format = 'csv', includePhi = false, tenantId = DEFAULT_TENANT_ID } = {}) {
+  const scopedTenantId = normalizeTenantId(tenantId);
+  const registry = await getRegistry(registryId, scopedTenantId);
   if (!['csv', 'xlsx'].includes(format)) {
     throw AppError.badRequest('format must be csv or xlsx', 'RESEARCH_EXPORT_FORMAT_INVALID');
   }
@@ -600,15 +681,17 @@ export async function exportRegistry(registryId, { format = 'csv', includePhi = 
             f.name AS form_name, f.version AS form_version,
             r.visit_label, r.status AS response_status, r.data, r.autofilled, r.submitted_at
      FROM research_crf_responses r
-     JOIN research_enrollments e ON e.id = r.enrollment_id
-     JOIN research_crf_forms f ON f.id = r.form_id
+     JOIN research_enrollments e ON e.id = r.enrollment_id AND e.tenant_id = r.tenant_id
+     JOIN research_crf_forms f ON f.id = r.form_id AND f.tenant_id = r.tenant_id
      WHERE e.registry_id = $1
+       AND r.tenant_id = $2::uuid
      ORDER BY e.subject_code, f.name, f.version, r.visit_label`,
     registry.id,
+    scopedTenantId,
   );
 
   // Union of field keys across the registry's forms keeps one flat grid.
-  const forms = await listForms(registry.id);
+  const forms = await listForms(registry.id, { tenantId: scopedTenantId });
   const fieldKeys = [];
   for (const form of forms) {
     const schema = Array.isArray(form.field_schema) ? form.field_schema : JSON.parse(form.field_schema || '[]');

@@ -78,7 +78,16 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
         policyCode: options.policyCode || policyCodeForRecordType(recordType),
         recordType,
       });
-      if (decision?.no_patient_context) return next();
+      if (decision?.no_patient_context) {
+        if (options.requirePatientContext) {
+          return res.status(403).json({
+            success: false,
+            message: 'Patient context is required for this PHI operation',
+            code: 'PATIENT_CONTEXT_REQUIRED',
+          });
+        }
+        return next();
+      }
 
       if (!decision.allowed) {
         return res.status(403).json(patientAccessErrorPayload(decision));

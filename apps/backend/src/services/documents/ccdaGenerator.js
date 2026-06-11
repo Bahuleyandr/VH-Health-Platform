@@ -12,18 +12,19 @@ import logger from '../../logging/logger.js';
 /**
  * Generate a complete CCD XML document for a patient.
  * @param {string} patientUid - Patient UID
+ * @param {{tenantId?: string|null}} options
  * @returns {string} C-CDA R2.1 XML string
  */
-export async function generateCCD(patientUid) {
+export async function generateCCD(patientUid, { tenantId = null } = {}) {
   logger.info(`Generating CCD for patient ${patientUid}`);
 
-  const patient = await getPatientData(patientUid);
-  const diagnoses = await getActiveDiagnoses(patientUid);
-  const medications = await getActiveMedications(patientUid);
-  const allergies = await getAllergies(patientUid);
-  const vitals = await getRecentVitals(patientUid);
-  const procedures = await getProcedures(patientUid);
-  const investigations = await getInvestigations(patientUid);
+  const patient = await getPatientData(patientUid, tenantId);
+  const diagnoses = await getActiveDiagnoses(patientUid, tenantId);
+  const medications = await getActiveMedications(patientUid, tenantId);
+  const allergies = await getAllergies(patientUid, tenantId);
+  const vitals = await getRecentVitals(patientUid, tenantId);
+  const procedures = await getProcedures(patientUid, tenantId);
+  const investigations = await getInvestigations(patientUid, tenantId);
 
   const xml = buildCCDXml(patient, { diagnoses, medications, allergies, vitals, procedures, investigations });
 
@@ -376,11 +377,16 @@ function buildVitalComponent(loincCode, displayName, value, unit) {
 // DATA FETCHERS
 // =============================================================================
 
-async function getPatientData(uid) {
+async function getPatientData(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT uid, phone, name, gender, email, birthday, address
-     FROM users WHERE uid = $1 LIMIT 1`,
-    uid
+     FROM users
+     WHERE uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+       AND role = 'PATIENT'
+     LIMIT 1`,
+    uid,
+    tenantId
   );
   if (!rows.length) {
     throw new Error(`Patient not found: ${uid}`);
@@ -388,73 +394,87 @@ async function getPatientData(uid) {
   return rows[0];
 }
 
-async function getActiveDiagnoses(uid) {
+async function getActiveDiagnoses(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT icd10_code, description, status, severity, diagnosis_type, onset_date, resolved_date
      FROM diagnoses
-     WHERE patient_uid = $1 AND status IN ('active', 'chronic', 'recurrent')
+     WHERE patient_uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+       AND status IN ('active', 'chronic', 'recurrent')
      ORDER BY created_at DESC`,
-    uid
+    uid,
+    tenantId
   );
   return rows;
 }
 
-async function getActiveMedications(uid) {
+async function getActiveMedications(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT medication_name, dose, route, status, administered_at
      FROM medication_administrations
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
      ORDER BY created_at DESC
      LIMIT 100`,
-    uid
+    uid,
+    tenantId
   );
   return rows;
 }
 
-async function getAllergies(uid) {
+async function getAllergies(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, allergen, description, name, severity, reaction, recorded_at
      FROM allergies
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
      ORDER BY recorded_at DESC`,
-    uid
+    uid,
+    tenantId
   );
   return rows;
 }
 
-async function getRecentVitals(uid) {
+async function getRecentVitals(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
             respiratory_rate, blood_glucose, recorded_at
      FROM vitals_chart
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
      ORDER BY recorded_at DESC
      LIMIT 20`,
-    uid
+    uid,
+    tenantId
   );
   return rows;
 }
 
-async function getProcedures(uid) {
+async function getProcedures(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, title, content, procedure_name, performed_at, outcome, complications, created_at
      FROM clinical_notes
-     WHERE patient_uid = $1 AND note_type = 'procedure'
+     WHERE patient_uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+       AND note_type = 'procedure'
      ORDER BY created_at DESC`,
-    uid
+    uid,
+    tenantId
   );
   return rows;
 }
 
-async function getInvestigations(uid) {
+async function getInvestigations(uid, tenantId = null) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, test_name, investigation_type, status, result_summary, conclusion,
             ordered_at, completed_at, created_at
      FROM investigations
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
+       AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
      ORDER BY created_at DESC
      LIMIT 100`,
-    uid
+    uid,
+    tenantId
   );
   return rows;
 }

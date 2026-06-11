@@ -9,7 +9,7 @@ import { authorizeChannel } from './channelAuth.js';
 /** @type {Map<string, Set<import('ws').WebSocket>>} userId → Set of sockets */
 const clients = new Map();
 
-/** @type {Map<import('ws').WebSocket, { userId: string, role: string, channels: Set<string> }>} */
+/** @type {Map<import('ws').WebSocket, { userId: string, role: string, tenantId?: string, channels: Set<string> }>} */
 const socketMeta = new Map();
 
 let wss = null;
@@ -132,8 +132,13 @@ async function authenticateAndRegister(ws, token) {
 
   const userId = decoded.uid || decoded.id || decoded.sub;
   const role = decoded.role;
+  const tenantId = decoded.tenant_id || decoded.tenantId || null;
   if (!userId) {
     ws.close(4001, 'Invalid token payload');
+    return;
+  }
+  if (!tenantId) {
+    ws.close(4001, 'Invalid token tenant');
     return;
   }
 
@@ -156,7 +161,7 @@ async function authenticateAndRegister(ws, token) {
   // Register client
   if (!clients.has(userId)) clients.set(userId, new Set());
   clients.get(userId).add(ws);
-  socketMeta.set(ws, { userId, role, channels: new Set() });
+  socketMeta.set(ws, { userId, role, tenantId, channels: new Set() });
 
   logger.info(`🔌 WS connected: user=${userId} role=${role || 'unknown'}`);
 
@@ -170,7 +175,7 @@ async function authenticateAndRegister(ws, token) {
       if (msg.action === 'subscribe' && msg.channel) {
         const meta = socketMeta.get(ws);
         if (!meta) return;
-        const decision = authorizeChannel(msg.channel, { userId: meta.userId, role: meta.role });
+        const decision = authorizeChannel(msg.channel, { userId: meta.userId, role: meta.role, tenantId: meta.tenantId });
         if (!decision.allowed) {
           ws.send(JSON.stringify({
             event: 'subscribe-denied',
@@ -214,7 +219,7 @@ async function authenticateAndRegister(ws, token) {
         if (!meta) return;
         for (const channel of msg.channels) {
           if (typeof channel !== 'string') continue;
-          const decision = authorizeChannel(channel, { userId: meta.userId, role: meta.role });
+          const decision = authorizeChannel(channel, { userId: meta.userId, role: meta.role, tenantId: meta.tenantId });
           if (decision.allowed) {
             meta.channels.add(channel);
             ws.send(JSON.stringify({ event: 'subscribed', channel, ts: Date.now() }));

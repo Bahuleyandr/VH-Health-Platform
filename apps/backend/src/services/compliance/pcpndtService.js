@@ -7,6 +7,20 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 
+async function assertPatientInTenant(tenantId, patientUid) {
+  if (!patientUid) return;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    String(tenantId),
+    String(patientUid),
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+}
+
 async function nextSerial(tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO pcpndt_serial_counter (tenant_id, next_value)
@@ -171,6 +185,7 @@ export async function createFormF({
       'sex_determination_disclosed must be false. The Act prohibits disclosure of sex.',
     );
   }
+  await assertPatientInTenant(tenantId, patient_uid);
 
   // Verify the machine + sonologist are active and belong to this tenant.
   const m = await prisma.$queryRawUnsafe(
@@ -239,8 +254,10 @@ export async function getFormF({ tenantId, id }) {
             m.model AS machine_model, m.pcpndt_registration_no,
             s.name AS sonologist_name, s.medical_council_reg AS sonologist_reg
        FROM pcpndt_form_f f
-       LEFT JOIN pcpndt_usg_machines m ON m.id = f.machine_id
-       LEFT JOIN pcpndt_sonologists s ON s.id = f.sonologist_id
+       LEFT JOIN pcpndt_usg_machines m
+         ON m.id = f.machine_id AND m.tenant_id = f.tenant_id
+       LEFT JOIN pcpndt_sonologists s
+         ON s.id = f.sonologist_id AND s.tenant_id = f.tenant_id
       WHERE f.id = $1::int AND f.tenant_id = $2::uuid`,
     Number(id), tenantId,
   );
@@ -270,8 +287,10 @@ export async function listFormF({
             f.submitted_at,
             m.machine_code, s.name AS sonologist_name
        FROM pcpndt_form_f f
-       LEFT JOIN pcpndt_usg_machines m ON m.id = f.machine_id
-       LEFT JOIN pcpndt_sonologists s ON s.id = f.sonologist_id
+       LEFT JOIN pcpndt_usg_machines m
+         ON m.id = f.machine_id AND m.tenant_id = f.tenant_id
+       LEFT JOIN pcpndt_sonologists s
+         ON s.id = f.sonologist_id AND s.tenant_id = f.tenant_id
       WHERE ${conds.join(' AND ')}
       ORDER BY f.test_date DESC, f.serial_no DESC
       LIMIT $${params.length}::int`,
@@ -324,8 +343,9 @@ export async function generateMonthlySubmission({
               submission_batch_id = $1::int,
               status = 'submitted_to_authority',
               updated_at = NOW()
-        WHERE id = ANY($2::int[])`,
-      submission[0].id, ids,
+        WHERE tenant_id = $3::uuid
+          AND id = ANY($2::int[])`,
+      submission[0].id, ids, tenantId,
     );
   }
   return { ...submission[0], forms_count: total };

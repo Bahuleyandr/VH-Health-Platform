@@ -15,7 +15,7 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -194,12 +194,13 @@ router.post('/claims/:id/payment', requireStaffOrAdmin, wrap(async (req) =>
 // Replaces the unstructured documents.caps jsonb merged in batch 9.
 
 router.get('/claims/:id/caps', requireStaffOrAdmin, wrap(async (req) =>
-  capsService.getClaimCaps(req.params.id),
+  capsService.getClaimCaps(req.params.id, { tenantId: tenantOf(req) }),
 ));
 
 // Bulk upsert. Body: { caps: [{ category, max_amount, currency?, source?, notes? }, ...] }
 router.post('/claims/:id/caps', requireStaffOrAdmin, wrap(async (req) =>
   capsService.setClaimCaps({
+    tenantId: tenantOf(req),
     claimId: req.params.id,
     caps: req.body.caps,
     actorUid: req.user?.uid,
@@ -208,6 +209,7 @@ router.post('/claims/:id/caps', requireStaffOrAdmin, wrap(async (req) =>
 
 router.delete('/claims/:id/caps/:category', requireStaffOrAdmin, wrap(async (req) =>
   capsService.deleteCap({
+    tenantId: tenantOf(req),
     claimId: req.params.id,
     category: req.params.category,
     actorUid: req.user?.uid,
@@ -218,7 +220,7 @@ router.delete('/claims/:id/caps/:category', requireStaffOrAdmin, wrap(async (req
 // Pure read-side — useful for the biller to dry-run an invoice against
 // the live caps before posting.
 router.post('/claims/:id/caps/apply', requireStaffOrAdmin, wrap(async (req) =>
-  capsService.applyCapsToInvoiceLines(req.params.id, req.body.lines || []),
+  capsService.applyCapsToInvoiceLines(req.params.id, req.body.lines || [], { tenantId: tenantOf(req) }),
 ));
 
 // ── Enhancement clinical-justification template ─────────────────────
@@ -232,6 +234,7 @@ router.get('/enhancement-justification-template', requireStaffOrAdmin, wrap(asyn
 // ── Documents + correspondence ──────────────────────────────────────
 router.post('/documents', requireStaffOrAdmin, wrap(async (req) =>
   claims.attachDocument({
+    tenantId: tenantOf(req),
     uploaded_by: req.user?.uid,
     ...req.body,
   }),
@@ -239,6 +242,7 @@ router.post('/documents', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/correspondence', requireStaffOrAdmin, wrap(async (req) =>
   claims.logCorrespondence({
+    tenantId: tenantOf(req),
     recorded_by: req.user?.uid,
     ...req.body,
   }),

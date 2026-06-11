@@ -24,6 +24,35 @@ const STATUS_TRANSITIONS = {
 const VALID_PLACES = ['inpatient', 'emergency', 'icu', 'or', 'home_brought_dead', 'transferred_out_dead'];
 const VALID_MANNERS = ['natural', 'accident', 'suicide', 'homicide', 'pending', 'undetermined'];
 
+async function assertPatientInTenant(tenantId, patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantOr(tenantId),
+    String(patientUid),
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+}
+
+async function assertAdmissionInTenant(tenantId, admissionId, patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid
+       FROM admissions
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    tenantOr(tenantId),
+    parseInt(admissionId, 10),
+  );
+  const admission = unwrap(rows);
+  if (!admission) throw AppError.notFound('Admission not found');
+  if (String(admission.patient_uid) !== String(patientUid)) {
+    throw AppError.forbidden('Admission belongs to a different patient');
+  }
+  return admission;
+}
+
 async function nextSerial(tenantId, year) {
   const sql = `
     INSERT INTO mccd_serial_counter (tenant_id, next_serial)
@@ -60,6 +89,10 @@ export async function createDeathRecord({ tenantId, ...body }) {
   if (!body.date_of_death) throw AppError.badRequest('date_of_death required');
   if (!body.time_of_death) throw AppError.badRequest('time_of_death required');
   if (!body.cause_part_1a) throw AppError.badRequest('cause_part_1a required (immediate cause)');
+  await assertPatientInTenant(tenantId, body.patient_uid);
+  if (body.admission_id) {
+    await assertAdmissionInTenant(tenantId, body.admission_id, body.patient_uid);
+  }
 
   const place = body.place_of_death || 'inpatient';
   if (!VALID_PLACES.includes(place)) {
@@ -141,8 +174,10 @@ export async function getDeathRecord({ tenantId, id }) {
   if (!rec) throw AppError.notFound('Death record not found');
 
   const reviewRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM mortality_reviews WHERE death_record_id = $1 ORDER BY review_date DESC`,
-    rec.id);
+    `SELECT * FROM mortality_reviews
+      WHERE death_record_id = $1 AND tenant_id = $2::uuid
+      ORDER BY review_date DESC`,
+    rec.id, tenantOr(tenantId));
   return { ...rec, reviews: reviewRows };
 }
 
@@ -276,8 +311,9 @@ export async function upsertReview({ tenantId, death_record_id, ...body }) {
 
   // Update existing or insert.
   const existingRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM mortality_reviews WHERE death_record_id = $1`,
-    parseInt(death_record_id, 10));
+    `SELECT id FROM mortality_reviews
+      WHERE death_record_id = $1 AND tenant_id = $2::uuid`,
+    parseInt(death_record_id, 10), tenantOr(tenantId));
   const existing = unwrap(existingRows);
 
   if (existing) {
@@ -304,7 +340,7 @@ export async function upsertReview({ tenantId, death_record_id, ...body }) {
           presented_by_name   = $19,
           status              = COALESCE($20, status),
           updated_at = NOW()
-      WHERE id = $21
+      WHERE id = $21 AND tenant_id = $22::uuid
       RETURNING *`;
     const rows = await prisma.$queryRawUnsafe(sql,
       body.review_date || null, body.scheduled_for || null,
@@ -318,7 +354,7 @@ export async function upsertReview({ tenantId, death_record_id, ...body }) {
       body.action_items || null,
       body.presented_by || null, body.presented_by_name || null,
       body.status || null,
-      existing.id);
+      existing.id, tenantOr(tenantId));
     return unwrap(rows);
   }
 

@@ -21,6 +21,11 @@ export const WARD_PACK_SCOPE = 'ward_pack';
 const MAR_WINDOW_HOURS = 12;
 const PACK_EXPIRY_HOURS = 24;
 const ACTIVE_ADMISSION_STATUSES = ['admitted', 'transferred', 'discharge_pending'];
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+function tenantOr(value) {
+  return value || DEFAULT_TENANT_ID;
+}
 
 function esc(value) {
   return String(value ?? '')
@@ -100,7 +105,8 @@ ${beds || '<p>No occupied beds at generation time.</p>'}
 </body></html>`;
 }
 
-async function collectBedEntry(bed) {
+async function collectBedEntry(bed, { tenantId } = {}) {
+  const tid = tenantOr(tenantId);
   const patientUid = bed.patient_uid || null;
 
   const [patientRows, marRows, orderRows, vitalsRows] = await Promise.all([
@@ -114,12 +120,14 @@ async function collectBedEntry(bed) {
            LEFT JOIN LATERAL (
              SELECT * FROM admissions a2
               WHERE a2.patient_uid = u.uid
-                AND COALESCE(a2.status, 'admitted') = ANY($2::text[])
+                AND a2.tenant_id = $2::uuid
+                AND COALESCE(a2.status, 'admitted') = ANY($3::text[])
               ORDER BY a2.created_at DESC LIMIT 1
            ) a ON TRUE
-           LEFT JOIN users att ON att.uid = a.attending_doctor
-          WHERE u.uid = $1::uuid`,
-        patientUid, ACTIVE_ADMISSION_STATUSES,
+           LEFT JOIN users att ON att.uid = a.attending_doctor AND att.tenant_id = $2::uuid
+          WHERE u.uid = $1::uuid
+            AND u.tenant_id = $2::uuid`,
+        patientUid, tid, ACTIVE_ADMISSION_STATUSES,
       )
       : Promise.resolve([]),
     patientUid
@@ -127,12 +135,13 @@ async function collectBedEntry(bed) {
         `SELECT medication_name, dose, dosage, route, scheduled_time, status
            FROM medication_administrations
           WHERE patient_uid = $1::uuid
+            AND tenant_id = $2::uuid
             AND COALESCE(status, 'scheduled') IN ('scheduled', 'due', 'held')
             AND scheduled_time BETWEEN NOW() - INTERVAL '1 hour'
                                    AND NOW() + INTERVAL '${MAR_WINDOW_HOURS} hours'
           ORDER BY scheduled_time ASC
           LIMIT 60`,
-        patientUid,
+        patientUid, tid,
       )
       : Promise.resolve([]),
     patientUid
@@ -142,10 +151,11 @@ async function collectBedEntry(bed) {
                          details->>'test_name', order_number) AS summary
            FROM clinical_orders
           WHERE patient_uid = $1::uuid
+            AND tenant_id = $2::uuid
             AND COALESCE(status, 'ordered') IN ('ordered', 'verified', 'in_progress', 'active')
           ORDER BY created_at DESC
           LIMIT 40`,
-        patientUid,
+        patientUid, tid,
       )
       : Promise.resolve([]),
     patientUid
@@ -155,12 +165,14 @@ async function collectBedEntry(bed) {
                 temperature, recorded_at,
                 (SELECT n.total_score FROM news2_scores n
                   WHERE n.patient_uid = vc.patient_uid
+                    AND n.tenant_id = vc.tenant_id
                   ORDER BY n.created_at DESC LIMIT 1) AS news2
            FROM vitals_chart vc
           WHERE vc.patient_uid = $1::uuid
+            AND vc.tenant_id = $2::uuid
           ORDER BY vc.recorded_at DESC NULLS LAST
           LIMIT 1`,
-        patientUid,
+        patientUid, tid,
       )
       : Promise.resolve([]),
   ]);
@@ -192,11 +204,12 @@ async function collectBedEntry(bed) {
  * occupied beds. Returns summaries of the packs written. Per-ward failures
  * are logged and skipped — generation never throws.
  */
-export async function generateWardDowntimePacks({ generatedBy = null } = {}) {
+export async function generateWardDowntimePacks({ tenantId, generatedBy = null } = {}) {
+  const tid = tenantOr(tenantId);
   let wards;
   try {
     wards = await prisma.$queryRawUnsafe(
-      `SELECT w.id, w.name,
+      `SELECT w.id, w.name, b.tenant_id,
               COALESCE(json_agg(json_build_object(
                 'bed_number', b.bed_number,
                 'patient_uid', b.patient_uid,
@@ -206,8 +219,10 @@ export async function generateWardDowntimePacks({ generatedBy = null } = {}) {
          JOIN beds b ON b.ward_id = w.id
         WHERE LOWER(COALESCE(b.status, '')) = 'occupied'
           AND b.patient_uid IS NOT NULL
-        GROUP BY w.id, w.name
+          AND b.tenant_id = $1::uuid
+        GROUP BY w.id, w.name, b.tenant_id
         ORDER BY w.id`,
+      tid,
     );
   } catch (err) {
     logger.error('Ward downtime pack sweep failed at census query', { error: err.message });
@@ -221,10 +236,11 @@ export async function generateWardDowntimePacks({ generatedBy = null } = {}) {
       const beds = [];
       for (const bed of bedsRaw) {
         // Sequential on purpose: bounded load on the primary during the sweep.
-        beds.push(await collectBedEntry(bed));
+        beds.push(await collectBedEntry(bed, { tenantId: tid }));
       }
       const pack = {
         scope: WARD_PACK_SCOPE,
+        tenant_id: tid,
         ward_id: ward.id,
         ward_name: ward.name,
         generated_at: new Date().toISOString(),
@@ -238,6 +254,7 @@ export async function generateWardDowntimePacks({ generatedBy = null } = {}) {
           ward_id: ward.id,
           label: `Ward pack — ${ward.name}`,
           scope: WARD_PACK_SCOPE,
+          tenant_id: tid,
           generated_by: generatedBy,
           payload: pack,
           expires_at: new Date(Date.now() + PACK_EXPIRY_HOURS * 3600 * 1000),
@@ -258,8 +275,9 @@ export async function generateWardDowntimePacks({ generatedBy = null } = {}) {
   try {
     await prisma.$executeRawUnsafe(
       `DELETE FROM downtime_snapshots
-        WHERE scope = $1 AND expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '24 hours'`,
-      WARD_PACK_SCOPE,
+        WHERE scope = $1 AND tenant_id = $2::uuid
+          AND expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '24 hours'`,
+      WARD_PACK_SCOPE, tid,
     );
   } catch (err) {
     logger.warn('Ward downtime pack retention sweep failed', { error: err.message });
@@ -272,27 +290,27 @@ export async function generateWardDowntimePacks({ generatedBy = null } = {}) {
 }
 
 /** Latest pack metadata for every ward that has one. */
-export async function listLatestWardPacks() {
+export async function listLatestWardPacks({ tenantId } = {}) {
   return prisma.$queryRawUnsafe(
     `SELECT DISTINCT ON (ward_id)
             id AS snapshot_id, ward_id, label, created_at, expires_at,
             jsonb_array_length(COALESCE(payload->'beds', '[]'::jsonb)) AS bed_count
        FROM downtime_snapshots
-      WHERE scope = $1 AND ward_id IS NOT NULL
+      WHERE scope = $1 AND tenant_id = $2::uuid AND ward_id IS NOT NULL
       ORDER BY ward_id, created_at DESC`,
-    WARD_PACK_SCOPE,
+    WARD_PACK_SCOPE, tenantOr(tenantId),
   );
 }
 
 /** Latest pack (full payload) for one ward, or null. */
-export async function getLatestWardPack(wardId) {
+export async function getLatestWardPack(wardId, { tenantId } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id AS snapshot_id, ward_id, label, payload, created_at, expires_at
        FROM downtime_snapshots
-      WHERE scope = $1 AND ward_id = $2::int
+      WHERE scope = $1 AND tenant_id = $2::uuid AND ward_id = $3::int
       ORDER BY created_at DESC
       LIMIT 1`,
-    WARD_PACK_SCOPE, wardId,
+    WARD_PACK_SCOPE, tenantOr(tenantId), wardId,
   );
   return rows[0] || null;
 }

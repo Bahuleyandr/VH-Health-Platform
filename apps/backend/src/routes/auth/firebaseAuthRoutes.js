@@ -7,7 +7,10 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as firebaseAuthController from '../../controllers/auth/firebaseAuthController.js';
+import jwtAuth, { enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import {
   firebaseLoginValidator,
   userProfileValidator,
@@ -28,6 +31,43 @@ const handleValidation = (req, res, next) => {
     });
   }
   next();
+};
+
+const requireAuthenticatedPhoneBinding = (req, res, next) => {
+  const tokenPhone = normalizePhone(req.user?.phone);
+  const requestedPhone = normalizePhone(req.body?.phone);
+
+  if (!tokenPhone || !requestedPhone || tokenPhone !== requestedPhone) {
+    return res.status(HTTP_STATUS.FORBIDDEN).json({
+      success: false,
+      error: 'Authenticated user does not match requested phone',
+      code: 'FIREBASE_PHONE_MISMATCH'
+    });
+  }
+
+  req.body.phone = tokenPhone;
+  return next();
+};
+
+const requireFirebaseSelfServiceAuth = [
+  jwtAuth,
+  enforceFullScope,
+  requireAuthenticatedPhoneBinding
+];
+
+const requireLegacyFirebaseRegisterAllowed = (_req, res, next) => {
+  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  const explicitlyEnabled = String(process.env.ENABLE_LEGACY_FIREBASE_REGISTER || '').toLowerCase() === 'true';
+
+  if (isProduction || !explicitlyEnabled) {
+    return res.status(HTTP_STATUS.FORBIDDEN).json({
+      success: false,
+      error: 'Legacy Firebase registration is disabled. Use Firebase ID-token login.',
+      code: 'FIREBASE_LEGACY_REGISTER_DISABLED'
+    });
+  }
+
+  return next();
 };
 
 // Public Firebase Authentication Routes
@@ -62,6 +102,7 @@ wrapRoutesWithValidation(
       // Legacy registration route (backward compatibility)
       [
         '/register',
+        requireLegacyFirebaseRegisterAllowed,
         ...userRegistrationValidator,
         handleValidation,
         firebaseAuthController.registerUser
@@ -70,8 +111,11 @@ wrapRoutesWithValidation(
       // Complete User Profile
       [
         '/complete-profile',
+        jwtAuth,
+        enforceFullScope,
         ...userProfileValidator,
         handleValidation,
+        requireAuthenticatedPhoneBinding,
         firebaseAuthController.completeProfile
       ],
       
@@ -86,12 +130,16 @@ wrapRoutesWithValidation(
       // Update FCM Token
       [
         '/update-fcm-token',
+        ...requireFirebaseSelfServiceAuth,
         firebaseAuthController.updateFcmToken
       ],
       
       // Revoke Firebase Session
       [
         '/revoke-session',
+        jwtAuth,
+        enforceFullScope,
+        requireRole('ADMIN'),
         firebaseAuthController.revokeSession
       ]
     ]

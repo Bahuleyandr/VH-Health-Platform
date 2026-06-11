@@ -4,8 +4,9 @@ Streamable-HTTP MCP server exposing **three read-only purpose-built diagnostic
 tools** backed by hard-coded SQL against the VH-Health Postgres. Not a generic
 Postgres MCP — there is no `query` tool and no SQL injection surface.
 
-Deployed on Dalekdefender k3s; reachable from Anthropic's cloud routines via
-Tailscale Funnel.
+Deployed on Dalekdefender k3s. The Kubernetes Service is ClusterIP with
+default-deny pod ingress; expose it only through an API-server port-forward
+or equivalent operator-controlled tunnel.
 
 ## Tools
 
@@ -25,26 +26,47 @@ ssh dalekdefender 'cd ~/VH-Health-Platform/infra/mcp/vh-mcp-postgres && \
   sudo -n docker build -t vh-mcp-postgres:dev . && \
   sudo -n docker save vh-mcp-postgres:dev | sudo -n k3s ctr images import -'
 
-# 2. Create the Secret with bearer token + DATABASE_URL.
+# 2. Create a dedicated read-only login role. The server refuses superuser or
+#    BYPASSRLS roles at startup in production.
+READONLY_PASSWORD="$(openssl rand -base64 32 | tr -d '\n')"
+ssh dalekdefender "sudo -n kubectl -n vhhealth exec deploy/vhhealth-backend -- \
+  psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 <<SQL
+DO \\\$\\\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'vhhealth_mcp_reader') THEN
+    CREATE ROLE vhhealth_mcp_reader LOGIN PASSWORD '${READONLY_PASSWORD}';
+  ELSE
+    ALTER ROLE vhhealth_mcp_reader PASSWORD '${READONLY_PASSWORD}';
+  END IF;
+END \\\$\\\$;
+ALTER ROLE vhhealth_mcp_reader NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+GRANT CONNECT ON DATABASE vhhealth TO vhhealth_mcp_reader;
+GRANT USAGE ON SCHEMA public TO vhhealth_mcp_reader;
+GRANT SELECT ON users, medical_records, audit_log TO vhhealth_mcp_reader;
+SQL"
+
+# 3. Create the Secret with bearer token + read-only DATABASE_URL.
 #    Re-run with --dry-run -o yaml | kubectl apply to rotate.
 TOKEN="$(openssl rand -base64 32 | tr -d '=/+\\n' | head -c 48)"
-PG_PASSWORD="$(ssh dalekdefender 'sudo -n kubectl -n vhhealth get secret vhhealth-postgres -o jsonpath={.data.password} | base64 -d')"
 ssh dalekdefender "sudo -n kubectl -n vhhealth create secret generic vh-mcp-postgres \
   --from-literal=bearer_token='${TOKEN}' \
-  --from-literal=database_url='postgresql://vhhealth:${PG_PASSWORD}@vhhealth-postgres:5432/vhhealth' \
+  --from-literal=database_url='postgresql://vhhealth_mcp_reader:${READONLY_PASSWORD}@vhhealth-postgres:5432/vhhealth' \
   --dry-run=client -o yaml | sudo -n kubectl apply -f -"
 
-# 3. Apply the Deployment + Service
+# 4. Apply the Deployment + Service
 ssh dalekdefender 'sudo -n kubectl -n vhhealth apply -f ~/VH-Health-Platform/infra/mcp/vh-mcp-postgres/k8s.yaml'
 
-# 4. Wait for readiness
+# 5. Wait for readiness
 ssh dalekdefender 'sudo -n kubectl -n vhhealth rollout status deploy/vh-mcp-postgres --timeout=60s'
 
-# 5. Funnel to public internet on port 10000 (Tailscale-allowed Funnel port)
-ssh dalekdefender 'sudo -n tailscale funnel --bg --https=10000 http://localhost:30092'
+# 6. Expose through an operator-controlled API-server port-forward, then point
+#    Tailscale Funnel at the local forwarded port.
+ssh dalekdefender 'sudo -n kubectl -n vhhealth port-forward svc/vh-mcp-postgres 10000:8080'
+# In a separate managed service/session on the host:
+ssh dalekdefender 'sudo -n tailscale funnel --bg --https=10000 http://localhost:10000'
 ```
 
-Public URL after step 5:
+Public URL after step 6:
 ```
 https://dalekdefender.hippocampus-monitor.ts.net:10000/mcp
 ```
@@ -52,10 +74,10 @@ https://dalekdefender.hippocampus-monitor.ts.net:10000/mcp
 ## Test
 
 ```bash
-# Health (no auth)
+# Health (no auth; readiness only)
 curl https://dalekdefender.hippocampus-monitor.ts.net:10000/health
 
-# MCP initialize (with auth)
+# MCP initialize (Authorization header required; query-string tokens are rejected)
 curl -X POST https://dalekdefender.hippocampus-monitor.ts.net:10000/mcp \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
@@ -97,9 +119,10 @@ ssh dalekdefender 'sudo -n tailscale funnel --https=10000 off && \
 - Three hard-coded queries — no general SELECT, no parameterised user input
   reaches the DB beyond ints (days / limit) for `error_patterns`.
 - Bearer token is the only auth. Tailscale Funnel terminates TLS with a public
-  cert; the bearer token is the gate.
-- The DB user used by `DATABASE_URL` should ideally be a SELECT-only role on
-  `users`, `medical_records`, `audit_log`. Current setup uses the default
-  `vhhealth` superuser; harden by creating a dedicated `mcp_reader` role.
+  cert; the bearer token is the gate. Tokens in `?token=` are intentionally not
+  accepted because proxy/Funnel/request logs can retain URLs.
+- The DB user used by `DATABASE_URL` must be a SELECT-only role on
+  `users`, `medical_records`, `audit_log`. The server exits in production if
+  the role is superuser or has BYPASSRLS.
 - This server runs on the Dalekdefender **dev/test** rig — the data is
   test fixtures, not production PHI. Re-evaluate before pointing at prod.

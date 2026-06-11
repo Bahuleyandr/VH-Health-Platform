@@ -20,6 +20,7 @@
     "check:clinical-ai-external-regions": "node scripts/check-clinical-ai-external-region-guards.mjs",
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "secrets:scan": "node ../../scripts/scan-secrets.mjs",
+    "security:audit-secret-encryption": "node src/scripts/security/audit-secret-encryption.js",
     "test:db:setup": "node scripts/ensure-test-db.mjs",
     "db:ensure-pgvector": "node scripts/ensure-pgvector-extension.mjs",
     "seed:test-data": "node scripts/seed-comprehensive-test-data.mjs",

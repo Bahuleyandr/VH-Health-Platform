@@ -329,7 +329,7 @@ export const createInvestigationOrder = async (orderData) => {
   };
 };
 
-export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy }) => {
+export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy, tenantId = null }) => {
   const now = new Date();
 
   // Resolve patient by phone so legacy investigation rows still get
@@ -343,7 +343,11 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
   let patientUid = null;
   if (phone) {
     const patient = await prisma.users.findFirst({
-      where: { phone },
+      where: {
+        phone,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        role: 'PATIENT',
+      },
       select: { id: true, uid: true },
       orderBy: { id: 'asc' },
     });
@@ -362,6 +366,7 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
       file_key: file_key ?? null,
       status: 'REQUESTED',
       requested_by: createdBy ?? null,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
       updated_at: now,
     },
     select: {

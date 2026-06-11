@@ -52,6 +52,7 @@ router.post('/diagnosis', guardDiagnosisWrite, async (req, res, next) => {
       severity: severity || null,
       diagnosed_by: req.user.uid,
       notes: notes || null,
+      tenant_id: req.tenantId,
       codings: Array.isArray(codings) ? codings : [],
     });
 
@@ -95,7 +96,8 @@ router.put('/diagnosis/:id/status', requireDiagnosisStatus, guardDiagnosisResour
       id,
       status,
       resolved_date || null,
-      req.user.uid
+      req.user.uid,
+      { tenantId: req.tenantId }
     );
 
     logPhiAccess({
@@ -122,7 +124,7 @@ router.get('/diagnosis/patient/:uid', guardDiagnosisView, async (req, res, next)
   try {
     const { uid } = req.params;
 
-    const problemList = await diagnosisService.getActiveProblemList(uid);
+    const problemList = await diagnosisService.getActiveProblemList(uid, { tenantId: req.tenantId });
 
     logPhiAccess({
       userId: req.user.uid,
@@ -148,7 +150,7 @@ router.get('/diagnosis/encounter/:encounterId', guardDiagnosisEncounterView, asy
   try {
     const { encounterId } = req.params;
 
-    const diagnoses = await diagnosisService.getEncounterDiagnoses(encounterId);
+    const diagnoses = await diagnosisService.getEncounterDiagnoses(encounterId, { tenantId: req.tenantId });
 
     if (diagnoses.length > 0) {
       logPhiAccess({
@@ -176,7 +178,7 @@ router.get('/diagnosis/patient/:uid/history', guardDiagnosisView, async (req, re
   try {
     const { uid } = req.params;
 
-    const history = await diagnosisService.getPatientDiagnosisHistory(uid);
+    const history = await diagnosisService.getPatientDiagnosisHistory(uid, { tenantId: req.tenantId });
 
     logPhiAccess({
       userId: req.user.uid,

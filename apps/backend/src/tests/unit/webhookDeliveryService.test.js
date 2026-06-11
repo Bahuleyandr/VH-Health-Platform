@@ -50,6 +50,8 @@ beforeEach(() => {
   recordFailureMock.mockReset();
   writeLogMock.mockReset();
   signMock.mockClear();
+  delete process.env.WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS;
+  delete process.env.WEBHOOK_DELIVERY_HOST_ALLOWLIST;
 });
 
 function mockNext(rows) {
@@ -107,9 +109,9 @@ describe('dispatchPendingDeliveries — happy path', () => {
     // 2. Subscription fetch
     mockNext([{
       id: 1, integration_id: 10, tenant_id: TENANT,
-      endpoint_url: 'https://example.com/hook',
+      endpoint_url: 'https://8.8.8.8/hook',
       signing_credential_id: 5, signing_algorithm: 'hmac-sha256',
-      ciphertext: 'whsec_abc',
+      credential_id: 5, ciphertext: 'whsec_abc',
     }]);
     // 3. markStatus — UPDATE webhook_deliveries (success)
     mockNext([]);
@@ -122,7 +124,7 @@ describe('dispatchPendingDeliveries — happy path', () => {
     expect(result).toEqual({ dispatched: 1, succeeded: 1, failed: 0, dead: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://example.com/hook');
+    expect(url).toBe('https://8.8.8.8/hook');
     expect(init.method).toBe('POST');
     expect(init.headers['X-VHHealth-Signature']).toBe('t=1,sig=abc,algo=hmac-sha256');
     expect(init.headers['X-VHHealth-Event-Type']).toBe('patient.admitted');
@@ -147,9 +149,9 @@ describe('dispatchPendingDeliveries — failure paths', () => {
     }]);
     mockNext([{
       id: 1, integration_id: 10, tenant_id: TENANT,
-      endpoint_url: 'https://example.com/hook',
+      endpoint_url: 'https://8.8.8.8/hook',
       signing_credential_id: 5, signing_algorithm: signingAlgorithm,
-      ciphertext: 'whsec_abc',
+      credential_id: 5, ciphertext: 'whsec_abc',
     }]);
     // markStatus update
     mockNext([]);
@@ -203,6 +205,49 @@ describe('dispatchPendingDeliveries — failure paths', () => {
     const fetchMock = jest.fn(async () => ({ status: 200, text: async () => 'ok' }));
     await dispatchPendingDeliveries({ fetchImpl: fetchMock });
     expect(signMock).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch loopback endpoints even when a poisoned row is claimed', async () => {
+    mockNext([{
+      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: null,
+      event_type: 'patient.admitted', payload: { x: 1 }, attempt_number: 1,
+      request_id: 'req-1',
+    }]);
+    mockNext([{
+      id: 1, integration_id: 10, tenant_id: TENANT,
+      endpoint_url: 'http://127.0.0.1/hook',
+      signing_credential_id: 5, signing_algorithm: 'hmac-sha256',
+      credential_id: 5, ciphertext: 'whsec_abc',
+    }]);
+    mockNext([]);
+    const fetchMock = jest.fn();
+    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.failed).toBe(1);
+    const updateCall = queryUnsafeMock.mock.calls.find((args) =>
+      String(args[0]).includes('UPDATE webhook_deliveries') && args[1] === 'failed',
+    );
+    expect(updateCall?.[4]).toMatch(/private|loopback|link-local|SSRF/i);
+  });
+
+  it('does not fetch when the signing credential is missing or cross-tenant', async () => {
+    mockNext([{
+      id: 100, subscription_id: 1, tenant_id: TENANT, event_outbox_id: null,
+      event_type: 'patient.admitted', payload: { x: 1 }, attempt_number: 1,
+      request_id: 'req-1',
+    }]);
+    mockNext([{
+      id: 1, integration_id: 10, tenant_id: TENANT,
+      endpoint_url: 'https://8.8.8.8/hook',
+      signing_credential_id: 5, signing_algorithm: 'hmac-sha256',
+      credential_id: null, ciphertext: null,
+    }]);
+    mockNext([]);
+    const fetchMock = jest.fn();
+    const result = await dispatchPendingDeliveries({ fetchImpl: fetchMock });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(signMock).not.toHaveBeenCalled();
+    expect(result.failed).toBe(1);
   });
 
   it('marks dead when subscription is missing', async () => {

@@ -11,7 +11,9 @@
 import express from 'express';
 import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { code39Svg } from '../../utils/barcode/code39.js';
 import { getUnifiedActiveAllergies } from '../../services/clinical/allergySourceService.js';
@@ -19,6 +21,9 @@ import { getUnifiedActiveAllergies } from '../../services/clinical/allergySource
 const router = express.Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const guardWristbandView = patientAccessGuard('BCMA', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -26,12 +31,13 @@ function escapeHtml(value) {
   })[ch]);
 }
 
-router.get('/wristband/:patientUid', async (req, res) => {
+router.get('/wristband/:patientUid', guardWristbandView, async (req, res) => {
   try {
     const { patientUid } = req.params;
     if (!UUID_RE.test(patientUid)) {
       return error(res, 'patientUid must be a UUID', HTTP_STATUS.BAD_REQUEST);
     }
+    const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId || null;
     const rows = await prisma.$queryRawUnsafe(
       `SELECT u.id, u.uid, u.name, u.gender, u.blood_group,
               TO_CHAR(u.birthday, 'YYYY-MM-DD') AS birthday,
@@ -41,15 +47,21 @@ router.get('/wristband/:patientUid', async (req, res) => {
                 ORDER BY CASE pi.identifier_type WHEN 'mrn' THEN 0 ELSE 1 END
                 LIMIT 1) AS mrn,
               (SELECT a.ward FROM admissions a
-                WHERE a.patient_uid = u.uid AND a.status IN ('admitted', 'active')
+                WHERE a.patient_uid = u.uid
+                  AND ($2::uuid IS NULL OR a.tenant_id = $2::uuid)
+                  AND a.status IN ('admitted', 'active')
                 ORDER BY a.created_at DESC LIMIT 1) AS ward,
               (SELECT a.bed_number FROM admissions a
-                WHERE a.patient_uid = u.uid AND a.status IN ('admitted', 'active')
+                WHERE a.patient_uid = u.uid
+                  AND ($2::uuid IS NULL OR a.tenant_id = $2::uuid)
+                  AND a.status IN ('admitted', 'active')
                 ORDER BY a.created_at DESC LIMIT 1) AS bed_number
          FROM users u
         WHERE u.uid = $1::uuid
+          AND ($2::uuid IS NULL OR u.tenant_id = $2::uuid)
         LIMIT 1`,
       patientUid,
+      tenantId,
     );
     if (!rows.length) return error(res, 'Patient not found', HTTP_STATUS.NOT_FOUND);
     const patient = rows[0];

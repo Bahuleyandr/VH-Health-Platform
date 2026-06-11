@@ -1843,14 +1843,20 @@ export async function listMyThreads({ tenantId, patient_uid, status, limit = 50 
   );
 }
 
-export async function getThread({ tenantId, patient_uid, thread_id, viewer_kind }) {
-  // Staff can fetch any thread in their tenant; patient only their own.
+export async function getThread({
+  tenantId, patient_uid, thread_id, viewer_kind,
+  viewer_uid = null, can_view_all = false,
+}) {
   const params = [Number(thread_id), tenantId];
   let where = `id = $1::int AND tenant_id = $2::uuid`;
   if (viewer_kind === 'patient') {
     if (!patient_uid) throw AppError.badRequest('patient_uid is required');
     params.push(String(patient_uid));
     where += ` AND patient_uid = $${params.length}::uuid`;
+  } else if (viewer_kind === 'staff' && !can_view_all) {
+    if (!viewer_uid) throw AppError.forbidden('Assigned staff access required');
+    params.push(String(viewer_uid));
+    where += ` AND assigned_staff_uid = $${params.length}::uuid`;
   }
   const threadRows = await prisma.$queryRawUnsafe(
     `SELECT * FROM patient_message_threads WHERE ${where}`,
@@ -1859,8 +1865,10 @@ export async function getThread({ tenantId, patient_uid, thread_id, viewer_kind 
   if (!threadRows.length) throw AppError.notFound('Thread not found');
 
   const messages = await prisma.$queryRawUnsafe(
-    `SELECT * FROM patient_messages WHERE thread_id = $1::int ORDER BY created_at`,
-    threadRows[0].id,
+    `SELECT * FROM patient_messages
+      WHERE thread_id = $1::int AND tenant_id = $2::uuid
+      ORDER BY created_at`,
+    threadRows[0].id, tenantId,
   );
   return { thread: threadRows[0], messages };
 }
@@ -1910,7 +1918,7 @@ export async function startThread({
  */
 export async function appendMessage({
   tenantId, thread_id, sender_kind, sender_uid, sender_name,
-  body, attachments, patient_uid,
+  body, attachments, patient_uid, can_view_all = false,
 }) {
   if (!thread_id) throw AppError.badRequest('thread_id is required');
   if (!body) throw AppError.badRequest('body is required');
@@ -1918,15 +1926,21 @@ export async function appendMessage({
     throw AppError.badRequest('sender_kind must be patient | staff | system');
   }
 
-  // Verify access for patient senders.
+  // Verify access before writing. Patients can write only their own
+  // threads; staff can write only assigned threads unless they are a
+  // messaging manager.
   const owner = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid FROM patient_message_threads
+    `SELECT id, patient_uid, assigned_staff_uid FROM patient_message_threads
       WHERE id = $1::int AND tenant_id = $2::uuid`,
     Number(thread_id), tenantId,
   );
   if (!owner.length) throw AppError.notFound('Thread not found');
   if (sender_kind === 'patient' && String(owner[0].patient_uid) !== String(patient_uid)) {
     throw AppError.forbidden('Not your thread');
+  }
+  if (sender_kind === 'staff' && !can_view_all
+      && String(owner[0].assigned_staff_uid || '').toLowerCase() !== String(sender_uid || '').toLowerCase()) {
+    throw AppError.forbidden('Assigned staff access required');
   }
 
   const msgRows = await prisma.$queryRawUnsafe(
@@ -1951,8 +1965,8 @@ export async function appendMessage({
               staff_unread_count = staff_unread_count + 1,
               status = CASE WHEN status = 'closed' THEN status ELSE 'awaiting_staff' END,
               updated_at = NOW()
-        WHERE id = $1::int`,
-      Number(thread_id),
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
   } else if (sender_kind === 'staff') {
     await prisma.$executeRawUnsafe(
@@ -1961,8 +1975,8 @@ export async function appendMessage({
               patient_unread_count = patient_unread_count + 1,
               status = CASE WHEN status = 'closed' THEN status ELSE 'awaiting_patient' END,
               updated_at = NOW()
-        WHERE id = $1::int`,
-      Number(thread_id),
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
     // Push notify the patient (best-effort, never blocks the reply).
     Promise.resolve()
@@ -1973,8 +1987,9 @@ export async function appendMessage({
         // Fetch the thread subject to give the notification context
         // beyond "New message" — patients triage from the lock screen.
         const t = await prisma.$queryRawUnsafe(
-          `SELECT subject FROM patient_message_threads WHERE id = $1::int`,
-          Number(thread_id),
+          `SELECT subject FROM patient_message_threads
+            WHERE id = $1::int AND tenant_id = $2::uuid`,
+          Number(thread_id), tenantId,
         );
         const subject = t[0]?.subject || 'New message';
         const preview = String(body).slice(0, 120);
@@ -2000,8 +2015,8 @@ export async function appendMessage({
     await prisma.$executeRawUnsafe(
       `UPDATE patient_message_threads
           SET last_message_at = NOW(), last_message_by = 'system', updated_at = NOW()
-        WHERE id = $1::int`,
-      Number(thread_id),
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
   }
   return msgRows[0];
@@ -2009,11 +2024,11 @@ export async function appendMessage({
 
 export async function markThreadRead({
   tenantId, thread_id, reader_kind, patient_uid,
+  reader_uid = null, can_view_all = false,
 }) {
   if (!['patient', 'staff'].includes(reader_kind)) {
     throw AppError.badRequest('reader_kind must be patient | staff');
   }
-  // Verify ownership for patients.
   if (reader_kind === 'patient') {
     const own = await prisma.$queryRawUnsafe(
       `SELECT 1 FROM patient_message_threads
@@ -2021,30 +2036,38 @@ export async function markThreadRead({
       Number(thread_id), tenantId, String(patient_uid),
     );
     if (!own.length) throw AppError.notFound('Thread not found');
+  } else if (!can_view_all) {
+    if (!reader_uid) throw AppError.forbidden('Assigned staff access required');
+    const assigned = await prisma.$queryRawUnsafe(
+      `SELECT 1 FROM patient_message_threads
+        WHERE id = $1::int AND tenant_id = $2::uuid AND assigned_staff_uid = $3::uuid`,
+      Number(thread_id), tenantId, String(reader_uid || ''),
+    );
+    if (!assigned.length) throw AppError.forbidden('Assigned staff access required');
   }
   if (reader_kind === 'patient') {
     await prisma.$executeRawUnsafe(
       `UPDATE patient_messages
           SET read_by_patient_at = COALESCE(read_by_patient_at, NOW())
-        WHERE thread_id = $1::int`,
-      Number(thread_id),
+        WHERE thread_id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
     await prisma.$executeRawUnsafe(
       `UPDATE patient_message_threads SET patient_unread_count = 0, updated_at = NOW()
-        WHERE id = $1::int`,
-      Number(thread_id),
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
   } else {
     await prisma.$executeRawUnsafe(
       `UPDATE patient_messages
           SET read_by_staff_at = COALESCE(read_by_staff_at, NOW())
-        WHERE thread_id = $1::int`,
-      Number(thread_id),
+        WHERE thread_id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
     await prisma.$executeRawUnsafe(
       `UPDATE patient_message_threads SET staff_unread_count = 0, updated_at = NOW()
-        WHERE id = $1::int`,
-      Number(thread_id),
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(thread_id), tenantId,
     );
   }
   return { ok: true };
@@ -2054,14 +2077,18 @@ export async function markThreadRead({
 
 export async function listStaffInbox({
   tenantId, status, priority, assigned_staff_uid, limit = 100,
+  viewer_uid = null, can_view_all = false,
 }) {
   const params = [tenantId];
   const conds = [`tenant_id = $1::uuid`];
   if (status) { params.push(status); conds.push(`status = $${params.length}`); }
   if (priority) { params.push(priority); conds.push(`priority = $${params.length}`); }
-  if (assigned_staff_uid) {
-    params.push(String(assigned_staff_uid));
+  const assigneeFilter = can_view_all ? assigned_staff_uid : viewer_uid;
+  if (assigneeFilter) {
+    params.push(String(assigneeFilter));
     conds.push(`assigned_staff_uid = $${params.length}::uuid`);
+  } else if (!can_view_all) {
+    throw AppError.forbidden('Assigned staff access required');
   }
   params.push(Number(limit));
   return prisma.$queryRawUnsafe(

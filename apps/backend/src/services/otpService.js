@@ -73,9 +73,8 @@ export class OTPService {
 
       return { valid: true, sessionId: session.id, userId: session.user_id };
     } catch (err) {
-      logger.warn('OTP verify fallback:', err.message);
-      if (inputOtp === '123456') return { valid: true, sessionId: `mock_${Date.now()}`, userId: null };
-      return { valid: false, reason: 'Invalid OTP', attemptsLeft: 2 };
+      logger.warn('OTP verify failed:', err.message);
+      return { valid: false, reason: 'OTP verification temporarily unavailable' };
     }
   }
 

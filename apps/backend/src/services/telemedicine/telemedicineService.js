@@ -19,6 +19,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -143,6 +144,12 @@ function normalizeTimestamp(value, label) {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) throw AppError.badRequest(`${label} must be a valid timestamp`);
   return date.toISOString();
+}
+
+function encryptOptionalSecret(value) {
+  const text = safeText(value);
+  if (!text) return null;
+  return isEncrypted(text) ? text : encryptField(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -856,11 +863,11 @@ export async function upsertProviderConfig({
          status = EXCLUDED.status,
          metadata = EXCLUDED.metadata,
          updated_at = NOW()
-       RETURNING ${PROVIDER_CONFIG_RETURNING}`,
+      RETURNING ${PROVIDER_CONFIG_RETURNING}`,
       tid, cleanProvider, flagDefault, safeText(displayName, 160),
-      safeText(apiKeyCiphertext),
-      safeText(apiSecretCiphertext),
-      safeText(webhookSecretCiphertext),
+      encryptOptionalSecret(apiKeyCiphertext),
+      encryptOptionalSecret(apiSecretCiphertext),
+      encryptOptionalSecret(webhookSecretCiphertext),
       safeText(endpointBase),
       JSON.stringify(normalizeJsonObject(config, 'config')),
       cleanStatus,

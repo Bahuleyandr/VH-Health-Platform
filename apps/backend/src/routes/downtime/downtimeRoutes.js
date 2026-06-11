@@ -17,10 +17,15 @@ import { isAdmin } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
 
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
+}
+
 // Latest pack metadata per ward.
 router.get('/wards', async (req, res) => {
   try {
-    const packs = await listLatestWardPacks();
+    const packs = await listLatestWardPacks({ tenantId: tenantOf(req) });
     success(res, { packs, count: packs.length }, 'Latest downtime packs per ward');
   } catch (err) {
     logger.error('Downtime pack list failed:', err);
@@ -35,7 +40,7 @@ router.get('/wards/:wardId/latest', async (req, res) => {
     if (!Number.isInteger(wardId) || wardId <= 0) {
       return error(res, 'wardId must be a positive integer', HTTP_STATUS.BAD_REQUEST);
     }
-    const pack = await getLatestWardPack(wardId);
+    const pack = await getLatestWardPack(wardId, { tenantId: tenantOf(req) });
     if (!pack) {
       return error(res, 'No downtime pack generated for this ward yet', HTTP_STATUS.NOT_FOUND);
     }
@@ -59,7 +64,10 @@ router.post('/generate', async (req, res) => {
     if (!isAdmin(req.user?.role)) {
       return error(res, 'Only admins can trigger downtime pack generation', HTTP_STATUS.FORBIDDEN);
     }
-    const results = await generateWardDowntimePacks({ generatedBy: req.user?.uid || null });
+    const results = await generateWardDowntimePacks({
+      tenantId: tenantOf(req),
+      generatedBy: req.user?.uid || null,
+    });
     success(res, { generated: results, count: results.length }, 'Downtime packs regenerated');
   } catch (err) {
     logger.error('Manual downtime pack generation failed:', err);

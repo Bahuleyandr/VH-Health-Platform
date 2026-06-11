@@ -11,16 +11,72 @@ import multer from 'multer';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { isStaff } from '../../utils/roleHelpers.js';
+import { normalizeUploadMimeType } from '../../middleware/uploadMiddleware.js';
 import { getSignedFileUrl, uploadFileToR2 } from '../../utils/r2Storage.js';
 import { error, success } from '../../utils/responseHelper.js';
 
 const SIGNED_URL_TTL_SECONDS = 3600;
+const DOWNLOAD_BLOCKED_STATUS = 423;
+const CLEAN_SCAN_STATUSES = new Set(['clean', 'cleaned', 'passed']);
+const INTERNAL_DOWNLOAD_HEADER = 'x-vh-internal-download';
+const INTERNAL_ADMIN_ROLES = new Set([
+  'ADMIN',
+  'SUPER_ADMIN',
+  'INTEGRATION_ADMIN',
+  'DATA_PROTECTION_OFFICER',
+]);
 
 export const uploadMulter = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 } // 25 MB cap, matches patient PDF limit
 });
+
+function normalizedRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function isInternalAdminRole(role) {
+  return INTERNAL_ADMIN_ROLES.has(normalizedRole(role));
+}
+
+function normalizeScanStatus(status) {
+  return String(status || 'PENDING').trim().toLowerCase();
+}
+
+function isScanClean(status) {
+  return CLEAN_SCAN_STATUSES.has(normalizeScanStatus(status));
+}
+
+function hasExplicitInternalDownloadOverride(req) {
+  if (!isInternalAdminRole(req.user?.role)) return false;
+  const value = String(req.get?.(INTERNAL_DOWNLOAD_HEADER) || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+}
+
+function storageKeyIsBoundToUploader(meta) {
+  if (!meta?.storage_key || !meta?.uploaded_by) return false;
+  return String(meta.storage_key).startsWith(`uploads/${meta.uploaded_by}/`);
+}
+
+function canAccessGenericUpload(req, meta) {
+  if (isInternalAdminRole(req.user?.role)) return true;
+  const callerUid = req.user?.uid;
+  const ownerMatches = !!callerUid && !!meta.uploaded_by
+    && String(meta.uploaded_by) === String(callerUid);
+  return ownerMatches && storageKeyIsBoundToUploader(meta);
+}
+
+function denyUntilCleanScan(res, meta) {
+  return error(
+    res,
+    'File is not available until its security scan passes',
+    DOWNLOAD_BLOCKED_STATUS,
+    {
+      scan_status: meta.scan_status || 'PENDING',
+      file_name: meta.file_name,
+    },
+  );
+}
 
 // GET /api/v1/upload/by-key/*
 // Wildcard captures storage keys that may contain `/` (e.g. `uploads/<uid>/123_x.pdf`).
@@ -48,22 +104,16 @@ export const getFileByKey = async (req, res) => {
 
     const meta = rows[0];
 
-    // Quarantined → patient app shows a localized "fileQuarantined" snackbar.
-    if (meta.scan_status === 'QUARANTINED') {
-      return success(res, { quarantined: true, file_name: meta.file_name }, 'File is quarantined');
-    }
-
     if (!meta.is_active) {
       return error(res, 'File no longer available', 410);
     }
 
-    const callerUid = req.user?.uid;
-    const callerRole = req.user?.role;
-    const ownerMatches = !!callerUid && !!meta.uploaded_by
-      && String(meta.uploaded_by) === String(callerUid);
-    const staffBypass = isStaff(callerRole);
-    if (!ownerMatches && !staffBypass) {
+    if (!canAccessGenericUpload(req, meta)) {
       return error(res, 'Not authorized to access this file', HTTP_STATUS.FORBIDDEN);
+    }
+
+    if (!isScanClean(meta.scan_status) && !hasExplicitInternalDownloadOverride(req)) {
+      return denyUntilCleanScan(res, meta);
     }
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -105,7 +155,7 @@ export const uploadFile = async (req, res) => {
     const safeName = (originalName.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '_').slice(0, 200))
       || `file.${ext}`;
     const storageKey = `uploads/${callerUid}/${ts}_${safeName}`;
-    const contentType = req.file.mimetype || 'application/octet-stream';
+    const contentType = normalizeUploadMimeType(req.file) || 'application/octet-stream';
 
     let storageUrl;
     try {
@@ -126,10 +176,12 @@ export const uploadFile = async (req, res) => {
 
     return success(res, {
       storageKey,
-      storage_url: storageUrl,
+      storage_url: null,
       file_name: safeName,
       file_type: contentType,
-      file_size: req.file.size
+      file_size: req.file.size,
+      scan_status: 'PENDING',
+      download_available: false
     }, 'File uploaded');
   } catch (e) {
     logger.error('uploadFile error:', e);

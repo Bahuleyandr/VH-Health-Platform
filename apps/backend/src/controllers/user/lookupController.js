@@ -4,10 +4,24 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { LookupService } from '../../services/user/lookupService.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+}
+
+function safeSearchCriteria({ phone, uid, name, email }) {
+  return {
+    phone: Boolean(phone),
+    uid: Boolean(uid),
+    name: Boolean(name),
+    email: Boolean(email),
+  };
+}
 
 export class LookupController {
   // Basic user lookup (legacy - used by /legacy route)
@@ -184,6 +198,7 @@ export class LookupController {
       const { phone, uid, name, email } = req.query;
       const userRole = req.user?.role?.toUpperCase();
       const requestedBy = req.user?.uid;
+      const tenantId = tenantOf(req);
       const listQuery = parseListQuery(req.query, {
         defaultLimit: 10,
         maxLimit: userRole === 'ADMIN' ? 50 : 20,
@@ -209,46 +224,51 @@ export class LookupController {
       }
 
       // Build query with role-based field selection
-      let baseFields = 'uid, phone, name, registered_at, role';
+      let baseFields = 'u.uid, u.phone, u.name, u.registered_at, u.role';
 
       // Admin gets full access, others get limited fields
       if (userRole === 'ADMIN') {
-        baseFields = 'uid, phone, name, email, role, registered_at, last_login, profile_picture, address, birthday, anniversary';
+        baseFields = 'u.uid, u.phone, u.name, u.email, u.role, u.registered_at, u.last_sign_in_at AS last_login, u.profile_picture, u.address, u.birthday, u.anniversary';
       } else if (['DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
-        baseFields = 'uid, phone, name, email, role, registered_at';
+        baseFields = 'u.uid, u.phone, u.name, u.email, u.role, u.registered_at';
       }
 
-      let query = `SELECT ${baseFields} FROM users WHERE `;
-      const params = [];
+      let query = `SELECT ${baseFields} FROM users u WHERE u.tenant_id = $1::uuid AND (`;
+      const params = [tenantId];
       const conditions = [];
 
       if (phone) {
-        conditions.push(`phone = $${params.length + 1}`);
+        conditions.push(`u.phone = $${params.length + 1}`);
         params.push(normalizePhone(phone));
       }
 
       if (uid) {
-        conditions.push(`uid = $${params.length + 1}`);
+        conditions.push(`u.uid = $${params.length + 1}::uuid`);
         params.push(uid);
       }
 
       if (name) {
-        conditions.push(`LOWER(name) LIKE $${params.length + 1}`);
+        conditions.push(`LOWER(u.name) LIKE $${params.length + 1}`);
         params.push(`%${name.toLowerCase()}%`);
       }
 
       if (email && ['ADMIN', 'DOCTOR'].includes(userRole)) {
-        conditions.push(`LOWER(email) LIKE $${params.length + 1}`);
+        conditions.push(`LOWER(u.email) LIKE $${params.length + 1}`);
         params.push(`%${email.toLowerCase()}%`);
       }
 
-      // Non-admin users cannot search for admin accounts
-      if (userRole !== 'ADMIN') {
-        conditions.push(`role != 'ADMIN'`);
+      if (conditions.length === 0) {
+        return error(res, 'No searchable criteria are available for your access level', HTTP_STATUS.BAD_REQUEST);
       }
 
-      query += conditions.join(' OR ');
-      query += ` ORDER BY registered_at DESC LIMIT $${params.length + 1}`;
+      query += `${conditions.join(' OR ')})`;
+
+      // Non-admin users cannot search for admin accounts
+      if (userRole !== 'ADMIN') {
+        query += ` AND u.role NOT IN ('ADMIN', 'SUPER_ADMIN')`;
+      }
+
+      query += ` ORDER BY u.registered_at DESC LIMIT $${params.length + 1}`;
       params.push(listQuery.limit);
 
       const result = await prisma.$queryRawUnsafe(query, ...params);
@@ -280,7 +300,7 @@ export class LookupController {
         return success(res, {
           users: [],
           totalFound: 0,
-          searchCriteria: { phone, uid, name, email },
+          searchCriteria: safeSearchCriteria({ phone, uid, name, email }),
           accessLevel: userRole,
           requestedBy
         }, 'No matching users found');
@@ -289,7 +309,7 @@ export class LookupController {
       success(res, {
         users: filteredResults,
         totalFound: filteredResults.length,
-        searchCriteria: { phone, uid, name, email },
+        searchCriteria: safeSearchCriteria({ phone, uid, name, email }),
         accessLevel: userRole,
         requestedBy,
         privacyNote: userRole !== 'ADMIN' ? 'Results filtered based on your access level' : null
@@ -416,6 +436,7 @@ export class LookupController {
     try {
       const userRole = req.user?.role?.toUpperCase();
       const requestedBy = req.user?.uid;
+      const tenantId = tenantOf(req);
 
       if (!['ADMIN', 'DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
         return error(res, 'Access denied: Statistics require medical staff privileges', HTTP_STATUS.FORBIDDEN);
@@ -428,20 +449,22 @@ export class LookupController {
         SELECT
           COUNT(*) as total_users,
           COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '30 days') as new_users_30d,
-          COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days') as active_users_7d,
-          COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '30 days') as active_users_30d,
+          COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days') as active_users_7d,
+          COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '30 days') as active_users_30d,
           COUNT(DISTINCT role) as unique_roles,
           MIN(registered_at) as first_registration,
           MAX(registered_at) as latest_registration
         FROM users
-      `);
+        WHERE tenant_id = $1::uuid
+      `, tenantId);
 
       const roleDistribution = await prisma.$queryRawUnsafe(`
         SELECT role, COUNT(*) as count
         FROM users
+        WHERE tenant_id = $1::uuid
         GROUP BY role
         ORDER BY count DESC
-      `);
+      `, tenantId);
 
       const responseData = {
         overallStats: basicStats[0],
@@ -458,21 +481,23 @@ export class LookupController {
           prisma.$queryRawUnsafe(`
             SELECT DATE(registered_at) as date, COUNT(*) as registrations
             FROM users
-            WHERE registered_at > NOW() - INTERVAL '30 days'
+            WHERE tenant_id = $1::uuid
+              AND registered_at > NOW() - INTERVAL '30 days'
             GROUP BY DATE(registered_at)
             ORDER BY date DESC
-          `),
+          `, tenantId),
 
           // Login activity analysis
           prisma.$queryRawUnsafe(`
             SELECT
-              COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '1 day') as logins_1d,
-              COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days') as logins_7d,
-              COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '30 days') as logins_30d,
-              COUNT(*) FILTER (WHERE last_login IS NULL) as never_logged_in,
-              AVG(EXTRACT(EPOCH FROM (NOW() - last_login))/86400) as avg_days_since_login
+              COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '1 day') as logins_1d,
+              COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days') as logins_7d,
+              COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '30 days') as logins_30d,
+              COUNT(*) FILTER (WHERE last_sign_in_at IS NULL) as never_logged_in,
+              AVG(EXTRACT(EPOCH FROM (NOW() - last_sign_in_at))/86400) as avg_days_since_login
             FROM users
-          `),
+            WHERE tenant_id = $1::uuid
+          `, tenantId),
 
           // Age distribution (for patients)
           prisma.$queryRawUnsafe(`
@@ -487,19 +512,22 @@ export class LookupController {
               END as age_group,
               COUNT(*) as count
             FROM users
-            WHERE role = 'PATIENT' AND birthday IS NOT NULL
+            WHERE tenant_id = $1::uuid
+              AND role = 'PATIENT'
+              AND birthday IS NOT NULL
             GROUP BY age_group
             ORDER BY count DESC
-          `),
+          `, tenantId),
 
           // Department statistics
           prisma.$queryRawUnsafe(`
             SELECT d.department, d.specialty AS specialization, COUNT(u.uid) as staff_count
             FROM doctors d
             LEFT JOIN users u ON d.user_id = u.id
+            WHERE u.tenant_id = $1::uuid
             GROUP BY d.department, d.specialty
             ORDER BY staff_count DESC
-          `)
+          `, tenantId)
         ]);
 
         responseData.detailedStats = {
@@ -526,6 +554,7 @@ export class LookupController {
       const { phone, uid } = req.query;
       const userRole = req.user?.role?.toUpperCase();
       const requestedBy = req.user?.uid;
+      const tenantId = tenantOf(req);
 
       if (!['DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'ADMIN'].includes(userRole)) {
         return error(res, 'Access denied: Staff privileges required', HTTP_STATUS.FORBIDDEN);
@@ -537,11 +566,11 @@ export class LookupController {
 
       let query, params;
       if (uid) {
-        query = 'SELECT uid, phone, name, role, registered_at FROM users WHERE uid = $1';
-        params = [uid];
+        query = 'SELECT uid, phone, name, role, registered_at FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid';
+        params = [uid, tenantId];
       } else {
-        query = 'SELECT uid, phone, name, role, registered_at FROM users WHERE phone = $1';
-        params = [normalizePhone(phone)];
+        query = 'SELECT uid, phone, name, role, registered_at FROM users WHERE phone = $1 AND tenant_id = $2::uuid';
+        params = [normalizePhone(phone), tenantId];
       }
 
       const result = await prisma.$queryRawUnsafe(query, ...params);
@@ -589,6 +618,7 @@ export class LookupController {
     try {
       const userRole = req.user?.role?.toUpperCase();
       const requestedBy = req.user?.uid;
+      const tenantId = tenantOf(req);
 
       if (userRole !== 'ADMIN') {
         return error(res, 'Access denied: Admin privileges required', HTTP_STATUS.FORBIDDEN);
@@ -613,11 +643,14 @@ export class LookupController {
             ELSE 'Long Inactive'
           END as activity_status
         FROM users u
-        WHERE u.registered_at > NOW() - make_interval(days => $2)
-           OR u.last_sign_in_at > NOW() - make_interval(days => $2)
+        WHERE u.tenant_id = $3::uuid
+          AND (
+            u.registered_at > NOW() - make_interval(days => $2)
+            OR u.last_sign_in_at > NOW() - make_interval(days => $2)
+          )
         ORDER BY COALESCE(u.last_sign_in_at, u.registered_at) DESC
         LIMIT $1
-      `, listQuery.limit, parseInt(days));
+      `, listQuery.limit, parseInt(days), tenantId);
 
       await logAudit(req, 'user-activity-report-viewed', { days, recordCount: recentActivity.length });
 
@@ -648,6 +681,7 @@ export class LookupController {
     try {
       const userRole = req.user?.role?.toUpperCase();
       const requestedBy = req.user?.uid;
+      const tenantId = tenantOf(req);
 
       if (userRole !== 'ADMIN') {
         return error(res, 'Access denied: Admin privileges required for bulk operations', HTTP_STATUS.FORBIDDEN);
@@ -662,43 +696,52 @@ export class LookupController {
         allowedSortFields: ['name', 'registered_at', 'last_login', 'role', 'phone']
       });
 
-      let query = `SELECT id, uid, phone, name, email, gender, role, department, specialty,
-        employee_id, is_active, status, registered_at, updated_at, last_login FROM users WHERE 1=1`;
-      const params = [];
+      let query = `SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.role,
+        NULL::text AS department, NULL::text AS specialty, NULL::text AS employee_id,
+        u.is_active, u.status, u.registered_at, u.updated_at, u.last_sign_in_at AS last_login
+        FROM users u
+        WHERE u.tenant_id = $1::uuid`;
+      const params = [tenantId];
 
       // Build dynamic query based on criteria
       if (criteria.role) {
-        query += ` AND role = $${params.length + 1}`;
+        query += ` AND u.role = $${params.length + 1}`;
         params.push(criteria.role.toUpperCase());
       }
 
       if (criteria.registeredAfter) {
-        query += ` AND registered_at >= $${params.length + 1}`;
+        query += ` AND u.registered_at >= $${params.length + 1}`;
         params.push(criteria.registeredAfter);
       }
 
       if (criteria.registeredBefore) {
-        query += ` AND registered_at <= $${params.length + 1}`;
+        query += ` AND u.registered_at <= $${params.length + 1}`;
         params.push(criteria.registeredBefore);
       }
 
       if (criteria.namePattern) {
-        query += ` AND LOWER(name) LIKE $${params.length + 1}`;
+        query += ` AND LOWER(u.name) LIKE $${params.length + 1}`;
         params.push(`%${criteria.namePattern.toLowerCase()}%`);
       }
 
       if (criteria.phonePattern) {
-        query += ` AND phone LIKE $${params.length + 1}`;
+        query += ` AND u.phone LIKE $${params.length + 1}`;
         params.push(`%${criteria.phonePattern}%`);
       }
 
       if (!includeInactive) {
-        query += ` AND last_login > NOW() - INTERVAL '30 days'`;
+        query += ` AND u.last_sign_in_at > NOW() - INTERVAL '30 days'`;
       }
 
       // Apply sorting and limiting
-      const allowedSortFields = ['name', 'registered_at', 'last_login', 'role', 'phone'];
-      const sortField = allowedSortFields.includes(listQuery.sortBy) ? listQuery.sortBy : 'registered_at';
+      const allowedSortFields = {
+        name: 'u.name',
+        registered_at: 'u.registered_at',
+        last_login: 'u.last_sign_in_at',
+        role: 'u.role',
+        phone: 'u.phone',
+      };
+      const sortField = allowedSortFields[listQuery.sortBy] || allowedSortFields.registered_at;
       const order = listQuery.sortOrder;
 
       query += ` ORDER BY ${sortField} ${order} LIMIT $${params.length + 1}`;

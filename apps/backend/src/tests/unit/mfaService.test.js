@@ -97,6 +97,9 @@ describe('enrollTotpDevice', () => {
     expect(result.device.status).toBe('pending');
     expect(result.otpauth_url).toMatch(/^otpauth:\/\/totp\//);
     expect(result.otpauth_url).toContain('secret=');
+    const storedSecret = queryUnsafeMock.mock.calls[0][4];
+    expect(storedSecret).toMatch(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/i);
+    expect(result.otpauth_url).not.toContain(encodeURIComponent(storedSecret));
   });
 
   it('throws conflict when user already has a verified TOTP device', async () => {
@@ -244,6 +247,18 @@ describe('revokeDevice + listMfaDevices', () => {
     queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'revoked' }]);
     const row = await revokeDevice({ tenantId: TENANT, deviceId: 1 });
     expect(row.status).toBe('revoked');
+  });
+
+  it('revokeDevice can self-scope by user_uid to prevent guessed device IDs', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'revoked', user_uid: USER }]);
+    await revokeDevice({ tenantId: TENANT, deviceId: 1, userUid: USER });
+
+    const [sql, ...params] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toContain('id = $1');
+    expect(sql).toContain('tenant_id = $2::uuid');
+    expect(sql).toContain('status <>');
+    expect(sql).toContain('user_uid = $3::uuid');
+    expect(params).toEqual([1, TENANT, USER]);
   });
 
   it('revokeDevice 404 when already revoked', async () => {

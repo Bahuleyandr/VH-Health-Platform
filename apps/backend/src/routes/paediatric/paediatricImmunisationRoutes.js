@@ -66,6 +66,7 @@ router.get('/immunisations/patient/:patientUid/due', requireStaffOrAdmin, wrap(a
 //         manufacturer?, site_of_injection?, adverse_event?, notes? }
 router.post('/immunisations/:id/given', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordDose({
+    tenantId: tenantOf(req),
     immunisationId: req.params.id,
     status: req.body.status || 'given',
     givenAt: req.body.given_at,

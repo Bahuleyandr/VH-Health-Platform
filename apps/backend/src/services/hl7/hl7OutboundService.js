@@ -12,6 +12,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { decryptField, encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
 import { assertSafeFeedUrl } from '../../utils/ssrfGuard.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js';
@@ -19,6 +20,16 @@ import { admissionToADT, dischargeToADT, resultToORU } from './hl7Transformer.js
 export const MAX_DELIVERY_ATTEMPTS = 7;
 const REQUEST_TIMEOUT_MS = 10000;
 const SUPPORTED_TYPES = ['ADT^A01', 'ADT^A03', 'ORM^O01', 'ORU^R01'];
+
+function encryptOptionalSecret(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value);
+  return isEncrypted(text) ? text : encryptField(text);
+}
+
+function decryptOptionalSecret(value) {
+  return value ? decryptField(value) : null;
+}
 
 /** Exponential backoff (minutes), capped at 60. Pure — unit-tested. */
 export function nextAttemptDelayMinutes(attempts) {
@@ -76,7 +87,7 @@ export async function createSubscription({
        is_active = true,
        updated_at = NOW()
      RETURNING id, tenant_id, name, endpoint_url, message_types, is_active, created_at`,
-    tenantId, cleanedName, cleanedUrl, authHeader, types, context.actorUid || null,
+    tenantId, cleanedName, cleanedUrl, encryptOptionalSecret(authHeader), types, context.actorUid || null,
   );
   return rows[0];
 }
@@ -236,7 +247,8 @@ async function deliverOne(message, subscription) {
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const headers = { 'Content-Type': 'x-application/hl7-v2+er7' };
-    if (subscription.auth_header) headers.Authorization = subscription.auth_header;
+    const authHeader = decryptOptionalSecret(subscription.auth_header);
+    if (authHeader) headers.Authorization = authHeader;
     const response = await fetch(subscription.endpoint_url, {
       method: 'POST',
       headers,

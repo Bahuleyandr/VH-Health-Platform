@@ -4,6 +4,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../config/responseCodes.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import * as sosService from '../services/sosService.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { isAdmin } from '../utils/roleHelpers.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
@@ -28,6 +29,51 @@ export const parseNearbyCoordinates = (query = {}) => {
   return { latitude, longitude };
 };
 
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+}
+
+function isAdminRole(role) {
+  return isAdmin(role) || String(role || '').trim().toUpperCase() === 'SUPER_ADMIN';
+}
+
+async function resolveSelfServicePhone(req, requestedPhone) {
+  const normalizedRequested = normalizePhone(requestedPhone || '');
+  if (isAdminRole(req.user?.role) && normalizedRequested) {
+    return normalizedRequested;
+  }
+
+  const tokenPhone = normalizePhone(req.user?.phone || '');
+  if (tokenPhone) {
+    if (normalizedRequested && normalizedRequested !== tokenPhone) {
+      const err = new Error('Can only manage SOS data for yourself');
+      err.statusCode = HTTP_STATUS.FORBIDDEN;
+      throw err;
+    }
+    return tokenPhone;
+  }
+
+  if (!req.user?.uid) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT phone
+       FROM users
+      WHERE uid = $1::uuid AND tenant_id = $2::uuid
+      LIMIT 1`,
+    req.user.uid,
+    tenantOf(req),
+  );
+  const resolvedPhone = normalizePhone(rows[0]?.phone || '');
+  if (normalizedRequested && resolvedPhone && normalizedRequested !== resolvedPhone) {
+    const err = new Error('Can only manage SOS data for yourself');
+    err.statusCode = HTTP_STATUS.FORBIDDEN;
+    throw err;
+  }
+  return resolvedPhone;
+}
+
+const SOS_USER_JOIN = `LEFT JOIN users u ON (u.uid = sa.uid OR u.phone = sa.phone)`;
+const SOS_TENANT_FILTER = `COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $1::uuid`;
+
 // Patient Controllers
 export const createEmergencyAlert = async (req, res) => {
   const errors = validationResult(req);
@@ -36,7 +82,7 @@ export const createEmergencyAlert = async (req, res) => {
   }
 
   try {
-    const phone = normalizePhone(req.body.phone || req.body.phoneNumber || req.user?.phone);
+    const phone = await resolveSelfServicePhone(req, req.body.phone || req.body.phoneNumber);
     if (!phone) {
       return error(res, 'Phone number is required for emergency contact', HTTP_STATUS.BAD_REQUEST);
     }
@@ -56,6 +102,9 @@ export const createEmergencyAlert = async (req, res) => {
     );
 
   } catch (err) {
+    if (err.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
     logger.error('SOS Alert Creation Error:', err.stack || err.toString());
     error(res, 'Failed to process emergency alert. Please call emergency services directly.', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -71,7 +120,7 @@ export const updateEmergencyContact = async (req, res) => {
   }
 
   try {
-    const phone = normalizePhone(req.body.phone || req.body.phoneNumber || req.user?.phone);
+    const phone = await resolveSelfServicePhone(req, req.body.phone || req.body.phoneNumber);
     if (!phone) {
       return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -81,13 +130,16 @@ export const updateEmergencyContact = async (req, res) => {
     success(res, result, 'Emergency contact information updated successfully');
 
   } catch (err) {
+    if (err.statusCode) {
+      return error(res, err.message, err.statusCode);
+    }
     logger.error('Update Emergency Contact Error:', err);
     error(res, 'Failed to update emergency contact information', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 export const getEmergencyContact = async (req, res) => {
   try {
-    const phone = normalizePhone(req.user?.phone);
+    const phone = await resolveSelfServicePhone(req);
     if (!phone) {
       return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -168,16 +220,19 @@ export const getResponderDashboard = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
-    const alerts = await prisma.$queryRaw`
-      SELECT id, phone, latitude, longitude, alert_type, severity, status,
-             message, raised_at, responded_by, responded_at
-      FROM sos_alerts
-      WHERE status IN ('ACTIVE', 'RESPONDING')
+    const alerts = await prisma.$queryRawUnsafe(`
+      SELECT sa.id, sa.phone, sa.latitude, sa.longitude, sa.alert_type,
+             sa.severity, sa.status, sa.message, sa.raised_at,
+             sa.responded_by, sa.responded_at
+      FROM sos_alerts sa
+      ${SOS_USER_JOIN}
+      WHERE ${SOS_TENANT_FILTER}
+        AND sa.status IN ('ACTIVE', 'RESPONDING')
       ORDER BY
-        CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END,
-        raised_at ASC
+        CASE sa.severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 3 ELSE 4 END,
+        sa.raised_at ASC
       LIMIT ${limit} OFFSET ${offset}
-    `;
+    `, tenantOf(req));
     success(res, { alerts }, 'Responder dashboard');
   } catch (err) {
     logger.error('Responder Dashboard Error:', err);
@@ -188,14 +243,16 @@ export const getResponderDashboard = async (req, res) => {
 export const getResponderAnalytics = async (req, res) => {
   try {
     const uid = req.user?.uid;
-    const stats = await prisma.$queryRaw`
+    const stats = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*)::int AS total_responded,
-        AVG(EXTRACT(EPOCH FROM (responded_at - raised_at)))::int AS avg_response_seconds,
-        COUNT(CASE WHEN status = 'RESOLVED' THEN 1 END)::int AS resolved_count
-      FROM sos_alerts
-      WHERE responded_by = ${uid}::uuid
-    `;
+        AVG(EXTRACT(EPOCH FROM (sa.responded_at - sa.raised_at)))::int AS avg_response_seconds,
+        COUNT(CASE WHEN sa.status = 'RESOLVED' THEN 1 END)::int AS resolved_count
+      FROM sos_alerts sa
+      ${SOS_USER_JOIN}
+      WHERE ${SOS_TENANT_FILTER}
+        AND sa.responded_by = $2::uuid
+    `, tenantOf(req), uid);
     success(res, stats[0] || {}, 'Responder analytics');
   } catch (err) {
     logger.error('Responder Analytics Error:', err);
@@ -208,12 +265,17 @@ export const respondToAlert = async (req, res) => {
     const { alertId } = req.params;
     const uid = req.user?.uid;
 
-    const rows = await prisma.$queryRaw`
+    const rows = await prisma.$queryRawUnsafe(`
       UPDATE sos_alerts
-      SET status = 'RESPONDING', responded_by = ${uid}::uuid, responded_at = NOW(), updated_at = NOW()
-      WHERE id = ${parseInt(alertId, 10)} AND status = 'ACTIVE'
+      SET status = 'RESPONDING', responded_by = $1::uuid, responded_at = NOW(), updated_at = NOW()
+      WHERE id = $2::int AND status = 'ACTIVE'
+        AND EXISTS (
+          SELECT 1 FROM users u
+           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
+             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $3::uuid
+        )
       RETURNING id, status, responded_at
-    `;
+    `, uid, parseInt(alertId, 10), tenantOf(req));
     if (rows.length === 0) return error(res, 'Alert not found or already responded', HTTP_STATUS.NOT_FOUND);
     success(res, rows[0], 'Alert marked as responding');
   } catch (err) {
@@ -225,12 +287,17 @@ export const respondToAlert = async (req, res) => {
 export const resolveAlert = async (req, res) => {
   try {
     const { alertId } = req.params;
-    const rows = await prisma.$queryRaw`
+    const rows = await prisma.$queryRawUnsafe(`
       UPDATE sos_alerts
       SET status = 'RESOLVED', resolved_at = NOW(), updated_at = NOW()
-      WHERE id = ${parseInt(alertId, 10)} AND status IN ('ACTIVE', 'RESPONDING')
+      WHERE id = $1::int AND status IN ('ACTIVE', 'RESPONDING')
+        AND EXISTS (
+          SELECT 1 FROM users u
+           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
+             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+        )
       RETURNING id, status, resolved_at
-    `;
+    `, parseInt(alertId, 10), tenantOf(req));
     if (rows.length === 0) return error(res, 'Alert not found or already resolved', HTTP_STATUS.NOT_FOUND);
     success(res, rows[0], 'Alert resolved');
   } catch (err) {
@@ -241,20 +308,22 @@ export const resolveAlert = async (req, res) => {
 
 export const getAdminAnalytics = async (req, res) => {
   try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
+    if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
-    const stats = await prisma.$queryRaw`
+    const stats = await prisma.$queryRawUnsafe(`
       SELECT
         COUNT(*)::int AS total_alerts,
-        COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END)::int AS active,
-        COUNT(CASE WHEN status = 'RESPONDING' THEN 1 END)::int AS responding,
-        COUNT(CASE WHEN status = 'RESOLVED' THEN 1 END)::int AS resolved,
-        COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END)::int AS cancelled,
-        AVG(EXTRACT(EPOCH FROM (responded_at - raised_at)))::int AS avg_response_seconds,
-        COUNT(CASE WHEN severity = 'CRITICAL' THEN 1 END)::int AS critical_count,
-        COUNT(CASE WHEN severity = 'HIGH' THEN 1 END)::int AS high_count
-      FROM sos_alerts
-    `;
+        COUNT(CASE WHEN sa.status = 'ACTIVE' THEN 1 END)::int AS active,
+        COUNT(CASE WHEN sa.status = 'RESPONDING' THEN 1 END)::int AS responding,
+        COUNT(CASE WHEN sa.status = 'RESOLVED' THEN 1 END)::int AS resolved,
+        COUNT(CASE WHEN sa.status = 'CANCELLED' THEN 1 END)::int AS cancelled,
+        AVG(EXTRACT(EPOCH FROM (sa.responded_at - sa.raised_at)))::int AS avg_response_seconds,
+        COUNT(CASE WHEN sa.severity = 'CRITICAL' THEN 1 END)::int AS critical_count,
+        COUNT(CASE WHEN sa.severity = 'HIGH' THEN 1 END)::int AS high_count
+      FROM sos_alerts sa
+      ${SOS_USER_JOIN}
+      WHERE ${SOS_TENANT_FILTER}
+    `, tenantOf(req));
     success(res, stats[0] || {}, 'Admin SOS analytics');
   } catch (err) {
     logger.error('Admin Analytics Error:', err);
@@ -264,7 +333,7 @@ export const getAdminAnalytics = async (req, res) => {
 
 export const getAllAlerts = async (req, res) => {
   try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
+    if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
@@ -272,19 +341,25 @@ export const getAllAlerts = async (req, res) => {
 
     let alerts;
     if (statusFilter) {
-      alerts = await prisma.$queryRaw`
-        SELECT id, phone, latitude, longitude, alert_type, severity, status,
-               message, raised_at, responded_by, responded_at, resolved_at
-        FROM sos_alerts WHERE status = ${statusFilter}
-        ORDER BY raised_at DESC LIMIT ${limit} OFFSET ${offset}
-      `;
+      alerts = await prisma.$queryRawUnsafe(`
+        SELECT sa.id, sa.phone, sa.latitude, sa.longitude, sa.alert_type,
+               sa.severity, sa.status, sa.message, sa.raised_at,
+               sa.responded_by, sa.responded_at, sa.resolved_at
+        FROM sos_alerts sa
+        ${SOS_USER_JOIN}
+        WHERE ${SOS_TENANT_FILTER} AND sa.status = $4
+        ORDER BY sa.raised_at DESC LIMIT $2 OFFSET $3
+      `, tenantOf(req), limit, offset, statusFilter);
     } else {
-      alerts = await prisma.$queryRaw`
-        SELECT id, phone, latitude, longitude, alert_type, severity, status,
-               message, raised_at, responded_by, responded_at, resolved_at
-        FROM sos_alerts
-        ORDER BY raised_at DESC LIMIT ${limit} OFFSET ${offset}
-      `;
+      alerts = await prisma.$queryRawUnsafe(`
+        SELECT sa.id, sa.phone, sa.latitude, sa.longitude, sa.alert_type,
+               sa.severity, sa.status, sa.message, sa.raised_at,
+               sa.responded_by, sa.responded_at, sa.resolved_at
+        FROM sos_alerts sa
+        ${SOS_USER_JOIN}
+        WHERE ${SOS_TENANT_FILTER}
+        ORDER BY sa.raised_at DESC LIMIT $2 OFFSET $3
+      `, tenantOf(req), limit, offset);
     }
     success(res, { alerts }, 'All alerts', HTTP_STATUS.OK, { limit, offset });
   } catch (err) {
@@ -295,7 +370,7 @@ export const getAllAlerts = async (req, res) => {
 
 export const getEmergencyServices = async (req, res) => {
   try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
+    if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
     // Return configured emergency services (hospitals, police, ambulance)
     const hospitals = await prisma.$queryRaw`
@@ -313,7 +388,7 @@ export const getEmergencyServices = async (req, res) => {
 
 export const getPerformanceReport = async (req, res) => {
   try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
+    if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
     const report = await prisma.$queryRaw`
       SELECT
@@ -339,7 +414,7 @@ export const getPerformanceReport = async (req, res) => {
 
 export const updateSystemConfig = async (req, res) => {
   try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
+    if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
     const config = req.body;
     logger.info('SOS system config updated:', JSON.stringify(config));
@@ -359,13 +434,16 @@ export const broadcastEmergencyAlert = async (req, res) => {
     if (!title || !body) return error(res, 'Title and message are required', HTTP_STATUS.BAD_REQUEST);
 
     // Insert notification for all active staff
-    const result = await prisma.$queryRaw`
-      INSERT INTO notifications (phone, title, body, type, data, created_at)
-      SELECT phone, ${title}, ${body}, 'SOS_BROADCAST',
-             ${JSON.stringify({ severity })}::jsonb, NOW()
-      FROM users WHERE role != 'PATIENT' AND is_active = true
+    const result = await prisma.$queryRawUnsafe(`
+      INSERT INTO notifications (tenant_id, uid, phone, title, body, type, data, created_at, updated_at)
+      SELECT tenant_id, uid, phone, $1, $2, 'SOS_BROADCAST',
+             $3::jsonb, NOW(), NOW()
+      FROM users
+      WHERE role != 'PATIENT'
+        AND is_active = true
+        AND tenant_id = $4::uuid
       RETURNING id
-    `;
+    `, title, body, JSON.stringify({ severity }), tenantOf(req));
     success(res, { notified: result.length }, `Broadcast sent to ${result.length} staff`);
   } catch (err) {
     logger.error('Broadcast Alert Error:', err);
@@ -375,24 +453,33 @@ export const broadcastEmergencyAlert = async (req, res) => {
 
 export const escalateAlert = async (req, res) => {
   try {
-    if (!isAdmin(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
+    if (!isAdminRole(req.user?.role)) return error(res, 'Admin access required', HTTP_STATUS.FORBIDDEN);
 
     const { alertId } = req.params;
     const ESCALATION = { 'LOW': 'MEDIUM', 'MEDIUM': 'HIGH', 'HIGH': 'CRITICAL' };
 
-    const current = await prisma.$queryRaw`
-      SELECT id, severity FROM sos_alerts WHERE id = ${parseInt(alertId, 10)}
-    `;
+    const current = await prisma.$queryRawUnsafe(`
+      SELECT sa.id, sa.severity
+      FROM sos_alerts sa
+      ${SOS_USER_JOIN}
+      WHERE sa.id = $1::int
+        AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+    `, parseInt(alertId, 10), tenantOf(req));
     if (current.length === 0) return error(res, 'Alert not found', HTTP_STATUS.NOT_FOUND);
 
     const newSeverity = ESCALATION[current[0].severity];
     if (!newSeverity) return error(res, 'Alert is already at CRITICAL severity', HTTP_STATUS.BAD_REQUEST);
 
-    const rows = await prisma.$queryRaw`
-      UPDATE sos_alerts SET severity = ${newSeverity}, updated_at = NOW()
-      WHERE id = ${parseInt(alertId, 10)}
+    const rows = await prisma.$queryRawUnsafe(`
+      UPDATE sos_alerts SET severity = $3, updated_at = NOW()
+      WHERE id = $1::int
+        AND EXISTS (
+          SELECT 1 FROM users u
+           WHERE (u.uid = sos_alerts.uid OR u.phone = sos_alerts.phone)
+             AND COALESCE(u.tenant_id, '${DEFAULT_TENANT_ID}'::uuid) = $2::uuid
+        )
       RETURNING id, severity
-    `;
+    `, parseInt(alertId, 10), tenantOf(req), newSeverity);
     success(res, rows[0], `Alert escalated to ${newSeverity}`);
   } catch (err) {
     logger.error('Escalate Alert Error:', err);

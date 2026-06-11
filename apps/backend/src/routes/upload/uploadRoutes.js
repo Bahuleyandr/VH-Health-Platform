@@ -6,7 +6,7 @@
 
 import express from 'express';
 import { getFileByKey, uploadFile, uploadMulter } from '../../controllers/upload/uploadController.js';
-import { validateFileContent } from '../../middleware/uploadMiddleware.js';
+import { validateFileContent, validateGenericDocumentUpload } from '../../middleware/uploadMiddleware.js';
 
 const router = express.Router();
 
@@ -15,6 +15,6 @@ const router = express.Router();
 // (string in v8 of path-to-regexp, vs. an array in older Express).
 router.get('/by-key/*splat', getFileByKey);
 
-router.post('/', uploadMulter.single('file'), validateFileContent, uploadFile);
+router.post('/', uploadMulter.single('file'), validateFileContent, validateGenericDocumentUpload, uploadFile);
 
 export default router;

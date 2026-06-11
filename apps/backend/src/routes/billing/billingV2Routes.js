@@ -68,7 +68,7 @@ function requireCashDrawerReviewer(req, res, next) {
 }
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -117,7 +117,11 @@ router.patch('/services/:id', requireAdmin, wrap(async (req) =>
 
 // ── Invoices ──────────────────────────────────────────────────────────
 router.post('/invoices', requireStaffOrAdmin, wrap(async (req) => {
-  const invoice = await billing.createDraftInvoice({ ...req.body, created_by: req.user?.uid });
+  const invoice = await billing.createDraftInvoice({
+    ...req.body,
+    tenantId: tenantOf(req),
+    created_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_INVOICE_CREATED', {
     ...invoice,
     invoice_id: invoice?.id,
@@ -129,6 +133,7 @@ router.post('/invoices', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.get('/invoices', requireStaffOrAdmin, wrap(async (req) => billing.listInvoices({
+  tenantId: tenantOf(req),
   patient_uid: req.query.patient_uid,
   patient_id: req.query.patient_id,
   admission_id: req.query.admission_id,
@@ -141,11 +146,14 @@ router.get('/invoices', requireStaffOrAdmin, wrap(async (req) => billing.listInv
 })));
 
 router.get('/invoices/:id', requireStaffOrAdmin, wrap(async (req) =>
-  billing.getInvoice(req.params.id),
+  billing.getInvoice(req.params.id, { tenantId: tenantOf(req) }),
 ));
 
 router.post('/invoices/:id/items', requireStaffOrAdmin, wrap(async (req) => {
-  const item = await billing.addInvoiceItem(req.params.id, req.body);
+  const item = await billing.addInvoiceItem(req.params.id, {
+    ...req.body,
+    tenantId: tenantOf(req),
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_ITEM_ADDED', {
     ...item,
     invoice_id: item?.invoice_id ?? req.params.id,
@@ -164,7 +172,9 @@ router.post('/invoices/:id/items', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.delete('/invoices/:id/items/:itemId', requireStaffOrAdmin, wrap(async (req) => {
-  const totals = await billing.removeInvoiceItem(req.params.id, req.params.itemId);
+  const totals = await billing.removeInvoiceItem(req.params.id, req.params.itemId, {
+    tenantId: tenantOf(req),
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_ITEM_REMOVED', {
     invoice_id: Number(req.params.id),
     item_id: Number(req.params.itemId),
@@ -186,6 +196,7 @@ router.delete('/invoices/:id/items/:itemId', requireStaffOrAdmin, wrap(async (re
 //   2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively
 router.post('/invoices/:id/itemize', requireStaffOrAdmin, wrap(async (req) => {
   const result = await billing.itemizeAdmissionInvoice(req.params.id, {
+    tenantId: tenantOf(req),
     decided_by: req.user?.uid,
     emit_package: req.body?.emit_package !== false,
     emit_pharmacy: req.body?.emit_pharmacy !== false,
@@ -209,6 +220,7 @@ router.post('/invoices/:id/itemize', requireStaffOrAdmin, wrap(async (req) => {
 // that the patient portal subscribes to.
 router.post('/invoices/:id/items/:itemId/tpa-decision', requireStaffOrAdmin, wrap(async (req) => {
   const item = await billing.recordInvoiceItemTpaDecision({
+    tenantId: tenantOf(req),
     invoice_id: req.params.id,
     item_id: req.params.itemId,
     decision: req.body?.decision,
@@ -232,12 +244,13 @@ router.post('/invoices/:id/items/:itemId/tpa-decision', requireStaffOrAdmin, wra
 // Patient-portal-facing read: running total of non-payable items on
 // this invoice with the reason breakdown.
 router.get('/invoices/:id/non-payable', requireStaffOrAdmin, wrap(async (req) =>
-  billing.getInvoiceNonPayableBreakdown(req.params.id),
+  billing.getInvoiceNonPayableBreakdown(req.params.id, { tenantId: tenantOf(req) }),
 ));
 
 router.post('/invoices/:id/discount', requireStaffOrAdmin, wrap(async (req) => {
   const totals = await billing.applyDiscount(req.params.id, {
     ...req.body,
+    tenantId: tenantOf(req),
     approved_by: req.user?.uid,
     approved_by_role: req.user?.role,
   });
@@ -252,7 +265,7 @@ router.post('/invoices/:id/discount', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.post('/invoices/:id/issue', requireStaffOrAdmin, wrap(async (req) => {
-  const invoice = await billing.issueInvoice(req.params.id);
+  const invoice = await billing.issueInvoice(req.params.id, { tenantId: tenantOf(req) });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_INVOICE_ISSUED', {
     ...invoice,
     invoice_id: Number(req.params.id),
@@ -261,7 +274,11 @@ router.post('/invoices/:id/issue', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.post('/invoices/:id/void', requireAdmin, wrap(async (req) => {
-  const invoice = await billing.voidInvoice(req.params.id, { ...req.body, voided_by: req.user?.uid });
+  const invoice = await billing.voidInvoice(req.params.id, {
+    ...req.body,
+    tenantId: tenantOf(req),
+    voided_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_INVOICE_VOIDED', {
     ...invoice,
     invoice_id: invoice?.id ?? req.params.id,
@@ -318,7 +335,11 @@ router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res, ne
 
 // ── Payments ──────────────────────────────────────────────────────────
 router.post('/payments', requireStaffOrAdmin, wrap(async (req) => {
-  const payment = await billing.collectPayment({ ...req.body, collected_by: req.user?.uid });
+  const payment = await billing.collectPayment({
+    ...req.body,
+    tenantId: tenantOf(req),
+    collected_by: req.user?.uid,
+  });
   await logBillingAudit(
     req,
     'FRONT_OFFICE_BILLING_PAYMENT_COLLECTED',
@@ -343,7 +364,11 @@ router.post('/payments', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.post('/payments/:id/reverse', requireAdmin, wrap(async (req) => {
-  const payment = await billing.reversePayment(req.params.id, { ...req.body, reversed_by: req.user?.uid });
+  const payment = await billing.reversePayment(req.params.id, {
+    ...req.body,
+    tenantId: tenantOf(req),
+    reversed_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_PAYMENT_REVERSED', {
     ...payment,
     payment_id: payment?.id ?? req.params.id,
@@ -358,7 +383,11 @@ router.post('/payments/:id/reverse', requireAdmin, wrap(async (req) => {
 
 // ── Advances ──────────────────────────────────────────────────────────
 router.post('/advances', requireStaffOrAdmin, wrap(async (req) => {
-  const advance = await billing.collectAdvance({ ...req.body, collected_by: req.user?.uid });
+  const advance = await billing.collectAdvance({
+    ...req.body,
+    tenantId: tenantOf(req),
+    collected_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_ADVANCE_COLLECTED', {
     ...advance,
     advance_id: advance?.id,
@@ -374,6 +403,7 @@ router.post('/advances', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.get('/advances', requireStaffOrAdmin, wrap(async (req) => billing.listAdvances({
+  tenantId: tenantOf(req),
   patient_uid: req.query.patient_uid,
   admission_id: req.query.admission_id,
   status: req.query.status,
@@ -381,6 +411,7 @@ router.get('/advances', requireStaffOrAdmin, wrap(async (req) => billing.listAdv
 
 router.post('/advances/:id/settle', requireStaffOrAdmin, wrap(async (req) => {
   const settlement = await billing.settleAdvance({
+    tenantId: tenantOf(req),
     advance_id: req.params.id,
     invoice_id: req.body.invoice_id,
     amount: req.body.amount,
@@ -402,7 +433,11 @@ router.post('/advances/:id/settle', requireStaffOrAdmin, wrap(async (req) => {
 
 // ── Refunds ───────────────────────────────────────────────────────────
 router.post('/refunds', requireStaffOrAdmin, wrap(async (req) => {
-  const refund = await billing.raiseRefund({ ...req.body, raised_by: req.user?.uid });
+  const refund = await billing.raiseRefund({
+    ...req.body,
+    tenantId: tenantOf(req),
+    raised_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_RAISED', {
     ...refund,
     refund_id: refund?.id,
@@ -418,12 +453,16 @@ router.post('/refunds', requireStaffOrAdmin, wrap(async (req) => {
 }));
 
 router.get('/refunds', requireStaffOrAdmin, wrap(async (req) => billing.listRefunds({
+  tenantId: tenantOf(req),
   approval_status: req.query.approval_status,
   patient_uid: req.query.patient_uid,
 })));
 
 router.post('/refunds/:id/approve', requireAdmin, wrap(async (req) => {
-  const refund = await billing.approveRefund(req.params.id, { approved_by: req.user?.uid });
+  const refund = await billing.approveRefund(req.params.id, {
+    tenantId: tenantOf(req),
+    approved_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_APPROVED', {
     ...refund,
     refund_id: refund?.id ?? req.params.id,
@@ -435,7 +474,11 @@ router.post('/refunds/:id/approve', requireAdmin, wrap(async (req) => {
 }));
 
 router.post('/refunds/:id/reject', requireAdmin, wrap(async (req) => {
-  const refund = await billing.rejectRefund(req.params.id, { ...req.body, rejected_by: req.user?.uid });
+  const refund = await billing.rejectRefund(req.params.id, {
+    ...req.body,
+    tenantId: tenantOf(req),
+    rejected_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_REJECTED', {
     ...refund,
     refund_id: refund?.id ?? req.params.id,
@@ -449,7 +492,11 @@ router.post('/refunds/:id/reject', requireAdmin, wrap(async (req) => {
 }));
 
 router.post('/refunds/:id/pay', requireStaffOrAdmin, wrap(async (req) => {
-  const refund = await billing.markRefundPaid(req.params.id, { ...req.body, paid_by: req.user?.uid });
+  const refund = await billing.markRefundPaid(req.params.id, {
+    ...req.body,
+    tenantId: tenantOf(req),
+    paid_by: req.user?.uid,
+  });
   await logBillingAudit(req, 'FRONT_OFFICE_BILLING_REFUND_PAID', {
     ...refund,
     refund_id: refund?.id ?? req.params.id,
@@ -580,7 +627,13 @@ router.post('/payment-links', requireStaffOrAdmin, wrap(async (req) => {
   const link = await payLinks.createPaymentLink({
     tenantId: tenantOf(req),
     created_by: req.user?.uid,
-    ...req.body,
+    invoice_id: req.body.invoice_id,
+    patient_uid: req.body.patient_uid,
+    amount: req.body.amount,
+    currency: req.body.currency,
+    provider: req.body.provider,
+    expires_in_hours: req.body.expires_in_hours,
+    notes: req.body.notes,
   });
   await logBillingAudit(req, 'FRONT_OFFICE_PAYMENT_LINK_CREATED', {
     payment_link_id: link?.id,
@@ -621,7 +674,6 @@ router.post('/payment-links/:token/send', requireStaffOrAdmin, wrap(async (req) 
     channels: req.body.channels,
     patient_phone: req.body.patient_phone,
     patient_email: req.body.patient_email,
-    hospital_short_url_base: req.body.hospital_short_url_base,
   });
   await logBillingAudit(req, 'FRONT_OFFICE_PAYMENT_LINK_SENT', {
     payment_link_id: link?.id,

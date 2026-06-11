@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 
 // Anonymized placeholder for PII fields
@@ -20,7 +21,7 @@ const ANON_EMAIL = 'deleted@redacted.invalid';
 // boolean `withTimestamp` to opt into `updated_at: NOW()`.
 const ERASURE_TARGETS = [
   // Notification + device data — delete entirely
-  { model: 'notifications',     whereByUid: 'uid',         action: 'delete' },
+  { model: 'notifications',     whereByUid: 'uid',         action: 'delete', tenantScoped: true },
   { model: 'user_devices',      whereByUid: 'user_uid',    action: 'delete' },
   { model: 'devices',           whereByPhone: 'phone',     action: 'delete' },
 
@@ -30,23 +31,23 @@ const ERASURE_TARGETS = [
   { model: 'auth_logs',          whereByPhone: 'phone',    action: 'delete' },
 
   // Medical data — anonymize (retain row for aggregate analytics, strip PII)
-  { model: 'pharmacy_orders', whereByPhone: 'phone', action: 'anonymize', withTimestamp: true,
+  { model: 'pharmacy_orders', whereByPhone: 'phone', action: 'anonymize', withTimestamp: true, tenantScoped: true,
     data: { phone: ANON_PHONE, order_note: ANON, delivery_address: ANON, delivery_landmark: ANON } },
-  { model: 'investigations',  whereByPhone: 'phone', action: 'anonymize', withTimestamp: true,
-    data: { phone: ANON_PHONE, notes: ANON, custom_test_names: ANON } },
+  { model: 'investigations',  whereByPhone: 'phone', action: 'anonymize', withTimestamp: true, tenantScoped: true,
+    data: { phone: ANON_PHONE, notes: ANON } },
   // health_records is the file-upload table (batch 45 documented this);
   // the only PII column is phone — there's no notes column here.
   { model: 'health_records',  whereByPhone: 'phone', action: 'anonymize', withTimestamp: true,
     data: { phone: ANON_PHONE } },
   { model: 'consultations',   whereByPhone: 'phone', action: 'anonymize', withTimestamp: true,
     data: { phone: ANON_PHONE, consultation_notes: ANON, diagnosis: ANON, treatment_plan: ANON } },
-  { model: 'appointments',    whereByUid: 'uid',     action: 'anonymize', withTimestamp: true,
+  { model: 'appointments',    whereByUid: 'uid',     action: 'anonymize', withTimestamp: true, tenantScoped: true,
     data: { reason: ANON, notes: ANON } },
   { model: 'feedback',        whereByPhone: 'phone', action: 'anonymize', withTimestamp: true,
     data: { phone: ANON_PHONE, comment: ANON } },
 
   // Consent records — anonymize
-  { model: 'patient_consents', whereByUid: 'patient_uid', action: 'anonymize', withTimestamp: true,
+  { model: 'patient_consents', whereByUid: 'patient_uid', action: 'anonymize', withTimestamp: true, tenantScoped: true,
     data: { ip_address: null, notes: ANON } },
 
   // Audit logs — anonymize requester IP but retain event data for compliance.
@@ -60,12 +61,16 @@ const ERASURE_TARGETS = [
     data: { uploaded_by: null } },
 ];
 
-function buildWhere(target, uid, phone) {
+function buildWhere(target, uid, phone, tenantId = null) {
   const orClauses = [];
   if (target.whereByUid && uid) orClauses.push({ [target.whereByUid]: uid });
   if (target.whereByPhone && phone) orClauses.push({ [target.whereByPhone]: phone });
   if (orClauses.length === 0) return null;
-  return orClauses.length === 1 ? orClauses[0] : { OR: orClauses };
+  const subjectWhere = orClauses.length === 1 ? orClauses[0] : { OR: orClauses };
+  if (target.tenantScoped && tenantId) {
+    return { AND: [subjectWhere, { tenant_id: tenantId }] };
+  }
+  return subjectWhere;
 }
 
 async function eraseTarget(target, where) {
@@ -82,6 +87,23 @@ async function eraseTarget(target, where) {
   return { action: 'anonymized', count: result.count };
 }
 
+async function resolveErasureSubject({ uid = null, phone = null, tenantId = null }) {
+  if (!uid && !phone) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, phone, tenant_id
+       FROM users
+      WHERE ($1::uuid IS NULL OR uid = $1::uuid)
+        AND ($2::text IS NULL OR phone = $2)
+        AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+      ORDER BY registered_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
+    uid || null,
+    phone || null,
+    tenantId || null,
+  );
+  return rows[0] || null;
+}
+
 /**
  * Execute full GDPR erasure for a user identified by UID and/or phone.
  *
@@ -92,14 +114,29 @@ async function eraseTarget(target, where) {
  * @param {string} params.reason - Reason for erasure
  * @param {string} params.ip - IP address of requester
  * @param {string} params.requestId - Request ID for correlation
+ * @param {string|null} params.tenantId - Tenant boundary for the erasure
  * @returns {Object} Summary of actions taken per table
  */
-export async function executeErasure({ uid, phone, requestedBy, reason, ip, requestId }) {
+export async function executeErasure({ uid, phone, requestedBy, reason, ip, requestId, tenantId = null }) {
   const results = {};
   const startTime = Date.now();
 
+  const subject = await resolveErasureSubject({ uid, phone, tenantId });
+  if (!subject?.uid) {
+    throw AppError.notFound('User not found for erasure in this tenant', 'GDPR_USER_NOT_FOUND');
+  }
+  uid = subject.uid;
+  phone = subject.phone || phone || null;
+
+  const holdCheck = await checkLegalHold(uid, { tenantId });
+  if (holdCheck.hasHold) {
+    throw AppError.forbidden('Cannot erase: user has an active legal hold', 'LEGAL_HOLD_ACTIVE', {
+      holds: holdCheck.holds,
+    });
+  }
+
   logger.info('GDPR erasure initiated', {
-    uid, phone: phone ? `***${phone.slice(-4)}` : null,
+    uid, tenantId, phone: phone ? `***${phone.slice(-4)}` : null,
     requestedBy, reason, requestId,
   });
 
@@ -108,7 +145,7 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
   // of devices, tokens, or other PII the user is entitled to have erased.
   // Each result row records the per-table outcome for the audit log.
   for (const target of ERASURE_TARGETS) {
-    const where = buildWhere(target, uid, phone);
+    const where = buildWhere(target, uid, phone, tenantId);
     if (!where) {
       results[target.model] = { action: 'skipped', reason: 'no matching identifier' };
       continue;
@@ -127,7 +164,10 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
   if (uid) {
     try {
       const userResult = await prisma.users.updateMany({
-        where: { uid },
+        where: {
+          uid,
+          ...(tenantId ? { tenant_id: tenantId } : {}),
+        },
         data: {
           name: ANON,
           email: ANON_EMAIL,
@@ -183,10 +223,11 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
     action: 'DATA_ERASURE',
     ip,
     requestId,
+    tenantId,
   });
 
   logger.info('GDPR erasure completed', {
-    uid, duration_ms: durationMs,
+    uid, tenantId, duration_ms: durationMs,
     tablesProcessed: Object.keys(results).length,
   });
 
@@ -203,8 +244,23 @@ export async function executeErasure({ uid, phone, requestedBy, reason, ip, requ
  * Check if a user has any legal hold that prevents erasure.
  * (e.g., ongoing legal proceedings, regulatory requirements)
  */
-export async function checkLegalHold(uid) {
+export async function checkLegalHold(uid, { tenantId = null } = {}) {
   if (!uid) return { hasHold: false, holds: [] };
+  if (tenantId) {
+    const holds = await prisma.$queryRawUnsafe(
+      `SELECT lh.id, lh.reason, lh.created_at
+         FROM legal_holds lh
+         JOIN users u
+           ON u.uid = lh.user_uid
+          AND u.tenant_id = $2::uuid
+        WHERE lh.user_uid = $1::uuid
+          AND lh.released_at IS NULL
+        ORDER BY lh.created_at DESC`,
+      uid,
+      tenantId,
+    );
+    return { hasHold: holds.length > 0, holds };
+  }
   const holds = await prisma.legal_holds.findMany({
     where: { user_uid: uid, released_at: null },
     select: { id: true, reason: true, created_at: true },

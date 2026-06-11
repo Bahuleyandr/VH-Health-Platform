@@ -1,5 +1,6 @@
 // src/services/bed/bedService.js
 import prisma from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import {
   MINIMIZED_INPATIENT_PAYLOAD_ROLES,
   resolveInpatientLocationScope,
@@ -67,6 +68,10 @@ const BED_CLEANING_REQUEST_JOINS = `
 
 function truthyParam(value) {
   return value === true || value === 'true' || value === '1' || value === 1;
+}
+
+function tenantOf(options = {}) {
+  return options.tenantId || getCurrentTenantId() || null;
 }
 
 function normalizeRole(role) {
@@ -576,7 +581,8 @@ class BedService {
     return rows[0];
   }
 
-  async updateBed(id, data) {
+  async updateBed(id, data, options = {}) {
+    const tenantId = tenantOf(options);
     const { ward_id, bed_number, status, patient_id, patient_name, notes } = data;
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds SET
@@ -588,14 +594,16 @@ class BedService {
          notes = COALESCE($6, notes),
          updated_at = NOW()
        WHERE id = $7
+         AND ($8::uuid IS NULL OR tenant_id = $8::uuid)
        RETURNING ${BED_RETURNING}`,
       ward_id ?? null, bed_number ?? null, status ?? null,
-      patient_id ?? null, patient_name ?? null, notes ?? null, parseInt(id)
+      patient_id ?? null, patient_name ?? null, notes ?? null, parseInt(id), tenantId,
     );
     return rows[0];
   }
 
-  async deleteBed(id) {
+  async deleteBed(id, options = {}) {
+    const tenantId = tenantOf(options);
     const bedId = parseInt(id, 10);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT b.id,
@@ -614,8 +622,10 @@ class BedService {
          FROM beds b
          LEFT JOIN wards w ON w.id = b.ward_id
         WHERE b.id = $1
+          AND ($2::uuid IS NULL OR b.tenant_id = $2::uuid)
         LIMIT 1`,
       bedId,
+      tenantId,
     );
     const bed = rows[0];
     if (!bed) return null;
@@ -624,10 +634,12 @@ class BedService {
       `SELECT id, patient_uid, status
          FROM admissions
         WHERE (bed_id = $1 OR ($2::int IS NOT NULL AND id = $2::int))
+          AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
           AND discharged_at IS NULL
         LIMIT 1`,
       bedId,
       bed.admission_id ?? null,
+      tenantId,
     );
     if (activeAdmissions.length > 0) {
       throw AppError.conflict(
@@ -703,8 +715,9 @@ class BedService {
     }
 
     const count = await prisma.$executeRawUnsafe(
-      `DELETE FROM beds WHERE id = $1`,
+      `DELETE FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
       bedId,
+      tenantId,
     );
     if (count <= 0) return null;
     return bed;
@@ -717,11 +730,13 @@ class BedService {
   // Keeping this isolated guarantees a notes save can't silently
   // discharge the patient. Returns the updated bed (with the same join
   // shape getBedsByWard uses) or null when the id doesn't exist.
-  async updateBedNotes(id, notes) {
+  async updateBedNotes(id, notes, options = {}) {
+    const tenantId = tenantOf(options);
     const bedId = parseInt(id, 10);
     const bedRows = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM beds WHERE id = $1`,
+      `SELECT id, status FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
       bedId,
+      tenantId,
     );
     if (!bedRows.length) return null;
     const status = String(bedRows[0].status || '').toLowerCase();
@@ -734,19 +749,23 @@ class BedService {
          SET notes = $1,
              updated_at = NOW()
        WHERE id = $2
+         AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
        RETURNING ${BED_RETURNING}`,
-      typeof notes === 'string' ? notes : null, bedId
+      typeof notes === 'string' ? notes : null, bedId, tenantId,
     );
     return rows[0] ?? null;
   }
 
-  async admitPatient(bedId, { patient_id, patient_name, notes }, actorRole = null) {
+  async admitPatient(bedId, { patient_id, patient_name, notes }, actorRole = null, options = {}) {
+    const tenantId = tenantOf(options);
     // Stage-4-C — ICU/CCU beds require physician/admin sign-off; a ward
     // nurse cannot independently allocate an intensive-care bed. Probe
     // bed_type first; throw forbidden when the actor lacks the tier.
     // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
     const typeRows = await prisma.$queryRawUnsafe(
-      `SELECT bed_type FROM beds WHERE id = $1`, parseInt(bedId)
+      `SELECT bed_type FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+      parseInt(bedId),
+      tenantId,
     );
     if (typeRows.length && ICU_BED_TYPES.has(typeRows[0].bed_type) && !canAllocateIcu(actorRole)) {
       throw AppError.forbidden('ICU/CCU bed allocation requires physician or admission-officer authorisation');
@@ -762,13 +781,15 @@ class BedService {
          notes = COALESCE($3, notes),
          updated_at = NOW()
        WHERE id = $4 AND status = 'available'
+         AND ($5::uuid IS NULL OR tenant_id = $5::uuid)
        RETURNING ${BED_RETURNING}`,
-      patient_id ?? null, patient_name, notes ?? null, parseInt(bedId)
+      patient_id ?? null, patient_name, notes ?? null, parseInt(bedId), tenantId,
     );
     return rows[0];
   }
 
-  async dischargePatient(bedId) {
+  async dischargePatient(bedId, options = {}) {
+    const tenantId = tenantOf(options);
     // F-2 — clear patient_uid and admission_id alongside patient_id /
     // patient_name. Leaving the uuid FK behind made the bed appear
     // available on the map while still pointing at a previous occupant
@@ -785,8 +806,10 @@ class BedService {
          expected_discharge = NULL,
          updated_at = NOW()
        WHERE id = $1 AND status = 'occupied'
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        RETURNING ${BED_RETURNING}`,
-      parseInt(bedId)
+      parseInt(bedId),
+      tenantId,
     );
     return rows[0];
   }

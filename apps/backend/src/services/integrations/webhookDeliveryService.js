@@ -26,6 +26,8 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { decryptField } from '../../utils/fieldEncryption.js';
+import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { writeIntegrationLog } from './integrationService.js';
 import {
@@ -230,12 +232,17 @@ export async function dispatchPendingDeliveries({
     try {
       const subRows = await prisma.$queryRawUnsafe(
         `SELECT s.id, s.integration_id, s.tenant_id, s.endpoint_url,
-                s.signing_credential_id, s.signing_algorithm, c.ciphertext
+                s.signing_credential_id, s.signing_algorithm,
+                c.id AS credential_id, c.ciphertext
          FROM webhook_subscriptions s
-         LEFT JOIN integration_credentials c ON c.id = s.signing_credential_id
-         WHERE s.id = $1
+         LEFT JOIN integration_credentials c
+           ON c.id = s.signing_credential_id
+          AND c.tenant_id = s.tenant_id
+          AND c.integration_id = s.integration_id
+         WHERE s.id = $1 AND s.tenant_id = $2::uuid
          LIMIT 1`,
         row.subscription_id,
+        row.tenant_id,
       );
       subscription = subRows[0];
     } catch (err) {
@@ -254,46 +261,58 @@ export async function dispatchPendingDeliveries({
     }
 
     let signed = { signature: '', header_value: '', algorithm: subscription.signing_algorithm, timestamp: null };
-    try {
-      if (subscription.signing_algorithm !== 'none') {
-        // ciphertext is the placeholder field for the secret; in v1 it
-        // holds the secret itself. Production envelopes this through KMS.
-        signed = signWebhookPayload({
-          payload: row.payload,
-          secret: subscription.ciphertext,
-          algorithm: subscription.signing_algorithm,
-        });
-      }
-    } catch (err) {
-      logger.warn('webhook payload signing failed', { delivery_id: row.id, error: err.message });
-    }
-
     const url = subscription.endpoint_url;
     let httpStatus = null;
     let responseExcerpt = null;
     let errorMessage = null;
     try {
-      const response = await fetcher(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-VHHealth-Signature': signed.header_value,
-          'X-VHHealth-Event-Type': row.event_type,
-          'X-VHHealth-Delivery-Id': String(row.id),
-          'X-Request-Id': row.request_id || crypto.randomUUID(),
-        },
-        body: JSON.stringify(row.payload || {}),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      await assertSafeOutboundUrl(url, {
+        label: 'endpoint_url',
+        allowlistEnv: 'WEBHOOK_DELIVERY_HOST_ALLOWLIST',
+        allowPrivateEnv: 'WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS',
       });
-      httpStatus = response.status;
-      try {
-        const text = await response.text();
-        responseExcerpt = text ? text.slice(0, RESPONSE_EXCERPT_MAX) : null;
-      } catch {
-        responseExcerpt = null;
+      if (subscription.signing_algorithm !== 'none') {
+        if (!subscription.credential_id || !subscription.ciphertext) {
+          throw AppError.forbidden(
+            'Webhook signing credential is missing or not owned by this tenant integration',
+            'WEBHOOK_SIGNING_CREDENTIAL_FORBIDDEN',
+          );
+        }
+        signed = signWebhookPayload({
+          payload: row.payload,
+          secret: decryptField(subscription.ciphertext),
+          algorithm: subscription.signing_algorithm,
+        });
       }
     } catch (err) {
-      errorMessage = String(err?.message || 'fetch_failed').slice(0, 1_000);
+      errorMessage = String(err?.message || 'webhook_preflight_failed').slice(0, 1_000);
+      logger.warn('webhook delivery preflight failed', { delivery_id: row.id, error: errorMessage });
+    }
+
+    if (!errorMessage) {
+      try {
+        const response = await fetcher(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-VHHealth-Signature': signed.header_value,
+            'X-VHHealth-Event-Type': row.event_type,
+            'X-VHHealth-Delivery-Id': String(row.id),
+            'X-Request-Id': row.request_id || crypto.randomUUID(),
+          },
+          body: JSON.stringify(row.payload || {}),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        httpStatus = response.status;
+        try {
+          const text = await response.text();
+          responseExcerpt = text ? text.slice(0, RESPONSE_EXCERPT_MAX) : null;
+        } catch {
+          responseExcerpt = null;
+        }
+      } catch (err) {
+        errorMessage = String(err?.message || 'fetch_failed').slice(0, 1_000);
+      }
     }
 
     const ok = httpStatus != null && httpStatus >= 200 && httpStatus < 300;

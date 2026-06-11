@@ -8,34 +8,121 @@ import logger from '../logging/logger.js';
 import { maskPhoneForLog } from '../utils/logMasking.js';
 import jwtMiddleware from '../middleware/jwtMiddleware.js';
 import validateApiKey from '../middleware/validateApiKey.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
 
 const router = express.Router();
 logger.info('✅ deviceRoutes loaded with RBAC protection');
 
+const ADMIN_DEVICE_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
+}
+
+function normalizeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function isAdminDeviceUser(user) {
+  return ADMIN_DEVICE_ROLES.has(normalizeRole(user?.role));
+}
+
+async function findDeviceUserByUid(uid, tenantId) {
+  if (!uid) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, phone, name, tenant_id
+       FROM users
+      WHERE uid = $1::uuid AND tenant_id = $2::uuid
+      LIMIT 1`,
+    uid,
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
+async function findDeviceUserByPhone(phone, tenantId) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, phone, name, tenant_id
+       FROM users
+      WHERE phone = $1 AND tenant_id = $2::uuid
+      LIMIT 1`,
+    normalizedPhone,
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
+async function resolveDeviceTargetUser(req, requestedPhone) {
+  const tenantId = tenantOf(req);
+  const normalizedRequestedPhone = normalizePhone(requestedPhone || '');
+
+  if (isAdminDeviceUser(req.user) && normalizedRequestedPhone) {
+    const target = await findDeviceUserByPhone(normalizedRequestedPhone, tenantId);
+    if (!target) {
+      const err = new Error('User not found');
+      err.statusCode = HTTP_STATUS.NOT_FOUND;
+      throw err;
+    }
+    return {
+      uid: target.uid,
+      phone: normalizePhone(target.phone),
+      name: target.name,
+      tenantId,
+    };
+  }
+
+  const current = await findDeviceUserByUid(req.user?.uid, tenantId);
+  if (!current) {
+    const err = new Error('Authenticated user not found');
+    err.statusCode = HTTP_STATUS.UNAUTHORIZED;
+    throw err;
+  }
+
+  const currentPhone = normalizePhone(current.phone);
+  if (normalizedRequestedPhone && normalizedRequestedPhone !== currentPhone) {
+    const err = new Error('Can only manage your own devices');
+    err.statusCode = HTTP_STATUS.FORBIDDEN;
+    throw err;
+  }
+
+  return {
+    uid: current.uid,
+    phone: currentPhone,
+    name: current.name,
+    tenantId,
+  };
+}
+
+function sendDeviceTargetError(res, err) {
+  return error(
+    res,
+    err.message || 'Device target user could not be resolved',
+    err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR,
+  );
+}
+
 async function unregisterDeviceHandler(req, res) {
   const phone = req.body?.phone || req.query?.phone || req.user?.phone;
   const deviceId = req.body?.deviceId || req.query?.deviceId;
 
-  if (!phone || !deviceId) {
-    return error(res, 'Phone and device ID are required', HTTP_STATUS.BAD_REQUEST);
+  if (!deviceId) {
+    return error(res, 'Device ID is required', HTTP_STATUS.BAD_REQUEST);
   }
 
   try {
-    const normalizedPhone = normalizePhone(phone);
-
-    // Role-based access control
-    if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
-      return error(res, 'Can only unregister your own devices', HTTP_STATUS.FORBIDDEN);
-    }
+    const targetUser = await resolveDeviceTargetUser(req, phone);
 
     const result = await prisma.$queryRawUnsafe(
       `DELETE FROM user_devices
        WHERE device_id = $1
-         AND user_uid = (SELECT uid FROM users WHERE phone = $2)
+         AND user_uid = $2::uuid
        RETURNING device_name, platform`,
-      deviceId, normalizedPhone
+      deviceId,
+      targetUser.uid,
     );
 
     if (result.length === 0) {
@@ -44,10 +131,10 @@ async function unregisterDeviceHandler(req, res) {
 
     const deviceInfo = result[0];
 
-    logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${maskPhoneForLog(normalizedPhone)} by ${req.user?.name || 'system'}`);
+    logger.info(`🗑️ Device unregistered: ${deviceInfo.device_name} (${deviceInfo.platform}) for ${maskPhoneForLog(targetUser.phone)} by ${req.user?.name || 'system'}`);
 
     success(res, {
-      phone: normalizedPhone,
+      phone: targetUser.phone,
       deviceId,
       deviceName: deviceInfo.device_name,
       platform: deviceInfo.platform,
@@ -56,6 +143,7 @@ async function unregisterDeviceHandler(req, res) {
     }, 'Device unregistered successfully');
 
   } catch (err) {
+    if (err.statusCode) return sendDeviceTargetError(res, err);
     logger.error('Device Unregister Error:', err);
     error(res, 'Failed to unregister device', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -89,16 +177,7 @@ wrapAutoRBAC(
         '/my-devices',
         async (req, res) => {
           try {
-            const phone = normalizePhone(req.user?.phone || req.query.phone);
-
-            if (!phone) {
-              return error(res, 'Phone number required', HTTP_STATUS.BAD_REQUEST);
-            }
-
-            // Role-based access control - users can only see their own devices
-            if (req.user?.phone && normalizePhone(req.user.phone) !== phone && req.user?.role !== 'ADMIN') {
-              return error(res, 'Can only view your own devices', HTTP_STATUS.FORBIDDEN);
-            }
+            const targetUser = await resolveDeviceTargetUser(req, req.query.phone);
 
             const devices = await prisma.$queryRawUnsafe(
               `SELECT 
@@ -110,15 +189,15 @@ wrapAutoRBAC(
                   ELSE 'dormant'
                 END as status
                FROM user_devices 
-               WHERE user_uid = (SELECT uid FROM users WHERE phone = $1)
+               WHERE user_uid = $1::uuid
                ORDER BY last_active DESC`,
-              phone
+              targetUser.uid,
             );
 
             // Redact FCM tokens unless admin
             const devicesData = devices.map(device => ({
               ...device,
-              fcm_token: req.user?.role === 'ADMIN' ? device.fcm_token : 
+              fcm_token: isAdminDeviceUser(req.user) ? device.fcm_token :
                         (device.fcm_token ? device.fcm_token.substring(0, 10) + '...[REDACTED]' : null)
             }));
 
@@ -132,6 +211,7 @@ wrapAutoRBAC(
             }, 'User devices retrieved successfully');
 
           } catch (err) {
+            if (err.statusCode) return sendDeviceTargetError(res, err);
             logger.error('Get User Devices Error:', err);
             
             // Fallback response
@@ -153,7 +233,7 @@ wrapAutoRBAC(
         '/admin/list',
         async (req, res) => {
           try {
-            if (req.user?.role !== 'ADMIN') {
+            if (!isAdminDeviceUser(req.user)) {
               return error(res, 'Admin access required to view all devices', HTTP_STATUS.FORBIDDEN);
             }
 
@@ -197,11 +277,13 @@ wrapAutoRBAC(
                 ud.created_at,
                 ud.updated_at
               FROM user_devices ud
-              LEFT JOIN users u ON u.uid = ud.user_uid
-              ${whereClause}
+              JOIN users u ON u.uid = ud.user_uid
+              ${whereClause || 'WHERE u.tenant_id = $1::uuid'}
+              ${whereClause ? ` AND u.tenant_id = $${params.length + 1}::uuid` : ''}
               ORDER BY ud.last_active DESC NULLS LAST, ud.created_at DESC NULLS LAST
               LIMIT 200`,
               ...params,
+              tenantOf(req),
             );
 
             success(res, devices, 'Devices retrieved successfully');
@@ -218,44 +300,51 @@ wrapAutoRBAC(
         async (req, res) => {
           try {
             // Role-based access control
-            if (req.user?.role !== 'ADMIN') {
+            if (!isAdminDeviceUser(req.user)) {
               return error(res, 'Admin access required for device statistics', HTTP_STATUS.FORBIDDEN);
             }
 
+            const tenantId = tenantOf(req);
             const [deviceStats, platformStats, activityStats] = await Promise.all([
               // Overall device statistics
               prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_devices,
-                  COUNT(DISTINCT user_uid) as unique_users,
-                  COUNT(CASE WHEN last_active > NOW() - INTERVAL '7 days' THEN 1 END) as active_7_days,
-                  COUNT(CASE WHEN last_active > NOW() - INTERVAL '30 days' THEN 1 END) as active_30_days,
-                  COUNT(CASE WHEN created_at > NOW() - INTERVAL '7 days' THEN 1 END) as new_registrations_7_days
-                FROM user_devices
-              `),
+                  COUNT(DISTINCT ud.user_uid) as unique_users,
+                  COUNT(CASE WHEN ud.last_active > NOW() - INTERVAL '7 days' THEN 1 END) as active_7_days,
+                  COUNT(CASE WHEN ud.last_active > NOW() - INTERVAL '30 days' THEN 1 END) as active_30_days,
+                  COUNT(CASE WHEN ud.created_at > NOW() - INTERVAL '7 days' THEN 1 END) as new_registrations_7_days
+                FROM user_devices ud
+                JOIN users u ON u.uid = ud.user_uid
+                WHERE u.tenant_id = $1::uuid
+              `, tenantId),
               
               // Platform distribution
               prisma.$queryRawUnsafe(`
                 SELECT 
-                  platform,
+                  ud.platform,
                   COUNT(*) as device_count,
-                  COUNT(CASE WHEN last_active > NOW() - INTERVAL '7 days' THEN 1 END) as active_count
-                FROM user_devices
-                GROUP BY platform
+                  COUNT(CASE WHEN ud.last_active > NOW() - INTERVAL '7 days' THEN 1 END) as active_count
+                FROM user_devices ud
+                JOIN users u ON u.uid = ud.user_uid
+                WHERE u.tenant_id = $1::uuid
+                GROUP BY ud.platform
                 ORDER BY device_count DESC
-              `),
+              `, tenantId),
               
               // Activity over time (last 30 days)
               prisma.$queryRawUnsafe(`
                 SELECT 
-                  DATE(last_active) as activity_date,
-                  COUNT(DISTINCT device_id) as active_devices,
-                  COUNT(DISTINCT user_uid) as active_users
-                FROM user_devices
-                WHERE last_active > NOW() - INTERVAL '30 days'
-                GROUP BY DATE(last_active)
+                  DATE(ud.last_active) as activity_date,
+                  COUNT(DISTINCT ud.device_id) as active_devices,
+                  COUNT(DISTINCT ud.user_uid) as active_users
+                FROM user_devices ud
+                JOIN users u ON u.uid = ud.user_uid
+                WHERE u.tenant_id = $1::uuid
+                  AND ud.last_active > NOW() - INTERVAL '30 days'
+                GROUP BY DATE(ud.last_active)
                 ORDER BY activity_date DESC
-              `)
+              `, tenantId)
             ]);
 
             success(res, {
@@ -284,7 +373,7 @@ wrapAutoRBAC(
             const { deviceId } = req.params;
             
             // Role-based access control
-            if (req.user?.role !== 'ADMIN') {
+            if (!isAdminDeviceUser(req.user)) {
               return error(res, 'Admin access required to view device details', HTTP_STATUS.FORBIDDEN);
             }
 
@@ -293,8 +382,10 @@ wrapAutoRBAC(
                 ud.*, u.name as user_name, u.phone as user_phone, u.role as user_role
                FROM user_devices ud
                JOIN users u ON ud.user_uid = u.uid
-               WHERE ud.device_id = $1`,
-              deviceId
+               WHERE ud.device_id = $1
+                 AND u.tenant_id = $2::uuid`,
+              deviceId,
+              tenantOf(req),
             );
 
             if (result.length === 0) {
@@ -324,29 +415,12 @@ wrapAutoRBAC(
             platform, appVersion, osVersion 
           } = req.body;
 
-          if (!phone || !fcmToken) {
-            return error(res, 'Phone and FCM token are required', HTTP_STATUS.BAD_REQUEST);
+          if (!fcmToken || !deviceId) {
+            return error(res, 'Device ID and FCM token are required', HTTP_STATUS.BAD_REQUEST);
           }
 
           try {
-            const normalizedPhone = normalizePhone(phone);
-
-            // Role-based access control - users can only register devices for themselves
-            if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
-              return error(res, 'Can only register devices for yourself', HTTP_STATUS.FORBIDDEN);
-            }
-
-            // Get user UID
-            const userResult = await prisma.$queryRawUnsafe(
-              'SELECT uid, name FROM users WHERE phone = $1',
-              normalizedPhone
-            );
-
-            if (userResult.length === 0) {
-              return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
-            }
-
-            const user = userResult[0];
+            const user = await resolveDeviceTargetUser(req, phone);
 
             // Register/update device with enhanced conflict resolution
             const result = await prisma.$queryRawUnsafe(
@@ -368,11 +442,11 @@ wrapAutoRBAC(
 
             const isNewRegistration = result[0].is_new_registration;
             
-            logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${maskPhoneForLog(normalizedPhone)} by ${req.user?.name || 'system'}`);
+            logger.info(`📱 Device ${isNewRegistration ? 'registered' : 'updated'}: ${deviceName} for ${maskPhoneForLog(user.phone)} by ${req.user?.name || 'system'}`);
 
             success(res, {
               deviceRegistrationId: result[0].id,
-              phone: normalizedPhone,
+              phone: user.phone,
               deviceId,
               deviceName,
               isNewRegistration,
@@ -381,6 +455,7 @@ wrapAutoRBAC(
             }, `Device ${isNewRegistration ? 'registered' : 'updated'} successfully`);
 
           } catch (err) {
+            if (err.statusCode) return sendDeviceTargetError(res, err);
             logger.error('Device Registration Error:', err);
             error(res, 'Failed to register device', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
@@ -401,17 +476,12 @@ wrapAutoRBAC(
         async (req, res) => {
           const { phone, deviceId, additionalData = {} } = req.body;
 
-          if (!phone || !deviceId) {
-            return error(res, 'Phone and device ID are required', HTTP_STATUS.BAD_REQUEST);
+          if (!deviceId) {
+            return error(res, 'Device ID is required', HTTP_STATUS.BAD_REQUEST);
           }
 
           try {
-            const normalizedPhone = normalizePhone(phone);
-
-            // Role-based access control
-            if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
-              return error(res, 'Can only update activity for your own devices', HTTP_STATUS.FORBIDDEN);
-            }
+            const targetUser = await resolveDeviceTargetUser(req, phone);
 
             // Update device activity with optional additional data
             const updateQuery = `
@@ -420,13 +490,13 @@ wrapAutoRBAC(
                   app_version = COALESCE($3, app_version),
                   os_version = COALESCE($4, os_version)
               WHERE device_id = $1 
-                AND user_uid = (SELECT uid FROM users WHERE phone = $2)
+                AND user_uid = $2::uuid
               RETURNING device_name, last_active
             `;
 
             const result = await prisma.$queryRawUnsafe(updateQuery, 
               deviceId, 
-              normalizedPhone,
+              targetUser.uid,
               additionalData.appVersion,
               additionalData.osVersion
             );
@@ -436,7 +506,7 @@ wrapAutoRBAC(
             }
 
             success(res, { 
-              phone: normalizedPhone,
+              phone: targetUser.phone,
               deviceId,
               deviceName: result[0].device_name,
               lastActive: result[0].last_active,
@@ -444,6 +514,7 @@ wrapAutoRBAC(
             }, 'Device activity updated successfully');
 
           } catch (err) {
+            if (err.statusCode) return sendDeviceTargetError(res, err);
             logger.error('Device Heartbeat Error:', err);
             error(res, 'Failed to update device activity', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
@@ -456,25 +527,20 @@ wrapAutoRBAC(
         async (req, res) => {
           const { phone, deviceId, fcmToken } = req.body;
 
-          if (!phone || !deviceId || !fcmToken) {
-            return error(res, 'Phone, device ID, and FCM token are required', HTTP_STATUS.BAD_REQUEST);
+          if (!deviceId || !fcmToken) {
+            return error(res, 'Device ID and FCM token are required', HTTP_STATUS.BAD_REQUEST);
           }
 
           try {
-            const normalizedPhone = normalizePhone(phone);
-
-            // Role-based access control
-            if (req.user?.phone && normalizePhone(req.user.phone) !== normalizedPhone && req.user?.role !== 'ADMIN') {
-              return error(res, 'Can only update tokens for your own devices', HTTP_STATUS.FORBIDDEN);
-            }
+            const targetUser = await resolveDeviceTargetUser(req, phone);
 
             const result = await prisma.$queryRawUnsafe(
               `UPDATE user_devices 
                SET fcm_token = $1, last_active = NOW()
                WHERE device_id = $2 
-                 AND user_uid = (SELECT uid FROM users WHERE phone = $3)
+                 AND user_uid = $3::uuid
                RETURNING device_name`,
-              fcmToken, deviceId, normalizedPhone
+              fcmToken, deviceId, targetUser.uid
             );
 
             if (result.length === 0) {
@@ -484,7 +550,7 @@ wrapAutoRBAC(
             logger.info(`🔄 FCM token updated for device: ${result[0].device_name} (${deviceId}) by ${req.user?.name || 'system'}`);
 
             success(res, {
-              phone: normalizedPhone,
+              phone: targetUser.phone,
               deviceId,
               deviceName: result[0].device_name,
               tokenUpdated: true,
@@ -493,6 +559,7 @@ wrapAutoRBAC(
             }, 'FCM token updated successfully');
 
           } catch (err) {
+            if (err.statusCode) return sendDeviceTargetError(res, err);
             logger.error('FCM Token Update Error:', err);
             error(res, 'Failed to update FCM token', HTTP_STATUS.INTERNAL_SERVER_ERROR);
           }
@@ -530,9 +597,13 @@ wrapAutoRBAC(
 
             const result = await prisma.$queryRawUnsafe(
               `DELETE FROM user_devices
-               WHERE last_active < NOW() - make_interval(days => $1)
-               RETURNING device_name, platform, last_active`,
+               USING users u
+               WHERE user_devices.user_uid = u.uid
+                 AND u.tenant_id = $2::uuid
+                 AND user_devices.last_active < NOW() - make_interval(days => $1)
+               RETURNING user_devices.device_name, user_devices.platform, user_devices.last_active`,
               days,
+              tenantOf(req),
             );
 
             const cleanedDevices = result;

@@ -37,10 +37,16 @@ export function isValidFdiTooth(tooth) {
   return quadrant <= 4 ? position >= 1 && position <= 8 : position >= 1 && position <= 5;
 }
 
-async function assertPatient(patientUid) {
+async function assertPatient(tenantId, patientUid) {
   if (!patientUid) throw AppError.badRequest('patient_uid required', 'DENTAL_PATIENT_REQUIRED');
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`, patientUid,
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantOr(tenantId),
+    patientUid,
   );
   if (!rows.length) throw AppError.notFound('Patient not found', 'DENTAL_PATIENT_NOT_FOUND');
 }
@@ -50,7 +56,7 @@ async function assertPatient(patientUid) {
 export async function recordToothFinding({
   tenantId, patientUid, toothFdi, surface = null, finding, severity = null, notes = null,
 }, { actorUid = null, actorRole = null } = {}) {
-  await assertPatient(patientUid);
+  await assertPatient(tenantId, patientUid);
   if (!isValidFdiTooth(toothFdi)) {
     throw AppError.badRequest(
       `tooth_fdi "${toothFdi}" is not valid FDI notation (11-48 permanent, 51-85 deciduous)`,
@@ -91,29 +97,47 @@ export async function recordToothFinding({
   });
 }
 
-export async function resolveFinding(findingId, { resolutionNote, procedureId = null }, { actorUid = null, actorRole = null } = {}) {
+export async function resolveFinding(findingId, { tenantId, resolutionNote, procedureId = null }, { actorUid = null, actorRole = null } = {}) {
   if (!procedureId && (!resolutionNote || !String(resolutionNote).trim())) {
     throw AppError.badRequest('resolution_note required for manual resolution', 'DENTAL_RESOLUTION_NOTE_REQUIRED');
+  }
+  let procedure = null;
+  if (procedureId) {
+    const procedureRows = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid
+         FROM dental_procedures
+        WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(procedureId),
+      tenantOr(tenantId),
+    );
+    procedure = procedureRows[0] || null;
+    if (!procedure) throw AppError.notFound('Procedure not found', 'DENTAL_PROCEDURE_NOT_FOUND');
   }
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE dental_tooth_findings
        SET status = 'resolved', resolved_at = NOW(),
            resolved_by_procedure_id = $2, resolution_note = $3, updated_at = NOW()
-       WHERE id = $1 AND status = 'active'
+       WHERE id = $1 AND tenant_id = $4::uuid AND status = 'active'
        RETURNING *`,
       Number(findingId),
       procedureId ? Number(procedureId) : null,
       resolutionNote ? String(resolutionNote).trim() : null,
+      tenantOr(tenantId),
     );
     if (!rows.length) {
       const existing = await tx.$queryRawUnsafe(
-        `SELECT status FROM dental_tooth_findings WHERE id = $1`, Number(findingId),
+        `SELECT status FROM dental_tooth_findings WHERE id = $1 AND tenant_id = $2::uuid`,
+        Number(findingId),
+        tenantOr(tenantId),
       );
       if (!existing.length) throw AppError.notFound('Finding not found', 'DENTAL_FINDING_NOT_FOUND');
       throw AppError.invalidTransition(existing[0].status, 'resolved', ['active']);
     }
     const row = rows[0];
+    if (procedure && String(procedure.patient_uid) !== String(row.patient_uid)) {
+      throw AppError.badRequest('Procedure belongs to a different patient', 'DENTAL_PROCEDURE_PATIENT_MISMATCH');
+    }
 
     await recordCanonicalClinicalEvent({
       tenantId: row.tenant_id,
@@ -132,21 +156,23 @@ export async function resolveFinding(findingId, { resolutionNote, procedureId = 
 }
 
 /** Odontogram: per-tooth rollup of active findings + procedure history. */
-export async function getChart(patientUid) {
-  await assertPatient(patientUid);
+export async function getChart(patientUid, { tenantId } = {}) {
+  await assertPatient(tenantId, patientUid);
   const findings = await prisma.$queryRawUnsafe(
     `SELECT id, tooth_fdi, surface, finding, severity, status, recorded_at, notes
      FROM dental_tooth_findings
-     WHERE patient_uid = $1::uuid AND status = 'active'
+     WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'active'
      ORDER BY tooth_fdi, recorded_at`,
+    tenantOr(tenantId),
     patientUid,
   );
   const procedures = await prisma.$queryRawUnsafe(
     `SELECT id, tooth_fdi, surface, procedure_name, procedure_code, status, performed_at
      FROM dental_procedures
-     WHERE patient_uid = $1::uuid
+     WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
      ORDER BY created_at DESC
      LIMIT 200`,
+    tenantOr(tenantId),
     patientUid,
   );
 
@@ -174,7 +200,7 @@ export async function planProcedure({
   tenantId, patientUid, toothFdi = null, surface = null, findingId = null,
   procedureName, procedureCode = null, anesthesia = null, notes = null,
 }, { actorUid = null, actorRole = null } = {}) {
-  await assertPatient(patientUid);
+  await assertPatient(tenantId, patientUid);
   if (!procedureName || !String(procedureName).trim()) {
     throw AppError.badRequest('procedure_name required', 'DENTAL_PROCEDURE_NAME_REQUIRED');
   }
@@ -186,7 +212,11 @@ export async function planProcedure({
   }
   if (findingId) {
     const f = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, status FROM dental_tooth_findings WHERE id = $1`, Number(findingId),
+      `SELECT id, patient_uid, status
+         FROM dental_tooth_findings
+        WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(findingId),
+      tenantOr(tenantId),
     );
     if (!f.length) throw AppError.notFound('Linked finding not found', 'DENTAL_FINDING_NOT_FOUND');
     if (String(f[0].patient_uid) !== String(patientUid)) {
@@ -234,7 +264,7 @@ export async function planProcedure({
 }
 
 export async function completeProcedure(procedureId, {
-  materials = null, anesthesia = null, notes = null,
+  tenantId, materials = null, anesthesia = null, notes = null,
 }, { actorUid = null, actorRole = null } = {}) {
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRawUnsafe(
@@ -242,13 +272,15 @@ export async function completeProcedure(procedureId, {
        SET status = 'completed', performed_by = $2::uuid, performed_at = NOW(),
            materials = COALESCE($3, materials), anesthesia = COALESCE($4, anesthesia),
            notes = COALESCE($5, notes), updated_at = NOW()
-       WHERE id = $1 AND status IN ('planned', 'in_progress')
+       WHERE id = $1 AND tenant_id = $6::uuid AND status IN ('planned', 'in_progress')
        RETURNING *`,
-      Number(procedureId), actorUid, materials, anesthesia, notes,
+      Number(procedureId), actorUid, materials, anesthesia, notes, tenantOr(tenantId),
     );
     if (!rows.length) {
       const existing = await tx.$queryRawUnsafe(
-        `SELECT status FROM dental_procedures WHERE id = $1`, Number(procedureId),
+        `SELECT status FROM dental_procedures WHERE id = $1 AND tenant_id = $2::uuid`,
+        Number(procedureId),
+        tenantOr(tenantId),
       );
       if (!existing.length) throw AppError.notFound('Procedure not found', 'DENTAL_PROCEDURE_NOT_FOUND');
       throw AppError.invalidTransition(existing[0].status, 'completed', ['planned', 'in_progress']);
@@ -261,8 +293,8 @@ export async function completeProcedure(procedureId, {
         `UPDATE dental_tooth_findings
          SET status = 'resolved', resolved_at = NOW(), resolved_by_procedure_id = $2,
              resolution_note = $3, updated_at = NOW()
-         WHERE id = $1 AND status = 'active'`,
-        row.finding_id, row.id, `Treated by ${row.procedure_name}`,
+         WHERE id = $1 AND tenant_id = $4::uuid AND status = 'active'`,
+        row.finding_id, row.id, `Treated by ${row.procedure_name}`, tenantOr(tenantId),
       );
     }
 
@@ -285,20 +317,22 @@ export async function completeProcedure(procedureId, {
   });
 }
 
-export async function cancelProcedure(procedureId, { reason }) {
+export async function cancelProcedure(procedureId, { tenantId, reason }) {
   if (!reason || !String(reason).trim()) {
     throw AppError.badRequest('Cancellation reason required', 'DENTAL_CANCEL_REASON_REQUIRED');
   }
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE dental_procedures
      SET status = 'cancelled', cancelled_reason = $2, updated_at = NOW()
-     WHERE id = $1 AND status IN ('planned', 'in_progress')
+     WHERE id = $1 AND tenant_id = $3::uuid AND status IN ('planned', 'in_progress')
      RETURNING id, status, cancelled_reason`,
-    Number(procedureId), String(reason).trim(),
+    Number(procedureId), String(reason).trim(), tenantOr(tenantId),
   );
   if (!rows.length) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT status FROM dental_procedures WHERE id = $1`, Number(procedureId),
+      `SELECT status FROM dental_procedures WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(procedureId),
+      tenantOr(tenantId),
     );
     if (!existing.length) throw AppError.notFound('Procedure not found', 'DENTAL_PROCEDURE_NOT_FOUND');
     throw AppError.invalidTransition(existing[0].status, 'cancelled', ['planned', 'in_progress']);
@@ -306,13 +340,13 @@ export async function cancelProcedure(procedureId, { reason }) {
   return rows[0];
 }
 
-export async function listProcedures(patientUid, { status = null } = {}) {
-  await assertPatient(patientUid);
-  const params = [patientUid];
-  let where = 'WHERE patient_uid = $1::uuid';
+export async function listProcedures(patientUid, { tenantId, status = null } = {}) {
+  await assertPatient(tenantId, patientUid);
+  const params = [tenantOr(tenantId), patientUid];
+  let where = 'WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid';
   if (status) {
     params.push(status);
-    where += ` AND status = $2`;
+    where += ` AND status = $${params.length}`;
   }
   return prisma.$queryRawUnsafe(
     `SELECT * FROM dental_procedures ${where} ORDER BY created_at DESC LIMIT 200`,

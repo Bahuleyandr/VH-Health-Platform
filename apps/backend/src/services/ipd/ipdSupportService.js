@@ -51,6 +51,33 @@ const VALID_INDENT_TRANSITIONS = {
 };
 const CLINICAL_ORDER_REF_RE = /clinical_order_id:(\d+)/g;
 const PHARMACY_WARD_INDENT_ROLES = ['PHARMACY_STAFF', 'PHARMACY_INCHARGE'];
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+function tenantOr(value) {
+  return value || DEFAULT_TENANT_ID;
+}
+
+async function findAdmissionForTenant(client, admissionId, tenantId) {
+  const id = Number.parseInt(admissionId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('admission_id must be a positive integer');
+  }
+  const admission = await client.admissions.findFirst({
+    where: { id, tenant_id: tenantOr(tenantId) },
+    select: {
+      id: true,
+      patient_uid: true,
+      status: true,
+      billing_closed_at: true,
+      tenant_id: true,
+      encounter_id: true,
+      bed_id: true,
+      ward: true,
+    },
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
+  return admission;
+}
 
 const ATTENDANT_PASS_COUNT_PER_ADMISSION = 2;
 // Default safety expiry for auto-issued attendant passes. The pass is
@@ -234,8 +261,9 @@ function linkedClinicalOrderIds(items = []) {
  */
 export async function collectAdvanceDeposit({
   admissionId, amount, paymentMethod, paymentReference,
-  purpose = 'admission_advance', notes = null, collectedBy,
+  purpose = 'admission_advance', notes = null, collectedBy, tenantId = null,
 }) {
+  const tid = tenantOr(tenantId);
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
     throw AppError.badRequest(`Invalid payment_method: ${paymentMethod}. Must be one of: ${[...VALID_PAYMENT_METHODS].join(', ')}`);
@@ -273,11 +301,7 @@ export async function collectAdvanceDeposit({
   // admission used to throw P2025 from inside .create on the FK insert,
   // which the global handler dropped through as a generic 500. Pulling
   // the 404 out of the tx makes the failure mode actionable.
-  const admission = await prisma.admissions.findUnique({
-    where: { id: admissionId },
-    select: { id: true, patient_uid: true, status: true, billing_closed_at: true },
-  });
-  if (!admission) throw AppError.notFound('Admission not found');
+  const admission = await findAdmissionForTenant(prisma, admissionId, tid);
   if (admission.billing_closed_at) {
     throw AppError.badRequest(
       `Admission billing is closed (since ${admission.billing_closed_at.toISOString()}). Cannot collect new advance deposit.`,
@@ -303,6 +327,7 @@ export async function collectAdvanceDeposit({
             purpose,
             notes,
             collected_by: collectedBy,
+            tenant_id: tid,
           },
         });
 
@@ -317,10 +342,10 @@ export async function collectAdvanceDeposit({
         if (num > 0) {
           await tx.$executeRawUnsafe(
             `INSERT INTO billing_advances
-               (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes)
-             VALUES ($1::uuid, $2::int, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7)`,
+               (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes, tenant_id)
+             VALUES ($1::uuid, $2::int, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7, $8::uuid)`,
             admission.patient_uid, admissionId, num, paymentMethod,
-            `IPD/${receiptNumber}`, collectedBy, notes ?? null,
+            `IPD/${receiptNumber}`, collectedBy, notes ?? null, tid,
           );
         }
 
@@ -346,8 +371,9 @@ export async function collectAdvanceDeposit({
  */
 export async function refundAdvanceDeposit({
   parentDepositId, refundAmount, paymentMethod, paymentReference,
-  notes = null, refundedBy,
+  notes = null, refundedBy, tenantId = null,
 }) {
+  const tid = tenantOr(tenantId);
   if (!parentDepositId) throw AppError.badRequest('parentDepositId is required');
   const num = Number(refundAmount);
   if (!Number.isFinite(num) || num <= 0) {
@@ -359,8 +385,8 @@ export async function refundAdvanceDeposit({
   if (!refundedBy) throw AppError.badRequest('refundedBy is required');
 
   return prisma.$transaction(async (tx) => {
-    const parent = await tx.advance_deposits.findUnique({
-      where: { id: parentDepositId },
+    const parent = await tx.advance_deposits.findFirst({
+      where: { id: parentDepositId, tenant_id: tid },
       select: {
         id: true, amount: true, admission_id: true, patient_uid: true,
         is_refund: true, purpose: true,
@@ -372,7 +398,7 @@ export async function refundAdvanceDeposit({
     }
     // Sum existing refunds against this parent.
     const existingRefunds = await tx.advance_deposits.aggregate({
-      where: { parent_deposit_id: parentDepositId, is_refund: true },
+      where: { parent_deposit_id: parentDepositId, is_refund: true, tenant_id: tid },
       _sum: { amount: true },
     });
     const alreadyRefunded = Math.abs(Number(existingRefunds._sum.amount ?? 0));
@@ -397,6 +423,7 @@ export async function refundAdvanceDeposit({
         is_refund: true,
         notes,
         collected_by: refundedBy,
+        tenant_id: tid,
       },
     });
 
@@ -406,8 +433,8 @@ export async function refundAdvanceDeposit({
     // an already-settled advance won't reverse the settlement here;
     // that needs an explicit billingV2 raiseRefund call.
     const parentRows = await tx.$queryRawUnsafe(
-      `SELECT receipt_number FROM advance_deposits WHERE id = $1::int`,
-      parent.id,
+      `SELECT receipt_number FROM advance_deposits WHERE id = $1::int AND tenant_id = $2::uuid`,
+      parent.id, tid,
     );
     const parentReceipt = parentRows[0]?.receipt_number;
     if (parentReceipt) {
@@ -417,8 +444,8 @@ export async function refundAdvanceDeposit({
                 status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
                               THEN 'EXHAUSTED' ELSE status END,
                 updated_at = NOW()
-          WHERE reference = $2`,
-        num, `IPD/${parentReceipt}`,
+          WHERE reference = $2 AND tenant_id = $3::uuid`,
+        num, `IPD/${parentReceipt}`, tid,
       );
     }
 
@@ -445,13 +472,14 @@ export async function refundAdvanceDeposit({
  *       collected on/before the admitted_at timestamp.
  * Finding 2026-05-22-..._ac0e6a1e.
  */
-export async function getAdmissionDepositBalance(admissionId) {
+export async function getAdmissionDepositBalance(admissionId, { tenantId = null } = {}) {
   if (!admissionId) return 0;
+  const tid = tenantOr(tenantId);
 
   // Advance-deposits is the canonical admission-linked surface
   // (receipt_number + parent_deposit_id chains for refunds).
   const adAgg = await prisma.advance_deposits.aggregate({
-    where: { admission_id: admissionId },
+    where: { admission_id: admissionId, tenant_id: tid },
     _sum: { amount: true },
   });
   const advanceDepositsTotal = Number(adAgg._sum.amount ?? 0);
@@ -466,7 +494,9 @@ export async function getAdmissionDepositBalance(admissionId) {
       `SELECT COALESCE(SUM(ba.amount), 0)::numeric AS total
          FROM billing_advances ba
          JOIN admissions a ON a.id = $1::int
+                           AND a.tenant_id = $2::uuid
         WHERE COALESCE(ba.status, 'ACTIVE') <> 'CANCELLED'
+          AND ba.tenant_id = $2::uuid
           AND (
             ba.admission_id = $1::int
             OR (
@@ -475,7 +505,7 @@ export async function getAdmissionDepositBalance(admissionId) {
               AND ba.collected_at <= COALESCE(a.admitted_at, a.created_at)
             )
           )`,
-      Number(admissionId),
+      Number(admissionId), tid,
     );
     billingAdvancesTotal = Number(baRows[0]?.total ?? 0);
   } catch (err) {
@@ -489,9 +519,9 @@ export async function getAdmissionDepositBalance(admissionId) {
   return advanceDepositsTotal + billingAdvancesTotal;
 }
 
-export async function listAdmissionDeposits(admissionId) {
+export async function listAdmissionDeposits(admissionId, { tenantId = null } = {}) {
   return prisma.advance_deposits.findMany({
-    where: { admission_id: admissionId },
+    where: { admission_id: admissionId, tenant_id: tenantOr(tenantId) },
     orderBy: { collected_at: 'asc' },
   });
 }
@@ -510,7 +540,7 @@ export async function listAdmissionDeposits(admissionId) {
  * @returns {Array<Object>} the issued passes
  */
 export async function issueDefaultAttendantPasses(tx, {
-  admissionId, patientUid, patientName, wardId, wardName, issuedBy,
+  admissionId, patientUid, patientName, wardId, wardName, issuedBy, tenantId = null,
 }) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!patientUid) throw AppError.badRequest('patientUid is required');
@@ -545,6 +575,7 @@ export async function issueDefaultAttendantPasses(tx, {
         screening_level: screeningLevel,
         issued_by: issuedBy,
         expires_at: expiresAt,
+        tenant_id: tenantOr(tenantId),
       },
     });
     passes.push(created);
@@ -555,12 +586,19 @@ export async function issueDefaultAttendantPasses(tx, {
 /**
  * Revoke an attendant pass (lost / replaced / disciplinary).
  */
-export async function revokeAttendantPass({ passId, revokedBy, reason = null }) {
+export async function revokeAttendantPass({ passId, revokedBy, reason = null, tenantId = null }) {
   if (!passId) throw AppError.badRequest('passId is required');
   if (!revokedBy) throw AppError.badRequest('revokedBy is required');
+  const tid = tenantOr(tenantId);
+
+  const pass = await prisma.attendant_passes.findFirst({
+    where: { id: passId, tenant_id: tid },
+    select: { id: true },
+  });
+  if (!pass) throw AppError.notFound('Attendant pass not found');
 
   return prisma.attendant_passes.update({
-    where: { id: passId },
+    where: { id: pass.id },
     data: {
       status: 'revoked',
       revoked_by: revokedBy,
@@ -577,11 +615,16 @@ export async function revokeAttendantPass({ passId, revokedBy, reason = null }) 
  * stays valid — new passes get a higher pass_index past the original 2.
  */
 export async function issueReplacementAttendantPass({
-  admissionId, patientUid, patientName, wardId, wardName, issuedBy, notes = null,
+  admissionId, patientUid, patientName, wardId, wardName, issuedBy, notes = null, tenantId = null,
 }) {
+  const tid = tenantOr(tenantId);
   return prisma.$transaction(async (tx) => {
+    const admission = await findAdmissionForTenant(tx, admissionId, tid);
+    if (patientUid && patientUid !== admission.patient_uid) {
+      throw AppError.forbidden('Attendant pass patient does not belong to this admission', 'PASS_PATIENT_MISMATCH');
+    }
     const lastIndex = await tx.attendant_passes.aggregate({
-      where: { admission_id: admissionId },
+      where: { admission_id: admission.id, tenant_id: tid },
       _max: { pass_index: true },
     });
     const nextIndex = (lastIndex._max.pass_index ?? 0) + 1;
@@ -589,12 +632,18 @@ export async function issueReplacementAttendantPass({
     // chain means the destructured `_pass` is always undefined. Kept the
     // side-effect call out of an abundance of caution.
     const [_pass] = await issueDefaultAttendantPasses(tx, {
-      admissionId, patientUid, patientName, wardId, wardName, issuedBy,
+      admissionId: admission.id,
+      patientUid: admission.patient_uid,
+      patientName,
+      wardId,
+      wardName,
+      issuedBy,
+      tenantId: tid,
     }).then(() => []) // can't reuse — write a custom one
       .catch(() => []);
     // Direct create rather than the bulk helper above so we can pass
     // explicit pass_index = nextIndex.
-    const passNumber = await nextPassNumber(tx, admissionId, nextIndex);
+    const passNumber = await nextPassNumber(tx, admission.id, nextIndex);
     let passColor = null;
     let screeningLevel = 'standard';
     if (wardId) {
@@ -607,8 +656,8 @@ export async function issueReplacementAttendantPass({
     }
     return tx.attendant_passes.create({
       data: {
-        admission_id: admissionId,
-        patient_uid: patientUid,
+        admission_id: admission.id,
+        patient_uid: admission.patient_uid,
         pass_number: passNumber,
         pass_index: nextIndex,
         patient_name_snapshot: patientName ?? null,
@@ -617,6 +666,7 @@ export async function issueReplacementAttendantPass({
         screening_level: screeningLevel,
         issued_by: issuedBy,
         notes,
+        tenant_id: tid,
         // Replacements inherit the same default validity window as
         // the original auto-issued passes — without this, security
         // can't tell a stale replacement from a current one.
@@ -670,9 +720,9 @@ export async function relocateActiveAttendantPasses(tx, {
   });
 }
 
-export async function listAdmissionPasses(admissionId) {
+export async function listAdmissionPasses(admissionId, { tenantId = null } = {}) {
   return prisma.attendant_passes.findMany({
-    where: { admission_id: admissionId },
+    where: { admission_id: admissionId, tenant_id: tenantOr(tenantId) },
     orderBy: { pass_index: 'asc' },
   });
 }
@@ -686,8 +736,9 @@ export async function listAdmissionPasses(admissionId) {
  */
 export async function createWardIndent({
   wardId, admissionId = null, encounterId = null, patientUid = null,
-  indentType = 'pharmacy', items, notes = null, requestedBy,
+  indentType = 'pharmacy', items, notes = null, requestedBy, tenantId = null,
 }) {
+  const tid = tenantOr(tenantId);
   if (!VALID_INDENT_TYPES.has(indentType)) {
     throw AppError.badRequest(`Invalid indent_type: ${indentType}`);
   }
@@ -729,8 +780,9 @@ export async function createWardIndent({
          FROM admissions a
          LEFT JOIN beds  b ON b.id = a.bed_id
          LEFT JOIN wards w ON w.id = b.ward_id
-        WHERE a.id = $1::int`,
-      admissionInt,
+        WHERE a.id = $1::int
+          AND a.tenant_id = $2::uuid`,
+      admissionInt, tid,
     );
     const admission = rows[0];
     if (!admission) throw AppError.notFound('Admission not found');
@@ -739,6 +791,13 @@ export async function createWardIndent({
     if (resolvedWardName == null) resolvedWardName = admission.ward_name ?? null;
     if (resolvedPatientUid == null) resolvedPatientUid = admission.patient_uid ?? null;
     if (resolvedEncounterId == null) resolvedEncounterId = admission.encounter_id ?? null;
+  }
+  if (resolvedPatientUid != null) {
+    const patientRows = await prisma.$queryRawUnsafe(
+      `SELECT uid FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+      resolvedPatientUid, tid,
+    );
+    if (!patientRows.length) throw AppError.notFound('Patient not found');
   }
 
   return prisma.$transaction(async (tx) => {
@@ -759,6 +818,7 @@ export async function createWardIndent({
         status: 'requested',
         requested_by: requestedBy,
         notes,
+        tenant_id: tid,
         items: {
           create: items.map((it) => ({
             pharmacy_catalog_id: it.pharmacy_catalog_id ?? null,
@@ -793,9 +853,10 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
          FROM ward_indents wi
          JOIN ward_indent_items wii ON wii.ward_indent_id = wi.id
         WHERE wii.notes LIKE $1
+          AND wi.tenant_id = COALESCE($2::uuid, wi.tenant_id)
         ORDER BY wi.created_at DESC
         LIMIT 1`,
-      `%clinical_order_id:${order.id}%`,
+      `%clinical_order_id:${order.id}%`, order.tenant_id || null,
     );
     if (existing.length) {
       const indent = await tx.ward_indents.findUnique({
@@ -812,11 +873,13 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
          LEFT JOIN wards w ON w.id = b.ward_id
         WHERE a.encounter_id = $1::uuid
           AND a.patient_uid = $2::uuid
+          AND a.tenant_id = COALESCE($3::uuid, a.tenant_id)
           AND COALESCE(a.status, 'admitted') NOT IN ('discharged', 'cancelled')
         ORDER BY a.admitted_at DESC NULLS LAST, a.id DESC
         LIMIT 1`,
       order.encounter_id,
       order.patient_uid,
+      order.tenant_id || null,
     );
     const admission = admissions[0];
     if (!admission) return null;
@@ -886,6 +949,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
         status: 'requested',
         requested_by: order.ordered_by,
         notes: `Generated from inpatient medication order ${order.order_number}`,
+        tenant_id: admission.tenant_id || order.tenant_id || DEFAULT_TENANT_ID,
         items: {
           create: [{
             pharmacy_catalog_id: catalog?.id ?? null,
@@ -944,13 +1008,16 @@ async function notifyPharmacyStaffOfWardIndent({ indent, order, medicationName, 
   });
 }
 
-async function transitionWardIndent({ indentId, fromExpected, toStatus, actorUid, extra = {} }) {
+async function transitionWardIndent({
+  indentId, fromExpected, toStatus, actorUid, tenantId = null, extra = {},
+}) {
   if (!indentId) throw AppError.badRequest('indentId is required');
   if (!actorUid) throw AppError.badRequest('actorUid is required');
+  const tid = tenantOr(tenantId);
 
   return prisma.$transaction(async (tx) => {
-    const current = await tx.ward_indents.findUnique({
-      where: { id: indentId },
+    const current = await tx.ward_indents.findFirst({
+      where: { id: indentId, tenant_id: tid },
       select: { id: true, status: true },
     });
     if (!current) throw AppError.notFound('Ward indent not found');
@@ -970,19 +1037,19 @@ async function transitionWardIndent({ indentId, fromExpected, toStatus, actorUid
   });
 }
 
-export async function approveWardIndent({ indentId, approvedBy }) {
+export async function approveWardIndent({ indentId, approvedBy, tenantId = null }) {
   return transitionWardIndent({
-    indentId, fromExpected: 'requested', toStatus: 'approved', actorUid: approvedBy,
+    indentId, fromExpected: 'requested', toStatus: 'approved', actorUid: approvedBy, tenantId,
     extra: { approved_by: approvedBy, approved_at: new Date() },
   });
 }
 
-export async function rejectWardIndent({ indentId, rejectedBy, reason }) {
+export async function rejectWardIndent({ indentId, rejectedBy, reason, tenantId = null }) {
   if (!reason || !String(reason).trim()) {
     throw AppError.badRequest('rejection reason is required');
   }
   return transitionWardIndent({
-    indentId, fromExpected: null, toStatus: 'rejected', actorUid: rejectedBy,
+    indentId, fromExpected: null, toStatus: 'rejected', actorUid: rejectedBy, tenantId,
     extra: { rejection_reason: reason, approved_by: rejectedBy, approved_at: new Date() },
   });
 }
@@ -993,13 +1060,14 @@ export async function rejectWardIndent({ indentId, rejectedBy, reason }) {
  * without pharmacy_catalog_id (free-text non-catalog items) are
  * recorded but skip stock decrement.
  */
-export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued }) {
+export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued, tenantId = null }) {
   if (!indentId) throw AppError.badRequest('indentId is required');
   if (!issuedBy) throw AppError.badRequest('issuedBy is required');
+  const tid = tenantOr(tenantId);
 
   return prisma.$transaction(async (tx) => {
-    const current = await tx.ward_indents.findUnique({
-      where: { id: indentId },
+    const current = await tx.ward_indents.findFirst({
+      where: { id: indentId, tenant_id: tid },
       include: { items: true },
     });
     if (!current) throw AppError.notFound('Ward indent not found');
@@ -1035,6 +1103,7 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
       await tx.clinical_orders.updateMany({
         where: {
           id: { in: clinicalOrderIds },
+          tenant_id: tid,
           order_type: 'medication',
           status: { in: ['ordered', 'verified', 'in_progress'] },
         },
@@ -1060,15 +1129,15 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
   });
 }
 
-export async function receiveWardIndent({ indentId, receivedBy }) {
+export async function receiveWardIndent({ indentId, receivedBy, tenantId = null }) {
   return transitionWardIndent({
-    indentId, fromExpected: 'issued', toStatus: 'received', actorUid: receivedBy,
+    indentId, fromExpected: 'issued', toStatus: 'received', actorUid: receivedBy, tenantId,
     extra: { received_by: receivedBy, received_at: new Date() },
   });
 }
 
 export async function listWardIndents({
-  wardId = null, status = null, admissionId = null, patientUid = null, limit = 50,
+  wardId = null, status = null, admissionId = null, patientUid = null, limit = 50, tenantId = null,
 } = {}) {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   if (patientUid != null && !isUuid(patientUid)) {
@@ -1077,6 +1146,7 @@ export async function listWardIndents({
   return prisma.ward_indents.findMany({
     where: {
       ...(wardId ? { ward_id: wardId } : {}),
+      tenant_id: tenantOr(tenantId),
       ...(status ? { status } : {}),
       ...(admissionId ? { admission_id: admissionId } : {}),
       ...(patientUid ? { patient_uid: patientUid } : {}),
@@ -1087,9 +1157,9 @@ export async function listWardIndents({
   });
 }
 
-export async function getWardIndent(indentId) {
-  return prisma.ward_indents.findUnique({
-    where: { id: indentId },
+export async function getWardIndent(indentId, { tenantId = null } = {}) {
+  return prisma.ward_indents.findFirst({
+    where: { id: indentId, tenant_id: tenantOr(tenantId) },
     include: { items: true },
   });
 }

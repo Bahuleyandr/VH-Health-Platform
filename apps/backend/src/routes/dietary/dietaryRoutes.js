@@ -16,6 +16,11 @@ const validate = (req, res, next) => {
 
 const router = Router();
 
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
+}
+
 /**
  * POST /dietary/orders
  * Create a new diet order
@@ -31,6 +36,7 @@ router.post('/orders', requiredUUID('patient_uid'), requiredString('diet_type', 
       meal_preferences: req.body.meal_preferences,
       calories_target: req.body.calories_target,
       special_instructions: req.body.special_instructions,
+      tenant_id: tenantOf(req),
       ordered_by: req.user?.uid || null
     };
 
@@ -54,6 +60,7 @@ router.get('/worklist', async (req, res, next) => {
     const filters = {
       status: req.query.status,
       diet_type: req.query.diet_type,
+      tenantId: tenantOf(req),
       page: req.query.page,
       limit: req.query.limit
     };
@@ -86,6 +93,7 @@ router.put('/:id', paramId(), validate, async (req, res, next) => {
       calories_target: req.body.calories_target,
       special_instructions: req.body.special_instructions,
       status: req.body.status,
+      tenantId: tenantOf(req),
       reviewed_by: req.user?.uid || null
     };
 
@@ -109,6 +117,7 @@ router.get('/patient/:uid', async (req, res, next) => {
     const { uid } = req.params;
     const filters = {
       page: req.query.page,
+      tenantId: tenantOf(req),
       limit: req.query.limit
     };
 

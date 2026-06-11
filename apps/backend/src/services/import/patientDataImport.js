@@ -2,9 +2,19 @@
 // Imports patient data from FHIR Bundles and C-CDA XML documents.
 // Includes deduplication to avoid creating duplicate records on re-import.
 
+import crypto from 'node:crypto';
+
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { fromFhirPatient } from '../fhir/fhirAdapter.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function importedUidOrNew(value) {
+  const text = value == null ? '' : String(value).trim();
+  return UUID_RE.test(text) ? text : crypto.randomUUID();
+}
 
 // =============================================================================
 // FHIR BUNDLE IMPORT
@@ -15,9 +25,10 @@ import { fromFhirPatient } from '../fhir/fhirAdapter.js';
  * Supports Patient, Condition, MedicationRequest, and Observation resources.
  * @param {Object} bundle - FHIR Bundle resource
  * @param {string} importedBy - UID of the user performing the import
+ * @param {{tenantId?: string|null}} options
  * @returns {Object} Import results with counts and errors
  */
-export async function importFhirBundle(bundle, importedBy) {
+export async function importFhirBundle(bundle, importedBy, { tenantId = null } = {}) {
   if (!bundle || bundle.resourceType !== 'Bundle') {
     throw new Error('Invalid FHIR Bundle: resourceType must be Bundle');
   }
@@ -34,16 +45,16 @@ export async function importFhirBundle(bundle, importedBy) {
     try {
       switch (resource.resourceType) {
         case 'Patient':
-          await importPatient(resource, importedBy);
+          await importPatient(resource, importedBy, { tenantId });
           break;
         case 'Condition':
-          await importCondition(resource, importedBy);
+          await importCondition(resource, importedBy, { tenantId });
           break;
         case 'MedicationRequest':
-          await importMedication(resource, importedBy);
+          await importMedication(resource, importedBy, { tenantId });
           break;
         case 'Observation':
-          await importObservation(resource, importedBy);
+          await importObservation(resource, importedBy, { tenantId });
           break;
         default:
           results.skipped++;
@@ -73,9 +84,10 @@ export async function importFhirBundle(bundle, importedBy) {
  * Extracts patient demographics, problems, medications, and allergies from the XML.
  * @param {string} xmlString - C-CDA XML content
  * @param {string} importedBy - UID of the user performing the import
+ * @param {{tenantId?: string|null}} options
  * @returns {Object} Import results
  */
-export async function importCCDA(xmlString, importedBy) {
+export async function importCCDA(xmlString, importedBy, { tenantId = null } = {}) {
   if (!xmlString || typeof xmlString !== 'string') {
     throw new Error('Invalid C-CDA: expected XML string');
   }
@@ -86,7 +98,7 @@ export async function importCCDA(xmlString, importedBy) {
     // Extract patient demographics
     const patientData = extractCCDAPatient(xmlString);
     if (patientData) {
-      await importPatientFromCCDA(patientData, importedBy);
+      await importPatientFromCCDA(patientData, importedBy, { tenantId });
       results.imported++;
     }
 
@@ -94,7 +106,7 @@ export async function importCCDA(xmlString, importedBy) {
     const problems = extractCCDASection(xmlString, '11450-4');
     for (const problem of problems) {
       try {
-        await importDiagnosisFromCCDA(problem, patientData?.uid, importedBy);
+        await importDiagnosisFromCCDA(problem, patientData?.uid, importedBy, { tenantId });
         results.imported++;
       } catch (err) {
         results.errors.push({ resource: 'Problem', error: err.message });
@@ -105,7 +117,7 @@ export async function importCCDA(xmlString, importedBy) {
     const medications = extractCCDASection(xmlString, '10160-0');
     for (const med of medications) {
       try {
-        await importMedicationFromCCDA(med, patientData?.uid, importedBy);
+        await importMedicationFromCCDA(med, patientData?.uid, importedBy, { tenantId });
         results.imported++;
       } catch (err) {
         results.errors.push({ resource: 'Medication', error: err.message });
@@ -116,7 +128,7 @@ export async function importCCDA(xmlString, importedBy) {
     const allergies = extractCCDASection(xmlString, '48765-2');
     for (const allergy of allergies) {
       try {
-        await importAllergyFromCCDA(allergy, patientData?.uid, importedBy);
+        await importAllergyFromCCDA(allergy, patientData?.uid, importedBy, { tenantId });
         results.imported++;
       } catch (err) {
         results.errors.push({ resource: 'Allergy', error: err.message });
@@ -135,16 +147,45 @@ export async function importCCDA(xmlString, importedBy) {
 // FHIR RESOURCE IMPORTERS (with deduplication)
 // =============================================================================
 
-async function importPatient(fhirPatient, _importedBy) {
+async function findPatientByUid(patientUid, tenantId = null) {
+  if (!patientUid) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, phone, tenant_id
+       FROM users
+      WHERE uid = $1::uuid
+        AND role = 'PATIENT'
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    patientUid,
+    tenantId,
+  );
+  return rows[0] || null;
+}
+
+async function assertPatientInTenant(patientUid, tenantId = null) {
+  const patient = await findPatientByUid(patientUid, tenantId);
+  if (!patient) {
+    throw AppError.forbidden('Imported resource references a patient outside this tenant', 'IMPORT_PATIENT_TENANT_MISMATCH');
+  }
+  return patient;
+}
+
+async function importPatient(fhirPatient, _importedBy, { tenantId = null } = {}) {
   const patient = fromFhirPatient(fhirPatient);
   if (!patient || !patient.phone) {
     throw new Error('Patient must have a phone number');
   }
 
-  // Dedup by phone
+  // Dedup by phone inside the caller tenant only. If the phone exists in
+  // another tenant, do not update that chart from this import.
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-    patient.phone
+    `SELECT uid, tenant_id
+       FROM users
+      WHERE phone = $1
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    patient.phone,
+    tenantId,
   );
 
   if (existing.length) {
@@ -162,8 +203,11 @@ async function importPatient(fhirPatient, _importedBy) {
     if (updates.length > 0) {
       updates.push(`updated_at = NOW()`);
       await prisma.$queryRawUnsafe(
-        `UPDATE users SET ${updates.join(', ')} WHERE uid = $${idx}`,
-        ...params, existing[0].uid
+        `UPDATE users
+            SET ${updates.join(', ')}
+          WHERE uid = $${idx}::uuid
+            AND ($${idx + 1}::uuid IS NULL OR tenant_id = $${idx + 1}::uuid)`,
+        ...params, existing[0].uid, tenantId
       );
       logger.info(`Updated existing patient ${existing[0].uid} from FHIR import`);
     }
@@ -171,21 +215,22 @@ async function importPatient(fhirPatient, _importedBy) {
   }
 
   // Create new patient — generate UID
-  const uid = `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const uid = importedUidOrNew(patient.uid);
   await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, phone, name, gender, birthday, address, email, role, is_active, registered_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'PATIENT', true, NOW())`,
-    uid, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email
+    `INSERT INTO users (uid, tenant_id, phone, name, gender, birthday, address, email, role, is_active, registered_at)
+     VALUES ($1, COALESCE($2::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $3, $4, $5, $6, $7, $8, 'PATIENT', true, NOW())`,
+    uid, tenantId, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email
   );
   logger.info(`Created new patient ${uid} from FHIR import`);
 }
 
-async function importCondition(fhirCondition, importedBy) {
+async function importCondition(fhirCondition, importedBy, { tenantId = null } = {}) {
   if (!fhirCondition || fhirCondition.resourceType !== 'Condition') return;
 
   const patientRef = fhirCondition.subject?.reference || '';
   const patientUid = patientRef.replace('Patient/', '');
   if (!patientUid) throw new Error('Condition missing patient reference');
+  await assertPatientInTenant(patientUid, tenantId);
 
   const description = fhirCondition.code?.text ||
     fhirCondition.code?.coding?.[0]?.display || 'Imported condition';
@@ -198,11 +243,13 @@ async function importCondition(fhirCondition, importedBy) {
   // Dedup: check by patient + icd10 code + description
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM diagnoses
-     WHERE patient_uid = $1 AND (
+     WHERE patient_uid = $1::uuid
+       AND ($4::uuid IS NULL OR tenant_id = $4::uuid)
+       AND (
        (icd10_code IS NOT NULL AND icd10_code = $2)
        OR (description = $3)
      ) LIMIT 1`,
-    patientUid, icd10Code, description
+    patientUid, icd10Code, description, tenantId
   );
 
   if (existing.length) {
@@ -211,9 +258,10 @@ async function importCondition(fhirCondition, importedBy) {
   }
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO diagnoses (patient_uid, icd10_code, description, status, onset_date, diagnosed_by, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+    `INSERT INTO diagnoses (tenant_id, patient_uid, icd10_code, description, status, onset_date, diagnosed_by, created_at)
+     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, $6, $7, NOW())`,
     
+      tenantId,
       patientUid,
       icd10Code,
       description,
@@ -224,12 +272,13 @@ async function importCondition(fhirCondition, importedBy) {
   );
 }
 
-async function importMedication(fhirMedication, importedBy) {
+async function importMedication(fhirMedication, importedBy, { tenantId = null } = {}) {
   if (!fhirMedication || fhirMedication.resourceType !== 'MedicationRequest') return;
 
   const patientRef = fhirMedication.subject?.reference || '';
   const patientUid = patientRef.replace('Patient/', '');
   if (!patientUid) throw new Error('MedicationRequest missing patient reference');
+  const patient = await assertPatientInTenant(patientUid, tenantId);
 
   const medication = fhirMedication.medicationCodeableConcept?.text ||
     fhirMedication.medicationCodeableConcept?.coding?.[0]?.display || 'Imported medication';
@@ -248,9 +297,12 @@ async function importMedication(fhirMedication, importedBy) {
   // Dedup: check recent orders for same patient + medication text
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM pharmacy_orders
-     WHERE uid = $1 AND medication = $2 AND created_at > NOW() - INTERVAL '24 hours'
+     WHERE uid = $1::uuid
+       AND medication = $2
+       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+       AND created_at > NOW() - INTERVAL '24 hours'
      LIMIT 1`,
-    patientUid, medication
+    patientUid, medication, tenantId
   );
 
   if (existing.length) {
@@ -259,18 +311,19 @@ async function importMedication(fhirMedication, importedBy) {
   }
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_orders (uid, medication, order_note, status, prescribed_by, created_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())`,
-    patientUid, medication, note, status, importedBy
+    `INSERT INTO pharmacy_orders (tenant_id, uid, phone, medication, order_note, status, prescribed_by, created_at)
+     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, $6, $7, NOW())`,
+    tenantId, patientUid, patient.phone || '', medication, note || '', status, importedBy
   );
 }
 
-async function importObservation(fhirObservation, importedBy) {
+async function importObservation(fhirObservation, importedBy, { tenantId = null } = {}) {
   if (!fhirObservation || fhirObservation.resourceType !== 'Observation') return;
 
   const patientRef = fhirObservation.subject?.reference || '';
   const patientUid = patientRef.replace('Patient/', '');
   if (!patientUid) throw new Error('Observation missing patient reference');
+  await assertPatientInTenant(patientUid, tenantId);
 
   // Only import vital signs
   const category = fhirObservation.category?.[0]?.coding?.[0]?.code;
@@ -305,25 +358,30 @@ async function importObservation(fhirObservation, importedBy) {
   // Dedup: check for a vitals record within same minute
   const existing = await prisma.$queryRawUnsafe(
     `SELECT id FROM vitals_chart
-     WHERE patient_uid = $1 AND recorded_at BETWEEN $2::timestamp - INTERVAL '1 minute' AND $2::timestamp + INTERVAL '1 minute'
+     WHERE patient_uid = $1::uuid
+       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+       AND recorded_at BETWEEN $2::timestamp - INTERVAL '1 minute' AND $2::timestamp + INTERVAL '1 minute'
      LIMIT 1`,
-    patientUid, recordedAt
+    patientUid, recordedAt, tenantId
   );
 
   if (existing.length) {
     // Update existing record with the new vital value
     await prisma.$queryRawUnsafe(
-      `UPDATE vitals_chart SET ${column} = $1 WHERE id = $2`,
-      value, existing[0].id
+      `UPDATE vitals_chart
+          SET ${column} = $1
+        WHERE id = $2::int
+          AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+      value, existing[0].id, tenantId
     );
     return;
   }
 
   // Create new vitals record
   await prisma.$queryRawUnsafe(
-    `INSERT INTO vitals_chart (patient_uid, ${column}, recorded_at, recorded_by, created_at)
-     VALUES ($1, $2, $3, $4, NOW())`,
-    patientUid, value, recordedAt, importedBy
+    `INSERT INTO vitals_chart (tenant_id, patient_uid, ${column}, recorded_at, recorded_by, created_at)
+     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $5, NOW())`,
+    tenantId, patientUid, value, recordedAt, importedBy
   );
 }
 
@@ -433,16 +491,21 @@ function isStructuralDisplayName(name) {
 // C-CDA RESOURCE IMPORTERS
 // =============================================================================
 
-async function importPatientFromCCDA(patientData, _importedBy) {
+async function importPatientFromCCDA(patientData, _importedBy, { tenantId = null } = {}) {
   if (!patientData.phone) {
     logger.warn('C-CDA patient has no phone number, skipping patient import');
     return;
   }
 
-  // Dedup by phone
+  // Dedup by phone inside the caller tenant only.
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE phone = $1 LIMIT 1`,
-    patientData.phone
+    `SELECT uid
+       FROM users
+      WHERE phone = $1
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    patientData.phone,
+    tenantId
   );
 
   if (existing.length) {
@@ -451,65 +514,81 @@ async function importPatientFromCCDA(patientData, _importedBy) {
     return;
   }
 
-  const uid = `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const uid = importedUidOrNew(patientData.uid);
   patientData.uid = uid;
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, phone, name, gender, birthday, address, role, is_active, registered_at)
-     VALUES ($1, $2, $3, $4, $5, $6, 'PATIENT', true, NOW())`,
-    uid, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address
+    `INSERT INTO users (uid, tenant_id, phone, name, gender, birthday, address, role, is_active, registered_at)
+     VALUES ($1, COALESCE($2::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $3, $4, $5, $6, $7, 'PATIENT', true, NOW())`,
+    uid, tenantId, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address
   );
   logger.info(`Created new patient ${uid} from C-CDA import`);
 }
 
-async function importDiagnosisFromCCDA(problem, patientUid, importedBy) {
+async function importDiagnosisFromCCDA(problem, patientUid, importedBy, { tenantId = null } = {}) {
   if (!patientUid || !problem.displayName) return;
+  await assertPatientInTenant(patientUid, tenantId);
 
   // Dedup
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM diagnoses WHERE patient_uid = $1 AND description = $2 LIMIT 1`,
-    patientUid, problem.displayName
+    `SELECT id FROM diagnoses
+     WHERE patient_uid = $1::uuid
+       AND description = $2
+       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+     LIMIT 1`,
+    patientUid, problem.displayName, tenantId
   );
   if (existing.length) return;
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO diagnoses (patient_uid, description, status, diagnosed_by, created_at)
-     VALUES ($1, $2, 'active', $3, NOW())`,
-    patientUid, problem.displayName, importedBy
+    `INSERT INTO diagnoses (tenant_id, patient_uid, description, status, diagnosed_by, created_at)
+     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, 'active', $4, NOW())`,
+    tenantId, patientUid, problem.displayName, importedBy
   );
 }
 
-async function importMedicationFromCCDA(med, patientUid, importedBy) {
+async function importMedicationFromCCDA(med, patientUid, importedBy, { tenantId = null } = {}) {
   if (!patientUid || !med.displayName) return;
+  const patient = await assertPatientInTenant(patientUid, tenantId);
 
   // Dedup
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM pharmacy_orders WHERE uid = $1 AND medication = $2 AND created_at > NOW() - INTERVAL '24 hours' LIMIT 1`,
-    patientUid, med.displayName
+    `SELECT id FROM pharmacy_orders
+     WHERE uid = $1::uuid
+       AND medication = $2
+       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+       AND created_at > NOW() - INTERVAL '24 hours'
+     LIMIT 1`,
+    patientUid, med.displayName, tenantId
   );
   if (existing.length) return;
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO pharmacy_orders (uid, medication, status, prescribed_by, created_at)
-     VALUES ($1, $2, 'PENDING', $3, NOW())`,
-    patientUid, med.displayName, importedBy
+    `INSERT INTO pharmacy_orders (tenant_id, uid, phone, medication, order_note, status, prescribed_by, created_at)
+     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $4, $4, 'PENDING', $5, NOW())`,
+    tenantId, patientUid, patient.phone || '', med.displayName, importedBy
   );
 }
 
-async function importAllergyFromCCDA(allergy, patientUid, _importedBy) {
+async function importAllergyFromCCDA(allergy, patientUid, _importedBy, { tenantId = null } = {}) {
   if (!patientUid || !allergy.displayName) return;
+  await assertPatientInTenant(patientUid, tenantId);
 
   // Dedup
   const existing = await prisma.$queryRawUnsafe(
-    `SELECT id FROM allergies WHERE patient_uid = $1 AND (allergen = $2 OR name = $2) LIMIT 1`,
-    patientUid, allergy.displayName
+    `SELECT id FROM allergies
+     WHERE patient_uid = $1::uuid
+       AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
+       AND (allergen = $2 OR name = $2)
+     LIMIT 1`,
+    patientUid, allergy.displayName, tenantId
   );
   if (existing.length) return;
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO allergies (patient_uid, allergen, name, recorded_at)
-     VALUES ($1, $2, $2, NOW())`,
-    patientUid, allergy.displayName
+    `INSERT INTO allergies (tenant_id, patient_uid, allergen, name, recorded_at)
+     VALUES (COALESCE($1::uuid, '00000000-0000-4000-8000-000000000001'::uuid), $2::uuid, $3, $3, NOW())`,
+    tenantId, patientUid, allergy.displayName
   );
 }
 

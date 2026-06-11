@@ -66,6 +66,37 @@ async function nextSeq(tableCounter, prefix, tenantId) {
   return `${prefix}-${fy.replace('-', '')}-${String(seq).padStart(5, '0')}`;
 }
 
+async function assertTpaChildParentInTenant({ tenantId, claim_id, preauth_id }) {
+  if (!tenantId) return;
+  const checks = [];
+  if (claim_id) {
+    checks.push(prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM tpa_claims
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      Number(claim_id),
+      String(tenantId),
+    ));
+  }
+  if (preauth_id) {
+    checks.push(prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM insurance_preauth
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      Number(preauth_id),
+      String(tenantId),
+    ));
+  }
+  const results = await Promise.all(checks);
+  if (results.some((rows) => !rows.length)) {
+    throw AppError.notFound('TPA claim/preauth not found');
+  }
+}
+
 // ── Insurance policy CRUD ────────────────────────────────────────────
 
 /**
@@ -448,7 +479,7 @@ const TPA_PREAUTH_STANDARD_DOCS = [
   },
 ];
 
-async function ensurePreauthDocumentBundle({ preauthId, admissionId, uploadedBy }) {
+async function ensurePreauthDocumentBundle({ tenantId, preauthId, admissionId, uploadedBy }) {
   if (!admissionId) return [];
   const existing = await prisma.$queryRawUnsafe(
     `SELECT doc_type FROM tpa_claim_documents WHERE preauth_id = $1::int`,
@@ -460,6 +491,7 @@ async function ensurePreauthDocumentBundle({ preauthId, admissionId, uploadedBy 
     if (existingTypes.has(spec.doc_type)) continue;
     try {
       const row = await attachDocument({
+        tenantId,
         preauth_id: preauthId,
         doc_type: spec.doc_type,
         file_name: spec.file_name(admissionId),
@@ -482,7 +514,7 @@ async function ensurePreauthDocumentBundle({ preauthId, admissionId, uploadedBy 
   return attached;
 }
 
-async function ensureClinicalSummaryFromEnhancementNotes({ preauth, uploadedBy }) {
+async function ensureClinicalSummaryFromEnhancementNotes({ tenantId, preauth, uploadedBy }) {
   if (preauth?.request_type !== 'enhancement') return null;
   const notes = String(preauth.notes || '').trim();
   if (!notes) return null;
@@ -498,6 +530,7 @@ async function ensureClinicalSummaryFromEnhancementNotes({ preauth, uploadedBy }
   if (existing.length) return null;
 
   const row = await attachDocument({
+    tenantId,
     preauth_id: preauth.id,
     doc_type: 'clinical_summary',
     file_name: `preauth-${preauth.id}-clinical-summary.txt`,
@@ -521,11 +554,13 @@ export async function submitPreauth({
   // advice_letter, record_bundle) before the doc-count gate runs.
   // Idempotent — only doc_types missing from the pre-auth are added.
   await ensurePreauthDocumentBundle({
+    tenantId,
     preauthId: pre.id,
     admissionId: pre.admission_id,
     uploadedBy: submitted_by,
   });
   await ensureClinicalSummaryFromEnhancementNotes({
+    tenantId,
     preauth: pre,
     uploadedBy: submitted_by,
   });
@@ -1662,7 +1697,7 @@ const TPA_CLAIM_STANDARD_DOCS = [
 // the submit attempt — the gate below still fires if the packet is truly
 // empty). Mirrors ensurePreauthDocumentBundle.
 // Finding 2026-05-21-tpa-insurance-claim-discharge-9746f26c (+ f9ef3054, 54ede17f).
-async function ensureClaimDocumentBundle({ claimId, admissionId, invoiceId, uploadedBy }) {
+async function ensureClaimDocumentBundle({ tenantId, claimId, admissionId, invoiceId, uploadedBy }) {
   const existing = await prisma.$queryRawUnsafe(
     `SELECT doc_type FROM tpa_claim_documents WHERE claim_id = $1::int`,
     Number(claimId),
@@ -1675,6 +1710,7 @@ async function ensureClaimDocumentBundle({ claimId, admissionId, invoiceId, uplo
     if (spec.requires === 'invoice' && !invoiceId) continue;
     try {
       const row = await attachDocument({
+        tenantId,
         claim_id: claimId,
         doc_type: spec.doc_type,
         file_name: spec.file_name(admissionId, invoiceId),
@@ -1715,6 +1751,7 @@ export async function submitClaim({
   // records instead of erroring at a dead end. Skips any doc whose backing
   // record (admission / invoice) is absent.
   await ensureClaimDocumentBundle({
+    tenantId,
     claimId: cl.id,
     admissionId: cl.admission_id,
     invoiceId: cl.invoice_id,
@@ -1973,7 +2010,7 @@ export async function listClaims({
 // ── Documents + correspondence ───────────────────────────────────────
 
 export async function attachDocument({
-  claim_id, preauth_id, doc_type, file_name, file_url,
+  tenantId, claim_id, preauth_id, doc_type, file_name, file_url,
   file_size_bytes, mime_type, uploaded_by, notes,
 }) {
   if (!claim_id && !preauth_id) {
@@ -1981,6 +2018,7 @@ export async function attachDocument({
   }
   if (!doc_type) throw AppError.badRequest('doc_type is required');
   if (!file_url) throw AppError.badRequest('file_url is required');
+  await assertTpaChildParentInTenant({ tenantId, claim_id, preauth_id });
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO tpa_claim_documents
@@ -2001,7 +2039,7 @@ export async function attachDocument({
 }
 
 export async function logCorrespondence({
-  claim_id, preauth_id, direction, channel, subject, body,
+  tenantId, claim_id, preauth_id, direction, channel, subject, body,
   attachments, recorded_by,
 }) {
   if (!claim_id && !preauth_id) {
@@ -2010,6 +2048,7 @@ export async function logCorrespondence({
   if (!['inbound', 'outbound'].includes(direction)) {
     throw AppError.badRequest('direction must be inbound or outbound');
   }
+  await assertTpaChildParentInTenant({ tenantId, claim_id, preauth_id });
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO tpa_claim_correspondence
        (claim_id, preauth_id, direction, channel, subject, body,

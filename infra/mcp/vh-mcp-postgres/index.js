@@ -7,9 +7,8 @@
  * needs (PHI backfill verification, error pattern scan) without a
  * full-fat Postgres MCP that would expose the entire DB.
  *
- * Auth: Bearer token in `Authorization` header. Token is the value of
- * MCP_BEARER_TOKEN at startup; rotate by restarting the pod with a new
- * Secret.
+ * Auth: Bearer token in `Authorization` header only. Token is the value of
+ * MCP_BEARER_TOKEN at startup; rotate by restarting the pod with a new Secret.
  *
  * Deployed on Dalekdefender k3s. Tailscale Funnel exposes it on
  *   https://dalekdefender.hippocampus-monitor.ts.net:10000/mcp
@@ -26,8 +25,10 @@ import { z } from 'zod';
 const { Pool } = pg;
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const TOKEN = process.env.MCP_BEARER_TOKEN;
+const TOKEN = (process.env.MCP_BEARER_TOKEN || '').trim();
 const DATABASE_URL = process.env.DATABASE_URL;
+const ALLOW_PRIVILEGED_DB_ROLE =
+  process.env.NODE_ENV !== 'production' && process.env.MCP_ALLOW_PRIVILEGED_DB_ROLE === 'true';
 
 if (!TOKEN) {
   console.error('FATAL: MCP_BEARER_TOKEN is required');
@@ -49,14 +50,48 @@ const pool = new Pool({
   // Read-only enforcement at the connection level. Belt-and-suspenders
   // alongside the hard-coded SELECT-only queries below.
   application_name: 'vh-mcp-postgres',
+  options:
+    '-c default_transaction_read_only=on ' +
+    '-c statement_timeout=5000 ' +
+    '-c lock_timeout=1000 ' +
+    '-c idle_in_transaction_session_timeout=5000',
+  max: 4,
 });
 
 pool.on('error', (err) => console.error('pg pool error:', err.message));
 
 // Connection probe at startup — fail fast if creds wrong / DB unreachable.
 try {
-  const probe = await pool.query('SELECT current_database() AS db, current_user AS user');
-  console.log('Connected:', probe.rows[0]);
+  const probe = await pool.query(`
+    SELECT
+      current_database() AS db,
+      current_user AS "user",
+      r.rolsuper,
+      r.rolbypassrls
+    FROM pg_roles r
+    WHERE r.rolname = current_user
+  `);
+  const role = probe.rows[0];
+  if (!role) {
+    throw new Error('could not resolve current database role');
+  }
+  if (!ALLOW_PRIVILEGED_DB_ROLE && (role.rolsuper || role.rolbypassrls)) {
+    throw new Error(
+      `database role ${role.user} is privileged (superuser=${role.rolsuper}, ` +
+      `bypassrls=${role.rolbypassrls}); use a dedicated SELECT-only role`,
+    );
+  }
+
+  const settings = await pool.query('SHOW default_transaction_read_only');
+  if (settings.rows[0]?.default_transaction_read_only !== 'on') {
+    throw new Error('default_transaction_read_only is not enabled');
+  }
+
+  console.log('Connected:', {
+    db: role.db,
+    user: role.user,
+    readOnly: true,
+  });
 } catch (err) {
   console.error('FATAL: DB probe failed:', err.message);
   process.exit(1);
@@ -222,26 +257,25 @@ server.registerTool(
 // Express app: bearer auth + Streamable HTTP transport mount
 // ---------------------------------------------------------------------------
 const app = express();
+app.disable('x-powered-by');
 app.use(express.json({ limit: '512kb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true, name: 'vh-mcp-postgres' }));
 
+function safeEqual(candidate, expected) {
+  const a = Buffer.from(String(candidate));
+  const b = Buffer.from(String(expected));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function bearerTokenFromHeader(headerAuth) {
+  const match = /^Bearer\s+(.+)$/i.exec(String(headerAuth || ''));
+  return match?.[1] || '';
+}
+
 app.use('/mcp', (req, res, next) => {
-  // Accept token via Authorization: Bearer <token> OR ?token=<token> query
-  // string (the claude.ai custom connector UI today only supports OAuth or
-  // URL-embedded auth; query-string fallback lets the connector authenticate
-  // without OAuth scaffolding on this side).
-  const headerAuth = req.headers.authorization || '';
-  const queryToken = typeof req.query.token === 'string' ? req.query.token : '';
-  // Timing-safe comparison (M14) — a plain === leaks match-length timing.
-  const safeEqual = (candidate, expected) => {
-    const a = Buffer.from(String(candidate));
-    const b = Buffer.from(String(expected));
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  };
-  const headerOk = safeEqual(headerAuth, `Bearer ${TOKEN}`);
-  const queryOk = safeEqual(queryToken, TOKEN);
-  if (!headerOk && !queryOk) {
+  const headerToken = bearerTokenFromHeader(req.headers.authorization);
+  if (!safeEqual(headerToken, TOKEN)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   next();

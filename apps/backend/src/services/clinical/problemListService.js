@@ -123,27 +123,47 @@ async function codeVerdicts({ icd10Code, snomedCode }) {
   return verdicts;
 }
 
-async function getPatientByUid(patientUid) {
+function tenantIdFromContext(context = {}) {
+  return context.tenantId || context.tenant_id || null;
+}
+
+async function getPatientByUid(patientUid, tenantId = null) {
+  const params = [patientUid];
+  const filters = ['uid = $1::uuid', "role = 'PATIENT'"];
+  if (tenantId) {
+    params.push(tenantId);
+    filters.push(`tenant_id = $${params.length}::uuid`);
+  }
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid, tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
-    patientUid,
+    `SELECT id, uid, tenant_id FROM users WHERE ${filters.join(' AND ')} LIMIT 1`,
+    ...params,
   );
   return rows[0] || null;
 }
 
-export async function getProblem(problemId) {
+export async function getProblem(problemId, { tenantId = null } = {}) {
+  const params = [problemId];
+  const filters = ['id = $1::uuid'];
+  if (tenantId) {
+    params.push(tenantId);
+    filters.push(`tenant_id = $${params.length}::uuid`);
+  }
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${PROBLEM_COLUMNS} FROM patient_problems WHERE id = $1::uuid LIMIT 1`,
-    problemId,
+    `SELECT ${PROBLEM_COLUMNS} FROM patient_problems WHERE ${filters.join(' AND ')} LIMIT 1`,
+    ...params,
   );
   if (!rows[0]) return null;
   const [withCodings] = await attachResourceCodings(rows, { resourceType: 'patient_problem' });
   return withCodings || null;
 }
 
-export async function listProblems(patientUid, { status = null } = {}) {
+export async function listProblems(patientUid, { status = null, tenantId = null } = {}) {
   const params = [patientUid];
   let where = 'p.patient_uid = $1::uuid';
+  if (tenantId) {
+    params.push(tenantId);
+    where += ` AND p.tenant_id = $${params.length}::uuid`;
+  }
   if (status) {
     if (!PROBLEM_STATUSES.includes(status)) {
       throw AppError.badRequest(
@@ -152,7 +172,7 @@ export async function listProblems(patientUid, { status = null } = {}) {
       );
     }
     params.push(status);
-    where += ` AND p.status = $2`;
+    where += ` AND p.status = $${params.length}`;
   }
   const rows = await prisma.$queryRawUnsafe(
     `SELECT p.id, p.title, p.icd10_code, p.snomed_code, p.status, p.severity,
@@ -173,13 +193,19 @@ export async function listProblems(patientUid, { status = null } = {}) {
  * Active problems in CDS-context shape — consumed by encounter-start cards
  * and (B2) drug-disease checks. Lightweight on purpose.
  */
-export async function getActiveProblemSummary(patientUid, { db = prisma } = {}) {
+export async function getActiveProblemSummary(patientUid, { db = prisma, tenantId = null } = {}) {
+  const params = [patientUid];
+  let tenantFilter = '';
+  if (tenantId) {
+    params.push(tenantId);
+    tenantFilter = ` AND tenant_id = $${params.length}::uuid`;
+  }
   return db.$queryRawUnsafe(
     `SELECT id, title, icd10_code, snomed_code, severity, is_chronic, onset_date
        FROM patient_problems
-      WHERE patient_uid = $1::uuid AND status = 'active'
+      WHERE patient_uid = $1::uuid${tenantFilter} AND status = 'active'
       ORDER BY is_chronic DESC, onset_date ASC NULLS LAST`,
-    patientUid,
+    ...params,
   );
 }
 
@@ -193,12 +219,13 @@ export async function createProblem(input = {}, context = {}) {
 
   // Phase 0 — pre-flight on plain prisma (never 500 on bad input).
   const cleanTitle = (title || '').trim();
+  const tenantId = tenantIdFromContext(context);
   if (!patientUid) throw AppError.badRequest('patient_uid is required', 'PROBLEM_PATIENT_REQUIRED');
   if (!cleanTitle) throw AppError.badRequest('title is required', 'PROBLEM_TITLE_REQUIRED');
   if (severity && !['mild', 'moderate', 'severe'].includes(severity)) {
     throw AppError.badRequest('severity must be mild|moderate|severe', 'PROBLEM_BAD_SEVERITY');
   }
-  const patient = await getPatientByUid(patientUid);
+  const patient = await getPatientByUid(patientUid, tenantId);
   if (!patient) throw AppError.notFound('Patient not found', 'PROBLEM_PATIENT_NOT_FOUND');
 
   let managingDoctorId = null;
@@ -210,8 +237,9 @@ export async function createProblem(input = {}, context = {}) {
   if (icd10Code) {
     const dup = await prisma.$queryRawUnsafe(
       `SELECT id, title FROM patient_problems
-        WHERE patient_uid = $1::uuid AND icd10_code = $2 AND status = 'active'
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND icd10_code = $3 AND status = 'active'
         LIMIT 1`,
+      patient.tenant_id,
       patientUid,
       icd10Code,
     );
@@ -288,7 +316,8 @@ export async function createProblem(input = {}, context = {}) {
 
 export async function updateProblem(problemId, patch = {}, context = {}) {
   // Phase 0
-  const existing = await getProblem(problemId);
+  const tenantId = tenantIdFromContext(context);
+  const existing = await getProblem(problemId, { tenantId });
   if (!existing) throw AppError.notFound('Problem not found', 'PROBLEM_NOT_FOUND');
 
   const nextStatus = patch.status || existing.status;
@@ -312,8 +341,9 @@ export async function updateProblem(problemId, patch = {}, context = {}) {
   if (patch.status === 'active' && existing.status !== 'active' && existing.icd10_code) {
     const dup = await prisma.$queryRawUnsafe(
       `SELECT id FROM patient_problems
-        WHERE patient_uid = $1::uuid AND icd10_code = $2 AND status = 'active' AND id <> $3::uuid
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND icd10_code = $3 AND status = 'active' AND id <> $4::uuid
         LIMIT 1`,
+      existing.tenant_id,
       existing.patient_uid,
       existing.icd10_code,
       problemId,
@@ -349,7 +379,7 @@ export async function updateProblem(problemId, patch = {}, context = {}) {
          resolved_by = CASE WHEN $11::boolean THEN $14::uuid WHEN $13::boolean THEN NULL ELSE resolved_by END,
          resolution_notes = CASE WHEN $11::boolean THEN COALESCE($15, resolution_notes) ELSE resolution_notes END,
          updated_at = NOW()
-       WHERE id = $1::uuid
+       WHERE id = $1::uuid AND tenant_id = $16::uuid
        RETURNING ${PROBLEM_COLUMNS}`,
       problemId,
       nextStatus,
@@ -366,6 +396,7 @@ export async function updateProblem(problemId, patch = {}, context = {}) {
       reactivating,
       resolving ? (context.actorUid || null) : null,
       patch.resolutionNotes ?? null,
+      existing.tenant_id,
     );
     const row = rows[0];
     row.codings = await listResourceCodings({ db: tx, resourceType: 'patient_problem', resourceId: row.id });
@@ -398,20 +429,29 @@ export async function promoteDiagnosis(diagnosisId, input = {}, context = {}) {
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('diagnosisId must be a positive integer', 'PROBLEM_BAD_DIAGNOSIS_ID');
   }
+  const tenantId = tenantIdFromContext(context);
+  const params = [id];
+  let tenantFilter = '';
+  if (tenantId) {
+    params.push(tenantId);
+    tenantFilter = ` AND tenant_id = $${params.length}::uuid`;
+  }
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, encounter_id, icd10_code, icd10_description, description,
+    `SELECT id, tenant_id, patient_uid, encounter_id, icd10_code, icd10_description, description,
             status, onset_date, severity, diagnosed_by
-       FROM diagnoses WHERE id = $1 LIMIT 1`,
-    id,
+       FROM diagnoses WHERE id = $1${tenantFilter} LIMIT 1`,
+    ...params,
   );
   const diagnosis = rows[0];
   if (!diagnosis) throw AppError.notFound('Diagnosis not found', 'PROBLEM_DIAGNOSIS_NOT_FOUND');
+  const effectiveTenantId = tenantId || diagnosis.tenant_id || null;
 
   const existing = await prisma.$queryRawUnsafe(
     `SELECT ${PROBLEM_COLUMNS} FROM patient_problems
-      WHERE patient_uid = $1::uuid AND status = 'active'
-        AND (source_diagnosis_id = $2 OR (icd10_code IS NOT NULL AND icd10_code = $3))
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'active'
+        AND (source_diagnosis_id = $3 OR (icd10_code IS NOT NULL AND icd10_code = $4))
       LIMIT 1`,
+    effectiveTenantId,
     diagnosis.patient_uid,
     id,
     diagnosis.icd10_code,
@@ -432,7 +472,7 @@ export async function promoteDiagnosis(diagnosisId, input = {}, context = {}) {
     sourceDiagnosisId: id,
     notes: input.notes ?? null,
     codings: await listResourceCodings({ resourceType: 'diagnosis', resourceId: id }),
-  }, context);
+  }, { ...context, tenantId: effectiveTenantId });
   return { ...created, already_active: false };
 }
 

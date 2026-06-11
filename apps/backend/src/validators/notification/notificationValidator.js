@@ -79,6 +79,10 @@ export const targetedNotificationValidator = [
   body('priority').optional().isIn(Object.values(NOTIFICATION_PRIORITIES)).withMessage('Invalid priority level'),
   body('user_ids').optional().isArray().withMessage('user_ids must be an array'),
   body('criteria').optional().isObject().withMessage('criteria must be an object'),
+  body('criteria.has_appointments_in_last_days')
+    .optional()
+    .isInt({ min: 1, max: 365 })
+    .withMessage('criteria.has_appointments_in_last_days must be an integer between 1 and 365'),
   body('scheduled_for').optional().isISO8601().withMessage('Invalid scheduled_for date format')
 ];
 

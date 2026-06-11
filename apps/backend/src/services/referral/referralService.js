@@ -26,6 +26,16 @@ const DOCTOR_ROLES = [
   'ANESTHETIST',
   'MEDICAL_SUPERINTENDENT',
 ];
+const REFERRAL_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
+const WARD_REFERRAL_ROLES = [
+  'CNO',
+  'NURSING_STAFF',
+  'NURSING_INCHARGE',
+  'IP_STAFF_NURSE',
+  'IP_INCHARGE',
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+];
 
 function cleanText(value) {
   return String(value ?? '').trim();
@@ -129,7 +139,7 @@ class ReferralService {
 
   async _resolveReferringDoctor({ tenantId, patientUid, proposedDoctorUid, requesterUid, actorRole }) {
     const normalizedRole = normalizeRole(actorRole);
-    if (proposedDoctorUid && DOCTOR_ROLES.includes(normalizedRole)) {
+    if (proposedDoctorUid && REFERRAL_ADMIN_ROLES.includes(normalizedRole)) {
       return proposedDoctorUid;
     }
 
@@ -146,6 +156,80 @@ class ReferralService {
     );
     const admission = rows[0] || {};
     return admission.attending_doctor || admission.admitting_doctor || proposedDoctorUid || requesterUid;
+  }
+
+  async _assertCanCreateForPatient({ tenantId, patientUid, requesterUid, actorRole, proposedDoctorUid }) {
+    const normalizedRole = normalizeRole(actorRole);
+    const tenant = normalizeTenantId(tenantId);
+    const patientRows = await prisma.$queryRawUnsafe(
+      `SELECT uid
+         FROM users
+        WHERE tenant_id = $1::uuid
+          AND uid = $2::uuid
+          AND role = 'PATIENT'
+          AND COALESCE(is_active, true) = true
+        LIMIT 1`,
+      tenant,
+      patientUid,
+    );
+    if (!patientRows.length) throw AppError.notFound('Patient not found');
+
+    if (REFERRAL_ADMIN_ROLES.includes(normalizedRole)) return;
+
+    if (proposedDoctorUid && requesterUid
+        && String(proposedDoctorUid).toLowerCase() !== String(requesterUid).toLowerCase()) {
+      throw AppError.forbidden('Only admins may create referrals on behalf of another doctor');
+    }
+
+    const doctorScoped = DOCTOR_ROLES.includes(normalizedRole);
+    const wardScoped = WARD_REFERRAL_ROLES.includes(normalizedRole);
+    const relationshipRows = await prisma.$queryRawUnsafe(
+      `WITH admission_rel AS (
+         SELECT id
+           FROM admissions
+          WHERE tenant_id = $1::uuid
+            AND patient_uid = $2::uuid
+            AND COALESCE(status, '') NOT IN ('DISCHARGED', 'CANCELLED', 'discharged', 'cancelled')
+            AND (
+              $4::boolean = TRUE
+              OR (
+                $5::boolean = TRUE
+                AND $3::uuid IS NOT NULL
+                AND (
+                  admitting_doctor = $3::uuid
+                  OR attending_doctor = $3::uuid
+                )
+              )
+            )
+          LIMIT 1
+       ),
+       care_team_rel AS (
+         SELECT ctm.id
+           FROM care_team_members ctm
+           JOIN care_teams ct ON ct.id = ctm.care_team_id
+          WHERE ctm.tenant_id = $1::uuid
+            AND ct.tenant_id = $1::uuid
+            AND ct.patient_uid = $2::uuid
+            AND ctm.staff_uid = $3::uuid
+            AND ct.status = 'active'
+            AND ctm.status = 'active'
+            AND ctm.active_from <= NOW()
+            AND (ctm.active_until IS NULL OR ctm.active_until >= NOW())
+          LIMIT 1
+       )
+       SELECT 'admission' AS source FROM admission_rel
+       UNION ALL
+       SELECT 'care_team' AS source FROM care_team_rel
+       LIMIT 1`,
+      tenant,
+      patientUid,
+      requesterUid || null,
+      wardScoped,
+      doctorScoped,
+    );
+    if (!relationshipRows.length) {
+      throw AppError.forbidden('Referral creation requires an active patient relationship');
+    }
   }
 
   async searchConsultants({ tenantId = DEFAULT_TENANT_ID, q = '', department = '', limit = 25 } = {}) {
@@ -262,6 +346,14 @@ class ReferralService {
     if (urgency && !VALID_URGENCIES.includes(urgency)) {
       throw AppError.badRequest(`Invalid urgency. Must be one of: ${VALID_URGENCIES.join(', ')}`);
     }
+
+    await this._assertCanCreateForPatient({
+      tenantId,
+      patientUid: patient_uid,
+      requesterUid,
+      actorRole: actor_role,
+      proposedDoctorUid: referring_doctor,
+    });
 
     const referralNumber = await this._generateReferralNumber();
     const resolvedReferringDoctor = await this._resolveReferringDoctor({

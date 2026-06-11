@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import * as exportService from '../../services/record/exportService.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
 import prisma from '../../lib/prisma.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { formatDateForDisplay } from '../../utils/record/recordHelpers.js';
 import { error } from '../../utils/responseHelper.js';
 import { 
@@ -21,7 +22,7 @@ router.get('/admin/analytics', adminController.getRecordAnalytics);
 router.get('/admin/hipaa-audit', adminController.getHipaaAudit);
 
 // Export records to PDF
-router.get('/export/pdf', async (req, res) => {
+router.get('/export/pdf', patientAccessGuard('MEDICAL_RECORD', { requirePatientContext: true }), async (req, res) => {
   try {
     const filters = {
       patient_id: req.query.patient_id,
@@ -46,7 +47,7 @@ router.get('/export/pdf', async (req, res) => {
 });
 
 // Export records to Excel
-router.get('/export/excel', async (req, res) => {
+router.get('/export/excel', patientAccessGuard('MEDICAL_RECORD', { requirePatientContext: true }), async (req, res) => {
   try {
     const filters = {
       patient_id: req.query.patient_id,

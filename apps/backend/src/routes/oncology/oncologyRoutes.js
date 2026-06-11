@@ -38,6 +38,7 @@ function handleFailure(res, err, context) {
 }
 
 const ctx = (req) => ({ actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+const tenantOf = (req) => req?.user?.tenantId || req?.tenant?.id || null;
 
 // ── protocols ───────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ router.post('/protocols', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership manage chemo protocols', HTTP_STATUS.FORBIDDEN);
     const protocol = await createProtocol({
+      tenantId: tenantOf(req),
       code: req.body.code,
       name: req.body.name,
       indication: req.body.indication || null,
@@ -61,7 +63,10 @@ router.post('/protocols', async (req, res) => {
 
 router.get('/protocols', async (req, res) => {
   try {
-    const protocols = await listProtocols({ status: req.query.status || null });
+    const protocols = await listProtocols({
+      tenantId: tenantOf(req),
+      status: req.query.status || null,
+    });
     return success(res, { protocols, count: protocols.length }, 'Chemo protocols');
   } catch (err) {
     return handleFailure(res, err, 'list protocols');
@@ -70,7 +75,7 @@ router.get('/protocols', async (req, res) => {
 
 router.get('/protocols/:id', async (req, res) => {
   try {
-    const protocol = await getProtocol(req.params.id);
+    const protocol = await getProtocol(req.params.id, { tenantId: tenantOf(req) });
     return success(res, { protocol }, 'Chemo protocol');
   } catch (err) {
     return handleFailure(res, err, 'get protocol');
@@ -80,7 +85,7 @@ router.get('/protocols/:id', async (req, res) => {
 router.post('/protocols/:id/activate', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership activate protocols', HTTP_STATUS.FORBIDDEN);
-    const protocol = await activateProtocol(req.params.id);
+    const protocol = await activateProtocol(req.params.id, { tenantId: tenantOf(req) });
     return success(res, { protocol }, 'Protocol activated');
   } catch (err) {
     return handleFailure(res, err, 'activate protocol');
@@ -93,6 +98,7 @@ router.post('/protocols/:id/plans', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership create treatment plans', HTTP_STATUS.FORBIDDEN);
     const plan = await createTreatmentPlan(req.params.id, {
+      tenantId: tenantOf(req),
       patientUid: req.body.patient_uid,
       indication: req.body.indication || null,
       plannedCycles: req.body.planned_cycles || null,
@@ -109,7 +115,7 @@ router.post('/protocols/:id/plans', async (req, res) => {
 
 router.get('/plans/:id', async (req, res) => {
   try {
-    const plan = await getPlanDetail(req.params.id);
+    const plan = await getPlanDetail(req.params.id, { tenantId: tenantOf(req) });
     return success(res, { plan }, 'Treatment plan');
   } catch (err) {
     return handleFailure(res, err, 'get treatment plan');
@@ -120,6 +126,7 @@ router.post('/plans/:id/cycles', async (req, res) => {
   try {
     if (!canManage(req.user?.role)) return error(res, 'Only doctors/leadership schedule cycles', HTTP_STATUS.FORBIDDEN);
     const result = await scheduleCycle(req.params.id, {
+      tenantId: tenantOf(req),
       cycleNumber: req.body.cycle_number,
       scheduledDate: req.body.scheduled_date,
       weightKg: req.body.weight_kg ?? null,
@@ -137,6 +144,7 @@ router.post('/plans/:id/cycles', async (req, res) => {
 router.post('/administrations/:id/verify', async (req, res) => {
   try {
     const verification = await verifyAdministration(req.params.id, {
+      tenantId: tenantOf(req),
       verifierRole: req.body.verifier_role,
       scannedPatientUid: req.body.scanned_patient_uid || null,
     }, ctx(req));
@@ -148,7 +156,10 @@ router.post('/administrations/:id/verify', async (req, res) => {
 
 router.post('/administrations/:id/administer', async (req, res) => {
   try {
-    const administration = await recordChemoAdministration(req.params.id, ctx(req));
+    const administration = await recordChemoAdministration(req.params.id, {
+      tenantId: tenantOf(req),
+      ...ctx(req),
+    });
     return success(res, { administration }, 'Chemo administration recorded');
   } catch (err) {
     return handleFailure(res, err, 'record administration');
@@ -158,6 +169,7 @@ router.post('/administrations/:id/administer', async (req, res) => {
 router.post('/administrations/:id/withhold', async (req, res) => {
   try {
     const administration = await withholdAdministration(req.params.id, {
+      tenantId: tenantOf(req),
       reason: req.body.reason,
     }, ctx(req));
     return success(res, { administration }, 'Administration withheld');
@@ -170,7 +182,7 @@ router.post('/administrations/:id/withhold', async (req, res) => {
 
 router.get('/patients/:uid/cumulative', async (req, res) => {
   try {
-    const cumulative = await getPatientCumulative(req.params.uid);
+    const cumulative = await getPatientCumulative(req.params.uid, { tenantId: tenantOf(req) });
     return success(res, { cumulative, count: cumulative.length }, 'Cumulative chemo doses');
   } catch (err) {
     return handleFailure(res, err, 'get cumulative doses');

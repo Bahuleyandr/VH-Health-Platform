@@ -17,7 +17,7 @@ const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -47,6 +47,19 @@ function requirePatientUidParam(req, res, next) {
     return error(res, 'patientUid must be a valid UUID', 400);
   }
   next();
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[ch]);
+}
+
+export function renderSpecimenLabelHtml(label) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Specimen ${escapeHtml(label.accession_number)}</title>
+<style>body{font-family:monospace;margin:12px}.lbl{border:1px solid #000;padding:8px;max-width:420px}</style></head>
+<body><div class="lbl"><div><b>${escapeHtml(label.patient?.name || 'Unknown')}</b> · ${escapeHtml(label.specimen_type)} · ${escapeHtml(label.priority)}</div>
+<div>${escapeHtml(label.accession_number)}</div>${label.svg}</div></body></html>`;
 }
 
 // ── Inbound HL7 ORU (HTTP transport) ─────────────────────────────────
@@ -247,6 +260,7 @@ router.get('/alerts/critical', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/alerts/critical/:id/ack', requireStaffOrAdmin, wrap(async (req) =>
   lab.acknowledgeAlert(req.params.id, {
+    tenantId: tenantOf(req),
     acknowledged_by: req.user?.uid,
     acknowledged_by_name: req.body.acknowledged_by_name || req.user?.name,
     read_back_method: req.body.read_back_method,
@@ -260,15 +274,12 @@ router.post('/alerts/critical/:id/ack', requireStaffOrAdmin, wrap(async (req) =>
 router.get('/specimens/:id/label', requireStaffOrAdmin, wrap(async (req, res) => {
   const label = await labClosedLoop.getSpecimenLabel(
     Number.parseInt(req.params.id, 10),
-    { actorUid: req.user?.uid || null },
+    { actorUid: req.user?.uid || null, tenantId: tenantOf(req) },
   );
   if (String(req.query.format || '').toLowerCase() === 'html') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Specimen ${label.accession_number}</title>
-<style>body{font-family:monospace;margin:12px}.lbl{border:1px solid #000;padding:8px;max-width:420px}</style></head>
-<body><div class="lbl"><div><b>${label.patient.name || 'Unknown'}</b> · ${label.specimen_type} · ${label.priority}</div>
-<div>${label.accession_number}</div>${label.svg}</div></body></html>`);
+    res.send(renderSpecimenLabelHtml(label));
     return undefined;
   }
   return label;
@@ -280,6 +291,7 @@ router.post('/specimens/receive-scan', requireStaffOrAdmin, wrap(async (req) =>
     barcode: req.body.barcode,
     actorUid: req.user?.uid || null,
     actorRole: req.user?.role || null,
+    tenantId: tenantOf(req),
   })));
 
 // Analyzer interface bridge: middleware-capable analyzers (or the owner-side
@@ -298,6 +310,7 @@ router.get('/interface/messages', requireStaffOrAdmin, wrap(async (req) => ({
   messages: await labClosedLoop.listInterfaceMessages({
     status: req.query.status || null,
     limit: req.query.limit,
+    tenantId: tenantOf(req),
   }),
 })));
 

@@ -12,18 +12,39 @@ const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
 
 const BLOOD_REQUEST_RETURNING = `id, patient_uid, encounter_id, blood_group, component, units,
     urgency, clinical_indication, cross_match_status, cross_matched_by, cross_matched_at,
-    issued_by, issued_at, transfused_at, status, ordered_by, notes, created_at, updated_at`;
+    issued_by, issued_at, transfused_at, status, tenant_id, ordered_by, notes, created_at, updated_at`;
+
+function requireTenantId(tenantId) {
+  if (!tenantId) {
+    throw AppError.forbidden('Tenant context is required for blood-bank operations', 'BLOOD_BANK_TENANT_REQUIRED');
+  }
+  return tenantId;
+}
+
+async function assertPatientInTenant(patientUid, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE uid = $1::uuid AND tenant_id = $2::uuid AND is_active = true
+      LIMIT 1`,
+    patientUid,
+    tenantId,
+  );
+  if (!rows.length) {
+    throw AppError.notFound('Patient not found in tenant', 'BLOOD_BANK_PATIENT_NOT_FOUND');
+  }
+}
 
 class BloodBankService {
 
   /**
    * Create a new blood request
    */
-  async createRequest(data) {
+  async createRequest(data, context = {}) {
     const {
       patient_uid, encounter_id, blood_group, component,
       units, urgency = 'routine', clinical_indication, ordered_by
     } = data;
+    const tenantId = requireTenantId(context.tenantId);
 
     if (!patient_uid || !blood_group || !component || !units || !clinical_indication || !ordered_by) {
       throw AppError.badRequest('Missing required fields: patient_uid, blood_group, component, units, clinical_indication, ordered_by');
@@ -40,26 +61,28 @@ class BloodBankService {
     if (!Number.isInteger(units) || units < 1) {
       throw AppError.badRequest('Units must be a positive integer');
     }
+    await assertPatientInTenant(patient_uid, tenantId);
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO blood_requests
-        (patient_uid, encounter_id, blood_group, component, units, urgency,
+        (tenant_id, patient_uid, encounter_id, blood_group, component, units, urgency,
          clinical_indication, cross_match_status, status, ordered_by, created_at, updated_at)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'pending', 'requested', $8::uuid, NOW(), NOW())
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, 'pending', 'requested', $9::uuid, NOW(), NOW())
        RETURNING ${BLOOD_REQUEST_RETURNING}`,
-      patient_uid, encounter_id || null, blood_group, component, units, urgency,
+      tenantId, patient_uid, encounter_id || null, blood_group, component, units, urgency,
       clinical_indication, ordered_by
     );
 
-    logger.info('Blood request created', { requestId: result[0].id, blood_group, component, units, urgency });
+    logger.info('Blood request created', { requestId: result[0].id, tenantId, blood_group, component, units, urgency });
     return result[0];
   }
 
   /**
    * Record cross-match result
    */
-  async crossMatch(id, data) {
+  async crossMatch(id, data, context = {}) {
     const { cross_match_status, cross_matched_by } = data;
+    const tenantId = requireTenantId(context.tenantId);
 
     if (!cross_match_status || !cross_matched_by) {
       throw AppError.badRequest('Missing required fields: cross_match_status, cross_matched_by');
@@ -69,7 +92,10 @@ class BloodBankService {
     }
 
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM blood_requests WHERE id = $1`, parseInt(id));
+      `SELECT id, status FROM blood_requests WHERE id = $1 AND tenant_id = $2::uuid`,
+      parseInt(id, 10),
+      tenantId,
+    );
     if (existing.length === 0) throw AppError.notFound('Blood request not found');
     if (existing[0].status !== 'requested') {
       throw AppError.badRequest('Cross-match can only be performed on requests with status "requested"');
@@ -79,25 +105,29 @@ class BloodBankService {
       `UPDATE blood_requests
        SET cross_match_status = $1, cross_matched_by = $2::uuid, cross_matched_at = NOW(),
            status = 'cross_matched', updated_at = NOW()
-       WHERE id = $3
+       WHERE id = $3 AND tenant_id = $4::uuid
        RETURNING ${BLOOD_REQUEST_RETURNING}`,
-      cross_match_status, cross_matched_by, parseInt(id)
+      cross_match_status, cross_matched_by, parseInt(id, 10), tenantId
     );
 
-    logger.info('Blood cross-match recorded', { requestId: id, cross_match_status, cross_matched_by });
+    logger.info('Blood cross-match recorded', { requestId: id, tenantId, cross_match_status, cross_matched_by });
     return result[0];
   }
 
   /**
    * Issue blood to patient
    */
-  async issueBlood(id, data) {
+  async issueBlood(id, data, context = {}) {
     const { issued_by } = data;
+    const tenantId = requireTenantId(context.tenantId);
 
     if (!issued_by) throw AppError.badRequest('Missing required field: issued_by');
 
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status, cross_match_status FROM blood_requests WHERE id = $1`, parseInt(id));
+      `SELECT id, status, cross_match_status FROM blood_requests WHERE id = $1 AND tenant_id = $2::uuid`,
+      parseInt(id, 10),
+      tenantId,
+    );
     if (existing.length === 0) throw AppError.notFound('Blood request not found');
     if (existing[0].status !== 'cross_matched') {
       throw AppError.badRequest('Blood can only be issued after cross-matching');
@@ -109,12 +139,12 @@ class BloodBankService {
     const result = await prisma.$queryRawUnsafe(
       `UPDATE blood_requests
        SET issued_by = $1::uuid, issued_at = NOW(), status = 'issued', updated_at = NOW()
-       WHERE id = $2
+       WHERE id = $2 AND tenant_id = $3::uuid
        RETURNING ${BLOOD_REQUEST_RETURNING}`,
-      issued_by, parseInt(id)
+      issued_by, parseInt(id, 10), tenantId
     );
 
-    logger.info('Blood issued', { requestId: id, issued_by });
+    logger.info('Blood issued', { requestId: id, tenantId, issued_by });
     return result[0];
   }
 
@@ -122,11 +152,15 @@ class BloodBankService {
    * Record transfusion completion. `transfusion_reaction` (if any) is appended to `notes`
    * because the table has no dedicated column for it.
    */
-  async recordTransfusion(id, data) {
+  async recordTransfusion(id, data, context = {}) {
     const { transfusion_reaction, verification_override_reason } = data;
+    const tenantId = requireTenantId(context.tenantId);
 
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM blood_requests WHERE id = $1`, parseInt(id));
+      `SELECT id, status FROM blood_requests WHERE id = $1 AND tenant_id = $2::uuid`,
+      parseInt(id, 10),
+      tenantId,
+    );
     if (existing.length === 0) throw AppError.notFound('Blood request not found');
     if (existing[0].status !== 'issued') {
       throw AppError.badRequest('Transfusion can only be recorded for issued blood');
@@ -136,6 +170,7 @@ class BloodBankService {
     // bedside verification gate as the closed-loop endpoints. Unit-less
     // legacy requests (nothing to scan) need an explicit audited override.
     await assertBedsideVerified(parseInt(id, 10), {
+      tenantId,
       legacyOverrideReason: verification_override_reason || null,
     });
 
@@ -151,19 +186,20 @@ class BloodBankService {
                         THEN COALESCE(notes || E'\n', '') || $1::text
                         ELSE notes END,
            updated_at = NOW()
-       WHERE id = $2
+       WHERE id = $2 AND tenant_id = $3::uuid
        RETURNING ${BLOOD_REQUEST_RETURNING}`,
-      reactionNote, parseInt(id)
+      reactionNote, parseInt(id, 10), tenantId
     );
 
-    logger.info('Transfusion recorded', { requestId: id, hasReaction: !!transfusion_reaction });
+    logger.info('Transfusion recorded', { requestId: id, tenantId, hasReaction: !!transfusion_reaction });
     return result[0];
   }
 
   /**
    * Get blood inventory summary (aggregated from requests)
    */
-  async getInventory() {
+  async getInventory(context = {}) {
+    const tenantId = requireTenantId(context.tenantId);
     return prisma.$queryRawUnsafe(
       `SELECT blood_group, component,
               SUM(CASE WHEN status = 'requested' THEN units ELSE 0 END)::int as requested_units,
@@ -172,24 +208,26 @@ class BloodBankService {
               SUM(CASE WHEN status = 'transfused' THEN units ELSE 0 END)::int as transfused_units,
               COUNT(*)::int as total_requests
        FROM blood_requests
-       WHERE status != 'cancelled'
+       WHERE tenant_id = $1::uuid AND status != 'cancelled'
        GROUP BY blood_group, component
-       ORDER BY blood_group, component`
+       ORDER BY blood_group, component`,
+      tenantId,
     );
   }
 
   /**
    * Get pending blood requests (not yet issued)
    */
-  async getPendingRequests(filters = {}) {
+  async getPendingRequests(filters = {}, context = {}) {
     const { blood_group, urgency } = filters;
+    const tenantId = requireTenantId(context.tenantId);
     const listQuery = parseListQuery(filters, {
       defaultLimit: 50,
       maxLimit: 200,
       defaultSortBy: 'created_at'
     });
-    const conditions = [`status IN ('requested', 'cross_matched')`];
-    const params = [];
+    const conditions = [`tenant_id = $1::uuid`, `status IN ('requested', 'cross_matched')`];
+    const params = [tenantId];
 
     if (blood_group) {
       params.push(blood_group);

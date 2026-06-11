@@ -54,6 +54,20 @@ const VA_FIELDS = [
   ['odVaCorrected', 'od_va_corrected'], ['osVaCorrected', 'os_va_corrected'],
 ];
 
+async function assertPatient(tenantId, patientUid) {
+  if (!patientUid) throw AppError.badRequest('patient_uid required', 'OPHTHO_PATIENT_REQUIRED');
+  const patient = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantOr(tenantId),
+    patientUid,
+  );
+  if (!patient.length) throw AppError.notFound('Patient not found', 'OPHTHO_PATIENT_NOT_FOUND');
+}
+
 export async function recordExam({
   tenantId, patientUid, examType = 'comprehensive',
   odIopMmhg = null, osIopMmhg = null, iopMethod = null,
@@ -63,11 +77,7 @@ export async function recordExam({
   diagnosis = null, advice = null,
   ...vaInputs
 }, { actorUid = null, actorRole = null } = {}) {
-  if (!patientUid) throw AppError.badRequest('patient_uid required', 'OPHTHO_PATIENT_REQUIRED');
-  const patient = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`, patientUid,
-  );
-  if (!patient.length) throw AppError.notFound('Patient not found', 'OPHTHO_PATIENT_NOT_FOUND');
+  await assertPatient(tenantId, patientUid);
 
   // Validate every supplied VA notation.
   const va = {};
@@ -180,7 +190,11 @@ export async function addRefraction(examId, {
   }
 
   const exams = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid FROM ophthalmic_exams WHERE id = $1`, Number(examId),
+    `SELECT id, patient_uid
+       FROM ophthalmic_exams
+      WHERE id = $1 AND tenant_id = $2::uuid`,
+    Number(examId),
+    tenantOr(tenantId),
   );
   if (!exams.length) throw AppError.notFound('Exam not found', 'OPHTHO_EXAM_NOT_FOUND');
 
@@ -207,21 +221,23 @@ export async function addRefraction(examId, {
   }
 }
 
-export async function getPatientHistory(patientUid, { limit = 20 } = {}) {
-  if (!patientUid) throw AppError.badRequest('patient_uid required', 'OPHTHO_PATIENT_REQUIRED');
+export async function getPatientHistory(patientUid, { tenantId, limit = 20 } = {}) {
+  await assertPatient(tenantId, patientUid);
   const lim = Math.min(Number(limit) || 20, 100);
   const exams = await prisma.$queryRawUnsafe(
     `SELECT * FROM ophthalmic_exams
-     WHERE patient_uid = $1::uuid
+     WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
      ORDER BY recorded_at DESC
      LIMIT ${lim}`,
+    tenantOr(tenantId),
     patientUid,
   );
   const refractions = await prisma.$queryRawUnsafe(
     `SELECT * FROM ophthalmic_refractions
-     WHERE patient_uid = $1::uuid
+     WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
      ORDER BY created_at DESC
      LIMIT ${lim * 2}`,
+    tenantOr(tenantId),
     patientUid,
   );
   const byExam = {};

@@ -581,10 +581,14 @@ export async function getEncounter(encounterId, options = {}) {
   const db = dbClient(options.db);
   const id = cleanUuid(encounterId);
   if (!id || !hasRawClient(db)) return null;
+  const tenantId = cleanUuid(options.tenantId || options.tenant_id);
+  const params = [id];
+  const tenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
+  if (tenantId) params.push(tenantId);
   try {
     const rows = await db.$queryRawUnsafe(
-      `SELECT * FROM patient_encounters WHERE id = $1::uuid LIMIT 1`,
-      id,
+      `SELECT * FROM patient_encounters WHERE id = $1::uuid${tenantFilter} LIMIT 1`,
+      ...params,
     );
     return rows[0] || null;
   } catch (err) {
@@ -600,7 +604,8 @@ export async function transitionEncounter(encounterId, nextStatus, input = {}, o
   if (!id || !target || !hasRawClient(db)) {
     throw AppError.badRequest('encounter id and target status are required');
   }
-  const existing = await getEncounter(id, { db });
+  const tenantId = cleanUuid(input.tenantId || input.tenant_id);
+  const existing = await getEncounter(id, { db, tenantId });
   if (!existing) throw AppError.notFound('Encounter not found');
 
   const current = String(existing.status || '').toLowerCase();
@@ -624,6 +629,16 @@ export async function transitionEncounter(encounterId, nextStatus, input = {}, o
   }[target];
 
   try {
+    const params = [
+      id,
+      target,
+      actorUid,
+      current,
+      cleanText(input.reason),
+      stringifyJson(metadata),
+    ];
+    const tenantFilter = tenantId ? ' AND tenant_id = $7::uuid' : '';
+    if (tenantId) params.push(tenantId);
     const rows = await db.$queryRawUnsafe(
       `UPDATE patient_encounters
           SET status = $2,
@@ -639,14 +654,9 @@ export async function transitionEncounter(encounterId, nextStatus, input = {}, o
                 'reason', $5,
                 'metadata', $6::jsonb
               ))
-        WHERE id = $1::uuid
+        WHERE id = $1::uuid${tenantFilter}
         RETURNING *`,
-      id,
-      target,
-      actorUid,
-      current,
-      cleanText(input.reason),
-      stringifyJson(metadata),
+      ...params,
     );
     const updated = rows[0];
     await recordCanonicalClinicalEvent({

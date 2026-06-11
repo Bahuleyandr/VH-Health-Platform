@@ -12,8 +12,14 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
+}
+
+function isStaffMessagingManager(role) {
+  return ['ADMIN', 'SUPER_ADMIN', 'CMO', 'MEDICAL_SUPERINTENDENT'].includes(
+    String(role || '').trim().toUpperCase(),
+  );
 }
 
 function wrap(handler) {
@@ -41,6 +47,8 @@ function requireStaffOrAdmin(req, res, next) {
 router.get('/inbox', requireStaffOrAdmin, wrap(async (req) =>
   portal.listStaffInbox({
     tenantId: tenantOf(req),
+    viewer_uid: req.user?.uid,
+    can_view_all: isStaffMessagingManager(req.user?.role),
     status: req.query.status,
     priority: req.query.priority,
     assigned_staff_uid: req.query.assigned_staff_uid,
@@ -53,6 +61,8 @@ router.get('/threads/:threadId', requireStaffOrAdmin, wrap(async (req) =>
     tenantId: tenantOf(req),
     thread_id: req.params.threadId,
     viewer_kind: 'staff',
+    viewer_uid: req.user?.uid,
+    can_view_all: isStaffMessagingManager(req.user?.role),
   }),
 ));
 
@@ -63,33 +73,38 @@ router.post('/threads/:threadId/reply', requireStaffOrAdmin, wrap(async (req) =>
     sender_kind: 'staff',
     sender_uid: req.user?.uid,
     sender_name: req.user?.name,
+    can_view_all: isStaffMessagingManager(req.user?.role),
     body: req.body.body,
     attachments: req.body.attachments,
   }),
 ));
 
-router.post('/threads/:threadId/assign', requireStaffOrAdmin, wrap(async (req) =>
-  portal.assignThread({
+router.post('/threads/:threadId/assign', requireStaffOrAdmin, wrap(async (req, res) => {
+  if (!isStaffMessagingManager(req.user?.role)) return error(res, 'Messaging manager role required', 403);
+  return portal.assignThread({
     tenantId: tenantOf(req),
     thread_id: req.params.threadId,
     assigned_staff_uid: req.body.assigned_staff_uid,
-  }),
-));
+  });
+}));
 
-router.post('/threads/:threadId/status', requireStaffOrAdmin, wrap(async (req) =>
-  portal.setThreadStatus({
+router.post('/threads/:threadId/status', requireStaffOrAdmin, wrap(async (req, res) => {
+  if (!isStaffMessagingManager(req.user?.role)) return error(res, 'Messaging manager role required', 403);
+  return portal.setThreadStatus({
     tenantId: tenantOf(req),
     thread_id: req.params.threadId,
     status: req.body.status,
     priority: req.body.priority,
-  }),
-));
+  });
+}));
 
 router.post('/threads/:threadId/read', requireStaffOrAdmin, wrap(async (req) =>
   portal.markThreadRead({
     tenantId: tenantOf(req),
     thread_id: req.params.threadId,
     reader_kind: 'staff',
+    reader_uid: req.user?.uid,
+    can_view_all: isStaffMessagingManager(req.user?.role),
   }),
 ));
 

@@ -20,6 +20,13 @@ export const TRANSFUSION_REQUIRE_BEDSIDE_VERIFICATION =
 
 const VALID_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
+function requireTenantId(tenantId) {
+  if (!tenantId) {
+    throw AppError.forbidden('Tenant context is required for transfusion operations', 'TRANSFUSION_TENANT_REQUIRED');
+  }
+  return tenantId;
+}
+
 // Red-cell donor compatibility: recipient → acceptable donor groups.
 const RBC_COMPATIBLE_DONORS = Object.freeze({
   'O-': ['O-'],
@@ -95,12 +102,13 @@ async function emitTransfusionEvent(db, request, eventType, {
   }, { db });
 }
 
-async function loadRequest(requestId) {
+async function loadRequest(requestId, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, tenant_id, patient_uid, encounter_id, blood_group, component, units, status,
             cross_match_status, crossmatched_unit_id, transfusion_started_at
-       FROM blood_requests WHERE id = $1 LIMIT 1`,
+       FROM blood_requests WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
     requestId,
+    tenantId,
   );
   return rows[0] || null;
 }
@@ -109,6 +117,7 @@ export async function registerUnit({
   unitNumber, bloodGroup, component = 'prbc', expiryDate, collectedDate = null,
   volumeMl = null, donorRef = null, sourceBloodBank = null,
 } = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId);
   const cleanedNumber = (unitNumber || '').trim().toUpperCase();
   if (!cleanedNumber) throw AppError.badRequest('unit_number is required', 'BLOOD_UNIT_NUMBER_REQUIRED');
   if (!VALID_GROUPS.includes(bloodGroup)) {
@@ -118,20 +127,21 @@ export async function registerUnit({
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO blood_units
-       (unit_number, blood_group, component, expiry_date, collected_date, volume_ml,
+       (tenant_id, unit_number, blood_group, component, expiry_date, collected_date, volume_ml,
         donor_ref, source_blood_bank, registered_by)
-     VALUES ($1, $2, $3, $4::date, $5::date, $6::int, $7, $8, $9::uuid)
+     VALUES ($1::uuid, $2, $3, $4, $5::date, $6::date, $7::int, $8, $9, $10::uuid)
      ON CONFLICT (tenant_id, unit_number) DO UPDATE SET updated_at = NOW()
      RETURNING id, unit_number, blood_group, component, status, expiry_date, created_at`,
-    cleanedNumber, bloodGroup, String(component).toLowerCase(), expiryDate, collectedDate,
+    tenantId, cleanedNumber, bloodGroup, String(component).toLowerCase(), expiryDate, collectedDate,
     volumeMl, donorRef, sourceBloodBank, context.actorUid || null,
   );
   return rows[0];
 }
 
-export async function listUnits({ status = null, bloodGroup = null, component = null } = {}) {
-  const conditions = ['1=1'];
-  const params = [];
+export async function listUnits({ status = null, bloodGroup = null, component = null } = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId);
+  const conditions = ['tenant_id = $1::uuid'];
+  const params = [tenantId];
   if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
   if (bloodGroup) { params.push(bloodGroup); conditions.push(`blood_group = $${params.length}`); }
   if (component) { params.push(String(component).toLowerCase()); conditions.push(`component = $${params.length}`); }
@@ -152,18 +162,20 @@ export async function listUnits({ status = null, bloodGroup = null, component = 
 export async function crossmatchUnit(requestId, {
   unitId, result, overrideReason = null,
 } = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId);
   if (!['compatible', 'incompatible'].includes(result)) {
     throw AppError.badRequest('result must be compatible|incompatible', 'TRANSFUSION_BAD_CROSSMATCH');
   }
-  const request = await loadRequest(requestId);
+  const request = await loadRequest(requestId, tenantId);
   if (!request) throw AppError.notFound('Blood request not found');
   if (request.status !== 'requested') {
     throw AppError.conflict(`Crossmatch happens at status 'requested' (current: ${request.status})`, 'TRANSFUSION_WRONG_STATUS');
   }
   const units = await prisma.$queryRawUnsafe(
     `SELECT id, unit_number, blood_group, component, status, expiry_date
-       FROM blood_units WHERE id = $1 LIMIT 1`,
+       FROM blood_units WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
     unitId,
+    tenantId,
   );
   const unit = units[0];
   if (!unit) throw AppError.notFound('Blood unit not found', 'BLOOD_UNIT_NOT_FOUND');
@@ -191,17 +203,17 @@ export async function crossmatchUnit(requestId, {
          status = CASE WHEN $5::boolean THEN 'cross_matched' ELSE status END,
          crossmatched_unit_id = CASE WHEN $5::boolean THEN $4::int ELSE crossmatched_unit_id END,
          updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND tenant_id = $6::uuid
        RETURNING id, tenant_id, patient_uid, encounter_id, blood_group, component, status, cross_match_status, crossmatched_unit_id`,
-      requestId, result, context.actorUid || null, unit.id, isCompatible,
+      requestId, result, context.actorUid || null, unit.id, isCompatible, tenantId,
     );
     await tx.$executeRawUnsafe(
       `UPDATE blood_units SET
          status = CASE WHEN $2::boolean THEN 'crossmatched' ELSE 'available' END,
          request_id = CASE WHEN $2::boolean THEN $3::int ELSE NULL END,
          updated_at = NOW()
-       WHERE id = $1`,
-      unit.id, isCompatible, requestId,
+       WHERE id = $1 AND tenant_id = $4::uuid`,
+      unit.id, isCompatible, requestId, tenantId,
     );
     await emitTransfusionEvent(tx, reqRows[0], 'transfusion.crossmatched', {
       actorUid: context.actorUid, actorRole: context.actorRole,
@@ -226,11 +238,12 @@ export async function crossmatchUnit(requestId, {
 export async function recordBedsideVerification(requestId, {
   verifierRole, scannedUnitNumber, scannedPatientUid, overrideReason = null,
 } = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId);
   if (!['first', 'second'].includes(verifierRole)) {
     throw AppError.badRequest("verifier_role must be 'first' or 'second'", 'TRANSFUSION_BAD_VERIFIER_ROLE');
   }
   if (!context.actorUid) throw AppError.unauthorized('Verifier identity missing');
-  const request = await loadRequest(requestId);
+  const request = await loadRequest(requestId, tenantId);
   if (!request) throw AppError.notFound('Blood request not found');
   if (request.status !== 'issued') {
     throw AppError.conflict(`Bedside verification happens after issue (current: ${request.status})`, 'TRANSFUSION_WRONG_STATUS');
@@ -239,16 +252,20 @@ export async function recordBedsideVerification(requestId, {
     throw AppError.conflict('No unit pinned at crossmatch — use the unit-level crossmatch flow', 'TRANSFUSION_NO_UNIT');
   }
   const units = await prisma.$queryRawUnsafe(
-    `SELECT id, unit_number, blood_group, component, expiry_date FROM blood_units WHERE id = $1`,
+    `SELECT id, unit_number, blood_group, component, expiry_date
+       FROM blood_units WHERE id = $1 AND tenant_id = $2::uuid`,
     request.crossmatched_unit_id,
+    tenantId,
   );
   const unit = units[0];
   if (!unit) throw AppError.conflict('Crossmatched unit record vanished', 'TRANSFUSION_NO_UNIT');
 
   if (verifierRole === 'second') {
     const first = await prisma.$queryRawUnsafe(
-      `SELECT verified_by FROM transfusion_verifications WHERE request_id = $1 AND verifier_role = 'first'`,
+      `SELECT verified_by FROM transfusion_verifications
+        WHERE request_id = $1 AND tenant_id = $2::uuid AND verifier_role = 'first'`,
       requestId,
+      tenantId,
     );
     if (!first.length) {
       throw AppError.conflict('First verification must be recorded before the second', 'TRANSFUSION_FIRST_VERIFICATION_MISSING');
@@ -308,12 +325,15 @@ export async function recordBedsideVerification(requestId, {
   return verification;
 }
 
-export async function assertBedsideVerified(requestId, { legacyOverrideReason = null } = {}) {
+export async function assertBedsideVerified(requestId, { tenantId, legacyOverrideReason = null } = {}) {
+  const scopedTenantId = requireTenantId(tenantId);
   if (!TRANSFUSION_REQUIRE_BEDSIDE_VERIFICATION) return { enforced: false };
   const rows = await prisma.$queryRawUnsafe(
     `SELECT verifier_role, all_checks_passed, override_reason
-       FROM transfusion_verifications WHERE request_id = $1`,
+       FROM transfusion_verifications
+      WHERE request_id = $1 AND tenant_id = $2::uuid`,
     requestId,
+    scopedTenantId,
   );
   const cleared = (role) => rows.some((r) => r.verifier_role === role && (r.all_checks_passed || r.override_reason));
   if (cleared('first') && cleared('second')) return { enforced: true };
@@ -323,8 +343,10 @@ export async function assertBedsideVerified(requestId, { legacyOverrideReason = 
   // construction. Those may complete ONLY with an explicit, audited
   // override reason; silent completion stays blocked.
   const reqRows = await prisma.$queryRawUnsafe(
-    `SELECT crossmatched_unit_id FROM blood_requests WHERE id = $1`,
+    `SELECT crossmatched_unit_id FROM blood_requests
+      WHERE id = $1 AND tenant_id = $2::uuid`,
     requestId,
+    scopedTenantId,
   );
   const unitless = reqRows.length > 0 && reqRows[0].crossmatched_unit_id == null;
   const trimmed = (legacyOverrideReason || '').trim();
@@ -350,25 +372,28 @@ export async function assertBedsideVerified(requestId, { legacyOverrideReason = 
 }
 
 export async function startTransfusion(requestId, context = {}) {
-  const request = await loadRequest(requestId);
+  const tenantId = requireTenantId(context.tenantId);
+  const request = await loadRequest(requestId, tenantId);
   if (!request) throw AppError.notFound('Blood request not found');
   if (request.status !== 'issued') {
     throw AppError.conflict(`Transfusion starts from 'issued' (current: ${request.status})`, 'TRANSFUSION_WRONG_STATUS');
   }
-  await assertBedsideVerified(requestId);
+  await assertBedsideVerified(requestId, { tenantId });
 
   return prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE blood_requests SET
          transfusion_started_at = NOW(), transfusion_started_by = $2::uuid, updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND tenant_id = $3::uuid
        RETURNING id, tenant_id, patient_uid, encounter_id, blood_group, component, status,
                  crossmatched_unit_id, transfusion_started_at`,
-      requestId, context.actorUid || null,
+      requestId, context.actorUid || null, tenantId,
     );
     await tx.$executeRawUnsafe(
-      `UPDATE blood_units SET status = 'issued', updated_at = NOW() WHERE id = $1 AND status = 'crossmatched'`,
+      `UPDATE blood_units SET status = 'issued', updated_at = NOW()
+        WHERE id = $1 AND tenant_id = $2::uuid AND status = 'crossmatched'`,
       request.crossmatched_unit_id,
+      tenantId,
     );
     await emitTransfusionEvent(tx, rows[0], 'transfusion.started', {
       actorUid: context.actorUid, actorRole: context.actorRole,
@@ -380,12 +405,13 @@ export async function startTransfusion(requestId, context = {}) {
 }
 
 export async function completeTransfusion(requestId, { notes = null } = {}, context = {}) {
-  const request = await loadRequest(requestId);
+  const tenantId = requireTenantId(context.tenantId);
+  const request = await loadRequest(requestId, tenantId);
   if (!request) throw AppError.notFound('Blood request not found');
   if (request.status !== 'issued') {
     throw AppError.conflict(`Completion happens from 'issued' (current: ${request.status})`, 'TRANSFUSION_WRONG_STATUS');
   }
-  await assertBedsideVerified(requestId);
+  await assertBedsideVerified(requestId, { tenantId });
   if (!request.transfusion_started_at) {
     throw AppError.conflict('Start the transfusion before completing it', 'TRANSFUSION_NOT_STARTED');
   }
@@ -396,13 +422,15 @@ export async function completeTransfusion(requestId, { notes = null } = {}, cont
          status = 'transfused', transfused_at = NOW(),
          notes = CASE WHEN $2::text IS NOT NULL THEN COALESCE(notes || E'\n', '') || $2::text ELSE notes END,
          updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND tenant_id = $3::uuid
        RETURNING id, tenant_id, patient_uid, encounter_id, blood_group, component, status, crossmatched_unit_id, transfused_at`,
-      requestId, notes,
+      requestId, notes, tenantId,
     );
     await tx.$executeRawUnsafe(
-      `UPDATE blood_units SET status = 'transfused', updated_at = NOW() WHERE id = $1`,
+      `UPDATE blood_units SET status = 'transfused', updated_at = NOW()
+        WHERE id = $1 AND tenant_id = $2::uuid`,
       request.crossmatched_unit_id,
+      tenantId,
     );
     await emitTransfusionEvent(tx, rows[0], 'transfusion.completed', {
       actorUid: context.actorUid, actorRole: context.actorRole,
@@ -423,13 +451,14 @@ export async function recordReaction(requestId, {
   reactionType, severity, onsetAt = null, symptoms = null, vitals = null,
   intervention = null, transfusionStopped = true, outcome = null,
 } = {}, context = {}) {
+  const tenantId = requireTenantId(context.tenantId);
   if (!REACTION_TYPES.includes(reactionType)) {
     throw AppError.badRequest(`reaction_type must be one of ${REACTION_TYPES.join(', ')}`, 'TRANSFUSION_BAD_REACTION_TYPE');
   }
   if (!REACTION_SEVERITIES.includes(severity)) {
     throw AppError.badRequest(`severity must be one of ${REACTION_SEVERITIES.join(', ')}`, 'TRANSFUSION_BAD_REACTION_SEVERITY');
   }
-  const request = await loadRequest(requestId);
+  const request = await loadRequest(requestId, tenantId);
   if (!request) throw AppError.notFound('Blood request not found');
 
   return prisma.$transaction(async (tx) => {

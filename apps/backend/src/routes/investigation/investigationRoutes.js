@@ -8,7 +8,7 @@ import * as orderController from '../../controllers/investigation/orderControlle
 import * as uploadController from '../../controllers/investigation/uploadController.js';
 import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
-import { validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
+import { validateFileContent, validateGenericDocumentUpload, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { 
   investigationRequestValidator,
   idValidator,
@@ -62,7 +62,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     ['/bookings/:id/dispatch', rejectMobileClinicalWrite, bookingController.dispatchCollector],
     ['/bookings/:id/collected', rejectMobileClinicalWrite, bookingController.markCollected],
     ['/bookings/:id/processing', rejectMobileClinicalWrite, bookingController.startProcessing],
-    ['/bookings/:id/result', rejectMobileClinicalWrite, upload.single('file'), bookingController.uploadResult],
+    ['/bookings/:id/result', rejectMobileClinicalWrite, upload.single('file'), validateFileContent, validateGenericDocumentUpload, bookingController.uploadResult],
 
     ['/catalog', investigationController.upsertTestCatalog],
     ['/order', rejectMobileClinicalWrite, investigationRequestValidator, orderController.orderInvestigation],
@@ -71,7 +71,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     // row itself (not the booking). Surfaces a printable barcode +
     // collector/notes for the lab walk-in flow that bypasses bookings.
     ['/:id/collected', rejectMobileClinicalWrite, idValidator, investigationController.markInvestigationCollected],
-    ['/:id/upload', rejectMobileClinicalWrite, upload.single('file'), uploadController.uploadResult],
+    ['/:id/upload', rejectMobileClinicalWrite, upload.single('file'), validateFileContent, validateGenericDocumentUpload, uploadController.uploadResult],
     ['/', rejectMobileClinicalWrite, investigationRequestValidator, orderController.legacyInvestigationRequest]
   ],
 

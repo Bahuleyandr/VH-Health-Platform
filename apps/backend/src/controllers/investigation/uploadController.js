@@ -12,6 +12,64 @@ import {
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id || DEFAULT_TENANT;
+}
+
+async function checkInvestigationAccess(req, rawInvestigationId) {
+  const investigationId = parseInt(rawInvestigationId, 10);
+  if (!Number.isFinite(investigationId)) {
+    return { ok: false, status: 400, message: 'Invalid investigation id' };
+  }
+
+  const requestedBy = req.user?.uid;
+  const userRole = req.user?.role?.toUpperCase();
+  const tenantId = tenantOf(req);
+
+  if (userRole === 'PATIENT') {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT i.id
+      FROM investigations i
+      JOIN users u ON i.patient_id = u.id
+      WHERE i.id = $1::int
+        AND u.uid = $2::uuid
+        AND i.tenant_id = $3::uuid
+      LIMIT 1
+    `, investigationId, requestedBy, tenantId);
+
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        status: 403,
+        message: 'Access denied: Cannot view files for other patients',
+      };
+    }
+    return { ok: true, investigationId, tenantId };
+  }
+
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT id
+    FROM investigations
+    WHERE id = $1::int
+      AND tenant_id = $2::uuid
+    LIMIT 1
+  `, investigationId, tenantId);
+
+  if (rows.length === 0) {
+    return { ok: false, status: 404, message: 'Investigation not found' };
+  }
+  return { ok: true, investigationId, tenantId };
+}
+
+async function getBoundInvestigationFile(investigationId, fileId) {
+  const file = await getFileById(fileId);
+  if (!file) return null;
+  if (Number(file.investigation_id) !== Number(investigationId)) return null;
+  return file;
+}
+
 // Upload investigation result file
 export const uploadResult = async (req, res) => {
   try {
@@ -28,6 +86,11 @@ export const uploadResult = async (req, res) => {
 
     if (!file) {
       return error(res, 'No file uploaded', 400);
+    }
+
+    const access = await checkInvestigationAccess(req, id);
+    if (!access.ok) {
+      return error(res, access.message, access.status);
     }
     
     // Log file details for debugging
@@ -73,28 +136,10 @@ export const getFiles = async (req, res) => {
   try {
     const { id } = req.params;
     const requestedBy = req.user?.uid;
-    const userRole = req.user?.role?.toUpperCase();
-    
-    // Patients can only view files for their own investigations
-    if (userRole === 'PATIENT') {
-      // Verify the investigation belongs to this patient
-      // Cast $1 to int explicitly — investigations.id is integer but
-      // `id` comes off req.params as a string, and Prisma binds string
-      // JS args as Postgres text. Postgres has no implicit text→integer
-      // cast in 14+, so `WHERE i.id = $1` raised "operator does not
-      // exist: integer = text" and surfaced as a generic 500 on every
-      // patient-side GET /investigations/:id/files request. Finding:
-      // 2026-05-10-walk-in-opd-patient-investigation-files-500.
-      const investigationCheck = await prisma.$queryRawUnsafe(`
-        SELECT patient_id
-        FROM investigations i
-        JOIN users u ON i.patient_id = u.id
-        WHERE i.id = $1::int AND u.uid = $2::uuid
-      `, parseInt(id, 10), requestedBy);
-      
-      if (investigationCheck.length === 0) {
-        return error(res, 'Access denied: Cannot view files for other patients', 403);
-      }
+
+    const access = await checkInvestigationAccess(req, id);
+    if (!access.ok) {
+      return error(res, access.message, access.status);
     }
     
     const files = await getInvestigationFiles(id);
@@ -120,28 +165,15 @@ export const getFiles = async (req, res) => {
 export const downloadFile = async (req, res) => {
   try {
     const { id, fileId } = req.params;
-    const requestedBy = req.user?.uid;
-    const userRole = req.user?.role?.toUpperCase();
-    
-    // Access control similar to getFiles
-    if (userRole === 'PATIENT') {
-      // Cast $1 to int explicitly — investigations.id is integer but
-      // `id` comes off req.params as a string, and Prisma binds string
-      // JS args as Postgres text. Postgres has no implicit text→integer
-      // cast in 14+, so `WHERE i.id = $1` raised "operator does not
-      // exist: integer = text" and surfaced as a generic 500 on every
-      // patient-side GET /investigations/:id/files request. Finding:
-      // 2026-05-10-walk-in-opd-patient-investigation-files-500.
-      const investigationCheck = await prisma.$queryRawUnsafe(`
-        SELECT patient_id
-        FROM investigations i
-        JOIN users u ON i.patient_id = u.id
-        WHERE i.id = $1::int AND u.uid = $2::uuid
-      `, parseInt(id, 10), requestedBy);
-      
-      if (investigationCheck.length === 0) {
-        return error(res, 'Access denied', 403);
-      }
+
+    const access = await checkInvestigationAccess(req, id);
+    if (!access.ok) {
+      return error(res, access.message, access.status);
+    }
+
+    const file = await getBoundInvestigationFile(access.investigationId, fileId);
+    if (!file) {
+      return error(res, 'File not found', 404);
     }
     
     const fileData = await getFileStream(fileId);
@@ -180,9 +212,14 @@ export const removeFile = async (req, res) => {
     const { id, fileId } = req.params;
     const deletedBy = req.user?.uid;
     const userRole = req.user?.role?.toUpperCase();
+
+    const access = await checkInvestigationAccess(req, id);
+    if (!access.ok) {
+      return error(res, access.message, access.status);
+    }
     
     // Only admins and the uploader can delete files
-    const file = await getFileById(fileId);
+    const file = await getBoundInvestigationFile(access.investigationId, fileId);
     if (!file) {
       return error(res, 'File not found', 404);
     }
@@ -220,16 +257,16 @@ export const getFileInfo = async (req, res) => {
   try {
     const { id, fileId } = req.params;
     const requestedBy = req.user?.uid;
-    
-    const file = await getFileById(fileId);
+
+    const access = await checkInvestigationAccess(req, id);
+    if (!access.ok) {
+      return error(res, access.message, access.status);
+    }
+
+    const file = await getBoundInvestigationFile(access.investigationId, fileId);
 
     if (!file) {
       return error(res, 'File not found', 404);
-    }
-
-    // Verify file belongs to the investigation
-    if (file.investigation_id !== parseInt(id)) {
-      return error(res, 'File does not belong to this investigation', 400);
     }
     
     success(res, {

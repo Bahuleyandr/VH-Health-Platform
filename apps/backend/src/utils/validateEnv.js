@@ -11,9 +11,18 @@ const ENCRYPTION_KEY_HELP =
   'Generate with `openssl rand -base64 32` and store as a SealedSecret in the cluster. ' +
   'See docs/DEPLOYMENT_GUIDE.md#secrets for the full procedure.';
 
+const SIGNED_INTEGRATION_SECRET_HELP =
+  'Generate with `openssl rand -base64 32` and store as a SealedSecret. ' +
+  'HL7_INBOUND_SHARED_SECRET signs inbound HL7 writes; ABDM_CALLBACK_SECRET signs public ABDM callbacks.';
+
 // Define the expected environment variables schema
 const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
+  HL7_INBOUND_SHARED_SECRET: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().min(MIN_KEY_LENGTH).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('HL7_INBOUND_SHARED_SECRET'),
   JWT_SECRET: Joi.string().min(32).required().label('JWT_SECRET'),
   DATABASE_URL: Joi.string().uri().required().label('DATABASE_URL'),
   ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000').label('ALLOWED_ORIGINS'),
@@ -107,6 +116,21 @@ const envSchema = Joi.object({
   WHO_ICD_LANGUAGE: Joi.string().allow('').optional().label('WHO_ICD_LANGUAGE'),
   WHO_ICD_TIMEOUT_MS: Joi.number().min(1000).max(60000).optional().label('WHO_ICD_TIMEOUT_MS'),
   WHO_ICD_DISABLE_AUTH: Joi.string().valid('true', 'false').allow('').optional().label('WHO_ICD_DISABLE_AUTH'),
+
+  // Signed public/integration callbacks. ABDM callbacks are public by mount
+  // and HL7 inbound clinical writes intentionally sit before global JWT auth,
+  // so production must fail closed if the HMAC secrets are not provisioned.
+  ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
+  ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(1).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('ABDM_HIP_ID'),
+  ABDM_CALLBACK_SECRET: Joi.when('ABDM_ENABLED', {
+    is: 'true',
+    then: Joi.string().min(MIN_KEY_LENGTH).required(),
+    otherwise: Joi.string().allow('').optional(),
+  }).label('ABDM_CALLBACK_SECRET'),
 }).unknown(true);
 
 // Validate the current environment variables
@@ -118,6 +142,9 @@ if (error) {
   const mentionsEncryptionKey = details.some(msg =>
     /FIELD_ENCRYPTION_KEY|TOTP_ENCRYPTION_KEY|BACKUP_ENCRYPTION_KEY/.test(msg),
   );
+  const mentionsSignedIntegrationSecret = details.some(msg =>
+    /HL7_INBOUND_SHARED_SECRET|ABDM_CALLBACK_SECRET|ABDM_HIP_ID/.test(msg),
+  );
 
   logger.error('❌ Environment validation failed:');
   details.forEach(msg => logger.error(`   • ${msg}`));
@@ -126,6 +153,12 @@ if (error) {
     logger.error('');
     logger.error('FIELD_ENCRYPTION_KEY, TOTP_ENCRYPTION_KEY, and BACKUP_ENCRYPTION_KEY are mandatory.');
     logger.error(ENCRYPTION_KEY_HELP);
+  }
+
+  if (mentionsSignedIntegrationSecret) {
+    logger.error('');
+    logger.error('Signed integration callback secrets are mandatory when their endpoints can process PHI or clinical writes.');
+    logger.error(SIGNED_INTEGRATION_SECRET_HELP);
   }
 
   process.exit(1);

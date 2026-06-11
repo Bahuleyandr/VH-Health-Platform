@@ -489,6 +489,7 @@ router.get('/leaderboard', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    const tenantId = req.tenantId;
 
     const rows = await prisma.$queryRaw`
       SELECT
@@ -499,8 +500,10 @@ router.get('/leaderboard', async (req, res) => {
         SUM(ss.distance_meters)::float            AS total_distance_meters,
         RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
       FROM step_sessions ss
+      JOIN users u ON u.uid = ss.user_uid
       LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
       WHERE ss.is_active = false
+        AND u.tenant_id = ${tenantId}::uuid
         AND DATE_TRUNC('month', ss.started_at) = DATE_TRUNC('month', NOW())
         AND (sp.opted_in IS NULL OR sp.opted_in = true)
       GROUP BY ss.user_uid, sp.display_name, sp.display_color
@@ -518,8 +521,10 @@ router.get('/leaderboard', async (req, res) => {
           SUM(ss.distance_meters)::float            AS total_distance_meters,
           RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
         FROM step_sessions ss
+        JOIN users u ON u.uid = ss.user_uid
         LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
         WHERE ss.is_active = false
+          AND u.tenant_id = ${tenantId}::uuid
           AND DATE_TRUNC('month', ss.started_at) = DATE_TRUNC('month', NOW())
           AND (sp.opted_in IS NULL OR sp.opted_in = true)
         GROUP BY ss.user_uid

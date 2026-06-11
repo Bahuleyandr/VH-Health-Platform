@@ -13,9 +13,53 @@ import { AppError } from '../../utils/AppError.js';
 import { collectPayment } from './billingV2Service.js';
 
 const DEFAULT_EXPIRY_HOURS = 48;
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 function generateToken() {
   return randomBytes(24).toString('base64url');
+}
+
+function normalizeTenantId(tenantId) {
+  return tenantId ? String(tenantId) : DEFAULT_TENANT_ID;
+}
+
+async function assertPatientInTenant(patientUid, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE uid = $1::uuid
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    String(patientUid),
+    normalizeTenantId(tenantId),
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+}
+
+async function resolvePaymentLinkSubject({ tenantId, invoice_id, patient_uid }) {
+  if (invoice_id) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid
+         FROM billing_invoices
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+        LIMIT 1`,
+      Number(invoice_id),
+      normalizeTenantId(tenantId),
+    );
+    if (!rows.length) throw AppError.notFound('Invoice not found');
+    if (patient_uid && String(patient_uid).toLowerCase() !== String(rows[0].patient_uid).toLowerCase()) {
+      throw AppError.forbidden(
+        'Payment link patient_uid must match the invoice patient',
+        'PAYMENT_LINK_PATIENT_MISMATCH',
+      );
+    }
+    return { invoiceId: Number(invoice_id), patientUid: rows[0].patient_uid };
+  }
+
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  await assertPatientInTenant(patient_uid, tenantId);
+  return { invoiceId: null, patientUid: String(patient_uid) };
 }
 
 /**
@@ -39,31 +83,27 @@ export function buildUpiDeepLink({ vpa, name, amount, note, transactionRef }) {
 
 export async function createPaymentLink({
   tenantId, invoice_id, patient_uid, amount, currency = 'INR',
-  upi_payee_vpa, upi_payee_name, provider = 'upi_intent',
-  expires_in_hours, notes, created_by,
+  provider = 'upi_intent', expires_in_hours, notes, created_by,
 }) {
-  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!amount || Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  const tenant = normalizeTenantId(tenantId);
+  const subject = await resolvePaymentLinkSubject({ tenantId: tenant, invoice_id, patient_uid });
 
-  // Resolve hospital UPI VPA — caller can pass it explicitly, else fall
-  // back to env-configured default. Hospital owns this field; we never
-  // construct a UPI handle.
-  const vpa = upi_payee_vpa || process.env.HOSPITAL_UPI_VPA;
-  const payeeName = upi_payee_name || process.env.HOSPITAL_NAME ||
-                    process.env.HOSPITAL_UPI_PAYEE_NAME;
+  const vpa = process.env.HOSPITAL_UPI_VPA;
+  const payeeName = process.env.HOSPITAL_UPI_PAYEE_NAME || process.env.HOSPITAL_NAME;
 
   if (provider === 'upi_intent' && (!vpa || !payeeName)) {
     throw AppError.badRequest(
-      'UPI VPA + payee name required (set HOSPITAL_UPI_VPA + HOSPITAL_NAME env or pass explicitly)',
+      'UPI VPA + payee name required (set HOSPITAL_UPI_VPA + HOSPITAL_UPI_PAYEE_NAME or HOSPITAL_NAME env)',
     );
   }
 
   const token = generateToken();
-  const transactionRef = `VH-${invoice_id || 'AD'}-${token.slice(0, 10)}`;
+  const transactionRef = `VH-${subject.invoiceId || 'AD'}-${token.slice(0, 10)}`;
   const deepLink = provider === 'upi_intent'
     ? buildUpiDeepLink({
         vpa, name: payeeName, amount, transactionRef,
-        note: invoice_id ? `Invoice ${invoice_id}` : 'Hospital bill',
+        note: subject.invoiceId ? `Invoice ${subject.invoiceId}` : 'Hospital bill',
       })
     : null;
 
@@ -79,11 +119,11 @@ export async function createPaymentLink({
              $10, $11::timestamptz, $12, $13::uuid, $14::uuid)
      RETURNING *`,
     token,
-    invoice_id ? Number(invoice_id) : null,
-    String(patient_uid), Number(amount), currency,
+    subject.invoiceId,
+    String(subject.patientUid), Number(amount), currency,
     vpa || null, payeeName || null, transactionRef, deepLink,
     provider, expiresAt.toISOString(), notes || null,
-    created_by ? String(created_by) : null, tenantId,
+    created_by ? String(created_by) : null, tenant,
   );
   return rows[0];
 }
@@ -104,15 +144,14 @@ export async function getPaymentLink({ tenantId, link_token }) {
  */
 export async function sendPaymentLink({
   tenantId, link_token, channels = ['whatsapp'],
-  patient_phone, patient_email, hospital_short_url_base,
+  patient_phone, patient_email,
 }) {
   const link = await getPaymentLink({ tenantId, link_token });
   if (link.status === 'paid' || link.status === 'cancelled') {
     throw AppError.badRequest(`Link is ${link.status}, cannot resend`);
   }
 
-  const baseUrl = hospital_short_url_base || process.env.HOSPITAL_PAY_BASE_URL ||
-                  'https://api.vhhealth.app/pay';
+  const baseUrl = process.env.HOSPITAL_PAY_BASE_URL || 'https://api.vhhealth.app/pay';
   const shareUrl = `${baseUrl}/${link.link_token}`;
 
   // Build a short message body. Localise via the hospital's preferred
@@ -197,6 +236,7 @@ export async function markPaymentLinkPaid({
   // Create the payment row through the existing service so the parent
   // invoice's totals update consistently.
   const payment = await collectPayment({
+    tenantId,
     invoice_id: link.invoice_id,
     patient_uid: link.patient_uid,
     amount: link.amount,

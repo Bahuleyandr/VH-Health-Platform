@@ -2,6 +2,7 @@
 // Canonical encounter lifecycle endpoints.
 
 import express from 'express';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import {
   evaluateMedicationSafety,
   getClinicalDocumentationTemplates,
@@ -14,9 +15,22 @@ import {
 } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { signDocument } from '../../services/clinical/documentIntegrityService.js';
 import logger from '../../logging/logger.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+
+const guardClinicalWorkflowWrite = patientAccessGuard('CLINICAL_ENCOUNTER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardEncounterView = patientAccessGuardForResource('CLINICAL_ENCOUNTER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'patient_encounter',
+});
+const guardEncounterWrite = patientAccessGuardForResource('CLINICAL_ENCOUNTER', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'patient_encounter',
+});
 
 function actorContext(req) {
   return {
@@ -62,7 +76,7 @@ router.get('/downtime-policy', async (req, res, next) => {
   }
 });
 
-router.post('/medication-safety/evaluate', async (req, res, next) => {
+router.post('/medication-safety/evaluate', guardClinicalWorkflowWrite, async (req, res, next) => {
   try {
     const result = await evaluateMedicationSafety({
       ...req.body,
@@ -76,16 +90,16 @@ router.post('/medication-safety/evaluate', async (req, res, next) => {
   }
 });
 
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', guardEncounterView, async (req, res, next) => {
   try {
-    const encounter = await getEncounter(req.params.id);
+    const encounter = await getEncounter(req.params.id, { tenantId: tenantContext(req) });
     return success(res, encounter, 'Encounter retrieved');
   } catch (err) {
     next(err);
   }
 });
 
-router.get('/:id/audit', async (req, res, next) => {
+router.get('/:id/audit', guardEncounterView, async (req, res, next) => {
   try {
     const result = await listClinicalAuditEvents({
       ...req.query,
@@ -98,7 +112,7 @@ router.get('/:id/audit', async (req, res, next) => {
   }
 });
 
-router.get('/:id/slas', async (req, res, next) => {
+router.get('/:id/slas', guardEncounterView, async (req, res, next) => {
   try {
     const result = await listWorkflowSlaInstances({
       ...req.query,
@@ -111,7 +125,7 @@ router.get('/:id/slas', async (req, res, next) => {
   }
 });
 
-router.get('/:id/medication-safety', async (req, res, next) => {
+router.get('/:id/medication-safety', guardEncounterView, async (req, res, next) => {
   try {
     const result = await listMedicationSafetyReviews({
       ...req.query,
@@ -124,7 +138,7 @@ router.get('/:id/medication-safety', async (req, res, next) => {
   }
 });
 
-router.post('/:id/medication-safety/evaluate', async (req, res, next) => {
+router.post('/:id/medication-safety/evaluate', guardEncounterWrite, async (req, res, next) => {
   try {
     const result = await evaluateMedicationSafety({
       ...req.body,
@@ -139,18 +153,24 @@ router.post('/:id/medication-safety/evaluate', async (req, res, next) => {
   }
 });
 
-router.post('/:id/activate', async (req, res, next) => {
+router.post('/:id/activate', guardEncounterWrite, async (req, res, next) => {
   try {
-    const encounter = await transitionEncounter(req.params.id, 'active', actorContext(req));
+    const encounter = await transitionEncounter(req.params.id, 'active', {
+      ...actorContext(req),
+      tenantId: tenantContext(req),
+    });
     return success(res, encounter, 'Encounter activated');
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/:id/sign', async (req, res, next) => {
+router.post('/:id/sign', guardEncounterWrite, async (req, res, next) => {
   try {
-    const encounter = await transitionEncounter(req.params.id, 'signed', actorContext(req));
+    const encounter = await transitionEncounter(req.params.id, 'signed', {
+      ...actorContext(req),
+      tenantId: tenantContext(req),
+    });
     // Roadmap C4 — attach an e-signature record (content hash of the
     // encounter's clinical body) to the sign transition. Best-effort: the
     // transition is already committed + audited; a signature failure is
@@ -178,18 +198,24 @@ router.post('/:id/sign', async (req, res, next) => {
   }
 });
 
-router.post('/:id/amend', async (req, res, next) => {
+router.post('/:id/amend', guardEncounterWrite, async (req, res, next) => {
   try {
-    const encounter = await transitionEncounter(req.params.id, 'amended', actorContext(req));
+    const encounter = await transitionEncounter(req.params.id, 'amended', {
+      ...actorContext(req),
+      tenantId: tenantContext(req),
+    });
     return success(res, encounter, 'Encounter opened for amendment');
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/:id/lock', async (req, res, next) => {
+router.post('/:id/lock', guardEncounterWrite, async (req, res, next) => {
   try {
-    const encounter = await transitionEncounter(req.params.id, 'locked', actorContext(req));
+    const encounter = await transitionEncounter(req.params.id, 'locked', {
+      ...actorContext(req),
+      tenantId: tenantContext(req),
+    });
     return success(res, encounter, 'Encounter locked');
   } catch (err) {
     next(err);

@@ -131,8 +131,9 @@ export async function recordLabPanel({
   }
 
   // Pull patient sex + age once; both feed into reference-range lookup.
-  const patient = await prisma.users.findUnique({
-    where: { uid: patientUid },
+  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
+  const patient = await prisma.users.findFirst({
+    where: { uid: patientUid, tenant_id: tid },
     select: { name: true, gender: true, birthday: true },
   });
   if (!patient) throw AppError.notFound('Patient not found');
@@ -142,7 +143,6 @@ export async function recordLabPanel({
     : null;
 
   const panelId = crypto.randomUUID();
-  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
   const performedAtTs = performedAt ? new Date(performedAt) : new Date();
 
   // Per-analyte ranges + flag computation.
@@ -254,10 +254,11 @@ function renderReferenceRangeText(range) {
 /**
  * Fetch a panel by panel_id — returns header + all analyte rows.
  */
-export async function getLabPanel(panelId) {
+export async function getLabPanel(panelId, { tenantId } = {}) {
   if (!panelId) throw AppError.badRequest('panelId is required');
+  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
   const rows = await prisma.lab_results.findMany({
-    where: { panel_id: panelId },
+    where: { panel_id: panelId, tenant_id: tid },
     orderBy: { id: 'asc' },
   });
   if (!rows.length) return null;
@@ -277,10 +278,12 @@ export async function getLabPanel(panelId) {
  * individual analyte rows). For the patient-app's "your lab history"
  * view.
  */
-export async function listPatientPanels(patientUid, { panelCode = null, limit = 50 } = {}) {
+export async function listPatientPanels(patientUid, { tenantId, panelCode = null, limit = 50 } = {}) {
+  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   const rows = await prisma.lab_results.findMany({
     where: {
+      tenant_id: tid,
       patient_uid: patientUid,
       panel_id: { not: null },
       ...(panelCode ? { panel_code: panelCode } : {}),
@@ -312,12 +315,14 @@ export async function listPatientPanels(patientUid, { panelCode = null, limit = 
  * Time-series query: all values of a single analyte over a date range.
  * Powers the "Hb trend over the last 30 days" view in the patient app.
  */
-export async function getAnalyteTrend(patientUid, testCode, { fromDate = null, toDate = null, limit = 100 } = {}) {
+export async function getAnalyteTrend(patientUid, testCode, { tenantId, fromDate = null, toDate = null, limit = 100 } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
   if (!testCode) throw AppError.badRequest('testCode is required');
+  const tid = tenantId ?? '00000000-0000-4000-8000-000000000001';
   const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
   return prisma.lab_results.findMany({
     where: {
+      tenant_id: tid,
       patient_uid: patientUid,
       test_code: testCode,
       ...(fromDate || toDate
@@ -368,14 +373,20 @@ export async function upsertReferenceRange(data, { tenantId }) {
   if (!data.test_code || !data.test_name || !data.unit) {
     throw AppError.badRequest('test_code, test_name, and unit are required');
   }
-  if (data.id) {
-    return prisma.lab_reference_ranges.update({
-      where: { id: data.id },
-      data: { ...data, tenant_id: tid, updated_at: new Date() },
+  const { id, tenant_id: _ignoredTenantId, ...rangeData } = data;
+  if (id) {
+    const rangeId = Number(id);
+    const updated = await prisma.lab_reference_ranges.updateMany({
+      where: { id: rangeId, tenant_id: tid },
+      data: { ...rangeData, updated_at: new Date() },
+    });
+    if (updated.count === 0) throw AppError.notFound('Reference range not found');
+    return prisma.lab_reference_ranges.findFirst({
+      where: { id: rangeId, tenant_id: tid },
     });
   }
   return prisma.lab_reference_ranges.create({
-    data: { ...data, tenant_id: tid, source: data.source ?? 'manual' },
+    data: { ...rangeData, tenant_id: tid, source: rangeData.source ?? 'manual' },
   });
 }
 

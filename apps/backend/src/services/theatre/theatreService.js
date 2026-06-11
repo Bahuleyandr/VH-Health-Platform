@@ -26,6 +26,24 @@ function requireIntId(id) {
   return n;
 }
 
+function tenantOr(value) {
+  return String(value || '').trim() || DEFAULT_TENANT_ID;
+}
+
+async function assertPatientInTenant(tenantId, patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantId,
+    patientUid,
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+}
+
 function normalizeMarkedSide(value) {
   if (value == null) return null;
   const side = String(value).trim().toLowerCase().replace(/[_-]+/g, ' ');
@@ -222,23 +240,23 @@ function assertOtReadySiteMark(checklist, schedule) {
 }
 
 class TheatreService {
-  async _assertReadyForClosure(scheduleId) {
+  async _assertReadyForClosure(scheduleId, tenantId = DEFAULT_TENANT_ID) {
     const [schedule] = await prisma.$queryRawUnsafe(
       `SELECT surgeon, consent_obtained, pre_op_checklist
          FROM ot_schedules
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $2::uuid
         LIMIT 1`,
-      scheduleId,
+      scheduleId, tenantOr(tenantId),
     );
     if (!schedule) throw AppError.notFound('OT schedule not found');
 
     const [preopChecklist] = await prisma.$queryRawUnsafe(
       `SELECT consent_signed, consent_signed_at, status
          FROM preop_checklists
-        WHERE ot_schedule_id = $1
+        WHERE ot_schedule_id = $1 AND tenant_id = $2::uuid
         ORDER BY updated_at DESC
         LIMIT 1`,
-      scheduleId,
+      scheduleId, tenantOr(tenantId),
     );
 
     const legacyChecklist = schedule.pre_op_checklist
@@ -265,10 +283,10 @@ class TheatreService {
     const [anesthesia] = await prisma.$queryRawUnsafe(
       `SELECT status, finalized_by, finalized_at
          FROM anesthesia_records
-        WHERE ot_schedule_id = $1
+        WHERE ot_schedule_id = $1 AND tenant_id = $2::uuid
         ORDER BY updated_at DESC
         LIMIT 1`,
-      scheduleId,
+      scheduleId, tenantOr(tenantId),
     );
     if (!anesthesia || anesthesia.status !== 'finalized'
         || !anesthesia.finalized_by || !anesthesia.finalized_at) {
@@ -282,10 +300,10 @@ class TheatreService {
       `SELECT status, finalized_by, finalized_at,
               sponge_count_correct, sharp_count_correct, instrument_count_correct
          FROM intraop_notes
-        WHERE ot_schedule_id = $1
+        WHERE ot_schedule_id = $1 AND tenant_id = $2::uuid
         ORDER BY updated_at DESC
         LIMIT 1`,
-      scheduleId,
+      scheduleId, tenantOr(tenantId),
     );
     if (!intraop || intraop.status !== 'finalized'
         || !intraop.finalized_by || !intraop.finalized_at) {
@@ -328,11 +346,14 @@ class TheatreService {
       procedure_name, procedure_code, ot_room, scheduled_date,
       scheduled_time, estimated_duration, equipment_needed = [],
       blood_arranged = false, consent_obtained = false,
+      tenantId: rawTenantId,
     } = data;
+    const tenantId = tenantOr(rawTenantId || data.tenant_id);
 
     if (!patient_uid || !surgeon || !procedure_name || !scheduled_date) {
       throw AppError.badRequest('Missing required fields: patient_uid, surgeon, procedure_name, scheduled_date');
     }
+    await assertPatientInTenant(tenantId, patient_uid);
 
     // ot_schedules.encounter_id is INTEGER (legacy HL7 visit_no column),
     // but admissions.encounter_id is UUID. Callers pass the admission's
@@ -358,14 +379,14 @@ class TheatreService {
       `INSERT INTO ot_schedules
         (patient_uid, encounter_id, surgeon, anesthetist, procedure_name, procedure_code,
          ot_room, scheduled_date, scheduled_time, estimated_duration, status,
-         equipment_needed, blood_arranged, consent_obtained, created_at, updated_at)
+         equipment_needed, blood_arranged, consent_obtained, tenant_id, created_at, updated_at)
        VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::time,
-         $10, 'scheduled', $11::text[], $12, $13, NOW(), NOW())
+         $10, 'scheduled', $11::text[], $12, $13, $14::uuid, NOW(), NOW())
        RETURNING ${OT_RETURNING}`,
       patient_uid, encounterIdInt, surgeon, anesthetist || null,
       procedure_name, procedure_code || null, ot_room || null,
       scheduled_date, scheduled_time || null, estimated_duration || null,
-      equipment_needed, blood_arranged, consent_obtained
+      equipment_needed, blood_arranged, consent_obtained, tenantId
     );
 
     logger.info('Surgery scheduled', { scheduleId: result[0].id, procedure_name, surgeon });
@@ -374,9 +395,10 @@ class TheatreService {
 
   async getTodaySchedule(filters = {}) {
     const { ot_room, status, date } = filters;
+    const tenantId = tenantOr(filters.tenantId || filters.tenant_id);
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const conditions = [`scheduled_date = $1::date`];
-    const params = [targetDate];
+    const conditions = [`tenant_id = $1::uuid`, `scheduled_date = $2::date`];
+    const params = [tenantId, targetDate];
 
     if (ot_room) {
       params.push(ot_room);
@@ -396,14 +418,16 @@ class TheatreService {
     );
   }
 
-  async updateStatus(id, newStatus, updatedBy) {
+  async updateStatus(id, newStatus, updatedBy, options = {}) {
+    const tenantId = tenantOr(options.tenantId || options.tenant_id);
     if (!VALID_STATUSES.includes(newStatus)) {
       throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`);
     }
 
     const scheduleId = requireIntId(id);
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`, scheduleId);
+      `SELECT id, status FROM ot_schedules WHERE id = $1 AND tenant_id = $2::uuid`,
+      scheduleId, tenantId);
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
 
     const currentStatus = existing[0].status;
@@ -416,6 +440,7 @@ class TheatreService {
       const timeOutRows = await prisma.$queryRawUnsafe(
         `SELECT id FROM surgical_safety_checklists
          WHERE ot_schedule_id = $1
+           AND tenant_id = $2::uuid
            AND phase = 'time_out'
            AND (
              status = 'complete'
@@ -426,7 +451,7 @@ class TheatreService {
              )
            )
          LIMIT 1`,
-        scheduleId
+        scheduleId, tenantId
       );
       if (timeOutRows.length === 0) {
         throw AppError.badRequest(
@@ -443,13 +468,14 @@ class TheatreService {
     // sponge/sharp/instrument counts are correct. Finding:
     // 2026-05-09-surgical-day-care-ot-staff-case-close-no-gate.
     if (newStatus === 'post_op' || newStatus === 'completed') {
-      await this._assertReadyForClosure(scheduleId);
+      await this._assertReadyForClosure(scheduleId, tenantId);
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET status = $1, updated_at = NOW() WHERE id = $2
+      `UPDATE ot_schedules SET status = $1, updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid
        RETURNING ${OT_RETURNING}`,
-      newStatus, scheduleId
+      newStatus, scheduleId, tenantId
     );
 
     logger.info('OT schedule status updated', { scheduleId: id, from: currentStatus, to: newStatus, updatedBy });
@@ -457,8 +483,12 @@ class TheatreService {
   }
 
   async completeChecklist(id, checklist, { tenantId = null, completedBy = null } = {}) {
+    const tid = tenantOr(tenantId);
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, tenant_id, status, procedure_name, procedure_code, patient_uid FROM ot_schedules WHERE id = $1`, requireIntId(id));
+      `SELECT id, tenant_id, status, procedure_name, procedure_code, patient_uid
+         FROM ot_schedules
+        WHERE id = $1 AND tenant_id = $2::uuid`,
+      requireIntId(id), tid);
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest('Cannot update checklist for a completed or cancelled surgery');
@@ -486,12 +516,12 @@ class TheatreService {
 
     const result = await prisma.$queryRawUnsafe(
       `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
-       WHERE id = $2
+       WHERE id = $2 AND tenant_id = $3::uuid
        RETURNING ${OT_RETURNING}`,
-      JSON.stringify(checklist ?? {}), requireIntId(id)
+      JSON.stringify(checklist ?? {}), requireIntId(id), tid
     );
 
-    const preop = await createStructuredPreopFromOtReady(existing[0], checklist, { tenantId, completedBy });
+    const preop = await createStructuredPreopFromOtReady(existing[0], checklist, { tenantId: tid, completedBy });
     const row = result[0];
     if (preop?.id) row.pre_op_check_id = preop.id;
 
@@ -499,15 +529,17 @@ class TheatreService {
     return row;
   }
 
-  async getAvailableRooms(date) {
+  async getAvailableRooms(date, options = {}) {
+    const tenantId = tenantOr(options.tenantId || options.tenant_id);
     if (!date) throw AppError.badRequest('Date is required');
 
     const bookedResult = await prisma.$queryRawUnsafe(
       `SELECT DISTINCT ot_room FROM ot_schedules
-       WHERE scheduled_date = $1::date
+       WHERE tenant_id = $1::uuid
+         AND scheduled_date = $2::date
          AND status NOT IN ('cancelled', 'completed')
          AND ot_room IS NOT NULL`,
-      date
+      tenantId, date
     );
     const bookedRooms = bookedResult.map((r) => r.ot_room);
 
@@ -516,29 +548,33 @@ class TheatreService {
               ARRAY_AGG(scheduled_time ORDER BY scheduled_time) AS times,
               ARRAY_AGG(status) AS statuses
        FROM ot_schedules
-       WHERE scheduled_date = $1::date
+       WHERE tenant_id = $1::uuid
+         AND scheduled_date = $2::date
          AND status NOT IN ('cancelled')
          AND ot_room IS NOT NULL
        GROUP BY ot_room
        ORDER BY ot_room`,
-      date
+      tenantId, date
     );
 
     return { date, booked_rooms: bookedRooms, room_schedules: scheduleResult };
   }
 
-  async cancelSurgery(id, cancelledBy) {
+  async cancelSurgery(id, cancelledBy, options = {}) {
+    const tenantId = tenantOr(options.tenantId || options.tenant_id);
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`, requireIntId(id));
+      `SELECT id, status FROM ot_schedules WHERE id = $1 AND tenant_id = $2::uuid`,
+      requireIntId(id), tenantId);
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest(`Cannot cancel a surgery that is already ${existing[0].status}`);
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET status = 'cancelled', updated_at = NOW() WHERE id = $1
+      `UPDATE ot_schedules SET status = 'cancelled', updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2::uuid
        RETURNING ${OT_RETURNING}`,
-      requireIntId(id)
+      requireIntId(id), tenantId
     );
 
     logger.info('Surgery cancelled', { scheduleId: id, cancelledBy });

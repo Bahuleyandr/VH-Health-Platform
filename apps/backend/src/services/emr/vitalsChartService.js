@@ -22,6 +22,7 @@ const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', '
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 const VITAL_CORRECTION_WINDOW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VITAL_CORRECTION_FIELDS = [
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
@@ -74,7 +75,7 @@ async function resolvePatientForVitals(patientUid, patientId) {
   if (patientUid) {
     const user = await prisma.users.findUnique({
       where: { uid: patientUid },
-      select: { id: true, uid: true, role: true },
+      select: { id: true, uid: true, role: true, tenant_id: true },
     });
     if (!user) throw AppError.notFound('Patient not found');
     if (patientId !== undefined && patientId !== null && patientId !== '') {
@@ -88,7 +89,7 @@ async function resolvePatientForVitals(patientUid, patientId) {
 
   const patientIdInt = parseOptionalPositiveInt(patientId, 'patient_id');
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, uid, role
+    `SELECT id, uid, role, tenant_id
        FROM users
       WHERE id = $1
       LIMIT 1`,
@@ -314,6 +315,11 @@ function stripNul(s) {
   return s.indexOf('\u0000') === -1 ? s : s.replaceAll('\u0000', '');
 }
 
+function normalizeTenantId(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return UUID_RE.test(text) ? text : null;
+}
+
 function auditValue(value) {
   if (value && typeof value === 'object' && typeof value.toString === 'function') {
     return value instanceof Date ? value.toISOString() : value.toString();
@@ -420,6 +426,7 @@ async function attachGrowthToVitalsRows(rows, patientUid) {
 
 export async function recordVitals(data) {
   const {
+    tenant_id, tenantId,
     patient_uid, patient_id, visit_id, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
     triage_acuity, acuity, triage_priority,
     temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
@@ -442,6 +449,16 @@ export async function recordVitals(data) {
 
   const patientUser = await resolvePatientForVitals(patient_uid, patient_id);
   const resolvedPatientUid = patientUser.uid;
+  const rawRequestedTenantId = tenant_id || tenantId || null;
+  const requestedTenantId = normalizeTenantId(rawRequestedTenantId);
+  const patientTenantId = normalizeTenantId(patientUser.tenant_id);
+  if (rawRequestedTenantId && !requestedTenantId) {
+    throw AppError.badRequest('tenant_id must be a valid UUID');
+  }
+  if (requestedTenantId && patientTenantId && requestedTenantId !== patientTenantId) {
+    throw AppError.notFound('Patient not found');
+  }
+  const resolvedTenantId = patientTenantId || requestedTenantId || DEFAULT_TENANT_ID;
 
   // Wave-4B-1 (migration 208) — split encounter input across int + uuid.
   // Caller can pass either `encounter_id` (legacy int / numeric / UUID),
@@ -501,6 +518,7 @@ export async function recordVitals(data) {
   const record = await prisma.vitals_chart.create({
     data: {
       patient_uid: resolvedPatientUid,
+      tenant_id: resolvedTenantId,
       encounter_id: normalizedEncounterId,
       encounter_uid: normalizedEncounterUid,
       heart_rate: heart_rate ?? null,
@@ -538,9 +556,10 @@ export async function recordVitals(data) {
 
   if (normalizedAcuity != null) {
     await prisma.$executeRawUnsafe(
-      `UPDATE vitals_chart SET triage_acuity = $1 WHERE id = $2`,
+      `UPDATE vitals_chart SET triage_acuity = $1 WHERE id = $2 AND tenant_id = $3::uuid`,
       normalizedAcuity,
       record.id,
+      resolvedTenantId,
     );
     record.triage_acuity = normalizedAcuity;
   }
@@ -627,6 +646,7 @@ export async function recordVitals(data) {
 
   await bestEffortCanonicalVitalsEvent('vitals record', {
     patientUid: record.patient_uid,
+    tenantId: resolvedTenantId,
     encounterId: record.encounter_uid || null,
     eventType: 'vitals.recorded',
     eventStatus: record.source === 'device' ? 'unverified' : 'recorded',

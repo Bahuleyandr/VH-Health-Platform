@@ -27,6 +27,7 @@ import crypto from 'crypto';
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { encryptField } from '../../utils/fieldEncryption.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const TEXT_MAX = 8000;
@@ -215,7 +216,7 @@ export async function registerSmartApp({
   let secretHash = null;
   if (kind === 'confidential') {
     plaintextSecret = `vh_smart_${generateRandomToken(32)}`;
-    secretCipher = plaintextSecret; // ciphertext placeholder; KMS layer is a separate task
+    secretCipher = encryptField(plaintextSecret);
     secretHash = hashSecret(plaintextSecret);
   }
   try {

@@ -11,6 +11,7 @@ import { generateToken, issueSetupToken, verifyToken, verifyTokenAllowExpired } 
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { isLegacyPhoneAuthAllowed } from '../../utils/authCompatibilityGates.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
@@ -869,18 +870,15 @@ export class AuthService {
   }
 
   // The legacy phone-only login/register issues a usable JWT with NO OTP,
-  // password, or any verification — anyone who knows a patient's phone number
-  // could obtain that patient's session and read their chart. It must never
-  // be reachable in production. Allowed only outside production as the
-  // documented dev/QA path (the gated /api/v1/auth/dev/* routes are the
-  // sanctioned bypass; production patient login is Firebase OTP via
-  // POST /api/v1/auth/firebase/firebase-login).
+  // password, or any verification. It is disabled by default everywhere and
+  // may only be enabled for an explicit local compatibility harness outside
+  // production. Production patient login is Firebase OTP via
+  // POST /api/v1/auth/firebase/firebase-login.
   // Finding 2026-05-22-walk-in-opd-patient-36657889.
   static _assertLegacyPhoneAuthAllowed(action) {
-    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-    if (isProd) {
+    if (!isLegacyPhoneAuthAllowed()) {
       const err = new Error(
-        `Phone-only ${action} is disabled in production. Use OTP login `
+        `Phone-only ${action} is disabled. Use OTP login `
         + '(POST /api/v1/auth/firebase/firebase-login).',
       );
       err.statusCode = HTTP_STATUS.FORBIDDEN;

@@ -78,8 +78,11 @@ router.get('/audit-chain/verify', async (req, res) => {
     if (!isAdmin(req.user?.role) && req.user?.role !== 'SUPER_ADMIN') {
       return error(res, 'Only admins can verify the audit chain', HTTP_STATUS.FORBIDDEN);
     }
+    if (req.query.tenant_id && String(req.query.tenant_id) !== String(req.tenantId)) {
+      return error(res, 'Tenant is selected from authenticated context', HTTP_STATUS.FORBIDDEN);
+    }
     const result = await verifyAuditChain({
-      tenantId: req.query.tenant_id || '00000000-0000-4000-8000-000000000001',
+      tenantId: req.tenantId,
       limit: req.query.limit || null,
     });
     return success(res, result, result.intact ? 'Audit chain intact' : 'AUDIT CHAIN BREAK DETECTED');

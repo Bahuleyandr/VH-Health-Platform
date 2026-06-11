@@ -93,6 +93,18 @@ function attachAppointmentPhiContext(req, appointment) {
   };
 }
 
+function tenantOf(req) {
+  return req.tenantId || req.user?.tenant_id || req.user?.tenantId || req.tenant?.id || null;
+}
+
+function requireTenantId(req) {
+  const tenantId = tenantOf(req);
+  if (!tenantId) {
+    throw AppError.forbidden('Tenant context is required for appointment workflow access', 'TENANT_CONTEXT_REQUIRED');
+  }
+  return tenantId;
+}
+
 async function logAppointmentWorkflowAudit(req, action, appointment, extra = {}) {
   await logAudit(
     req,
@@ -202,13 +214,15 @@ export const getDoctorOptions = async (req, res) => {
 export const confirmAppointment = async (req, res) => {
   try {
     const { id } = req.params;
+    const tenantId = requireTenantId(req);
     const staffId = req.user?.id;
     const { confirmation_notes, appointment_date, appointment_time } = req.body;
 
     const { result, a, tokenNumber, newDate, newTime } = await prisma.$transaction(async (tx) => {
       const apptRows = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no, tenant_id FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
+        tenantId,
       );
       if (!apptRows.length) {
         const err = new Error('Appointment not found');
@@ -247,8 +261,9 @@ export const confirmAppointment = async (req, res) => {
          FROM appointments
          WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL
            AND token_number ~ '^[0-9]+$'
-           AND visit_no LIKE $2 || '%'`,
-        targetDate, visitNoLikePrefix,
+           AND visit_no LIKE $2 || '%'
+           AND tenant_id = $3::uuid`,
+        targetDate, visitNoLikePrefix, tenantId,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
       // Compose the deterministic visit_no the counter searches on.
@@ -270,10 +285,11 @@ export const confirmAppointment = async (req, res) => {
           sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
           updated_at = NOW()
         WHERE id = $4
+          AND tenant_id = $6::uuid
         RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
                   token_number, visit_no, confirmed_at, department, tenant_id, created_at, updated_at
       `,
-        tokenNumber, newDate, newTime, Number(id), visitNo,
+        tokenNumber, newDate, newTime, Number(id), visitNo, tenantId,
       );
 
       await tx.$executeRawUnsafe(
@@ -305,11 +321,12 @@ export const confirmAppointment = async (req, res) => {
     });
 
     // Notify patient via FCM + SMS (fire-and-forget, outside transaction).
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1', a.patient_id);
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid', a.patient_id, tenantId);
     const patientRow = patient[0];
     const doctorRow = await prisma.$queryRawUnsafe(
-      'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1',
+      'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1 AND u.tenant_id=$2::uuid',
       a.doctor_id,
+      tenantId,
     );
     const doctorName = doctorRow[0]?.name || 'Doctor';
     const department = doctorRow[0]?.department || a.department || null;
@@ -352,21 +369,24 @@ export const confirmAppointment = async (req, res) => {
 export const markNoShow = async (req, res) => {
   try {
     const { id } = req.params;
+    const tenantId = requireTenantId(req);
     const staffId = req.user?.id;
 
     const { result, prevStatus } = await prisma.$transaction(async (tx) => {
       const appt = await tx.$queryRawUnsafe(
-        'SELECT id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
+        tenantId,
       );
       if (!appt.length) {
         const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
       }
       const updated = await tx.$queryRawUnsafe(
-        `UPDATE appointments SET status='NO_SHOW', updated_at=NOW() WHERE id=$1
+        `UPDATE appointments SET status='NO_SHOW', updated_at=NOW() WHERE id=$1 AND tenant_id=$2::uuid
          RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
-                   status, token_number, visit_no, department, updated_at`,
+                   status, token_number, visit_no, department, tenant_id, updated_at`,
         Number(id),
+        tenantId,
       );
       await tx.$executeRawUnsafe(
         `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role)
@@ -399,6 +419,7 @@ export const markNoShow = async (req, res) => {
 export const rescheduleAppointment = async (req, res) => {
   try {
     const { id } = req.params;
+    const tenantId = requireTenantId(req);
     const staffId = req.user?.id;
     const actorUid = req.user?.uid || null;
     const { appointment_date, appointment_time } = req.body;
@@ -424,8 +445,10 @@ export const rescheduleAppointment = async (req, res) => {
                 insurer_name, policy_number, scheme_name, triage_acuity, tenant_id
            FROM appointments
           WHERE id = $1::int
+            AND tenant_id = $2::uuid
           FOR UPDATE`,
         Number(id),
+        tenantId,
       );
       if (!apptRows.length) {
         const err = new Error('Appointment not found');
@@ -492,6 +515,7 @@ export const rescheduleAppointment = async (req, res) => {
            triage_acuity, $5::uuid, $5::uuid, tenant_id, NOW(), NOW()
          FROM appointments
          WHERE id = $1::int
+           AND tenant_id = $6::uuid
          RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
                    status, reason, notes, token_number, visit_no, department,
                    parent_appointment_id, tenant_id, created_at, updated_at`,
@@ -500,6 +524,7 @@ export const rescheduleAppointment = async (req, res) => {
         appointment_time,
         note || `Rescheduled from appointment #${id}`,
         actorUid,
+        tenantId,
       );
 
       await tx.$executeRawUnsafe(
@@ -534,12 +559,14 @@ export const rescheduleAppointment = async (req, res) => {
                 updated_by = COALESCE($3::uuid, updated_by),
                 updated_at = NOW()
           WHERE id = $1::int
+            AND tenant_id = $4::uuid
           RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
                     status, reason, notes, token_number, visit_no, department,
                     tenant_id, updated_at`,
         Number(id),
         auditNote,
         actorUid,
+        tenantId,
       );
 
       await tx.$executeRawUnsafe(
@@ -587,13 +614,15 @@ export const rescheduleAppointment = async (req, res) => {
 export const completeAppointment = async (req, res) => {
   try {
     const { id } = req.params;
+    const tenantId = requireTenantId(req);
     const staffId = req.user?.id;
     const { notes } = req.body;
 
     const { result, prevStatus, patientId } = await prisma.$transaction(async (tx) => {
       const appt = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, doctor_id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, patient_id, doctor_id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
+        tenantId,
       );
       if (!appt.length) {
         const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
@@ -621,10 +650,10 @@ export const completeAppointment = async (req, res) => {
       }
 
       const updated = await tx.$queryRawUnsafe(
-        `UPDATE appointments SET status='COMPLETED', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1
+        `UPDATE appointments SET status='COMPLETED', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 AND tenant_id=$3::uuid
          RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
-                   status, notes, token_number, visit_no, department, updated_at`,
-        Number(id), notes || null,
+                   status, notes, token_number, visit_no, department, tenant_id, updated_at`,
+        Number(id), notes || null, tenantId,
       );
       await tx.$executeRawUnsafe(
         `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role)
@@ -670,22 +699,25 @@ export const completeAppointment = async (req, res) => {
 export const cancelAppointment = async (req, res) => {
   try {
     const { id } = req.params;
+    const tenantId = requireTenantId(req);
     const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
 
     const { result, patientId, prevStatus } = await prisma.$transaction(async (tx) => {
       const appt = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, patient_id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
+        tenantId,
       );
       if (!appt.length) {
         const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
       }
       const updated = await tx.$queryRawUnsafe(
-        `UPDATE appointments SET status='CANCELLED', updated_at=NOW() WHERE id=$1
+        `UPDATE appointments SET status='CANCELLED', updated_at=NOW() WHERE id=$1 AND tenant_id=$2::uuid
          RETURNING id, uid, patient_id, doctor_id, appointment_date, appointment_time,
-                   status, token_number, visit_no, department, updated_at`,
+                   status, token_number, visit_no, department, tenant_id, updated_at`,
         Number(id),
+        tenantId,
       );
       await tx.$executeRawUnsafe(
         `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
@@ -703,7 +735,7 @@ export const cancelAppointment = async (req, res) => {
     });
 
     // Notify patient (fire-and-forget, outside transaction)
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', patientId);
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1 AND tenant_id=$2::uuid', patientId, tenantId);
     if (patient[0]?.device_token) {
       setImmediate(async () => {
         try {
@@ -2297,6 +2329,7 @@ export const adviseForAdmission = async (req, res) => {
     if (!Number.isFinite(id)) {
       return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
     }
+    const tenantId = requireTenantId(req);
 
     // Clinical-decision gate. The wrapAutoRBAC roster
     // (`appointmentRoutes` in rbacConfig.js) allows DOCTOR / ADMIN /
@@ -2342,9 +2375,10 @@ export const adviseForAdmission = async (req, res) => {
               advised_for_admission_note = $2,
               updated_at = NOW()
         WHERE id = $3
+          AND tenant_id = $4::uuid
         RETURNING id, uid, patient_id, doctor_id, advised_for_admission_at,
-                  advised_for_admission_by, advised_for_admission_note, status`,
-      advisedBy, note, id,
+                  advised_for_admission_by, advised_for_admission_note, status, tenant_id`,
+      advisedBy, note, id, tenantId,
     );
     if (!rows.length) {
       return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
@@ -2385,13 +2419,15 @@ export const getAppointmentHistory = async (req, res) => {
     if (!Number.isFinite(id)) {
       return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
     }
+    const tenantId = requireTenantId(req);
     const result = await prisma.$queryRawUnsafe(`
       SELECT ash.id, ash.appointment_id, ash.from_status, ash.to_status, ash.changed_by, ash.changed_by_role, ash.reason, ash.created_at, u.name as changed_by_name
       FROM appointment_status_history ash
+      JOIN appointments a ON a.id = ash.appointment_id AND a.tenant_id = $2::uuid
       LEFT JOIN users u ON ash.changed_by = u.id
       WHERE ash.appointment_id = $1
       ORDER BY ash.created_at ASC
-    `, id);
+    `, id, tenantId);
     success(res, result, 'History fetched');
   } catch (err) {
     logger.error('getAppointmentHistory error:', err);

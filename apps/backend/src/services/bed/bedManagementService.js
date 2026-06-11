@@ -5,17 +5,23 @@
 // plain prisma.$queryRaw*.
 
 import prisma from '../../lib/prisma.js';
+import { getCurrentTenantId } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
 import { emitBedMarkedReady } from '../clinical/canonicalOperationalBridgeService.js';
 
+function tenantOf(options = {}) {
+  return options.tenantId || getCurrentTenantId() || null;
+}
+
 class BedManagementService {
   // =========================================================================
   // getBedOccupancy — Dashboard stats: total, occupied, available, by ward/type
   // =========================================================================
-  async getBedOccupancy() {
+  async getBedOccupancy(options = {}) {
+    const tenantId = tenantOf(options);
     // Overall counts
     const totals = await prisma.$queryRawUnsafe(`
       SELECT
@@ -26,7 +32,8 @@ class BedManagementService {
         COUNT(*) FILTER (WHERE status = 'maintenance')::int AS maintenance,
         COUNT(*) FILTER (WHERE status = 'cleaning')::int AS cleaning
       FROM beds
-    `);
+      WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
+    `, tenantId);
 
     // By ward
     const byWard = await prisma.$queryRawUnsafe(`
@@ -38,9 +45,10 @@ class BedManagementService {
         COUNT(*) FILTER (WHERE status = 'occupied')::int AS occupied,
         COUNT(*) FILTER (WHERE status = 'available')::int AS available
       FROM beds
+      WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
       GROUP BY ward_id, ward_name, floor
       ORDER BY ward_name NULLS LAST
-    `);
+    `, tenantId);
 
     // By bed type
     const byType = await prisma.$queryRawUnsafe(`
@@ -50,9 +58,10 @@ class BedManagementService {
         COUNT(*) FILTER (WHERE status = 'occupied')::int AS occupied,
         COUNT(*) FILTER (WHERE status = 'available')::int AS available
       FROM beds
+      WHERE ($1::uuid IS NULL OR tenant_id = $1::uuid)
       GROUP BY bed_type
       ORDER BY bed_type
-    `);
+    `, tenantId);
 
     const overall = totals[0] || { total: 0, occupied: 0, available: 0, reserved: 0, maintenance: 0, cleaning: 0 };
     overall.occupancy_rate = overall.total > 0
@@ -65,14 +74,18 @@ class BedManagementService {
   // =========================================================================
   // admitPatient — Admit patient to a specific bed (transaction)
   // =========================================================================
-  async admitPatient(bedId, patientUid, expectedDischarge, actorRole = null) {
+  async admitPatient(bedId, patientUid, expectedDischarge, actorRole = null, options = {}) {
+    const tenantId = tenantOf(options);
     // prisma.$transaction runs the callback inside BEGIN/COMMIT — thrown
     // errors (including AppError) trigger automatic ROLLBACK before
     // propagating to the caller.
     const result = await prisma.$transaction(async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
-        `SELECT id, status, bed_number, bed_type FROM beds WHERE id = $1 FOR UPDATE`,
-        bedId
+        `SELECT id, tenant_id, status, bed_number, bed_type FROM beds
+          WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          FOR UPDATE`,
+        bedId,
+        tenantId,
       );
 
       if (!bedRows.length) {
@@ -92,8 +105,12 @@ class BedManagementService {
       }
 
       const existingAdmission = await tx.$queryRawUnsafe(
-        `SELECT id, bed_number FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied'`,
-        patientUid
+        `SELECT id, bed_number FROM beds
+          WHERE patient_uid = $1::uuid
+            AND status = 'occupied'
+            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+        patientUid,
+        tenantId,
       );
 
       if (existingAdmission.length > 0) {
@@ -110,14 +127,18 @@ class BedManagementService {
              expected_discharge = $2,
              updated_at = NOW()
          WHERE id = $3
+           AND ($4::uuid IS NULL OR tenant_id = $4::uuid)
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-        patientUid, expectedDischarge, bedId
+        patientUid, expectedDischarge, bedId, tenantId,
       );
 
       await tx.$executeRawUnsafe(
-        `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, NULL, $2, 'Admission', $3::uuid)`,
-        patientUid, bedId, patientUid
+        `INSERT INTO bed_transfers (tenant_id, patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
+         VALUES ($1::uuid, $2::uuid, NULL, $3, 'Admission', $4::uuid)`,
+        bedRows[0].tenant_id,
+        patientUid,
+        bedId,
+        patientUid,
       );
 
       return updated[0];
@@ -130,11 +151,15 @@ class BedManagementService {
   // =========================================================================
   // dischargePatient — Discharge and hand bed to housekeeping.
   // =========================================================================
-  async dischargePatient(bedId, dischargedBy) {
+  async dischargePatient(bedId, dischargedBy, options = {}) {
+    const tenantId = tenantOf(options);
     const { updated, patientUid, admissionId } = await prisma.$transaction(async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
-        `SELECT id, status, patient_uid, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
-        bedId
+        `SELECT id, tenant_id, status, patient_uid, bed_number FROM beds
+          WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          FOR UPDATE`,
+        bedId,
+        tenantId,
       );
 
       if (!bedRows.length) {
@@ -154,6 +179,7 @@ class BedManagementService {
           `SELECT id, patient_uid, status
              FROM admissions
             WHERE status IN ('admitted', 'transferred')
+              AND ($3::uuid IS NULL OR tenant_id = $3::uuid)
               AND (bed_id = $1 OR patient_uid = $2::uuid)
             ORDER BY CASE WHEN bed_id = $1 THEN 0 ELSE 1 END,
                      admitted_at DESC NULLS LAST,
@@ -162,16 +188,19 @@ class BedManagementService {
             FOR UPDATE`,
           bedId,
           patientUid,
+          tenantId,
         )
         : await tx.$queryRawUnsafe(
           `SELECT id, patient_uid, status
              FROM admissions
             WHERE bed_id = $1
+              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
               AND status IN ('admitted', 'transferred')
             ORDER BY admitted_at DESC NULLS LAST, id DESC
             LIMIT 1
             FOR UPDATE`,
           bedId,
+          tenantId,
         );
       const activeAdmission = activeAdmissionRows[0] || null;
       const dischargePatientUid = patientUid || activeAdmission?.patient_uid || null;
@@ -183,8 +212,10 @@ class BedManagementService {
                   discharged_at = NOW(),
                   discharge_type = COALESCE(discharge_type, 'home'),
                   updated_at = NOW()
-            WHERE id = $1`,
+            WHERE id = $1
+              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
           activeAdmission.id,
+          tenantId,
         );
       }
 
@@ -192,9 +223,12 @@ class BedManagementService {
       // admitted via the legacy bedService path (which never writes patient_uid).
       if (dischargePatientUid) {
         await tx.$executeRawUnsafe(
-          `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-           VALUES ($1::uuid, $2, $2, 'Discharge', $3::uuid)`,
-          dischargePatientUid, bedId, dischargedBy
+          `INSERT INTO bed_transfers (tenant_id, patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
+           VALUES ($1::uuid, $2::uuid, $3, $3, 'Discharge', $4::uuid)`,
+          bedRows[0].tenant_id,
+          dischargePatientUid,
+          bedId,
+          dischargedBy,
         );
       }
 
@@ -209,8 +243,10 @@ class BedManagementService {
              expected_discharge = NULL,
              updated_at = NOW()
          WHERE id = $1
+           AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-        bedId
+        bedId,
+        tenantId,
       );
 
       return { updated: updated[0], patientUid: dischargePatientUid, admissionId: activeAdmission?.id || null };
@@ -234,9 +270,11 @@ class BedManagementService {
     return updated;
   }
 
-  async getActiveAdmissionForBed(bedId) {
+  async getActiveAdmissionForBed(bedId, options = {}) {
+    const tenantId = tenantOf(options);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT b.id AS bed_id,
+              b.tenant_id,
               b.bed_number,
               b.status AS bed_status,
               b.patient_uid AS bed_patient_uid,
@@ -249,6 +287,7 @@ class BedManagementService {
            SELECT id, patient_uid, status, discharge_initiated_at, admitted_at
              FROM admissions
             WHERE status IN ('admitted', 'transferred')
+              AND tenant_id = b.tenant_id
               AND (
                 bed_id = b.id
                 OR (b.patient_uid IS NOT NULL AND patient_uid = b.patient_uid)
@@ -258,8 +297,10 @@ class BedManagementService {
                      id DESC
             LIMIT 1
          ) a ON true
-        WHERE b.id = $1`,
+        WHERE b.id = $1
+          AND ($2::uuid IS NULL OR b.tenant_id = $2::uuid)`,
       bedId,
+      tenantId,
     );
 
     if (!rows.length) {
@@ -282,13 +323,17 @@ class BedManagementService {
   // =========================================================================
   async transferPatient(patientUid, toBedId, reason, transferredBy, actorRole = null, options = {}) {
     const { acknowledgeClassChange = false } = options;
+    const tenantId = tenantOf(options);
     const result = await prisma.$transaction(async (tx) => {
       const currentBedRows = await tx.$queryRawUnsafe(
-        `SELECT id, bed_number, bed_type, ward_id
+        `SELECT id, tenant_id, bed_number, bed_type, ward_id
            FROM beds
-          WHERE patient_uid = $1::uuid AND status = 'occupied'
+          WHERE patient_uid = $1::uuid
+            AND status = 'occupied'
+            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
           FOR UPDATE`,
-        patientUid
+        patientUid,
+        tenantId,
       );
 
       if (!currentBedRows.length) {
@@ -299,12 +344,14 @@ class BedManagementService {
       const fromBedId = fromBed.id;
 
       const targetBedRows = await tx.$queryRawUnsafe(
-        `SELECT b.id, b.status, b.bed_number, b.bed_type, b.ward_id, w.name AS ward_name
+        `SELECT b.id, b.tenant_id, b.status, b.bed_number, b.bed_type, b.ward_id, w.name AS ward_name
            FROM beds b
          LEFT JOIN wards w ON w.id = b.ward_id
         WHERE b.id = $1
+          AND ($2::uuid IS NULL OR b.tenant_id = $2::uuid)
         FOR UPDATE OF b`,
-        toBedId
+        toBedId,
+        tenantId,
       );
 
       if (!targetBedRows.length) {
@@ -325,14 +372,16 @@ class BedManagementService {
       }
 
       const admissionRows = await tx.$queryRawUnsafe(
-        `SELECT id, patient_uid, admitted_at, expected_los_days
+        `SELECT id, tenant_id, patient_uid, admitted_at, expected_los_days
            FROM admissions
           WHERE patient_uid = $1::uuid
+            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
             AND status IN ('admitted', 'transferred')
           ORDER BY admitted_at DESC NULLS LAST, id DESC
           LIMIT 1
           FOR UPDATE`,
         patientUid,
+        tenantId,
       );
       if (!admissionRows.length) {
         throw AppError.badRequest('No active admission is linked to this patient');
@@ -340,8 +389,12 @@ class BedManagementService {
       const admission = admissionRows[0];
 
       const patientRows = await tx.$queryRawUnsafe(
-        `SELECT id, name FROM users WHERE uid = $1::uuid LIMIT 1`,
+        `SELECT id, name FROM users
+          WHERE uid = $1::uuid
+            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          LIMIT 1`,
         patientUid,
+        tenantId,
       );
       const patientUser = patientRows[0] || {};
       const expectedDischarge = admission.expected_los_days
@@ -399,8 +452,10 @@ class BedManagementService {
              admission_id = NULL,
              admitted_at = NULL,
              expected_discharge = NULL, updated_at = NOW()
-         WHERE id = $1`,
-        fromBedId
+         WHERE id = $1
+           AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+        fromBedId,
+        tenantId,
       );
 
       // Occupy new bed
@@ -416,13 +471,15 @@ class BedManagementService {
              expected_discharge = $5,
              updated_at = NOW()
          WHERE id = $6
+           AND ($7::uuid IS NULL OR tenant_id = $7::uuid)
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at, bed_type`,
         patientUser.id || null,
         patientUser.name || null,
         patientUid,
         admission.id,
         expectedDischarge,
-        toBedId
+        toBedId,
+        tenantId,
       );
 
       const VALID_ROOM_CATEGORIES = new Set(['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care']);
@@ -437,18 +494,21 @@ class BedManagementService {
                 status = 'transferred',
                 room_category = COALESCE($4, room_category),
                 updated_at = NOW()
-          WHERE id = $5`,
+          WHERE id = $5
+            AND ($6::uuid IS NULL OR tenant_id = $6::uuid)`,
         toBedId,
         toBed.bed_number,
         toBed.ward_name || null,
         targetRoomCategory,
         admission.id,
+        tenantId,
       );
 
       // Record transfer
       await tx.$executeRawUnsafe(
-        `INSERT INTO bed_transfers (patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)`,
+        `INSERT INTO bed_transfers (tenant_id, patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::uuid)`,
+        admission.tenant_id || fromBed.tenant_id,
         patientUid, admission.id, fromBedId, toBedId, reason, transferredBy
       );
 
@@ -491,7 +551,8 @@ class BedManagementService {
   // =========================================================================
   // getAvailableBeds — List available beds with optional ward/type filters
   // =========================================================================
-  async getAvailableBeds(wardId, bedType) {
+  async getAvailableBeds(wardId, bedType, options = {}) {
+    const tenantId = tenantOf(options);
     // F-2 — defensive filter: status='available' alone trusted a column
     // legacy paths (bedService.dischargePatient pre-2026-05-12) didn't
     // always clear alongside the stale occupant FKs. The combined check
@@ -499,15 +560,16 @@ class BedManagementService {
     // and no active admissions row references it. Finding:
     // 2026-05-10-dynamic-acute-abdomen-admission-available-bed-retains-active-patient.
     const conditions = [
+      `($1::uuid IS NULL OR tenant_id = $1::uuid)`,
       "status = 'available'",
       'patient_uid IS NULL',
       'patient_id IS NULL',
       'patient_name IS NULL',
       'admission_id IS NULL',
-      "NOT EXISTS (SELECT 1 FROM admissions a WHERE a.bed_id = beds.id AND a.discharged_at IS NULL)",
+      "NOT EXISTS (SELECT 1 FROM admissions a WHERE a.bed_id = beds.id AND a.tenant_id = beds.tenant_id AND a.discharged_at IS NULL)",
     ];
-    const params = [];
-    let idx = 1;
+    const params = [tenantId];
+    let idx = 2;
 
     if (wardId) {
       conditions.push(`ward_id = $${idx}`);
@@ -549,20 +611,24 @@ class BedManagementService {
   // closed the cleaning loop. Finding:
   //   2026-05-09-inpatient-admission-housekeeping-bed-ready-no-proof-required
   // =========================================================================
-  async markBedReady(bedId, { actorUid = null, cleaningTicketId = null, cleanerId = null, notes = null } = {}) {
+  async markBedReady(bedId, { actorUid = null, cleaningTicketId = null, cleanerId = null, notes = null, tenantId = null } = {}) {
+    const effectiveTenantId = tenantOf({ tenantId });
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds
        SET status = 'available', updated_at = NOW()
        WHERE id = $1 AND status = 'cleaning'
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-      bedId
+      bedId,
+      effectiveTenantId,
     );
 
     if (!rows.length) {
       // Check if bed exists at all
       const check = await prisma.$queryRawUnsafe(
-        `SELECT id, status FROM beds WHERE id = $1`,
-        bedId
+        `SELECT id, status FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+        bedId,
+        effectiveTenantId,
       );
       if (!check.length) {
         throw AppError.notFound('Bed not found');
@@ -612,11 +678,13 @@ class BedManagementService {
   // =========================================================================
   // getBedHistory — Transfer and admission history for a specific bed
   // =========================================================================
-  async getBedHistory(bedId) {
+  async getBedHistory(bedId, options = {}) {
+    const tenantId = tenantOf(options);
     // Verify bed exists
     const bedCheck = await prisma.$queryRawUnsafe(
-      `SELECT id, bed_number FROM beds WHERE id = $1`,
-      bedId
+      `SELECT id, bed_number FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+      bedId,
+      tenantId,
     );
 
     if (!bedCheck.length) {
@@ -630,13 +698,15 @@ class BedManagementService {
               tb.bed_number AS to_bed_number,
               u.name AS patient_name
        FROM bed_transfers bt
-       LEFT JOIN beds fb ON bt.from_bed_id = fb.id
-       LEFT JOIN beds tb ON bt.to_bed_id = tb.id
-       LEFT JOIN users u ON bt.patient_uid = u.uid
-       WHERE bt.from_bed_id = $1 OR bt.to_bed_id = $1
+       LEFT JOIN beds fb ON bt.from_bed_id = fb.id AND fb.tenant_id = bt.tenant_id
+       LEFT JOIN beds tb ON bt.to_bed_id = tb.id AND tb.tenant_id = bt.tenant_id
+       LEFT JOIN users u ON bt.patient_uid = u.uid AND u.tenant_id = bt.tenant_id
+       WHERE (bt.from_bed_id = $1 OR bt.to_bed_id = $1)
+         AND ($2::uuid IS NULL OR bt.tenant_id = $2::uuid)
        ORDER BY bt.transferred_at DESC
        LIMIT 200`,
-      bedId
+      bedId,
+      tenantId,
     );
 
     return rows;

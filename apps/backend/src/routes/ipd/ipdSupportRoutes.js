@@ -22,6 +22,11 @@ import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
+}
+
 function requireIntParam(value, fieldName) {
   const n = Number.parseInt(value, 10);
   if (!Number.isInteger(n) || n <= 0) {
@@ -47,6 +52,7 @@ router.post(
       purpose: purpose ?? 'admission_advance',
       notes: notes ?? null,
       collectedBy: req.user?.uid,
+      tenantId: tenantOf(req),
     });
     success(res, { deposit }, `Advance deposit ${deposit.receipt_number} collected`, HTTP_STATUS.CREATED);
   })
@@ -57,8 +63,8 @@ router.get(
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
     const [deposits, balance] = await Promise.all([
-      ipdSupportService.listAdmissionDeposits(admissionId),
-      ipdSupportService.getAdmissionDepositBalance(admissionId),
+      ipdSupportService.listAdmissionDeposits(admissionId, { tenantId: tenantOf(req) }),
+      ipdSupportService.getAdmissionDepositBalance(admissionId, { tenantId: tenantOf(req) }),
     ]);
     success(res, { deposits, balance }, 'Advance deposits retrieved');
   })
@@ -76,6 +82,7 @@ router.post(
       paymentReference: payment_reference ?? null,
       notes: notes ?? null,
       refundedBy: req.user?.uid,
+      tenantId: tenantOf(req),
     });
     success(res, { refund }, `Refund ${refund.receipt_number} processed`, HTTP_STATUS.CREATED);
   })
@@ -87,7 +94,7 @@ router.get(
   '/admissions/:id/attendant-passes',
   wrapAsync(async (req, res) => {
     const admissionId = requireIntParam(req.params.id, 'admissionId');
-    const passes = await ipdSupportService.listAdmissionPasses(admissionId);
+    const passes = await ipdSupportService.listAdmissionPasses(admissionId, { tenantId: tenantOf(req) });
     success(res, { passes }, 'Attendant passes retrieved');
   })
 );
@@ -106,6 +113,7 @@ router.post(
       wardName: ward_name ?? null,
       issuedBy: req.user?.uid,
       notes: notes ?? null,
+      tenantId: tenantOf(req),
     });
     success(res, { pass }, `Replacement pass ${pass.pass_number} issued`, HTTP_STATUS.CREATED);
   })
@@ -120,6 +128,7 @@ router.post(
       passId,
       revokedBy: req.user?.uid,
       reason: reason ?? null,
+      tenantId: tenantOf(req),
     });
     success(res, { pass }, 'Pass revoked');
   })
@@ -140,6 +149,7 @@ router.post(
       items,
       notes: notes ?? null,
       requestedBy: req.user?.uid,
+      tenantId: tenantOf(req),
     });
     success(res, { indent }, `Ward indent ${indent.indent_number} created`, HTTP_STATUS.CREATED);
   })
@@ -155,6 +165,7 @@ router.get(
       admissionId: admission_id ? Number.parseInt(admission_id, 10) : null,
       patientUid: patient_uid ?? null,
       limit: limit ? Number.parseInt(limit, 10) : 50,
+      tenantId: tenantOf(req),
     });
     success(res, { indents }, 'Ward indents retrieved');
   })
@@ -169,6 +180,7 @@ router.get(
       admissionId,
       status: status ?? null,
       limit: limit ? Number.parseInt(limit, 10) : 50,
+      tenantId: tenantOf(req),
     });
     success(res, { indents }, 'Ward indents for admission retrieved');
   })
@@ -178,7 +190,7 @@ router.get(
   '/ward-indents/:indentId',
   wrapAsync(async (req, res) => {
     const indentId = requireIntParam(req.params.indentId, 'indentId');
-    const indent = await ipdSupportService.getWardIndent(indentId);
+    const indent = await ipdSupportService.getWardIndent(indentId, { tenantId: tenantOf(req) });
     if (!indent) return error(res, 'Ward indent not found', HTTP_STATUS.NOT_FOUND);
     success(res, { indent }, 'Ward indent retrieved');
   })
@@ -191,6 +203,7 @@ router.post(
     const indent = await ipdSupportService.approveWardIndent({
       indentId,
       approvedBy: req.user?.uid,
+      tenantId: tenantOf(req),
     });
     success(res, { indent }, 'Indent approved');
   })
@@ -205,6 +218,7 @@ router.post(
       indentId,
       rejectedBy: req.user?.uid,
       reason,
+      tenantId: tenantOf(req),
     });
     success(res, { indent }, 'Indent rejected');
   })
@@ -219,6 +233,7 @@ router.post(
       indentId,
       issuedBy: req.user?.uid,
       itemQuantitiesIssued: item_quantities_issued ?? null,
+      tenantId: tenantOf(req),
     });
     success(res, { indent }, 'Indent issued');
   })
@@ -231,6 +246,7 @@ router.post(
     const indent = await ipdSupportService.receiveWardIndent({
       indentId,
       receivedBy: req.user?.uid,
+      tenantId: tenantOf(req),
     });
     success(res, { indent }, 'Indent receipt acknowledged');
   })

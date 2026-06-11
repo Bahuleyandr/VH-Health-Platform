@@ -19,6 +19,11 @@ const router = express.Router();
 
 const canControlRelease = (role) => isClinical(role) || isAdmin(role) || role === 'SUPER_ADMIN';
 
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
+}
+
 function handleFailure(res, err, context) {
   if (err instanceof AppError) {
     return error(res, err.message, err.statusCode, err.details ?? { code: err.code });
@@ -35,7 +40,11 @@ router.patch('/:id/hold', async (req, res) => {
     const result = await setResultReleaseHold(req.params.id, {
       hold: req.body.hold,
       reason: req.body.reason || null,
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    }, {
+      actorUid: req.user?.uid || null,
+      actorRole: req.user?.role || null,
+      tenantId: tenantOf(req),
+    });
     return success(res, { result }, result.release_hold ? 'Result held from patient' : 'Hold lifted');
   } catch (err) {
     return handleFailure(res, err, 'update release hold');
@@ -50,6 +59,7 @@ router.post('/:id/release-now', async (req, res) => {
     const result = await releaseResultNow(req.params.id, {
       actorUid: req.user?.uid || null,
       actorRole: req.user?.role || null,
+      tenantId: tenantOf(req),
     });
     return success(res, { result }, 'Result released to patient');
   } catch (err) {

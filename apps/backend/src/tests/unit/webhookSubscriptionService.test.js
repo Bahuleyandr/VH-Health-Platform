@@ -14,6 +14,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 const {
   createSubscription,
   deleteSubscription,
+  encryptWebhookSigningSecret,
   getSubscription,
   listSubscriptions,
   recordSubscriptionFailure,
@@ -28,6 +29,8 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  delete process.env.WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS;
+  delete process.env.WEBHOOK_DELIVERY_HOST_ALLOWLIST;
 });
 
 function mockNext(rows) {
@@ -103,24 +106,43 @@ describe('createSubscription', () => {
   it('requires signing_credential_id when algorithm != none', async () => {
     await expect(createSubscription({
       tenantId: TENANT, integrationId: 1,
-      eventType: 'patient.admitted', endpointUrl: 'https://example.com/hook',
+      eventType: 'patient.admitted', endpointUrl: 'https://8.8.8.8/hook',
       signingAlgorithm: 'hmac-sha256',
     })).rejects.toThrow(/signing_credential_id/);
   });
+  it('rejects loopback endpoint SSRF', async () => {
+    await expect(createSubscription({
+      tenantId: TENANT, integrationId: 1,
+      eventType: 'patient.admitted', endpointUrl: 'http://127.0.0.1/hook',
+      signingAlgorithm: 'none',
+    })).rejects.toMatchObject({ code: 'SSRF_BLOCKED' });
+  });
+  it('rejects signing credentials not owned by this tenant integration', async () => {
+    mockNext([{ id: 1 }]); // integration ownership
+    mockNext([]); // credential ownership miss
+    await expect(createSubscription({
+      tenantId: TENANT, integrationId: 1,
+      eventType: 'patient.admitted', endpointUrl: 'https://8.8.8.8/hook',
+      signingCredentialId: 7,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'WEBHOOK_SIGNING_CREDENTIAL_FORBIDDEN' });
+  });
   it('inserts when given a valid URL + signing setup', async () => {
+    mockNext([{ id: 1 }]); // integration ownership
+    mockNext([{ id: 7 }]); // signing credential ownership
     mockNext([{ id: 1, integration_id: 1, event_type: 'patient.admitted', signing_algorithm: 'hmac-sha256', is_active: true }]);
     const row = await createSubscription({
       tenantId: TENANT, integrationId: 1,
-      eventType: 'patient.admitted', endpointUrl: 'https://example.com/hook',
+      eventType: 'patient.admitted', endpointUrl: 'https://8.8.8.8/hook',
       signingCredentialId: 7,
     });
     expect(row.id).toBe(1);
   });
   it('maps unique-violation to 409', async () => {
+    mockNext([{ id: 1 }]); // integration ownership
     queryUnsafeMock.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'));
     await expect(createSubscription({
       tenantId: TENANT, integrationId: 1, eventType: 'patient.admitted',
-      endpointUrl: 'https://example.com/hook', signingAlgorithm: 'none',
+      endpointUrl: 'https://8.8.8.8/hook', signingAlgorithm: 'none',
     })).rejects.toMatchObject({ statusCode: 409 });
   });
 });
@@ -156,6 +178,33 @@ describe('updateSubscription', () => {
     mockNext([{ id: 1 }]);
     await updateSubscription({ tenantId: TENANT, id: 1 });
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/SELECT/);
+  });
+  it('rejects update to loopback endpoint SSRF', async () => {
+    await expect(updateSubscription({
+      tenantId: TENANT, id: 1, endpointUrl: 'http://127.0.0.1/hook',
+    })).rejects.toMatchObject({ code: 'SSRF_BLOCKED' });
+  });
+  it('rejects cross-tenant signing credential updates', async () => {
+    mockNext([{ id: 1, integration_id: 1, signing_credential_id: null, signing_algorithm: 'none' }]);
+    mockNext([]);
+    await expect(updateSubscription({
+      tenantId: TENANT, id: 1, signingCredentialId: 7,
+    })).rejects.toMatchObject({ statusCode: 403, code: 'WEBHOOK_SIGNING_CREDENTIAL_FORBIDDEN' });
+  });
+  it('requires credential when switching to hmac signing', async () => {
+    mockNext([{ id: 1, integration_id: 1, signing_credential_id: null, signing_algorithm: 'none' }]);
+    await expect(updateSubscription({
+      tenantId: TENANT, id: 1, signingAlgorithm: 'hmac-sha256',
+    })).rejects.toThrow(/signing_credential_id/);
+  });
+});
+
+describe('encryptWebhookSigningSecret', () => {
+  it('encrypts the secret and stores only a deterministic hash companion', () => {
+    const result = encryptWebhookSigningSecret('whsec_test');
+    expect(result.ciphertext).toMatch(/^enc:v1:/);
+    expect(result.ciphertext).not.toBe('whsec_test');
+    expect(result.ciphertext_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

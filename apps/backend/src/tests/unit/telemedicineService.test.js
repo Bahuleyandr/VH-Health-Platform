@@ -340,6 +340,22 @@ describe('provider_configs', () => {
       .rejects.toThrow(/provider must be one of/);
   });
 
+  it('encrypts provider secrets before storing them', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, provider: 'daily', is_default: false }]);
+    await upsertProviderConfig({
+      tenantId: TENANT,
+      provider: 'daily',
+      apiKeyCiphertext: 'daily-api-key',
+      apiSecretCiphertext: 'daily-api-secret',
+      webhookSecretCiphertext: 'daily-webhook-secret',
+    });
+    const params = queryUnsafeMock.mock.calls[0].slice(1);
+    expect(params).not.toContain('daily-api-key');
+    expect(params).not.toContain('daily-api-secret');
+    expect(params).not.toContain('daily-webhook-secret');
+    expect(params.filter((p) => typeof p === 'string' && p.startsWith('enc:v1:'))).toHaveLength(3);
+  });
+
   it('listProviderConfigs degrades on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "teleconsult_provider_configs" does not exist'));
     const result = await listProviderConfigs({ tenantId: TENANT });

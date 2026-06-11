@@ -19,6 +19,8 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { encryptField, isEncrypted } from '../../utils/fieldEncryption.js';
+import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 export const SIGNING_ALGORITHMS = ['hmac-sha256', 'hmac-sha512', 'none'];
@@ -27,6 +29,7 @@ const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
 const ENDPOINT_MAX = 2_000;
 const EVENT_TYPE_MAX = 120;
+const SECRET_MAX = 8_000;
 
 function resolveTenantId(options = {}) {
   return options.tenantId || DEFAULT_TENANT_ID;
@@ -82,6 +85,67 @@ function isValidUrl(value) {
   } catch {
     return false;
   }
+}
+
+function encryptSecretValue(value) {
+  const text = safeText(value, SECRET_MAX);
+  if (!text) return null;
+  return isEncrypted(text) ? text : encryptField(text);
+}
+
+function fingerprintSecret(value) {
+  return crypto.createHash('sha256').update(`vh-webhook-secret:${value}`).digest('hex');
+}
+
+export function encryptWebhookSigningSecret(secret) {
+  const text = safeText(secret, SECRET_MAX);
+  if (!text) throw AppError.badRequest('signing secret is required');
+  return {
+    ciphertext: encryptSecretValue(text),
+    ciphertext_hash: fingerprintSecret(text),
+  };
+}
+
+async function assertIntegrationOwnedByTenant({ tenantId, integrationId }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM integrations WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    integrationId,
+    tenantId,
+  );
+  if (!rows[0]) throw AppError.notFound('Integration not found');
+  return rows[0];
+}
+
+async function assertSigningCredentialOwned({ tenantId, integrationId, credentialId }) {
+  const cid = normalizeId(credentialId, 'signing_credential_id');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM integration_credentials
+     WHERE id = $1 AND tenant_id = $2::uuid AND integration_id = $3
+     LIMIT 1`,
+    cid,
+    tenantId,
+    integrationId,
+  );
+  if (!rows[0]) {
+    throw AppError.forbidden(
+      'signing_credential_id does not belong to this tenant integration',
+      'WEBHOOK_SIGNING_CREDENTIAL_FORBIDDEN',
+    );
+  }
+  return cid;
+}
+
+async function loadSubscriptionOwnership({ tenantId, id }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, tenant_id, integration_id, signing_credential_id, signing_algorithm
+     FROM webhook_subscriptions
+     WHERE id = $1 AND tenant_id = $2::uuid
+     LIMIT 1`,
+    id,
+    tenantId,
+  );
+  if (!rows[0]) throw AppError.notFound('Webhook subscription not found');
+  return rows[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -190,10 +254,19 @@ export async function createSubscription({
   if (!isValidUrl(cleanUrl)) {
     throw AppError.badRequest('endpoint_url must be a valid http(s) URL');
   }
+  await assertSafeOutboundUrl(cleanUrl, {
+    label: 'endpoint_url',
+    allowlistEnv: 'WEBHOOK_DELIVERY_HOST_ALLOWLIST',
+    allowPrivateEnv: 'WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS',
+  });
   const algo = normalizeAlgorithm(signingAlgorithm);
   if (algo !== 'none' && !signingCredentialId) {
     throw AppError.badRequest('signing_credential_id is required for hmac signing');
   }
+  await assertIntegrationOwnedByTenant({ tenantId: tid, integrationId: intId });
+  const credentialId = signingCredentialId
+    ? await assertSigningCredentialOwned({ tenantId: tid, integrationId: intId, credentialId: signingCredentialId })
+    : null;
   const cleanFilter = normalizeJsonObject(eventFilter, 'event_filter');
   const cleanMetadata = normalizeJsonObject(metadata, 'metadata');
   const cap = Math.max(1, Math.min(Number.parseInt(maxConsecutiveFailures, 10) || 10, 1_000));
@@ -211,7 +284,7 @@ export async function createSubscription({
                  consecutive_failures, max_consecutive_failures, metadata,
                  created_by, created_at, updated_at`,
       intId, tid, cleanEvent, JSON.stringify(cleanFilter), cleanUrl,
-      signingCredentialId ? Number.parseInt(signingCredentialId, 10) : null,
+      credentialId,
       algo, Boolean(isActive), cap,
       JSON.stringify(cleanMetadata), createdBy,
     );
@@ -300,12 +373,21 @@ export async function updateSubscription({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const sid = normalizeId(id, 'subscription id');
+  const needsSigningOwnership = signingCredentialId !== undefined || signingAlgorithm !== undefined;
+  const current = needsSigningOwnership
+    ? await loadSubscriptionOwnership({ tenantId: tid, id: sid })
+    : null;
   const updates = [];
   const params = [];
   if (endpointUrl !== undefined) {
     const v = safeText(endpointUrl, ENDPOINT_MAX);
     if (!v) throw AppError.badRequest('endpoint_url cannot be empty');
     if (!isValidUrl(v)) throw AppError.badRequest('endpoint_url must be a valid http(s) URL');
+    await assertSafeOutboundUrl(v, {
+      label: 'endpoint_url',
+      allowlistEnv: 'WEBHOOK_DELIVERY_HOST_ALLOWLIST',
+      allowPrivateEnv: 'WEBHOOK_DELIVERY_ALLOW_PRIVATE_TARGETS',
+    });
     params.push(v);
     updates.push(`endpoint_url = $${params.length}`);
   }
@@ -313,13 +395,26 @@ export async function updateSubscription({
     params.push(JSON.stringify(normalizeJsonObject(eventFilter, 'event_filter')));
     updates.push(`event_filter = $${params.length}::jsonb`);
   }
+  let nextSigningCredentialId = current?.signing_credential_id ?? null;
   if (signingCredentialId !== undefined) {
-    params.push(signingCredentialId ? Number.parseInt(signingCredentialId, 10) : null);
+    nextSigningCredentialId = signingCredentialId
+      ? await assertSigningCredentialOwned({
+        tenantId: tid,
+        integrationId: current.integration_id,
+        credentialId: signingCredentialId,
+      })
+      : null;
+    params.push(nextSigningCredentialId);
     updates.push(`signing_credential_id = $${params.length}`);
   }
+  let nextSigningAlgorithm = current?.signing_algorithm ?? null;
   if (signingAlgorithm !== undefined) {
-    params.push(normalizeAlgorithm(signingAlgorithm));
+    nextSigningAlgorithm = normalizeAlgorithm(signingAlgorithm);
+    params.push(nextSigningAlgorithm);
     updates.push(`signing_algorithm = $${params.length}`);
+  }
+  if (needsSigningOwnership && nextSigningAlgorithm !== 'none' && !nextSigningCredentialId) {
+    throw AppError.badRequest('signing_credential_id is required for hmac signing');
   }
   if (isActive !== undefined) {
     params.push(Boolean(isActive));

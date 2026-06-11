@@ -42,6 +42,7 @@ jest.unstable_mockModule('../../services/notification/staffNotificationService.j
 }));
 
 const ipdSupportService = (await import('../../services/ipd/ipdSupportService.js')).default;
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   attendantPassesFindMany.mockReset();
@@ -76,7 +77,7 @@ describe('ipdSupportService.listAdmissionPasses', () => {
 
     expect(attendantPassesFindMany).toHaveBeenCalledTimes(1);
     expect(attendantPassesFindMany).toHaveBeenCalledWith({
-      where: { admission_id: 13 },
+      where: { admission_id: 13, tenant_id: DEFAULT_TENANT_ID },
       orderBy: { pass_index: 'asc' },
     });
     expect(passes).toHaveLength(2);
@@ -102,7 +103,7 @@ describe('ipdSupportService.getAdmissionDepositBalance — deferred-advance mirr
     // forcing the discharge cashier to ask for re-payment.
     expect(balance).toBe(7500);
     expect(advanceDepositsAggregate).toHaveBeenCalledWith({
-      where: { admission_id: 42 },
+      where: { admission_id: 42, tenant_id: DEFAULT_TENANT_ID },
       _sum: { amount: true },
     });
     // The billing_advances mirror probe must scope by admission_id OR
@@ -110,6 +111,7 @@ describe('ipdSupportService.getAdmissionDepositBalance — deferred-advance mirr
     // admission.admitted_at) — preserving deferred deposits.
     const sql = queryRawUnsafeMock.mock.calls[0][0];
     expect(sql).toMatch(/FROM billing_advances/);
+    expect(sql).toMatch(/ba\.tenant_id = \$2::uuid/);
     expect(sql).toMatch(/admission_id IS NULL/);
     expect(sql).toMatch(/ba\.patient_uid = a\.patient_uid/);
   });

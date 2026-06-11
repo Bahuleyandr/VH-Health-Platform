@@ -60,6 +60,27 @@ describe('patientAccessGuard', () => {
     expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 
+  it('denies no-context PHI operations when patient context is required', async () => {
+    const next = jest.fn();
+    const res = resStub();
+
+    await patientAccessGuard('MEDICAL_RECORD', { requirePatientContext: true })({
+      method: 'GET',
+      params: {},
+      query: {},
+      body: {},
+      user: { id: 9, uid: '22222222-2222-4222-8222-222222222222', role: 'MEDICAL_RECORDS' },
+    }, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PATIENT_CONTEXT_REQUIRED',
+    }));
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
+  });
+
   it('allows active care-team members and writes an allow audit row', async () => {
     prismaMock.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: 15, uid: '11111111-1111-4111-8111-111111111111' }])

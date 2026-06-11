@@ -154,13 +154,33 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/vh-release-tools output/release-images/${{ matrix.app }}
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/v1.18.1/install.sh \
-            | sh -s -- -b /tmp/vh-release-tools v1.18.1
-          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.70.0/contrib/install.sh \
-            | sh -s -- -b /tmp/vh-release-tools v0.70.0
-          curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 \
-            -o /tmp/vh-release-tools/cosign
-          chmod 0755 /tmp/vh-release-tools/cosign
+
+          syft_version="1.18.1"
+          syft_archive="syft_${syft_version}_linux_amd64.tar.gz"
+          curl -sSfL "https://github.com/anchore/syft/releases/download/v${syft_version}/${syft_archive}" \
+            -o "/tmp/vh-release-tools/${syft_archive}"
+          curl -sSfL "https://github.com/anchore/syft/releases/download/v${syft_version}/syft_${syft_version}_checksums.txt" \
+            -o /tmp/vh-release-tools/syft_checksums.txt
+          (cd /tmp/vh-release-tools && grep -E "(^|[[:space:]])${syft_archive}$" syft_checksums.txt | sha256sum -c -)
+          tar -xzf "/tmp/vh-release-tools/${syft_archive}" -C /tmp/vh-release-tools syft
+
+          trivy_version="0.70.0"
+          trivy_archive="trivy_${trivy_version}_Linux-64bit.tar.gz"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${trivy_version}/${trivy_archive}" \
+            -o "/tmp/vh-release-tools/${trivy_archive}"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${trivy_version}/trivy_${trivy_version}_checksums.txt" \
+            -o /tmp/vh-release-tools/trivy_checksums.txt
+          (cd /tmp/vh-release-tools && grep -E "(^|[[:space:]])${trivy_archive}$" trivy_checksums.txt | sha256sum -c -)
+          tar -xzf "/tmp/vh-release-tools/${trivy_archive}" -C /tmp/vh-release-tools trivy
+
+          cosign_version="2.5.3"
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${cosign_version}/cosign-linux-amd64" \
+            -o /tmp/vh-release-tools/cosign-linux-amd64
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${cosign_version}/cosign_checksums.txt" \
+            -o /tmp/vh-release-tools/cosign_checksums.txt
+          (cd /tmp/vh-release-tools && grep -E '(^|[[:space:]])cosign-linux-amd64$' cosign_checksums.txt | sha256sum -c -)
+          mv /tmp/vh-release-tools/cosign-linux-amd64 /tmp/vh-release-tools/cosign
+          chmod 0755 /tmp/vh-release-tools/syft /tmp/vh-release-tools/trivy /tmp/vh-release-tools/cosign
 
       - name: Build and push image
         if: steps.selection.outputs.selected == 'true'
@@ -172,6 +192,7 @@ jobs:
           fi
 
           build_args=()
+          secret_args=()
           case "${{ matrix.app }}" in
             backend)
               build_args+=(--build-arg "NODE_IMAGE=mirror.gcr.io/library/node:22-alpine")
@@ -187,9 +208,11 @@ jobs:
                 --build-arg "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-0.1}"
                 --build-arg "NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE:-0}"
                 --build-arg "NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE:-0}"
-                --build-arg "SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN:-}"
                 --build-arg "SENTRY_UPLOAD_SOURCE_MAPS=false"
               )
+              if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
+                secret_args+=(--secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN)
+              fi
               ;;
             staff-web)
               build_args+=(
@@ -212,6 +235,7 @@ jobs:
             --push \
             "${tag_args[@]}" \
             "${build_args[@]}" \
+            "${secret_args[@]}" \
             -f "${{ matrix.dockerfile }}" \
             "${{ matrix.context }}"
 

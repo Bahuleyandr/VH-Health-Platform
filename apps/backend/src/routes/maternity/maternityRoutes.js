@@ -164,7 +164,10 @@ router.post('/newborns', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 router.get('/newborns/delivery/:deliveryId', requireStaffOrAdmin, wrap(async (req) =>
-  mat.listNewbornsForDelivery({ delivery_id: req.params.deliveryId }),
+  mat.listNewbornsForDelivery({
+    tenantId: tenantOf(req),
+    delivery_id: req.params.deliveryId,
+  }),
 ));
 
 router.get('/newborns/:id', requireStaffOrAdmin, wrap(async (req) =>
@@ -173,6 +176,7 @@ router.get('/newborns/:id', requireStaffOrAdmin, wrap(async (req) =>
 
 router.post('/newborns/:id/apgar', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordApgar({
+    tenantId: tenantOf(req),
     newborn_id: req.params.id,
     recorded_by: req.user?.uid,
     ...req.body,
@@ -253,7 +257,10 @@ router.post('/immunisations/up-to-date', requireStaffOrAdmin, wrap(async (req) =
 
 // Read-side companion — patient app's immunisation card uses this.
 router.get('/immunisations/status/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
-  immun.getImmunisationStatus({ patient_uid: req.params.patientUid }),
+  immun.getImmunisationStatus({
+    tenantId: tenantOf(req),
+    patient_uid: req.params.patientUid,
+  }),
 ));
 
 // ── A7 — ANC operational helpers (migration 181) ────────────────────

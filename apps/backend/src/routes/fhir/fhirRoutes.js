@@ -27,10 +27,67 @@ import {
   attachResourceCodings,
   normalizeClinicalCodings,
 } from '../../services/terminology/clinicalCodeBindingService.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { ROLES, isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 
 const router = express.Router();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function tenantOf(req) {
+  const tenantId = req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id || DEFAULT_TENANT_ID;
+  const normalized = String(tenantId || '').trim().toLowerCase();
+  if (!UUID_RE.test(normalized)) {
+    throw AppError.forbidden('FHIR tenant context is required', 'FHIR_TENANT_REQUIRED');
+  }
+  return normalized;
+}
+
+function pushParam(params, value) {
+  params.push(value);
+  return `$${params.length}`;
+}
+
+function addTenantFilter(conditions, params, tenantId, column = 'tenant_id') {
+  conditions.push(`${column} = ${pushParam(params, tenantId)}::uuid`);
+}
+
+function parsePatientSearchParam(value, fieldName = 'patient') {
+  if (value === undefined || value === null || value === '') return null;
+  const text = String(value).trim();
+  const reference = /^Patient\/([0-9a-f-]{36})$/i.exec(text);
+  const uid = String(reference?.[1] || text).trim().toLowerCase();
+  if (!UUID_RE.test(uid)) {
+    throw AppError.badRequest(`${fieldName} must be a patient UUID or Patient/<uuid>`, 'FHIR_BAD_PATIENT');
+  }
+  return uid;
+}
+
+function addPatientFilter(conditions, params, patient, column = 'patient_uid') {
+  const patientUid = parsePatientSearchParam(patient);
+  if (patientUid) {
+    conditions.push(`${column} = ${pushParam(params, patientUid)}::uuid`);
+  }
+  return patientUid;
+}
+
+function paginationSql(params, _count, _offset) {
+  return `LIMIT ${pushParam(params, _count)} OFFSET ${pushParam(params, _offset)}`;
+}
+
+async function assertPatientInTenant(patientUid, tenantId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, tenant_id FROM users
+      WHERE uid = $1::uuid AND tenant_id = $2::uuid
+      LIMIT 1`,
+    patientUid,
+    tenantId,
+  );
+  if (!rows.length) {
+    throw AppError.notFound('Patient not found');
+  }
+  return rows[0];
+}
 
 // Roadmap C3 — write interactions are tighter than the read mount: doctors,
 // admins and the integration service account may create resources.
@@ -43,11 +100,11 @@ function requireFhirWriteRole(req) {
 }
 
 function patientUidFromReference(reference) {
-  const match = /^Patient\/([0-9a-f-]{36})$/i.exec(String(reference || '').trim());
-  if (!match) {
+  const patientUid = parsePatientSearchParam(reference, 'subject.reference');
+  if (!patientUid || !/^Patient\//i.test(String(reference || '').trim())) {
     throw AppError.badRequest("subject.reference must be 'Patient/<uuid>'", 'FHIR_BAD_SUBJECT');
   }
-  return match[1];
+  return patientUid;
 }
 
 function assertValidInbound(resource, expectedType) {
@@ -310,7 +367,8 @@ router.get(
 router.get(
   '/Patient/:id/$everything',
   wrapAsync(async (req, res) => {
-    const { id } = req.params;
+    const id = parsePatientSearchParam(req.params.id, 'id');
+    const tenantId = tenantOf(req);
     const { _count } = parsePagination(req.query);
 
     const [
@@ -327,8 +385,8 @@ router.get(
     ] = await Promise.all([
       prisma.$queryRawUnsafe(
         `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-         FROM users WHERE uid = $1::uuid LIMIT 1`,
-        id
+         FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+        id, tenantId
       ),
       optionalFhirQuery(
         `SELECT CONCAT(v.id, '-', obs.type) AS id, v.patient_uid, obs.type,
@@ -343,66 +401,67 @@ router.get(
            ('respiratory_rate', v.respiratory_rate::text, 'breaths/min'),
            ('blood_glucose', v.blood_glucose::text, 'mg/dL')
         ) AS obs(type, value, unit)
-         WHERE v.patient_uid = $1::uuid AND obs.value IS NOT NULL
-         ORDER BY v.recorded_at DESC LIMIT $2`,
-        id, _count
+         WHERE v.patient_uid = $1::uuid AND v.tenant_id = $2::uuid AND obs.value IS NOT NULL
+         ORDER BY v.recorded_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
                 priority, urgent, ordered_at, created_at
-         FROM pharmacy_orders WHERE uid = $1::uuid
-         ORDER BY created_at DESC LIMIT $2`,
-        id, _count
+         FROM pharmacy_orders WHERE uid = $1::uuid AND tenant_id = $2::uuid
+         ORDER BY created_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
                 onset_date, resolved_date, diagnosed_by, notes, created_at
-         FROM diagnoses WHERE patient_uid = $1::uuid
-         ORDER BY created_at DESC LIMIT $2`,
-        id, _count
+         FROM diagnoses WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
+         ORDER BY created_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
                 performed_at, performed_by, author_id, outcome, complications, notes, created_at
          FROM clinical_notes
-         WHERE patient_uid = $1::uuid AND LOWER(note_type) = 'procedure'
-         ORDER BY created_at DESC LIMIT $2`,
-        id, _count
+         WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid AND LOWER(note_type) = 'procedure'
+         ORDER BY created_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
                 conclusion, interpretation, ordered_at, completed_at, created_at
-         FROM investigations WHERE patient_uid = $1::uuid OR uid = $1::uuid
-         ORDER BY created_at DESC LIMIT $2`,
-        id, _count
+         FROM investigations
+         WHERE (patient_uid = $1::uuid OR uid = $1::uuid) AND tenant_id = $2::uuid
+         ORDER BY created_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
-         FROM allergies WHERE patient_uid = $1::uuid
-         ORDER BY recorded_at DESC LIMIT $2`,
-        id, _count
+         FROM allergies WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
+         ORDER BY recorded_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
                 admitting_doctor, attending_doctor, admitted_at, discharged_at,
                 discharge_disposition, discharge_type, ward, bed_number
-         FROM admissions WHERE patient_uid = $1::uuid
-         ORDER BY admitted_at DESC LIMIT $2`,
-        id, _count
+         FROM admissions WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
+         ORDER BY admitted_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, note_type, type, title, content, author_id, created_by, created_at
-         FROM clinical_notes WHERE patient_uid = $1::uuid
-         ORDER BY created_at DESC LIMIT $2`,
-        id, _count
+         FROM clinical_notes WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
+         ORDER BY created_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
       optionalFhirQuery(
         `SELECT id, patient_uid, status, priority, referring_doctor, requester_id,
                 referred_to_doctor, performer_id, referred_to_department,
                 reason, clinical_notes, notes, created_at
-         FROM referrals WHERE patient_uid = $1::uuid
-         ORDER BY created_at DESC LIMIT $2`,
-        id, _count
+         FROM referrals WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
+         ORDER BY created_at DESC LIMIT $3`,
+        id, tenantId, _count
       ),
     ]);
 
@@ -413,9 +472,9 @@ router.get(
     const problems = await optionalFhirQuery(
       `SELECT id, patient_uid, title, icd10_code, snomed_code, status, onset_date,
               resolved_date, notes, created_at
-       FROM patient_problems WHERE patient_uid = $1::uuid
-       ORDER BY created_at DESC LIMIT $2`,
-      id, _count
+       FROM patient_problems WHERE patient_uid = $1::uuid AND tenant_id = $2::uuid
+       ORDER BY created_at DESC LIMIT $3`,
+      id, tenantId, _count
     );
 
     await attachResourceCodings(conditions, { resourceType: 'diagnosis' });
@@ -442,12 +501,13 @@ router.get(
 router.get(
   '/Patient/:id',
   wrapAsync(async (req, res) => {
-    const { id } = req.params;
+    const id = parsePatientSearchParam(req.params.id, 'id');
+    const tenantId = tenantOf(req);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-       FROM users WHERE uid = $1 LIMIT 1`,
-      id
+       FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid LIMIT 1`,
+      id, tenantId
     );
 
     if (!rows.length) {
@@ -467,29 +527,27 @@ router.get(
   '/Patient',
   wrapAsync(async (req, res) => {
     const { name, phone } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId);
 
     if (name) {
-      conditions.push(`name ILIKE $${idx}`);
-      params.push(`%${name}%`);
-      idx++;
+      conditions.push(`name ILIKE ${pushParam(params, `%${name}%`)}`);
     }
 
     if (phone) {
-      conditions.push(`phone = $${idx}`);
-      params.push(phone);
-      idx++;
+      conditions.push(`phone = ${pushParam(params, phone)}`);
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-       FROM users ${where} ORDER BY name LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM users ${where} ORDER BY name ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirPatient);
@@ -504,12 +562,13 @@ router.get(
   '/Appointment/:id',
   wrapAsync(async (req, res) => {
     const { id } = req.params;
+    const tenantId = tenantOf(req);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT a.id, a.uid, a.phone, a.patient_name, a.doctor_id, a.doctor_name,
               a.appointment_date, a.appointment_time, a.status, a.reason, a.notes, a.created_at
-       FROM appointments a WHERE a.id = $1 LIMIT 1`,
-      id
+       FROM appointments a WHERE a.id = $1 AND a.tenant_id = $2::uuid LIMIT 1`,
+      id, tenantId
     );
 
     if (!rows.length) {
@@ -527,30 +586,24 @@ router.get(
   '/Observation',
   wrapAsync(async (req, res) => {
     const { patient, code, date } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId, 'v.tenant_id');
 
-    if (patient) {
-      conditions.push(`v.patient_uid = $${idx}::uuid`);
-      params.push(patient);
-      idx++;
-    }
+    addPatientFilter(conditions, params, patient, 'v.patient_uid');
 
     if (code) {
-      conditions.push(`obs.type ILIKE $${idx}`);
-      params.push(`%${code}%`);
-      idx++;
+      conditions.push(`obs.type ILIKE ${pushParam(params, `%${code}%`)}`);
     }
 
     if (date) {
-      conditions.push(`v.recorded_at::date = $${idx}::date`);
-      params.push(date);
-      idx++;
+      conditions.push(`v.recorded_at::date = ${pushParam(params, date)}::date`);
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT CONCAT(v.id, '-', obs.type) AS id, v.patient_uid, obs.type,
@@ -565,9 +618,9 @@ router.get(
          ('respiratory_rate', v.respiratory_rate::text, 'breaths/min'),
          ('blood_glucose', v.blood_glucose::text, 'mg/dL')
        ) AS obs(type, value, unit)
-       ${where ? `${where} AND obs.value IS NOT NULL` : 'WHERE obs.value IS NOT NULL'}
-       ORDER BY v.recorded_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       ${where} AND obs.value IS NOT NULL
+       ORDER BY v.recorded_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirObservation);
@@ -582,16 +635,13 @@ router.get(
   '/MedicationRequest',
   wrapAsync(async (req, res) => {
     const { patient, status } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId);
 
-    if (patient) {
-      conditions.push(`uid = $${idx}`);
-      params.push(patient);
-      idx++;
-    }
+    addPatientFilter(conditions, params, patient, 'uid');
 
     if (status) {
       // Map FHIR status back to VH Health status for filtering
@@ -604,19 +654,19 @@ router.get(
       };
       const vhStatuses = reverseStatusMap[status];
       if (vhStatuses && vhStatuses.length > 0) {
-        const placeholders = vhStatuses.map(() => `$${idx++}`).join(', ');
+        const placeholders = vhStatuses.map((item) => pushParam(params, item)).join(', ');
         conditions.push(`status IN (${placeholders})`);
-        params.push(...vhStatuses);
       }
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
               priority, urgent, ordered_at, created_at
-       FROM pharmacy_orders ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM pharmacy_orders ${where} ORDER BY created_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirMedicationRequest);
@@ -633,7 +683,9 @@ router.get(
   '/Condition',
   wrapAsync(async (req, res) => {
     const { patient, category } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
+    const patientUid = parsePatientSearchParam(patient);
     const wantDiagnoses = !category || category === 'encounter-diagnosis';
     const wantProblems = !category || category === 'problem-list-item';
 
@@ -641,30 +693,36 @@ router.get(
     if (wantDiagnoses) {
       const conditions = [];
       const params = [];
-      let idx = 1;
-      if (patient) {
-        conditions.push(`patient_uid = $${idx}`);
-        params.push(patient);
-        idx++;
+      addTenantFilter(conditions, params, tenantId);
+      if (patientUid) {
+        conditions.push(`patient_uid = ${pushParam(params, patientUid)}::uuid`);
       }
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const where = `WHERE ${conditions.join(' AND ')}`;
+      const limitOffset = paginationSql(params, _count, _offset);
       const rows = await prisma.$queryRawUnsafe(
         `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
                 onset_date, resolved_date, diagnosed_by, notes, created_at
-         FROM diagnoses ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-        ...params, _count, _offset
+         FROM diagnoses ${where} ORDER BY created_at DESC ${limitOffset}`,
+        ...params
       );
       await attachResourceCodings(rows, { resourceType: 'diagnosis' });
       resources.push(...rows.map(toFhirCondition));
     }
     if (wantProblems) {
+      const conditions = [];
+      const params = [];
+      addTenantFilter(conditions, params, tenantId);
+      if (patientUid) {
+        conditions.push(`patient_uid = ${pushParam(params, patientUid)}::uuid`);
+      }
+      const limitOffset = paginationSql(params, _count, _offset);
       const rows = await optionalFhirQuery(
         `SELECT id, patient_uid, title, icd10_code, snomed_code, status, onset_date,
                 resolved_date, notes, created_at
          FROM patient_problems
-         ${patient ? 'WHERE patient_uid = $1::uuid' : ''}
-         ORDER BY created_at DESC LIMIT $${patient ? 2 : 1} OFFSET $${patient ? 3 : 2}`,
-        ...(patient ? [patient] : []), _count, _offset
+         WHERE ${conditions.join(' AND ')}
+         ORDER BY created_at DESC ${limitOffset}`,
+        ...params
       );
       await attachResourceCodings(rows, { resourceType: 'patient_problem' });
       resources.push(...rows.map(toFhirConditionFromProblem));
@@ -682,9 +740,11 @@ router.post(
   '/Condition',
   wrapAsync(async (req, res) => {
     requireFhirWriteRole(req);
+    const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'Condition');
     const patientUid = patientUidFromReference(resource.subject?.reference);
+    await assertPatientInTenant(patientUid, tenantId);
 
     const codings = Array.isArray(resource.code?.coding) ? resource.code.coding : [];
     const icd10 = codings.find((c) => String(c.system || '').includes('icd-10'))?.code || null;
@@ -712,7 +772,7 @@ router.post(
       onsetDate: resource.onsetDateTime ? String(resource.onsetDateTime).slice(0, 10) : null,
       notes: resource.note?.[0]?.text || null,
       codings: clinicalCodings,
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId });
 
     res.status(201);
     res.setHeader('Location', `Condition/p-${result.problem.id}`);
@@ -729,9 +789,11 @@ router.post(
   '/Observation',
   wrapAsync(async (req, res) => {
     requireFhirWriteRole(req);
+    const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'Observation');
     const patientUid = patientUidFromReference(resource.subject?.reference);
+    await assertPatientInTenant(patientUid, tenantId);
 
     const mappedResult = fhirObservationToVitals(resource);
     if (mappedResult.mapped.length === 0) {
@@ -743,11 +805,13 @@ router.post(
 
     const result = await recordVitals({
       patient_uid: patientUid,
+      tenant_id: tenantId,
       ...mappedResult.vitals,
       temperature_unit: mappedResult.temperatureUnit || undefined,
       recorded_at: mappedResult.effective || undefined,
       notes: `FHIR Observation create (${mappedResult.mapped.join(', ')})`,
       recorded_by: req.user?.uid,
+      source: 'fhir',
     });
     const row = result?.vitals || result;
 
@@ -781,9 +845,11 @@ router.post(
   '/AllergyIntolerance',
   wrapAsync(async (req, res) => {
     requireFhirWriteRole(req);
+    const tenantId = tenantOf(req);
     const resource = req.body;
     assertValidInbound(resource, 'AllergyIntolerance');
     const patientUid = patientUidFromReference(resource.patient?.reference || resource.subject?.reference);
+    await assertPatientInTenant(patientUid, tenantId);
 
     const allergen = resource.code?.text
       || resource.code?.coding?.find((c) => c.display)?.display
@@ -800,11 +866,11 @@ router.post(
       || resource.reaction?.[0]?.description || null;
 
     const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO patient_allergies (patient_uid, allergy_name, severity, reaction, is_active, created_at)
-       SELECT u.uid, $2, $3, $4, true, NOW()
-         FROM users u WHERE u.uid = $1::uuid
+      `INSERT INTO patient_allergies (patient_uid, allergy_name, severity, reaction, is_active, tenant_id, created_at)
+       SELECT u.uid, $2, $3, $4, true, $5::uuid, NOW()
+         FROM users u WHERE u.uid = $1::uuid AND u.tenant_id = $5::uuid
        RETURNING id, patient_uid, allergy_name, severity, reaction, created_at`,
-      patientUid, String(allergen).trim(), severity, reactionText,
+      patientUid, String(allergen).trim(), severity, reactionText, tenantId,
     );
     if (!rows.length) throw AppError.notFound('Patient not found');
     const created = rows[0];
@@ -833,25 +899,22 @@ router.get(
   '/Procedure',
   wrapAsync(async (req, res) => {
     const { patient } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
-
-    if (patient) {
-      conditions.push(`patient_uid = $${idx}`);
-      params.push(patient);
-      idx++;
-    }
+    addTenantFilter(conditions, params, tenantId);
+    addPatientFilter(conditions, params, patient);
 
     conditions.push(`LOWER(note_type) = 'procedure'`);
     const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
               performed_at, performed_by, author_id, outcome, complications, notes, created_at
-       FROM clinical_notes ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM clinical_notes ${where} ORDER BY created_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirProcedure);
@@ -866,24 +929,26 @@ router.get(
   '/DiagnosticReport',
   wrapAsync(async (req, res) => {
     const { patient } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId);
 
-    if (patient) {
-      conditions.push(`(patient_uid = $${idx} OR uid = $${idx})`);
-      params.push(patient);
-      idx++;
+    const patientUid = parsePatientSearchParam(patient);
+    if (patientUid) {
+      const patientParam = pushParam(params, patientUid);
+      conditions.push(`(patient_uid = ${patientParam}::uuid OR uid = ${patientParam}::uuid)`);
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
               conclusion, interpretation, ordered_at, completed_at, created_at
-       FROM investigations ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM investigations ${where} ORDER BY created_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirDiagnosticReport);
@@ -898,23 +963,20 @@ router.get(
   '/AllergyIntolerance',
   wrapAsync(async (req, res) => {
     const { patient } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId);
+    addPatientFilter(conditions, params, patient);
 
-    if (patient) {
-      conditions.push(`patient_uid = $${idx}`);
-      params.push(patient);
-      idx++;
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
-       FROM allergies ${where} ORDER BY recorded_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM allergies ${where} ORDER BY recorded_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirAllergyIntolerance);
@@ -929,25 +991,22 @@ router.get(
   '/Encounter',
   wrapAsync(async (req, res) => {
     const { patient } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId);
+    addPatientFilter(conditions, params, patient);
 
-    if (patient) {
-      conditions.push(`patient_uid = $${idx}`);
-      params.push(patient);
-      idx++;
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
               admitting_doctor, attending_doctor, admitted_at, discharged_at,
               discharge_disposition, discharge_type, ward, bed_number
-       FROM admissions ${where} ORDER BY admitted_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM admissions ${where} ORDER BY admitted_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirEncounter);
@@ -962,29 +1021,24 @@ router.get(
   '/DocumentReference',
   wrapAsync(async (req, res) => {
     const { patient, type } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
-
-    if (patient) {
-      conditions.push(`patient_uid = $${idx}`);
-      params.push(patient);
-      idx++;
-    }
+    addTenantFilter(conditions, params, tenantId);
+    addPatientFilter(conditions, params, patient);
 
     if (type) {
-      conditions.push(`note_type ILIKE $${idx}`);
-      params.push(`%${type}%`);
-      idx++;
+      conditions.push(`note_type ILIKE ${pushParam(params, `%${type}%`)}`);
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, type, title, content, author_id, created_by, created_at
-       FROM clinical_notes ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM clinical_notes ${where} ORDER BY created_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirDocumentReference);
@@ -999,25 +1053,22 @@ router.get(
   '/ServiceRequest',
   wrapAsync(async (req, res) => {
     const { patient } = req.query;
+    const tenantId = tenantOf(req);
     const { _count, _offset } = parsePagination(req.query);
     const conditions = [];
     const params = [];
-    let idx = 1;
+    addTenantFilter(conditions, params, tenantId);
+    addPatientFilter(conditions, params, patient);
 
-    if (patient) {
-      conditions.push(`patient_uid = $${idx}`);
-      params.push(patient);
-      idx++;
-    }
-
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const limitOffset = paginationSql(params, _count, _offset);
 
     const rows = await optionalFhirQuery(
       `SELECT id, patient_uid, status, priority, referring_doctor, requester_id,
               referred_to_doctor, performer_id, referred_to_department,
               reason, clinical_notes, notes, created_at
-       FROM referrals ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      ...params, _count, _offset
+       FROM referrals ${where} ORDER BY created_at DESC ${limitOffset}`,
+      ...params
     );
 
     const resources = rows.map(toFhirServiceRequest);

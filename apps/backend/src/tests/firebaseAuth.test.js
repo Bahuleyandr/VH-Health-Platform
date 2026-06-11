@@ -19,4 +19,18 @@ describe('Firebase Authentication API', () => {
     // 400 (validation), 401 (invalid token), 500 (Firebase unreachable in test)
     expect([400, 401, 500]).toContain(res.statusCode);
   });
+
+  it('rejects profile completion without a local JWT', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/firebase/complete-profile')
+      .set('x-api-key', API_KEY)
+      .send({
+        phone: '+919876543210',
+        name: 'Patient One',
+        gender: 'OTHER',
+      });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.error).toMatch(/authorization/i);
+  });
 });

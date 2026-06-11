@@ -71,10 +71,18 @@ router.get('/patients/:id/prescription', requireStaffOrAdmin, wrap(async (req) =
 
 // Vascular access
 router.post('/patients/:id/access', requireStaffOrAdmin, wrap(async (req) =>
-  svc.addAccess({ dialysis_patient_id: req.params.id, ...req.body })));
+  svc.addAccess({
+    tenantId: tenantOf(req),
+    dialysis_patient_id: req.params.id,
+    ...req.body,
+  })));
 
 router.post('/access/:id/abandon', requireStaffOrAdmin, wrap(async (req) =>
-  svc.abandonAccess({ id: req.params.id, reason: req.body.reason })));
+  svc.abandonAccess({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    reason: req.body.reason,
+  })));
 
 // Sessions
 router.post('/sessions', requireStaffOrAdmin, wrap(async (req) =>
@@ -112,11 +120,11 @@ router.post('/sessions/:id/cancel', requireStaffOrAdmin, wrap(async (req) =>
 // Intra-dialysis observations
 router.post('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) =>
   svc.logObservation({
-    session_id: req.params.id, recorded_by: req.user?.uid, ...req.body,
+    tenantId: tenantOf(req), session_id: req.params.id, recorded_by: req.user?.uid, ...req.body,
   })));
 
 router.get('/sessions/:id/obs', requireStaffOrAdmin, wrap(async (req) =>
-  svc.listObservations({ session_id: req.params.id })));
+  svc.listObservations({ tenantId: tenantOf(req), session_id: req.params.id })));
 
 // Structured complications (roadmap D7)
 router.post('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
@@ -126,7 +134,7 @@ router.post('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
   })));
 
 router.get('/sessions/:id/events', requireStaffOrAdmin, wrap(async (req) =>
-  svc.listSessionEvents({ session_id: req.params.id })));
+  svc.listSessionEvents({ tenantId: tenantOf(req), session_id: req.params.id })));
 
 // Machine-data ingestion (roadmap D7) — raw payloads hit the B3 inbox
 // first; observations land source='device' on the in-progress session
@@ -143,7 +151,7 @@ router.post('/machines/ingest', requireStaffOrAdmin, wrap(async (req, res) => {
 // Serology
 router.post('/patients/:id/serology', requireStaffOrAdmin, wrap(async (req) =>
   svc.recordSerology({
-    dialysis_patient_id: req.params.id, reported_by: req.user?.uid, ...req.body,
+    tenantId: tenantOf(req), dialysis_patient_id: req.params.id, reported_by: req.user?.uid, ...req.body,
   })));
 
 export default router;

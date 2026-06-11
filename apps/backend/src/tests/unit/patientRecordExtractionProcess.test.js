@@ -5,6 +5,7 @@ const authorizePatientAccessRequestMock = jest.fn();
 const getFileFromR2Mock = jest.fn();
 const getSignedFileUrlMock = jest.fn();
 const ingestClinicalDocumentUploadMock = jest.fn();
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -73,10 +74,12 @@ function baseReq() {
     params: { id: '12' },
     protocol: 'https',
     get: jest.fn(() => 'dalekdefender.example.test'),
+    tenantId: TENANT_ID,
     user: {
       id: 97,
       uid: '4fd0f5a4-42da-4994-a85b-73ce79699147',
       role: 'PATIENT',
+      tenant_id: TENANT_ID,
     },
   };
 }
@@ -96,7 +99,7 @@ function recordRow(overrides = {}) {
     source_hospital: null,
     record_date: null,
     notes: null,
-    tenant_id: '00000000-0000-4000-8000-000000000001',
+    tenant_id: TENANT_ID,
     created_at: new Date('2026-06-07T10:00:00Z'),
     ai_intake_id: null,
     ai_extraction_status: null,
@@ -140,6 +143,9 @@ describe('processPatientRecordExtraction', () => {
     const res = makeRes();
     await processPatientRecordExtraction(baseReq(), res);
 
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('pr.tenant_id = $2::uuid');
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('pu.tenant_id = $2::uuid');
+    expect(queryRawUnsafeMock.mock.calls[0][2]).toBe(TENANT_ID);
     expect(getFileFromR2Mock).not.toHaveBeenCalled();
     expect(ingestClinicalDocumentUploadMock).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
@@ -176,6 +182,10 @@ describe('processPatientRecordExtraction', () => {
     const res = makeRes();
     await processPatientRecordExtraction(baseReq(), res);
 
+    expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('pr.tenant_id = $2::uuid');
+    expect(queryRawUnsafeMock.mock.calls[0][2]).toBe(TENANT_ID);
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('pr.tenant_id = $2::uuid');
+    expect(queryRawUnsafeMock.mock.calls[1][2]).toBe(TENANT_ID);
     expect(getFileFromR2Mock).toHaveBeenCalledWith('records/patient_uploads/97/scan.jpg');
     expect(ingestClinicalDocumentUploadMock).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -38,22 +38,24 @@ export function releaseVisibilitySql(delayParam) {
 
 // ── staff: hold / early release ──────────────────────────────────────────
 
-async function getResult(resultId) {
+async function getResult(resultId, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, test_name, status, signed_off_at, release_hold, released_to_patient_at
-     FROM lab_results WHERE id = $1::int`,
-    Number(resultId),
+       FROM lab_results
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid`,
+    Number(resultId), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
   return rows[0];
 }
 
-export async function setResultReleaseHold(resultId, { hold, reason = null }, { actorUid = null, actorRole = null } = {}) {
+export async function setResultReleaseHold(resultId, { hold, reason = null }, { actorUid = null, actorRole = null, tenantId } = {}) {
   const wantHold = Boolean(hold);
   if (wantHold && (!reason || !String(reason).trim())) {
     throw AppError.badRequest('A reason is required to hold a result from the patient', 'PORTAL_HOLD_REASON_REQUIRED');
   }
-  const result = await getResult(resultId);
+  const result = await getResult(resultId, tenantId);
 
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE lab_results
@@ -63,14 +65,18 @@ export async function setResultReleaseHold(resultId, { hold, reason = null }, { 
          release_hold_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
          updated_at = NOW()
      WHERE id = $1::int
+       AND tenant_id = $5::uuid
      RETURNING id, release_hold, release_hold_reason, released_to_patient_at`,
     result.id,
     wantHold,
     wantHold ? actorUid : null,
     wantHold ? String(reason).trim() : null,
+    tenantId,
   );
+  if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
 
   await recordClinicalAuditEvent({
+    tenantId,
     patientUid: result.patient_uid,
     action: wantHold ? 'lab.result_release_hold' : 'lab.result_release_unhold',
     resourceTable: 'lab_results',
@@ -83,8 +89,8 @@ export async function setResultReleaseHold(resultId, { hold, reason = null }, { 
   return rows[0];
 }
 
-export async function releaseResultNow(resultId, { actorUid = null, actorRole = null } = {}) {
-  const result = await getResult(resultId);
+export async function releaseResultNow(resultId, { actorUid = null, actorRole = null, tenantId } = {}) {
+  const result = await getResult(resultId, tenantId);
   if (!result.signed_off_at) {
     throw AppError.badRequest('Only signed-off results can be released to the patient', 'PORTAL_RELEASE_UNSIGNED');
   }
@@ -95,11 +101,14 @@ export async function releaseResultNow(resultId, { actorUid = null, actorRole = 
          release_hold_by = NULL, release_hold_reason = NULL, release_hold_at = NULL,
          updated_at = NOW()
      WHERE id = $1::int
+       AND tenant_id = $2::uuid
      RETURNING id, released_to_patient_at, release_hold`,
-    result.id,
+    result.id, tenantId,
   );
+  if (!rows.length) throw AppError.notFound('Lab result not found', 'PORTAL_RESULT_NOT_FOUND');
 
   await recordClinicalAuditEvent({
+    tenantId,
     patientUid: result.patient_uid,
     action: 'lab.result_released_early',
     resourceTable: 'lab_results',

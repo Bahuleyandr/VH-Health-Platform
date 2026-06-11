@@ -7,6 +7,9 @@ interop" (and increasingly a government-empanelment requirement). The
 platform's substrate is largely built; certification is gated on owner-side
 onboarding plus one engineering gap (payload encryption).
 
+For the wider Indian hospital go-live packet, pair this technical checklist with
+[`india-deployment-readiness.md`](india-deployment-readiness.md).
+
 ## What exists today
 
 | Capability | State | Where |

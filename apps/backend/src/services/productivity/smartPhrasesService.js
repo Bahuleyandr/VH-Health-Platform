@@ -59,12 +59,15 @@ export async function lookup({ tenantId, owner_uid, code }) {
 
 export async function create({
   tenantId, owner_uid, code, title, body, specialty,
-  scope = 'private', placeholders, notes,
+  scope = 'private', placeholders, notes, can_manage_shared = false,
 }) {
   if (!code || !title || !body) throw AppError.badRequest('code, title, body required');
   if (!String(code).startsWith('.')) throw AppError.badRequest('code must start with "."');
   if (scope === 'private' && !owner_uid) {
     throw AppError.badRequest('private scope requires owner_uid');
+  }
+  if (scope === 'tenant_shared' && !can_manage_shared) {
+    throw AppError.forbidden('Only admins can create tenant-shared smart phrases');
   }
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO smart_phrases
@@ -73,13 +76,13 @@ export async function create({
      RETURNING *`,
     String(code), String(title), String(body),
     specialty || null, scope,
-    scope === 'private' && owner_uid ? String(owner_uid) : null,
+    owner_uid ? String(owner_uid) : null,
     placeholders || null, notes || null, tenantId,
   );
   return rows[0];
 }
 
-export async function update({ tenantId, id, owner_uid, ...patch }) {
+export async function update({ tenantId, id, owner_uid, can_manage_shared = false, ...patch }) {
   const allowed = ['title', 'body', 'specialty', 'placeholders', 'active', 'notes'];
   const sets = []; const params = [];
   for (const k of allowed) {
@@ -91,31 +94,57 @@ export async function update({ tenantId, id, owner_uid, ...patch }) {
   if (!sets.length) return null;
   params.push(Number(id));
   params.push(tenantId);
-  // Owner can edit own private; admins handle tenant-shared via routes.
+  // Owners can edit their own private phrases. Tenant-shared phrases are
+  // mutable only by their creator/owner or an explicit admin route caller.
   let where = `id = $${params.length - 1}::int AND tenant_id = $${params.length}::uuid`;
   if (owner_uid) {
     params.push(String(owner_uid));
-    where += ` AND (scope = 'tenant_shared' OR owner_uid = $${params.length}::uuid)`;
+    params.push(Boolean(can_manage_shared));
+    where += ` AND (
+      (scope = 'private' AND owner_uid = $${params.length - 1}::uuid)
+      OR (scope = 'tenant_shared' AND owner_uid = $${params.length - 1}::uuid)
+      OR (scope = 'tenant_shared' AND $${params.length}::boolean = TRUE)
+    )`;
+  } else if (!can_manage_shared) {
+    throw AppError.forbidden('Smart phrase ownership is required');
+  } else {
+    params.push(Boolean(can_manage_shared));
+    where += ` AND (scope = 'tenant_shared' AND $${params.length}::boolean = TRUE)`;
   }
-  await prisma.$executeRawUnsafe(
-    `UPDATE smart_phrases SET ${sets.join(', ')}, updated_at = NOW() WHERE ${where}`,
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE smart_phrases SET ${sets.join(', ')}, updated_at = NOW() WHERE ${where}
+      RETURNING *`,
     ...params,
   );
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM smart_phrases WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
-  );
-  return rows[0] || null;
+  if (!rows.length) throw AppError.notFound('Smart phrase not found');
+  return rows[0];
 }
 
-export async function remove({ tenantId, id, owner_uid }) {
+export async function remove({ tenantId, id, owner_uid, can_manage_shared = false }) {
+  const canManageShared = can_manage_shared === true;
   // Soft-delete only; keep audit trail of past use.
-  await prisma.$executeRawUnsafe(
+  const params = [Number(id), tenantId];
+  let where = `id = $1::int AND tenant_id = $2::uuid`;
+  if (owner_uid) {
+    params.push(String(owner_uid));
+    params.push(canManageShared);
+    where += ` AND (
+      (scope = 'private' AND owner_uid = $3::uuid)
+      OR (scope = 'tenant_shared' AND owner_uid = $3::uuid)
+      OR (scope = 'tenant_shared' AND $4::boolean = TRUE)
+    )`;
+  } else if (canManageShared) {
+    params.push(canManageShared);
+    where += ` AND scope = 'tenant_shared' AND $3::boolean = TRUE`;
+  } else {
+    throw AppError.forbidden('Smart phrase ownership is required');
+  }
+  const rows = await prisma.$queryRawUnsafe(
     `UPDATE smart_phrases SET active = false, updated_at = NOW()
-      WHERE id = $1::int AND tenant_id = $2::uuid
-        AND (scope = 'tenant_shared' OR owner_uid = $3::uuid)`,
-    Number(id), tenantId,
-    owner_uid ? String(owner_uid) : null,
+      WHERE ${where}
+      RETURNING id`,
+    ...params,
   );
+  if (!rows.length) throw AppError.notFound('Smart phrase not found');
   return { ok: true };
 }

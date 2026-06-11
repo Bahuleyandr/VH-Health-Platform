@@ -46,6 +46,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 const bedManagementService = (await import('../../services/bed/bedManagementService.js')).default;
 
 const PATIENT = 'cccc1111-2222-4333-8444-eeeeeeee3434';
+const TENANT = '00000000-0000-4000-8000-000000000001';
 const TX_CLIENT = {
   $queryRawUnsafe: queryRawMock,
   $executeRawUnsafe: executeRawMock,
@@ -64,12 +65,13 @@ beforeEach(() => {
 function mockTransferRows({ fromBedType, toBedType, toStatus = 'available' }) {
   queryRawMock
     // current bed lookup
-    .mockResolvedValueOnce([{ id: 100, bed_number: 'A1', bed_type: fromBedType }])
+    .mockResolvedValueOnce([{ id: 100, tenant_id: TENANT, bed_number: 'A1', bed_type: fromBedType }])
     // target bed lookup
-    .mockResolvedValueOnce([{ id: 200, status: toStatus, bed_number: 'B2', bed_type: toBedType }])
+    .mockResolvedValueOnce([{ id: 200, tenant_id: TENANT, status: toStatus, bed_number: 'B2', bed_type: toBedType }])
     // active admission lookup
     .mockResolvedValueOnce([{
       id: 300,
+      tenant_id: TENANT,
       patient_uid: PATIENT,
       admitted_at: new Date('2026-05-01T00:00:00.000Z'),
       expected_los_days: 3,
@@ -116,6 +118,40 @@ describe('bedManagementService.transferPatient — class-change reconciliation (
     expect(restampCall[2]).toBe('B2');
     expect(restampCall[4]).toBe('private');
     expect(restampCall[5]).toBe(300);
+  });
+
+  it('threads tenant filters through bed transfer source, control, and sink queries', async () => {
+    mockTransferRows({ fromBedType: 'general', toBedType: 'private' });
+    await bedManagementService.transferPatient(
+      PATIENT, 200, 'patient request', 'staff-uid', 'ADMIN',
+      { acknowledgeClassChange: true, tenantId: TENANT },
+    );
+
+    expect(queryRawMock.mock.calls[0][0]).toContain('tenant_id = $2::uuid');
+    expect(queryRawMock.mock.calls[0][2]).toBe(TENANT);
+    expect(queryRawMock.mock.calls[1][0]).toContain('b.tenant_id = $2::uuid');
+    expect(queryRawMock.mock.calls[1][2]).toBe(TENANT);
+    expect(queryRawMock.mock.calls[2][0]).toContain('tenant_id = $2::uuid');
+    expect(queryRawMock.mock.calls[2][2]).toBe(TENANT);
+    expect(queryRawMock.mock.calls[3][0]).toContain('tenant_id = $2::uuid');
+    expect(queryRawMock.mock.calls[3][2]).toBe(TENANT);
+
+    const vacateCall = executeRawMock.mock.calls.find((args) =>
+      /UPDATE beds[\s\S]*status = 'cleaning'/i.test(args[0]),
+    );
+    expect(vacateCall[0]).toContain('tenant_id = $2::uuid');
+    expect(vacateCall[2]).toBe(TENANT);
+
+    const restampCall = executeRawMock.mock.calls.find((args) =>
+      /UPDATE admissions[\s\S]*room_category/i.test(args[0]),
+    );
+    expect(restampCall[0]).toContain('tenant_id = $6::uuid');
+    expect(restampCall[6]).toBe(TENANT);
+
+    const transferInsertCall = executeRawMock.mock.calls.find((args) =>
+      /INSERT INTO bed_transfers \(tenant_id/i.test(args[0]),
+    );
+    expect(transferInsertCall[1]).toBe(TENANT);
   });
 
   it('accepts private → general downgrade WITHOUT acknowledgement', async () => {

@@ -22,8 +22,22 @@ router.post('/ticket', (req, res) => {
     if (!user?.uid) {
       return error(res, 'Unauthenticated', HTTP_STATUS.UNAUTHORIZED);
     }
+    if (user.scope && user.scope !== 'full') {
+      return error(res, 'Full-scope token required', HTTP_STATUS.FORBIDDEN);
+    }
+    const tenantId = req.tenantId || user.tenant_id || user.tenantId;
+    if (!tenantId) {
+      return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
+    }
     const ticket = generateToken(
-      { uid: String(user.uid), role: user.role, phone: user.phone, scope: 'ws' },
+      {
+        uid: String(user.uid),
+        role: user.role,
+        phone: user.phone,
+        tenant_id: tenantId,
+        tenantId,
+        scope: 'ws',
+      },
       TICKET_TTL,
     );
     success(res, { ticket, ttlSeconds: 60 }, 'WebSocket ticket issued');

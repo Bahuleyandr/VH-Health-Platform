@@ -39,6 +39,10 @@ const DIAGNOSIS_SELECT = {
   tenant_id: true,
 };
 
+function tenantFilter(tenantId) {
+  return tenantId ? { tenant_id: tenantId } : {};
+}
+
 async function bestEffortDiagnosisTimelineEvent(label, input) {
   try {
     return await recordCanonicalClinicalEvent(input);
@@ -86,6 +90,17 @@ export async function addDiagnosis(data) {
   }
 
   const normalisedIcd10 = icd10_code ? icd10_code.toUpperCase().trim() : null;
+  const tenantWhere = tenantFilter(tenant_id);
+
+  if (tenant_id) {
+    const patient = await prisma.users.findFirst({
+      where: { uid: patient_uid, role: 'PATIENT', ...tenantWhere },
+      select: { id: true },
+    });
+    if (!patient) {
+      throw AppError.notFound('Patient not found');
+    }
+  }
 
   // If ICD-10 code provided, look up the description.
   let icd10Description = null;
@@ -110,7 +125,7 @@ export async function addDiagnosis(data) {
       );
     }
     const enc = await prisma.admissions.findFirst({
-      where: { encounter_id, patient_uid },
+      where: { encounter_id, patient_uid, ...tenantWhere },
       select: { id: true },
     });
     let erEnc = null;
@@ -207,7 +222,7 @@ export async function addDiagnosis(data) {
  * @param {string} updatedBy - UID of the clinician making the update
  * @returns {Object} Updated diagnosis row
  */
-export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy) {
+export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy, { tenantId = null } = {}) {
   if (!id || !status || !updatedBy) {
     throw AppError.badRequest('id, status, and updatedBy are required');
   }
@@ -225,18 +240,51 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
     throw AppError.notFound('Diagnosis not found');
   }
 
+  if (tenantId) {
+    const scoped = await prisma.diagnoses.findFirst({
+      where: { id: Number(id), tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!scoped) {
+      throw AppError.notFound('Diagnosis not found');
+    }
+  }
+
   const resolvedAt = status === 'resolved'
     ? new Date(resolvedDate ?? new Date().toISOString().slice(0, 10))
     : null;
 
-  const updated = await prisma.diagnoses.update({
-    where: { id: Number(id) },
-    data: {
-      status,
-      resolved_date: resolvedAt,
-    },
-    select: DIAGNOSIS_SELECT,
-  });
+  const result = tenantId
+    ? await prisma.diagnoses.updateMany({
+      where: { id: Number(id), tenant_id: tenantId },
+      data: {
+        status,
+        resolved_date: resolvedAt,
+      },
+    })
+    : { count: 1 };
+
+  if (tenantId && result.count !== 1) {
+    throw AppError.notFound('Diagnosis not found');
+  }
+
+  const updated = tenantId
+    ? await prisma.diagnoses.findFirst({
+      where: { id: Number(id), tenant_id: tenantId },
+      select: DIAGNOSIS_SELECT,
+    })
+    : await prisma.diagnoses.update({
+      where: { id: Number(id) },
+      data: {
+        status,
+        resolved_date: resolvedAt,
+      },
+      select: DIAGNOSIS_SELECT,
+    });
+
+  if (!updated) {
+    throw AppError.notFound('Diagnosis not found');
+  }
   updated.codings = await listResourceCodings({ resourceType: 'diagnosis', resourceId: updated.id });
 
   logger.info(`Diagnosis status updated: id=${id}, old_status=${existing.status}, new_status=${status}, by=${updatedBy}`);
@@ -279,7 +327,7 @@ export async function updateDiagnosisStatus(id, status, resolvedDate, updatedBy)
  * @param {string} patientUid
  * @returns {Array}
  */
-export async function getActiveProblemList(patientUid) {
+export async function getActiveProblemList(patientUid, { tenantId = null } = {}) {
   if (!patientUid) {
     throw AppError.badRequest('Patient UID is required');
   }
@@ -287,6 +335,7 @@ export async function getActiveProblemList(patientUid) {
   const rows = await prisma.diagnoses.findMany({
     where: {
       patient_uid: patientUid,
+      ...tenantFilter(tenantId),
       status: { in: ['active', 'chronic'] },
     },
     select: DIAGNOSIS_SELECT,
@@ -310,13 +359,13 @@ export async function getActiveProblemList(patientUid) {
  * @param {string} encounterId - UUID
  * @returns {Array}
  */
-export async function getEncounterDiagnoses(encounterId) {
+export async function getEncounterDiagnoses(encounterId, { tenantId = null } = {}) {
   if (!encounterId) {
     throw AppError.badRequest('Encounter ID is required');
   }
 
   const rows = await prisma.diagnoses.findMany({
-    where: { encounter_id: encounterId },
+    where: { encounter_id: encounterId, ...tenantFilter(tenantId) },
     select: DIAGNOSIS_SELECT,
   });
 
@@ -337,13 +386,13 @@ export async function getEncounterDiagnoses(encounterId) {
  * @param {string} patientUid
  * @returns {Array}
  */
-export async function getPatientDiagnosisHistory(patientUid) {
+export async function getPatientDiagnosisHistory(patientUid, { tenantId = null } = {}) {
   if (!patientUid) {
     throw AppError.badRequest('Patient UID is required');
   }
 
   const rows = await prisma.diagnoses.findMany({
-    where: { patient_uid: patientUid },
+    where: { patient_uid: patientUid, ...tenantFilter(tenantId) },
     select: DIAGNOSIS_SELECT,
     orderBy: { created_at: 'desc' },
   });

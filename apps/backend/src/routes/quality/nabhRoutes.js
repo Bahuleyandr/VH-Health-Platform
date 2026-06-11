@@ -40,7 +40,7 @@ function handleFailure(res, err, context) {
 router.get('/indicators', async (req, res) => {
   try {
     if (!gate(req, res)) return undefined;
-    const pack = await computeIndicators({ from: req.query.from, to: req.query.to });
+    const pack = await computeIndicators({ from: req.query.from, to: req.query.to, tenantId: req.tenantId });
     if (String(req.query.format || '').toLowerCase() === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="nabh-indicators-${req.query.from}-${req.query.to}.csv"`);
@@ -57,7 +57,7 @@ router.post('/snapshots', async (req, res) => {
     if (!gate(req, res)) return undefined;
     const pack = await snapshotIndicators(
       { from: req.body.from, to: req.body.to },
-      { actorUid: req.user?.uid || null },
+      { actorUid: req.user?.uid || null, tenantId: req.tenantId },
     );
     return success(res, pack, 'Indicator snapshot saved', HTTP_STATUS.CREATED);
   } catch (err) {
@@ -68,7 +68,11 @@ router.post('/snapshots', async (req, res) => {
 router.get('/snapshots', async (req, res) => {
   try {
     if (!gate(req, res)) return undefined;
-    const snapshots = await listSnapshots({ from: req.query.from || null, to: req.query.to || null });
+    const snapshots = await listSnapshots({
+      from: req.query.from || null,
+      to: req.query.to || null,
+      tenantId: req.tenantId,
+    });
     return success(res, { snapshots, count: snapshots.length }, 'Indicator snapshots');
   } catch (err) {
     return handleFailure(res, err, 'list snapshots');

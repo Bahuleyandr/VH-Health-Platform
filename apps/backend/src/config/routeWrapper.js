@@ -132,10 +132,33 @@ export function wrapRoutesWithValidation(router, allowedRoles = [], routeMap = {
   return applyWrappers(router, allowedRoles, routeMap, options);
 }
 
+function routeMapHasEntries(routeMap = {}) {
+  return Object.values(routeMap || {}).some((routes) => Array.isArray(routes) && routes.length > 0);
+}
+
 /**
  * wrapAutoRBAC — loads roles from rbacConfig + allows centralized config
  */
 export function wrapAutoRBAC(router, configKey, routeMap = {}, options = {}) {
-  const roles = rbacConfig[configKey] || [];
+  if (typeof configKey !== 'string' || configKey.trim().length === 0) {
+    throw new Error('[routeWrapper] wrapAutoRBAC requires a non-empty configKey');
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(rbacConfig, configKey)) {
+    logger.error(`[routeWrapper] Missing RBAC config key: ${configKey}`);
+    throw new Error(`[routeWrapper] Missing RBAC config key: ${configKey}`);
+  }
+
+  const roles = rbacConfig[configKey];
+  if (!Array.isArray(roles)) {
+    logger.error(`[routeWrapper] RBAC config key ${configKey} must be an array`);
+    throw new Error(`[routeWrapper] RBAC config key ${configKey} must be an array`);
+  }
+
+  if (!options.skipRBAC && routeMapHasEntries(routeMap) && roles.length === 0) {
+    logger.error(`[routeWrapper] RBAC config key ${configKey} has no roles for protected routes`);
+    throw new Error(`[routeWrapper] RBAC config key ${configKey} has no roles for protected routes`);
+  }
+
   return wrapRoutes(router, roles, routeMap, { ...options, configKey });
 }

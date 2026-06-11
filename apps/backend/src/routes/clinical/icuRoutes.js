@@ -9,7 +9,7 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -110,11 +110,12 @@ router.post('/admissions/:id/flowsheet', requireStaffOrAdmin, wrap(async (req) =
 
 router.get('/admissions/:id/flowsheet', requireStaffOrAdmin, wrap(async (req) =>
   icu.listFlowsheet({
+    tenantId: tenantOf(req),
     icu_admission_id: req.params.id, hours: req.query.hours,
   })));
 
 router.get('/admissions/:id/io-summary', requireStaffOrAdmin, wrap(async (req) =>
-  icu.ioSummary({ icu_admission_id: req.params.id })));
+  icu.ioSummary({ tenantId: tenantOf(req), icu_admission_id: req.params.id })));
 
 // Assessments
 router.post('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req) =>
@@ -127,6 +128,7 @@ router.post('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req)
 
 router.get('/admissions/:id/assessments', requireStaffOrAdmin, wrap(async (req) =>
   icu.listAssessments({
+    tenantId: tenantOf(req),
     icu_admission_id: req.params.id,
     kind: req.query.kind, limit: req.query.limit,
   })));
@@ -142,6 +144,7 @@ router.post('/admissions/:id/bundle', requireStaffOrAdmin, wrap(async (req) =>
 
 router.get('/admissions/:id/bundle', requireStaffOrAdmin, wrap(async (req) =>
   icu.getBundle({
+    tenantId: tenantOf(req),
     icu_admission_id: req.params.id, bundle_date: req.query.bundle_date,
   })));
 

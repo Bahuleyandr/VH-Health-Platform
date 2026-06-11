@@ -81,7 +81,7 @@ class BillingService {
     const {
       patient_uid, appointment_id, type, items,
       subtotal, tax_amount = 0, discount_amount = 0, total_amount,
-      payment_method, notes, issued_by, due_date,
+      payment_method, notes, issued_by, due_date, tenant_id,
     } = data;
 
     if (!patient_uid) throw AppError.badRequest('Patient UID is required');
@@ -113,6 +113,7 @@ class BillingService {
         notes: notes || null,
         issued_by: issued_by || null,
         due_date: due_date ? new Date(due_date) : null,
+        ...(tenant_id ? { tenant_id: String(tenant_id) } : {}),
         updated_at: now,
       },
     });
@@ -124,15 +125,18 @@ class BillingService {
   /**
    * Record a payment against an invoice
    */
-  async recordPayment(invoiceId, amount, method, processedBy, transactionRef = null) {
+  async recordPayment(invoiceId, amount, method, processedBy, transactionRef = null, tenantId = null) {
     if (!invoiceId) throw AppError.badRequest('Invoice ID is required');
     if (!amount || amount <= 0) throw AppError.badRequest('Payment amount must be greater than zero');
     if (!method || !VALID_PAYMENT_METHODS.includes(method.toLowerCase())) {
       throw AppError.badRequest(`Invalid payment method. Must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`);
     }
 
-    const invoice = await prisma.invoices.findUnique({
-      where: { id: invoiceId },
+    const invoice = await prisma.invoices.findFirst({
+      where: {
+        id: invoiceId,
+        ...(tenantId ? { tenant_id: String(tenantId) } : {}),
+      },
       select: { id: true, total_amount: true, paid_amount: true, payment_status: true },
     });
 
@@ -197,17 +201,21 @@ class BillingService {
   /**
    * Get patient invoices with pagination and filters
    */
-  async getPatientInvoices(patientUid, filters = {}) {
+  async getPatientInvoices(patientUid, filters = {}, options = {}) {
     if (!patientUid) throw AppError.badRequest('Patient UID is required');
 
     const { status, type, date_from, date_to } = filters;
+    const { tenantId = null } = options;
     const listQuery = parseListQuery(filters, {
       defaultLimit: 20,
       maxLimit: 100,
       defaultSortBy: 'created_at'
     });
 
-    const where = { patient_uid: patientUid };
+    const where = {
+      patient_uid: patientUid,
+      ...(tenantId ? { tenant_id: String(tenantId) } : {}),
+    };
 
     if (status && VALID_PAYMENT_STATUSES.includes(status)) where.payment_status = status;
     if (type && VALID_INVOICE_TYPES.includes(type.toLowerCase())) where.type = type.toLowerCase();
@@ -243,11 +251,15 @@ class BillingService {
   /**
    * Get full invoice detail with payment history
    */
-  async getInvoiceDetail(invoiceId) {
+  async getInvoiceDetail(invoiceId, options = {}) {
     if (!invoiceId) throw AppError.badRequest('Invoice ID is required');
+    const { tenantId = null, requester = null } = options;
 
-    const invoice = await prisma.invoices.findUnique({
-      where: { id: invoiceId },
+    const invoice = await prisma.invoices.findFirst({
+      where: {
+        id: invoiceId,
+        ...(tenantId ? { tenant_id: String(tenantId) } : {}),
+      },
       include: {
         payment_transactions: {
           orderBy: { created_at: 'desc' },
@@ -256,12 +268,24 @@ class BillingService {
     });
 
     if (!invoice) throw AppError.notFound('Invoice not found');
+    if (
+      String(requester?.role || '').toUpperCase() === 'PATIENT' &&
+      String(requester?.uid || '').toLowerCase() !== String(invoice.patient_uid || '').toLowerCase()
+    ) {
+      throw AppError.forbidden(
+        'Patients can only access their own billing invoices',
+        'BILLING_PATIENT_ACCESS_DENIED',
+      );
+    }
 
     // Fetch linked insurance claim if any
     let insuranceClaim = null;
     if (invoice.insurance_claim_id) {
-      insuranceClaim = await prisma.insurance_claims.findUnique({
-        where: { id: invoice.insurance_claim_id },
+      insuranceClaim = await prisma.insurance_claims.findFirst({
+        where: {
+          id: invoice.insurance_claim_id,
+          ...(tenantId ? { tenant_id: String(tenantId) } : {}),
+        },
         select: {
           id: true, claim_number: true, insurance_provider: true, policy_number: true,
           claim_amount: true, approved_amount: true, status: true,
@@ -373,7 +397,7 @@ class BillingService {
   async submitInsuranceClaim(data) {
     const {
       patient_uid, invoice_id, insurance_provider,
-      policy_number, claim_amount, documents = [],
+      policy_number, claim_amount, documents = [], tenant_id,
     } = data;
 
     if (!patient_uid) throw AppError.badRequest('Patient UID is required');
@@ -385,8 +409,11 @@ class BillingService {
     }
 
     if (invoice_id) {
-      const inv = await prisma.invoices.findUnique({
-        where: { id: invoice_id },
+      const inv = await prisma.invoices.findFirst({
+        where: {
+          id: invoice_id,
+          ...(tenant_id ? { tenant_id: String(tenant_id) } : {}),
+        },
         select: { id: true, patient_uid: true },
       });
       if (!inv) throw AppError.notFound('Linked invoice not found');
@@ -407,6 +434,7 @@ class BillingService {
         policy_number,
         claim_amount,
         documents,
+        ...(tenant_id ? { tenant_id: String(tenant_id) } : {}),
         updated_at: now,
       },
     });
@@ -648,15 +676,16 @@ class BillingService {
   /**
    * List insurance claims with filters
    */
-  async getInsuranceClaims(filters = {}) {
+  async getInsuranceClaims(filters = {}, options = {}) {
     const { patient_uid, status } = filters;
+    const { tenantId = null } = options;
     const listQuery = parseListQuery(filters, {
       defaultLimit: 20,
       maxLimit: 100,
       defaultSortBy: 'created_at'
     });
 
-    const where = {};
+    const where = tenantId ? { tenant_id: String(tenantId) } : {};
     if (patient_uid) where.patient_uid = patient_uid;
     if (status && VALID_CLAIM_STATUSES.includes(status)) where.status = status;
 

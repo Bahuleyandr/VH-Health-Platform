@@ -21,7 +21,7 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -84,12 +84,13 @@ router.post('/panels', requireStaffOrAdmin, wrap(async (req) =>
 
 // GET /api/v1/lab/panels/:panelId
 router.get('/panels/:panelId', requireStaffOrAdmin, wrap(async (req) =>
-  panelSvc.getLabPanel(req.params.panelId),
+  panelSvc.getLabPanel(req.params.panelId, { tenantId: tenantOf(req) }),
 ));
 
 // GET /api/v1/lab/panels/patient/:patientUid?panelCode=&limit=
 router.get('/panels/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
   panelSvc.listPatientPanels(req.params.patientUid, {
+    tenantId: tenantOf(req),
     panelCode: req.query.panelCode || null,
     limit: req.query.limit,
   }),
@@ -99,6 +100,7 @@ router.get('/panels/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) 
 // GET /api/v1/lab/trends/:patientUid/:testCode?fromDate=&toDate=&limit=
 router.get('/trends/:patientUid/:testCode', requireStaffOrAdmin, wrap(async (req) =>
   panelSvc.getAnalyteTrend(req.params.patientUid, req.params.testCode, {
+    tenantId: tenantOf(req),
     fromDate: req.query.fromDate || null,
     toDate: req.query.toDate || null,
     limit: req.query.limit,

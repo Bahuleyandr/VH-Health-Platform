@@ -167,6 +167,22 @@ const ADMISSION_RETURNING_SELECT = {
   prior_admission_id: true,
 };
 
+function admissionWhereById(admissionId, tenantId = null) {
+  const where = { id: Number(admissionId) };
+  if (tenantId) where.tenant_id = tenantId;
+  return where;
+}
+
+async function findAdmissionById(db, admissionId, { tenantId = null, select = null } = {}) {
+  const args = {
+    where: admissionWhereById(admissionId, tenantId),
+    ...(select ? { select } : {}),
+  };
+  return tenantId
+    ? db.admissions.findFirst(args)
+    : db.admissions.findUnique(args);
+}
+
 // Doctor-role allowlist for admitting / attending validation. CONSULTANT
 // is the canonical attending role; JUNIOR_DOCTOR may admit under
 // supervision; ANAESTHETIST shows up as `attending_doctor` on
@@ -381,6 +397,7 @@ async function admitPatient(data) {
     admission_advice_id,
     appointment_id: appointmentIdArg,
   } = data;
+  const admissionTenantId = tenant_id || null;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!admitting_doctor) throw AppError.badRequest('admitting_doctor is required');
@@ -486,8 +503,11 @@ async function admitPatient(data) {
     if (!Number.isInteger(erVisitId) || erVisitId <= 0) {
       throw AppError.badRequest('from_er_visit_id must be a positive integer');
     }
-    erVisit = await prisma.emergency_visits.findUnique({
-      where: { id: erVisitId },
+    erVisit = await prisma.emergency_visits.findFirst({
+      where: {
+        id: erVisitId,
+        ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
+      },
       select: {
         id: true,
         patient_uid: true,
@@ -551,8 +571,11 @@ async function admitPatient(data) {
   // as a final fallback so billing always has a category. Migration 177.
   let resolvedRoomCategory = roomCategoryArg && roomCategoryArg !== '' ? roomCategoryArg : null;
   if (!resolvedRoomCategory && bed_id) {
-    const bedRow = await prisma.beds.findUnique({
-      where: { id: Number(bed_id) },
+    const bedRow = await prisma.beds.findFirst({
+      where: {
+        id: Number(bed_id),
+        ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
+      },
       select: { bed_type: true },
     });
     if (bedRow?.bed_type && VALID_ROOM_CATEGORIES.includes(bedRow.bed_type)) {
@@ -610,6 +633,7 @@ async function admitPatient(data) {
   const consent = await prisma.patient_consents.findFirst({
     where: {
       patient_uid,
+      ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
       status: 'active',
       OR: [
         { consent_type: 'treatment' },
@@ -636,7 +660,11 @@ async function admitPatient(data) {
   }
 
   const existingAdmission = await prisma.admissions.findFirst({
-    where: { patient_uid, status: { in: ['admitted', 'transferred'] } },
+    where: {
+      patient_uid,
+      status: { in: ['admitted', 'transferred'] },
+      ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
+    },
     select: { id: true },
   });
   if (existingAdmission) {
@@ -655,6 +683,7 @@ async function admitPatient(data) {
   const priorDischarge = await prisma.admissions.findFirst({
     where: {
       patient_uid,
+      ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
       status: { in: ['discharged', 'lama'] },
       discharged_at: {
         gte: new Date(Date.now() - READMISSION_WINDOW_DAYS * 86400000),
@@ -775,8 +804,11 @@ async function admitPatient(data) {
 
   const admission = await prisma.$transaction(async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
-    const patientUser = await tx.users.findUnique({
-      where: { uid: patient_uid },
+    const patientUser = await tx.users.findFirst({
+      where: {
+        uid: patient_uid,
+        ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
+      },
       select: { id: true, name: true, phone: true },
     });
     if (!patientUser) throw AppError.notFound('Patient not found');
@@ -786,6 +818,7 @@ async function admitPatient(data) {
     const admission = await tx.admissions.create({
       data: {
         patient_uid,
+        ...(admissionTenantId ? { tenant_id: admissionTenantId } : {}),
         admitting_doctor,
         attending_doctor: resolvedAttendingDoctor,
         department: department ?? null,
@@ -885,7 +918,11 @@ async function admitPatient(data) {
       // Prisma typed methods can't issue row locks, so we keep the SELECT
       // raw inside the transaction; the subsequent UPDATE is typed.
       const bedRows = await tx.$queryRaw`
-        SELECT id, status, bed_number, bed_type FROM beds WHERE id = ${bed_id} FOR UPDATE
+        SELECT id, status, bed_number, bed_type
+        FROM beds
+        WHERE id = ${bed_id}
+          AND (${admissionTenantId}::uuid IS NULL OR tenant_id = ${admissionTenantId}::uuid)
+        FOR UPDATE
       `;
       if (!bedRows.length) throw AppError.notFound('Bed not found');
       if (bedRows[0].status !== 'available') {
@@ -925,6 +962,7 @@ async function admitPatient(data) {
 
       await tx.bed_transfers.create({
         data: {
+          tenant_id: admission.tenant_id,
           patient_uid,
           admission_id: admission.id,
           from_bed_id: null,
@@ -1094,10 +1132,13 @@ async function admitPatient(data) {
           WHERE a.id = $1
             AND a.patient_id = u.id
             AND u.uid = $2::uuid
+            AND a.tenant_id = $3::uuid
+            AND u.tenant_id = $3::uuid
             AND a.advised_for_admission_at IS NOT NULL
         RETURNING a.id`,
         adviceAppointmentId,
         patient_uid,
+        admission.tenant_id || admissionTenantId,
       );
     } else {
       // No explicit link — clear any still-open advised appointment(s) for
@@ -1108,12 +1149,15 @@ async function admitPatient(data) {
                 advised_for_admission_by = NULL,
                 advised_for_admission_note = NULL,
                 updated_at = NOW()
-           FROM users u
+          FROM users u
           WHERE a.patient_id = u.id
             AND u.uid = $1::uuid
+            AND a.tenant_id = $2::uuid
+            AND u.tenant_id = $2::uuid
             AND a.advised_for_admission_at IS NOT NULL
         RETURNING a.id`,
         patient_uid,
+        admission.tenant_id || admissionTenantId,
       );
     }
     if (cleared.length) {
@@ -1331,15 +1375,19 @@ async function maybeAutoCreateDayCareOtSchedule(admission) {
  * @param {string} assignedBy  uid of the staff member allocating the bed
  * @returns {Object} updated admission
  */
-async function assignBedToAdmission(admissionId, bedId, assignedBy) {
+async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!bedId) throw AppError.badRequest('bedId is required');
   if (!assignedBy) throw AppError.badRequest('assignedBy is required');
+  const tenantId = options.tenantId || null;
 
   return prisma.$transaction(async (tx) => {
     const admRows = await tx.$queryRaw`
-      SELECT id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since
-      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+      SELECT id, tenant_id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since
+      FROM admissions
+      WHERE id = ${admissionId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     const admission = admRows[0];
@@ -1351,7 +1399,11 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
     }
 
     const bedRows = await tx.$queryRaw`
-      SELECT id, status, bed_number, bed_type, ward_id, ward_name FROM beds WHERE id = ${bedId} FOR UPDATE
+      SELECT id, status, bed_number, bed_type, ward_id, ward_name
+      FROM beds
+      WHERE id = ${bedId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!bedRows.length) throw AppError.notFound('Bed not found');
     if (bedRows[0].status !== 'available') {
@@ -1364,15 +1416,18 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
       throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is in the day_care pool; ${admission.admission_type} admissions cannot allocate it.`);
     }
 
-    const patientUser = await tx.users.findUnique({
-      where: { uid: admission.patient_uid },
+    const patientUser = await tx.users.findFirst({
+      where: {
+        uid: admission.patient_uid,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+      },
       select: { id: true, name: true },
     });
 
     // Pull expected_los_days off the admission so we can populate
     // beds.expected_discharge here too. Migration 172.
-    const admDetail = await tx.admissions.findUnique({
-      where: { id: admissionId },
+    const admDetail = await findAdmissionById(tx, admissionId, {
+      tenantId,
       select: { expected_los_days: true, admitted_at: true },
     });
     const expectedDischarge = admDetail?.expected_los_days
@@ -1409,6 +1464,7 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
 
     await tx.bed_transfers.create({
       data: {
+        tenant_id: admission.tenant_id,
         patient_uid: admission.patient_uid,
         admission_id: admissionId,
         from_bed_id: null,
@@ -1586,11 +1642,12 @@ async function buildAttendingDoctorsSnapshot(encounterId) {
   }
 }
 
-async function ensureDefaultDischargeConsults(admissionId, requestedBy = null, existingAdmission = null) {
-  const admission = existingAdmission || await prisma.admissions.findUnique({
-    where: { id: Number(admissionId) },
+async function ensureDefaultDischargeConsults(admissionId, requestedBy = null, existingAdmission = null, options = {}) {
+  const admission = existingAdmission || await findAdmissionById(prisma, admissionId, {
+    tenantId: options.tenantId,
     select: {
       id: true,
+      tenant_id: true,
       patient_uid: true,
       discharge_initiated_at: true,
     },
@@ -1610,6 +1667,7 @@ async function ensureDefaultDischargeConsults(admissionId, requestedBy = null, e
         },
         create: {
           admission_id: Number(admissionId),
+          tenant_id: admission.tenant_id,
           patient_uid: admission.patient_uid,
           consult_type: consultType,
           requested_at: now,
@@ -1672,10 +1730,13 @@ async function assertPharmacyReadyForCompletion(admissionId) {
   }
 }
 
-async function listDischargeWorkItems(admissionId, actorRole = null) {
-  await ensureDefaultDischargeConsults(admissionId);
+async function listDischargeWorkItems(admissionId, actorRole = null, options = {}) {
+  await ensureDefaultDischargeConsults(admissionId, null, null, options);
   const rows = await prisma.discharge_consults.findMany({
-    where: { admission_id: Number(admissionId) },
+    where: {
+      admission_id: Number(admissionId),
+      ...(options.tenantId ? { tenant_id: options.tenantId } : {}),
+    },
     orderBy: [{ requested_at: 'asc' }, { id: 'asc' }],
   });
 
@@ -1726,9 +1787,10 @@ async function listDischargeWorkItems(admissionId, actorRole = null) {
  * @param {string|null} requestedByRole role of the staff member marking discharge
  * @returns {{ admission: Object, summary: Object|null, consults: Array, finalClaim: Object|null, attending_doctors: Array }}
  */
-async function markForDischarge(admissionId, requestedBy, requestedByRole = null) {
+async function markForDischarge(admissionId, requestedBy, requestedByRole = null, options = {}) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!requestedBy) throw AppError.badRequest('requestedBy is required');
+  const tenantId = options.tenantId || null;
 
   // Phase 1: tx-bounded state changes (stamp markers, open consults).
   // The TPA final-claim placeholder used to live here too, wrapped in
@@ -1746,9 +1808,12 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
   // OUTSIDE the transaction after Phase 1 commits.
   const phase1 = await prisma.$transaction(async (tx) => {
     const admRows = await tx.$queryRaw`
-      SELECT id, patient_uid, status, encounter_id, insurance_info,
+      SELECT id, tenant_id, patient_uid, status, encounter_id, insurance_info,
              discharge_initiated_at, billing_closed_at
-        FROM admissions WHERE id = ${admissionId} FOR UPDATE
+        FROM admissions
+       WHERE id = ${admissionId}
+         AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+       FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     const admission = admRows[0];
@@ -1780,6 +1845,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
           where: { admission_id_consult_type: { admission_id: admissionId, consult_type: consultType } },
           create: {
             admission_id: admissionId,
+            tenant_id: admission.tenant_id,
             patient_uid: admission.patient_uid,
             consult_type: consultType,
             requested_at: now,
@@ -1815,6 +1881,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
 
     return {
       admission: updated,
+      tenant_id: admission.tenant_id,
       encounter_id: admission.encounter_id,
       patient_uid: admission.patient_uid,
       insurance_info: admission.insurance_info,
@@ -2022,6 +2089,7 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
   const normalizedConsultType = normalizeConsultType(consultType);
   if (!normalizedConsultType) throw AppError.badRequest('consultType is required');
   if (!completedBy) throw AppError.badRequest('completedBy is required');
+  const tenantId = options.tenantId || null;
 
   if (options.role && !canCompleteDischargeWorkItem(normalizedConsultType, options.role)) {
     throw AppError.forbidden(
@@ -2030,7 +2098,18 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
     );
   }
 
-  await ensureDefaultDischargeConsults(admissionId);
+  const admission = await findAdmissionById(prisma, admissionId, {
+    tenantId,
+    select: {
+      id: true,
+      tenant_id: true,
+      patient_uid: true,
+      discharge_initiated_at: true,
+    },
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
+
+  await ensureDefaultDischargeConsults(admissionId, null, admission, { tenantId });
   if (normalizedConsultType === 'billing') {
     await assertBillingReadyForCompletion(admissionId);
   }
@@ -2149,14 +2228,16 @@ async function hasDischargeMedicationEvidence(admission) {
  *   2026-05-10-inpatient-admission-discharge-drugs-dispensed-500
  *   2026-05-10-surgical-day-care-discharge-mark-drugs-dispensed-500
  */
-async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
+async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {}) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!dispensedBy) throw AppError.badRequest('dispensedBy is required');
+  const tenantId = options.tenantId || null;
 
-  const existing = await prisma.admissions.findUnique({
-    where: { id: admissionId },
+  const existing = await findAdmissionById(prisma, admissionId, {
+    tenantId,
     select: {
       id: true,
+      tenant_id: true,
       patient_uid: true,
       status: true,
       discharge_initiated_at: true,
@@ -2175,8 +2256,8 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
 
   // Idempotent — pharmacy retries shouldn't re-stamp or re-audit.
   if (existing.discharge_drugs_dispensed_at) {
-    const current = await prisma.admissions.findUnique({
-      where: { id: admissionId },
+    const current = await findAdmissionById(prisma, admissionId, {
+      tenantId,
       select: ADMISSION_RETURNING_SELECT,
     });
     logger.info(
@@ -2252,12 +2333,13 @@ function buildDischargeReadinessChecklist(blockers, { gated, transitionAllowed }
 }
 
 async function getDischargeReadiness(admissionId, options = {}) {
+  const tenantId = options.tenantId || null;
   const dischargeType = normalizeDischargeType(options.discharge_type ?? options.dischargeType ?? 'home');
   const dischargeSummary = options.discharge_summary ?? options.dischargeSummary ?? null;
-  const admissionPre = options.admissionPre || await prisma.admissions.findUnique({
-    where: { id: admissionId },
+  const admissionPre = options.admissionPre || await findAdmissionById(prisma, admissionId, {
+    tenantId,
     select: {
-      id: true, patient_uid: true, status: true, encounter_id: true,
+      id: true, tenant_id: true, patient_uid: true, status: true, encounter_id: true,
       admitted_at: true,
       discharge_initiated_at: true, summary_signed_at: true,
       discharge_drugs_dispensed_at: true,
@@ -2266,7 +2348,7 @@ async function getDischargeReadiness(admissionId, options = {}) {
   });
   if (!admissionPre) throw AppError.notFound('Admission not found');
   if (admissionPre.discharge_initiated_at) {
-    await ensureDefaultDischargeConsults(admissionId, null, admissionPre);
+    await ensureDefaultDischargeConsults(admissionId, null, admissionPre, { tenantId });
   }
 
   const allowedFromPre = VALID_STATUS_TRANSITIONS[admissionPre.status] || [];
@@ -2301,6 +2383,7 @@ async function getDischargeReadiness(admissionId, options = {}) {
       const signedNote = await prisma.clinical_notes.findFirst({
         where: {
           encounter_id: admissionPre.encounter_id ?? undefined,
+          ...(tenantId ? { tenant_id: tenantId } : {}),
           note_type: 'discharge',
           is_addendum: false,
           is_signed: true,
@@ -2324,6 +2407,7 @@ async function getDischargeReadiness(admissionId, options = {}) {
     const pendingConsults = await prisma.discharge_consults.findMany({
       where: {
         admission_id: admissionId,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
         completed_at: null,
       },
       select: {
@@ -2472,15 +2556,18 @@ async function getDischargeHub(admissionId, actor = {}) {
   const actorRole = normalizeRole(actor.role);
   const admission = await getAdmissionDetail(admissionId, {
     userId: actor.uid,
+    actorId: actor.id,
     userRole: actorRole,
+    tenantId: actor.tenantId || null,
   });
 
   const summary = await getLatestDischargeSummary(admissionId);
   const workItems = admission.discharge_initiated_at
-    ? await listDischargeWorkItems(admissionId, actorRole)
+    ? await listDischargeWorkItems(admissionId, actorRole, { tenantId: actor.tenantId || null })
     : [];
   const readiness = await getDischargeReadiness(admissionId, {
     discharge_summary: summary?.content || null,
+    tenantId: actor.tenantId || null,
   });
 
   const aiMetadata = summary?.ai_metadata || null;
@@ -2538,6 +2625,7 @@ async function getDischargeHub(admissionId, actor = {}) {
 async function listDischargeHubAdmissions(actor = {}) {
   const rows = await prisma.admissions.findMany({
     where: {
+      ...(actor.tenantId ? { tenant_id: actor.tenantId } : {}),
       discharge_initiated_at: { not: null },
       status: { in: ['admitted', 'transferred'] },
     },
@@ -2562,8 +2650,9 @@ async function listDischargeHubAdmissions(actor = {}) {
   };
 }
 
-async function dischargePatient(admissionId, dischargeData, dischargedBy) {
+async function dischargePatient(admissionId, dischargeData, dischargedBy, options = {}) {
   const { discharge_type, discharge_summary } = dischargeData || {};
+  const tenantId = options.tenantId || null;
 
   if (!discharge_type) throw AppError.badRequest('discharge_type is required');
   if (!VALID_DISCHARGE_TYPES.includes(discharge_type)) {
@@ -2582,10 +2671,10 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   //   2026-05-10-surgical-day-care-discharge-final-discharge-500-leaves-bed-occupied
   // The atomic state changes still happen under a FOR UPDATE lock in
   // Phase 1 below; the pre-flight read just feeds the gate.
-  const admissionPre = await prisma.admissions.findUnique({
-    where: { id: admissionId },
+  const admissionPre = await findAdmissionById(prisma, admissionId, {
+    tenantId,
     select: {
-      id: true, patient_uid: true, status: true, encounter_id: true,
+      id: true, tenant_id: true, patient_uid: true, status: true, encounter_id: true,
       admitted_at: true,
       discharge_initiated_at: true, summary_signed_at: true,
       discharge_drugs_dispensed_at: true,
@@ -2612,6 +2701,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       admissionPre,
       discharge_type,
       discharge_summary,
+      tenantId,
     });
 
     if (readiness.blockers.length > 0) {
@@ -2629,8 +2719,11 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   const phase1 = await prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on the admission to serialise concurrent state changes.
     const admRows = await tx.$queryRaw`
-      SELECT id, patient_uid, bed_id, status, admitted_at
-      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+      SELECT id, tenant_id, patient_uid, bed_id, status, admitted_at
+      FROM admissions
+      WHERE id = ${admissionId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
 
@@ -2661,7 +2754,11 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     if (admission.bed_id) {
       // FOR UPDATE lock on the bed row before handing it to housekeeping.
       const bedCheck = await tx.$queryRaw`
-        SELECT id, status, bed_number, ward_name FROM beds WHERE id = ${admission.bed_id} FOR UPDATE
+        SELECT id, status, bed_number, ward_name
+        FROM beds
+        WHERE id = ${admission.bed_id}
+          AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+        FOR UPDATE
       `;
       if (bedCheck.length && bedCheck[0].status === 'occupied') {
         // Clear ALL denormalized back-link fields on the bed so the
@@ -2682,6 +2779,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
 
         await tx.bed_transfers.create({
           data: {
+            tenant_id: admission.tenant_id,
             patient_uid: admission.patient_uid,
             admission_id: admission.id,
             // Pre-batch-55 raw SQL stored from_bed_id == to_bed_id == admission.bed_id
@@ -2781,15 +2879,19 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   return { ...phase1.updated, los_days: phase1.losDays };
 }
 
-async function transferPatient(admissionId, toWardId, toBedId, reason, transferredBy) {
+async function transferPatient(admissionId, toWardId, toBedId, reason, transferredBy, options = {}) {
   if (!toBedId) throw AppError.badRequest('to_bed_id is required');
   if (!transferredBy) throw AppError.badRequest('transferredBy is required');
+  const tenantId = options.tenantId || null;
 
   const phase1 = await prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on the admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, patient_uid, bed_id, ward, status
-      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+      SELECT id, tenant_id, patient_uid, bed_id, ward, status
+      FROM admissions
+      WHERE id = ${admissionId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
 
@@ -2805,15 +2907,21 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     // here with a typed lock-then-include via two queries so the join can be
     // expressed via Prisma.
     const targetBedLocked = await tx.$queryRaw`
-      SELECT id, status, bed_number FROM beds WHERE id = ${toBedId} FOR UPDATE
+      SELECT id, status, bed_number FROM beds
+      WHERE id = ${toBedId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!targetBedLocked.length) throw AppError.notFound('Target bed not found');
     if (targetBedLocked[0].status !== 'available') {
       throw AppError.badRequest(`Target bed ${targetBedLocked[0].bed_number} is not available (current status: ${targetBedLocked[0].status})`);
     }
 
-    const targetBed = await tx.beds.findUnique({
-      where: { id: toBedId },
+    const targetBed = await tx.beds.findFirst({
+      where: {
+        id: toBedId,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+      },
       select: {
         id: true,
         bed_number: true,
@@ -2824,8 +2932,11 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     const targetWardName = targetBed?.wards?.name ?? null;
 
     // Resolve patient int id for beds FK
-    const patientUser = await tx.users.findUnique({
-      where: { uid: admission.patient_uid },
+    const patientUser = await tx.users.findFirst({
+      where: {
+        uid: admission.patient_uid,
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+      },
       select: { id: true, name: true },
     });
     const patientIntId = patientUser?.id ?? null;
@@ -2853,8 +2964,8 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     }
 
     // Pull expected_los_days off the admission so the new bed reflects it.
-    const admDetail = await tx.admissions.findUnique({
-      where: { id: admissionId },
+    const admDetail = await findAdmissionById(tx, admissionId, {
+      tenantId,
       select: { expected_los_days: true, admitted_at: true },
     });
     const expectedDischarge = admDetail?.expected_los_days
@@ -2878,6 +2989,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
 
     await tx.bed_transfers.create({
       data: {
+        tenant_id: admission.tenant_id,
         patient_uid: admission.patient_uid,
         admission_id: admissionId,
         from_bed_id: fromBedId ?? null,
@@ -2967,6 +3079,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
 
 async function getActiveAdmissions(filters = {}, actor = {}) {
   const { ward, doctor, department, status, review_due } = filters;
+  const tenantId = filters.tenantId || actor.tenantId || null;
   const listQuery = parseListQuery(filters, {
     defaultLimit: 20,
     maxLimit: 100,
@@ -3039,13 +3152,19 @@ async function getActiveAdmissions(filters = {}, actor = {}) {
   const [patients, beds, hospitalNumbers] = await Promise.all([
     patientUids.length
       ? prisma.users.findMany({
-          where: { uid: { in: patientUids } },
+          where: {
+            uid: { in: patientUids },
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
           select: { uid: true, name: true, phone: true },
         })
       : [],
     bedIds.length
       ? prisma.beds.findMany({
-          where: { id: { in: bedIds } },
+          where: {
+            id: { in: bedIds },
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
           select: { id: true, wards: { select: { name: true } } },
         })
       : [],
@@ -3078,8 +3197,9 @@ async function getActiveAdmissions(filters = {}, actor = {}) {
 }
 
 async function getAdmissionDetail(admissionId, requestContext = {}) {
-  const admission = await prisma.admissions.findUnique({
-    where: { id: Number(admissionId) },
+  const tenantId = requestContext.tenantId || null;
+  const admission = await findAdmissionById(prisma, admissionId, {
+    tenantId,
   });
   if (!admission) throw AppError.notFound('Admission not found');
 
@@ -3094,7 +3214,7 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
       filters: { tenantId: requestContext.tenantId || admission.tenant_id },
     });
     const visibleCount = await prisma.admissions.count({
-      where: applyInpatientAdmissionScope({ id: Number(admissionId) }, inpatientScope.where),
+      where: applyInpatientAdmissionScope(admissionWhereById(admissionId, tenantId), inpatientScope.where),
     });
     if (visibleCount < 1) {
       throw AppError.notFound('Admission not found');
@@ -3110,20 +3230,29 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
     .filter(Boolean);
   const [patient, bed, doctors, priorAdmission, hospitalNumbers] = await Promise.all([
     admission.patient_uid
-      ? prisma.users.findUnique({
-          where: { uid: admission.patient_uid },
+      ? prisma.users.findFirst({
+          where: {
+            uid: admission.patient_uid,
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
           select: { name: true, phone: true, gender: true, email: true, birthday: true },
         })
       : null,
     admission.bed_id != null
-      ? prisma.beds.findUnique({
-          where: { id: admission.bed_id },
+      ? prisma.beds.findFirst({
+          where: {
+            id: admission.bed_id,
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
           select: { wards: { select: { name: true } } },
         })
       : null,
     doctorUids.length
       ? prisma.users.findMany({
-          where: { uid: { in: doctorUids } },
+          where: {
+            uid: { in: doctorUids },
+            ...(tenantId ? { tenant_id: tenantId } : {}),
+          },
           select: { uid: true, name: true },
         })
       : [],
@@ -3131,8 +3260,8 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
     // linked to a prior discharge, surface enough of that admission for
     // the discharge desk / clinicians to see the continuity context.
     admission.prior_admission_id != null
-      ? prisma.admissions.findUnique({
-          where: { id: admission.prior_admission_id },
+      ? findAdmissionById(prisma, admission.prior_admission_id, {
+          tenantId,
           select: {
             id: true,
             encounter_id: true,
@@ -3317,12 +3446,15 @@ function shouldRouteCaseSheetList(admissionValue, previousCaseSheetValue, nextCa
 async function getAdmissionCaseSheet(admissionId, actor = {}) {
   const admission = await getAdmissionDetail(admissionId, {
     userId: actor.uid,
+    actorId: actor.id,
     userRole: actor.role,
+    tenantId: actor.tenantId || null,
   });
   const note = admission.encounter_id
     ? await prisma.clinical_notes.findFirst({
         where: {
           encounter_id: admission.encounter_id,
+          ...(actor.tenantId ? { tenant_id: actor.tenantId } : {}),
           note_type: 'case_sheet',
           is_addendum: false,
         },
@@ -3359,15 +3491,17 @@ async function getAdmissionCaseSheet(admissionId, actor = {}) {
   };
 }
 
-async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRole) {
+async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRole, options = {}) {
   if (!savedBy) throw AppError.badRequest('savedBy is required');
   if (!savedByRole) throw AppError.badRequest('savedByRole is required');
+  const tenantId = options.tenantId || null;
   const content = normalizeCaseSheet(caseSheet);
   return prisma.$transaction(async (tx) => {
-    const admission = await tx.admissions.findUnique({
-      where: { id: Number(admissionId) },
+    const admission = await findAdmissionById(tx, admissionId, {
+      tenantId,
       select: {
         id: true,
+        tenant_id: true,
         encounter_id: true,
         patient_uid: true,
         status: true,
@@ -3382,6 +3516,7 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
       ? await tx.clinical_notes.findFirst({
           where: {
             encounter_id: admission.encounter_id,
+            ...(tenantId ? { tenant_id: tenantId } : {}),
             note_type: 'case_sheet',
             is_addendum: false,
           },
@@ -3414,6 +3549,7 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
         data: {
           encounter_id: admission.encounter_id,
           patient_uid: admission.patient_uid,
+          tenant_id: admission.tenant_id,
           author_uid: savedBy,
           author_role: savedByRole,
           note_type: 'case_sheet',
@@ -3513,11 +3649,15 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
   });
 }
 
-async function getPatientAdmissionHistory(patientUid) {
+async function getPatientAdmissionHistory(patientUid, options = {}) {
   if (!patientUid) throw AppError.badRequest('patient_uid is required');
+  const tenantId = options.tenantId || null;
 
   const rows = await prisma.admissions.findMany({
-    where: { patient_uid: patientUid },
+    where: {
+      patient_uid: patientUid,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
+    },
     select: {
       id: true,
       encounter_id: true,
@@ -3548,17 +3688,21 @@ async function getPatientAdmissionHistory(patientUid) {
   }));
 }
 
-async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
+async function updateCodeStatus(admissionId, codeStatus, updatedBy, options = {}) {
   if (!VALID_CODE_STATUSES.includes(codeStatus)) {
     throw AppError.badRequest(`Invalid code_status: ${codeStatus}`);
   }
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
+  const tenantId = options.tenantId || null;
 
   return prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, code_status, patient_uid, status
-      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+      SELECT id, tenant_id, code_status, patient_uid, status
+      FROM admissions
+      WHERE id = ${admissionId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     if (!['admitted', 'transferred'].includes(admRows[0].status)) {
@@ -3614,9 +3758,10 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
   });
 }
 
-async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
+async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options = {}) {
   if (!doctorUid) throw AppError.badRequest('doctor_uid is required');
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
+  const tenantId = options.tenantId || null;
 
   // Same clinical-role gate as the admit path. Without this PATCH
   // /admissions/:id/attending-doctor silently replaces a real
@@ -3628,8 +3773,11 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
   return prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, attending_doctor, patient_uid, status
-      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+      SELECT id, tenant_id, attending_doctor, patient_uid, status
+      FROM admissions
+      WHERE id = ${admissionId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     if (!['admitted', 'transferred'].includes(admRows[0].status)) {
@@ -3689,8 +3837,9 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
 // to "set review-after" once orders are in — this is the persist path,
 // surfaced via PUT /emr/admission/:id/next-review. Pass null to clear.
 // Finding 2026-05-08-inpatient-admission-doctor-no-review-after.
-async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy) {
+async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy, options = {}) {
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
+  const tenantId = options.tenantId || null;
 
   // null / '' clears the review; anything else must parse to a real date.
   let parsed = null;
@@ -3704,8 +3853,11 @@ async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy) {
   return prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
-      SELECT id, next_review_at, patient_uid, status
-      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+      SELECT id, tenant_id, next_review_at, patient_uid, status
+      FROM admissions
+      WHERE id = ${admissionId}
+        AND (${tenantId}::uuid IS NULL OR tenant_id = ${tenantId}::uuid)
+      FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     if (!['admitted', 'transferred'].includes(admRows[0].status)) {
@@ -3762,17 +3914,18 @@ async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy) {
   });
 }
 
-async function getAdmissionStats(dateFrom, dateTo) {
+async function getAdmissionStats(dateFrom, dateTo, options = {}) {
+  const tenantId = options.tenantId || null;
   // Date filter for admissions.admitted_at — preserved bounds: [dateFrom, dateTo].
   const admittedAtFilter = {};
   if (dateFrom) admittedAtFilter.gte = new Date(dateFrom);
   if (dateTo) admittedAtFilter.lte = new Date(dateTo);
   const adWhere = Object.keys(admittedAtFilter).length
-    ? { admitted_at: admittedAtFilter }
-    : {};
+    ? { admitted_at: admittedAtFilter, ...(tenantId ? { tenant_id: tenantId } : {}) }
+    : { ...(tenantId ? { tenant_id: tenantId } : {}) };
   const dischargeWhere = Object.keys(admittedAtFilter).length
-    ? { admitted_at: admittedAtFilter, discharge_type: { not: null } }
-    : { discharge_type: { not: null } };
+    ? { admitted_at: admittedAtFilter, discharge_type: { not: null }, ...(tenantId ? { tenant_id: tenantId } : {}) }
+    : { discharge_type: { not: null }, ...(tenantId ? { tenant_id: tenantId } : {}) };
 
   // One scan to compute total/discharged/admitted/transferred counts and
   // avg LOS — Prisma aggregate can't do COUNT FILTER (...) so reduce in JS.
@@ -3791,8 +3944,8 @@ async function getAdmissionStats(dateFrom, dateTo) {
       where: adWhere,
       _count: { _all: true },
     }),
-    prisma.beds.count(),
-    prisma.beds.count({ where: { status: 'occupied' } }),
+    prisma.beds.count({ where: { ...(tenantId ? { tenant_id: tenantId } : {}) } }),
+    prisma.beds.count({ where: { status: 'occupied', ...(tenantId ? { tenant_id: tenantId } : {}) } }),
   ]);
 
   let totalAdmissions = 0;
@@ -3913,13 +4066,14 @@ async function findPatientByPhoneOrName({ phone, name, tenantId = null }) {
   return [];
 }
 
-async function findBedByLabel(bedLabel, wardLabel = null) {
+async function findBedByLabel(bedLabel, wardLabel = null, options = {}) {
   if (!bedLabel) return null;
+  const tenantId = options.tenantId || null;
   const trimmed = String(bedLabel).trim();
   // Try exact `bed_number` match first; fall back to ILIKE so
   // "ICU-12" matches "ICU-12" but tolerates suffixes / prefixes.
-  const params = [trimmed];
-  let where = `bed_number = $1`;
+  const params = [trimmed, tenantId];
+  let where = `bed_number = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`;
   if (wardLabel && String(wardLabel).trim()) {
     params.push(String(wardLabel).trim());
     where += ` AND ward_name ILIKE $${params.length}`;
@@ -3931,8 +4085,8 @@ async function findBedByLabel(bedLabel, wardLabel = null) {
   if (rows.length === 1) return rows[0];
   if (rows.length > 1) return null; // ambiguous
 
-  const ilikeParams = [`%${trimmed}%`];
-  let ilikeWhere = `bed_number ILIKE $1`;
+  const ilikeParams = [`%${trimmed}%`, tenantId];
+  let ilikeWhere = `bed_number ILIKE $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`;
   if (wardLabel && String(wardLabel).trim()) {
     ilikeParams.push(`%${String(wardLabel).trim()}%`);
     ilikeWhere += ` AND ward_name ILIKE $${ilikeParams.length}`;
@@ -3968,14 +4122,15 @@ function formatWardLabel(row) {
   return rawName;
 }
 
-async function listAdmissionWardOptions() {
+async function listAdmissionWardOptions(options = {}) {
+  const tenantId = options.tenantId || null;
   const rows = await prisma.$queryRawUnsafe(`
     SELECT w.id, w.name, w.floor, w.total_beds,
            COUNT(b.id)::int AS bed_count,
            COUNT(b.id) FILTER (WHERE b.status = 'available')::int AS available_count,
            COUNT(b.id) FILTER (WHERE b.status = 'occupied')::int AS occupied_count
       FROM wards w
-      LEFT JOIN beds b ON b.ward_id = w.id
+      LEFT JOIN beds b ON b.ward_id = w.id AND ($1::uuid IS NULL OR b.tenant_id = $1::uuid)
      GROUP BY w.id, w.name, w.floor, w.total_beds
      ORDER BY
        CASE
@@ -3988,9 +4143,9 @@ async function listAdmissionWardOptions() {
        END,
        w.floor NULLS LAST,
        w.name ASC
-  `);
+  `, tenantId);
 
-  const options = rows.map((row) => ({
+  const wardOptions = rows.map((row) => ({
     id: row.id,
     name: row.name,
     label: formatWardLabel(row),
@@ -4002,24 +4157,25 @@ async function listAdmissionWardOptions() {
     source: 'wards',
   }));
 
-  const hasLabel = (needle) => options.some((option) =>
+  const hasLabel = (needle) => wardOptions.some((option) =>
     String(option.label || option.name || '').toLowerCase().includes(needle)
   );
   if (!hasLabel('icu')) {
-    options.push({ id: null, name: 'ICU', label: 'ICU', source: 'fallback' });
+    wardOptions.push({ id: null, name: 'ICU', label: 'ICU', source: 'fallback' });
   }
   if (!hasLabel('er')) {
-    options.push({ id: null, name: 'ER', label: 'ER', source: 'fallback' });
+    wardOptions.push({ id: null, name: 'ER', label: 'ER', source: 'fallback' });
   }
   if (!hasLabel('day')) {
-    options.push({ id: null, name: 'Day Care', label: 'Day Care', source: 'fallback' });
+    wardOptions.push({ id: null, name: 'Day Care', label: 'Day Care', source: 'fallback' });
   }
 
-  return options;
+  return wardOptions;
 }
 
-async function listAdmissionBedOptions({ wardId = null, wardLabel = null } = {}) {
+async function listAdmissionBedOptions({ wardId = null, wardLabel = null, tenantId = null } = {}) {
   const conditions = [
+    `($1::uuid IS NULL OR b.tenant_id = $1::uuid)`,
     "b.status = 'available'",
     'b.patient_uid IS NULL',
     'b.patient_id IS NULL',
@@ -4028,11 +4184,12 @@ async function listAdmissionBedOptions({ wardId = null, wardLabel = null } = {})
     `NOT EXISTS (
       SELECT 1 FROM admissions a
        WHERE a.bed_id = b.id
+         AND a.tenant_id = b.tenant_id
          AND a.discharged_at IS NULL
     )`,
   ];
-  const params = [];
-  let idx = 1;
+  const params = [tenantId];
+  let idx = 2;
 
   const parsedWardId = Number.parseInt(wardId, 10);
   if (Number.isFinite(parsedWardId) && parsedWardId > 0) {
@@ -4124,7 +4281,7 @@ async function lookupAdmissionPatientByPhone({ phone, tenantId = null }) {
     tenantId,
     patientUid: patient.uid,
   });
-  const history = await getPatientAdmissionHistory(patient.uid);
+  const history = await getPatientAdmissionHistory(patient.uid, { tenantId });
   const lastAdmission = history[0] || null;
 
   return {
@@ -4178,11 +4335,12 @@ async function createCounterAdmissionPatient({
   return { ...patient, hospital_number: hospitalNumber };
 }
 
-async function ensureCounterTreatmentConsent({ patientUid, grantedBy = null }) {
+async function ensureCounterTreatmentConsent({ patientUid, grantedBy = null, tenantId = null }) {
   if (!patientUid) return null;
   const existing = await prisma.patient_consents.findFirst({
     where: {
       patient_uid: patientUid,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
       consent_type: 'treatment',
       status: 'active',
     },
@@ -4192,6 +4350,7 @@ async function ensureCounterTreatmentConsent({ patientUid, grantedBy = null }) {
   return prisma.patient_consents.create({
     data: {
       patient_uid: patientUid,
+      ...(tenantId ? { tenant_id: tenantId } : {}),
       consent_type: 'treatment',
       granted: true,
       status: 'active',

@@ -6,6 +6,7 @@
 
 import express from 'express';
 
+import { AppError } from '../../utils/AppError.js';
 import { error, success } from '../../utils/responseHelper.js';
 import {
   authenticateTotp,
@@ -26,12 +27,32 @@ import {
 const mfaRouter = express.Router();
 const apiClientsRouter = express.Router();
 
+function isSuperAdmin(user) {
+  return String(user?.role || '').toUpperCase() === 'SUPER_ADMIN';
+}
+
+function requestedMfaUserUid(req, { source = 'body', allowAllForSuperAdmin = false } = {}) {
+  const actorUid = req.user?.uid || null;
+  const requested = source === 'query'
+    ? req.query?.user_uid || null
+    : req.body?.user_uid || null;
+
+  if (isSuperAdmin(req.user)) {
+    return requested || (allowAllForSuperAdmin ? null : actorUid);
+  }
+  if (requested && requested !== actorUid) {
+    throw AppError.forbidden('You can only manage your own MFA devices', 'MFA_USER_SCOPE_FORBIDDEN');
+  }
+  return actorUid;
+}
+
 // MFA
 mfaRouter.post('/devices', async (req, res, next) => {
   try {
+    const userUid = requestedMfaUserUid(req);
     const result = await enrollTotpDevice({
       tenantId: req.tenantId,
-      userUid: req.body?.user_uid || req.user?.uid || null,
+      userUid,
       displayName: req.body?.display_name,
       algorithm: req.body?.algorithm,
       digits: req.body?.digits,
@@ -44,9 +65,11 @@ mfaRouter.post('/devices', async (req, res, next) => {
 mfaRouter.post('/devices/:id/verify', async (req, res, next) => {
   try {
     if (!req.body?.code) return error(res, 'code is required', 400);
+    const userUid = requestedMfaUserUid(req);
     const result = await verifyAndActivateDevice({
       tenantId: req.tenantId,
       deviceId: req.params.id,
+      userUid,
       code: req.body.code,
       ipAddress: req.ip || null,
       userAgent: req.get('user-agent') || null,
@@ -57,9 +80,10 @@ mfaRouter.post('/devices/:id/verify', async (req, res, next) => {
 
 mfaRouter.post('/authenticate', async (req, res, next) => {
   try {
+    const userUid = requestedMfaUserUid(req);
     const result = await authenticateTotp({
       tenantId: req.tenantId,
-      userUid: req.body?.user_uid || req.user?.uid || null,
+      userUid,
       code: req.body?.code,
       ipAddress: req.ip || null,
       userAgent: req.get('user-agent') || null,
@@ -70,9 +94,10 @@ mfaRouter.post('/authenticate', async (req, res, next) => {
 
 mfaRouter.post('/backup-codes/consume', async (req, res, next) => {
   try {
+    const userUid = requestedMfaUserUid(req);
     const result = await consumeBackupCode({
       tenantId: req.tenantId,
-      userUid: req.body?.user_uid || req.user?.uid || null,
+      userUid,
       code: req.body?.code,
       ipAddress: req.ip || null,
     });
@@ -82,9 +107,11 @@ mfaRouter.post('/backup-codes/consume', async (req, res, next) => {
 
 mfaRouter.patch('/devices/:id/revoke', async (req, res, next) => {
   try {
+    const userUid = isSuperAdmin(req.user) ? null : req.user?.uid || null;
     const row = await revokeDevice({
       tenantId: req.tenantId,
       deviceId: req.params.id,
+      userUid,
     });
     return success(res, row, 'Device revoked');
   } catch (err) { return next(err); }
@@ -92,9 +119,10 @@ mfaRouter.patch('/devices/:id/revoke', async (req, res, next) => {
 
 mfaRouter.get('/devices', async (req, res, next) => {
   try {
+    const userUid = requestedMfaUserUid(req, { source: 'query', allowAllForSuperAdmin: true });
     const result = await listMfaDevices({
       tenantId: req.tenantId,
-      userUid: req.query.user_uid || null,
+      userUid,
       status: req.query.status || null,
     });
     return success(res, result, 'Devices retrieved');

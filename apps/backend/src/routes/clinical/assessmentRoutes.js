@@ -6,6 +6,7 @@
 
 import express from 'express';
 
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import {
   listFallRiskAssessments,
   listGrowthCharts,
@@ -15,12 +16,20 @@ import {
   recordPainAssessment,
 } from '../../services/clinical/clinicalAssessmentService.js';
 import { computePercentile } from '../../services/clinical/growthPercentileService.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
+const guardAssessmentView = patientAccessGuard('CLINICAL_ASSESSMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardAssessmentWrite = patientAccessGuard('CLINICAL_ASSESSMENT', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+
 // Pain
-router.post('/pain', async (req, res, next) => {
+router.post('/pain', guardAssessmentWrite, async (req, res, next) => {
   try {
     const b = req.body || {};
     const row = await recordPainAssessment({
@@ -36,7 +45,7 @@ router.post('/pain', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.get('/pain', async (req, res, next) => {
+router.get('/pain', guardAssessmentView, async (req, res, next) => {
   try {
     const result = await listPainAssessments({
       tenantId: req.tenantId,
@@ -50,7 +59,7 @@ router.get('/pain', async (req, res, next) => {
 });
 
 // Fall risk
-router.post('/fall-risk', async (req, res, next) => {
+router.post('/fall-risk', guardAssessmentWrite, async (req, res, next) => {
   try {
     const b = req.body || {};
     const row = await recordFallRiskAssessment({
@@ -65,7 +74,7 @@ router.post('/fall-risk', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.get('/fall-risk', async (req, res, next) => {
+router.get('/fall-risk', guardAssessmentView, async (req, res, next) => {
   try {
     const result = await listFallRiskAssessments({
       tenantId: req.tenantId,
@@ -79,7 +88,7 @@ router.get('/fall-risk', async (req, res, next) => {
 });
 
 // Growth chart
-router.post('/growth', async (req, res, next) => {
+router.post('/growth', guardAssessmentWrite, async (req, res, next) => {
   try {
     const b = req.body || {};
     // B-7 — auto-compute percentiles + z-scores when the caller didn't
@@ -133,7 +142,7 @@ router.post('/growth', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.get('/growth', async (req, res, next) => {
+router.get('/growth', guardAssessmentView, async (req, res, next) => {
   try {
     const result = await listGrowthCharts({
       tenantId: req.tenantId,

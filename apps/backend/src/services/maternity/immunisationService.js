@@ -8,6 +8,19 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 
+async function assertPatientInTenant(tenantId, patientUid) {
+  const patientRow = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantId,
+    String(patientUid),
+  );
+  if (!patientRow.length) throw AppError.notFound('Patient not found');
+}
+
 export async function listCatalogue({ tenantId, includeInactive = false }) {
   const params = [tenantId];
   let where = `tenant_id = $1::uuid`;
@@ -77,6 +90,9 @@ export async function getScheduleForNewborn({ tenantId, newborn_id }) {
             v.recommended_age_days, v.window_days
        FROM newborn_immunisations i
        JOIN vaccine_catalogue v ON v.id = i.vaccine_catalogue_id
+      JOIN maternity_newborns n
+        ON n.id = i.newborn_id
+       AND n.tenant_id = i.tenant_id
       WHERE i.tenant_id = $1::uuid AND i.newborn_id = $2::int
       ORDER BY i.due_date, v.code, COALESCE(v.dose_number, 0)`,
     tenantId, Number(newborn_id),
@@ -166,11 +182,7 @@ export async function markScheduleUpToDate({
   // Defensive existence check on the patient — clinical_notes.patient_uid
   // is NOT NULL but has no FK in the baseline; without this probe a
   // typo would persist a dangling note.
-  const patientRow = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`,
-    String(patient_uid),
-  );
-  if (!patientRow.length) throw AppError.notFound('Patient not found');
+  await assertPatientInTenant(tenantId, patient_uid);
 
   const content = {
     status: 'up_to_date',
@@ -205,15 +217,18 @@ export async function markScheduleUpToDate({
  * the full newborn_immunisations table. Returns the most recent
  * immunisation_review note for the patient (if any).
  */
-export async function getImmunisationStatus({ patient_uid }) {
+export async function getImmunisationStatus({ tenantId, patient_uid }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  await assertPatientInTenant(tenantId, patient_uid);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, content, signed_at, signed_by, created_at
        FROM clinical_notes
-      WHERE patient_uid = $1::uuid
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
         AND note_type = 'immunisation_review'
       ORDER BY created_at DESC
       LIMIT 1`,
+    tenantId,
     String(patient_uid),
   );
   if (!rows.length) return { status: 'unknown', reviewed: false };
@@ -246,7 +261,9 @@ export async function listDueOrOverdue({
             (CURRENT_DATE - i.due_date) AS days_overdue
        FROM newborn_immunisations i
        JOIN vaccine_catalogue v ON v.id = i.vaccine_catalogue_id
-       JOIN maternity_newborns n ON n.id = i.newborn_id
+       JOIN maternity_newborns n
+         ON n.id = i.newborn_id
+        AND n.tenant_id = i.tenant_id
       WHERE i.tenant_id = $1::uuid
         AND i.status = 'scheduled'
         AND i.due_date BETWEEN COALESCE($2::date, $3::date - INTERVAL '7 days')

@@ -3,6 +3,7 @@
 import express from 'express';
 import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { requireProductionMonitoringAccess } from '../../middleware/infrastructureAccessMiddleware.js';
 
 const router = express.Router();
 
@@ -65,7 +66,7 @@ router.get('/live', (_req, res) => {
 });
 
 // GET /health/ready — readiness probe for traffic admission.
-router.get('/ready', async (_req, res) => {
+router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
   const checks = {};
 
   try {
@@ -118,7 +119,7 @@ router.get('/ready', async (_req, res) => {
 });
 
 // GET /health/deep — full connectivity check (DB, Redis, R2, Firebase)
-router.get('/deep', async (_req, res) => {
+router.get('/deep', requireProductionMonitoringAccess, async (_req, res) => {
   const checks = {};
 
   // Database
@@ -208,7 +209,7 @@ router.get('/deep', async (_req, res) => {
 });
 
 // GET /health/metrics — key operational metrics for monitoring dashboards
-router.get('/metrics', async (_req, res) => {
+router.get('/metrics', requireProductionMonitoringAccess, async (_req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
   const memUsage = process.memoryUsage();
 

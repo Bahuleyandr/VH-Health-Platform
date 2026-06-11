@@ -9,7 +9,7 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 const router = Router();
 
 function tenantOf(req) {
-  return req?.user?.tenantId || req?.tenant?.id ||
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
     '00000000-0000-4000-8000-000000000001';
 }
 
@@ -65,12 +65,12 @@ router.post('/orders/:id/transition', requireStaffOrAdmin, wrap(async (req) =>
 
 // Isolates
 router.post('/orders/:id/isolates', requireStaffOrAdmin, wrap(async (req) =>
-  micro.addIsolate({ order_id: req.params.id, ...req.body }),
+  micro.addIsolate({ tenantId: tenantOf(req), order_id: req.params.id, ...req.body }),
 ));
 
 // Sensitivities
 router.post('/isolates/:id/sensitivities', requireStaffOrAdmin, wrap(async (req) =>
-  micro.addSensitivity({ isolate_id: req.params.id, ...req.body }),
+  micro.addSensitivity({ tenantId: tenantOf(req), isolate_id: req.params.id, ...req.body }),
 ));
 
 // Antibiogram + resistance dashboard

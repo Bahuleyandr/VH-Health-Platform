@@ -7,7 +7,7 @@ import logger from '../../logging/logger.js';
 import qualityService from '../../services/quality/qualityService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isStaff, isAdmin, isClinical } from '../../utils/roleHelpers.js';
-import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
+import { requiredString, requiredEnum, requiredDate, requiredUUID, paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -20,6 +20,9 @@ const router = Router();
 const QUALITY_ROLES = ['QUALITY_OFFICER', 'ADMIN', 'SUPER_ADMIN'];
 const LEADERSHIP_ROLES = ['CMO', 'CNO', 'DEPARTMENT_HEAD'];
 const IC_ROLES = ['INFECTION_CONTROL_OFFICER'];
+const INCIDENT_TYPES = ['fall', 'medication_error', 'infection', 'equipment_failure', 'near_miss', 'complaint', 'other'];
+const INCIDENT_SEVERITIES = ['minor', 'moderate', 'major', 'sentinel', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const INFECTION_SITES = ['surgical_site', 'bloodstream', 'urinary', 'respiratory', 'wound', 'other'];
 
 function hasQualityAccess(role) {
   return QUALITY_ROLES.includes(role) || LEADERSHIP_ROLES.includes(role);
@@ -35,7 +38,13 @@ function hasICAccess(role) {
  * POST /quality/incidents
  * Report a new quality incident — any staff can report
  */
-router.post('/incidents', requiredString('description', 2000), requiredEnum('severity', ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']), validate, async (req, res, next) => {
+router.post('/incidents',
+  requiredString('description', 2000),
+  requiredEnum('incident_type', INCIDENT_TYPES),
+  requiredEnum('severity', INCIDENT_SEVERITIES),
+  requiredDate('date_occurred'),
+  validate,
+  async (req, res, next) => {
   try {
     if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
       return error(res, 'Only staff can report incidents', 403);
@@ -49,6 +58,7 @@ router.post('/incidents', requiredString('description', 2000), requiredEnum('sev
       description: req.body.description,
       location: req.body.location,
       date_occurred: req.body.date_occurred,
+      tenantId: req.tenantId,
     };
 
     const incident = await qualityService.reportIncident(incidentData);
@@ -79,6 +89,7 @@ router.get('/incidents', async (req, res, next) => {
       severity: req.query.severity,
       page: req.query.page,
       limit: req.query.limit,
+      tenantId: req.tenantId,
     };
 
     const result = await qualityService.getIncidents(filters);
@@ -112,6 +123,7 @@ router.put('/incidents/:id', paramId(), validate, async (req, res, next) => {
       preventive_action: req.body.preventive_action,
       status: req.body.status,
       investigated_by: req.body.investigated_by || req.user?.uid,
+      tenantId: req.tenantId,
     };
 
     const incident = await qualityService.updateIncident(req.params.id, updateData);
@@ -136,7 +148,7 @@ router.get('/dashboard', async (req, res, next) => {
       return error(res, 'Insufficient permissions to view quality dashboard', 403);
     }
 
-    const dashboard = await qualityService.getQualityDashboard();
+    const dashboard = await qualityService.getQualityDashboard({ tenantId: req.tenantId });
 
     return success(res, dashboard, 'Quality dashboard retrieved');
   } catch (err) {
@@ -154,7 +166,13 @@ router.get('/dashboard', async (req, res, next) => {
  * POST /quality/infection-control/cases
  * Report an infection case — clinical + IC roles
  */
-router.post('/infection-control/cases', requiredString('description', 2000), validate, async (req, res, next) => {
+router.post('/infection-control/cases',
+  requiredUUID('patient_uid'),
+  requiredString('organism', 255),
+  requiredEnum('infection_site', INFECTION_SITES),
+  requiredDate('detection_date'),
+  validate,
+  async (req, res, next) => {
   try {
     const role = req.user?.role;
     if (!isClinical(role) && !IC_ROLES.includes(role) && !isAdmin(role)) {
@@ -173,6 +191,7 @@ router.post('/infection-control/cases', requiredString('description', 2000), val
       isolation_type: req.body.isolation_type,
       treatment_notes: req.body.treatment_notes,
       reported_by: req.user?.uid,
+      tenantId: req.tenantId,
     };
 
     const infectionCase = await qualityService.reportInfectionCase(caseData);
@@ -203,6 +222,7 @@ router.get('/infection-control/surveillance', async (req, res, next) => {
       infection_site: req.query.infection_site,
       page: req.query.page,
       limit: req.query.limit,
+      tenantId: req.tenantId,
     };
 
     const result = await qualityService.getInfectionSurveillance(filters);
@@ -231,7 +251,7 @@ router.get('/infection-control/outbreaks', async (req, res, next) => {
       return error(res, 'Insufficient permissions to view outbreak alerts', 403);
     }
 
-    const outbreaks = await qualityService.getOutbreakAlerts();
+    const outbreaks = await qualityService.getOutbreakAlerts({ tenantId: req.tenantId });
 
     return success(res, outbreaks, 'Outbreak alerts retrieved');
   } catch (err) {

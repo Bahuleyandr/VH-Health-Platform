@@ -5,11 +5,20 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { assertSafeOutboundUrl } from '../../utils/ssrfGuard.js';
 import { encryptFhirBundle } from './abdmCrypto.js';
 import abdmGateway from './abdmGateway.js';
 
+function requireTenantId(tenantId) {
+  if (!tenantId) {
+    throw AppError.forbidden('Tenant context is required for ABDM operations', 'ABDM_TENANT_REQUIRED');
+  }
+  return tenantId;
+}
+
 class ABDMService {
-  async getAdminStatus() {
+  async getAdminStatus({ tenantId = null } = {}) {
+    const tid = requireTenantId(tenantId);
     const checkedAt = new Date().toISOString();
     const defaultConsentCounts = {
       total: 0,
@@ -28,7 +37,9 @@ class ABDMService {
            COUNT(*) FILTER (WHERE abha_number IS NOT NULL OR abha_address IS NOT NULL)::int AS abha_registrations,
            COUNT(*) FILTER (WHERE abha_number IS NOT NULL OR abha_address IS NOT NULL)::int AS health_records_linked
          FROM users
-         WHERE COALESCE(is_active, true) = true`
+         WHERE tenant_id = $1::uuid
+           AND COALESCE(is_active, true) = true`,
+        tid
       );
       abhaCounts = rows[0] || abhaCounts;
     } catch (err) {
@@ -45,7 +56,9 @@ class ABDMService {
              COUNT(*) FILTER (WHERE status = 'REQUESTED')::int AS pending,
              COUNT(*) FILTER (WHERE status = 'GRANTED')::int AS granted,
              COUNT(*) FILTER (WHERE status = 'DENIED')::int AS denied
-           FROM abdm_consents`
+           FROM abdm_consents
+           WHERE tenant_id = $1::uuid`,
+          tid
         );
         consentCounts = rows[0] || defaultConsentCounts;
       } catch (err) {
@@ -86,7 +99,8 @@ class ABDMService {
     };
   }
 
-  async listConsentRequests({ status = null, limit = 50, offset = 0 } = {}) {
+  async listConsentRequests({ status = null, limit = 50, offset = 0, tenantId = null } = {}) {
+    const tid = requireTenantId(tenantId);
     if (!(await this._tableExists('abdm_consents'))) {
       return [];
     }
@@ -108,7 +122,7 @@ class ABDMService {
          COALESCE(u.name, u.phone, c.patient_uid::text) AS patient_name,
          c.purpose,
          c.hip_id,
-         COALESCE($4::text, c.hip_id) AS hip_name,
+         COALESCE($5::text, c.hip_id) AS hip_name,
          c.hiu_id,
          c.status,
          c.date_range_from,
@@ -118,9 +132,11 @@ class ABDMService {
          COALESCE(c.granted_at, c.revoked_at, c.created_at) AS updated_at
        FROM abdm_consents c
        LEFT JOIN users u ON u.uid = c.patient_uid
-       WHERE ($1::text IS NULL OR c.status = $1::text)
+       WHERE c.tenant_id = $1::uuid
+         AND ($2::text IS NULL OR c.status = $2::text)
        ORDER BY c.created_at DESC
-       LIMIT $2 OFFSET $3`,
+       LIMIT $3 OFFSET $4`,
+      tid,
       normalizedStatus,
       safeLimit,
       safeOffset,
@@ -135,7 +151,8 @@ class ABDMService {
    * @param {string} abhaAddress - ABHA address (user@abdm)
    * @returns {Object} Updated patient record
    */
-  async registerABHA(patientUid, abhaNumber, abhaAddress) {
+  async registerABHA(patientUid, abhaNumber, abhaAddress, { tenantId = null } = {}) {
+    const tid = requireTenantId(tenantId);
     if (!patientUid) {
       throw AppError.badRequest('Patient UID is required', 'MISSING_PATIENT_UID');
     }
@@ -151,8 +168,13 @@ class ABDMService {
 
     // Check patient exists
     const patientResult = await prisma.$queryRawUnsafe(
-      `SELECT uid, name, phone FROM users WHERE uid = $1 AND is_active = true LIMIT 1`,
-      patientUid
+      `SELECT uid, name, phone, tenant_id FROM users
+       WHERE uid = $1::uuid
+         AND tenant_id = $2::uuid
+         AND role = 'PATIENT'
+         AND is_active = true
+       LIMIT 1`,
+      patientUid, tid
     );
     if (patientResult.length === 0) {
       throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
@@ -160,8 +182,12 @@ class ABDMService {
 
     // Check ABHA not already linked to another patient
     const existingAbha = await prisma.$queryRawUnsafe(
-      `SELECT uid FROM users WHERE abha_number = $1 AND uid != $2 LIMIT 1`,
-      abhaNumber, patientUid
+      `SELECT uid FROM users
+       WHERE tenant_id = $1::uuid
+         AND abha_number = $2
+         AND uid != $3::uuid
+       LIMIT 1`,
+      tid, abhaNumber, patientUid
     );
     if (existingAbha.length > 0) {
       throw AppError.conflict('This ABHA number is already linked to another patient', 'ABHA_ALREADY_LINKED');
@@ -184,9 +210,9 @@ class ABDMService {
     const result = await prisma.$queryRawUnsafe(
       `UPDATE users
        SET abha_number = $1, abha_address = $2, updated_at = NOW()
-       WHERE uid = $3
-       RETURNING uid, name, phone, abha_number, abha_address, updated_at`,
-      abhaNumber, abhaAddress || null, patientUid
+       WHERE uid = $3::uuid AND tenant_id = $4::uuid
+       RETURNING uid, tenant_id, name, phone, abha_number, abha_address, updated_at`,
+      abhaNumber, abhaAddress || null, patientUid, tid
     );
 
     logger.info('ABHA linked to patient', {
@@ -203,17 +229,20 @@ class ABDMService {
    * @param {string} abhaNumber - ABHA number
    * @returns {Object} Patient record
    */
-  async getPatientByABHA(abhaNumber) {
+  async getPatientByABHA(abhaNumber, { tenantId = null } = {}) {
+    const tid = requireTenantId(tenantId);
     if (!abhaNumber) {
       throw AppError.badRequest('ABHA number is required', 'MISSING_ABHA_NUMBER');
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT uid, name, phone, email, gender, birthday, abha_number, abha_address, registered_at
+      `SELECT uid, tenant_id, name, phone, email, gender, birthday, abha_number, abha_address, registered_at
        FROM users
-       WHERE abha_number = $1 AND is_active = true
+       WHERE tenant_id = $1::uuid
+         AND abha_number = $2
+         AND is_active = true
        LIMIT 1`,
-      abhaNumber
+      tid, abhaNumber
     );
 
     if (result.length === 0) {
@@ -472,6 +501,15 @@ class ABDMService {
       throw AppError.badRequest('Invalid data request payload', 'INVALID_DATA_REQUEST');
     }
 
+    const safeDataPushUrl = dataPushUrl ? String(dataPushUrl).trim() : null;
+    if (safeDataPushUrl) {
+      await assertSafeOutboundUrl(safeDataPushUrl, {
+        label: 'dataPushUrl',
+        allowlistEnv: 'ABDM_DATA_PUSH_HOST_ALLOWLIST',
+        allowPrivateEnv: 'ABDM_DATA_PUSH_ALLOW_PRIVATE_TARGETS',
+      });
+    }
+
     // Verify consent exists and is GRANTED
     const consentResult = await prisma.$queryRawUnsafe(
       `SELECT consent_id, patient_uid, status, hi_types, date_range_from, date_range_to, expiry_date
@@ -514,7 +552,7 @@ class ABDMService {
         dateRange?.from ? new Date(dateRange.from) : consent.date_range_from,
         dateRange?.to ? new Date(dateRange.to) : consent.date_range_to,
         keyMaterial ? JSON.stringify(keyMaterial) : null,
-        dataPushUrl || null,
+        safeDataPushUrl,
 
     );
 
@@ -527,7 +565,7 @@ class ABDMService {
       dateRange?.from || consent.date_range_from,
       dateRange?.to || consent.date_range_to,
       keyMaterial,
-      dataPushUrl || null
+      safeDataPushUrl
     ).catch((err) => {
       logger.error('Failed to process ABDM data request', {
         transactionId,
@@ -817,6 +855,14 @@ class ABDMService {
    * @private
    */
   async _processDataRequest(transactionId, consentId, patientUid, hiTypes, dateFrom, dateTo, keyMaterial, dataPushUrl = null) {
+    if (dataPushUrl) {
+      await assertSafeOutboundUrl(dataPushUrl, {
+        label: 'dataPushUrl',
+        allowlistEnv: 'ABDM_DATA_PUSH_HOST_ALLOWLIST',
+        allowPrivateEnv: 'ABDM_DATA_PUSH_ALLOW_PRIVATE_TARGETS',
+      });
+    }
+
     // Collect health data
     const bundle = await this.collectHealthData(patientUid, hiTypes, dateFrom, dateTo);
 

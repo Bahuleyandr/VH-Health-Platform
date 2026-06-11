@@ -51,6 +51,7 @@ router.post('/findings', async (req, res) => {
 router.post('/findings/:id/resolve', async (req, res) => {
   try {
     const finding = await resolveFinding(req.params.id, {
+      tenantId: tenantOf(req),
       resolutionNote: req.body.resolution_note,
     }, ctx(req));
     return success(res, { finding }, 'Finding resolved');
@@ -61,7 +62,7 @@ router.post('/findings/:id/resolve', async (req, res) => {
 
 router.get('/patients/:uid/chart', async (req, res) => {
   try {
-    const chart = await getChart(req.params.uid);
+    const chart = await getChart(req.params.uid, { tenantId: tenantOf(req) });
     return success(res, { chart }, 'Dental chart');
   } catch (err) {
     return handleFailure(res, err, 'get dental chart');
@@ -90,6 +91,7 @@ router.post('/procedures', async (req, res) => {
 router.post('/procedures/:id/complete', async (req, res) => {
   try {
     const procedure = await completeProcedure(req.params.id, {
+      tenantId: tenantOf(req),
       materials: req.body.materials || null,
       anesthesia: req.body.anesthesia || null,
       notes: req.body.notes || null,
@@ -103,6 +105,7 @@ router.post('/procedures/:id/complete', async (req, res) => {
 router.post('/procedures/:id/cancel', async (req, res) => {
   try {
     const procedure = await cancelProcedure(req.params.id, {
+      tenantId: tenantOf(req),
       reason: req.body.reason,
     }, ctx(req));
     return success(res, { procedure }, 'Procedure cancelled');
@@ -113,7 +116,10 @@ router.post('/procedures/:id/cancel', async (req, res) => {
 
 router.get('/patients/:uid/procedures', async (req, res) => {
   try {
-    const procedures = await listProcedures(req.params.uid, { status: req.query.status || null });
+    const procedures = await listProcedures(req.params.uid, {
+      tenantId: tenantOf(req),
+      status: req.query.status || null,
+    });
     return success(res, { procedures, count: procedures.length }, 'Dental procedures');
   } catch (err) {
     return handleFailure(res, err, 'list procedures');

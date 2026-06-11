@@ -10,6 +10,7 @@
 
 import express from 'express';
 
+import { AppError } from '../../utils/AppError.js';
 import { success } from '../../utils/responseHelper.js';
 import {
   exchangeAuthorizationCode,
@@ -23,6 +24,17 @@ import {
 } from '../../services/smartFhir/smartOAuthService.js';
 
 const router = express.Router();
+
+function assertAdminAuthorizeHelperEnabled() {
+  const flag = String(process.env.SMART_FHIR_ADMIN_AUTHORIZE_ENABLED || '').trim().toLowerCase();
+  const enabled = flag === 'true' || flag === '1';
+  if (!enabled) {
+    throw AppError.forbidden(
+      'Admin SMART authorize helper is disabled',
+      'SMART_ADMIN_AUTHORIZE_DISABLED',
+    );
+  }
+}
 
 // Apps
 router.post('/apps', async (req, res, next) => {
@@ -57,6 +69,7 @@ router.get('/apps', async (req, res, next) => {
 // authorize flow should run through the dedicated public FHIR surface.
 router.post('/authorize', async (req, res, next) => {
   try {
+    assertAdminAuthorizeHelperEnabled();
     const b = req.body || {};
     const result = await issueAuthorizationCode({
       tenantId: req.tenantId,

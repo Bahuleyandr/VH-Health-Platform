@@ -13,6 +13,20 @@ const validate = (req, res, next) => {
 
 const router = express.Router();
 
+const ADMIN_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+const requireDoctorCatalogAdmin = (req, res, next) => {
+  const role = String(req.user?.role || '').toUpperCase();
+  if (!ADMIN_ROLES.has(role)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Only administrators can mutate the doctor catalog',
+      code: 'DOCTOR_CATALOG_ADMIN_REQUIRED',
+    });
+  }
+  return next();
+};
+
 // Validation middleware for numeric doctor IDs
 const validateDoctorId = (req, res, next) => {
   if (!/^\d+$/.test(req.params.doctorId)) {
@@ -34,7 +48,7 @@ router.get('/list', doctorValidators.listDoctors, doctorController.getAllDoctors
 
 // Legacy routes (backward compatibility)
 router.get('/', doctorController.getAllDoctors);
-router.post('/', requiredString('name', 255), validate, doctorController.addDoctor);
+router.post('/', requireDoctorCatalogAdmin, requiredString('name', 255), validate, doctorController.addDoctor);
 
 // Enhanced routes
 router.get('/profile/:id', doctorValidators.getById, doctorController.getDoctorById);
@@ -46,9 +60,9 @@ router.put('/:id/profile', doctorValidators.updateProfile, doctorController.upda
 router.put('/:id/availability', doctorValidators.updateAvailability, doctorController.updateDoctorAvailability);
 
 // Deactivation (admin only)
-router.delete('/:id/deactivate', doctorController.deactivateDoctor);
+router.delete('/:id/deactivate', requireDoctorCatalogAdmin, doctorController.deactivateDoctor);
 
 router.get('/:doctorId', validateDoctorId, doctorController.getDoctorById);
-router.delete('/:doctorId', validateDoctorId, doctorController.deleteDoctor);
+router.delete('/:doctorId', requireDoctorCatalogAdmin, validateDoctorId, doctorController.deleteDoctor);
 
 export default router;

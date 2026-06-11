@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafeMock = jest.fn();
 const executeRawUnsafeMock = jest.fn();
+const emitCriticalLabAlertAcknowledgedMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -18,17 +19,24 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../../services/clinical/canonicalOperationalBridgeService.js', () => ({
+  emitCriticalLabAlertAcknowledged: emitCriticalLabAlertAcknowledgedMock,
+}));
+
 const {
   detectCriticalsForResults,
   recordResultManual,
   listLabWorklist,
+  listIpdLabWorklist,
   signOffResults,
+  acknowledgeAlert,
 } = await import('../../services/lab/labResultsService.js');
 
 describe('labResultsService critical detection', () => {
   beforeEach(() => {
     queryRawUnsafeMock.mockReset();
     executeRawUnsafeMock.mockReset();
+    emitCriticalLabAlertAcknowledgedMock.mockReset();
     executeRawUnsafeMock.mockResolvedValue(1);
   });
 
@@ -73,8 +81,9 @@ describe('labResultsService critical detection', () => {
     expect(thresholdLookup[3]).toEqual(expect.arrayContaining(['TROPI', 'TROP']));
 
     expect(executeRawUnsafeMock).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE lab_results SET is_critical = true'),
+      expect.stringMatching(/UPDATE lab_results[\s\S]*SET is_critical = true/),
       37,
+      tenantId,
     );
   });
 
@@ -136,6 +145,7 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
   beforeEach(() => {
     queryRawUnsafeMock.mockReset();
     executeRawUnsafeMock.mockReset();
+    emitCriticalLabAlertAcknowledgedMock.mockReset();
     executeRawUnsafeMock.mockResolvedValue(1);
   });
 
@@ -190,6 +200,8 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     const dupProbe = queryRawUnsafeMock.mock.calls[2];
     expect(dupProbe[0]).toMatch(/FROM lab_results/);
     expect(dupProbe[0]).toMatch(/status IN/);
+    expect(dupProbe[0]).toMatch(/tenant_id = \$3::uuid/);
+    expect(dupProbe[3]).toBe(tenantId);
 
     // investigations.status advance happens via $executeRawUnsafe.
     const statusAdvance = executeRawUnsafeMock.mock.calls
@@ -199,7 +211,9 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(statusAdvance[2]).toEqual(
       expect.arrayContaining(['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED']),
     );
+    expect(statusAdvance[3]).toBe(tenantId);
     expect(statusAdvance[0]).toMatch(/SET status = 'IN_PROGRESS'/);
+    expect(statusAdvance[0]).toMatch(/tenant_id = \$3::uuid/);
   });
 
   it('rejects manual result creation when no order or booking link exists', async () => {
@@ -247,13 +261,17 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
 });
 
 describe('listLabWorklist STAT ordering (D45)', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+
   beforeEach(() => {
     queryRawUnsafeMock.mockReset();
+    executeRawUnsafeMock.mockReset();
+    emitCriticalLabAlertAcknowledgedMock.mockReset();
     queryRawUnsafeMock.mockResolvedValue([]);
   });
 
   it('orders STAT/URGENT bucket NEWEST-first within priority bucket', async () => {
-    await listLabWorklist({ tenantId: '00000000-0000-4000-8000-000000000001' });
+    await listLabWorklist({ tenantId });
     const sql = queryRawUnsafeMock.mock.calls[0][0];
     // The STAT/URGENT branch sorts requested_at DESC so a fresh ER
     // STAT troponin lands above a stale never-cancelled STAT row from
@@ -264,5 +282,41 @@ describe('listLabWorklist STAT ordering (D45)', () => {
     expect(sql).toMatch(/i\.requested_at ASC\s+LIMIT/);
     // Priority bucket ordering is preserved (STAT/URGENT = 1).
     expect(sql).toMatch(/WHEN 'STAT' THEN 1/);
+    expect(sql).toMatch(/i\.tenant_id = \$1::uuid/);
+    expect(sql).toMatch(/u\.tenant_id = \$1::uuid/);
+    expect(sql).toMatch(/a\.tenant_id = \$1::uuid/);
+    expect(sql).toMatch(/ev\.tenant_id = \$1::uuid/);
+    expect(queryRawUnsafeMock.mock.calls[0].slice(1)).toEqual([tenantId, 100]);
+  });
+
+  it('scopes IPD worklist joins to the caller tenant', async () => {
+    await listIpdLabWorklist({ tenantId, limit: 25 });
+
+    const [sql, boundTenant, boundLimit] = queryRawUnsafeMock.mock.calls[0];
+    expect(sql).toMatch(/i\.tenant_id = \$1::uuid/);
+    expect(sql).toMatch(/u\.tenant_id = \$1::uuid/);
+    expect(sql).toMatch(/a\.tenant_id = \$1::uuid/);
+    expect(sql).toMatch(/b\.tenant_id = \$1::uuid/);
+    expect(boundTenant).toBe(tenantId);
+    expect(boundLimit).toBe(25);
+  });
+
+  it('acknowledges critical alerts by id only inside the caller tenant', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 7,
+      tenant_id: tenantId,
+      result_id: 37,
+      patient_uid: '5e89c1aa-df0c-4d19-9e7e-40af85486f24',
+    }]);
+
+    await acknowledgeAlert(7, {
+      tenantId,
+      acknowledged_by: '33333333-3333-4333-8333-333333333333',
+    });
+
+    const call = queryRawUnsafeMock.mock.calls[0];
+    expect(call[0]).toMatch(/WHERE id = \$5::int[\s\S]*tenant_id = \$6::uuid/);
+    expect(call[5]).toBe(7);
+    expect(call[6]).toBe(tenantId);
   });
 });

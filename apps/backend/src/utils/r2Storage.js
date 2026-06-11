@@ -45,14 +45,16 @@ const LOCAL_DIR = process.env.STORAGE_LOCAL_DIR
   || path.resolve(__dirname, '../../storage/local-r2');
 
 // Fallback base URL when no request context is available (cron jobs,
-// background tasks). The preferred path is for callers in HTTP context
-// to pass `{ baseUrl }` derived from `req.protocol + req.get('host')` so
-// the URL matches whatever host the client used to reach us — works for
-// localhost, Android emulator (10.0.2.2:5000), real device on a LAN IP,
-// or a tunnel like ngrok without any env-var dance.
+// background tasks). Do not trust request-derived Host headers here:
+// local signed URLs are user-visible redirects to this backend route.
 const PUBLIC_BASE_URL = process.env.STORAGE_PUBLIC_BASE_URL
   || process.env.PUBLIC_BASE_URL
   || 'http://localhost:5000';
+const TRUSTED_BASE_URLS = (process.env.STORAGE_ALLOWED_BASE_URLS || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+const LOCAL_DEV_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1', '10.0.2.2']);
 
 // Token-signing secret (audit finding L3, 2026-06-10): previously this
 // REUSED JWT_SECRET verbatim, coupling the auth and storage trust domains —
@@ -173,6 +175,41 @@ export function resolveLocalKey(key) {
 // handler when R2 is in front.
 export const isLocalStorage = !R2_AVAILABLE;
 
+function normalizeBaseOrigin(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    return url.origin.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+const CONFIGURED_PUBLIC_ORIGIN = normalizeBaseOrigin(PUBLIC_BASE_URL) || 'http://localhost:5000';
+const TRUSTED_BASE_ORIGINS = new Set([
+  CONFIGURED_PUBLIC_ORIGIN,
+  ...TRUSTED_BASE_URLS.map(normalizeBaseOrigin).filter(Boolean),
+]);
+
+function isAllowedLocalDevOrigin(origin) {
+  if ((process.env.NODE_ENV || '').toLowerCase() === 'production') return false;
+  try {
+    const { hostname } = new URL(origin);
+    return LOCAL_DEV_HOSTS.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function resolveSignedUrlBase(options = {}) {
+  const candidate = normalizeBaseOrigin(options.baseUrl);
+  if (candidate && (TRUSTED_BASE_ORIGINS.has(candidate) || isAllowedLocalDevOrigin(candidate))) {
+    return candidate;
+  }
+  return CONFIGURED_PUBLIC_ORIGIN;
+}
+
 // ─── Public API (dispatches to R2 or local) ────────────────────────────────
 
 export async function uploadFileToR2(buffer, key, contentType = 'application/octet-stream') {
@@ -291,18 +328,17 @@ export async function copyObject(sourceKey, destinationKey) {
   return await s3Client.send(command);
 }
 
-// `options.baseUrl` lets HTTP-context callers (controllers) pass the
-// request-derived host so the signed URL points back at whatever the
-// client actually used (localhost, 10.0.2.2:5000, a LAN IP, etc.).
-// Without it we fall back to PUBLIC_BASE_URL — fine for cron/background
-// callers since they don't surface the URL to a user.
+// `options.baseUrl` is accepted only when it normalizes to a trusted origin
+// (configured via STORAGE_ALLOWED_BASE_URLS/STORAGE_PUBLIC_BASE_URL) or to a
+// local development loopback/device origin outside production. Untrusted Host
+// header values are ignored and the configured public origin is used instead.
 export async function getSignedFileUrl(key, expiresInSeconds = 3600, options = {}) {
   if (!R2_AVAILABLE) {
     const token = signLocalToken(key, expiresInSeconds);
     // Path-encode each segment so '/' separators are preserved (the route
     // uses a wildcard splat and rebuilds the key by joining segments).
     const safeKey = key.split('/').map(encodeURIComponent).join('/');
-    const baseUrl = options.baseUrl || PUBLIC_BASE_URL;
+    const baseUrl = resolveSignedUrlBase(options);
     return `${baseUrl}/api/v1/storage/file/${safeKey}?token=${token}`;
   }
   return withRetry(async () => {

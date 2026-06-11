@@ -18,6 +18,17 @@ function tenantOr(t) { return t || TENANT_FALLBACK; }
 
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
 
+async function assertIcuAdmissionInTenant(tenantId, icuAdmissionId) {
+  const id = parseInt(icuAdmissionId, 10);
+  if (!Number.isInteger(id)) throw AppError.badRequest('icu_admission_id must be numeric');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM icu_admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+    id, tenantOr(tenantId),
+  );
+  if (!unwrap(rows)) throw AppError.notFound('ICU admission not found');
+  return id;
+}
+
 // ════════════════════════════════════════════════════════════════════
 // ADMISSIONS
 // ════════════════════════════════════════════════════════════════════
@@ -332,6 +343,7 @@ export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...bod
 
 export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
   if (!icu_admission_id) throw AppError.badRequest('icu_admission_id required');
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
 
   const computed = {
     gcs_total: gcsTotal(body.gcs_eye, body.gcs_verbal, body.gcs_motor),
@@ -374,7 +386,7 @@ export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
   // entry means the drip is held), oral intake, and other I/O totals.
   // Finding: 2026-05-09-emergency-walk-in-nurse-icu-urine-zero-stored-null.
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(icu_admission_id, 10), body.recorded_at || null,
+    admissionId, body.recorded_at || null,
     body.hr ?? null, body.sbp ?? null, body.dbp ?? null, body.map ?? null,
     body.cvp ?? null, body.spo2 ?? null, body.rr ?? null,
     body.temp_c ?? null, body.cap_refill_sec ?? null,
@@ -400,23 +412,26 @@ export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
   return unwrap(rows);
 }
 
-export async function listFlowsheet({ icu_admission_id, hours = 24 }) {
+export async function listFlowsheet({ tenantId, icu_admission_id, hours = 24 }) {
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
   const h = Math.min(parseInt(hours, 10) || 24, 168);
   const sql = `
     SELECT * FROM icu_flowsheet_entries
     WHERE icu_admission_id = $1
-      AND recorded_at > NOW() - $2::interval
+      AND tenant_id = $2::uuid
+      AND recorded_at > NOW() - $3::interval
     ORDER BY recorded_at ASC`;
   return prisma.$queryRawUnsafe(sql,
-    parseInt(icu_admission_id, 10), `${h} hours`);
+    admissionId, tenantOr(tenantId), `${h} hours`);
 }
 
-export async function ioSummary({ icu_admission_id }) {
+export async function ioSummary({ tenantId, icu_admission_id }) {
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
   const sql = `
     SELECT * FROM icu_24h_io_summary
     WHERE icu_admission_id = $1
     ORDER BY day DESC LIMIT 7`;
-  return prisma.$queryRawUnsafe(sql, parseInt(icu_admission_id, 10));
+  return prisma.$queryRawUnsafe(sql, admissionId);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -425,6 +440,7 @@ export async function ioSummary({ icu_admission_id }) {
 
 export async function recordAssessment({ tenantId, icu_admission_id, assessment_kind, ...body }) {
   if (!icu_admission_id) throw AppError.badRequest('icu_admission_id required');
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
   if (!['rass', 'cam_icu', 'sofa', 'cpot'].includes(assessment_kind)) {
     throw AppError.badRequest('invalid assessment_kind');
   }
@@ -478,7 +494,7 @@ export async function recordAssessment({ tenantId, icu_admission_id, assessment_
             $23, $24::uuid, $25::uuid)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(icu_admission_id, 10), body.recorded_at || null, assessment_kind,
+    admissionId, body.recorded_at || null, assessment_kind,
     body.rass_score ?? null, body.rass_target ?? null,
     body.cam_feature_1 ?? null, body.cam_feature_2 ?? null,
     body.cam_feature_3 ?? null, body.cam_feature_4 ?? null, camPos,
@@ -492,11 +508,12 @@ export async function recordAssessment({ tenantId, icu_admission_id, assessment_
   return unwrap(rows);
 }
 
-export async function listAssessments({ icu_admission_id, kind, limit = 50 }) {
+export async function listAssessments({ tenantId, icu_admission_id, kind, limit = 50 }) {
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
   const lim = Math.min(parseInt(limit, 10) || 50, 200);
-  const args = [parseInt(icu_admission_id, 10)];
-  let where = 'icu_admission_id = $1';
-  if (kind) { args.push(kind); where += ' AND assessment_kind = $2'; }
+  const args = [admissionId, tenantOr(tenantId)];
+  let where = 'icu_admission_id = $1 AND tenant_id = $2::uuid';
+  if (kind) { args.push(kind); where += ` AND assessment_kind = $${args.length}`; }
   const sql = `
     SELECT * FROM icu_assessments
     WHERE ${where}
@@ -511,6 +528,7 @@ export async function listAssessments({ icu_admission_id, kind, limit = 50 }) {
 
 export async function upsertBundle({ tenantId, icu_admission_id, bundle_date, ...body }) {
   if (!icu_admission_id) throw AppError.badRequest('icu_admission_id required');
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
   const day = bundle_date || new Date().toISOString().slice(0, 10);
 
   const merged = {
@@ -573,7 +591,7 @@ export async function upsertBundle({ tenantId, icu_admission_id, bundle_date, ..
       updated_at                  = NOW()
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(icu_admission_id, 10), day,
+    admissionId, day,
     merged.a_awakening_done, merged.a_awakening_reason_skipped,
     merged.b_breathing_done, merged.b_breathing_reason_skipped, merged.b_breathing_outcome,
     merged.c_choice_done, merged.c_protocol_followed,
@@ -585,12 +603,14 @@ export async function upsertBundle({ tenantId, icu_admission_id, bundle_date, ..
   return unwrap(rows);
 }
 
-export async function getBundle({ icu_admission_id, bundle_date }) {
+export async function getBundle({ tenantId, icu_admission_id, bundle_date }) {
+  const admissionId = await assertIcuAdmissionInTenant(tenantId, icu_admission_id);
   const sql = `
     SELECT * FROM icu_daily_bundles
-    WHERE icu_admission_id = $1 AND bundle_date = $2::date`;
+    WHERE icu_admission_id = $1 AND tenant_id = $2::uuid AND bundle_date = $3::date`;
   const rows = await prisma.$queryRawUnsafe(sql,
-    parseInt(icu_admission_id, 10),
+    admissionId,
+    tenantOr(tenantId),
     bundle_date || new Date().toISOString().slice(0, 10));
   return unwrap(rows) || null;
 }

@@ -34,7 +34,7 @@ delete process.env.CF_R2_SECRET_ACCESS_KEY;
 const TEST_LOCAL_DIR = path.resolve(process.cwd(), '.test-storage-local-r2');
 process.env.STORAGE_LOCAL_DIR = TEST_LOCAL_DIR;
 
-const { verifyLocalToken, resolveLocalKey, getSignedFileUrl, isLocalStorage } =
+const { verifyLocalToken, resolveLocalKey, getSignedFileUrl, isLocalStorage, resolveSignedUrlBase } =
   await import('../../utils/r2Storage.js');
 
 // Helper: build a token the same way signLocalToken does so we can compare.
@@ -158,9 +158,15 @@ describe('getSignedFileUrl (local backend)', () => {
     expect(url.startsWith('http://')).toBe(true);
   });
 
-  it('uses the provided baseUrl when given', async () => {
+  it('allows loopback dev baseUrl values when given', async () => {
     const url = await getSignedFileUrl(key, 60, { baseUrl: 'http://10.0.2.2:5000' });
     expect(url.startsWith('http://10.0.2.2:5000/api/v1/storage/file/')).toBe(true);
+  });
+
+  it('ignores untrusted request-derived baseUrl values', async () => {
+    const url = await getSignedFileUrl(key, 60, { baseUrl: 'https://evil.example.test/path' });
+    expect(url.startsWith('https://evil.example.test')).toBe(false);
+    expect(resolveSignedUrlBase({ baseUrl: 'https://evil.example.test/path' })).toBe(resolveSignedUrlBase());
   });
 
   it('produces a token that verifyLocalToken accepts', async () => {

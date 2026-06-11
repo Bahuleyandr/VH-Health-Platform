@@ -5,6 +5,8 @@ import express from 'express';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
+import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
+import { requireAnyRole } from '../../middleware/rbacMiddleware.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
 import {
   admissionToADT,
@@ -15,14 +17,37 @@ import {
   parseORMToOrder,
 } from '../../services/hl7/hl7Transformer.js';
 import { AppError } from '../../utils/AppError.js';
+import { verifySignedRequest } from '../../utils/signedRequest.js';
 
 const router = express.Router();
+const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
 // ---------------------------------------------------------------------------
 function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+function assertHl7InboundAuthentic(req, { message, controlId }) {
+  verifySignedRequest({
+    secret: process.env.HL7_INBOUND_SHARED_SECRET || '',
+    signature: req.headers['x-hl7-signature'] || req.headers['x-vhhealth-hl7-signature'],
+    timestamp: req.headers['x-hl7-timestamp'] || req.headers.timestamp,
+    requestId: req.headers['x-hl7-message-id'] || req.headers['x-request-id'] || controlId,
+    payload: message,
+    context: 'HL7 inbound message',
+    codePrefix: 'HL7_INBOUND',
+    replayNamespace: 'hl7-inbound',
+  });
+}
+
+async function loadHl7Patient(patientUid) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, tenant_id FROM users WHERE uid = $1::uuid AND is_active = true LIMIT 1`,
+    patientUid,
+  );
+  return rows[0] || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +80,21 @@ router.post(
     const messageType = parsed.msh.messageType || '';
     const controlId = parsed.msh.messageControlId || '';
 
+    try {
+      assertHl7InboundAuthentic(req, { message, controlId });
+    } catch (err) {
+      logger.warn('HL7 inbound message rejected by authenticity check', {
+        messageType,
+        controlId,
+        code: err.code,
+        requestId: req.id,
+      });
+      res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+      return res
+        .status(err.statusCode || 401)
+        .send(generateACK(controlId || 'UNKNOWN', 'AR', err.message || 'HL7 message authentication failed'));
+    }
+
     logger.info('HL7 message received', {
       messageType,
       controlId,
@@ -71,12 +111,17 @@ router.post(
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
         }
+        const patientRow = await loadHl7Patient(patient.uid);
+        if (!patientRow) {
+          res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+          return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
+        }
 
         if (messageType === 'ADT^A01' || messageType === 'ADT^A02') {
           // Create admission
           await prisma.$queryRawUnsafe(
-            `INSERT INTO admissions (patient_uid, status, ward, bed_number, admitting_doctor, admitted_at, reason, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            `INSERT INTO admissions (patient_uid, status, ward, bed_number, admitting_doctor, admitted_at, reason, tenant_id, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid, NOW())
              ON CONFLICT DO NOTHING`,
             
               patient.uid,
@@ -86,15 +131,20 @@ router.post(
               admission.admitting_doctor || null,
               admission.admitted_at || new Date().toISOString(),
               null,
+              patientRow.tenant_id,
             
           );
         } else if (messageType === 'ADT^A03') {
           // Discharge — update most recent admission for this patient
           await prisma.$queryRawUnsafe(
             `UPDATE admissions SET status = 'DISCHARGED', discharged_at = $2
-             WHERE patient_uid = $1 AND status = 'ADMITTED'
-             ORDER BY admitted_at DESC LIMIT 1`,
-            patient.uid, admission.discharged_at || new Date().toISOString()
+             WHERE id = (
+               SELECT id FROM admissions
+                WHERE patient_uid = $1 AND tenant_id = $3::uuid AND status = 'ADMITTED'
+                ORDER BY admitted_at DESC
+                LIMIT 1
+             )`,
+            patient.uid, admission.discharged_at || new Date().toISOString(), patientRow.tenant_id
           );
         }
 
@@ -110,15 +160,21 @@ router.post(
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
         }
+        const patientRow = await loadHl7Patient(patient.uid);
+        if (!patientRow) {
+          res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+          return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
+        }
 
         await prisma.$queryRawUnsafe(
-          `INSERT INTO investigations (patient_uid, test_name, status, requested_at, created_at)
-           VALUES ($1, $2, $3, $4, NOW())`,
+          `INSERT INTO investigations (patient_uid, test_name, status, requested_at, tenant_id, created_at)
+           VALUES ($1, $2, $3, $4, $5::uuid, NOW())`,
 
             patient.uid,
             order.test_name || 'Unknown Test',
             order.status || 'PENDING',
             order.ordered_at || new Date().toISOString(),
+            patientRow.tenant_id,
 
         );
 
@@ -136,6 +192,11 @@ router.post(
         if (!patientUid) {
           res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
           return res.status(400).send(generateACK(controlId, 'AE', 'Patient identifier (PID.3) is required'));
+        }
+        const patientRow = await loadHl7Patient(patientUid);
+        if (!patientRow) {
+          res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
+          return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
         }
 
         const observations = (parsed.obx || []).map((o) => ({
@@ -157,11 +218,13 @@ router.post(
                   completed_at = NOW(),
                   result_uploaded_at = NOW()
             WHERE patient_uid = $1::uuid
+              AND tenant_id = $4::uuid
               AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
               AND (test_name = $3 OR test_name = 'Unknown Test')
               AND id = (
                 SELECT id FROM investigations
                  WHERE patient_uid = $1::uuid
+                   AND tenant_id = $4::uuid
                    AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
                  ORDER BY requested_at DESC
                  LIMIT 1
@@ -170,15 +233,17 @@ router.post(
           patientUid,
           JSON.stringify(observations),
           testName,
+          patientRow.tenant_id,
         );
 
         if (matched.length === 0) {
           await prisma.$queryRawUnsafe(
-            `INSERT INTO investigations (patient_uid, test_name, status, structured_results, completed_at, created_at)
-             VALUES ($1::uuid, $2, 'COMPLETED', $3::jsonb, NOW(), NOW())`,
+            `INSERT INTO investigations (patient_uid, test_name, status, structured_results, completed_at, tenant_id, created_at)
+             VALUES ($1::uuid, $2, 'COMPLETED', $3::jsonb, NOW(), $4::uuid, NOW())`,
             patientUid,
             testName,
             JSON.stringify(observations),
+            patientRow.tenant_id,
           );
         }
 
@@ -215,6 +280,8 @@ router.post(
 router.post(
   '/generate',
   jwtAuth,
+  requireAnyRole(...HL7_EXPORT_ROLES),
+  tenantContextMiddleware,
   wrapAsync(async (req, res) => {
     const { event_type, admission_id, investigation_id } = req.body;
 
@@ -233,8 +300,9 @@ router.post(
         `SELECT id, patient_uid, status, ward, bed_number, priority, admission_type,
                 admitting_doctor, attending_doctor, admitted_at, discharged_at,
                 encounter_id, reason, reason_for_admission, discharge_disposition, discharge_type
-         FROM admissions WHERE id = $1 LIMIT 1`,
-        admission_id
+         FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+        admission_id,
+        req.tenantId,
       );
 
       if (!admissionRows.length) {
@@ -244,8 +312,9 @@ router.post(
       const admission = admissionRows[0];
 
       const patientRows = await prisma.$queryRawUnsafe(
-        `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 LIMIT 1`,
-        admission.patient_uid
+        `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 AND tenant_id = $2::uuid LIMIT 1`,
+        admission.patient_uid,
+        req.tenantId,
       );
 
       const patient = patientRows[0] || { uid: admission.patient_uid };
@@ -263,8 +332,9 @@ router.post(
       const investigationRows = await prisma.$queryRawUnsafe(
         `SELECT id, patient_uid, uid, test_name, investigation_type, status,
                 results, conclusion, interpretation, ordered_at, completed_at, created_at
-         FROM investigations WHERE id = $1 LIMIT 1`,
-        investigation_id
+         FROM investigations WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+        investigation_id,
+        req.tenantId,
       );
 
       if (!investigationRows.length) {
@@ -275,8 +345,9 @@ router.post(
       const patientUid = investigation.patient_uid || investigation.uid;
 
       const patientRows = await prisma.$queryRawUnsafe(
-        `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 LIMIT 1`,
-        patientUid
+        `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1 AND tenant_id = $2::uuid LIMIT 1`,
+        patientUid,
+        req.tenantId,
       );
 
       const patient = patientRows[0] || { uid: patientUid };

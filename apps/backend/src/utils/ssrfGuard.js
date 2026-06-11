@@ -79,8 +79,8 @@ export function isBlockedAddress(address) {
   return true;
 }
 
-function getHostAllowlist() {
-  return (process.env.HL7_FEED_HOST_ALLOWLIST || '')
+function getHostAllowlist(envName = 'HL7_FEED_HOST_ALLOWLIST') {
+  return (process.env[envName] || '')
     .split(',')
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
@@ -92,9 +92,9 @@ function getHostAllowlist() {
  * HARD-REFUSED in production regardless of the env var — the address checks
  * can never be disabled where PHI is live.
  */
-function privateTargetsAllowedForTests() {
+function privateTargetsAllowedForTests(envName = 'HL7_FEED_ALLOW_PRIVATE_TARGETS') {
   return (
-    process.env.HL7_FEED_ALLOW_PRIVATE_TARGETS === 'true'
+    process.env[envName] === 'true'
     && (process.env.NODE_ENV || '').toLowerCase() !== 'production'
   );
 }
@@ -105,31 +105,35 @@ function privateTargetsAllowedForTests() {
  * otherwise. MUST be called both at subscription-create AND immediately
  * before every delivery fetch (DNS-rebinding defence).
  */
-export async function assertSafeFeedUrl(rawUrl) {
+export async function assertSafeOutboundUrl(rawUrl, {
+  label = 'endpoint_url',
+  allowlistEnv = 'HL7_FEED_HOST_ALLOWLIST',
+  allowPrivateEnv = 'HL7_FEED_ALLOW_PRIVATE_TARGETS',
+} = {}) {
   let url;
   try {
     url = new URL(String(rawUrl || '').trim());
   } catch {
-    throw AppError.badRequest('endpoint_url is not a valid URL', 'SSRF_BLOCKED');
+    throw AppError.badRequest(`${label} is not a valid URL`, 'SSRF_BLOCKED');
   }
   if (!['http:', 'https:'].includes(url.protocol)) {
-    throw AppError.badRequest('endpoint_url must be an http(s) URL', 'SSRF_BLOCKED');
+    throw AppError.badRequest(`${label} must be an http(s) URL`, 'SSRF_BLOCKED');
   }
   if (url.username || url.password) {
-    throw AppError.badRequest('endpoint_url must not embed credentials', 'SSRF_BLOCKED');
+    throw AppError.badRequest(`${label} must not embed credentials`, 'SSRF_BLOCKED');
   }
 
   const hostname = url.hostname.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
 
-  const allowlist = getHostAllowlist();
+  const allowlist = getHostAllowlist(allowlistEnv);
   if (allowlist.length > 0 && !allowlist.includes(hostname.toLowerCase())) {
     throw AppError.badRequest(
-      'endpoint_url host is not on the approved feed-host allowlist (HL7_FEED_HOST_ALLOWLIST)',
+      `${label} host is not on the approved host allowlist (${allowlistEnv})`,
       'SSRF_BLOCKED',
     );
   }
 
-  if (privateTargetsAllowedForTests()) {
+  if (privateTargetsAllowedForTests(allowPrivateEnv)) {
     return url; // test-only; impossible in production (see above)
   }
 
@@ -137,7 +141,7 @@ export async function assertSafeFeedUrl(rawUrl) {
   if (net.isIP(hostname)) {
     if (isBlockedAddress(hostname)) {
       throw AppError.badRequest(
-        'endpoint_url targets a private/loopback/link-local address',
+        `${label} targets a private/loopback/link-local address`,
         'SSRF_BLOCKED',
       );
     }
@@ -151,17 +155,21 @@ export async function assertSafeFeedUrl(rawUrl) {
   } catch {
     // Can't resolve ⇒ can't prove it's safe ⇒ deny (fail closed).
     throw AppError.badRequest(
-      'endpoint_url hostname did not resolve to a routable public address',
+      `${label} hostname did not resolve to a routable public address`,
       'SSRF_BLOCKED',
     );
   }
   if (!records?.length || records.some((r) => isBlockedAddress(r.address))) {
     throw AppError.badRequest(
-      'endpoint_url resolves to a private/loopback/link-local address',
+      `${label} resolves to a private/loopback/link-local address`,
       'SSRF_BLOCKED',
     );
   }
   return url;
 }
 
-export default { isBlockedAddress, assertSafeFeedUrl };
+export function assertSafeFeedUrl(rawUrl) {
+  return assertSafeOutboundUrl(rawUrl);
+}
+
+export default { isBlockedAddress, assertSafeFeedUrl, assertSafeOutboundUrl };

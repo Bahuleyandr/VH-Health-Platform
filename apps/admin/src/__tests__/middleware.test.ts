@@ -61,15 +61,20 @@ const mockJwtVerify = jwtVerify as jest.MockedFunction<typeof jwtVerify>;
 // ---------------------------------------------------------------------------
 
 /** Build a fake NextRequest with the given pathname and optional auth_token cookie */
-function makeRequest(pathname: string, authToken?: string): NextRequest {
+function makeRequest(
+  pathname: string,
+  authToken?: string,
+  options: { origin?: string; headers?: HeadersInit } = {},
+): NextRequest {
+  const origin = options.origin || "http://localhost:3001";
   return {
     nextUrl: {
       pathname,
     },
-    url: `http://localhost:3001${pathname}`,
+    url: `${origin}${pathname}`,
     // Plain object is a valid HeadersInit for `new Headers(request.headers)`
     // in the middleware's CSP/nonce forwarding.
-    headers: {},
+    headers: new Headers(options.headers),
     cookies: {
       get: jest.fn((name: string) =>
         name === "auth_token" && authToken ? { value: authToken } : undefined,
@@ -102,6 +107,10 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete process.env.ADMIN_CANONICAL_ORIGIN;
+  delete process.env.ADMIN_IP_ALLOWLIST;
+  delete process.env.NEXT_PUBLIC_ALLOWED_ORIGIN;
+  (process.env as Record<string, string>).NODE_ENV = "test";
   // By default, jwtVerify should NOT be called (no secretKey)
   mockJwtVerify.mockReset();
 });
@@ -148,6 +157,23 @@ describe("middleware — dashboard protection (no token)", () => {
     await middleware(req);
 
     expect(mockRedirect).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses configured admin origin for production login redirects", async () => {
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    process.env.NEXT_PUBLIC_ALLOWED_ORIGIN = "https://admin.vhhealth.app";
+    process.env.ADMIN_IP_ALLOWLIST = "203.0.113.0/24";
+    const req = makeRequest("/dashboard", undefined, {
+      origin: "https://attacker.example",
+      headers: { "x-forwarded-for": "203.0.113.10" },
+    });
+
+    await middleware(req);
+
+    expect(mockRedirect).toHaveBeenCalledTimes(1);
+    const redirectUrl = mockRedirect.mock.calls[0][0] as URL;
+    expect(redirectUrl.origin).toBe("https://admin.vhhealth.app");
+    expect(redirectUrl.toString()).not.toContain("attacker.example");
   });
 });
 
@@ -532,6 +558,34 @@ describe("middleware — non-restricted dashboard paths", () => {
 // Proxy route protection
 // ---------------------------------------------------------------------------
 describe("middleware — /api/proxy protection", () => {
+  it("fails closed in production when ADMIN_IP_ALLOWLIST is missing", async () => {
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    const req = makeRequest("/api/proxy/some-endpoint");
+
+    await middleware(req);
+
+    expect(mockJson).toHaveBeenCalledTimes(1);
+    expect(mockJson).toHaveBeenCalledWith(
+      { message: "Forbidden: IP not allowed" },
+      { status: 403 },
+    );
+  });
+
+  it("accepts production clients inside an ADMIN_IP_ALLOWLIST CIDR", async () => {
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    process.env.ADMIN_IP_ALLOWLIST = "203.0.113.0/24";
+    const req = makeRequest("/api/proxy/some-endpoint", undefined, {
+      headers: { "x-forwarded-for": "203.0.113.10" },
+    });
+
+    await middleware(req);
+
+    expect(mockJson).toHaveBeenCalledWith(
+      { message: "Authentication required" },
+      { status: 401 },
+    );
+  });
+
   it("returns 401 JSON when no token is present on proxy route", async () => {
     const req = makeRequest("/api/proxy/some-endpoint");
     await middleware(req);

@@ -145,8 +145,17 @@ export const buildUserTargetingQuery = (criteria) => {
   }
   
   if (criteria.has_appointments_in_last_days) {
+    const rawDays = String(criteria.has_appointments_in_last_days).trim();
+    if (!/^\d+$/.test(rawDays)) {
+      throw new Error('Invalid has_appointments_in_last_days criteria');
+    }
+    const days = Number.parseInt(rawDays, 10);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      throw new Error('Invalid has_appointments_in_last_days criteria');
+    }
     joins.push('LEFT JOIN appointments a ON (u.id = a.patient_id OR u.id = a.doctor_id)');
-    conditions.push(`a.appointment_date >= CURRENT_DATE - INTERVAL '${criteria.has_appointments_in_last_days} days'`);
+    conditions.push(`a.appointment_date >= CURRENT_DATE - ($${params.length + 1}::int * INTERVAL '1 day')`);
+    params.push(days);
   }
   
   if (joins.length > 0) {

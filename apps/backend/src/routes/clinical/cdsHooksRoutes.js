@@ -31,6 +31,10 @@ import {
   buildEncounterDischargeAlerts,
   buildEncounterStartAlerts,
 } from '../../services/cds/encounterCdsHelper.js';
+import {
+  authorizePatientAccessRequest,
+  patientAccessErrorPayload,
+} from '../../services/security/accessDecisionService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -39,6 +43,26 @@ const router = express.Router();
 router.get('/', (_req, res) => {
   return res.json(buildDiscoveryResponse());
 });
+
+async function authorizeCdsPatientContext(req, res, patientUid) {
+  if (!patientUid) return true;
+
+  const decision = await authorizePatientAccessRequest(req, {
+    recordType: 'CDS_HOOKS',
+    patient: { uid: patientUid },
+    resourceContext: {
+      resourceType: 'cds_hooks_patient_context',
+      resourceId: patientUid,
+    },
+    requireResolvedPatient: true,
+  });
+
+  if (!decision.allowed) {
+    res.status(403).json(patientAccessErrorPayload(decision));
+    return false;
+  }
+  return true;
+}
 
 router.post('/:id', async (req, res, next) => {
   try {
@@ -55,6 +79,7 @@ router.post('/:id', async (req, res, next) => {
     const context = body.context || {};
     const patientUid = extractPatientUid(context);
     const encounterId = extractEncounterId(context);
+    if (!(await authorizeCdsPatientContext(req, res, patientUid))) return;
 
     let alerts = [];
     switch (service.hook) {

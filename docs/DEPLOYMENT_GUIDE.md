@@ -8,6 +8,8 @@
 > Companion docs:
 >
 > - [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) — procurement spec
+> - [`india-deployment-readiness.md`](india-deployment-readiness.md) — India
+>   compliance, ABDM/DPDP/CERT-In, and go-live evidence gates
 > - [`../apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) — DR scenarios
 > - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — data cutover from legacy deployment
 > - [`../apps/backend/docs/RUNBOOKS/`](../apps/backend/docs/RUNBOOKS/) — day-2 runbooks
@@ -503,6 +505,12 @@ intervention only on compromise (see `cert-rotation.md`).
 ---
 
 ## 10. Compliance posture
+
+For Indian hospital production go-live, complete
+[`india-deployment-readiness.md`](india-deployment-readiness.md) in addition to
+the infrastructure checks below. That runbook is the acceptance gate for
+ABDM/ABHA, DPDP Act/Rules, CERT-In 180-day logs and six-hour incident
+reporting, clinical UAT, backup/DR, and medical-device boundary decisions.
 
 ### In place
 

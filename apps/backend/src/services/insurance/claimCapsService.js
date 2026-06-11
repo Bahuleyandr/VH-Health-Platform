@@ -53,17 +53,24 @@ function parseClaimId(claimId) {
  *
  * @returns {{ id: number, side: 'legacy'|'tpa', whereByParent: object }}
  */
-async function resolveClaimTarget(claimId) {
+async function resolveClaimTarget(claimId, tenantId = null) {
   const id = parseClaimId(claimId);
+  const where = tenantId ? { id, tenant_id: String(tenantId) } : { id };
   const [tpa, legacy] = await Promise.all([
-    prisma.tpa_claims.findUnique({ where: { id }, select: { id: true } }),
-    prisma.insurance_claims.findUnique({ where: { id }, select: { id: true } }),
+    prisma.tpa_claims.findFirst({
+      where,
+      select: { id: true, tenant_id: true, patient_uid: true },
+    }),
+    prisma.insurance_claims.findFirst({
+      where,
+      select: { id: true, tenant_id: true, patient_uid: true },
+    }),
   ]);
   if (tpa) {
-    return { id, side: 'tpa', whereByParent: { tpa_claim_id: id } };
+    return { id, side: 'tpa', tenant_id: tpa.tenant_id, patient_uid: tpa.patient_uid, whereByParent: { tpa_claim_id: id } };
   }
   if (legacy) {
-    return { id, side: 'legacy', whereByParent: { claim_id: id } };
+    return { id, side: 'legacy', tenant_id: legacy.tenant_id, patient_uid: legacy.patient_uid, whereByParent: { claim_id: id } };
   }
   throw AppError.notFound(`Claim ${id} not found`);
 }
@@ -81,7 +88,7 @@ async function resolveClaimTarget(claimId) {
  * @param {Array<{category, max_amount, currency?, source?, notes?}>} args.caps
  * @param {string} args.actorUid
  */
-export async function setClaimCaps({ claimId, caps, actorUid }) {
+export async function setClaimCaps({ tenantId, claimId, caps, actorUid }) {
   if (!actorUid) throw AppError.badRequest('actorUid is required');
   if (!Array.isArray(caps) || caps.length === 0) {
     throw AppError.badRequest('caps must be a non-empty array');
@@ -98,7 +105,7 @@ export async function setClaimCaps({ claimId, caps, actorUid }) {
     }
   }
 
-  const target = await resolveClaimTarget(claimId);
+  const target = await resolveClaimTarget(claimId, tenantId);
 
   const result = await prisma.$transaction(async (tx) => {
     const rows = [];
@@ -139,6 +146,7 @@ export async function setClaimCaps({ claimId, caps, actorUid }) {
         metadata: {
           claim_id: target.id,
           claim_side: target.side,
+          tenant_id: target.tenant_id,
           cap_count: rows.length,
           categories: rows.map((r) => r.category),
         },
@@ -152,20 +160,20 @@ export async function setClaimCaps({ claimId, caps, actorUid }) {
   return result;
 }
 
-export async function getClaimCaps(claimId) {
-  const target = await resolveClaimTarget(claimId);
+export async function getClaimCaps(claimId, { tenantId } = {}) {
+  const target = await resolveClaimTarget(claimId, tenantId);
   return prisma.insurance_claim_caps.findMany({
     where: target.whereByParent,
     orderBy: { category: 'asc' },
   });
 }
 
-export async function deleteCap({ claimId, category, actorUid }) {
+export async function deleteCap({ tenantId, claimId, category, actorUid }) {
   if (!VALID_CATEGORIES.has(category)) {
     throw AppError.badRequest(`Invalid category: ${category}`);
   }
   if (!actorUid) throw AppError.badRequest('actorUid is required');
-  const target = await resolveClaimTarget(claimId);
+  const target = await resolveClaimTarget(claimId, tenantId);
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.insurance_claim_caps.findFirst({
@@ -182,6 +190,7 @@ export async function deleteCap({ claimId, category, actorUid }) {
         metadata: {
           claim_id: target.id,
           claim_side: target.side,
+          tenant_id: target.tenant_id,
           category,
           prior_max_amount: existing.max_amount,
         },
@@ -206,9 +215,9 @@ export async function deleteCap({ claimId, category, actorUid }) {
  *   lines: Array<{category, amount, capped_amount, cap_breached, cap}>
  * }}
  */
-export async function applyCapsToInvoiceLines(claimId, lines) {
+export async function applyCapsToInvoiceLines(claimId, lines, { tenantId } = {}) {
   if (!Array.isArray(lines)) throw AppError.badRequest('lines must be an array');
-  const target = await resolveClaimTarget(claimId);
+  const target = await resolveClaimTarget(claimId, tenantId);
   const caps = await prisma.insurance_claim_caps.findMany({
     where: target.whereByParent,
   });

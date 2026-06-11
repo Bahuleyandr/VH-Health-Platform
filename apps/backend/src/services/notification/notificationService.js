@@ -70,6 +70,10 @@ function notificationTenant(row, user) {
   return normalizeTenant(row?.tenant_id || user?.tenantId || user?.tenant_id);
 }
 
+function actorTenant(user) {
+  return normalizeTenant(user?.tenantId || user?.tenant_id);
+}
+
 function safeMetadata(metadata = {}) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return {};
@@ -235,6 +239,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       const { limit = 50, offset = 0 } = options;
       const normalizedPhone = normalizePhone(phone);
       const userRole = user?.role?.toUpperCase();
+      const tenantId = actorTenant(user);
 
       // Check access for patients
       if (userRole === 'PATIENT') {
@@ -250,15 +255,15 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       const result = await query(
         `SELECT id, phone, title, body AS message, type, priority, is_read, data, created_at
          FROM notifications
-         WHERE phone = $1
+         WHERE phone = $1 AND tenant_id = $4::uuid
          ORDER BY created_at DESC
          LIMIT $2 OFFSET $3`,
-        [normalizedPhone, safeLimit, safeOffset]
+        [normalizedPhone, safeLimit, safeOffset, tenantId]
       );
 
       const countResult = await query(
-        'SELECT COUNT(*) FROM notifications WHERE phone = $1',
-        [normalizedPhone]
+        'SELECT COUNT(*) FROM notifications WHERE phone = $1 AND tenant_id = $2::uuid',
+        [normalizedPhone, tenantId]
       );
 
       return {
@@ -338,12 +343,14 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   async getNotificationsByUserId(userId, filters, user) {
     try {
       const userRole = user?.role?.toUpperCase();
+      let tenantId = actorTenant(user);
 
       if (!isAdminNotificationRole(userRole)) {
         const userResult = await resolveNotificationUser(user);
         if (userResult.id !== parseInt(userId, 10)) {
           throw new Error('Access denied: Cannot view other user notifications');
         }
+        tenantId = userResult.tenant_id;
       }
 
       let sql = `
@@ -351,9 +358,9 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
                n.created_at, n.read_at, n.scheduled_for, n.data,
                n.phone
         FROM notifications n
-        WHERE n.user_id = $1
+        WHERE n.user_id = $1 AND n.tenant_id = $2::uuid
       `;
-      const params = [userId];
+      const params = [userId, tenantId];
 
       // Apply filters
       if (filters.unread_only === 'true') {
@@ -378,8 +385,8 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Get unread count
       const unreadResult = await query(
-        'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND is_read = false',
-        [userId]
+        'SELECT COUNT(*) as unread_count FROM notifications WHERE user_id = $1 AND tenant_id = $2::uuid AND is_read = false',
+        [userId, tenantId]
       );
 
       return {
@@ -791,18 +798,20 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
     try {
       const normalizedPhone = normalizePhone(phone);
       const userRole = normalizeRole(user?.role);
+      let tenantId = actorTenant(user);
 
       if (!isAdminNotificationRole(userRole)) {
         const current = await resolveNotificationUser(user);
         if (!current.phone_normalized || current.phone_normalized !== normalizedPhone) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
+        tenantId = current.tenant_id;
       }
 
       const result = await query(`
         UPDATE notifications SET is_read = TRUE, read_at = NOW() 
-        WHERE phone = $1 AND is_read = FALSE
-      `, [normalizedPhone]);
+        WHERE phone = $1 AND tenant_id = $2::uuid AND is_read = FALSE
+      `, [normalizedPhone, tenantId]);
 
       return {
         updated_count: result.rowCount || 0,
@@ -864,20 +873,22 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   async markAllAsReadByUserId(userId, user) {
     try {
       const userRole = normalizeRole(user?.role);
+      let tenantId = actorTenant(user);
 
       if (!isAdminNotificationRole(userRole)) {
         const current = await resolveNotificationUser(user);
         if (current.id !== parseInt(userId, 10)) {
           throw new Error('Access denied: Cannot modify other user notifications');
         }
+        tenantId = current.tenant_id;
       }
 
       const result = await query(`
         UPDATE notifications SET 
           is_read = true,
           read_at = NOW()
-        WHERE user_id = $1 AND is_read = false
-      `, [userId]);
+        WHERE user_id = $1 AND tenant_id = $2::uuid AND is_read = false
+      `, [userId, tenantId]);
 
       return {
         updated_count: result.rowCount || 0,
@@ -894,10 +905,11 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async createNotification(data, user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
+      const tenantId = actorTenant(user);
 
       // Only medical staff and admin can create notifications
-      if (!['DOCTOR', 'NURSING_STAFF', 'ADMIN'].includes(userRole)) {
+      if (!['DOCTOR', 'NURSING_STAFF', 'ADMIN', 'SUPER_ADMIN'].includes(userRole)) {
         throw new Error('Access denied: Medical staff privileges required');
       }
 
@@ -909,7 +921,10 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       } = data;
 
       // Verify recipient user exists
-      const userCheck = await query('SELECT id, uid, name, phone, role, tenant_id FROM users WHERE id = $1', [user_id]);
+      const userCheck = await query(
+        'SELECT id, uid, name, phone, role, tenant_id FROM users WHERE id = $1 AND tenant_id = $2::uuid',
+        [user_id, tenantId],
+      );
       if (userCheck.length === 0) {
         throw new Error('Recipient user not found');
       }
@@ -921,7 +936,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         ) VALUES ($1::uuid, $2::uuid, $3::int, $4, $5, $6, $7, $8, $9, $10, false, NOW(), NOW())
         RETURNING id, uid, user_id, phone, title, body AS message, type, priority, data, is_read, created_at
       `, [
-        normalizeTenant(userCheck[0].tenant_id || user?.tenantId || user?.tenant_id),
+        normalizeTenant(userCheck[0].tenant_id),
         userCheck[0].uid,
         userCheck[0].id,
         normalizePhone(userCheck[0].phone || '') || 'unknown',
@@ -948,10 +963,11 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async sendBulkNotifications(data, user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
+      const tenantId = actorTenant(user);
 
       // Only admin can send bulk notifications
-      if (userRole !== 'ADMIN') {
+      if (!isAdminNotificationRole(userRole)) {
         throw new Error('Access denied: Admin privileges required for bulk notifications');
       }
 
@@ -967,8 +983,8 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Verify all users exist
       const userCheck = await query(
-        'SELECT id, uid, name, phone, tenant_id FROM users WHERE id = ANY($1)',
-        [user_ids]
+        'SELECT id, uid, name, phone, tenant_id FROM users WHERE id = ANY($1::int[]) AND tenant_id = $2::uuid',
+        [user_ids, tenantId]
       );
 
       if (userCheck.length !== user_ids.length) {
@@ -979,7 +995,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Create notifications for all users
       const notifications = userCheck.map(recipient => [
-        normalizeTenant(recipient.tenant_id || user?.tenantId || user?.tenant_id),
+        normalizeTenant(recipient.tenant_id),
         recipient.uid,
         recipient.id,
         normalizePhone(recipient.phone || '') || 'unknown',
@@ -1016,9 +1032,10 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
   /**
    * Get notification statistics
    */
-  async getNotificationStats(days = 7) {
+  async getNotificationStats(days = 7, user = {}) {
     try {
-      const safeDays = parseInt(days) || 7;
+      const safeDays = Math.max(1, Math.min(parseInt(days, 10) || 7, 90));
+      const tenantId = actorTenant(user);
 
       const [totalStats, typeStats, priorityStats, recentActivity] = await Promise.all([
         // Total notification statistics
@@ -1030,22 +1047,25 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
             COUNT(CASE WHEN created_at >= CURRENT_DATE - make_interval(days => $1) THEN 1 END) as recent_notifications,
             ROUND(AVG(CASE WHEN is_read = true THEN EXTRACT(EPOCH FROM (read_at - created_at))/3600 END), 2) as avg_read_time_hours
           FROM notifications
-        `, [safeDays]),
+          WHERE tenant_id = $2::uuid
+        `, [safeDays, tenantId]),
 
         // Type breakdown
         query(`
           SELECT type, COUNT(*) as count
           FROM notifications
-          WHERE created_at >= CURRENT_DATE - make_interval(days => $1)
+          WHERE tenant_id = $2::uuid
+            AND created_at >= CURRENT_DATE - make_interval(days => $1)
           GROUP BY type
           ORDER BY count DESC
-        `, [safeDays]),
+        `, [safeDays, tenantId]),
 
         // Priority breakdown
         query(`
           SELECT priority, COUNT(*) as count
           FROM notifications
-          WHERE created_at >= CURRENT_DATE - make_interval(days => $1)
+          WHERE tenant_id = $2::uuid
+            AND created_at >= CURRENT_DATE - make_interval(days => $1)
           GROUP BY priority
           ORDER BY
             CASE priority
@@ -1053,17 +1073,18 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
               WHEN 'MEDIUM' THEN 2
               WHEN 'LOW' THEN 3
             END
-        `, [safeDays]),
+        `, [safeDays, tenantId]),
 
         // Recent activity (daily counts)
         query(`
           SELECT DATE(created_at) as date, COUNT(*) as count,
                  COUNT(CASE WHEN is_read = true THEN 1 END) as read_count
           FROM notifications
-          WHERE created_at >= CURRENT_DATE - make_interval(days => $1)
+          WHERE tenant_id = $2::uuid
+            AND created_at >= CURRENT_DATE - make_interval(days => $1)
           GROUP BY DATE(created_at)
           ORDER BY date DESC
-        `, [safeDays])
+        `, [safeDays, tenantId])
       ]);
 
       return {
@@ -1091,9 +1112,10 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async getScheduledPending(user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
+      const tenantId = actorTenant(user);
 
-      if (!['ADMIN', 'DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
+      if (!['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
         throw new Error('Access denied: Medical staff privileges required');
       }
 
@@ -1103,10 +1125,13 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
                u.name as recipient_name, u.phone, u.email
         FROM notifications n
         JOIN users u ON n.user_id = u.id
-        WHERE n.scheduled_for <= NOW() AND n.is_read = false AND n.scheduled_for IS NOT NULL
+        WHERE n.tenant_id = $1::uuid
+          AND n.scheduled_for <= NOW()
+          AND n.is_read = false
+          AND n.scheduled_for IS NOT NULL
         ORDER BY n.scheduled_for ASC
         LIMIT 100
-      `);
+      `, [tenantId]);
 
       return {
         notifications: result.map(n => formatNotificationResponse(n, true)),
@@ -1123,9 +1148,10 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async getEmergencyActive(user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
+      const tenantId = actorTenant(user);
 
-      if (!['ADMIN', 'DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
+      if (!['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'].includes(userRole)) {
         throw new Error('Access denied: Medical staff privileges required');
       }
 
@@ -1135,9 +1161,10 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         FROM notifications n
         JOIN users u ON n.user_id = u.id
         WHERE n.type = 'EMERGENCY' AND n.priority = 'HIGH'
+          AND n.tenant_id = $1::uuid
           AND n.created_at >= CURRENT_DATE - INTERVAL '24 hours'
         ORDER BY n.created_at DESC
-      `);
+      `, [tenantId]);
 
       return {
         emergency_notifications: result.map(n => formatNotificationResponse(n, true)),
@@ -1155,16 +1182,17 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async deleteNotification(notificationId, user) {
     try {
-      const userRole = user?.role?.toUpperCase();
+      const userRole = normalizeRole(user?.role);
+      const tenantId = actorTenant(user);
 
       // Only admin can delete notifications
-      if (userRole !== 'ADMIN') {
+      if (!isAdminNotificationRole(userRole)) {
         throw new Error('Access denied: Admin privileges required');
       }
 
       const result = await query(
-        'DELETE FROM notifications WHERE id = $1 RETURNING id, title, user_id',
-        [notificationId]
+        'DELETE FROM notifications WHERE id = $1 AND tenant_id = $2::uuid RETURNING id, title, user_id',
+        [notificationId, tenantId]
       );
 
       if (result.length === 0) {

@@ -22,6 +22,10 @@ import {
 export const REC_TYPES = Object.freeze(['admission', 'transfer', 'discharge']);
 export const ITEM_DECISIONS = Object.freeze(['continue', 'stop', 'change', 'new', 'hold']);
 
+function tenantIdFromContext(context = {}) {
+  return context.tenantId || context.tenant_id || null;
+}
+
 /**
  * Normalize one medication entry from any source (string or object) into
  * the item shape. Pure — exported for unit tests.
@@ -68,11 +72,15 @@ export function mergeMedicationLists(...lists) {
  * Gather the medication sources a reconciliation starts from.
  * Returns { home, active_prescriptions, inpatient_mar } arrays of items.
  */
-export async function gatherMedicationSources(patientUid) {
+export async function gatherMedicationSources(patientUid, { tenantId = null } = {}) {
+  const patientParams = tenantId ? [patientUid, tenantId] : [patientUid];
+  const userTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
+  const prescriptionTenantFilter = tenantId ? ' AND u.tenant_id = $2::uuid AND ep.tenant_id = $2::uuid' : '';
+  const marTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
   const [patientRows, prescriptionRows, marRows] = await Promise.all([
     prisma.$queryRawUnsafe(
-      `SELECT id, chronic_medications FROM users WHERE uid = $1::uuid LIMIT 1`,
-      patientUid,
+      `SELECT id, chronic_medications FROM users WHERE uid = $1::uuid${userTenantFilter} LIMIT 1`,
+      ...patientParams,
     ),
     prisma.$queryRawUnsafe(
       `SELECT ep.id,
@@ -85,18 +93,20 @@ export async function gatherMedicationSources(patientUid) {
          LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
          JOIN users u ON u.id = ep.patient_id
         WHERE u.uid = $1::uuid
+          ${prescriptionTenantFilter}
           AND LOWER(COALESCE(ep.status, 'active')) IN ('active', 'pharmacy_linked')
           AND (ep.follow_up_date IS NULL OR ep.follow_up_date >= CURRENT_DATE)`,
-      patientUid,
+      ...patientParams,
     ),
     prisma.$queryRawUnsafe(
       `SELECT DISTINCT ON (lower(medication_name)) id, medication_name, dose, route
          FROM medication_administrations
         WHERE patient_uid = $1::uuid
+          ${marTenantFilter}
           AND status IN ('scheduled', 'held')
           AND scheduled_time >= NOW() - INTERVAL '7 days'
         ORDER BY lower(medication_name), scheduled_time DESC`,
-      patientUid,
+      ...patientParams,
     ),
   ]);
 
@@ -122,33 +132,45 @@ const REC_COLUMNS = `
   transfer_context, source_lists, notes, started_by, started_at, completed_by, completed_at,
   metadata, created_at, updated_at`;
 
-export async function getReconciliation(recId, { includeItems = true } = {}) {
+export async function getReconciliation(recId, { includeItems = true, tenantId = null } = {}) {
+  const params = [recId];
+  let tenantFilter = '';
+  if (tenantId) {
+    params.push(tenantId);
+    tenantFilter = ` AND tenant_id = $${params.length}::uuid`;
+  }
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${REC_COLUMNS} FROM medication_reconciliations WHERE id = $1::uuid LIMIT 1`,
-    recId,
+    `SELECT ${REC_COLUMNS} FROM medication_reconciliations WHERE id = $1::uuid${tenantFilter} LIMIT 1`,
+    ...params,
   );
   const rec = rows[0] || null;
   if (!rec || !includeItems) return rec;
+  const itemParams = tenantId ? [recId, tenantId] : [recId];
+  const itemTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
   const items = await prisma.$queryRawUnsafe(
     `SELECT id, medication_name, dose, frequency, route, source, source_ref,
             decision, decision_reason, new_instructions, decided_by, decided_at
        FROM medication_reconciliation_items
-      WHERE reconciliation_id = $1::uuid
+      WHERE reconciliation_id = $1::uuid${itemTenantFilter}
       ORDER BY id`,
-    recId,
+    ...itemParams,
   );
   return { ...rec, items };
 }
 
-export async function listReconciliations(patientUid, { recType = null } = {}) {
+export async function listReconciliations(patientUid, { recType = null, tenantId = null } = {}) {
   const params = [patientUid];
   let where = `patient_uid = $1::uuid`;
+  if (tenantId) {
+    params.push(tenantId);
+    where += ` AND tenant_id = $${params.length}::uuid`;
+  }
   if (recType) {
     if (!REC_TYPES.includes(recType)) {
       throw AppError.badRequest(`rec_type must be one of ${REC_TYPES.join(', ')}`, 'MEDREC_BAD_TYPE');
     }
     params.push(recType);
-    where += ` AND rec_type = $2`;
+    where += ` AND rec_type = $${params.length}`;
   }
   return prisma.$queryRawUnsafe(
     `SELECT ${REC_COLUMNS},
@@ -167,20 +189,23 @@ export async function startReconciliation({
   if (!REC_TYPES.includes(recType)) {
     throw AppError.badRequest(`rec_type must be one of ${REC_TYPES.join(', ')}`, 'MEDREC_BAD_TYPE');
   }
+  const tenantId = tenantIdFromContext(context);
+  const patientParams = tenantId ? [patientUid, tenantId] : [patientUid];
+  const patientTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
   const patients = await prisma.$queryRawUnsafe(
-    `SELECT id, uid, tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
-    patientUid,
+    `SELECT id, uid, tenant_id FROM users WHERE uid = $1::uuid${patientTenantFilter} AND role = 'PATIENT' LIMIT 1`,
+    ...patientParams,
   );
   const patient = patients[0];
   if (!patient) throw AppError.notFound('Patient not found', 'MEDREC_PATIENT_NOT_FOUND');
 
   const open = await prisma.$queryRawUnsafe(
     `SELECT id FROM medication_reconciliations
-      WHERE patient_uid = $1::uuid AND rec_type = $2
-        AND COALESCE(admission_id, 0) = COALESCE($3::int, 0)
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND rec_type = $3
+        AND COALESCE(admission_id, 0) = COALESCE($4::int, 0)
         AND status = 'in_progress'
       LIMIT 1`,
-    patientUid, recType, admissionId,
+    patient.tenant_id, patientUid, recType, admissionId,
   );
   if (open.length > 0) {
     throw AppError.conflict(
@@ -190,7 +215,7 @@ export async function startReconciliation({
     );
   }
 
-  const sources = await gatherMedicationSources(patientUid);
+  const sources = await gatherMedicationSources(patientUid, { tenantId: patient.tenant_id });
   // Item ordering encodes source priority per rec type: admission starts
   // from home meds; transfer/discharge start from what is actually running.
   const orderedLists = recType === 'admission'
@@ -269,7 +294,7 @@ export async function startReconciliation({
     return created;
   });
 
-  return getReconciliation(rec.id);
+  return getReconciliation(rec.id, { tenantId: patient.tenant_id });
 }
 
 export async function decideItem(recId, itemId, {
@@ -284,7 +309,7 @@ export async function decideItem(recId, itemId, {
   if (decision === 'change' && !(newInstructions || '').trim()) {
     throw AppError.badRequest("decision 'change' requires new_instructions", 'MEDREC_INSTRUCTIONS_REQUIRED');
   }
-  const rec = await getReconciliation(recId, { includeItems: false });
+  const rec = await getReconciliation(recId, { includeItems: false, tenantId: tenantIdFromContext(context) });
   if (!rec) throw AppError.notFound('Reconciliation not found', 'MEDREC_NOT_FOUND');
   if (rec.status !== 'in_progress') {
     throw AppError.conflict(`Reconciliation is ${rec.status} — decisions are frozen`, 'MEDREC_NOT_OPEN');
@@ -295,6 +320,7 @@ export async function decideItem(recId, itemId, {
        decision = $3, decision_reason = $4, new_instructions = $5,
        decided_by = $6::uuid, decided_at = NOW(), updated_at = NOW()
      WHERE id = $2::int AND reconciliation_id = $1::uuid
+       AND tenant_id = $7::uuid
      RETURNING id, medication_name, dose, frequency, route, source, decision,
                decision_reason, new_instructions, decided_by, decided_at`,
     recId,
@@ -303,6 +329,7 @@ export async function decideItem(recId, itemId, {
     reason,
     newInstructions,
     context.actorUid || null,
+    rec.tenant_id,
   );
   const item = rows[0];
   if (!item) throw AppError.notFound('Reconciliation item not found', 'MEDREC_ITEM_NOT_FOUND');
@@ -330,7 +357,7 @@ export async function decideItem(recId, itemId, {
 }
 
 export async function completeReconciliation(recId, context = {}) {
-  const rec = await getReconciliation(recId);
+  const rec = await getReconciliation(recId, { tenantId: tenantIdFromContext(context) });
   if (!rec) throw AppError.notFound('Reconciliation not found', 'MEDREC_NOT_FOUND');
   if (rec.status !== 'in_progress') {
     throw AppError.conflict(`Reconciliation is already ${rec.status}`, 'MEDREC_NOT_OPEN');
@@ -364,11 +391,12 @@ export async function completeReconciliation(recId, context = {}) {
       `UPDATE medication_reconciliations SET
          status = 'completed', completed_by = $2::uuid, completed_at = NOW(),
          metadata = metadata || $3::jsonb, updated_at = NOW()
-       WHERE id = $1::uuid AND status = 'in_progress'
+       WHERE id = $1::uuid AND status = 'in_progress' AND tenant_id = $4::uuid
        RETURNING ${REC_COLUMNS}`,
       recId,
       context.actorUid || null,
       JSON.stringify({ decision_counts: counts, take_home_list: takeHomeList }),
+      rec.tenant_id,
     );
     const row = rows[0];
     if (!row) throw AppError.conflict('Reconciliation was completed concurrently', 'MEDREC_NOT_OPEN');

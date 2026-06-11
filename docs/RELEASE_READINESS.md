@@ -103,6 +103,12 @@ $env:VH_STAFF_TEST_PASSWORD='<seeded staff password>'
 Attach `docs/STAFF_ROLE_WORKFLOW_SWEEP.md`, backup evidence, and one restore
 drill record before approving a real production tag.
 
+For Indian hospital production tags, also attach the completed
+[`india-deployment-readiness.md`](india-deployment-readiness.md) evidence packet.
+The release is not PHI-ready until the ABDM/DPDP/CERT-In, clinical UAT,
+backup/DR, privacy policy, and medical-device boundary gates in that runbook are
+green or formally risk-accepted.
+
 Production database readiness is tracked in `docs/PRODUCTION_DB_HARDENING.md`.
 The DB is not considered production-safe until a restore drill and alert checks
 have been completed for the target environment.

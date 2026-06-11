@@ -24,6 +24,7 @@ jobs:
       RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      STAFF_CERT_PIN_HASHES: ${{ vars.STAFF_CERT_PIN_HASHES }}
       STAFF_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAFF_ANDROID_KEYSTORE_BASE64 }}
       STAFF_ANDROID_KEY_ALIAS: ${{ secrets.STAFF_ANDROID_KEY_ALIAS }}
       STAFF_ANDROID_KEY_PASSWORD: ${{ secrets.STAFF_ANDROID_KEY_PASSWORD }}
@@ -65,6 +66,7 @@ jobs:
           for name in \
             VH_BASE_URL \
             VH_API_KEY \
+            STAFF_CERT_PIN_HASHES \
             STAFF_ANDROID_KEYSTORE_BASE64 \
             STAFF_ANDROID_KEY_ALIAS \
             STAFF_ANDROID_KEY_PASSWORD \
@@ -94,6 +96,8 @@ jobs:
           flutter build apk --release
           --dart-define=VH_BASE_URL="${VH_BASE_URL}"
           --dart-define=VH_API_KEY="${VH_API_KEY}"
+          --dart-define=PRODUCTION=true
+          --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
 
       - name: Build release AAB
         working-directory: apps/staff
@@ -101,6 +105,8 @@ jobs:
           flutter build appbundle --release
           --dart-define=VH_BASE_URL="${VH_BASE_URL}"
           --dart-define=VH_API_KEY="${VH_API_KEY}"
+          --dart-define=PRODUCTION=true
+          --dart-define=CERT_PIN_HASHES="${STAFF_CERT_PIN_HASHES}"
 
       - name: Prepare release assets
         run: |

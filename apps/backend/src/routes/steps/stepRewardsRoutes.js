@@ -75,6 +75,7 @@ router.post('/badges/check', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    const tenantId = req.tenantId;
 
     const newBadges = [];
     const now = new Date();
@@ -89,8 +90,10 @@ router.post('/badges/check', async (req, res) => {
           SUM(ss.steps)::bigint AS total_steps,
           RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
         FROM step_sessions ss
+        JOIN users u ON u.uid = ss.user_uid
         LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
         WHERE ss.is_active = false
+          AND u.tenant_id = ${tenantId}::uuid
           AND ss.started_at >= ${monthStart}
           AND (sp.opted_in IS NULL OR sp.opted_in = true)
         GROUP BY ss.user_uid
@@ -98,8 +101,10 @@ router.post('/badges/check', async (req, res) => {
       prisma.$queryRaw`
         SELECT COUNT(DISTINCT ss.user_uid)::int AS total
         FROM step_sessions ss
+        JOIN users u ON u.uid = ss.user_uid
         LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
         WHERE ss.is_active = false
+          AND u.tenant_id = ${tenantId}::uuid
           AND ss.started_at >= ${monthStart}
           AND (sp.opted_in IS NULL OR sp.opted_in = true)
       `,
@@ -216,6 +221,7 @@ router.get('/vouchers', async (req, res) => {
 // ── GET /rewards/leaderboard/monthly — monthly top 20 ─────────────────────────
 router.get('/leaderboard/monthly', async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const monthYear = new Date().toISOString().slice(0, 7); // "2026-03"
     const monthStart = new Date(`${monthYear}-01T00:00:00.000Z`);
 
@@ -227,8 +233,10 @@ router.get('/leaderboard/monthly', async (req, res) => {
         SUM(ss.distance_meters)::float         AS monthly_distance_meters,
         RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
       FROM step_sessions ss
+      JOIN users u ON u.uid = ss.user_uid
       LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
       WHERE ss.is_active = false
+        AND u.tenant_id = ${tenantId}::uuid
         AND ss.started_at >= ${monthStart}
         AND (sp.opted_in IS NULL OR sp.opted_in = true)
       GROUP BY sp.display_name, sp.display_color
@@ -261,6 +269,7 @@ router.get('/my-monthly-rank', async (req, res) => {
   try {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
+    const tenantId = req.tenantId;
 
     const monthYear = new Date().toISOString().slice(0, 7);
     const monthStart = new Date(`${monthYear}-01T00:00:00.000Z`);
@@ -274,8 +283,10 @@ router.get('/my-monthly-rank', async (req, res) => {
           SUM(ss.steps)::int AS total_steps,
           RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
         FROM step_sessions ss
+        JOIN users u ON u.uid = ss.user_uid
         LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
         WHERE ss.is_active = false
+          AND u.tenant_id = ${tenantId}::uuid
           AND ss.started_at >= ${monthStart}
           AND (sp.opted_in IS NULL OR sp.opted_in = true)
         GROUP BY ss.user_uid, sp.display_name
@@ -318,6 +329,9 @@ router.post('/issue-monthly', async (req, res) => {
     }
 
     const monthStart = new Date(`${month_year}-01T00:00:00.000Z`);
+    const monthEnd = new Date(`${month_year}-01T00:00:00.000Z`);
+    monthEnd.setMonth(monthEnd.getMonth() + 1);
+    const tenantId = req.tenantId;
 
     const top3 = await prisma.$queryRaw`
       SELECT
@@ -326,10 +340,12 @@ router.post('/issue-monthly', async (req, res) => {
         SUM(ss.steps)::int AS total_steps,
         RANK() OVER (ORDER BY SUM(ss.steps) DESC) AS rank
       FROM step_sessions ss
+      JOIN users u ON u.uid = ss.user_uid
       LEFT JOIN step_profiles sp ON sp.user_uid = ss.user_uid
       WHERE ss.is_active = false
+        AND u.tenant_id = ${tenantId}::uuid
         AND ss.started_at >= ${monthStart}
-        AND ss.started_at < ${new Date(`${month_year}-01T00:00:00.000Z`).setMonth(new Date(`${month_year}-01`).getMonth() + 1)}
+        AND ss.started_at < ${monthEnd}
         AND (sp.opted_in IS NULL OR sp.opted_in = true)
       GROUP BY ss.user_uid, sp.display_name
       ORDER BY total_steps DESC

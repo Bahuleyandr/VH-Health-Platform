@@ -5,6 +5,7 @@
 
 import express from 'express';
 import logger from '../../logging/logger.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import {
   getPacsConfig,
   linkStudy,
@@ -12,10 +13,20 @@ import {
   buildModalityWorklist,
 } from '../../services/radiology/pacsService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 
 const router = express.Router();
+
+const guardPacsView = patientAccessGuard('RADIOLOGY_PACS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardPacsOrderWrite = patientAccessGuardForResource('RADIOLOGY_PACS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'radiology_order',
+  idParam: 'orderId',
+});
 
 function handleFailure(res, err, context) {
   if (err instanceof AppError) {
@@ -35,7 +46,7 @@ router.get('/config', async (req, res) => {
 });
 
 // Pin a PACS study to a radiology order (Orthanc Lua/webhook or manual).
-router.post('/orders/:orderId/link-study', async (req, res) => {
+router.post('/orders/:orderId/link-study', guardPacsOrderWrite, async (req, res) => {
   try {
     const orderId = Number.parseInt(req.params.orderId, 10);
     if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -44,7 +55,7 @@ router.post('/orders/:orderId/link-study', async (req, res) => {
     const result = await linkStudy(orderId, {
       studyInstanceUid: req.body.study_instance_uid,
       accessionNumber: req.body.accession_number || null,
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: req.tenantId });
     return success(res, result, 'Study linked to order', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'link study');
@@ -52,9 +63,9 @@ router.post('/orders/:orderId/link-study', async (req, res) => {
 });
 
 // Linked studies for a patient (with OHIF deep links).
-router.get('/studies/patient/:patientUid', async (req, res) => {
+router.get('/studies/patient/:patientUid', guardPacsView, async (req, res) => {
   try {
-    const studies = await listPatientStudies(req.params.patientUid);
+    const studies = await listPatientStudies(req.params.patientUid, { tenantId: req.tenantId });
     return success(res, { studies, count: studies.length }, 'Patient imaging studies');
   } catch (err) {
     return handleFailure(res, err, 'list patient studies');
@@ -65,6 +76,7 @@ router.get('/studies/patient/:patientUid', async (req, res) => {
 router.get('/worklist', async (req, res) => {
   try {
     const items = await buildModalityWorklist({
+      tenantId: req.tenantId,
       modality: req.query.modality || null,
       limit: req.query.limit,
     });

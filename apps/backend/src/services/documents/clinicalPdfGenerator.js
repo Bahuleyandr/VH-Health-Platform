@@ -24,13 +24,37 @@ import logger from '../../logging/logger.js';
  *   2026-05-10-surgical-day-care-discharge-patient-pdf-500
  *
  * @param {number|string} admissionId
+ * @param {{tenantId?: string|null}} options
  * @returns {Promise<Buffer>}
  */
-export async function generateDischargeSummaryPDF(admissionId) {
-  logger.info(`Generating discharge summary PDF for admission ${admissionId}`);
+export async function generateDischargeSummaryPDF(admissionId, { tenantId = null } = {}) {
+  const id = Number.parseInt(admissionId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    const err = new Error('admissionId must be a positive integer');
+    err.statusCode = 400;
+    err.code = 'INVALID_ADMISSION_ID';
+    throw err;
+  }
+  logger.info(`Generating discharge summary PDF for admission ${id}`);
+
+  const admissionRows = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM admissions
+      WHERE id = $1::int
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    id,
+    tenantId,
+  );
+  if (!admissionRows.length) {
+    const err = new Error('Admission not found');
+    err.statusCode = 404;
+    err.code = 'ADMISSION_NOT_FOUND';
+    throw err;
+  }
 
   const { default: dischargeSummaryGenerator } = await import('../emr/dischargeSummaryGenerator.js');
-  const ctx = await dischargeSummaryGenerator.collectClinicalData(admissionId);
+  const ctx = await dischargeSummaryGenerator.collectClinicalData(id);
 
   const patient = ctx?.patient || {};
   const admission = ctx?.admission || {};
@@ -209,15 +233,18 @@ export async function generateDischargeSummaryPDF(admissionId) {
 // content is identical because both reads see the same signed
 // snapshot, and R2 garbage-collection sweeps abandoned objects.
 
-export async function getOrGenerateDischargePdfUrl(admissionId) {
+export async function getOrGenerateDischargePdfUrl(admissionId, { tenantId = null } = {}) {
   const id = Number(admissionId);
   if (!Number.isInteger(id) || id <= 0) {
     throw new Error('admissionId must be a positive integer');
   }
   const adRows = await prisma.$queryRawUnsafe(
     `SELECT id, summary_signed_at, discharge_pdf_key
-       FROM admissions WHERE id = $1`,
+       FROM admissions
+      WHERE id = $1::int
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
     id,
+    tenantId,
   );
   if (!adRows.length) {
     const e = new Error('Admission not found'); e.statusCode = 404; throw e;
@@ -241,12 +268,15 @@ export async function getOrGenerateDischargePdfUrl(admissionId) {
     }
   }
 
-  const buffer = await generateDischargeSummaryPDF(id);
+  const buffer = await generateDischargeSummaryPDF(id, { tenantId });
   const key = `discharge-summaries/${id}/${Date.now()}-discharge-summary.pdf`;
   await uploadFileToR2(buffer, key, 'application/pdf');
   await prisma.$executeRawUnsafe(
-    `UPDATE admissions SET discharge_pdf_key = $1, updated_at = NOW() WHERE id = $2`,
-    key, id,
+    `UPDATE admissions
+        SET discharge_pdf_key = $1, updated_at = NOW()
+      WHERE id = $2::int
+        AND ($3::uuid IS NULL OR tenant_id = $3::uuid)`,
+    key, id, tenantId,
   );
   const url = await getSignedFileUrl(key, 3600);
   return { key, url, generated: true };
@@ -278,9 +308,10 @@ export async function getOrGenerateDischargePdfUrl(admissionId) {
  * 2026-05-21-lab-walk-in-patient-2747d82d (and CBC/lipid siblings).
  *
  * @param {number|string} investigationId - Investigation ID
+ * @param {{tenantId?: string|null}} options
  * @returns {Promise<Buffer>} PDF buffer
  */
-export async function generateLabReportPDF(investigationId) {
+export async function generateLabReportPDF(investigationId, { tenantId = null } = {}) {
   const id = Number.parseInt(investigationId, 10);
   if (!Number.isInteger(id) || id <= 0) {
     const err = new Error('investigationId must be a positive integer');
@@ -309,8 +340,11 @@ export async function generateLabReportPDF(investigationId) {
                  pi.created_at DESC
         LIMIT 1
      ) pid ON true
-     WHERE i.id = $1::int LIMIT 1`,
-    id
+     WHERE i.id = $1::int
+       AND ($2::uuid IS NULL OR i.tenant_id = $2::uuid)
+     LIMIT 1`,
+    id,
+    tenantId
   );
 
   if (!invRows.length) {
@@ -332,10 +366,12 @@ export async function generateLabReportPDF(investigationId) {
             abnormal_flag, status, signed_off_at, signed_off_by
        FROM lab_results
       WHERE investigation_id = $1::int
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
         AND signed_off_at IS NOT NULL
         AND status IN ('final', 'corrected')
       ORDER BY hl7_segment_index NULLS LAST, id`,
-    id
+    id,
+    tenantId
   );
 
   const signoffRows = await prisma.$queryRawUnsafe(
@@ -346,11 +382,13 @@ export async function generateLabReportPDF(investigationId) {
         SELECT 1
           FROM lab_results lr
          WHERE lr.investigation_id = $1::int
+           AND ($2::uuid IS NULL OR lr.tenant_id = $2::uuid)
            AND lr.id = ANY(s.result_ids)
       )
       ORDER BY s.signed_at DESC
       LIMIT 1`,
-    id
+    id,
+    tenantId
   );
   const latestResultSignoffAt = labResultRows
     .map((r) => r.signed_off_at)

@@ -77,7 +77,10 @@ router.post('/exams/:id/refractions', async (req, res) => {
 
 router.get('/patients/:uid/history', async (req, res) => {
   try {
-    const history = await getPatientHistory(req.params.uid, { limit: req.query.limit });
+    const history = await getPatientHistory(req.params.uid, {
+      tenantId: tenantOf(req),
+      limit: req.query.limit,
+    });
     return success(res, history, 'Ophthalmic history');
   } catch (err) {
     return handleFailure(res, err, 'get ophthalmic history');

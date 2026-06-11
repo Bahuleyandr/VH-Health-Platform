@@ -21,7 +21,100 @@ import { istDateString } from '../../utils/dateUtils.js';
 
 export { istDateString };
 
+const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
+const tenantOr = (tenantId) => tenantId || TENANT_FALLBACK;
+
 // ── Pregnancy episode ────────────────────────────────────────────────
+
+async function assertPatientInTenant(tenantId, patientUid) {
+  if (!patientUid) throw AppError.badRequest('patient_uid is required');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantOr(tenantId),
+    String(patientUid),
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
+  return rows[0];
+}
+
+async function assertPregnancyInTenant(tenantId, pregnancyId) {
+  const id = Number.parseInt(pregnancyId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('pregnancy_id must be a positive integer');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, lmp_date, edd_date, gravida, parity,
+            high_risk, high_risk_reasons, status, created_at
+       FROM maternity_pregnancies
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    tenantOr(tenantId),
+    id,
+  );
+  if (!rows.length) throw AppError.notFound(`Pregnancy ${id} not found`);
+  return rows[0];
+}
+
+async function assertAdmissionInTenant(tenantId, admissionId, patientUid = null) {
+  const id = Number.parseInt(admissionId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('admission_id must be a positive integer');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid
+       FROM admissions
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    tenantOr(tenantId),
+    id,
+  );
+  if (!rows.length) throw AppError.notFound('Admission not found');
+  if (patientUid && String(rows[0].patient_uid) !== String(patientUid)) {
+    throw AppError.forbidden('Admission belongs to a different patient');
+  }
+  return rows[0];
+}
+
+async function assertDeliveryInTenant(tenantId, deliveryId) {
+  const id = Number.parseInt(deliveryId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('delivery_id must be a positive integer');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT d.id, d.pregnancy_id, p.patient_uid
+       FROM maternity_deliveries d
+       JOIN maternity_pregnancies p
+         ON p.id = d.pregnancy_id
+        AND p.tenant_id = d.tenant_id
+      WHERE d.tenant_id = $1::uuid AND d.id = $2::int`,
+    tenantOr(tenantId),
+    id,
+  );
+  if (!rows.length) throw AppError.notFound('Delivery not found');
+  return rows[0];
+}
+
+async function assertNewbornInTenant(tenantId, newbornId, deliveryId = null) {
+  const id = Number.parseInt(newbornId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('newborn_id must be a positive integer');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, delivery_id, newborn_patient_uid
+       FROM maternity_newborns
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    tenantOr(tenantId),
+    id,
+  );
+  if (!rows.length) throw AppError.notFound('Newborn not found');
+  if (deliveryId && Number(rows[0].delivery_id) !== Number(deliveryId)) {
+    throw AppError.forbidden('Newborn belongs to a different delivery');
+  }
+  return rows[0];
+}
 
 function computeEdd(lmpDate) {
   if (!lmpDate) return null;
@@ -159,6 +252,8 @@ export async function createPregnancy({
   high_risk = false, high_risk_reasons, notes, created_by,
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = tenantOr(tenantId);
+  await assertPatientInTenant(tid, patient_uid);
 
   const eddFinal = edd_date || computeEdd(lmp_date);
 
@@ -186,16 +281,17 @@ export async function createPregnancy({
     blood_group || null, rh_factor || null,
     booking_status, booking_visit_date || null,
     !!high_risk, high_risk_reasons || null, notes || null,
-    created_by ? String(created_by) : null, tenantId,
+    created_by ? String(created_by) : null, tid,
   );
   await prisma.$executeRawUnsafe(
     `UPDATE users
         SET is_pregnant = TRUE,
             pregnancy_lmp_date = COALESCE($2::date, pregnancy_lmp_date),
             updated_at = NOW()
-      WHERE uid = $1::uuid`,
+      WHERE tenant_id = $3::uuid AND uid = $1::uuid`,
     String(patient_uid),
     lmp_date || null,
+    tid,
   );
   return rows[0];
 }
@@ -203,18 +299,20 @@ export async function createPregnancy({
 export async function getPregnancy({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_pregnancies WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
+    Number(id), tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Pregnancy not found');
   return rows[0];
 }
 
 export async function listPregnanciesForPatient({ tenantId, patient_uid }) {
+  const tid = tenantOr(tenantId);
+  await assertPatientInTenant(tid, patient_uid);
   return prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_pregnancies
       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
       ORDER BY created_at DESC`,
-    tenantId, String(patient_uid),
+    tid, String(patient_uid),
   );
 }
 
@@ -232,7 +330,7 @@ export async function updatePregnancy({ tenantId, id, ...patch }) {
   }
   if (!sets.length) return getPregnancy({ tenantId, id });
   params.push(Number(id));
-  params.push(tenantId);
+  params.push(tenantOr(tenantId));
   await prisma.$executeRawUnsafe(
     `UPDATE maternity_pregnancies
         SET ${sets.join(', ')}, updated_at = NOW()
@@ -255,6 +353,8 @@ export async function recordAncVisit({
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!visit_date) throw AppError.badRequest('visit_date is required');
+  const pregnancy = await assertPregnancyInTenant(tenantId, pregnancy_id);
+  const tid = tenantOr(tenantId);
 
   // Auto-assign visit_number per pregnancy (migration 181). The "ANC
   // visit #4" label is collapsed onto a single COALESCE/MAX +1 path
@@ -262,8 +362,9 @@ export async function recordAncVisit({
   const nextNumberRow = await prisma.$queryRawUnsafe(
     `SELECT COALESCE(MAX(visit_number), 0) + 1 AS next_number
        FROM maternity_anc_visits
-      WHERE pregnancy_id = $1::int`,
-    Number(pregnancy_id),
+      WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`,
+    tid,
+    pregnancy.id,
   );
   const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
 
@@ -316,7 +417,7 @@ export async function recordAncVisit({
        notes                  = COALESCE(EXCLUDED.notes, maternity_anc_visits.notes),
        recorded_by            = COALESCE(EXCLUDED.recorded_by, maternity_anc_visits.recorded_by)
      RETURNING *`,
-    Number(pregnancy_id), visit_date,
+    pregnancy.id, visit_date,
     gestational_age_weeks ? Number(gestational_age_weeks) : null,
     weight_kg ? Number(weight_kg) : null,
     bp_systolic ? Number(bp_systolic) : null,
@@ -330,7 +431,7 @@ export async function recordAncVisit({
     urine_albumin || null, urine_sugar || null,
     !!iron_folic_acid_given, !!calcium_given, tt_dose || null,
     next_visit_date || null, notes || null,
-    recorded_by ? String(recorded_by) : null, tenantId,
+    recorded_by ? String(recorded_by) : null, tid,
     nextNumber,
   );
   const visit = rows[0];
@@ -349,9 +450,12 @@ export async function recordAncVisit({
         `SELECT u.id, u.is_pregnant
            FROM maternity_pregnancies p
            JOIN users u ON u.uid = p.patient_uid
-          WHERE p.id = $1::int
+          WHERE p.tenant_id = $1::uuid
+            AND u.tenant_id = $1::uuid
+            AND p.id = $2::int
           LIMIT 1`,
-        Number(pregnancy_id),
+        tid,
+        pregnancy.id,
       );
       const patient = patientRows[0];
       if (patient?.id) {
@@ -367,7 +471,10 @@ export async function recordAncVisit({
         let recorderId = null;
         if (recorded_by) {
           const rRows = await prisma.$queryRawUnsafe(
-            `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+            `SELECT id FROM users
+              WHERE tenant_id = $1::uuid AND uid = $2::uuid
+              LIMIT 1`,
+            tid,
             String(recorded_by),
           );
           recorderId = rRows[0]?.id ?? null;
@@ -397,6 +504,8 @@ export async function recordAncVisit({
  */
 export async function getActivePregnancyForPatient({ tenantId, patient_uid }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const tid = tenantOr(tenantId);
+  await assertPatientInTenant(tid, patient_uid);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, pregnancy_number, lmp_date, edd_date, edd_method,
             gravida, parity, living_children, abortions, blood_group, rh_factor,
@@ -406,7 +515,7 @@ export async function getActivePregnancyForPatient({ tenantId, patient_uid }) {
       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'ongoing'
       ORDER BY created_at DESC
       LIMIT 1`,
-    tenantId, patient_uid,
+    tid, patient_uid,
   );
   if (!rows.length) return null;
   const p = rows[0];
@@ -426,7 +535,7 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = tenantOr(tenantId);
   const [pregnancy, visits, supplements, kicks] = await Promise.all([
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, lmp_date, edd_date, gravida, parity,
@@ -447,26 +556,26 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
               iron_folic_acid_given, calcium_given, tt_dose,
               next_visit_date, notes
          FROM maternity_anc_visits
-        WHERE pregnancy_id = $1::int
+        WHERE tenant_id = $2::uuid AND pregnancy_id = $1::int
         ORDER BY visit_date DESC, id DESC`,
-      id,
+      id, tid,
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, supplement, dose, frequency, route, start_date,
               end_date, reminder_enabled, notes, prescribed_by, created_at
          FROM maternity_supplements
-        WHERE pregnancy_id = $1::int
+        WHERE tenant_id = $2::uuid AND pregnancy_id = $1::int
         ORDER BY start_date DESC`,
-      id,
+      id, tid,
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, log_date, kick_count, observation_window_minutes,
               low_count_flag, notes
          FROM maternity_fetal_kicks
-        WHERE pregnancy_id = $1::int
+        WHERE tenant_id = $2::uuid AND pregnancy_id = $1::int
         ORDER BY log_date DESC
         LIMIT 30`,
-      id,
+      id, tid,
     ),
   ]);
   if (!pregnancy.length) throw AppError.notFound(`Pregnancy ${id} not found`);
@@ -485,10 +594,11 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
       `SELECT id, prescription_number, medications, created_at
          FROM e_prescriptions
         WHERE patient_uid = $1::uuid
+          AND tenant_id = $2::uuid
           AND COALESCE(status, 'active') = 'active'
         ORDER BY created_at DESC
         LIMIT 50`,
-      String(p.patient_uid),
+      String(p.patient_uid), tid,
     );
     const covered = new Set(dedupeActiveSupplementTherapies(supplements).map((s) => supplementTherapyKey(s)));
     for (const s of extractCarriedForwardSupplements(activeRx)) {
@@ -515,8 +625,10 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
          FROM appointments a
          JOIN users u ON u.id = a.patient_id
         WHERE u.uid = $1::uuid
+          AND u.tenant_id = $2::uuid
+          AND a.tenant_id = $2::uuid
           AND a.status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
-          AND a.appointment_date >= COALESCE($2::date, a.appointment_date)
+          AND a.appointment_date >= COALESCE($3::date, a.appointment_date)
           AND (
             a.visit_no LIKE 'ANC-%'
             OR a.department ILIKE '%obstet%'
@@ -526,7 +638,7 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
           )
         ORDER BY a.appointment_date DESC, a.appointment_time DESC
         LIMIT 50`,
-      String(p.patient_uid), p.lmp_date || null,
+      String(p.patient_uid), tid, p.lmp_date || null,
     );
   } catch (e) {
     logger.warn(`ANC booked-visit scan failed for pregnancy=${id}: ${e.message}`);
@@ -579,11 +691,13 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
               i.priority, i.requested_at, i.completed_at, i.result_summary,
               i.result_uploaded_at
          FROM investigations i
-         JOIN users u ON u.id = i.patient_id OR u.uid = i.patient_uid
+         JOIN users u ON (u.id = i.patient_id OR u.uid = i.patient_uid)
         WHERE u.uid = $1::uuid
+          AND u.tenant_id = $2::uuid
+          AND i.tenant_id = $2::uuid
           AND UPPER(COALESCE(i.test_type, i.investigation_type, i.type)) = 'RADIOLOGY'
           AND i.status <> 'CANCELLED'
-          AND i.created_at >= COALESCE($2::date, i.created_at)
+          AND i.created_at >= COALESCE($3::date, i.created_at)
           AND (
             i.test_name ILIKE '%ultrasound%'
             OR i.test_name ILIKE '%uss%'
@@ -597,7 +711,7 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
           )
         ORDER BY i.requested_at DESC
         LIMIT 50`,
-      String(p.patient_uid), p.lmp_date || null,
+      String(p.patient_uid), tid, p.lmp_date || null,
     );
   } catch (e) {
     logger.warn(`ANC prior-imaging scan failed for pregnancy=${id}: ${e.message}`);
@@ -735,8 +849,9 @@ export async function recordSupplement({
     );
   }
   if (!prescribed_by) throw AppError.badRequest('prescribed_by is required');
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
-  const pregnancyId = Number(pregnancy_id);
+  const tid = tenantOr(tenantId);
+  const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
+  const pregnancyId = Number(pregnancy.id);
   const startDate = start_date || new Date().toISOString().slice(0, 10);
   const frequencyValue = frequency || 'once_daily';
   const routeValue = route || 'oral';
@@ -886,17 +1001,21 @@ export async function maybePropagateAncSupplements({
 }) {
   if (!patient_uid || !prescribed_by) return [];
   if (!Array.isArray(medications) || medications.length === 0) return [];
+  const tid = tenantOr(tenantId);
+  await assertPatientInTenant(tid, patient_uid);
 
   const pregRows = await prisma.$queryRawUnsafe(
     `SELECT id FROM maternity_pregnancies
-       WHERE patient_uid = $1::uuid AND status = 'ongoing'
+       WHERE tenant_id = $1::uuid
+         AND patient_uid = $2::uuid
+         AND status = 'ongoing'
        ORDER BY created_at DESC
        LIMIT 1`,
+    tid,
     String(patient_uid),
   );
   if (!pregRows.length) return [];
   const pregnancyId = Number(pregRows[0].id);
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
 
   const created = [];
   for (const med of medications) {
@@ -916,11 +1035,12 @@ export async function maybePropagateAncSupplements({
     for (const supplement of matches) {
       const existing = await prisma.$queryRawUnsafe(
         `SELECT id FROM maternity_supplements
-           WHERE pregnancy_id = $1::int
-             AND supplement = $2
+           WHERE tenant_id = $1::uuid
+             AND pregnancy_id = $2::int
+             AND supplement = $3
              AND (end_date IS NULL OR end_date >= CURRENT_DATE)
            LIMIT 1`,
-        pregnancyId, supplement,
+        tid, pregnancyId, supplement,
       );
       if (existing.length) continue;
 
@@ -946,7 +1066,8 @@ export async function listSupplements({ tenantId, pregnancy_id, activeOnly = fal
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = tenantOr(tenantId);
+  await assertPregnancyInTenant(tid, id);
   const baseSql = `
     SELECT id, supplement, dose, frequency, route, start_date, end_date,
            reminder_enabled, notes, prescribed_by, created_at, updated_at
@@ -969,6 +1090,8 @@ export async function recordFetalKick({
   observation_window_minutes, notes, recorded_by,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
+  const tid = tenantOr(tenantId);
+  const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
   const count = Number.parseInt(kick_count, 10);
   if (!Number.isInteger(count) || count < 0 || count > 999) {
     throw AppError.badRequest('kick_count must be 0..999');
@@ -991,10 +1114,10 @@ export async function recordFetalKick({
                    notes = COALESCE(EXCLUDED.notes, maternity_fetal_kicks.notes),
                    updated_at = NOW()
      RETURNING *`,
-    Number(pregnancy_id), day, count, window, lowFlag,
+    Number(pregnancy.id), day, count, window, lowFlag,
     notes || null,
     recorded_by ? String(recorded_by) : null,
-    tenantId,
+    tid,
   );
   return rows[0];
 }
@@ -1006,18 +1129,18 @@ export async function recordFetalKick({
  * done 18w" and "Iron+folate — currently active" before re-ordering.
  * Finding: 2026-05-08-obstetric-anc-doctor-no-prior-orders-surfaced.
  */
-// tenantId reserved for future tenant scoping; currently unscoped per the in-flight finding.
-export async function listPriorOrdersForPregnancy({ tenantId: _tenantId, pregnancy_id }) {
+export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
   const id = Number.parseInt(pregnancy_id, 10);
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
+  const tid = tenantOr(tenantId);
   // Resolve patient_uid + LMP from the pregnancy to scope the join.
   const pregRows = await prisma.$queryRawUnsafe(
     `SELECT patient_uid, lmp_date, created_at
        FROM maternity_pregnancies
-      WHERE id = $1::int`,
-    id,
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    tid, id,
   );
   if (!pregRows.length) throw AppError.notFound(`Pregnancy ${id} not found`);
   const { patient_uid, lmp_date, created_at } = pregRows[0];
@@ -1031,20 +1154,23 @@ export async function listPriorOrdersForPregnancy({ tenantId: _tenantId, pregnan
          FROM investigations i
          JOIN users u ON u.id = i.patient_id
         WHERE u.uid = $1::uuid
-          AND i.created_at >= $2::timestamptz
+          AND u.tenant_id = $2::uuid
+          AND i.tenant_id = $2::uuid
+          AND i.created_at >= $3::timestamptz
         ORDER BY i.requested_at DESC
         LIMIT 50`,
-      patient_uid, since,
+      patient_uid, tid, since,
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, prescription_number, diagnosis, medications, status,
               created_at, follow_up_date
          FROM e_prescriptions
         WHERE patient_uid = $1::uuid
-          AND created_at >= $2::timestamptz
+          AND tenant_id = $2::uuid
+          AND created_at >= $3::timestamptz
         ORDER BY created_at DESC
         LIMIT 50`,
-      patient_uid, since,
+      patient_uid, tid, since,
     ),
   ]);
 
@@ -1071,7 +1197,8 @@ export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, 
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');
   }
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = tenantOr(tenantId);
+  await assertPregnancyInTenant(tid, id);
   const params = [tid, id];
   let dateClause = '';
   if (fromDate) { params.push(fromDate); dateClause += ` AND log_date >= $${params.length}::date`; }
@@ -1097,7 +1224,7 @@ export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, 
  * 2026-05-09-walk-in-opd-patient-maternity-package-forbidden.
  */
 export async function listMaternityPackages({ tenantId }) {
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = tenantOr(tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, package_code, display_name, description,
             base_specialty, base_procedure_code, duration_days,
@@ -1148,7 +1275,7 @@ function decorateAncAdviceRows(rows, { includePlaceholders }) {
 export async function getAncAdvice({
   tenantId, trimester = null, language = 'hi', includePlaceholders = true,
 }) {
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = tenantOr(tenantId);
   const lang = language || 'hi';
   const params = [tid, lang];
   let trimesterClause = '';
@@ -1184,7 +1311,8 @@ export async function setSupplementReminder({
   if (typeof reminder_enabled !== 'boolean') {
     throw AppError.badRequest('reminder_enabled must be a boolean');
   }
-  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const tid = tenantOr(tenantId);
+  await assertPregnancyInTenant(tid, pregnancyId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE maternity_supplements
         SET reminder_enabled = $1,
@@ -1201,11 +1329,13 @@ export async function setSupplementReminder({
 }
 
 export async function listAncVisits({ tenantId, pregnancy_id }) {
+  const tid = tenantOr(tenantId);
+  const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
   return prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_anc_visits
       WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int
       ORDER BY visit_date DESC`,
-    tenantId, Number(pregnancy_id),
+    tid, Number(pregnancy.id),
   );
 }
 
@@ -1219,6 +1349,11 @@ export async function admitToLabor({
   attending_obstetrician, attending_midwife, notes,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
+  const tid = tenantOr(tenantId);
+  const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
+  if (admission_id) {
+    await assertAdmissionInTenant(tid, admission_id, pregnancy.patient_uid);
+  }
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_labor_admissions
@@ -1233,7 +1368,7 @@ export async function admitToLabor({
              $11::int, $12::int, $13::timestamptz,
              $14::uuid, $15::uuid, $16, $17::uuid)
      RETURNING *`,
-    Number(pregnancy_id),
+    Number(pregnancy.id),
     admission_id ? Number(admission_id) : null,
     admission_reason || null,
     gestational_age_weeks ? Number(gestational_age_weeks) : null,
@@ -1247,7 +1382,7 @@ export async function admitToLabor({
     labor_started_at || null,
     attending_obstetrician ? String(attending_obstetrician) : null,
     attending_midwife ? String(attending_midwife) : null,
-    notes || null, tenantId,
+    notes || null, tid,
   );
   return rows[0];
 }
@@ -1255,7 +1390,7 @@ export async function admitToLabor({
 export async function getLaborAdmission({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_labor_admissions WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
+    Number(id), tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Labor admission not found');
   return rows[0];
@@ -1267,7 +1402,9 @@ export async function listActiveLaborAdmissions({ tenantId, limit = 50 }) {
             p.high_risk, p.high_risk_reasons
        FROM maternity_labor_admissions la
        JOIN maternity_pregnancies p ON p.id = la.pregnancy_id
-      WHERE la.tenant_id = $1::uuid AND la.status = 'active'
+      WHERE la.tenant_id = $1::uuid
+        AND p.tenant_id = $1::uuid
+        AND la.status = 'active'
       ORDER BY la.admitted_at DESC
       LIMIT $2::int`,
     tenantId, Number(limit),
@@ -1371,11 +1508,13 @@ export async function recordPartographEntry({
 }
 
 export async function listPartographEntries({ tenantId, labor_admission_id }) {
+  const tid = tenantOr(tenantId);
+  const labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
   return prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_partograph_entries
       WHERE tenant_id = $1::uuid AND labor_admission_id = $2::int
       ORDER BY recorded_at`,
-    tenantId, Number(labor_admission_id),
+    tid, Number(labor.id),
   );
 }
 
@@ -1393,6 +1532,15 @@ export async function recordDelivery({
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!delivery_datetime) throw AppError.badRequest('delivery_datetime is required');
   if (!delivery_mode) throw AppError.badRequest('delivery_mode is required');
+  const tid = tenantOr(tenantId);
+  const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
+  let labor = null;
+  if (labor_admission_id) {
+    labor = await getLaborAdmission({ tenantId: tid, id: labor_admission_id });
+    if (Number(labor.pregnancy_id) !== Number(pregnancy.id)) {
+      throw AppError.forbidden('Labor admission belongs to a different pregnancy');
+    }
+  }
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_deliveries
@@ -1413,8 +1561,8 @@ export async function recordDelivery({
              $21::uuid, $22, $23, $24::uuid,
              $25, $26::uuid)
      RETURNING *`,
-    Number(pregnancy_id),
-    labor_admission_id ? Number(labor_admission_id) : null,
+    Number(pregnancy.id),
+    labor ? Number(labor.id) : null,
     delivery_datetime, delivery_mode,
     stage1_duration_min ? Number(stage1_duration_min) : null,
     stage2_duration_min ? Number(stage2_duration_min) : null,
@@ -1429,18 +1577,24 @@ export async function recordDelivery({
     delivered_by_name || null,
     !!pediatrician_present,
     pediatrician_uid ? String(pediatrician_uid) : null,
-    notes || null, tenantId,
+    notes || null, tid,
   );
 
   // Project to pregnancy + labor admission.
   await prisma.$executeRawUnsafe(
-    `UPDATE maternity_pregnancies SET status = 'delivered', updated_at = NOW() WHERE id = $1::int`,
-    Number(pregnancy_id),
+    `UPDATE maternity_pregnancies
+        SET status = 'delivered', updated_at = NOW()
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(pregnancy.id),
+    tid,
   );
-  if (labor_admission_id) {
+  if (labor) {
     await prisma.$executeRawUnsafe(
-      `UPDATE maternity_labor_admissions SET status = 'delivered', updated_at = NOW() WHERE id = $1::int`,
-      Number(labor_admission_id),
+      `UPDATE maternity_labor_admissions
+          SET status = 'delivered', updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      Number(labor.id),
+      tid,
     );
   }
   return rows[0];
@@ -1449,7 +1603,7 @@ export async function recordDelivery({
 export async function getDelivery({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_deliveries WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
+    Number(id), tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Delivery not found');
   return rows[0];
@@ -1468,6 +1622,9 @@ export async function recordNewborn({
 }) {
   if (!delivery_id) throw AppError.badRequest('delivery_id is required');
   if (!birth_datetime) throw AppError.badRequest('birth_datetime is required');
+  const tid = tenantOr(tenantId);
+  const delivery = await assertDeliveryInTenant(tid, delivery_id);
+  if (newborn_patient_uid) await assertPatientInTenant(tid, newborn_patient_uid);
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_newborns
@@ -1486,7 +1643,7 @@ export async function recordNewborn({
              $17, $18, $19, $20,
              $21, $22, $23::uuid, $24, $25::uuid)
      RETURNING *`,
-    Number(delivery_id), Number(birth_order),
+    Number(delivery.id), Number(birth_order),
     birth_datetime, sex || null,
     birth_weight_g ? Number(birth_weight_g) : null,
     birth_length_cm ? Number(birth_length_cm) : null,
@@ -1502,13 +1659,13 @@ export async function recordNewborn({
     !!vit_k_given, !!bcg_given, !!hep_b_given, !!opv_given,
     !!congenital_anomaly, congenital_anomaly_desc || null,
     recorded_by ? String(recorded_by) : null,
-    notes || null, tenantId,
+    notes || null, tid,
   );
   return rows[0];
 }
 
 export async function recordApgar({
-  newborn_id, time_minute, appearance, pulse, grimace, activity, respiration, recorded_by,
+  tenantId, newborn_id, time_minute, appearance, pulse, grimace, activity, respiration, recorded_by,
 }) {
   if (!newborn_id) throw AppError.badRequest('newborn_id is required');
   if (![1, 5, 10].includes(Number(time_minute))) {
@@ -1520,6 +1677,7 @@ export async function recordApgar({
       throw AppError.badRequest(`${k} must be 0-2`);
     }
   }
+  const newborn = await assertNewbornInTenant(tenantId, newborn_id);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_apgar_scores
        (newborn_id, time_minute, appearance, pulse, grimace, activity, respiration, recorded_by)
@@ -1533,7 +1691,7 @@ export async function recordApgar({
        recorded_by = EXCLUDED.recorded_by,
        recorded_at = NOW()
      RETURNING *`,
-    Number(newborn_id), Number(time_minute),
+    Number(newborn.id), Number(time_minute),
     appearance != null ? Number(appearance) : null,
     pulse != null ? Number(pulse) : null,
     grimace != null ? Number(grimace) : null,
@@ -1547,27 +1705,29 @@ export async function recordApgar({
 export async function getNewbornBundle({ tenantId, id }) {
   const newbornRows = await prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_newborns WHERE id = $1::int AND tenant_id = $2::uuid`,
-    Number(id), tenantId,
+    Number(id), tenantOr(tenantId),
   );
   if (!newbornRows.length) throw AppError.notFound('Newborn not found');
   const apgarRows = await prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_apgar_scores WHERE newborn_id = $1::int ORDER BY time_minute`,
-    Number(id),
+    Number(newbornRows[0].id),
   );
   return { newborn: newbornRows[0], apgar: apgarRows };
 }
 
-export async function listNewbornsForDelivery({ delivery_id }) {
+export async function listNewbornsForDelivery({ tenantId, delivery_id }) {
+  const tid = tenantOr(tenantId);
+  const delivery = await assertDeliveryInTenant(tid, delivery_id);
   return prisma.$queryRawUnsafe(
     `SELECT n.*, COALESCE(json_agg(json_build_object(
         'time_minute', a.time_minute, 'total_score', a.total_score
       ) ORDER BY a.time_minute) FILTER (WHERE a.id IS NOT NULL), '[]') AS apgar
        FROM maternity_newborns n
        LEFT JOIN maternity_apgar_scores a ON a.newborn_id = n.id
-      WHERE n.delivery_id = $1::int
+      WHERE n.tenant_id = $1::uuid AND n.delivery_id = $2::int
       GROUP BY n.id
       ORDER BY n.birth_order`,
-    Number(delivery_id),
+    tid, Number(delivery.id),
   );
 }
 
@@ -1582,6 +1742,9 @@ export async function recordPostnatalVisit({
   red_flags, notes, recorded_by,
 }) {
   if (!delivery_id) throw AppError.badRequest('delivery_id is required');
+  const tid = tenantOr(tenantId);
+  const delivery = await assertDeliveryInTenant(tid, delivery_id);
+  const newborn = newborn_id ? await assertNewbornInTenant(tid, newborn_id, delivery.id) : null;
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_postnatal_visits
@@ -1598,10 +1761,10 @@ export async function recordPostnatalVisit({
              $17, $18, $19,
              $20::text[], $21, $22::uuid, $23::uuid)
      RETURNING *`,
-    Number(delivery_id),
+    Number(delivery.id),
     visit_at || new Date().toISOString(),
     visit_kind,
-    newborn_id ? Number(newborn_id) : null,
+    newborn ? Number(newborn.id) : null,
     mother_temp_c ? Number(mother_temp_c) : null,
     mother_pulse_bpm ? Number(mother_pulse_bpm) : null,
     mother_bp_systolic ? Number(mother_bp_systolic) : null,
@@ -1614,16 +1777,18 @@ export async function recordPostnatalVisit({
     baby_passed_meconium ?? null, baby_passed_urine ?? null,
     baby_cord_status || null,
     red_flags || null, notes || null,
-    recorded_by ? String(recorded_by) : null, tenantId,
+    recorded_by ? String(recorded_by) : null, tid,
   );
   return rows[0];
 }
 
 export async function listPostnatalVisits({ tenantId, delivery_id }) {
+  const tid = tenantOr(tenantId);
+  const delivery = await assertDeliveryInTenant(tid, delivery_id);
   return prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_postnatal_visits
       WHERE tenant_id = $1::uuid AND delivery_id = $2::int
       ORDER BY visit_at DESC`,
-    tenantId, Number(delivery_id),
+    tid, Number(delivery.id),
   );
 }

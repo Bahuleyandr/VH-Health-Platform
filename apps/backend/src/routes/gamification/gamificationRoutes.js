@@ -3,6 +3,7 @@
 
 import { Router } from 'express';
 import * as gamificationController from '../../controllers/gamification/gamificationController.js';
+import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { scoreAdherenceRisk } from '../../services/gamification/adherenceRiskService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -10,13 +11,10 @@ const router = Router();
 
 // GET /adherence-risk/:patientId — heuristic adherence risk (placeholder for
 // a trained ML model). Returns 0–100 + contributing factors.
-router.get('/adherence-risk/:patientId', async (req, res) => {
+router.get('/adherence-risk/:patientId', patientAccessGuard('CLINICAL_WORKFLOW', { requirePatientContext: true }), async (req, res) => {
   try {
     const pid = parseInt(req.params.patientId, 10);
     if (!Number.isFinite(pid)) return error(res, 'Invalid patientId', 400);
-    if (req.user?.role === 'PATIENT' && String(req.user.id) !== String(pid)) {
-      return error(res, 'Forbidden', 403);
-    }
     const result = await scoreAdherenceRisk(pid);
     if (!result) return error(res, 'Patient not found', 404);
     return success(res, result, 'Adherence risk score');

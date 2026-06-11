@@ -77,7 +77,7 @@ export function parseAstmMessage(raw) {
 
 // ── Specimen labels ────────────────────────────────────────────────────────
 
-async function loadSpecimen(where, param) {
+async function loadSpecimen(where, params = []) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT s.id, s.tenant_id, s.specimen_uid, s.patient_uid, s.booking_id, s.accession_number,
             s.barcode, s.specimen_type, s.container_type, s.priority, s.status,
@@ -87,7 +87,7 @@ async function loadSpecimen(where, param) {
        LEFT JOIN users u ON u.uid = s.patient_uid
       WHERE ${where}
       LIMIT 1`,
-    param,
+    ...params,
   );
   return rows[0] || null;
 }
@@ -96,16 +96,19 @@ async function loadSpecimen(where, param) {
  * Specimen label payload (idempotent barcode issue). The barcode is the
  * accession number — already unique per specimen — uppercased for Code 39.
  */
-export async function getSpecimenLabel(specimenId, { actorUid = null } = {}) {
-  const specimen = await loadSpecimen('s.id = $1', specimenId);
+export async function getSpecimenLabel(specimenId, { actorUid = null, tenantId = DEFAULT_TENANT } = {}) {
+  const specimen = await loadSpecimen(
+    's.id = $1::int AND s.tenant_id = $2::uuid',
+    [specimenId, tenantId],
+  );
   if (!specimen) throw AppError.notFound('Specimen not found', 'LAB_SPECIMEN_NOT_FOUND');
   const barcode = (specimen.barcode || specimen.accession_number || '').toUpperCase();
   await prisma.$executeRawUnsafe(
     `UPDATE lab_specimens SET
        barcode = COALESCE(barcode, accession_number),
        label_printed_at = NOW(), label_printed_by = $2::uuid, updated_at = NOW()
-     WHERE id = $1`,
-    specimenId, actorUid,
+     WHERE id = $1::int AND tenant_id = $3::uuid`,
+    specimenId, actorUid, tenantId,
   );
   return {
     specimen_id: specimen.id,
@@ -126,10 +129,13 @@ export async function getSpecimenLabel(specimenId, { actorUid = null } = {}) {
  * Scan-on-receipt: the lab scans the tube barcode; specimen transitions
  * collected/in_transit → received with history + canonical events.
  */
-export async function scanReceiveSpecimen({ barcode, actorUid = null, actorRole = null } = {}) {
+export async function scanReceiveSpecimen({ barcode, actorUid = null, actorRole = null, tenantId = DEFAULT_TENANT } = {}) {
   const cleaned = (barcode || '').trim();
   if (!cleaned) throw AppError.badRequest('barcode is required', 'LAB_BARCODE_REQUIRED');
-  const specimen = await loadSpecimen('UPPER(s.barcode) = UPPER($1)', cleaned);
+  const specimen = await loadSpecimen(
+    'UPPER(s.barcode) = UPPER($1) AND s.tenant_id = $2::uuid',
+    [cleaned, tenantId],
+  );
   if (!specimen) throw AppError.notFound('No specimen carries this barcode', 'LAB_SPECIMEN_NOT_FOUND');
   if (specimen.status === 'received' || specimen.status === 'processing') {
     throw AppError.conflict(`Specimen already ${specimen.status}`, 'LAB_SPECIMEN_ALREADY_RECEIVED', {
@@ -144,9 +150,9 @@ export async function scanReceiveSpecimen({ barcode, actorUid = null, actorRole 
     const rows = await tx.$queryRawUnsafe(
       `UPDATE lab_specimens SET
          status = 'received', received_at = NOW(), received_by = $2::uuid, updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1::int AND tenant_id = $3::uuid
        RETURNING id, tenant_id, patient_uid, booking_id, accession_number, barcode, status, received_at`,
-      specimen.id, actorUid,
+      specimen.id, actorUid, tenantId,
     );
     await tx.$executeRawUnsafe(
       `INSERT INTO lab_specimen_status_history (tenant_id, specimen_id, from_status, to_status, reason, changed_by)
@@ -279,7 +285,10 @@ export async function ingestInterfaceMessage({
         'LAB_INTERFACE_ASTM_INVALID',
       );
     }
-    const specimen = await loadSpecimen('UPPER(COALESCE(s.barcode, s.accession_number)) = UPPER($1)', parsed.accession);
+    const specimen = await loadSpecimen(
+      'UPPER(COALESCE(s.barcode, s.accession_number)) = UPPER($1) AND s.tenant_id = $2::uuid',
+      [parsed.accession, tenantId],
+    );
     if (!specimen) {
       throw AppError.notFound(
         `No specimen matches accession '${parsed.accession}' — closed loop requires the labelled specimen to exist`,
@@ -389,9 +398,9 @@ export async function ingestInterfaceMessage({
   }
 }
 
-export async function listInterfaceMessages({ status = null, limit = 50 } = {}) {
-  const params = [];
-  let where = '1=1';
+export async function listInterfaceMessages({ status = null, limit = 50, tenantId = DEFAULT_TENANT } = {}) {
+  const params = [tenantId];
+  let where = 'tenant_id = $1::uuid';
   if (status) { params.push(status); where += ` AND status = $${params.length}`; }
   params.push(Math.min(Number.parseInt(limit, 10) || 50, 200));
   return prisma.$queryRawUnsafe(

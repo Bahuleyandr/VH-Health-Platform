@@ -23,6 +23,7 @@ data:
   NEXT_PUBLIC_API_URL: "https://api.vhhealth.app"
   NEXT_PUBLIC_APP_NAME: "VH Health Admin"
   NEXT_PUBLIC_ALLOWED_ORIGIN: "https://admin.vhhealth.app"
+  ADMIN_CANONICAL_ORIGIN: "https://admin.vhhealth.app"
 
   # Firebase client SDK config (values ARE public by design — see
   # firebase.google.com/docs/projects/api-keys; the apiKey is a public
@@ -40,8 +41,9 @@ data:
   SENTRY_PROJECT: "vhhealth-admin"
   SENTRY_ENVIRONMENT: "production"
 
-  # IP allowlist (optional — disabled by default). Comma-separated exact
-  # IPs allowed through middleware.ts before auth.
+  # IP allowlist. Production middleware fails closed when this is empty.
+  # Comma-separated exact IPs or IPv4 CIDRs allowed through middleware.ts
+  # before auth.
   ADMIN_IP_ALLOWLIST: ""
 
   # Backend URL used server-side by /api/proxy, /api/login, /api/refresh

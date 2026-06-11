@@ -16,6 +16,16 @@ import {
 
 const router = express.Router();
 
+function rejectDeprecatedPhoneRoute(req, res) {
+  logger.warn(`DEPRECATED notification phone route blocked: ${req.method} ${req.originalUrl || req.url}`);
+  res.set('Deprecation', 'true');
+  res.set('Sunset', '2026-07-01');
+  return res.status(410).json({
+    success: false,
+    message: 'Phone-number notification routes are disabled. Use /notifications/my for self-service or /notifications/user/:user_id for authorized staff workflows.',
+  });
+}
+
 /**
  * User notification routes
  * Base path: /api/v1/notifications
@@ -32,24 +42,20 @@ router.get('/detail/:id/events', idParamValidator, notificationController.getEve
 router.get('/list', queryValidator, notificationController.getList);
 
 // DEPRECATED: Use GET /my instead. PII in URL is a security risk.
-// These routes will be removed in a future release.
-router.get('/:phone', phoneParamValidator, (req, res, next) => {
+// The route is intentionally blocked instead of forwarding to the service.
+router.get('/:phone', phoneParamValidator, (req, _res, next) => {
   logger.warn(`DEPRECATED: GET /notifications/${maskPhoneForLog(req.params.phone)} — migrate to GET /notifications/my`);
-  res.set('Deprecation', 'true');
-  res.set('Sunset', '2026-07-01');
   next();
-}, notificationController.getByPhone);
+}, rejectDeprecatedPhoneRoute);
 router.get('/user/:user_id', [...userIdParamValidator, ...queryValidator], notificationController.getByUserId);
 
 // Mark notifications as read
 router.patch('/:id/read', idParamValidator, notificationController.markAsRead);
 router.patch('/:id/acknowledge', idParamValidator, notificationController.acknowledge);
-router.patch('/:phone/mark-all-read', phoneParamValidator, (req, res, next) => {
+router.patch('/:phone/mark-all-read', phoneParamValidator, (req, _res, next) => {
   logger.warn(`DEPRECATED: PATCH /notifications/${maskPhoneForLog(req.params.phone)}/mark-all-read — migrate to PATCH /notifications/my/mark-all-read`);
-  res.set('Deprecation', 'true');
-  res.set('Sunset', '2026-07-01');
   next();
-}, notificationController.markAllAsReadByPhone);
+}, rejectDeprecatedPhoneRoute);
 router.patch('/user/:user_id/read-all', userIdParamValidator, notificationController.markAllAsReadByUserId);
 
 // Medical staff & admin routes

@@ -9,9 +9,10 @@ import * as fhirAdapter from '../fhir/fhirAdapter.js';
 /**
  * Generate a complete FHIR Bundle containing all patient data.
  * @param {string} patientUid - Patient UID
+ * @param {{tenantId?: string|null}} options
  * @returns {Object} FHIR Bundle resource
  */
-export async function generatePatientBundle(patientUid) {
+export async function generatePatientBundle(patientUid, { tenantId = null } = {}) {
   logger.info(`Generating FHIR Bundle for patient ${patientUid}`);
 
   // Collect all patient data in parallel
@@ -28,64 +29,94 @@ export async function generatePatientBundle(patientUid) {
   ] = await Promise.all([
     prisma.$queryRawUnsafe(
       `SELECT uid, phone, name, gender, email, birthday, address, profile_picture, is_active
-       FROM users WHERE uid = $1 LIMIT 1`,
-      patientUid
+       FROM users
+       WHERE uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+         AND role = 'PATIENT'
+       LIMIT 1`,
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, patient_name, doctor_id, doctor_name,
               appointment_date, appointment_time, status, reason, notes, created_at
-       FROM appointments WHERE uid = $1
+       FROM appointments
+       WHERE uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY appointment_date DESC LIMIT 200`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, icd10_code, icd10_description, description,
               onset_date, resolved_date, diagnosed_by, notes, created_at
-       FROM diagnoses WHERE patient_uid = $1
+       FROM diagnoses
+       WHERE patient_uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY created_at DESC`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
               temperature, spo2, respiratory_rate, blood_glucose, recorded_at
-       FROM vitals_chart WHERE patient_uid = $1
+       FROM vitals_chart
+       WHERE patient_uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY recorded_at DESC LIMIT 200`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, uid, phone, status, medication, order_note, prescribed_by,
               priority, urgent, ordered_at, created_at
-       FROM pharmacy_orders WHERE uid = $1
+       FROM pharmacy_orders
+       WHERE uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY created_at DESC LIMIT 200`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, uid, status, test_name, investigation_type, results,
               conclusion, interpretation, ordered_at, completed_at, created_at
-       FROM investigations WHERE patient_uid = $1
+       FROM investigations
+       WHERE patient_uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY created_at DESC LIMIT 200`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, status, priority, admission_type, reason, reason_for_admission,
               admitting_doctor, attending_doctor, admitted_at, discharged_at,
               discharge_disposition, discharge_type, ward, bed_number
-       FROM admissions WHERE patient_uid = $1
+       FROM admissions
+       WHERE patient_uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY admitted_at DESC LIMIT 100`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, allergen, description, name, severity, reaction, recorded_at
-       FROM allergies WHERE patient_uid = $1
+       FROM allergies
+       WHERE patient_uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
        ORDER BY recorded_at DESC`,
-      patientUid
+      patientUid,
+      tenantId
     ),
     prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, note_type, title, content, status, procedure_name,
               performed_at, performed_by, author_id, outcome, complications, notes, created_at
-       FROM clinical_notes WHERE patient_uid = $1 AND note_type = 'procedure'
+       FROM clinical_notes
+       WHERE patient_uid = $1::uuid
+         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+         AND note_type = 'procedure'
        ORDER BY created_at DESC LIMIT 100`,
-      patientUid
+      patientUid,
+      tenantId
     ),
   ]);
 

@@ -61,6 +61,13 @@ spec:
       labels:
         app: vh-mcp-postgres
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: server
           image: vh-mcp-postgres:dev
@@ -81,6 +88,9 @@ spec:
                 secretKeyRef:
                   name: vh-mcp-postgres
                   key: database_url
+                  # Must point at a dedicated non-superuser, non-BYPASSRLS,
+                  # SELECT-only role. index.js refuses privileged roles at
+                  # startup in production.
           readinessProbe:
             httpGet: { path: /health, port: 8080 }
             initialDelaySeconds: 5
@@ -96,3 +106,19 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi

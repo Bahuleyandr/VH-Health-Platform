@@ -168,17 +168,20 @@ function normalizeTimestamp(value, label) {
 
 async function ensureScheduleVisible(tenantId, otScheduleId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM ot_schedules WHERE id = $1 LIMIT 1`,
-    otScheduleId,
+    `SELECT id FROM ot_schedules
+      WHERE id = $1 AND tenant_id = $2::uuid
+      LIMIT 1`,
+    otScheduleId, tenantId,
   );
   if (!rows[0]) throw AppError.notFound('ot_schedule not found');
   return rows[0];
 }
 
-async function assertWhoTimeoutComplete(otScheduleId) {
+async function assertWhoTimeoutComplete(otScheduleId, tenantId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id FROM surgical_safety_checklists
       WHERE ot_schedule_id = $1
+        AND tenant_id = $2::uuid
         AND phase = 'time_out'
         AND (
           status = 'complete'
@@ -189,7 +192,7 @@ async function assertWhoTimeoutComplete(otScheduleId) {
           )
         )
       LIMIT 1`,
-    otScheduleId,
+    otScheduleId, tenantId,
   );
   if (!rows[0]) {
     throw AppError.badRequest(
@@ -424,7 +427,7 @@ export async function createIntraopNote({
     .map((c) => safeText(c, SMALL_MAX)).filter(Boolean) : null;
   const cleanStatus = normalizeEnum(status, NOTE_STATUSES, 'status') || 'draft';
   if (startTime || cleanStatus === 'finalized') {
-    await assertWhoTimeoutComplete(scheduleId);
+    await assertWhoTimeoutComplete(scheduleId, tid);
   }
 
   try {
@@ -531,7 +534,7 @@ export async function finalizeIntraopNote({
     noteId, tid,
   );
   if (!existing[0]) throw AppError.notFound('Intraop note not found or already finalized');
-  await assertWhoTimeoutComplete(existing[0].ot_schedule_id);
+  await assertWhoTimeoutComplete(existing[0].ot_schedule_id, tid);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE intraop_notes
      SET status = 'finalized',

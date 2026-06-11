@@ -85,11 +85,15 @@ export async function linkStudy(orderId, { studyInstanceUid, accessionNumber = n
   if (!STUDY_UID_RE.test(cleaned)) {
     throw AppError.badRequest('study_instance_uid must be a dotted-numeric DICOM UID', 'PACS_BAD_STUDY_UID');
   }
+  const tenantId = context.tenantId || context.tenant_id || null;
+  const params = [orderId];
+  const tenantFilter = tenantId ? ' AND ro.tenant_id = $2::uuid' : '';
+  if (tenantId) params.push(tenantId);
   const orders = await prisma.$queryRawUnsafe(
     `SELECT ro.id, ro.tenant_id, ro.patient_uid, ro.modality, ro.body_part, ro.status,
             ro.pacs_study_instance_uid
-       FROM radiology_orders ro WHERE ro.id = $1 LIMIT 1`,
-    orderId,
+       FROM radiology_orders ro WHERE ro.id = $1${tenantFilter} LIMIT 1`,
+    ...params,
   );
   const order = orders[0];
   if (!order) throw AppError.notFound('Radiology order not found', 'PACS_ORDER_NOT_FOUND');
@@ -108,7 +112,7 @@ export async function linkStudy(orderId, { studyInstanceUid, accessionNumber = n
          pacs_study_instance_uid = $2,
          acquisition_evidence = acquisition_evidence || $3::jsonb,
          updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND tenant_id = $4::uuid
        RETURNING id, tenant_id, patient_uid, modality, body_part, status, pacs_study_instance_uid`,
       orderId, cleaned,
       JSON.stringify({
@@ -119,6 +123,7 @@ export async function linkStudy(orderId, { studyInstanceUid, accessionNumber = n
           linked_at: new Date().toISOString(),
         },
       }),
+      order.tenant_id,
     );
     const row = rows[0];
     await recordCanonicalClinicalEvent({
@@ -151,15 +156,18 @@ export async function linkStudy(orderId, { studyInstanceUid, accessionNumber = n
   return { order: updated, viewer_url: viewerUrl };
 }
 
-export async function listPatientStudies(patientUid) {
+export async function listPatientStudies(patientUid, { tenantId = null } = {}) {
+  const params = [patientUid];
+  const tenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
+  if (tenantId) params.push(tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, modality, body_part, clinical_indication, status,
             pacs_study_instance_uid, report_completed_at, report_signed_off_at, created_at
        FROM radiology_orders
-      WHERE patient_uid = $1::uuid AND pacs_study_instance_uid IS NOT NULL
+      WHERE patient_uid = $1::uuid${tenantFilter} AND pacs_study_instance_uid IS NOT NULL
       ORDER BY created_at DESC
       LIMIT 200`,
-    patientUid,
+    ...params,
   );
   return rows.map((row) => ({
     ...row,
@@ -173,9 +181,15 @@ export async function listPatientStudies(patientUid) {
  * sidecar polls this and renders .wl entries; modalities then pull their
  * schedule over DICOM MWL.
  */
-export async function buildModalityWorklist({ modality = null, limit = 100 } = {}) {
+export async function buildModalityWorklist({ tenantId = null, modality = null, limit = 100 } = {}) {
   const params = [];
   let where = `ro.status IN ('ordered', 'in_progress') AND ro.pacs_study_instance_uid IS NULL`;
+  let userTenantJoin = '';
+  if (tenantId) {
+    params.push(tenantId);
+    where += ` AND ro.tenant_id = $${params.length}::uuid`;
+    userTenantJoin = ` AND u.tenant_id = $${params.length}::uuid`;
+  }
   if (modality) {
     params.push(String(modality).toUpperCase());
     where += ` AND UPPER(ro.modality) = $${params.length}`;
@@ -190,7 +204,7 @@ export async function buildModalityWorklist({ modality = null, limit = 100 } = {
               ORDER BY CASE pi.identifier_type WHEN 'mrn' THEN 0 ELSE 1 END LIMIT 1) AS patient_mrn,
             ub.name AS ordered_by_name
        FROM radiology_orders ro
-       LEFT JOIN users u ON u.uid = ro.patient_uid
+       LEFT JOIN users u ON u.uid = ro.patient_uid${userTenantJoin}
        LEFT JOIN users ub ON ub.uid = ro.ordered_by
       WHERE ${where}
       ORDER BY CASE ro.priority WHEN 'stat' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END, ro.created_at ASC

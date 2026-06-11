@@ -489,7 +489,7 @@ export const notificationController = {
 
     try {
       const days = parseInt(req.query.days) || 7;
-      const stats = await notificationService.getNotificationStats(days);
+      const stats = await notificationService.getNotificationStats(days, req.user);
 
       await logAudit(req, 'notification-stats-viewed', { period_days: days });
 

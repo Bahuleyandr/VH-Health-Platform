@@ -173,4 +173,77 @@ describe('notificationService authenticated feed', () => {
       priority: 'HIGH',
     }));
   });
+
+  it('creates notifications only for recipients in the actor tenant', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 10,
+        uid: USER_UID,
+        name: 'Tenant Patient',
+        phone: '+911234567890',
+        role: 'PATIENT',
+        tenant_id: TENANT,
+      }])
+      .mockResolvedValueOnce([{
+        id: 300,
+        uid: USER_UID,
+        user_id: 10,
+        phone: '+911234567890',
+        title: 'Follow up',
+        message: 'Please review',
+        type: 'SYSTEM',
+        priority: 'MEDIUM',
+        data: null,
+        is_read: false,
+        created_at: new Date('2026-06-03T00:00:00.000Z'),
+      }]);
+
+    await notificationService.createNotification(
+      { user_id: 10, title: 'Follow up', message: 'Please review' },
+      { uid: USER_UID, role: 'ADMIN', tenantId: TENANT },
+    );
+
+    const [lookupSql, ...lookupParams] = queryUnsafeMock.mock.calls[0];
+    expect(lookupSql).toContain('tenant_id = $2::uuid');
+    expect(lookupParams).toEqual([10, TENANT]);
+    const [insertSql, tenantParam] = queryUnsafeMock.mock.calls[1];
+    expect(insertSql).toContain('INSERT INTO notifications');
+    expect(tenantParam).toBe(TENANT);
+  });
+
+  it('bulk sends only to users in the actor tenant', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([
+        { id: 10, uid: USER_UID, name: 'Tenant Patient', phone: '+911234567890', tenant_id: TENANT },
+      ])
+      .mockResolvedValueOnce([{ id: 301, uid: USER_UID, user_id: 10 }]);
+
+    const result = await notificationService.sendBulkNotifications(
+      { user_ids: [10], title: 'Notice', message: 'Tenant scoped' },
+      { uid: USER_UID, role: 'ADMIN', tenantId: TENANT },
+    );
+
+    expect(result.notifications_sent).toBe(1);
+    const [lookupSql, ...lookupParams] = queryUnsafeMock.mock.calls[0];
+    expect(lookupSql).toContain('id = ANY($1::int[])');
+    expect(lookupSql).toContain('tenant_id = $2::uuid');
+    expect(lookupParams).toEqual([[10], TENANT]);
+  });
+
+  it('scopes notification stats queries to the actor tenant', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ total_notifications: 0, unread_notifications: 0, read_notifications: 0 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await notificationService.getNotificationStats(7, { uid: USER_UID, role: 'ADMIN', tenantId: TENANT });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(4);
+    for (const [sql, days, tenantId] of queryUnsafeMock.mock.calls) {
+      expect(sql).toContain('tenant_id = $2::uuid');
+      expect(days).toBe(7);
+      expect(tenantId).toBe(TENANT);
+    }
+  });
 });

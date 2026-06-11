@@ -23,6 +23,7 @@ const VALID_PAYMENT_MODES = [
 const VALID_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'VOID'];
 const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
 const HIGH_VALUE_DISCOUNT_APPROVER_ROLES = ['FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN'];
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 // Mirrors VALID_CATEGORIES in claimCapsService — the bucket set TPA caps
 // match against. addInvoiceItem rejects unknown categories so ad-hoc
@@ -60,6 +61,52 @@ export function fiscalYearOf(date = new Date()) {
 
 function toFixed2(n) {
   return Math.round(Number(n) * 100) / 100;
+}
+
+function normalizeTenantId(tenantId) {
+  return tenantId ? String(tenantId) : null;
+}
+
+function appendTenantPredicate(params, tenantId, column = 'tenant_id') {
+  const tenant = normalizeTenantId(tenantId);
+  if (!tenant) return '';
+  params.push(tenant);
+  return ` AND ${column} = $${params.length}::uuid`;
+}
+
+function pushTenantWhere(where, params, tenantId, column = 'tenant_id') {
+  const tenant = normalizeTenantId(tenantId);
+  if (!tenant) return;
+  params.push(tenant);
+  where.push(`${column} = $${params.length}::uuid`);
+}
+
+async function findBillingInvoice(invoiceId, tenantId, columns = '*') {
+  const params = [Number(invoiceId)];
+  const tenantSql = appendTenantPredicate(params, tenantId);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${columns}
+       FROM billing_invoices
+      WHERE id = $1::int${tenantSql}
+      LIMIT 1`,
+    ...params,
+  );
+  return rows[0] || null;
+}
+
+async function assertPatientInTenant(patientUid, tenantId) {
+  const tenant = normalizeTenantId(tenantId);
+  if (!tenant || !patientUid) return;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE uid = $1::uuid
+        AND tenant_id = $2::uuid
+      LIMIT 1`,
+    String(patientUid),
+    tenant,
+  );
+  if (!rows.length) throw AppError.notFound('Patient not found');
 }
 
 export function parseDiscountAmount(amount) {
@@ -366,7 +413,7 @@ async function assertAdmissionBillingOpen(admissionId) {
 export async function createDraftInvoice({
   patient_uid, patient_name, patient_phone, admission_id, doctor_uid,
   department, invoice_type = 'OP', patient_state, hospital_state,
-  notes, created_by,
+  notes, created_by, tenantId,
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!VALID_INVOICE_TYPES.includes(invoice_type)) {
@@ -374,16 +421,18 @@ export async function createDraftInvoice({
   }
   // B-1: enforce billing close before creating against a closed admission.
   await assertAdmissionBillingOpen(admission_id);
+  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_invoices
       (patient_uid, patient_name, patient_phone, admission_id, doctor_uid,
-       department, invoice_type, patient_state, hospital_state, notes, created_by)
-     VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, $11::uuid)
+       department, invoice_type, patient_state, hospital_state, notes, created_by, tenant_id)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, $11::uuid, $12::uuid)
      RETURNING id, invoice_number, patient_uid, patient_name, patient_phone,
                admission_id, doctor_uid, department, invoice_type,
                patient_state, hospital_state, subtotal, cgst_amount, sgst_amount,
                igst_amount, discount_amount, total_amount, amount_paid,
-               amount_due, status, notes, created_at`,
+               amount_due, status, notes, tenant_id, created_at`,
     String(patient_uid),
     patient_name || null,
     patient_phone || null,
@@ -395,6 +444,7 @@ export async function createDraftInvoice({
     hospital_state || null,
     notes || null,
     created_by ? String(created_by) : null,
+    tenant,
   );
   return rows[0];
 }
@@ -427,7 +477,7 @@ const SOURCE_REF_ID_OPTIONAL = new Set(['manual', 'package', 'admission_package'
 
 export async function addInvoiceItem(invoiceId, {
   service_code, description, category, quantity = 1, unit_price, gst_rate, notes,
-  source_ref_type, source_ref_id,
+  source_ref_type, source_ref_id, tenantId,
 }) {
   // Ad-hoc lines (no service_code) may carry a caller-supplied category
   // so per-category TPA caps (`insurance_claim_caps`) and pharmacy/cap
@@ -495,16 +545,16 @@ export async function addInvoiceItem(invoiceId, {
 
   // Read the parent invoice for state-pair (governs CGST+SGST vs IGST)
   // and admission_id for the billing-close enforcement (B-1).
-  const invs = await prisma.$queryRawUnsafe(
-    `SELECT status, patient_state, hospital_state, admission_id
-       FROM billing_invoices WHERE id = $1::int`,
-    Number(invoiceId),
+  const invoice = await findBillingInvoice(
+    invoiceId,
+    tenantId,
+    'status, patient_state, hospital_state, admission_id',
   );
-  if (!invs.length) throw AppError.notFound('Invoice not found');
-  if (invs[0].status !== 'DRAFT') {
+  if (!invoice) throw AppError.notFound('Invoice not found');
+  if (invoice.status !== 'DRAFT') {
     throw AppError.badRequest('Cannot add items to an issued/voided invoice');
   }
-  await assertAdmissionBillingOpen(invs[0].admission_id);
+  await assertAdmissionBillingOpen(invoice.admission_id);
 
   const qty = Number(quantity) || 1;
   const price = Number(resolved.unit_price);
@@ -513,8 +563,8 @@ export async function addInvoiceItem(invoiceId, {
   const split = splitGst({
     subtotal: lineSub,
     gstRate: rate,
-    patientState: invs[0].patient_state,
-    hospitalState: invs[0].hospital_state,
+    patientState: invoice.patient_state,
+    hospitalState: invoice.hospital_state,
   });
 
   const rows = await prisma.$queryRawUnsafe(
@@ -534,15 +584,17 @@ export async function addInvoiceItem(invoiceId, {
   return rows[0];
 }
 
-export async function removeInvoiceItem(invoiceId, itemId) {
-  const inv = await prisma.$queryRawUnsafe(
-    `SELECT status, admission_id FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
+export async function removeInvoiceItem(invoiceId, itemId, { tenantId } = {}) {
+  const inv = await findBillingInvoice(
+    invoiceId,
+    tenantId,
+    'status, admission_id',
   );
-  if (!inv.length) throw AppError.notFound('Invoice not found');
-  if (inv[0].status !== 'DRAFT') {
+  if (!inv) throw AppError.notFound('Invoice not found');
+  if (inv.status !== 'DRAFT') {
     throw AppError.badRequest('Cannot remove items from an issued/voided invoice');
   }
-  await assertAdmissionBillingOpen(inv[0].admission_id);
+  await assertAdmissionBillingOpen(inv.admission_id);
   await prisma.$executeRawUnsafe(
     `DELETE FROM billing_invoice_items WHERE invoice_id = $1::int AND id = $2::int`,
     Number(invoiceId), Number(itemId),
@@ -550,21 +602,21 @@ export async function removeInvoiceItem(invoiceId, itemId) {
   return recomputeInvoiceTotals(Number(invoiceId));
 }
 
-export async function applyDiscount(invoiceId, { amount, reason, approved_by, approved_by_role }) {
+export async function applyDiscount(invoiceId, { amount, reason, approved_by, approved_by_role, tenantId }) {
   const discountAmount = parseDiscountAmount(amount);
-  const inv = await prisma.$queryRawUnsafe(
-    `SELECT status, subtotal, cgst_amount, sgst_amount, igst_amount, admission_id
-       FROM billing_invoices WHERE id = $1::int`,
-    Number(invoiceId),
+  const inv = await findBillingInvoice(
+    invoiceId,
+    tenantId,
+    'status, subtotal, cgst_amount, sgst_amount, igst_amount, admission_id',
   );
-  if (!inv.length) throw AppError.notFound('Invoice not found');
-  if (inv[0].status === 'VOID') throw AppError.badRequest('Cannot discount a void invoice');
-  await assertAdmissionBillingOpen(inv[0].admission_id);
+  if (!inv) throw AppError.notFound('Invoice not found');
+  if (inv.status === 'VOID') throw AppError.badRequest('Cannot discount a void invoice');
+  await assertAdmissionBillingOpen(inv.admission_id);
   const invoiceGross = toFixed2(
-    Number(inv[0].subtotal || 0) +
-    Number(inv[0].cgst_amount || 0) +
-    Number(inv[0].sgst_amount || 0) +
-    Number(inv[0].igst_amount || 0),
+    Number(inv.subtotal || 0) +
+    Number(inv.cgst_amount || 0) +
+    Number(inv.sgst_amount || 0) +
+    Number(inv.igst_amount || 0),
   );
   if (
     requiresDiscountApproval({ amount: discountAmount, invoiceGross }) &&
@@ -589,14 +641,15 @@ export async function applyDiscount(invoiceId, { amount, reason, approved_by, ap
   return recomputeInvoiceTotals(Number(invoiceId));
 }
 
-export async function issueInvoice(invoiceId) {
-  const inv = await prisma.$queryRawUnsafe(
-    `SELECT id, status, tenant_id FROM billing_invoices WHERE id = $1::int`,
-    Number(invoiceId),
+export async function issueInvoice(invoiceId, { tenantId } = {}) {
+  const inv = await findBillingInvoice(
+    invoiceId,
+    tenantId,
+    'id, status, tenant_id',
   );
-  if (!inv.length) throw AppError.notFound('Invoice not found');
-  if (inv[0].status !== 'DRAFT') {
-    throw AppError.badRequest(`Invoice is already ${inv[0].status}`);
+  if (!inv) throw AppError.notFound('Invoice not found');
+  if (inv.status !== 'DRAFT') {
+    throw AppError.badRequest(`Invoice is already ${inv.status}`);
   }
   const items = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*)::int AS c FROM billing_invoice_items WHERE invoice_id = $1::int`,
@@ -604,7 +657,7 @@ export async function issueInvoice(invoiceId) {
   );
   if (items[0].c === 0) throw AppError.badRequest('Cannot issue an invoice with no items');
 
-  const number = await nextInvoiceNumber(inv[0].tenant_id);
+  const number = await nextInvoiceNumber(inv.tenant_id);
   // GST compliance: backfill recipient name/phone and (for IP) issuing
   // doctor + department at issue time. These are statutory snapshot
   // fields — a B2C tax invoice with null recipient name is not a valid
@@ -663,17 +716,19 @@ export async function issueInvoice(invoiceId) {
     }
   }
 
-  return getInvoice(invoiceId);
+  return getInvoice(invoiceId, { tenantId });
 }
 
-export async function voidInvoice(invoiceId, { reason, voided_by }) {
+export async function voidInvoice(invoiceId, { reason, voided_by, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required for voiding');
-  const inv = await prisma.$queryRawUnsafe(
-    `SELECT status FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
+  const inv = await findBillingInvoice(
+    invoiceId,
+    tenantId,
+    'status',
   );
-  if (!inv.length) throw AppError.notFound('Invoice not found');
-  if (inv[0].status === 'VOID') throw AppError.badRequest('Already void');
-  if (inv[0].status === 'PAID') throw AppError.badRequest('Cannot void a paid invoice — raise a refund instead');
+  if (!inv) throw AppError.notFound('Invoice not found');
+  if (inv.status === 'VOID') throw AppError.badRequest('Already void');
+  if (inv.status === 'PAID') throw AppError.badRequest('Cannot void a paid invoice — raise a refund instead');
 
   await prisma.$executeRawUnsafe(
     `UPDATE billing_invoices
@@ -681,7 +736,7 @@ export async function voidInvoice(invoiceId, { reason, voided_by }) {
       WHERE id = $3::int`,
     voided_by ? String(voided_by) : null, reason, Number(invoiceId),
   );
-  return getInvoice(invoiceId);
+  return getInvoice(invoiceId, { tenantId });
 }
 
 // TPA cap-proximity alert thresholds. The 80% rung is the "tell the
@@ -850,11 +905,9 @@ export async function resolveAdmissionTpaCap(admissionId, tenantId) {
   };
 }
 
-export async function getInvoice(invoiceId) {
-  const inv = await prisma.$queryRawUnsafe(
-    `SELECT * FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
-  );
-  if (!inv.length) throw AppError.notFound('Invoice not found');
+export async function getInvoice(invoiceId, { tenantId } = {}) {
+  const invoice = await findBillingInvoice(invoiceId, tenantId);
+  if (!invoice) throw AppError.notFound('Invoice not found');
   const items = await prisma.$queryRawUnsafe(
     `SELECT * FROM billing_invoice_items WHERE invoice_id = $1::int ORDER BY id`,
     Number(invoiceId),
@@ -875,7 +928,7 @@ export async function getInvoice(invoiceId) {
   // approved (98.8%)" on the invoice screen — not just the row's
   // total_amount in isolation. Returns null when the admission has
   // no preauth (cash invoice).
-  const tpaCap = await resolveAdmissionTpaCap(inv[0].admission_id, inv[0].tenant_id);
+  const tpaCap = await resolveAdmissionTpaCap(invoice.admission_id, invoice.tenant_id);
   let tpaUtilisation = null;
   let tpaPreauth = null;
   if (tpaCap) {
@@ -896,7 +949,7 @@ export async function getInvoice(invoiceId) {
     };
 
     if (tpaCap.cumulative_approved > 0) {
-      const total = Number(inv[0].total_amount ?? 0);
+      const total = Number(invoice.total_amount ?? 0);
       const utilisationPct = (total / tpaCap.cumulative_approved) * 100;
       let status = 'within_cap';
       if (utilisationPct >= 100) status = 'over_cap';
@@ -915,7 +968,7 @@ export async function getInvoice(invoiceId) {
   }
 
   return {
-    ...inv[0],
+    ...invoice,
     items,
     payments,
     advance_settlements: settlements,
@@ -925,10 +978,11 @@ export async function getInvoice(invoiceId) {
 }
 
 export async function listInvoices({
-  patient_uid, patient_id, admission_id, status, invoice_type, date_from, date_to, page = 1, limit = 20,
+  tenantId, patient_uid, patient_id, admission_id, status, invoice_type, date_from, date_to, page = 1, limit = 20,
 } = {}) {
   const params = [];
   const where = [];
+  pushTenantWhere(where, params, tenantId);
   if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
   if (patient_id) {
     params.push(Number(patient_id));
@@ -988,7 +1042,7 @@ export async function listInvoices({
 // Payments
 // ───────────────────────────────────────────────────────────────────────
 
-async function assertInsurancePaymentHasClaimAnchor(invoiceId) {
+async function assertInsurancePaymentHasClaimAnchor(invoiceId, tenantId = null) {
   if (!invoiceId) {
     throw AppError.badRequest(
       'INSURANCE payments must be recorded against an invoice linked to a submitted cashless TPA claim.',
@@ -996,16 +1050,19 @@ async function assertInsurancePaymentHasClaimAnchor(invoiceId) {
     );
   }
 
+  const params = [Number(invoiceId)];
+  const tenantSql = appendTenantPredicate(params, tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, claim_number, preauth_id, status
        FROM tpa_claims
       WHERE invoice_id = $1::int
+        ${tenantSql}
         AND claim_type = 'cashless'
         AND COALESCE(stage, 'final') = 'final'
         AND status IN ('submitted', 'approved', 'partially_approved', 'paid', 'settled_partial')
       ORDER BY created_at DESC, id DESC
       LIMIT 1`,
-    Number(invoiceId),
+    ...params,
   );
 
   if (!rows.length) {
@@ -1027,7 +1084,7 @@ async function assertInsurancePaymentHasClaimAnchor(invoiceId) {
 
 export async function collectPayment({
   invoice_id, patient_uid, amount, mode, reference,
-  denominations, collected_by, shift, notes,
+  denominations, collected_by, shift, notes, tenantId,
 }) {
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
@@ -1052,38 +1109,39 @@ export async function collectPayment({
   }
 
   if (normalizedMode === 'INSURANCE' && !invoice_id) {
-    await assertInsurancePaymentHasClaimAnchor(null);
+    await assertInsurancePaymentHasClaimAnchor(null, tenantId);
   }
 
   // Resolve patient_uid + invoice gating from invoice if invoice_id given.
   let resolvedPatientUid = patient_uid;
   if (invoice_id) {
-    const inv = await prisma.$queryRawUnsafe(
-      `SELECT patient_uid, status, total_amount, amount_paid, amount_due
-         FROM billing_invoices WHERE id = $1::int`,
-      Number(invoice_id),
+    const inv = await findBillingInvoice(
+      invoice_id,
+      tenantId,
+      'patient_uid, status, total_amount, amount_paid, amount_due',
     );
-    if (!inv.length) throw AppError.notFound('Invoice not found');
-    if (inv[0].status === 'VOID' || inv[0].status === 'DRAFT') {
-      throw AppError.badRequest(`Cannot collect against ${inv[0].status} invoice`);
+    if (!inv) throw AppError.notFound('Invoice not found');
+    if (inv.status === 'VOID' || inv.status === 'DRAFT') {
+      throw AppError.badRequest(`Cannot collect against ${inv.status} invoice`);
     }
-    resolvedPatientUid = inv[0].patient_uid;
-    if (Number(amount) > Number(inv[0].amount_due) + 0.01) {
+    resolvedPatientUid = inv.patient_uid;
+    if (Number(amount) > Number(inv.amount_due) + 0.01) {
       throw AppError.badRequest(
-        `Amount ${amount} exceeds outstanding due ${inv[0].amount_due}`,
+        `Amount ${amount} exceeds outstanding due ${inv.amount_due}`,
       );
     }
     if (normalizedMode === 'INSURANCE') {
-      await assertInsurancePaymentHasClaimAnchor(invoice_id);
+      await assertInsurancePaymentHasClaimAnchor(invoice_id, tenantId);
     }
   }
   if (!resolvedPatientUid) throw AppError.badRequest('patient_uid is required when invoice_id is omitted');
+  if (!invoice_id) await assertPatientInTenant(resolvedPatientUid, tenantId);
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_payments
       (invoice_id, patient_uid, amount, mode, reference, denominations,
-       collected_by, shift, notes)
-     VALUES ($1, $2::uuid, $3::numeric, $4, $5, $6::jsonb, $7::uuid, $8, $9)
+       collected_by, shift, notes, tenant_id)
+     VALUES ($1, $2::uuid, $3::numeric, $4, $5, $6::jsonb, $7::uuid, $8, $9, $10::uuid)
      RETURNING *`,
     invoice_id ? Number(invoice_id) : null,
     String(resolvedPatientUid),
@@ -1094,6 +1152,7 @@ export async function collectPayment({
     collected_by ? String(collected_by) : null,
     shift || null,
     notes || null,
+    normalizeTenantId(tenantId) || DEFAULT_TENANT_ID,
   );
 
   if (invoice_id) {
@@ -1103,15 +1162,21 @@ export async function collectPayment({
   return rows[0];
 }
 
-export async function reversePayment(paymentId, { reversed_by, reason }) {
+export async function reversePayment(paymentId, { reversed_by, reason, tenantId }) {
   if (!reason) throw AppError.badRequest('reason is required');
+  const params = [
+    reversed_by ? String(reversed_by) : null,
+    reason,
+    Number(paymentId),
+  ];
+  const tenantSql = appendTenantPredicate(params, tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE billing_payments
         SET reversed = true, reversed_at = NOW(),
             reversed_by = $1::uuid, reversal_reason = $2
-      WHERE id = $3::int AND reversed = false
+      WHERE id = $3::int AND reversed = false${tenantSql}
       RETURNING *`,
-    reversed_by ? String(reversed_by) : null, reason, Number(paymentId),
+    ...params,
   );
   if (!rows.length) throw AppError.notFound('Payment not found or already reversed');
   // Recompute parent invoice if attached.
@@ -1126,28 +1191,31 @@ export async function reversePayment(paymentId, { reversed_by, reason }) {
 // Advance / Deposit
 // ───────────────────────────────────────────────────────────────────────
 
-export async function collectAdvance({ patient_uid, admission_id, amount, mode, reference, collected_by, notes }) {
+export async function collectAdvance({ patient_uid, admission_id, amount, mode, reference, collected_by, notes, tenantId }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid required');
   if (!VALID_PAYMENT_MODES.includes(mode)) {
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  if (tenantId) await assertPatientInTenant(patient_uid, tenant);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_advances
-      (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes)
-     VALUES ($1::uuid, $2, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7)
+      (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes, tenant_id)
+     VALUES ($1::uuid, $2, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7, $8::uuid)
      RETURNING *`,
     String(patient_uid),
     admission_id ? Number(admission_id) : null,
     Number(amount), mode, reference || null,
-    collected_by ? String(collected_by) : null, notes || null,
+    collected_by ? String(collected_by) : null, notes || null, tenant,
   );
   return rows[0];
 }
 
-export async function listAdvances({ patient_uid, admission_id, status = 'ACTIVE' } = {}) {
+export async function listAdvances({ tenantId, patient_uid, admission_id, status = 'ACTIVE' } = {}) {
   const params = [];
   const where = [];
+  pushTenantWhere(where, params, tenantId);
   if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
   if (admission_id) { params.push(Number(admission_id)); where.push(`admission_id = $${params.length}::int`); }
   if (status) { params.push(status); where.push(`status = $${params.length}`); }
@@ -1157,9 +1225,12 @@ export async function listAdvances({ patient_uid, admission_id, status = 'ACTIVE
   return prisma.$queryRawUnsafe(sql, ...params);
 }
 
-export async function settleAdvance({ advance_id, invoice_id, amount, settled_by }) {
+export async function settleAdvance({ tenantId, advance_id, invoice_id, amount, settled_by }) {
+  const advParams = [Number(advance_id)];
+  const advTenantSql = appendTenantPredicate(advParams, tenantId);
   const adv = await prisma.$queryRawUnsafe(
-    `SELECT * FROM billing_advances WHERE id = $1::int`, Number(advance_id),
+    `SELECT * FROM billing_advances WHERE id = $1::int${advTenantSql}`,
+    ...advParams,
   );
   if (!adv.length) throw AppError.notFound('Advance not found');
   if (adv[0].status !== 'ACTIVE') throw AppError.badRequest(`Advance is ${adv[0].status}`);
@@ -1167,12 +1238,20 @@ export async function settleAdvance({ advance_id, invoice_id, amount, settled_by
     throw AppError.badRequest(`Amount exceeds advance balance ${adv[0].balance}`);
   }
 
-  const inv = await prisma.$queryRawUnsafe(
-    `SELECT amount_due FROM billing_invoices WHERE id = $1::int`, Number(invoice_id),
+  const inv = await findBillingInvoice(
+    invoice_id,
+    tenantId,
+    'amount_due, patient_uid',
   );
-  if (!inv.length) throw AppError.notFound('Invoice not found');
-  if (Number(amount) > Number(inv[0].amount_due) + 0.01) {
-    throw AppError.badRequest(`Amount exceeds invoice due ${inv[0].amount_due}`);
+  if (!inv) throw AppError.notFound('Invoice not found');
+  if (String(inv.patient_uid).toLowerCase() !== String(adv[0].patient_uid).toLowerCase()) {
+    throw AppError.forbidden(
+      'Advance and invoice must belong to the same patient',
+      'BILLING_ADVANCE_INVOICE_PATIENT_MISMATCH',
+    );
+  }
+  if (Number(amount) > Number(inv.amount_due) + 0.01) {
+    throw AppError.badRequest(`Amount exceeds invoice due ${inv.amount_due}`);
   }
 
   const settlement = await prisma.$queryRawUnsafe(
@@ -1209,7 +1288,7 @@ export async function settleAdvance({ advance_id, invoice_id, amount, settled_by
 // ───────────────────────────────────────────────────────────────────────
 
 export async function raiseRefund({
-  patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by,
+  patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenantId,
 }) {
   if (!reason) throw AppError.badRequest('reason is required');
   if (!VALID_PAYMENT_MODES.includes(mode)) {
@@ -1219,54 +1298,98 @@ export async function raiseRefund({
   if ((!invoice_id && !advance_id) || (invoice_id && advance_id)) {
     throw AppError.badRequest('Refund must reference exactly one of invoice_id or advance_id');
   }
+  const tenant = normalizeTenantId(tenantId) || DEFAULT_TENANT_ID;
+  let resolvedPatientUid = patient_uid;
+  if (invoice_id) {
+    const invoice = await findBillingInvoice(invoice_id, tenantId, 'patient_uid');
+    if (!invoice) throw AppError.notFound('Invoice not found');
+    if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(invoice.patient_uid).toLowerCase()) {
+      throw AppError.forbidden(
+        'Refund patient_uid must match the invoice patient',
+        'BILLING_REFUND_PATIENT_MISMATCH',
+      );
+    }
+    resolvedPatientUid = invoice.patient_uid;
+  }
+  if (advance_id) {
+    const advParams = [Number(advance_id)];
+    const advTenantSql = appendTenantPredicate(advParams, tenantId);
+    const advances = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid FROM billing_advances WHERE id = $1::int${advTenantSql}`,
+      ...advParams,
+    );
+    if (!advances.length) throw AppError.notFound('Advance not found');
+    if (resolvedPatientUid && String(resolvedPatientUid).toLowerCase() !== String(advances[0].patient_uid).toLowerCase()) {
+      throw AppError.forbidden(
+        'Refund patient_uid must match the advance patient',
+        'BILLING_REFUND_PATIENT_MISMATCH',
+      );
+    }
+    resolvedPatientUid = advances[0].patient_uid;
+  }
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_refunds
-      (patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by)
-     VALUES ($1::uuid, $2, $3, $4::numeric, $5, $6, $7::uuid)
+      (patient_uid, invoice_id, advance_id, amount, reason, mode, raised_by, tenant_id)
+     VALUES ($1::uuid, $2, $3, $4::numeric, $5, $6, $7::uuid, $8::uuid)
      RETURNING *`,
-    String(patient_uid),
+    String(resolvedPatientUid),
     invoice_id ? Number(invoice_id) : null,
     advance_id ? Number(advance_id) : null,
     Number(amount), reason, mode,
     raised_by ? String(raised_by) : null,
+    tenant,
   );
   return rows[0];
 }
 
-export async function approveRefund(refundId, { approved_by }) {
+export async function approveRefund(refundId, { approved_by, tenantId } = {}) {
+  const params = [approved_by ? String(approved_by) : null, Number(refundId)];
+  const tenantSql = appendTenantPredicate(params, tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE billing_refunds
         SET approval_status = 'APPROVED', approved_by = $1::uuid, approved_at = NOW(), updated_at = NOW()
-      WHERE id = $2::int AND approval_status = 'PENDING'
+      WHERE id = $2::int AND approval_status = 'PENDING'${tenantSql}
       RETURNING *`,
-    approved_by ? String(approved_by) : null, Number(refundId),
+    ...params,
   );
   if (!rows.length) throw AppError.notFound('Refund not found or not pending');
   return rows[0];
 }
 
-export async function rejectRefund(refundId, { rejected_by, rejection_reason }) {
+export async function rejectRefund(refundId, { rejected_by, rejection_reason, tenantId } = {}) {
   if (!rejection_reason) throw AppError.badRequest('rejection_reason is required');
+  const params = [
+    rejected_by ? String(rejected_by) : null,
+    rejection_reason,
+    Number(refundId),
+  ];
+  const tenantSql = appendTenantPredicate(params, tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE billing_refunds
         SET approval_status = 'REJECTED', rejected_by = $1::uuid,
             rejected_at = NOW(), rejection_reason = $2, updated_at = NOW()
-      WHERE id = $3::int AND approval_status = 'PENDING'
+      WHERE id = $3::int AND approval_status = 'PENDING'${tenantSql}
       RETURNING *`,
-    rejected_by ? String(rejected_by) : null, rejection_reason, Number(refundId),
+    ...params,
   );
   if (!rows.length) throw AppError.notFound('Refund not found or not pending');
   return rows[0];
 }
 
-export async function markRefundPaid(refundId, { paid_by, reference }) {
+export async function markRefundPaid(refundId, { paid_by, reference, tenantId } = {}) {
+  const params = [
+    paid_by ? String(paid_by) : null,
+    reference || null,
+    Number(refundId),
+  ];
+  const tenantSql = appendTenantPredicate(params, tenantId);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE billing_refunds
         SET approval_status = 'PAID', paid_by = $1::uuid,
             paid_at = NOW(), reference = COALESCE($2, reference), updated_at = NOW()
-      WHERE id = $3::int AND approval_status = 'APPROVED'
+      WHERE id = $3::int AND approval_status = 'APPROVED'${tenantSql}
       RETURNING *`,
-    paid_by ? String(paid_by) : null, reference || null, Number(refundId),
+    ...params,
   );
   if (!rows.length) throw AppError.notFound('Refund not found or not approved');
 
@@ -1284,9 +1407,10 @@ export async function markRefundPaid(refundId, { paid_by, reference }) {
   return rows[0];
 }
 
-export async function listRefunds({ approval_status, patient_uid } = {}) {
+export async function listRefunds({ tenantId, approval_status, patient_uid } = {}) {
   const params = [];
   const where = [];
+  pushTenantWhere(where, params, tenantId);
   if (approval_status) { params.push(approval_status); where.push(`approval_status = $${params.length}`); }
   if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
   const sql = `SELECT * FROM billing_refunds
@@ -1450,7 +1574,9 @@ async function fetchExistingSourceKeys(invoiceId) {
   return keys;
 }
 
-async function fetchAdmissionForItemizing(admissionId) {
+async function fetchAdmissionForItemizing(admissionId, tenantId = null) {
+  const params = [Number(admissionId)];
+  const tenantSql = appendTenantPredicate(params, tenantId, 'a.tenant_id');
   const rows = await prisma.$queryRawUnsafe(
     `SELECT a.id, a.patient_uid, a.encounter_id, a.admitted_at, a.discharged_at,
             a.ward, a.bed_id, a.package_id, a.package_code,
@@ -1459,14 +1585,15 @@ async function fetchAdmissionForItemizing(admissionId) {
             p.display_name      AS package_name
        FROM admissions a
        LEFT JOIN packages p ON p.id = a.package_id
-      WHERE a.id = $1::int
+      WHERE a.id = $1::int${tenantSql}
       LIMIT 1`,
-    Number(admissionId),
+    ...params,
   );
   return rows[0] || null;
 }
 
 export async function itemizeAdmissionInvoice(invoiceId, {
+  tenantId = null,
   decided_by = null,
   emit_package = true,
   emit_pharmacy = true,
@@ -1481,22 +1608,19 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   }
 
   // Phase 0 — pre-flight: invoice exists, is DRAFT, and has an admission.
-  const invRows = await prisma.$queryRawUnsafe(
-    `SELECT id, status, admission_id
-       FROM billing_invoices
-      WHERE id = $1::int
-      LIMIT 1`,
+  const inv = await findBillingInvoice(
     invId,
+    tenantId,
+    'id, status, admission_id',
   );
-  if (!invRows.length) throw AppError.notFound('Invoice not found');
-  const inv = invRows[0];
+  if (!inv) throw AppError.notFound('Invoice not found');
   if (inv.status !== 'DRAFT') {
     throw AppError.badRequest('Auto-itemize can only run on a DRAFT invoice');
   }
   if (!inv.admission_id) {
     throw AppError.badRequest('Invoice has no admission_id — auto-itemize only supports admission-scoped invoices');
   }
-  const admission = await fetchAdmissionForItemizing(inv.admission_id);
+  const admission = await fetchAdmissionForItemizing(inv.admission_id, tenantId);
   if (!admission) throw AppError.notFound('Admission not found');
 
   const startTs = admission.admitted_at || admission.created_at;
@@ -1535,6 +1659,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
       notes,
       source_ref_type,
       source_ref_id,
+      tenantId,
     });
     // Stamp the TPA decision on the newly-created line. addInvoiceItem
     // returns the row; we patch the four migration-213 columns in a
@@ -1774,7 +1899,7 @@ const VALID_NON_PAYABLE_REASONS = new Set([
 ]);
 
 export async function recordInvoiceItemTpaDecision({
-  invoice_id, item_id, decision, non_payable_reason, decided_by,
+  tenantId, invoice_id, item_id, decision, non_payable_reason, decided_by,
 }) {
   if (!VALID_TPA_DECISIONS.has(decision)) {
     throw AppError.badRequest(
@@ -1788,6 +1913,8 @@ export async function recordInvoiceItemTpaDecision({
       );
     }
   }
+  const invoice = await findBillingInvoice(invoice_id, tenantId, 'id');
+  if (!invoice) throw AppError.notFound('Invoice not found');
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE billing_invoice_items
         SET tpa_decision = $1,
@@ -1807,7 +1934,9 @@ export async function recordInvoiceItemTpaDecision({
   return rows[0];
 }
 
-export async function getInvoiceNonPayableBreakdown(invoiceId) {
+export async function getInvoiceNonPayableBreakdown(invoiceId, { tenantId } = {}) {
+  const invoice = await findBillingInvoice(invoiceId, tenantId, 'id');
+  if (!invoice) throw AppError.notFound('Invoice not found');
   const items = await prisma.$queryRawUnsafe(
     `SELECT id, description, source_ref_type, source_ref_id,
             line_total, tpa_decision, tpa_non_payable_reason,

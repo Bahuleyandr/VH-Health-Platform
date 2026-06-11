@@ -70,11 +70,27 @@ export function projectCumulativePerM2({ existingPerM2 = 0, dosePerM2Planned = 0
 }
 
 const REQUIRE_ADMIN_PRIVILEGE = () => String(process.env.CHEMO_REQUIRE_ADMIN_PRIVILEGE || 'false') === 'true';
+const TENANT_FALLBACK = '00000000-0000-4000-8000-000000000001';
+const tenantOr = (t) => t || TENANT_FALLBACK;
+
+async function assertPatientInTenant(tenantId, patientUid) {
+  if (!patientUid) throw AppError.badRequest('patient_uid is required', 'CHEMO_PATIENT_REQUIRED');
+  const patient = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users
+      WHERE tenant_id = $1::uuid
+        AND uid = $2::uuid
+        AND role = 'PATIENT'
+      LIMIT 1`,
+    tenantOr(tenantId),
+    patientUid,
+  );
+  if (!patient.length) throw AppError.notFound('Patient not found', 'CHEMO_PATIENT_NOT_FOUND');
+}
 
 // ── protocols ────────────────────────────────────────────────────────────
 
 export async function createProtocol({
-  code, name, indication = null, cycleLengthDays, totalCycles = 1, reference = null, drugs = [],
+  tenantId, code, name, indication = null, cycleLengthDays, totalCycles = 1, reference = null, drugs = [],
 }, { actorUid = null } = {}) {
   const trimmedCode = String(code || '').trim().toUpperCase();
   if (!trimmedCode) throw AppError.badRequest('Protocol code is required', 'CHEMO_CODE_REQUIRED');
@@ -104,9 +120,10 @@ export async function createProtocol({
   try {
     return await prisma.$transaction(async (tx) => {
       const protoRows = await tx.$queryRawUnsafe(
-        `INSERT INTO chemo_protocols (code, name, indication, cycle_length_days, total_cycles, reference, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::uuid)
+        `INSERT INTO chemo_protocols (tenant_id, code, name, indication, cycle_length_days, total_cycles, reference, created_by)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid)
          RETURNING id, code, name, cycle_length_days, total_cycles, status, created_at`,
+        tenantOr(tenantId),
         trimmedCode,
         String(name).trim(),
         indication || null,
@@ -150,16 +167,19 @@ export async function createProtocol({
   }
 }
 
-export async function activateProtocol(protocolId) {
+export async function activateProtocol(protocolId, { tenantId } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE chemo_protocols SET status = 'active', updated_at = NOW()
-     WHERE id = $1 AND status = 'draft'
+     WHERE id = $1 AND tenant_id = $2::uuid AND status = 'draft'
      RETURNING id, code, name, status`,
     Number(protocolId),
+    tenantOr(tenantId),
   );
   if (!rows.length) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT status FROM chemo_protocols WHERE id = $1`, Number(protocolId),
+      `SELECT status FROM chemo_protocols WHERE id = $1 AND tenant_id = $2::uuid`,
+      Number(protocolId),
+      tenantOr(tenantId),
     );
     if (!existing.length) throw AppError.notFound('Protocol not found', 'CHEMO_PROTOCOL_NOT_FOUND');
     throw AppError.invalidTransition(existing[0].status, 'active', ['draft']);
@@ -167,11 +187,12 @@ export async function activateProtocol(protocolId) {
   return rows[0];
 }
 
-export async function getProtocol(protocolId) {
+export async function getProtocol(protocolId, { tenantId } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, code, name, indication, cycle_length_days, total_cycles, status, reference, created_at
-     FROM chemo_protocols WHERE id = $1`,
+     FROM chemo_protocols WHERE id = $1 AND tenant_id = $2::uuid`,
     Number(protocolId),
+    tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Protocol not found', 'CHEMO_PROTOCOL_NOT_FOUND');
   const drugs = await prisma.$queryRawUnsafe(
@@ -183,12 +204,12 @@ export async function getProtocol(protocolId) {
   return { ...rows[0], drugs };
 }
 
-export async function listProtocols({ status = null } = {}) {
-  const params = [];
-  let where = '';
+export async function listProtocols({ tenantId, status = null } = {}) {
+  const params = [tenantOr(tenantId)];
+  let where = 'WHERE p.tenant_id = $1::uuid';
   if (status) {
     params.push(status);
-    where = `WHERE p.status = $1`;
+    where += ` AND p.status = $${params.length}`;
   }
   return prisma.$queryRawUnsafe(
     `SELECT p.id, p.code, p.name, p.indication, p.cycle_length_days, p.total_cycles, p.status,
@@ -201,34 +222,31 @@ export async function listProtocols({ status = null } = {}) {
 
 // ── treatment plans ──────────────────────────────────────────────────────
 
-async function latestVitals(patientUid) {
+async function latestVitals(tenantId, patientUid) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT
-       (SELECT height_cm FROM vitals_chart WHERE patient_uid = $1::uuid AND height_cm IS NOT NULL ORDER BY recorded_at DESC LIMIT 1) AS height_cm,
-       (SELECT weight_kg FROM vitals_chart WHERE patient_uid = $1::uuid AND weight_kg IS NOT NULL ORDER BY recorded_at DESC LIMIT 1) AS weight_kg`,
+       (SELECT height_cm FROM vitals_chart WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND height_cm IS NOT NULL ORDER BY recorded_at DESC LIMIT 1) AS height_cm,
+       (SELECT weight_kg FROM vitals_chart WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND weight_kg IS NOT NULL ORDER BY recorded_at DESC LIMIT 1) AS weight_kg`,
+    tenantOr(tenantId),
     patientUid,
   );
   return rows[0] || { height_cm: null, weight_kg: null };
 }
 
 export async function createTreatmentPlan(protocolId, {
-  patientUid, indication = null, plannedCycles = null, consentRef = null,
+  tenantId, patientUid, indication = null, plannedCycles = null, consentRef = null,
   heightCm = null, weightKg = null, startDate = null,
 }, { actorUid = null, actorRole = null } = {}) {
-  const protocol = await getProtocol(protocolId);
+  const protocol = await getProtocol(protocolId, { tenantId });
   if (protocol.status !== 'active') {
     throw AppError.invalidTransition(protocol.status, 'planning against', ['active']);
   }
-  if (!patientUid) throw AppError.badRequest('patient_uid is required', 'CHEMO_PATIENT_REQUIRED');
-  const patient = await prisma.$queryRawUnsafe(
-    `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`, patientUid,
-  );
-  if (!patient.length) throw AppError.notFound('Patient not found', 'CHEMO_PATIENT_NOT_FOUND');
+  await assertPatientInTenant(tenantId, patientUid);
 
   let h = heightCm !== null && heightCm !== undefined ? Number(heightCm) : null;
   let w = weightKg !== null && weightKg !== undefined ? Number(weightKg) : null;
   if (h === null || w === null) {
-    const vitals = await latestVitals(patientUid);
+    const vitals = await latestVitals(tenantId, patientUid);
     if (h === null && vitals.height_cm !== null) h = Number(vitals.height_cm);
     if (w === null && vitals.weight_kg !== null) w = Number(vitals.weight_kg);
   }
@@ -247,11 +265,12 @@ export async function createTreatmentPlan(protocolId, {
     return await prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO chemo_treatment_plans
-           (patient_uid, protocol_id, indication, planned_cycles, consent_ref,
+           (tenant_id, patient_uid, protocol_id, indication, planned_cycles, consent_ref,
             height_cm, weight_kg, bsa_m2, start_date, created_by)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::date, $10::uuid)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::uuid)
          RETURNING id, patient_uid, protocol_id, planned_cycles, current_cycle, status,
                    height_cm, weight_kg, bsa_m2, bsa_method, start_date, created_at`,
+        tenantOr(tenantId),
         patientUid,
         protocol.id,
         indication || protocol.indication || null,
@@ -266,6 +285,7 @@ export async function createTreatmentPlan(protocolId, {
       const plan = rows[0];
 
       await recordCanonicalClinicalEvent({
+        tenantId: tenantOr(tenantId),
         patientUid,
         eventType: 'chemo.plan_created',
         sourceTable: 'chemo_treatment_plans',
@@ -286,25 +306,30 @@ export async function createTreatmentPlan(protocolId, {
   }
 }
 
-async function getPlan(planId, db = prisma) {
+async function getPlan(planId, { tenantId, db = prisma } = {}) {
   const rows = await db.$queryRawUnsafe(
-    `SELECT p.id, p.patient_uid, p.protocol_id, p.planned_cycles, p.current_cycle, p.status,
+    `SELECT p.id, p.tenant_id, p.patient_uid, p.protocol_id, p.planned_cycles, p.current_cycle, p.status,
             p.height_cm, p.weight_kg, p.bsa_m2, pr.code AS protocol_code, pr.cycle_length_days
      FROM chemo_treatment_plans p
      JOIN chemo_protocols pr ON pr.id = p.protocol_id
-     WHERE p.id = $1`,
+     WHERE p.id = $1
+       AND p.tenant_id = $2::uuid
+       AND pr.tenant_id = $2::uuid`,
     Number(planId),
+    tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Treatment plan not found', 'CHEMO_PLAN_NOT_FOUND');
   return rows[0];
 }
 
-export async function getPatientCumulative(patientUid) {
+export async function getPatientCumulative(patientUid, { tenantId } = {}) {
+  await assertPatientInTenant(tenantId, patientUid);
   return prisma.$queryRawUnsafe(
     `SELECT drug_name, total_dose, total_dose_per_m2, dose_unit, administration_count, last_administered_at
      FROM chemo_cumulative_doses
-     WHERE patient_uid = $1::uuid
+     WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
      ORDER BY drug_name`,
+    tenantOr(tenantId),
     patientUid,
   );
 }
@@ -312,9 +337,9 @@ export async function getPatientCumulative(patientUid) {
 // ── cycle scheduling (with cumulative ceiling gate) ──────────────────────
 
 export async function scheduleCycle(planId, {
-  cycleNumber, scheduledDate, weightKg = null, doseReductions = {}, ceilingOverrideReason = null,
+  tenantId, cycleNumber, scheduledDate, weightKg = null, doseReductions = {}, ceilingOverrideReason = null,
 }, { actorUid = null, actorRole = null } = {}) {
-  const plan = await getPlan(planId);
+  const plan = await getPlan(planId, { tenantId });
   if (!['planned', 'active'].includes(plan.status)) {
     throw AppError.invalidTransition(plan.status, 'scheduling a cycle', ['planned', 'active']);
   }
@@ -327,7 +352,7 @@ export async function scheduleCycle(planId, {
   // Re-weigh: per-cycle weight from caller, else latest vitals, else plan snapshot.
   let w = weightKg !== null && weightKg !== undefined ? Number(weightKg) : null;
   if (w === null) {
-    const vitals = await latestVitals(plan.patient_uid);
+    const vitals = await latestVitals(tenantId, plan.patient_uid);
     w = vitals.weight_kg !== null ? Number(vitals.weight_kg) : Number(plan.weight_kg);
   }
   const bsa = computeBsaMosteller(Number(plan.height_cm), w);
@@ -335,7 +360,9 @@ export async function scheduleCycle(planId, {
 
   const drugs = await prisma.$queryRawUnsafe(
     `SELECT id, drug_name, dose_per_m2, fixed_dose, dose_unit, route, max_lifetime_dose_per_m2
-     FROM chemo_protocol_drugs WHERE protocol_id = $1 ORDER BY sequence`,
+       FROM chemo_protocol_drugs
+      WHERE protocol_id = $1
+      ORDER BY sequence`,
     plan.protocol_id,
   );
 
@@ -346,7 +373,8 @@ export async function scheduleCycle(planId, {
     if (drug.max_lifetime_dose_per_m2 === null || drug.dose_per_m2 === null) continue;
     const existing = await prisma.$queryRawUnsafe(
       `SELECT total_dose_per_m2 FROM chemo_cumulative_doses
-       WHERE patient_uid = $1::uuid AND drug_name = LOWER($2)`,
+       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND drug_name = LOWER($3)`,
+      tenantOr(tenantId),
       plan.patient_uid,
       drug.drug_name,
     );
@@ -377,10 +405,10 @@ export async function scheduleCycle(planId, {
   try {
     return await prisma.$transaction(async (tx) => {
       const cycleRows = await tx.$queryRawUnsafe(
-        `INSERT INTO chemo_cycles (plan_id, cycle_number, scheduled_date, weight_kg, bsa_m2, created_by)
-         VALUES ($1, $2, $3::date, $4, $5, $6::uuid)
+        `INSERT INTO chemo_cycles (tenant_id, plan_id, cycle_number, scheduled_date, weight_kg, bsa_m2, created_by)
+         VALUES ($1::uuid, $2, $3, $4::date, $5, $6, $7::uuid)
          RETURNING id, plan_id, cycle_number, scheduled_date, status, weight_kg, bsa_m2`,
-        plan.id, cycleNo, scheduledDate, w, bsa, actorUid,
+        tenantOr(tenantId), plan.id, cycleNo, scheduledDate, w, bsa, actorUid,
       );
       const cycle = cycleRows[0];
 
@@ -392,10 +420,11 @@ export async function scheduleCycle(planId, {
         const breached = breaches.some((b) => b.drug_name === drug.drug_name);
         const adminRows = await tx.$queryRawUnsafe(
           `INSERT INTO chemo_administrations
-             (cycle_id, protocol_drug_id, drug_name, calculated_dose, dose_reduction_pct,
+             (tenant_id, cycle_id, protocol_drug_id, drug_name, calculated_dose, dose_reduction_pct,
               final_dose, dose_unit, route, ceiling_override_reason)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            RETURNING id, drug_name, calculated_dose, dose_reduction_pct, final_dose, dose_unit, route, status, ceiling_override_reason`,
+          tenantOr(tenantId),
           cycle.id,
           drug.id,
           drug.drug_name,
@@ -412,11 +441,13 @@ export async function scheduleCycle(planId, {
       await tx.$queryRawUnsafe(
         `UPDATE chemo_treatment_plans
          SET status = 'active', current_cycle = GREATEST(current_cycle, $2), updated_at = NOW()
-         WHERE id = $1`,
+         WHERE id = $1 AND tenant_id = $3::uuid`,
         plan.id, cycleNo,
+        tenantOr(tenantId),
       );
 
       await recordCanonicalClinicalEvent({
+        tenantId: tenantOr(tenantId),
         patientUid: plan.patient_uid,
         eventType: 'chemo.cycle_scheduled',
         sourceTable: 'chemo_cycles',
@@ -444,7 +475,7 @@ export async function scheduleCycle(planId, {
 
 // ── administration: two-person verification + recording ─────────────────
 
-async function getAdministration(adminId, db = prisma) {
+async function getAdministration(adminId, { tenantId, db = prisma } = {}) {
   const rows = await db.$queryRawUnsafe(
     `SELECT a.id, a.cycle_id, a.drug_name, a.final_dose, a.dose_unit, a.route, a.status,
             a.first_verified_by, a.second_verified_by, a.ceiling_override_reason,
@@ -453,22 +484,27 @@ async function getAdministration(adminId, db = prisma) {
      JOIN chemo_cycles c ON c.id = a.cycle_id
      JOIN chemo_treatment_plans p ON p.id = c.plan_id
      JOIN chemo_protocols pr ON pr.id = p.protocol_id
-     WHERE a.id = $1`,
+     WHERE a.id = $1
+       AND a.tenant_id = $2::uuid
+       AND c.tenant_id = $2::uuid
+       AND p.tenant_id = $2::uuid
+       AND pr.tenant_id = $2::uuid`,
     Number(adminId),
+    tenantOr(tenantId),
   );
   if (!rows.length) throw AppError.notFound('Chemo administration not found', 'CHEMO_ADMIN_NOT_FOUND');
   return rows[0];
 }
 
 export async function verifyAdministration(adminId, {
-  verifierRole, scannedPatientUid = null,
+  tenantId, verifierRole, scannedPatientUid = null,
 }, { actorUid = null, actorRole = null } = {}) {
   if (!['first', 'second'].includes(verifierRole)) {
     throw AppError.badRequest('verifier_role must be first or second', 'CHEMO_VERIFIER_ROLE_INVALID');
   }
   if (!actorUid) throw AppError.unauthorized('Verifier identity required', 'CHEMO_VERIFIER_REQUIRED');
 
-  const admin = await getAdministration(adminId);
+  const admin = await getAdministration(adminId, { tenantId });
 
   if (scannedPatientUid && String(scannedPatientUid) !== String(admin.patient_uid)) {
     throw AppError.badRequest(
@@ -495,19 +531,21 @@ export async function verifyAdministration(adminId, {
     const rows = await tx.$queryRawUnsafe(
       verifierRole === 'first'
         ? `UPDATE chemo_administrations
-           SET status = 'first_verified', first_verified_by = $2::uuid, first_verified_at = NOW(), updated_at = NOW()
-           WHERE id = $1 AND status = 'pending'
+          SET status = 'first_verified', first_verified_by = $2::uuid, first_verified_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND tenant_id = $3::uuid AND status = 'pending'
            RETURNING id, drug_name, status, first_verified_by, first_verified_at`
         : `UPDATE chemo_administrations
            SET status = 'double_verified', second_verified_by = $2::uuid, second_verified_at = NOW(), updated_at = NOW()
-           WHERE id = $1 AND status = 'first_verified'
+           WHERE id = $1 AND tenant_id = $3::uuid AND status = 'first_verified'
            RETURNING id, drug_name, status, second_verified_by, second_verified_at`,
       admin.id,
       actorUid,
+      tenantOr(tenantId),
     );
     if (!rows.length) throw AppError.conflict('Administration state changed concurrently', 'CHEMO_ADMIN_RACE');
 
     await recordCanonicalClinicalEvent({
+      tenantId: tenantOr(tenantId),
       patientUid: admin.patient_uid,
       eventType: 'chemo.administration_verified',
       sourceTable: 'chemo_administrations',
@@ -523,9 +561,9 @@ export async function verifyAdministration(adminId, {
   });
 }
 
-export async function recordChemoAdministration(adminId, { actorUid = null, actorRole = null } = {}) {
+export async function recordChemoAdministration(adminId, { tenantId, actorUid = null, actorRole = null } = {}) {
   if (!actorUid) throw AppError.unauthorized('Administering user identity required', 'CHEMO_ADMINISTRATOR_REQUIRED');
-  const admin = await getAdministration(adminId);
+  const admin = await getAdministration(adminId, { tenantId });
   if (admin.status !== 'double_verified') {
     throw AppError.invalidTransition(admin.status, 'administered', ['double_verified']);
   }
@@ -544,10 +582,11 @@ export async function recordChemoAdministration(adminId, { actorUid = null, acto
     const rows = await tx.$queryRawUnsafe(
       `UPDATE chemo_administrations
        SET status = 'administered', administered_by = $2::uuid, administered_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND status = 'double_verified'
+       WHERE id = $1 AND tenant_id = $3::uuid AND status = 'double_verified'
        RETURNING id, drug_name, final_dose, dose_unit, status, administered_by, administered_at`,
       admin.id,
       actorUid,
+      tenantOr(tenantId),
     );
     if (!rows.length) throw AppError.conflict('Administration state changed concurrently', 'CHEMO_ADMIN_RACE');
     const recorded = rows[0];
@@ -556,13 +595,15 @@ export async function recordChemoAdministration(adminId, { actorUid = null, acto
     const perM2 = admin.bsa_m2 ? Math.round((Number(admin.final_dose) / Number(admin.bsa_m2)) * 100) / 100 : 0;
     await tx.$queryRawUnsafe(
       `INSERT INTO chemo_cumulative_doses
-         (patient_uid, drug_name, total_dose, total_dose_per_m2, dose_unit, administration_count, last_administered_at, updated_at)
-       VALUES ($1::uuid, LOWER($2), $3, $4, $5, 1, NOW(), NOW())
+         (tenant_id, patient_uid, drug_name, total_dose, total_dose_per_m2, dose_unit, administration_count, last_administered_at, updated_at)
+       VALUES ($1::uuid, $2::uuid, LOWER($3), $4, $5, $6, 1, NOW(), NOW())
        ON CONFLICT (patient_uid, drug_name)
        DO UPDATE SET total_dose = chemo_cumulative_doses.total_dose + EXCLUDED.total_dose,
                      total_dose_per_m2 = chemo_cumulative_doses.total_dose_per_m2 + EXCLUDED.total_dose_per_m2,
                      administration_count = chemo_cumulative_doses.administration_count + 1,
-                     last_administered_at = NOW(), updated_at = NOW()`,
+                     last_administered_at = NOW(), updated_at = NOW()
+       WHERE chemo_cumulative_doses.tenant_id = EXCLUDED.tenant_id`,
+      tenantOr(tenantId),
       admin.patient_uid,
       admin.drug_name,
       Number(admin.final_dose),
@@ -573,14 +614,16 @@ export async function recordChemoAdministration(adminId, { actorUid = null, acto
     // Cycle flips to administered when every line is administered/withheld.
     await tx.$queryRawUnsafe(
       `UPDATE chemo_cycles SET status = 'administered', updated_at = NOW()
-       WHERE id = $1 AND NOT EXISTS (
+       WHERE id = $1 AND tenant_id = $2::uuid AND NOT EXISTS (
          SELECT 1 FROM chemo_administrations
          WHERE cycle_id = $1 AND status NOT IN ('administered', 'withheld')
        )`,
       admin.cycle_id,
+      tenantOr(tenantId),
     );
 
     await recordCanonicalClinicalEvent({
+      tenantId: tenantOr(tenantId),
       patientUid: admin.patient_uid,
       eventType: 'chemo.administered',
       sourceTable: 'chemo_administrations',
@@ -598,11 +641,11 @@ export async function recordChemoAdministration(adminId, { actorUid = null, acto
   });
 }
 
-export async function withholdAdministration(adminId, { reason }, { actorUid = null, actorRole = null } = {}) {
+export async function withholdAdministration(adminId, { tenantId, reason }, { actorUid = null, actorRole = null } = {}) {
   if (!reason || !String(reason).trim()) {
     throw AppError.badRequest('Withhold reason is required', 'CHEMO_WITHHOLD_REASON_REQUIRED');
   }
-  const admin = await getAdministration(adminId);
+  const admin = await getAdministration(adminId, { tenantId });
   if (!['pending', 'first_verified', 'double_verified'].includes(admin.status)) {
     throw AppError.invalidTransition(admin.status, 'withheld', ['pending', 'first_verified', 'double_verified']);
   }
@@ -611,10 +654,11 @@ export async function withholdAdministration(adminId, { reason }, { actorUid = n
     const rows = await tx.$queryRawUnsafe(
       `UPDATE chemo_administrations
        SET status = 'withheld', withheld_reason = $2, updated_at = NOW()
-       WHERE id = $1 AND status IN ('pending', 'first_verified', 'double_verified')
+       WHERE id = $1 AND tenant_id = $3::uuid AND status IN ('pending', 'first_verified', 'double_verified')
        RETURNING id, drug_name, status, withheld_reason`,
       admin.id,
       String(reason).trim(),
+      tenantOr(tenantId),
     );
     if (!rows.length) throw AppError.conflict('Administration state changed concurrently', 'CHEMO_ADMIN_RACE');
 
@@ -622,14 +666,16 @@ export async function withholdAdministration(adminId, { reason }, { actorUid = n
     // both terminal states for the cycle-completion check).
     await tx.$queryRawUnsafe(
       `UPDATE chemo_cycles SET status = 'administered', updated_at = NOW()
-       WHERE id = $1 AND NOT EXISTS (
+       WHERE id = $1 AND tenant_id = $2::uuid AND NOT EXISTS (
          SELECT 1 FROM chemo_administrations
          WHERE cycle_id = $1 AND status NOT IN ('administered', 'withheld')
        )`,
       admin.cycle_id,
+      tenantOr(tenantId),
     );
 
     await recordCanonicalClinicalEvent({
+      tenantId: tenantOr(tenantId),
       patientUid: admin.patient_uid,
       eventType: 'chemo.withheld',
       sourceTable: 'chemo_administrations',
@@ -644,8 +690,8 @@ export async function withholdAdministration(adminId, { reason }, { actorUid = n
   });
 }
 
-export async function getPlanDetail(planId) {
-  const plan = await getPlan(planId);
+export async function getPlanDetail(planId, { tenantId } = {}) {
+  const plan = await getPlan(planId, { tenantId });
   const cycles = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.cycle_number, c.scheduled_date, c.status, c.weight_kg, c.bsa_m2,
             COALESCE(json_agg(json_build_object(
@@ -654,12 +700,13 @@ export async function getPlanDetail(planId) {
             ) ORDER BY a.id) FILTER (WHERE a.id IS NOT NULL), '[]'::json) AS administrations
      FROM chemo_cycles c
      LEFT JOIN chemo_administrations a ON a.cycle_id = c.id
-     WHERE c.plan_id = $1
+     WHERE c.plan_id = $1 AND c.tenant_id = $2::uuid
      GROUP BY c.id
      ORDER BY c.cycle_number`,
     plan.id,
+    tenantOr(tenantId),
   );
-  const cumulative = await getPatientCumulative(plan.patient_uid);
+  const cumulative = await getPatientCumulative(plan.patient_uid, { tenantId });
   return { ...plan, cycles, cumulative };
 }
 

@@ -22,6 +22,7 @@ import * as snapshotService from './snapshotService.js';
 
 const METABASE_URL = process.env.METABASE_URL || '';
 const METABASE_EMBED_SECRET = process.env.METABASE_EMBED_SECRET || '';
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
 
 // Curated catalogue surfaced to the front-end so the dashboard picker
 // isn't free-text. The numeric ids must match what's actually defined
@@ -90,7 +91,7 @@ export function listDashboards() {
  * Signs an embed JWT and returns the iframe URL. params let us
  * lock the dashboard down per-user (tenant id, doctor id, etc.).
  */
-export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600 }) {
+export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600, tenantId = DEFAULT_TENANT }) {
   if (!METABASE_URL || !METABASE_EMBED_SECRET) {
     throw AppError.badRequest('Metabase embedding is not configured (METABASE_URL + METABASE_EMBED_SECRET env required)');
   }
@@ -101,7 +102,10 @@ export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600 }) {
   }
   const payload = {
     resource: { dashboard: dash.metabase_id },
-    params,
+    params: {
+      ...params,
+      tenant_id: tenantId || DEFAULT_TENANT,
+    },
     exp: Math.round(Date.now() / 1000) + Math.max(60, Math.min(86400, ttlSeconds)),
   };
   const token = jwt.sign(payload, METABASE_EMBED_SECRET, { algorithm: 'HS256' });
@@ -114,6 +118,6 @@ export function buildEmbedUrl({ key, params = {}, ttlSeconds = 600 }) {
  * also queryable directly without Metabase, useful for the admin
  * portal's "today" widget without an iframe round-trip.
  */
-export async function getDailyOpsSnapshot() {
-  return snapshotService.getDailyOpsSnapshot();
+export async function getDailyOpsSnapshot({ tenantId } = {}) {
+  return snapshotService.getDailyOpsSnapshot({ tenantId });
 }

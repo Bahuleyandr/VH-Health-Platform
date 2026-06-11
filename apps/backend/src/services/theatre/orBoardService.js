@@ -17,6 +17,12 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import theatreService from './theatreService.js';
 
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+function tenantOr(value) {
+  return String(value || '').trim() || DEFAULT_TENANT_ID;
+}
+
 // ── OR room master ───────────────────────────────────────────────────
 
 export async function listOrRooms({ status = 'active' } = {}) {
@@ -103,8 +109,9 @@ export async function listProcedures({ specialty, q } = {}) {
  * proceed (typically blocks unless force=true).
  */
 export async function findConflicts({
-  ot_room, scheduled_date, scheduled_time, estimated_duration,
+  ot_room, scheduled_date, scheduled_time, estimated_duration, tenantId = null,
 }) {
+  const tid = tenantOr(tenantId);
   if (!ot_room || !scheduled_date || !scheduled_time || !estimated_duration) {
     return [];
   }
@@ -118,7 +125,8 @@ export async function findConflicts({
      SELECT s.id, s.procedure_name, s.surgeon, s.scheduled_time,
             s.estimated_duration, s.status
        FROM ot_schedules s, proposed p
-      WHERE s.ot_room = $4
+      WHERE s.tenant_id = $4::uuid
+        AND s.ot_room = $5
         AND s.scheduled_date = $1::date
         AND s.status NOT IN ('cancelled', 'completed')
         AND s.scheduled_time IS NOT NULL
@@ -128,7 +136,7 @@ export async function findConflicts({
              + (COALESCE(s.estimated_duration, 60) || ' minutes')::interval) > p.pstart
       ORDER BY s.scheduled_time`,
     String(scheduled_date), String(scheduled_time),
-    String(estimated_duration), String(ot_room),
+    String(estimated_duration), tid, String(ot_room),
   );
 }
 
@@ -138,6 +146,7 @@ export async function scheduleWithConflictCheck(payload) {
     scheduled_date: payload.scheduled_date,
     scheduled_time: payload.scheduled_time,
     estimated_duration: payload.estimated_duration,
+    tenantId: payload.tenantId || payload.tenant_id,
   });
   if (conflicts.length && !payload.force) {
     throw AppError.badRequest(
@@ -156,10 +165,11 @@ export async function scheduleWithConflictCheck(payload) {
  * checklist phase status. The OR coordinator dashboard hits this for
  * a single-screen view.
  */
-export async function getOrBoard({ date, ot_room } = {}) {
+export async function getOrBoard({ date, ot_room, tenantId = null, tenant_id = null } = {}) {
+  const tid = tenantOr(tenantId || tenant_id);
   const targetDate = date || new Date().toISOString().split('T')[0];
-  const params = [targetDate];
-  const conds = [`s.scheduled_date = $1::date`];
+  const params = [tid, targetDate];
+  const conds = [`s.tenant_id = $1::uuid`, `s.scheduled_date = $2::date`];
   if (ot_room) { params.push(ot_room); conds.push(`s.ot_room = $${params.length}`); }
 
   const rows = await prisma.$queryRawUnsafe(
@@ -169,10 +179,14 @@ export async function getOrBoard({ date, ot_room } = {}) {
             s.estimated_duration, s.actual_duration, s.status,
             s.blood_arranged, s.consent_obtained,
             sc.sign_in_complete, sc.time_out_complete, sc.sign_out_complete,
-            (SELECT COUNT(*)::int FROM intraop_notes n WHERE n.ot_schedule_id = s.id) AS intraop_note_count,
-            (SELECT COUNT(*)::int FROM postop_notes n WHERE n.ot_schedule_id = s.id) AS postop_note_count,
+            (SELECT COUNT(*)::int FROM intraop_notes n
+              WHERE n.ot_schedule_id = s.id AND n.tenant_id = s.tenant_id) AS intraop_note_count,
+            (SELECT COUNT(*)::int FROM postop_notes n
+              WHERE n.ot_schedule_id = s.id AND n.tenant_id = s.tenant_id) AS postop_note_count,
             (SELECT COUNT(*)::int FROM postop_complication_alerts a
-              WHERE a.ot_schedule_id = s.id AND a.status NOT IN ('resolved','false_positive')) AS open_complications
+              WHERE a.ot_schedule_id = s.id
+                AND a.tenant_id = s.tenant_id
+                AND a.status NOT IN ('resolved','false_positive')) AS open_complications
        FROM ot_schedules s
        LEFT JOIN or_safety_compliance sc ON sc.ot_schedule_id = s.id
       WHERE ${conds.join(' AND ')}
@@ -182,33 +196,51 @@ export async function getOrBoard({ date, ot_room } = {}) {
   return { date: targetDate, ot_room: ot_room || null, cases: rows };
 }
 
-export async function getDailyThroughput({ date, ot_room } = {}) {
+export async function getDailyThroughput({ date, ot_room, tenantId = null, tenant_id = null } = {}) {
+  const tid = tenantOr(tenantId || tenant_id);
   const targetDate = date || new Date().toISOString().split('T')[0];
-  const params = [targetDate];
-  const conds = [`scheduled_date = $1::date`];
+  const params = [tid, targetDate];
+  const conds = [`tenant_id = $1::uuid`, `scheduled_date = $2::date`, `ot_room IS NOT NULL`];
   if (ot_room) { params.push(ot_room); conds.push(`ot_room = $${params.length}`); }
   return prisma.$queryRawUnsafe(
-    `SELECT * FROM or_throughput_daily
+    `SELECT ot_room,
+            scheduled_date,
+            COUNT(*)::int AS scheduled_cases,
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)::int AS completed_cases,
+            SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END)::int AS cancelled_cases,
+            COALESCE(SUM(estimated_duration), 0)::int AS estimated_minutes,
+            COALESCE(SUM(actual_duration), 0)::int AS actual_minutes,
+            CASE
+              WHEN COALESCE(SUM(estimated_duration), 0) = 0 THEN NULL
+              ELSE ROUND(
+                (COALESCE(SUM(actual_duration), 0)::numeric /
+                 NULLIF(SUM(estimated_duration), 0)) * 100, 1)
+            END AS minutes_efficiency_pct
+       FROM ot_schedules
       WHERE ${conds.join(' AND ')}
+      GROUP BY ot_room, scheduled_date
       ORDER BY ot_room`,
     ...params,
   );
 }
 
-export async function getWeeklySafetyCompliance({ from, to } = {}) {
+export async function getWeeklySafetyCompliance({ from, to, tenantId = null, tenant_id = null } = {}) {
+  const tid = tenantOr(tenantId || tenant_id);
   const fromDate = from || new Date(Date.now() - 7 * 86400 * 1000).toISOString().split('T')[0];
   const toDate = to || new Date().toISOString().split('T')[0];
   return prisma.$queryRawUnsafe(
-    `SELECT scheduled_date,
+    `SELECT or_safety_compliance.scheduled_date,
             COUNT(*)::int AS cases,
             SUM(CASE WHEN sign_in_complete THEN 1 ELSE 0 END)::int AS sign_in_complete,
             SUM(CASE WHEN time_out_complete THEN 1 ELSE 0 END)::int AS time_out_complete,
             SUM(CASE WHEN sign_out_complete THEN 1 ELSE 0 END)::int AS sign_out_complete
        FROM or_safety_compliance
-      WHERE scheduled_date BETWEEN $1::date AND $2::date
+       JOIN ot_schedules s ON s.id = or_safety_compliance.ot_schedule_id
+      WHERE s.tenant_id = $1::uuid
+        AND or_safety_compliance.scheduled_date BETWEEN $2::date AND $3::date
         AND case_status NOT IN ('cancelled')
-      GROUP BY scheduled_date
-      ORDER BY scheduled_date DESC`,
-    String(fromDate), String(toDate),
+      GROUP BY or_safety_compliance.scheduled_date
+      ORDER BY or_safety_compliance.scheduled_date DESC`,
+    tid, String(fromDate), String(toDate),
   );
 }

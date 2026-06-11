@@ -9,7 +9,8 @@ import { ABDM_CONFIG } from '../../config/abdmConfig.js';
 import logger from '../../logging/logger.js';
 import abdmService from '../../services/abdm/abdmService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { verifySignedRequest } from '../../utils/signedRequest.js';
 
 // ====================================
 // CALLBACK ROUTER — Public (no JWT)
@@ -20,9 +21,10 @@ const callbackRouter = Router();
 const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
 
 /**
- * Middleware: Validate ABDM gateway request signature.
- * In production, verifies X-HIP-ID header and request timestamp.
- * Rejects requests that don't appear to come from the ABDM gateway.
+ * Middleware: Validate ABDM gateway request authenticity.
+ * ABDM callbacks are public by mount, so enabled callbacks must be
+ * self-authenticating: HIP id, timestamp, request id, HMAC signature,
+ * and process-local replay protection.
  */
 function validateABDMRequest(req, res, next) {
   if (!ABDM_CALLBACK_PATHS.has(req.path)) {
@@ -33,23 +35,34 @@ function validateABDMRequest(req, res, next) {
     return error(res, 'ABDM integration is not enabled', 503);
   }
 
-  // Verify timestamp is within acceptable window (5 minutes)
-  const timestamp = req.headers['timestamp'] || req.body?.timestamp;
-  if (timestamp) {
-    const requestTime = new Date(timestamp).getTime();
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    if (Math.abs(now - requestTime) > fiveMinutes) {
-      logger.warn('ABDM callback rejected: timestamp out of range', { timestamp });
-      return error(res, 'Request timestamp out of acceptable range', 401);
-    }
+  if (!ABDM_CONFIG.hipId) {
+    logger.error('ABDM callback rejected: ABDM_HIP_ID is not configured');
+    return error(res, 'ABDM HIP ID is not configured', 503);
   }
 
-  // Verify X-HIP-ID matches our HIP ID
   const hipId = req.headers['x-hip-id'];
-  if (hipId && ABDM_CONFIG.hipId && hipId !== ABDM_CONFIG.hipId) {
+  if (!hipId || hipId !== ABDM_CONFIG.hipId) {
     logger.warn('ABDM callback rejected: HIP ID mismatch', { received: hipId, expected: ABDM_CONFIG.hipId });
     return error(res, 'Invalid HIP ID', 401);
+  }
+
+  try {
+    verifySignedRequest({
+      secret: ABDM_CONFIG.callbackSecret,
+      signature: req.headers['x-abdm-signature'] || req.headers['x-vhhealth-abdm-signature'],
+      timestamp: req.headers.timestamp || req.headers.TIMESTAMP || req.body?.timestamp,
+      requestId: req.headers['request-id'] || req.headers['x-request-id'] || req.body?.requestId || req.body?.request_id,
+      payload: req.body || {},
+      context: 'ABDM callback',
+      codePrefix: 'ABDM_CALLBACK',
+      replayNamespace: 'abdm-callback',
+    });
+  } catch (err) {
+    logger.warn('ABDM callback rejected: authenticity check failed', {
+      code: err.code,
+      error: err.message,
+    });
+    return error(res, err.message, err.statusCode || 401);
   }
 
   next();
@@ -131,6 +144,10 @@ function canViewAbdmAdmin(role) {
   return role === 'SUPER_ADMIN' || isStaff(role) || isAdmin(role);
 }
 
+function canManageAnyAbha(role) {
+  return role === ROLES.ADMIN || role === 'SUPER_ADMIN';
+}
+
 /**
  * POST /abdm/register-abha
  * Link ABHA number to patient account (patient or admin).
@@ -139,10 +156,12 @@ patientRouter.post('/register-abha', async (req, res, next) => {
   try {
     const { abha_number, abha_address, patient_uid } = req.body;
 
-    // Patients can only register their own ABHA; admins can register for any patient
+    const role = req.user?.role;
     let targetUid = req.user?.uid;
-    if (patient_uid && (isAdmin(req.user?.role) || isStaff(req.user?.role))) {
+    if (patient_uid && canManageAnyAbha(role)) {
       targetUid = patient_uid;
+    } else if (patient_uid && patient_uid !== req.user?.uid) {
+      return error(res, 'You can only link ABHA for yourself', 403);
     }
 
     if (!targetUid) {
@@ -153,7 +172,9 @@ patientRouter.post('/register-abha', async (req, res, next) => {
       return error(res, 'ABHA number is required', 400);
     }
 
-    const result = await abdmService.registerABHA(targetUid, abha_number, abha_address);
+    const result = await abdmService.registerABHA(targetUid, abha_number, abha_address, {
+      tenantId: req.tenantId,
+    });
 
     return success(res, result, 'ABHA linked to patient successfully', 200);
   } catch (err) {
@@ -205,7 +226,7 @@ patientRouter.get('/patient-by-abha/:abhaNumber', async (req, res, next) => {
     }
 
     const { abhaNumber } = req.params;
-    const patient = await abdmService.getPatientByABHA(abhaNumber);
+    const patient = await abdmService.getPatientByABHA(abhaNumber, { tenantId: req.tenantId });
 
     return success(res, patient, 'Patient found', 200);
   } catch (err) {
@@ -227,7 +248,7 @@ patientRouter.get('/status', async (req, res, next) => {
       return error(res, 'Only staff or admin can view ABDM status', 403);
     }
 
-    const status = await abdmService.getAdminStatus();
+    const status = await abdmService.getAdminStatus({ tenantId: req.tenantId });
     return success(res, status, 'ABDM status retrieved', 200);
   } catch (err) {
     if (err.isOperational) {
@@ -248,7 +269,10 @@ patientRouter.get('/consent-requests', async (req, res, next) => {
       return error(res, 'Only staff or admin can view ABDM consent requests', 403);
     }
 
-    const requests = await abdmService.listConsentRequests(req.query || {});
+    const requests = await abdmService.listConsentRequests({
+      ...(req.query || {}),
+      tenantId: req.tenantId,
+    });
     return success(res, requests, 'ABDM consent requests retrieved', 200);
   } catch (err) {
     if (err.isOperational) {

@@ -362,6 +362,62 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'patient_problem':
+    case 'problem':
+      return patientFromUuidResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM patient_problems pp
+           JOIN users p ON p.uid = pp.patient_uid
+          WHERE pp.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND pp.id = $2::uuid
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'medication_reconciliation':
+    case 'med_rec':
+      return patientFromUuidResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM medication_reconciliations mr
+           JOIN users p ON p.uid = mr.patient_uid
+          WHERE mr.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND mr.id = $2::uuid
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'patient_encounter':
+    case 'canonical_encounter':
+      return patientFromUuidResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM patient_encounters pe
+           JOIN users p ON p.uid = pe.patient_uid
+          WHERE pe.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND pe.id = $2::uuid
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'radiology_order':
+    case 'pacs_order':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM radiology_orders ro
+           JOIN users p ON p.uid = ro.patient_uid
+          WHERE ro.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND ro.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'cds_alert':
       return patientFromResourceQuery(
         req,

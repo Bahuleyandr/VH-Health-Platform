@@ -6,7 +6,9 @@ import { HTTP_STATUS } from '../config/responseCodes.js';
 import { ADMIN_ROUTE_ROLES } from '../config/routeRolePolicy.js';
 import logger from '../logging/logger.js';
 import { requireRole } from '../middleware/rbacMiddleware.js';
+import { deriveTenantIdFromRequest } from '../services/security/accessDecisionService.js';
 import { executeErasure, checkLegalHold } from '../services/gdpr/dataErasureService.js';
+import { AppError } from '../utils/AppError.js';
 import { success, error } from '../utils/responseHelper.js';
 
 const router = Router();
@@ -20,6 +22,7 @@ const router = Router();
 router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const { uid, phone, reason } = req.body;
+    const tenantId = deriveTenantIdFromRequest(req);
     const requestedBy = req.user?.uid || 'unknown';
     const ip = req.ip || req.headers['x-forwarded-for'] || null;
 
@@ -32,9 +35,11 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
 
     // Check legal holds
     if (uid) {
-      const holdCheck = await checkLegalHold(uid);
+      const holdCheck = await checkLegalHold(uid, { tenantId });
       if (holdCheck.hasHold) {
-        return error(res, 'Cannot erase: user has an active legal hold', HTTP_STATUS.FORBIDDEN);
+        return error(res, 'Cannot erase: user has an active legal hold', HTTP_STATUS.FORBIDDEN, {
+          code: 'LEGAL_HOLD_ACTIVE',
+        });
       }
     }
 
@@ -45,10 +50,14 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
       reason,
       ip,
       requestId: req.id,
+      tenantId,
     });
 
     return success(res, result, 'Data erasure completed');
   } catch (err) {
+    if (err instanceof AppError) {
+      return error(res, err.message, err.statusCode, { code: err.code, ...(err.details || {}) });
+    }
     logger.error('GDPR erasure route error:', err);
     return error(res, 'Data erasure failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -62,6 +71,7 @@ router.post('/erase', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
 router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) => {
   try {
     const { default: prisma } = await import('../lib/prisma.js');
+    const tenantId = deriveTenantIdFromRequest(req);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
@@ -69,9 +79,15 @@ router.get('/erasure-log', requireRole(...ADMIN_ROUTE_ROLES), async (req, res) =
       `SELECT id, uid, phone_hash, requested_by, reason, tables_processed,
               completed_at, duration_ms, created_at
        FROM gdpr_erasure_log
+       WHERE EXISTS (
+         SELECT 1
+           FROM users u
+          WHERE u.uid = gdpr_erasure_log.uid
+            AND u.tenant_id = $3::uuid
+       )
        ORDER BY created_at DESC
        LIMIT $1 OFFSET $2`,
-      limit, offset
+      limit, offset, tenantId
     );
 
     return success(res, logs, 'Erasure log retrieved');

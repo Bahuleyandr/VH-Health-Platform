@@ -9,6 +9,7 @@ const prismaMock = {
 };
 const logAuditMock = jest.fn();
 const ensureAppointmentQueueForAppointmentMock = jest.fn();
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
@@ -39,6 +40,7 @@ jest.unstable_mockModule('../../services/appointment/appointmentQueueService.js'
 }));
 
 const {
+  adviseForAdmission,
   cancelAppointment,
   completeAppointment,
   confirmAppointment,
@@ -58,7 +60,7 @@ function makeReq(overrides = {}) {
       uid: '11111111-1111-4111-8111-111111111111',
       role: 'RECEPTIONIST',
       deviceType: 'desktop',
-      tenant_id: '00000000-0000-4000-8000-000000000001',
+      tenant_id: TENANT_ID,
     },
     ...overrides,
   };
@@ -84,6 +86,7 @@ function appointmentRow(overrides = {}) {
     department: 'General Medicine',
     visit_no: 'OPD-20260601-007',
     token_number: '7',
+    tenant_id: TENANT_ID,
     status: 'CONFIRMED',
     updated_at: new Date('2026-06-01T05:00:00.000Z'),
     ...overrides,
@@ -139,6 +142,14 @@ describe('appointment workflow audit logging', () => {
     await confirmAppointment(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('AND tenant_id = $3::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][3]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[2][0]).toContain('AND tenant_id = $6::uuid');
+    expect(txQueryRawUnsafe.mock.calls[2][6]).toBe(TENANT_ID);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
     expect(req.phiContext).toEqual(expect.objectContaining({
       appointmentId: 42,
       appointment_id: 42,
@@ -176,6 +187,10 @@ describe('appointment workflow audit logging', () => {
     await markNoShow(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$2::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][2]).toBe(TENANT_ID);
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_APPOINTMENT_NO_SHOW',
@@ -278,6 +293,10 @@ describe('appointment workflow audit logging', () => {
     await completeAppointment(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$3::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][3]).toBe(TENANT_ID);
     expect(req.phiContext).toEqual(expect.objectContaining({
       appointmentId: 42,
       patientId: 123,
@@ -313,6 +332,12 @@ describe('appointment workflow audit logging', () => {
     await cancelAppointment(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+    expect(txQueryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(txQueryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
+    expect(txQueryRawUnsafe.mock.calls[1][0]).toContain('tenant_id=$2::uuid');
+    expect(txQueryRawUnsafe.mock.calls[1][2]).toBe(TENANT_ID);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
     expect(logAuditMock).toHaveBeenCalledWith(
       req,
       'FRONT_OFFICE_APPOINTMENT_CANCELLED',
@@ -327,5 +352,32 @@ describe('appointment workflow audit logging', () => {
       }),
       { resource: 'appointment', resourceId: 42 },
     );
+  });
+
+  it('scopes admission advice updates to the request tenant', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([
+      appointmentRow({
+        advised_for_admission_at: new Date('2026-06-01T05:00:00.000Z'),
+        advised_for_admission_by: '11111111-1111-4111-8111-111111111111',
+        advised_for_admission_note: 'Needs inpatient observation',
+      }),
+    ]);
+
+    const req = makeReq({
+      body: { note: 'Needs inpatient observation' },
+      user: {
+        id: 10,
+        uid: '11111111-1111-4111-8111-111111111111',
+        role: 'DOCTOR',
+        tenant_id: TENANT_ID,
+      },
+    });
+    const res = makeRes(req);
+
+    await adviseForAdmission(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('AND tenant_id = $4::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][4]).toBe(TENANT_ID);
   });
 });

@@ -32,7 +32,9 @@ export function authorizeChannel(channel, user) {
   }
 
   if (LEGACY_CHANNELS.has(channel)) {
-    return { allowed: true };
+    return isStaff(user.role)
+      ? { allowed: true }
+      : { allowed: false, reason: 'Staff-only legacy channel' };
   }
 
   if (channel.startsWith('admin:')) {

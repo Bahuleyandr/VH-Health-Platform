@@ -7,6 +7,7 @@
 
 import express from 'express';
 import logger from '../../logging/logger.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import {
   listProblems,
   getProblem,
@@ -15,6 +16,7 @@ import {
   promoteDiagnosis,
 } from '../../services/clinical/problemListService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { AppError } from '../../utils/AppError.js';
 import { isAdmin, isDoctor } from '../../utils/roleHelpers.js';
@@ -22,6 +24,25 @@ import { isAdmin, isDoctor } from '../../utils/roleHelpers.js';
 const router = express.Router();
 
 const canEditProblems = (role) => isDoctor(role) || isAdmin(role) || role === 'SUPER_ADMIN';
+const guardProblemView = patientAccessGuard('PROBLEM_LIST', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+});
+const guardProblemWrite = patientAccessGuard('PROBLEM_LIST', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+});
+const guardProblemResourceView = patientAccessGuardForResource('PROBLEM_LIST', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'patient_problem',
+});
+const guardProblemResourceWrite = patientAccessGuardForResource('PROBLEM_LIST', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'patient_problem',
+});
+const guardDiagnosisPromotionWrite = patientAccessGuardForResource('DIAGNOSIS', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'diagnosis',
+  idParam: 'diagnosisId',
+});
 
 function handleFailure(res, err, context) {
   if (err instanceof AppError) {
@@ -31,9 +52,10 @@ function handleFailure(res, err, context) {
   return error(res, `Failed to ${context}`, HTTP_STATUS.INTERNAL_SERVER_ERROR);
 }
 
-router.get('/patient/:patientUid', async (req, res) => {
+router.get('/patient/:patientUid', guardProblemView, async (req, res) => {
   try {
     const problems = await listProblems(req.params.patientUid, {
+      tenantId: req.tenantId,
       status: req.query.status || null,
     });
     return success(res, { problems, count: problems.length }, 'Patient problem list');
@@ -42,9 +64,9 @@ router.get('/patient/:patientUid', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', guardProblemResourceView, async (req, res) => {
   try {
-    const problem = await getProblem(req.params.id);
+    const problem = await getProblem(req.params.id, { tenantId: req.tenantId });
     if (!problem) return error(res, 'Problem not found', HTTP_STATUS.NOT_FOUND);
     return success(res, { problem }, 'Problem');
   } catch (err) {
@@ -52,7 +74,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', guardProblemWrite, async (req, res) => {
   try {
     if (!canEditProblems(req.user?.role)) {
       return error(res, 'Only doctors or admins can record problems', HTTP_STATUS.FORBIDDEN);
@@ -69,14 +91,14 @@ router.post('/', async (req, res) => {
       sourceEncounterId: req.body.source_encounter_id || null,
       notes: req.body.notes || null,
       codings: Array.isArray(req.body.codings) ? req.body.codings : [],
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: req.tenantId });
     return success(res, result, 'Problem recorded', HTTP_STATUS.CREATED);
   } catch (err) {
     return handleFailure(res, err, 'record problem');
   }
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', guardProblemResourceWrite, async (req, res) => {
   try {
     if (!canEditProblems(req.user?.role)) {
       return error(res, 'Only doctors or admins can update problems', HTTP_STATUS.FORBIDDEN);
@@ -92,7 +114,7 @@ router.patch('/:id', async (req, res) => {
       notes: req.body.notes,
       snomedCode: req.body.snomed_code,
       managingDoctor: req.body.managing_doctor,
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: req.tenantId });
     return success(res, { problem }, 'Problem updated');
   } catch (err) {
     return handleFailure(res, err, 'update problem');
@@ -100,7 +122,7 @@ router.patch('/:id', async (req, res) => {
 });
 
 // Promote a per-visit diagnosis row onto the longitudinal list (idempotent).
-router.post('/promote/:diagnosisId', async (req, res) => {
+router.post('/promote/:diagnosisId', guardDiagnosisPromotionWrite, async (req, res) => {
   try {
     if (!canEditProblems(req.user?.role)) {
       return error(res, 'Only doctors or admins can promote diagnoses', HTTP_STATUS.FORBIDDEN);
@@ -109,7 +131,7 @@ router.post('/promote/:diagnosisId', async (req, res) => {
       isChronic: req.body?.is_chronic === true,
       managingDoctor: req.body?.managing_doctor ?? null,
       notes: req.body?.notes ?? null,
-    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null });
+    }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: req.tenantId });
     const status = result.already_active ? HTTP_STATUS.OK : HTTP_STATUS.CREATED;
     return success(res, result, result.already_active ? 'Problem already active' : 'Diagnosis promoted to problem list', status);
   } catch (err) {

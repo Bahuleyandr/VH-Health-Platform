@@ -9,9 +9,17 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+
+function tenantOf(req) {
+  return req?.tenantId || req?.user?.tenant_id || req?.user?.tenantId || req?.tenant?.id ||
+    DEFAULT_TENANT;
+}
+
 export async function getExecutiveKpi(req, res) {
   try {
     const windowDays = Math.max(1, Math.min(parseInt(req.query.days, 10) || 30, 365));
+    const tenantId = tenantOf(req);
 
     const [revenueRow] = await prisma.$queryRawUnsafe(
       `SELECT
@@ -21,15 +29,19 @@ export async function getExecutiveKpi(req, res) {
          COUNT(*) FILTER (WHERE payment_status = 'paid')::int    AS paid,
          COUNT(*) FILTER (WHERE payment_status = 'pending')::int AS pending
        FROM invoices
-       WHERE issued_at >= NOW() - ($1 || ' days')::interval`,
+       WHERE tenant_id = $1::uuid
+         AND issued_at >= NOW() - ($2 || ' days')::interval`,
+      tenantId,
       String(windowDays),
     );
 
     const [bedRow] = await prisma.$queryRawUnsafe(
       `SELECT
          COUNT(*)::int                                           AS total,
-         COUNT(*) FILTER (WHERE status = 'OCCUPIED')::int        AS occupied
-       FROM beds`,
+         COUNT(*) FILTER (WHERE UPPER(status) = 'OCCUPIED')::int AS occupied
+       FROM beds
+       WHERE tenant_id = $1::uuid`,
+      tenantId,
     );
     const occupancyPct = bedRow?.total > 0
       ? Math.round((bedRow.occupied / bedRow.total) * 100)
@@ -40,8 +52,21 @@ export async function getExecutiveKpi(req, res) {
          COALESCE(AVG(rating), 0)::float AS avg_rating,
          COUNT(*)::int                   AS responses
        FROM feedback
-       WHERE created_at >= NOW() - ($1 || ' days')::interval`,
+       WHERE created_at >= NOW() - ($1 || ' days')::interval
+         AND (
+           (uid IS NOT NULL AND EXISTS (
+             SELECT 1 FROM users u
+              WHERE u.uid = feedback.uid
+                AND u.tenant_id = $2::uuid
+           ))
+           OR (appointment_id IS NOT NULL AND EXISTS (
+             SELECT 1 FROM appointments a
+              WHERE a.id = feedback.appointment_id
+                AND a.tenant_id = $2::uuid
+           ))
+         )`,
       String(windowDays),
+      tenantId,
     );
 
     const [doctorRow] = await prisma.$queryRawUnsafe(
@@ -50,7 +75,9 @@ export async function getExecutiveKpi(req, res) {
          COUNT(*)::int                                                           AS appointments,
          COUNT(*) FILTER (WHERE status = 'COMPLETED')::int                       AS completed
        FROM appointments
-       WHERE appointment_date >= CURRENT_DATE - ($1 || ' days')::interval`,
+       WHERE tenant_id = $1::uuid
+         AND appointment_date >= CURRENT_DATE - ($2 || ' days')::interval`,
+      tenantId,
       String(windowDays),
     );
     const utilisationPct = doctorRow?.appointments > 0

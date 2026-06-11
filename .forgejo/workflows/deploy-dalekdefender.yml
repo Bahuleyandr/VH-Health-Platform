@@ -70,11 +70,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/vh-dalek-tools output/dalekdefender
-          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.70.0/contrib/install.sh \
-            | sh -s -- -b /tmp/vh-dalek-tools v0.70.0
-          curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 \
-            -o /tmp/vh-dalek-tools/cosign
-          chmod 0755 /tmp/vh-dalek-tools/cosign
+
+          trivy_version="0.70.0"
+          trivy_archive="trivy_${trivy_version}_Linux-64bit.tar.gz"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${trivy_version}/${trivy_archive}" \
+            -o "/tmp/vh-dalek-tools/${trivy_archive}"
+          curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${trivy_version}/trivy_${trivy_version}_checksums.txt" \
+            -o /tmp/vh-dalek-tools/trivy_checksums.txt
+          (cd /tmp/vh-dalek-tools && grep -E "(^|[[:space:]])${trivy_archive}$" trivy_checksums.txt | sha256sum -c -)
+          tar -xzf "/tmp/vh-dalek-tools/${trivy_archive}" -C /tmp/vh-dalek-tools trivy
+
+          cosign_version="2.5.3"
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${cosign_version}/cosign-linux-amd64" \
+            -o /tmp/vh-dalek-tools/cosign-linux-amd64
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${cosign_version}/cosign_checksums.txt" \
+            -o /tmp/vh-dalek-tools/cosign_checksums.txt
+          (cd /tmp/vh-dalek-tools && grep -E '(^|[[:space:]])cosign-linux-amd64$' cosign_checksums.txt | sha256sum -c -)
+          mv /tmp/vh-dalek-tools/cosign-linux-amd64 /tmp/vh-dalek-tools/cosign
+          chmod 0755 /tmp/vh-dalek-tools/trivy /tmp/vh-dalek-tools/cosign
 
       - name: Build and push backend/admin images
         if: steps.preflight.outputs.skip != 'true'
