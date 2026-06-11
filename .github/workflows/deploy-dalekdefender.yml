@@ -29,8 +29,9 @@ name: Deploy dalekdefender
 #   - k3s on dalekdefender must be able to pull from GHCR: add a read-only
 #     token in /etc/rancher/k3s/registries.yaml (or make the packages public).
 #   - Narrow /etc/sudoers.d on the host: the deploy user now needs ONLY
-#     `kubectl set image`, `kubectl set env`, `kubectl rollout status`
-#     (no docker, no k3s ctr).
+#     passwordless access to the root-owned `/usr/local/sbin/vhhealth-gha-deploy`
+#     wrapper. The wrapper validates digest refs and commit SHA before running
+#     the limited kubectl set-image/set-env/rollout-status operations.
 #   - Restrict the Tailscale ACL so tag:gha-deploy can reach dalekdefender:22
 #     and nothing else.
 #   - Confirm no real PHI lives on this rig; keep it firewalled from
@@ -230,32 +231,19 @@ jobs:
       - name: Pin deployments to verified digests
         if: steps.prereq.outputs.skip != 'true'
         env:
-          # Tailscale SSH maps the connection onto a host user; `bahuleyan`
-          # holds the (now kubectl-only) sudoers entries for the deploy.
+          # Tailscale SSH maps the connection onto a host user. The host
+          # sudoers entry allows exactly this root-owned wrapper; the wrapper
+          # validates stdin refs before it runs the limited kubectl operations.
           DALEK_HOST: bahuleyan@dalekdefender
           BACKEND_REF: ${{ needs.build-sign-scan.outputs.backend-image }}@${{ needs.build-sign-scan.outputs.backend-digest }}
           ADMIN_REF: ${{ needs.build-sign-scan.outputs.admin-image }}@${{ needs.build-sign-scan.outputs.admin-digest }}
           GIT_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+          {
+            printf '%s\n' "$BACKEND_REF"
+            printf '%s\n' "$ADMIN_REF"
+            printf '%s\n' "$GIT_COMMIT"
+          } | ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
               "$DALEK_HOST" \
-              "BACKEND_REF='$BACKEND_REF' ADMIN_REF='$ADMIN_REF' GIT_COMMIT='$GIT_COMMIT' bash -s" <<'REMOTE'
-          set -euo pipefail
-          # Digest-pinned, signature-verified images only. No git checkout,
-          # no on-host build, no secret writes (H12). containerd pulls the
-          # digests from GHCR via /etc/rancher/k3s/registries.yaml creds.
-          sudo -n kubectl -n vhhealth set image deploy/vhhealth-backend backend="$BACKEND_REF"
-          sudo -n kubectl -n vhhealth set image deploy/vhhealth-admin admin="$ADMIN_REF"
-          sudo -n kubectl -n vhhealth set env deploy/vhhealth-backend \
-            GIT_COMMIT="$GIT_COMMIT" \
-            SENTRY_ENVIRONMENT=dalekdefender \
-            SENTRY_TRACES_SAMPLE_RATE=0.1
-          sudo -n kubectl -n vhhealth set env deploy/vhhealth-admin \
-            GIT_COMMIT="$GIT_COMMIT" \
-            NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
-            NEXT_PUBLIC_SENTRY_RELEASE="$GIT_COMMIT"
-          sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-backend --timeout=300s
-          sudo -n kubectl -n vhhealth rollout status deploy/vhhealth-admin --timeout=300s
-          echo "Deploy complete: commit $GIT_COMMIT live on dalekdefender (digest-pinned)."
-          REMOTE
+              "sudo -n /usr/local/sbin/vhhealth-gha-deploy"

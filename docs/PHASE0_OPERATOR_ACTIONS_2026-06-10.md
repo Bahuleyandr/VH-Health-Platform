@@ -61,8 +61,11 @@ longer writes any Kubernetes Secret and no longer needs docker/k3s-ctr sudo.
    `/etc/rancher/k3s/registries.yaml` on dalekdefender (or make the two
    `vh-health-platform-*` packages public — policy decision).
 2. **Narrow sudoers:** the deploy user's `/etc/sudoers.d` entry should now
-   allow ONLY `kubectl set image`, `kubectl set env`, `kubectl rollout
-   status` in namespace vhhealth. Remove docker / `k3s ctr` / blanket kubectl.
+   allow ONLY the root-owned `/usr/local/sbin/vhhealth-gha-deploy` wrapper.
+   The wrapper validates GHCR digest refs and commit SHA from stdin before it
+   runs the limited `kubectl set image`, `kubectl set env`, and
+   `kubectl rollout status` operations in namespace `vhhealth`. Remove docker /
+   `k3s ctr` / blanket kubectl.
 3. **Tailscale ACL:** restrict `tag:gha-deploy` to `dalekdefender:22` only
    (no other devices/ports). Verify in the Tailscale admin console.
 4. **Sentry DSNs:** the workflow no longer patches `vhhealth-backend` /
