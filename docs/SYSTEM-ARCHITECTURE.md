@@ -681,7 +681,29 @@ Full end-to-end runbook: **[`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)**.
 
 ### Workflow catalogue
 
-Root [`.github/workflows/`](../.github/workflows/). Summarised from root [`CLAUDE.md`](../CLAUDE.md):
+Forgejo is the canonical hosted CI target. GitHub Actions remain useful mirrors
+for GitHub-native release/deploy surfaces and external visibility.
+
+Root [`.forgejo/workflows/`](../.forgejo/workflows/):
+
+| Workflow | Fires on | What it runs |
+|---|---|---|
+| [`ci.yml`](../.forgejo/workflows/ci.yml) | push + PR + manual | Matrix over repo-owned `security`, `backend`, `fhir`, `admin`, `flutter`, `infra` stages. |
+| [`full-stack-sweep.yml`](../.forgejo/workflows/full-stack-sweep.yml) | manual + weekdays | Scheduled full-stack sweep of the same six repo-owned stages. |
+| [`secret-scan.yml`](../.forgejo/workflows/secret-scan.yml) | main push + PR + manual | Service-account scanner, `gitleaks`, and optional GitGuardian parity. |
+| [`dependency-review.yml`](../.forgejo/workflows/dependency-review.yml) | dependency PRs + manual | Provider-neutral high-severity npm dependency audit. |
+| [`security-sweep.yml`](../.forgejo/workflows/security-sweep.yml) | main push + PR + weekly + manual | Repo security stage, `npm audit`, OSV/Semgrep reports, and blocking Trivy fs scan. |
+| [`container-supply-chain.yml`](../.forgejo/workflows/container-supply-chain.yml) | app/container paths | Build backend/admin/staff-web images, SBOM, blocking Trivy image scan, optional push/sign. |
+| [`smoke-e2e.yml`](../.forgejo/workflows/smoke-e2e.yml) | backend/admin smoke paths + manual | Local backend/admin/API smoke coverage and Clinical AI rollout preflight. |
+| [`ci-warehouse.yml`](../.forgejo/workflows/ci-warehouse.yml) | warehouse paths + manual | Migration-built Postgres, `dbt build`, and analytics-warehouse kustomize render. |
+| [`openapi-client-drift.yml`](../.forgejo/workflows/openapi-client-drift.yml) | API/client paths | OpenAPI regeneration/validation and generated-client smoke. |
+| [`schema-policy-drift.yml`](../.forgejo/workflows/schema-policy-drift.yml) | backend/policy paths | DB schema drift, PHI tenant guardrails, and role-policy graph tests. |
+| [`post-deploy-smoke.yml`](../.forgejo/workflows/post-deploy-smoke.yml) | main push + manual | Deployed API/admin/Sentry smoke. |
+| [`renovate.yml`](../.forgejo/workflows/renovate.yml) | weekly + manual | Forgejo Renovate dependency updates. |
+| [`staff-windows-build.yml`](../.forgejo/workflows/staff-windows-build.yml) | manual | Windows build readiness until a Windows runner is registered. |
+| [`trial-readiness-smoke.yml`](../.forgejo/workflows/trial-readiness-smoke.yml) | manual | Deployed staff role workflow sweep. |
+
+Root [`.github/workflows/`](../.github/workflows/) mirrors and release surfaces:
 
 | Workflow | Fires on | What it runs |
 |---|---|---|
@@ -694,7 +716,9 @@ Root [`.github/workflows/`](../.github/workflows/). Summarised from root [`CLAUD
 | [`release-patient.yml`](../.github/workflows/release-patient.yml) | tag `patient-v*` | Signed APK + AAB → GitHub Release. |
 | [`release-staff.yml`](../.github/workflows/release-staff.yml) | tag `staff-v*` | Signed APK + AAB → GitHub Release. |
 | [`release-images.yml`](../.github/workflows/release-images.yml) | main push, `backend-v*`, `admin-v*`, manual | Build + sign + SBOM + Trivy scan → GHCR. |
-| [`secret-scan.yml`](../.github/workflows/secret-scan.yml) | push + schedule | `gitleaks` / trufflehog secret scan. |
+| [`secret-scan.yml`](../.github/workflows/secret-scan.yml) | main push + PR + manual | Service-account scanner, `gitleaks`, and optional GitGuardian scan. |
+| [`smoke-e2e.yml`](../.github/workflows/smoke-e2e.yml) | PR + manual | Mirror of the local backend/admin/API smoke coverage. |
+| [`ci-warehouse.yml`](../.github/workflows/ci-warehouse.yml) | warehouse paths | Mirror of the analytics warehouse dbt/kustomize gate. |
 
 Shared job definitions live in reusable workflows:
 

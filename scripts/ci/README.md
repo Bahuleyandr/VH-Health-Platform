@@ -28,10 +28,28 @@ Stages:
 Provider wrappers:
 
 - `.forgejo/workflows/ci.yml`
+- `.forgejo/workflows/full-stack-sweep.yml`
+- `.forgejo/workflows/secret-scan.yml`
+- `.forgejo/workflows/dependency-review.yml`
+- `.forgejo/workflows/smoke-e2e.yml`
+- `.forgejo/workflows/ci-warehouse.yml`
 - `.github/workflows/ci.yml`
 
-Those wrappers should stay thin: prepare the runner, then call this orchestrator.
-GitHub remains an optional mirror; Forgejo is the canonical CI target.
+Those wrappers should stay thin: prepare the runner, then call this orchestrator
+or the same first-party scripts used locally. GitHub remains an optional mirror;
+Forgejo is the canonical CI target.
+
+Forgejo specialty gates:
+
+- `secret-scan.yml`: standalone service-account scan, gitleaks, and optional
+  GitGuardian parity for the GitHub secret-scan workflow.
+- `dependency-review.yml`: provider-neutral blocking npm audit for high+
+  advisories on dependency PRs; OSV/Semgrep/Trivy reporting stays in
+  `security-sweep.yml`.
+- `smoke-e2e.yml`: local backend/admin/API smoke coverage matching the GitHub
+  Smoke E2E workflow.
+- `ci-warehouse.yml`: migration-built analytics warehouse dbt build and
+  optional-module kustomize render.
 
 Branch-push optimization:
 

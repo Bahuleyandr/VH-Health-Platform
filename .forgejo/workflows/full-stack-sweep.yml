@@ -1,0 +1,83 @@
+name: Full Stack Sweep
+run-name: Full Stack Sweep (${{ github.event_name }}) @ ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 1 * * 1-5'
+      timezone: Asia/Kolkata
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-stack-sweep-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VH_CI_CACHE_DIR: /cache/vh-health-platform
+  GITLEAKS_CACHE_DIR: /cache/vh-health-platform/gitleaks
+  FHIR_VALIDATOR_CACHE_DIR: /cache/vh-health-platform/fhir-validator
+  VH_K8S_TOOLS_CACHE_DIR: /cache/vh-health-platform/k8s-tools
+  PUB_CACHE: /cache/vh-health-platform/pub
+  npm_config_cache: /cache/vh-health-platform/npm
+  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+  SENTRY_ORG: venkataeswara-hospital
+  SENTRY_TEAM: venkataeswara-hospital
+  SENTRY_PROJECT: vh-admin-portal
+  SENTRY_UPLOAD_SOURCE_MAPS: 'false'
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN_BACKEND }}
+  NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_ADMIN }}
+  NEXT_PUBLIC_SENTRY_ENVIRONMENT: ci
+  NEXT_PUBLIC_SENTRY_RELEASE: ${{ github.sha }}
+  STAFF_WEB_SENTRY_DSN: ${{ secrets.SENTRY_DSN_STAFF }}
+
+jobs:
+  stage:
+    name: ${{ matrix.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        stage:
+          - security
+          - backend
+          - fhir
+          - admin
+          - flutter
+          - infra
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare persistent CI cache
+        run: |
+          mkdir -p \
+            "$VH_CI_CACHE_DIR" \
+            "$GITLEAKS_CACHE_DIR" \
+            "$FHIR_VALIDATOR_CACHE_DIR" \
+            "$VH_K8S_TOOLS_CACHE_DIR" \
+            "$PUB_CACHE" \
+            "$npm_config_cache"
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/admin/package-lock.json
+
+      - uses: https://github.com/subosito/flutter-action@v2
+        if: matrix.stage == 'flutter'
+        with:
+          channel: stable
+          cache: true
+
+      - name: Run ${{ matrix.stage }} CI stage
+        env:
+          JEST_CI_CHUNK_SIZE: '30'
+          JEST_OLD_SPACE_MB: '4096'
+        run: node scripts/ci/run.mjs --install --only=${{ matrix.stage }}

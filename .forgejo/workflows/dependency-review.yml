@@ -1,0 +1,65 @@
+name: Dependency Risk Review
+
+# Forgejo counterpart to GitHub dependency-review-action. GitHub's native
+# dependency graph is not available here, so this gate blocks HIGH/CRITICAL npm
+# advisories on the day-to-day Forgejo merge path. The broader weekly
+# security-sweep still emits OSV/Semgrep/Trivy reports.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/backend/package.json'
+      - 'apps/backend/package-lock.json'
+      - 'apps/admin/package.json'
+      - 'apps/admin/package-lock.json'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.forgejo/workflows/dependency-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-risk-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-risk:
+    name: npm high-severity audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      npm_config_audit: 'true'
+      npm_config_fund: 'false'
+      npm_config_progress: 'false'
+      npm_config_cache: /cache/vh-health-platform/npm
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/admin/package-lock.json
+
+      - name: Prepare npm cache
+        run: mkdir -p "$npm_config_cache"
+
+      - name: Backend dependency audit
+        run: npm --prefix apps/backend audit --audit-level=high
+
+      - name: Admin dependency audit
+        run: npm --prefix apps/admin audit --audit-level=high
+
+      - name: Dart lockfile visibility
+        run: |
+          if [ -f pubspec.lock ]; then
+            echo "Dart workspace lockfile present. Vulnerability coverage is provided by Renovate advisories and the scheduled Forgejo security sweep."
+          else
+            echo "pubspec.lock is missing."
+            exit 1
+          fi

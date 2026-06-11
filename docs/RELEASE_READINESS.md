@@ -75,8 +75,8 @@ npm run build
 npm run check:clinical-ai-bundle
 ```
 
-Run the `Smoke E2E` GitHub workflow on the target commit. For local live staff
-desktop verification on Windows, run:
+Run the Forgejo `Smoke E2E` workflow on the target commit; the GitHub workflow
+is the mirror. For local live staff desktop verification on Windows, run:
 
 ```powershell
 $env:VH_BASE_URL='https://<host>/api/v1'

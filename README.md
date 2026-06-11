@@ -85,26 +85,27 @@ dart run melos run i18n-health
 
 ## Release And CI
 
-GitHub-hosted Actions are useful mirrors, but the canonical pre-merge and
-pre-tag gate is local:
+Forgejo Actions are the canonical hosted CI surface. GitHub-hosted Actions are
+kept as mirrors, and the same repo-owned checks can be run locally:
 
 ```bash
 node scripts/local-ci.mjs
 ```
 
 The gate runs secret scanning, backend lint/audit/swagger/DB/tests, admin
-lint/type-check/test/build/bundle guard, Flutter format/analyze/test, and
-Kubernetes manifest validation. See
+lint/type-check/test/build/bundle guard, Flutter format/analyze/test,
+Kubernetes manifest validation, and the Forgejo specialty gates cover smoke
+E2E, dependency-risk review, container supply chain, and warehouse/dbt drift. See
 [`docs/RELEASE_READINESS.md`](docs/RELEASE_READINESS.md) for the release gate.
 
 Required release configuration:
 
 | Name | Type | Used by |
 | --- | --- | --- |
-| `VH_BASE_URL` | GitHub variable / `--dart-define` | Patient and staff builds |
-| `VH_API_KEY` | GitHub secret / `--dart-define` | Patient and staff builds |
-| Patient Android signing secrets | GitHub secrets | Patient release workflow |
-| Staff Android signing secrets | GitHub secrets | Staff release workflow |
+| `VH_BASE_URL` | Forgejo/GitHub variable / `--dart-define` | Patient and staff builds |
+| `VH_API_KEY` | Forgejo/GitHub secret / `--dart-define` | Patient and staff builds |
+| Patient Android signing secrets | Forgejo/GitHub secrets | Patient release workflow |
+| Staff Android signing secrets | Forgejo/GitHub secrets | Staff release workflow |
 
 Never commit real API keys, passwords, tokens, keystores, DSNs, or live test
 credentials. Store them in the deployment secret store or in local ignored env
