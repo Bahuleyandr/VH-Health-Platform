@@ -57,7 +57,10 @@ longer writes any Kubernetes Secret and no longer needs docker/k3s-ctr sudo.
 
 **Operator steps:**
 
-1. **GHCR pull access on the rig:** add a read-only GHCR token to
+1. **GHCR pull access on the rig:** the GitHub Actions deploy workflow now
+   refreshes a `ghcr-read` Kubernetes image-pull Secret from the short-lived
+   workflow token before each rollout, so private packages can deploy. For
+   durable pod recovery after that token expires, add a read-only GHCR token to
    `/etc/rancher/k3s/registries.yaml` on dalekdefender (or make the two
    `vh-health-platform-*` packages public — policy decision).
 2. **Narrow sudoers:** the deploy user's `/etc/sudoers.d` entry should now

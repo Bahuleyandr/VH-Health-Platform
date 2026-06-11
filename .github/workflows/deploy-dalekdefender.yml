@@ -17,17 +17,20 @@ name: Deploy dalekdefender
 #   3. Trivy scan (blocking on fixable CRITICAL/HIGH) + keyless cosign sign,
 #      then cosign VERIFY the registry copy against this workflow's OIDC
 #      identity before anything is deployed.
-#   4. The SSH step only pins the deployments to the verified @sha256 digest
-#      and waits for rollout — no git, no on-host build, no secret patching.
+#   4. The SSH step refreshes a GHCR image-pull Secret from the short-lived
+#      workflow token, pins the deployments to the verified @sha256 digest,
+#      and waits for rollout — no git, no on-host build, no app secret patching.
 #
 # Secrets management: the rig's SENTRY_DSN / NEXT_PUBLIC_SENTRY_DSN now live
 # solely in the overlay-managed Secrets (operator-applied, SealedSecret
-# preferred); this workflow never writes Secrets. The admin DSN is baked at
-# build time from the GH secret like every other NEXT_PUBLIC_* value.
+# preferred). This workflow only refreshes the GHCR image-pull Secret required
+# to fetch private images. The admin DSN is baked at build time from the GH
+# secret like every other NEXT_PUBLIC_* value.
 #
 # OPERATOR ACTIONS still required (cannot be done from this repo):
-#   - k3s on dalekdefender must be able to pull from GHCR: add a read-only
-#     token in /etc/rancher/k3s/registries.yaml (or make the packages public).
+#   - For durable pod recovery after the workflow token expires, add a
+#     read-only GHCR token in /etc/rancher/k3s/registries.yaml (or make the
+#     packages public).
 #   - Narrow /etc/sudoers.d on the host: the deploy user now needs ONLY
 #     passwordless access to the root-owned `/usr/local/sbin/vhhealth-gha-deploy`
 #     wrapper. The wrapper validates digest refs and commit SHA before running
@@ -238,12 +241,16 @@ jobs:
           BACKEND_REF: ${{ needs.build-sign-scan.outputs.backend-image }}@${{ needs.build-sign-scan.outputs.backend-digest }}
           ADMIN_REF: ${{ needs.build-sign-scan.outputs.admin-image }}@${{ needs.build-sign-scan.outputs.admin-digest }}
           GIT_COMMIT: ${{ github.sha }}
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           {
             printf '%s\n' "$BACKEND_REF"
             printf '%s\n' "$ADMIN_REF"
             printf '%s\n' "$GIT_COMMIT"
+            printf '%s\n' "$GHCR_USERNAME"
+            printf '%s\n' "$GHCR_TOKEN"
           } | ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
               "$DALEK_HOST" \
               "sudo -n /usr/local/sbin/vhhealth-gha-deploy"
