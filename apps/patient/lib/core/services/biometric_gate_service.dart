@@ -57,7 +57,9 @@ class BiometricGateService {
         persistAcrossBackgrounding: true,
       );
     } catch (e) {
-      if (kDebugMode) debugPrint('BiometricGateService: $e — DENY (fail closed)');
+      if (kDebugMode) {
+        debugPrint('BiometricGateService: $e — DENY (fail closed)');
+      }
       return false; // fail closed (M11)
     }
   }

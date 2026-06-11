@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import '../config/security_config.dart';
@@ -101,11 +100,12 @@ class CertificatePinner {
 
   /// True when [cert]'s SPKI SHA-256 (base64) matches one of
   /// [normalizedPins] (bare base64, no `sha256/` prefix).
-  static bool certMatchesPins(X509Certificate cert, Set<String> normalizedPins) {
+  static bool certMatchesPins(
+    X509Certificate cert,
+    Set<String> normalizedPins,
+  ) {
     try {
-      final spkiHash = spkiSha256Base64FromDer(
-        Uint8List.fromList(cert.der),
-      );
+      final spkiHash = spkiSha256Base64FromDer(Uint8List.fromList(cert.der));
       return normalizedPins.contains(spkiHash);
     } catch (_) {
       // Unparsable certificate ⇒ fail closed.
@@ -119,8 +119,7 @@ class CertificatePinner {
   @visibleForTesting
   static String spkiSha256Base64FromDer(Uint8List certDer) {
     final spki = extractSpkiDer(certDer);
-    final hash = _Sha256()
-      ..update(spki);
+    final hash = _Sha256()..update(spki);
     return base64.encode(hash.digest());
   }
 

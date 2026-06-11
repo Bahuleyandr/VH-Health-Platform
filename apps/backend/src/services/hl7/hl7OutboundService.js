@@ -93,7 +93,7 @@ export async function deactivateSubscription(id) {
  * Returns the number of queue rows created.
  */
 export async function queueFeedMessage({
-  messageType, hl7Payload, sourceTable = null, sourceId = null, patientUid = null,
+  messageType, hl7Payload, sourceTable = null, sourceId = null, patientUid = null, tenantId = null,
 } = {}) {
   if (!SUPPORTED_TYPES.includes(messageType)) {
     throw AppError.badRequest(`Unsupported message_type ${messageType}`, 'HL7_FEED_BAD_TYPE');
@@ -103,13 +103,14 @@ export async function queueFeedMessage({
   }
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO hl7_outbound_messages
-       (subscription_id, message_type, message_control_id, hl7_payload, source_table, source_id, patient_uid)
-     SELECT s.id, $1::text, $2, $3, $4, $5, $6::uuid
+       (tenant_id, subscription_id, message_type, message_control_id, hl7_payload, source_table, source_id, patient_uid)
+     SELECT s.tenant_id, s.id, $1::text, $2, $3, $4, $5, $6::uuid
        FROM hl7_feed_subscriptions s
       WHERE s.is_active AND $1::text = ANY(s.message_types)
+        AND ($7::uuid IS NULL OR s.tenant_id = $7::uuid)
      RETURNING id`,
     messageType, extractControlId(hl7Payload), String(hl7Payload),
-    sourceTable, sourceId, patientUid,
+    sourceTable, sourceId, patientUid, tenantId,
   );
   return rows.length;
 }
@@ -118,7 +119,7 @@ export async function queueFeedMessage({
 
 async function loadPatient(patientUid) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid, name, phone, gender, birthday, address FROM users WHERE uid = $1::uuid LIMIT 1`,
+    `SELECT uid, tenant_id, name, phone, gender, birthday, address FROM users WHERE uid = $1::uuid LIMIT 1`,
     patientUid,
   );
   return rows[0] || null;
@@ -135,6 +136,7 @@ export async function emitAdmissionAdt(admission) {
       sourceTable: 'admissions',
       sourceId: String(admission.id),
       patientUid: admission.patient_uid,
+      tenantId: patient.tenant_id,
     });
     if (queued > 0) logger.info('ADT^A01 queued for outbound feeds', { admission_id: admission.id, queued });
     return queued;
@@ -155,6 +157,7 @@ export async function emitDischargeAdt(admission) {
       sourceTable: 'admissions',
       sourceId: String(admission.id),
       patientUid: admission.patient_uid,
+      tenantId: patient.tenant_id,
     });
     if (queued > 0) logger.info('ADT^A03 queued for outbound feeds', { admission_id: admission.id, queued });
     return queued;
@@ -196,6 +199,7 @@ export async function emitSignedResultsOru({ resultIds = [], patientUid = null }
       sourceTable: 'lab_results',
       sourceId: String(results[0].id),
       patientUid: uid,
+      tenantId: patient.tenant_id,
     });
     if (queued > 0) logger.info('ORU^R01 queued for outbound feeds', { result_count: results.length, queued });
     return queued;

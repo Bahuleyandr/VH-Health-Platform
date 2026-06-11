@@ -158,7 +158,7 @@ jobs:
           done
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v3
 
       - name: Sign images (keyless via OIDC)
         env:
@@ -189,7 +189,7 @@ jobs:
 
       - name: Install cosign
         if: steps.prereq.outputs.skip != 'true'
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v3
 
       - name: Verify image signatures before deploy
         if: steps.prereq.outputs.skip != 'true'

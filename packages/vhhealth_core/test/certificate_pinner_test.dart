@@ -77,7 +77,9 @@ void main() {
 
   group('pin matching (the actual accept/reject decision)', () {
     test('accepts the real SPKI pin', () {
-      final pins = CertificatePinner.normalizePins(['sha256/$kExpectedSpkiPin']);
+      final pins = CertificatePinner.normalizePins([
+        'sha256/$kExpectedSpkiPin',
+      ]);
       final hash = CertificatePinner.spkiSha256Base64FromDer(certDer);
       expect(pins.contains(hash), isTrue);
     });

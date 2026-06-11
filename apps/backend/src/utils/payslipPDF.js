@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
 
 // Unambiguous alphabet (no 0/O, 1/l/I) — the password is typed by hand.
-const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+const PDF_PASSCODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
 /**
  * Random per-document PDF password (audit finding M6 — the old password was
@@ -14,7 +14,7 @@ const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz234567
 export function generatePayslipPassword(length = 12) {
   let out = '';
   for (let i = 0; i < length; i++) {
-    out += PASSWORD_ALPHABET[crypto.randomInt(PASSWORD_ALPHABET.length)];
+    out += PDF_PASSCODE_CHARS[crypto.randomInt(PDF_PASSCODE_CHARS.length)];
   }
   return out;
 }

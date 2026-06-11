@@ -9,7 +9,8 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:vhhealth_core/vhhealth_core.dart' show ApiConfig, SecurityConfig;
+import 'package:vhhealth_core/vhhealth_core.dart'
+    show ApiConfig, SecurityConfig;
 
 // Firebase Options
 import 'firebase_options.dart';
