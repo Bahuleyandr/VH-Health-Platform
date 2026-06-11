@@ -66,8 +66,12 @@ jobs:
 
       - name: Install dbt
         run: |
-          python -m pip install --user --quiet "dbt-core<2" "dbt-postgres~=1.9.0"
-          "$HOME/.local/bin/dbt" --version
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+          python3 -m venv /tmp/vh-dbt-venv
+          /tmp/vh-dbt-venv/bin/python -m pip install --quiet --upgrade pip
+          /tmp/vh-dbt-venv/bin/python -m pip install --quiet "dbt-core<2" "dbt-postgres~=1.9.0"
+          /tmp/vh-dbt-venv/bin/dbt --version
 
       - name: dbt build (models + tests)
         working-directory: infra/kubernetes/optional/analytics-warehouse/dbt
@@ -78,8 +82,8 @@ jobs:
           DBT_PG_DBNAME: vhhealth_test
           DBT_PG_SCHEMA: analytics
         run: |
-          "$HOME/.local/bin/dbt" deps --profiles-dir profiles || true
-          "$HOME/.local/bin/dbt" build --profiles-dir profiles --no-use-colors
+          /tmp/vh-dbt-venv/bin/dbt deps --profiles-dir profiles || true
+          /tmp/vh-dbt-venv/bin/dbt build --profiles-dir profiles --no-use-colors
 
       - name: Install kustomize
         run: |
