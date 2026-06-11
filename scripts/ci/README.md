@@ -37,7 +37,7 @@ Provider wrappers:
 
 Those wrappers should stay thin: prepare the runner, then call this orchestrator
 or the same first-party scripts used locally. GitHub remains an optional mirror;
-Forgejo is the canonical CI target.
+Forgejo is the canonical CI/CD target.
 
 Forgejo specialty gates:
 
@@ -50,6 +50,20 @@ Forgejo specialty gates:
   Smoke E2E workflow.
 - `ci-warehouse.yml`: migration-built analytics warehouse dbt build and
   optional-module kustomize render.
+
+Forgejo CD surfaces:
+
+- `deploy-patient-staging.yml` / `deploy-staff-staging.yml`: build debug APKs,
+  upload Forgejo artifacts, and distribute through Firebase CLI when Firebase
+  secrets are configured.
+- `release-patient.yml` / `release-staff.yml`: build signed APK/AAB artifacts
+  for `patient-v*` and `staff-v*` tags, then publish them to Forgejo releases.
+- `release-images.yml`: build, push, SBOM, Trivy-scan, cosign-sign, and
+  GitOps-pin backend/admin/staff-web release images for `backend-v*`,
+  `admin-v*`, and `staff-web-v*` tags.
+- `release-pin-digests.yml`: manual digest-pin repair path for operators.
+- `deploy-dalekdefender.yml`: build, scan, sign, verify, and deploy backend/admin
+  images to the Dalekdefender test rig by digest.
 
 Branch-push optimization:
 

@@ -1,0 +1,239 @@
+name: Deploy dalekdefender
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'apps/admin/**'
+      - 'infra/kubernetes/overlays/dalekdefender/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dalekdefender
+  cancel-in-progress: false
+
+jobs:
+  build-scan-sign:
+    name: Build, scan, sign dalek images
+    runs-on: docker-builder
+    timeout-minutes: 60
+    outputs:
+      skip: ${{ steps.preflight.outputs.skip }}
+      backend-ref: ${{ steps.refs.outputs.backend-ref }}
+      admin-ref: ${{ steps.refs.outputs.admin-ref }}
+    env:
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_ADMIN }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Probe image release prerequisites
+        id: preflight
+        run: |
+          set -euo pipefail
+          missing=()
+          if [ -z "${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}" ]; then missing+=(CONTAINER_REGISTRY_USERNAME_or_GHCR_USERNAME); fi
+          if [ -z "${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}" ]; then missing+=(CONTAINER_REGISTRY_PASSWORD_or_GHCR_TOKEN); fi
+          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then missing+=(COSIGN_PRIVATE_KEY); fi
+          if [ -z "${COSIGN_PUBLIC_KEY:-}" ]; then missing+=(COSIGN_PUBLIC_KEY); fi
+          if [ ${#missing[@]} -ne 0 ]; then
+            mkdir -p output/dalekdefender
+            printf 'Dalekdefender deploy skipped; missing Forgejo secrets: %s\n' "${missing[*]}" \
+              | tee output/dalekdefender/SKIPPED.txt
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
+          registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
+          printf '%s' "$registry_password" | docker login ghcr.io -u "$registry_user" --password-stdin
+
+      - name: Install image tools
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-dalek-tools output/dalekdefender
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.70.0/contrib/install.sh \
+            | sh -s -- -b /tmp/vh-dalek-tools v0.70.0
+          curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 \
+            -o /tmp/vh-dalek-tools/cosign
+          chmod 0755 /tmp/vh-dalek-tools/cosign
+
+      - name: Build and push backend/admin images
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          backend_image="ghcr.io/${owner_lc}/vh-health-platform-backend"
+          admin_image="ghcr.io/${owner_lc}/vh-health-platform-adminportal"
+          tag="dalek-${GITHUB_SHA}"
+
+          docker buildx create --name vh-dalek-builder --use >/dev/null 2>&1 || docker buildx use vh-dalek-builder
+          docker buildx inspect --bootstrap
+
+          docker buildx build \
+            --pull \
+            --platform linux/amd64 \
+            --metadata-file output/dalekdefender/backend-metadata.json \
+            --push \
+            -t "${backend_image}:${tag}" \
+            --build-arg NODE_IMAGE=mirror.gcr.io/library/node:22-alpine \
+            -f apps/backend/Dockerfile \
+            apps/backend
+
+          docker buildx build \
+            --pull \
+            --platform linux/amd64 \
+            --metadata-file output/dalekdefender/admin-metadata.json \
+            --push \
+            -t "${admin_image}:${tag}" \
+            --build-arg NEXT_PUBLIC_API_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444 \
+            --build-arg NEXT_PUBLIC_APP_NAME="VH Health Admin" \
+            --build-arg NEXT_PUBLIC_ALLOWED_ORIGIN=https://dalekdefender.hippocampus-monitor.ts.net \
+            --build-arg NEXT_PUBLIC_SENTRY_DSN="${NEXT_PUBLIC_SENTRY_DSN:-}" \
+            --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=dalekdefender \
+            --build-arg NEXT_PUBLIC_SENTRY_RELEASE="${GITHUB_SHA}" \
+            --build-arg NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=0.1 \
+            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=0 \
+            --build-arg NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=0 \
+            --build-arg SENTRY_UPLOAD_SOURCE_MAPS=false \
+            -f apps/admin/Dockerfile \
+            apps/admin
+
+          backend_digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/dalekdefender/backend-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
+          admin_digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/dalekdefender/admin-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
+          if [ -z "$backend_digest" ] || [ -z "$admin_digest" ]; then
+            echo "::error::Docker buildx did not report both pushed digests"
+            exit 1
+          fi
+          echo "BACKEND_REF=${backend_image}@${backend_digest}" >> "$GITHUB_ENV"
+          echo "ADMIN_REF=${admin_image}@${admin_digest}" >> "$GITHUB_ENV"
+          {
+            echo "backend=${backend_image}@${backend_digest}"
+            echo "admin=${admin_image}@${admin_digest}"
+          } > output/dalekdefender/image-refs.txt
+
+      - name: Scan dalek images with Trivy
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          for item in backend admin; do
+            ref_var="$(printf '%s_REF' "$item" | tr '[:lower:]' '[:upper:]')"
+            ref="${!ref_var}"
+            /tmp/vh-dalek-tools/trivy image \
+              --platform linux/amd64 \
+              --scanners vuln \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --exit-code 1 \
+              --vuln-type os,library \
+              --format sarif \
+              --output "output/dalekdefender/trivy-${item}.sarif" \
+              "$ref"
+          done
+
+      - name: Sign and verify dalek image digests
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          for ref in "$BACKEND_REF" "$ADMIN_REF"; do
+            /tmp/vh-dalek-tools/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$ref"
+            /tmp/vh-dalek-tools/cosign verify --key env://COSIGN_PUBLIC_KEY "$ref"
+          done > output/dalekdefender/cosign-verify.txt
+
+      - name: Expose deploy refs
+        id: refs
+        if: steps.preflight.outputs.skip != 'true'
+        run: |
+          echo "backend-ref=$BACKEND_REF" >> "$GITHUB_OUTPUT"
+          echo "admin-ref=$ADMIN_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Upload dalek image reports
+        if: always()
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: dalekdefender-image-release-${{ github.sha }}
+          path: output/dalekdefender
+          if-no-files-found: ignore
+
+  deploy:
+    name: Pin verified digests on dalekdefender
+    needs: build-scan-sign
+    if: needs.build-scan-sign.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      DALEKDEFENDER_SSH_KEY: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+    steps:
+      - name: Probe deploy prerequisites
+        id: prereq
+        run: |
+          set -euo pipefail
+          missing=()
+          if [ -z "${TS_OAUTH_CLIENT_ID:-}" ]; then missing+=(TS_OAUTH_CLIENT_ID); fi
+          if [ -z "${TS_OAUTH_SECRET:-}" ]; then missing+=(TS_OAUTH_SECRET); fi
+          if [ -z "${DALEKDEFENDER_SSH_KEY:-}" ]; then missing+=(DALEKDEFENDER_SSH_KEY); fi
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "Skipping deploy; missing Forgejo secrets: ${missing[*]}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Tailscale connect
+        if: steps.prereq.outputs.skip != 'true'
+        uses: https://github.com/tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-deploy
+          version: latest
+
+      - name: SSH agent
+        if: steps.prereq.outputs.skip != 'true'
+        uses: https://github.com/webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.DALEKDEFENDER_SSH_KEY }}
+
+      - name: Pin deployments to verified digests
+        if: steps.prereq.outputs.skip != 'true'
+        env:
+          DALEK_HOST: bahuleyan@dalekdefender
+          BACKEND_REF: ${{ needs.build-scan-sign.outputs.backend-ref }}
+          ADMIN_REF: ${{ needs.build-scan-sign.outputs.admin-ref }}
+        run: |
+          set -euo pipefail
+          registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
+          registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
+          {
+            printf '%s\n' "$BACKEND_REF"
+            printf '%s\n' "$ADMIN_REF"
+            printf '%s\n' "$GITHUB_SHA"
+            printf '%s\n' "$registry_user"
+            printf '%s\n' "$registry_password"
+          } | ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
+              "$DALEK_HOST" \
+              "sudo -n /usr/local/sbin/vhhealth-gha-deploy"

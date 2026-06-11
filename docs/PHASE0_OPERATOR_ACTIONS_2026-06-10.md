@@ -48,18 +48,18 @@ creates the role `NOLOGIN` with no password at initdb and manages it via
 
 ## 2. H12 — dalekdefender deploy pipeline (policy + host hardening)
 
-**Workflow state (done):** `.github/workflows/deploy-dalekdefender.yml` no
-longer SSH-builds. It builds on the GitHub runner, pushes immutable
-`dalek-<sha>` tags, blocks on Trivy CRITICAL/HIGH, signs with keyless cosign,
-**verifies** the signature against the workflow's own OIDC identity, and the
+**Workflow state (done):** `.forgejo/workflows/deploy-dalekdefender.yml` no
+longer SSH-builds. It builds on the Forgejo runner, pushes immutable
+`dalek-<sha>` tags, blocks on Trivy CRITICAL/HIGH, signs with cosign from
+Forgejo secrets, **verifies** with `COSIGN_PUBLIC_KEY`, and the
 SSH step only pins the deployments to the verified `@sha256` digest. It no
 longer writes any Kubernetes Secret and no longer needs docker/k3s-ctr sudo.
 
 **Operator steps:**
 
-1. **GHCR pull access on the rig:** the GitHub Actions deploy workflow now
-   refreshes a `ghcr-read` Kubernetes image-pull Secret from the short-lived
-   workflow token before each rollout, so private packages can deploy. For
+1. **GHCR pull access on the rig:** the Forgejo deploy workflow now
+   refreshes a `ghcr-read` Kubernetes image-pull Secret from Forgejo registry
+   credentials before each rollout, so private packages can deploy. For
    durable pod recovery after that token expires, add a read-only GHCR token to
    `/etc/rancher/k3s/registries.yaml` on dalekdefender (or make the two
    `vh-health-platform-*` packages public — policy decision).
@@ -143,7 +143,8 @@ git commit -am "chore(prod): bootstrap H11 digest pins" && git push
 ```
 
 Future releases update the block automatically via
-`.github/workflows/release-pin-digests.yml` (GitOps write-back). If ArgoCD
+`.forgejo/workflows/release-images.yml`; `.forgejo/workflows/release-pin-digests.yml`
+is the manual repair path. If ArgoCD
 auto-sync is aggressive, pause the `apps` Application until the bootstrap
 commit lands.
 

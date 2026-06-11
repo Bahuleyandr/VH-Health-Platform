@@ -49,7 +49,7 @@ The platform has three distinct user populations:
 Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside
 the hospital, with **CloudNativePG** running a PostgreSQL 17 cluster
 (3 replicas, synchronous replication). Deploys are **GitOps via
-ArgoCD**: GitHub Actions builds, signs, and pushes container images to
+ArgoCD**: Forgejo Actions builds, scans, signs, and pushes container images to
 GHCR; ArgoCD watches this repo and auto-syncs Kustomize overlays. All
 external traffic arrives via **Cloudflare Tunnel → ingress-nginx →
 Service**, so the hospital firewall has zero inbound ports open. Full
@@ -681,8 +681,8 @@ Full end-to-end runbook: **[`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)**.
 
 ### Workflow catalogue
 
-Forgejo is the canonical hosted CI target. GitHub Actions remain useful mirrors
-for GitHub-native release/deploy surfaces and external visibility.
+Forgejo is the canonical hosted CI/CD target. GitHub Actions remain useful
+mirrors for external visibility.
 
 Root [`.forgejo/workflows/`](../.forgejo/workflows/):
 
@@ -699,11 +699,18 @@ Root [`.forgejo/workflows/`](../.forgejo/workflows/):
 | [`openapi-client-drift.yml`](../.forgejo/workflows/openapi-client-drift.yml) | API/client paths | OpenAPI regeneration/validation and generated-client smoke. |
 | [`schema-policy-drift.yml`](../.forgejo/workflows/schema-policy-drift.yml) | backend/policy paths | DB schema drift, PHI tenant guardrails, and role-policy graph tests. |
 | [`post-deploy-smoke.yml`](../.forgejo/workflows/post-deploy-smoke.yml) | main push + manual | Deployed API/admin/Sentry smoke when `VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN` are configured. |
+| [`deploy-patient-staging.yml`](../.forgejo/workflows/deploy-patient-staging.yml) | main push touching patient + manual | Build patient debug APKs, upload Forgejo artifacts, and distribute via Firebase when secrets are configured. |
+| [`deploy-staff-staging.yml`](../.forgejo/workflows/deploy-staff-staging.yml) | main push touching staff + manual | Build staff debug APKs, upload Forgejo artifacts, and distribute via Firebase when secrets are configured. |
+| [`release-patient.yml`](../.forgejo/workflows/release-patient.yml) | tag `patient-v*` + manual | Signed patient APK/AAB -> Forgejo Release assets. |
+| [`release-staff.yml`](../.forgejo/workflows/release-staff.yml) | tag `staff-v*` + manual | Signed staff APK/AAB -> Forgejo Release assets. |
+| [`release-images.yml`](../.forgejo/workflows/release-images.yml) | `backend-v*`, `admin-v*`, `staff-web-v*`, manual | Build, push, SBOM, Trivy scan, cosign-sign, and GitOps-pin container images. |
+| [`release-pin-digests.yml`](../.forgejo/workflows/release-pin-digests.yml) | manual | Operator repair path for production image digest pinning. |
+| [`deploy-dalekdefender.yml`](../.forgejo/workflows/deploy-dalekdefender.yml) | main push touching backend/admin/dalek overlay + manual | Build, scan, sign, verify, and deploy backend/admin images to Dalekdefender by digest. |
 | [`renovate.yml`](../.forgejo/workflows/renovate.yml) | weekly + manual | Forgejo Renovate dependency updates. |
 | [`staff-windows-build.yml`](../.forgejo/workflows/staff-windows-build.yml) | manual | Windows build readiness until a Windows runner is registered. |
 | [`trial-readiness-smoke.yml`](../.forgejo/workflows/trial-readiness-smoke.yml) | manual | Deployed staff role workflow sweep. |
 
-Root [`.github/workflows/`](../.github/workflows/) mirrors and release surfaces:
+Root [`.github/workflows/`](../.github/workflows/) mirrors:
 
 | Workflow | Fires on | What it runs |
 |---|---|---|
@@ -711,11 +718,11 @@ Root [`.github/workflows/`](../.github/workflows/) mirrors and release surfaces:
 | [`ci-flutter.yml`](../.github/workflows/ci-flutter.yml) | patient/staff/core paths | Melos bootstrap → analyze → test → format. |
 | [`ci-backend.yml`](../.github/workflows/ci-backend.yml) | backend paths | Lint + swagger + prisma + tests (Postgres 16 service) + CodeQL + FHIR conformance. |
 | [`ci-admin.yml`](../.github/workflows/ci-admin.yml) | admin paths | Lint + type-check + jest + next build. |
-| [`deploy-patient-staging.yml`](../.github/workflows/deploy-patient-staging.yml) | main push touching patient | Firebase App Distribution. |
-| [`deploy-staff-staging.yml`](../.github/workflows/deploy-staff-staging.yml) | main push touching staff | Firebase App Distribution. |
-| [`release-patient.yml`](../.github/workflows/release-patient.yml) | tag `patient-v*` | Signed APK + AAB → GitHub Release. |
-| [`release-staff.yml`](../.github/workflows/release-staff.yml) | tag `staff-v*` | Signed APK + AAB → GitHub Release. |
-| [`release-images.yml`](../.github/workflows/release-images.yml) | main push, `backend-v*`, `admin-v*`, manual | Build + sign + SBOM + Trivy scan → GHCR. |
+| [`deploy-patient-staging.yml`](../.github/workflows/deploy-patient-staging.yml) | main push touching patient | GitHub mirror of patient Firebase staging. |
+| [`deploy-staff-staging.yml`](../.github/workflows/deploy-staff-staging.yml) | main push touching staff | GitHub mirror of staff Firebase staging. |
+| [`release-patient.yml`](../.github/workflows/release-patient.yml) | tag `patient-v*` | GitHub mirror release assets. |
+| [`release-staff.yml`](../.github/workflows/release-staff.yml) | tag `staff-v*` | GitHub mirror release assets. |
+| [`release-images.yml`](../.github/workflows/release-images.yml) | main push, `backend-v*`, `admin-v*`, manual | GitHub mirror for signed GHCR image releases. |
 | [`secret-scan.yml`](../.github/workflows/secret-scan.yml) | main push + PR + manual | Service-account scanner, `gitleaks`, and optional GitGuardian scan. |
 | [`smoke-e2e.yml`](../.github/workflows/smoke-e2e.yml) | PR + manual | Mirror of the local backend/admin/API smoke coverage. |
 | [`ci-warehouse.yml`](../.github/workflows/ci-warehouse.yml) | warehouse paths | Mirror of the analytics warehouse dbt/kustomize gate. |
@@ -739,6 +746,12 @@ This keeps path-filtered CI and the scheduled sweep in lockstep.
 | Trivy **image** scan | `release-images.yml:130-147`, `:285-302` | Scans the built container at its digest; SARIF upload to GitHub Security; `exit-code: 1` CRITICAL,HIGH, `ignore-unfixed: true`. |
 | Cosign keyless sign | `release-images.yml:162-177`, `:317-331` | Every tag at digest signed via GitHub OIDC. Verifiable with `cosign verify --certificate-identity-regexp ...`. |
 | SPDX SBOM | `release-images.yml:121-128`, `:276-283` | `anchore/sbom-action` uploads SBOM artefact per image. |
+
+Forgejo CD now supersedes the GitHub-specific image rows above: Forgejo
+`release-images.yml`, `deploy-dalekdefender.yml`, and
+`container-supply-chain.yml` run the blocking Trivy image scans; Forgejo release
+images are key-signed from `COSIGN_PRIVATE_KEY`; Dalek deploy verifies with
+`COSIGN_PUBLIC_KEY`; SBOMs upload as Forgejo workflow artifacts.
 
 ### Dependabot
 

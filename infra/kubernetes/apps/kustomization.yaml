@@ -24,8 +24,9 @@ resources:
 # platform images). These digests are WRITTEN BY AUTOMATION:
 #   - scripts/update-prod-digests.mjs resolves a released tag to its digest
 #     and rewrites this block;
-#   - .github/workflows/release-pin-digests.yml runs it after every signed
-#     backend-v* / admin-v* / staff-web-v* release and commits the bump
+#   - .forgejo/workflows/release-images.yml runs it after every signed
+#     backend-v* / admin-v* / staff-web-v* release; .forgejo/workflows/
+#     release-pin-digests.yml is the manual repair path. Both commit the bump
 #     (GitOps write-back), which the ArgoCD `apps` Application then syncs.
 # OPERATOR: before the first sync after this change, run
 #   node scripts/update-prod-digests.mjs --tag backend-vX.Y.Z --tag admin-vX.Y.Z --tag staff-web-vX.Y.Z

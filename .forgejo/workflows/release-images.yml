@@ -1,0 +1,329 @@
+name: Release Container Images
+
+on:
+  push:
+    tags:
+      - 'backend-v*'
+      - 'admin-v*'
+      - 'staff-web-v*'
+  workflow_dispatch:
+    inputs:
+      build_backend:
+        description: 'Build backend image'
+        required: false
+        default: 'true'
+        type: boolean
+      build_admin:
+        description: 'Build admin image'
+        required: false
+        default: 'true'
+        type: boolean
+      build_staff_web:
+        description: 'Build staff Flutter web image'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: Release ${{ matrix.app }} image
+    runs-on: docker-builder
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: backend
+            tag_prefix: backend-v
+            latest_tag: latest-backend
+            image_name: vh-health-platform-backend
+            context: apps/backend
+            dockerfile: apps/backend/Dockerfile
+          - app: admin
+            tag_prefix: admin-v
+            latest_tag: latest-admin
+            image_name: vh-health-platform-adminportal
+            context: apps/admin
+            dockerfile: apps/admin/Dockerfile
+          - app: staff-web
+            tag_prefix: staff-web-v
+            latest_tag: latest-staff-web
+            image_name: vhhealth-staff-web
+            context: .
+            dockerfile: apps/staff/Dockerfile.web
+    env:
+      BUILD_BACKEND_INPUT: ${{ inputs.build_backend }}
+      BUILD_ADMIN_INPUT: ${{ inputs.build_admin }}
+      BUILD_STAFF_WEB_INPUT: ${{ inputs.build_staff_web }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
+      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+      NEXT_PUBLIC_APP_NAME: ${{ vars.NEXT_PUBLIC_APP_NAME }}
+      NEXT_PUBLIC_ALLOWED_ORIGIN: ${{ vars.NEXT_PUBLIC_ALLOWED_ORIGIN }}
+      NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_ADMIN }}
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${{ vars.SENTRY_ENVIRONMENT }}
+      NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.SENTRY_TRACES_SAMPLE_RATE }}
+      NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE: ${{ vars.NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE }}
+      NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE: ${{ vars.NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      STAFF_WEB_API_URL: ${{ vars.STAFF_WEB_API_URL }}
+      STAFF_WEB_API_KEY: ${{ vars.STAFF_WEB_API_KEY }}
+      STAFF_WEB_APP_NAME: ${{ vars.STAFF_WEB_APP_NAME }}
+      SENTRY_DSN_STAFF: ${{ secrets.SENTRY_DSN_STAFF }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select image for this trigger
+        id: selection
+        run: |
+          set -euo pipefail
+          selected=false
+          primary_tag=""
+          latest_tag=""
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            case "${{ matrix.app }}" in
+              backend) want="${BUILD_BACKEND_INPUT:-true}" ;;
+              admin) want="${BUILD_ADMIN_INPUT:-true}" ;;
+              staff-web) want="${BUILD_STAFF_WEB_INPUT:-true}" ;;
+            esac
+            if [ "$want" = "true" ]; then
+              selected=true
+              primary_tag="manual-${GITHUB_SHA}"
+            fi
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            case "${GITHUB_REF_NAME}" in
+              ${{ matrix.tag_prefix }}*)
+                selected=true
+                primary_tag="${GITHUB_REF_NAME}"
+                latest_tag="${{ matrix.latest_tag }}"
+                ;;
+            esac
+          fi
+
+          if [ "$selected" != "true" ]; then
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+            echo "No release requested for ${{ matrix.app }} on ${GITHUB_REF_NAME:-manual run}."
+            exit 0
+          fi
+
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner_lc}/${{ matrix.image_name }}"
+          echo "selected=true" >> "$GITHUB_OUTPUT"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "PRIMARY_TAG=$primary_tag" >> "$GITHUB_ENV"
+          echo "LATEST_TAG=$latest_tag" >> "$GITHUB_ENV"
+          echo "RELEASE_PLATFORMS=${RELEASE_PLATFORMS:-linux/amd64}" >> "$GITHUB_ENV"
+
+      - name: Validate release credentials
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          set -euo pipefail
+          registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
+          registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
+          missing=0
+          if [ -z "$registry_user" ]; then echo "::error::CONTAINER_REGISTRY_USERNAME or GHCR_USERNAME is required"; missing=1; fi
+          if [ -z "$registry_password" ]; then echo "::error::CONTAINER_REGISTRY_PASSWORD or GHCR_TOKEN is required"; missing=1; fi
+          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then echo "::error::COSIGN_PRIVATE_KEY is required for Forgejo image releases"; missing=1; fi
+          exit "$missing"
+
+      - name: Login to GHCR
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          set -euo pipefail
+          registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
+          registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
+          printf '%s' "$registry_password" | docker login ghcr.io -u "$registry_user" --password-stdin
+
+      - name: Install image tools
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-release-tools output/release-images/${{ matrix.app }}
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/v1.18.1/install.sh \
+            | sh -s -- -b /tmp/vh-release-tools v1.18.1
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.70.0/contrib/install.sh \
+            | sh -s -- -b /tmp/vh-release-tools v0.70.0
+          curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 \
+            -o /tmp/vh-release-tools/cosign
+          chmod 0755 /tmp/vh-release-tools/cosign
+
+      - name: Build and push image
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          set -euo pipefail
+          tag_args=(-t "${IMAGE}:${PRIMARY_TAG}")
+          if [ -n "${LATEST_TAG:-}" ]; then
+            tag_args+=(-t "${IMAGE}:${LATEST_TAG}")
+          fi
+
+          build_args=()
+          case "${{ matrix.app }}" in
+            backend)
+              build_args+=(--build-arg "NODE_IMAGE=mirror.gcr.io/library/node:22-alpine")
+              ;;
+            admin)
+              build_args+=(
+                --build-arg "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.vhhealth.app}"
+                --build-arg "NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-VH Health Admin}"
+                --build-arg "NEXT_PUBLIC_ALLOWED_ORIGIN=${NEXT_PUBLIC_ALLOWED_ORIGIN:-https://admin.vhhealth.app}"
+                --build-arg "NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}"
+                --build-arg "NEXT_PUBLIC_SENTRY_ENVIRONMENT=${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}"
+                --build-arg "NEXT_PUBLIC_SENTRY_RELEASE=${GITHUB_SHA}"
+                --build-arg "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-0.1}"
+                --build-arg "NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE:-0}"
+                --build-arg "NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE=${NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE:-0}"
+                --build-arg "SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN:-}"
+                --build-arg "SENTRY_UPLOAD_SOURCE_MAPS=false"
+              )
+              ;;
+            staff-web)
+              build_args+=(
+                --build-arg "VH_BASE_URL=${STAFF_WEB_API_URL:-https://clinical.vhhealth.hospital.local}"
+                --build-arg "VH_API_KEY=${STAFF_WEB_API_KEY:-}"
+                --build-arg "APP_NAME=${STAFF_WEB_APP_NAME:-VH Health Staff}"
+                --build-arg "SENTRY_DSN=${SENTRY_DSN_STAFF:-}"
+                --build-arg "SENTRY_ENVIRONMENT=${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}"
+                --build-arg "SENTRY_RELEASE=${GITHUB_SHA}"
+              )
+              ;;
+          esac
+
+          docker buildx create --name vh-release-builder --use >/dev/null 2>&1 || docker buildx use vh-release-builder
+          docker buildx inspect --bootstrap
+          docker buildx build \
+            --pull \
+            --platform "$RELEASE_PLATFORMS" \
+            --metadata-file "output/release-images/${{ matrix.app }}/build-metadata.json" \
+            --push \
+            "${tag_args[@]}" \
+            "${build_args[@]}" \
+            -f "${{ matrix.dockerfile }}" \
+            "${{ matrix.context }}"
+
+          digest="$(node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync('output/release-images/${{ matrix.app }}/build-metadata.json','utf8')); console.log(data['containerimage.digest'] || '')")"
+          if [ -z "$digest" ]; then
+            echo "::error::Docker buildx did not report a pushed image digest"
+            exit 1
+          fi
+          echo "IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "${IMAGE}@${digest}" > "output/release-images/${{ matrix.app }}/image-ref.txt"
+
+      - name: Generate SBOM
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          /tmp/vh-release-tools/syft \
+            "${IMAGE}@${IMAGE_DIGEST}" \
+            -o spdx-json="output/release-images/${{ matrix.app }}/sbom.spdx.json"
+
+      - name: Scan image with Trivy
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          /tmp/vh-release-tools/trivy image \
+            --platform linux/amd64 \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --vuln-type os,library \
+            --format sarif \
+            --output "output/release-images/${{ matrix.app }}/trivy-image.sarif" \
+            "${IMAGE}@${IMAGE_DIGEST}"
+
+      - name: Sign image digest with cosign
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          set -euo pipefail
+          /tmp/vh-release-tools/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${IMAGE_DIGEST}"
+          if [ -n "${COSIGN_PUBLIC_KEY:-}" ]; then
+            /tmp/vh-release-tools/cosign verify --key env://COSIGN_PUBLIC_KEY "${IMAGE}@${IMAGE_DIGEST}" \
+              > "output/release-images/${{ matrix.app }}/cosign-verify.json"
+          else
+            echo "COSIGN_PUBLIC_KEY not configured; image was signed but verification is deferred to deploy/cluster policy." \
+              > "output/release-images/${{ matrix.app }}/cosign-verify.txt"
+          fi
+
+      - name: Write release summary
+        if: steps.selection.outputs.selected == 'true'
+        run: |
+          {
+            echo "# ${{ matrix.app }} image release"
+            echo ""
+            echo "Image: \`${IMAGE}\`"
+            echo "Primary tag: \`${PRIMARY_TAG}\`"
+            if [ -n "${LATEST_TAG:-}" ]; then echo "Latest tag: \`${LATEST_TAG}\`"; fi
+            echo "Digest: \`${IMAGE_DIGEST}\`"
+            echo "Platforms: \`${RELEASE_PLATFORMS}\`"
+            echo "Signed: cosign key from Forgejo secret \`COSIGN_PRIVATE_KEY\`"
+          } > "output/release-images/${{ matrix.app }}/SUMMARY.md"
+
+      - name: Upload image release reports
+        if: always() && steps.selection.outputs.selected == 'true'
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: release-image-${{ matrix.app }}-${{ github.ref_name }}
+          path: output/release-images/${{ matrix.app }}
+          if-no-files-found: ignore
+
+  pin-prod-digest:
+    name: Pin released digest to GitOps tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: image
+    if: >
+      startsWith(github.ref, 'refs/tags/backend-v') ||
+      startsWith(github.ref, 'refs/tags/admin-v') ||
+      startsWith(github.ref, 'refs/tags/staff-web-v')
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve digest and update overlay
+        run: |
+          set -euo pipefail
+          if [ -z "${GHCR_TOKEN:-}" ] && [ -n "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
+            export GHCR_TOKEN="$CONTAINER_REGISTRY_PASSWORD"
+          fi
+          if [ -z "${GHCR_USERNAME:-}" ] && [ -n "${CONTAINER_REGISTRY_USERNAME:-}" ]; then
+            export GHCR_USERNAME="$CONTAINER_REGISTRY_USERNAME"
+          fi
+          node scripts/update-prod-digests.mjs --tag "$GITHUB_REF_NAME"
+
+      - name: Commit digest bump
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No digest change; overlay already pinned to this release."
+            exit 0
+          fi
+          git config user.name "vh-forgejo-digest-bot"
+          git config user.email "noreply@vhhealth.app"
+          git add infra/kubernetes/apps/kustomization.yaml
+          git commit -m "chore(prod): pin ${GITHUB_REF_NAME} image digest"
+          git push origin HEAD:main

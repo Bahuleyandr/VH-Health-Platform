@@ -24,7 +24,7 @@ GitHub secret, roll the deployment, THEN revoke the old credential.
 - [ ] Cloudflare R2 keys (`CF_R2_*` + `cnpg-backup-credentials`).
 - [ ] Firebase service account JSON; Twilio auth token; SMTP creds;
       `SENTRY_DSN` (rotate if it ever appeared in logs).
-- [ ] GitHub Actions secrets re-entered after rotation
+- [ ] Forgejo Actions secrets re-entered after rotation
       (`VH_API_KEY`, Android signing secrets).
 - [ ] Purge local artifacts: `.env*` backups, `output/logs/*`,
       `backend-ci-*.log` at repo root (contains workflow run output),

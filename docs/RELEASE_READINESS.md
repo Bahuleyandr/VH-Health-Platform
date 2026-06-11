@@ -4,10 +4,10 @@ This checklist is the release gate for patient and staff app tags. It is meant
 to answer one question before a tag is pushed: can we prove the app builds,
 talks to the backend, and has the required operational guardrails?
 
-## Required GitHub Configuration
+## Required Forgejo Configuration
 
-- `VH_BASE_URL` as a GitHub Actions variable.
-- `VH_API_KEY` as a GitHub Actions secret.
+- `VH_BASE_URL` as a Forgejo Actions variable.
+- `VH_API_KEY` as a Forgejo Actions secret.
 - `PATIENT_ANDROID_KEYSTORE_BASE64`
 - `PATIENT_ANDROID_KEY_ALIAS`
 - `PATIENT_ANDROID_KEY_PASSWORD`
@@ -19,6 +19,13 @@ talks to the backend, and has the required operational guardrails?
 
 The release workflows validate these before building and fail before artifact
 creation if any required value is missing.
+
+Container and deploy workflows additionally require Forgejo secrets for GHCR
+pushes (`GHCR_USERNAME`/`GHCR_TOKEN` or
+`CONTAINER_REGISTRY_USERNAME`/`CONTAINER_REGISTRY_PASSWORD`), cosign signing
+(`COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`), and the
+Dalekdefender path (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`,
+`DALEKDEFENDER_SSH_KEY`).
 
 ## Local CI Gate
 

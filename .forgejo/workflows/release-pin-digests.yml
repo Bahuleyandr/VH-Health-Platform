@@ -1,0 +1,63 @@
+name: Pin prod image digests
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Image release tag, for example backend-v1.2.3'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-pin-digests-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  pin-digests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve digest and update overlay
+        run: |
+          set -euo pipefail
+          case "${{ inputs.release_tag }}" in
+            backend-v*|admin-v*|staff-web-v*) ;;
+            *) echo "::error::Expected backend-v* / admin-v* / staff-web-v*"; exit 1 ;;
+          esac
+          if [ -z "${GHCR_TOKEN:-}" ] && [ -n "${CONTAINER_REGISTRY_PASSWORD:-}" ]; then
+            export GHCR_TOKEN="$CONTAINER_REGISTRY_PASSWORD"
+          fi
+          if [ -z "${GHCR_USERNAME:-}" ] && [ -n "${CONTAINER_REGISTRY_USERNAME:-}" ]; then
+            export GHCR_USERNAME="$CONTAINER_REGISTRY_USERNAME"
+          fi
+          node scripts/update-prod-digests.mjs --tag "${{ inputs.release_tag }}"
+
+      - name: Commit digest bump
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No digest change; overlay already pinned to this release."
+            exit 0
+          fi
+          git config user.name "vh-forgejo-digest-bot"
+          git config user.email "noreply@vhhealth.app"
+          git add infra/kubernetes/apps/kustomization.yaml
+          git commit -m "chore(prod): pin ${{ inputs.release_tag }} image digest"
+          git push origin HEAD:main

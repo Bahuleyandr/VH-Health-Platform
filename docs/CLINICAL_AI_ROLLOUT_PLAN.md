@@ -316,7 +316,7 @@ back to it if any phase breaks.
 **Verified:** `kubectl kustomize infra/kubernetes/apps/staff-web/` and `kubectl kustomize infra/kubernetes/apps/` both emit clean. All seven resources (Deployment, Service, Ingress, HPA, PDB, NetworkPolicy + namespace inheritance) have correct labels and selectors.
 
 **Follow-up shipped 2026-05-26:**
-- `.github/workflows/release-images.yml` now builds, SBOMs, scans, signs, and publishes `ghcr.io/<owner>/vhhealth-staff-web` on `staff-web-v*` tags or manual dispatch, using `apps/staff/Dockerfile.web` and the `latest-staff-web` floating tag expected by the Kubernetes base.
+- `.forgejo/workflows/release-images.yml` now builds, SBOMs, scans, signs, and publishes `ghcr.io/<owner>/vhhealth-staff-web` on `staff-web-v*` tags or manual dispatch, using `apps/staff/Dockerfile.web` and the `latest-staff-web` floating tag expected by the Kubernetes base.
 
 **What's NOT done (intentionally — small follow-up tasks, NOT blocking real traffic):**
 1. Per-overlay image patches in `infra/kubernetes/overlays/{prod,staging,dev}` to pin a specific `staff-web-v*` tag (default in base is `latest-staff-web` for dev convenience).

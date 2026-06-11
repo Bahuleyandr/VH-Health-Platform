@@ -85,8 +85,8 @@ dart run melos run i18n-health
 
 ## Release And CI
 
-Forgejo Actions are the canonical hosted CI surface. GitHub-hosted Actions are
-kept as mirrors, and the same repo-owned checks can be run locally:
+Forgejo Actions are the canonical hosted CI/CD surface. GitHub-hosted Actions
+are kept as mirrors, and the same repo-owned checks can be run locally:
 
 ```bash
 node scripts/local-ci.mjs
@@ -98,14 +98,20 @@ Kubernetes manifest validation, and the Forgejo specialty gates cover smoke
 E2E, dependency-risk review, container supply chain, and warehouse/dbt drift. See
 [`docs/RELEASE_READINESS.md`](docs/RELEASE_READINESS.md) for the release gate.
 
-Required release configuration:
+Forgejo also owns staging deploys, signed Android release assets, container
+image releases, production digest pinning, and the Dalekdefender test-rig
+deploy path. Required release configuration:
 
 | Name | Type | Used by |
 | --- | --- | --- |
-| `VH_BASE_URL` | Forgejo/GitHub variable / `--dart-define` | Patient and staff builds |
-| `VH_API_KEY` | Forgejo/GitHub secret / `--dart-define` | Patient and staff builds |
-| Patient Android signing secrets | Forgejo/GitHub secrets | Patient release workflow |
-| Staff Android signing secrets | Forgejo/GitHub secrets | Staff release workflow |
+| `VH_BASE_URL` | Forgejo variable / `--dart-define` | Patient and staff builds |
+| `VH_API_KEY` | Forgejo secret / `--dart-define` | Patient and staff builds |
+| Patient Android signing secrets | Forgejo secrets | Patient release workflow |
+| Staff Android signing secrets | Forgejo secrets | Staff release workflow |
+| `FIREBASE_APP_ID_PATIENT`, `FIREBASE_APP_ID_STAFF`, `FIREBASE_TOKEN` | Forgejo secrets | Staging Firebase App Distribution |
+| `GHCR_USERNAME`/`GHCR_TOKEN` or `CONTAINER_REGISTRY_USERNAME`/`CONTAINER_REGISTRY_PASSWORD` | Forgejo secrets | Container release and Dalekdefender image pushes |
+| `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY` | Forgejo secrets | Container signing and deploy verification |
+| `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DALEKDEFENDER_SSH_KEY` | Forgejo secrets | Dalekdefender deploy |
 
 Never commit real API keys, passwords, tokens, keystores, DSNs, or live test
 credentials. Store them in the deployment secret store or in local ignored env

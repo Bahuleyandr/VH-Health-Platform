@@ -52,8 +52,8 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 
 ## Owner Actions Outside Code
 
-- [x] Configure GitHub Actions variable `VH_BASE_URL`.
-- [x] Configure GitHub Actions secret `VH_API_KEY`.
+- [x] Configure Forgejo Actions variable `VH_BASE_URL`.
+- [x] Configure Forgejo Actions secret `VH_API_KEY`.
 - [x] Configure patient/staff Android signing secrets.
 - [ ] Rotate any real secrets that appeared in local ignored `.env` or log files.
 - [ ] Purge or regenerate local ignored logs and env files after secret rotation.
@@ -127,7 +127,7 @@ Source: `docs/PLATFORM_SECURITY_AUDIT_2026-06-10.md` +
 - [x] **H7/H8/L8** Mobile pinning fixed (SPKI base64, verified against the openssl pipeline byte-for-byte) and WIRED (pinned `IOClient` default in `VHHttpClient`, host-restricted, no platform roots); `verifyOrWarn()` at startup in both apps; `<certificates src="user"/>` removed from both netsec configs; placeholder domain replaced.
 - [x] **H9/M10** Staff manifest: `allowBackup=false`, `fullBackupContent=false`, exclude-all `dataExtractionRules`, `usesCleartextTraffic=false`; recent-patients cache moved to secure storage with plaintext purge-on-upgrade.
 - [x] **H5** `utils/logMasking.js` maskers applied at ~37 logger call sites + Winston-level PHI redaction format on every transport; regression test includes a grep-sweep gate (`log-redaction.test.js`).
-- [x] **H11** Digest pinning: `images:` block in `infra/kubernetes/apps/kustomization.yaml` (the tree ArgoCD actually syncs — NOT overlays/prod, which doesn't contain the app deployments) with fail-closed all-zero placeholders + `scripts/update-prod-digests.mjs` + `release-pin-digests.yml` GitOps write-back. *(operator: bootstrap real digests before next sync)*
+- [x] **H11** Digest pinning: `images:` block in `infra/kubernetes/apps/kustomization.yaml` (the tree ArgoCD actually syncs — NOT overlays/prod, which doesn't contain the app deployments) with fail-closed all-zero placeholders + `scripts/update-prod-digests.mjs` + Forgejo `release-images.yml`/`release-pin-digests.yml` GitOps write-back. *(operator: bootstrap real digests before next sync)*
 
 ### Phase 2 — medium
 
@@ -143,7 +143,7 @@ Source: `docs/PLATFORM_SECURITY_AUDIT_2026-06-10.md` +
 - [x] **M12** Unwired `MessageCrypto` deleted (false E2E assurance). Product owner may revive from git history with a real key-distribution design.
 - [x] **M13** `barmanObjectStore.encryption: AES256`; DR docs reconciled (no `pgbackrest-cipher` ever existed). *(operator: verify first backup vs R2)*
 - [x] **M14** vh-mcp-postgres: NodePort→ClusterIP + deny-all NetworkPolicy; ≥32-char token enforced at boot; timing-safe compare. *(operator: repoint funnel, rotate token)*
-- [x] **M15** Forgejo pipelines: Trivy image scans and filesystem vulnerability/secret scans now block (`--exit-code 1`); filesystem misconfiguration findings and OSV stay advisory while the existing backlog is triaged. Scanner images are digest-pinned where images are used; installer refs are version-pinned for direct binary installs. Forgejo now also owns standalone secret scan, dependency-risk, smoke E2E, full-stack sweep, and warehouse/dbt gates.
+- [x] **M15** Forgejo pipelines: Trivy image scans and filesystem vulnerability/secret scans now block (`--exit-code 1`); filesystem misconfiguration findings and OSV stay advisory while the existing backlog is triaged. Scanner images are digest-pinned where images are used; installer refs are version-pinned for direct binary installs. Forgejo now owns CI plus staging deploys, signed Android releases, container image releases, digest pinning, Dalekdefender deploy, standalone secret scan, dependency-risk, smoke E2E, full-stack sweep, and warehouse/dbt gates.
 - [x] **M16** Kyverno `verifyImages` ClusterPolicy keyed to release-workflow OIDC identity (`base/image-policy/`); ArgoCD `signatureKeys` documented as GPG-commit-only. *(operator: install Kyverno, enable, flip to Enforce)*
 - [x] **M17** dalekdefender: PSS labels (enforce baseline, warn/audit restricted) + restricted securityContexts on backend/admin + `vhhealth_runtime` non-superuser connection role SQL. *(operator: run SQL, repoint DATABASE_URL)*
 - [x] **M18** Orthanc: credentials via `orthanc-users` SealedSecret (env override), non-root securityContext, default-deny NetworkPolicy with modality-VLAN placeholder. *(operator: real CIDR + seal secret before enabling)*

@@ -138,7 +138,7 @@ jobs:
             echo "Image pushed to $target; cosign key secrets are not configured, signing skipped." | tee "$summary"
             exit 0
           fi
-          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /tmp/cosign
+          curl -sSfL https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64 -o /tmp/cosign
           chmod +x /tmp/cosign
           /tmp/cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$target"
           echo "Image pushed and signed: $target" | tee "$summary"

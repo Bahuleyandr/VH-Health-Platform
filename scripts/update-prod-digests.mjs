@@ -10,9 +10,12 @@
 //   node scripts/update-prod-digests.mjs --tag backend-v1.2.3 [--tag admin-v1.2.0] [--tag staff-web-v1.0.4]
 //   node scripts/update-prod-digests.mjs --image ghcr.io/<owner>/vh-health-platform-backend:backend-v1.2.3
 //
-// Auth: uses GHCR_TOKEN (a read:packages token) or GITHUB_TOKEN from the env.
-// Run by .github/workflows/release-pin-digests.yml after each signed release;
-// also runnable by an operator from a workstation.
+// Auth: uses GHCR_TOKEN or CONTAINER_REGISTRY_PASSWORD from the env. GitHub
+// Actions may still fall back to its GITHUB_TOKEN; Forgejo must use explicit
+// GHCR/registry credentials.
+// Run by .forgejo/workflows/release-images.yml after each signed release,
+// with .forgejo/workflows/release-pin-digests.yml as the manual repair path.
+// Also runnable by an operator from a workstation.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,12 +61,23 @@ function parseArgs(argv) {
 }
 
 async function ghcrToken(repoPath) {
-  // GHCR accepts a base64 PAT as bearer for private pulls, or an anonymous
-  // token for public packages.
-  const envToken = process.env.GHCR_TOKEN || process.env.GITHUB_TOKEN;
-  if (envToken) return Buffer.from(envToken).toString('base64');
+  // GHCR requires an exchange token for registry API calls. Forgejo cannot use
+  // its own GITHUB_TOKEN for GHCR, so prefer explicit GHCR/registry secrets.
+  const githubHosted = /github\.com$/i.test(new URL(process.env.GITHUB_SERVER_URL || 'https://example.invalid').hostname);
+  const envToken = process.env.GHCR_TOKEN
+    || process.env.CONTAINER_REGISTRY_PASSWORD
+    || (githubHosted ? process.env.GITHUB_TOKEN : '');
+  const username = process.env.GHCR_USERNAME
+    || process.env.CONTAINER_REGISTRY_USERNAME
+    || process.env.GITHUB_ACTOR
+    || OWNER;
+  const headers = {};
+  if (envToken) {
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${envToken}`).toString('base64')}`;
+  }
   const res = await fetch(
-    `https://${REGISTRY}/token?scope=repository:${repoPath}:pull`,
+    `https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${repoPath}:pull`,
+    { headers },
   );
   if (!res.ok) throw new Error(`token request failed: HTTP ${res.status}`);
   return (await res.json()).token;

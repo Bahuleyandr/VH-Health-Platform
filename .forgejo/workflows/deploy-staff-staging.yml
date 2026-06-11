@@ -1,0 +1,80 @@
+name: Deploy Staff App - Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/staff/**'
+      - 'packages/vhhealth_core/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staff-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-distribute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FIREBASE_APP_ID_STAFF: ${{ secrets.FIREBASE_APP_ID_STAFF }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: https://github.com/subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Activate Melos
+        run: dart pub global activate melos 7.5.1
+
+      - name: Bootstrap workspace
+        run: |
+          dart pub get
+          melos bootstrap
+
+      - name: Build debug APKs
+        working-directory: apps/staff
+        run: flutter build apk --debug --split-per-abi
+
+      - name: Upload staging APK artifacts
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: staff-staging-apks-${{ github.sha }}
+          path: apps/staff/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+
+      - name: Upload to Firebase App Distribution
+        run: |
+          set -euo pipefail
+          if [ -z "${FIREBASE_APP_ID_STAFF:-}" ] || [ -z "${FIREBASE_TOKEN:-}" ]; then
+            echo "Firebase App Distribution secrets missing; build artifact uploaded, distribution skipped."
+            exit 0
+          fi
+          npx --yes firebase-tools@13.35.1 appdistribution:distribute \
+            apps/staff/build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk \
+            --app "$FIREBASE_APP_ID_STAFF" \
+            --groups staging-testers \
+            --release-notes "Staff ${GITHUB_SHA} on ${GITHUB_REF_NAME}" \
+            --token "$FIREBASE_TOKEN"
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured; skipping notification."
+            exit 0
+          fi
+          curl -sS -H "Content-Type: application/json" \
+            -d "{\"content\":\"Staff App staging deploy failed on ${GITHUB_REF_NAME}\\n${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

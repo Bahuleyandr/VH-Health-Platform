@@ -73,7 +73,7 @@ following invariants:
 - Backend Kubernetes Deployment sets `CLUSTER_WORKERS=2`; increasing it needs a
   capacity review so pods do not oversubscribe host CPUs.
 - CI database setup reads SQL from `apps/backend/src/migrations`.
-- Mobile release workflows require GitHub Actions variable `VH_BASE_URL`,
+- Mobile release workflows require Forgejo Actions variable `VH_BASE_URL`,
   secret `VH_API_KEY`, and patient/staff Android signing secrets.
 - Admin CI runs lint, type-check, Jest, production build, and the Clinical AI
   bundle guard.
