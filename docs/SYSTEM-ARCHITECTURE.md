@@ -692,13 +692,13 @@ Root [`.forgejo/workflows/`](../.forgejo/workflows/):
 | [`full-stack-sweep.yml`](../.forgejo/workflows/full-stack-sweep.yml) | manual + weekdays | Scheduled full-stack sweep of the same six repo-owned stages. |
 | [`secret-scan.yml`](../.forgejo/workflows/secret-scan.yml) | main push + PR + manual | Service-account scanner, `gitleaks`, and optional GitGuardian parity. |
 | [`dependency-review.yml`](../.forgejo/workflows/dependency-review.yml) | dependency PRs + manual | Provider-neutral high-severity npm dependency audit. |
-| [`security-sweep.yml`](../.forgejo/workflows/security-sweep.yml) | main push + PR + weekly + manual | Repo security stage, `npm audit`, OSV/Semgrep reports, and blocking Trivy fs scan. |
+| [`security-sweep.yml`](../.forgejo/workflows/security-sweep.yml) | main push + PR + weekly + manual | Repo security stage, `npm audit`, OSV/Semgrep reports, blocking Trivy vuln/secret filesystem scan, and advisory misconfiguration reporting. |
 | [`container-supply-chain.yml`](../.forgejo/workflows/container-supply-chain.yml) | app/container paths | Build backend/admin/staff-web images, SBOM, blocking Trivy image scan, optional push/sign. |
 | [`smoke-e2e.yml`](../.forgejo/workflows/smoke-e2e.yml) | backend/admin smoke paths + manual | Local backend/admin/API smoke coverage and Clinical AI rollout preflight. |
 | [`ci-warehouse.yml`](../.forgejo/workflows/ci-warehouse.yml) | warehouse paths + manual | Migration-built Postgres, `dbt build`, and analytics-warehouse kustomize render. |
 | [`openapi-client-drift.yml`](../.forgejo/workflows/openapi-client-drift.yml) | API/client paths | OpenAPI regeneration/validation and generated-client smoke. |
 | [`schema-policy-drift.yml`](../.forgejo/workflows/schema-policy-drift.yml) | backend/policy paths | DB schema drift, PHI tenant guardrails, and role-policy graph tests. |
-| [`post-deploy-smoke.yml`](../.forgejo/workflows/post-deploy-smoke.yml) | main push + manual | Deployed API/admin/Sentry smoke. |
+| [`post-deploy-smoke.yml`](../.forgejo/workflows/post-deploy-smoke.yml) | main push + manual | Deployed API/admin/Sentry smoke when `VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN` are configured. |
 | [`renovate.yml`](../.forgejo/workflows/renovate.yml) | weekly + manual | Forgejo Renovate dependency updates. |
 | [`staff-windows-build.yml`](../.forgejo/workflows/staff-windows-build.yml) | manual | Windows build readiness until a Windows runner is registered. |
 | [`trial-readiness-smoke.yml`](../.forgejo/workflows/trial-readiness-smoke.yml) | manual | Deployed staff role workflow sweep. |
@@ -735,7 +735,7 @@ This keeps path-filtered CI and the scheduled sweep in lockstep.
 |---|---|---|
 | `npm audit --audit-level=high` | `_reusable-backend-lint-test.yml:66`, `_reusable-admin-ci.yml:52` | Fails CI on any high-severity advisory. |
 | `audit-ci --critical` | backend reusable | Second pass, fails on critical only. |
-| Trivy **filesystem** scan | both reusables | Scans source tree (excluding `node_modules`); `severity: CRITICAL,HIGH`, `ignore-unfixed: true`, `exit-code: 1`. |
+| Trivy **filesystem** scan | Forgejo `security-sweep.yml` and GitHub reusables | Forgejo blocks on CRITICAL/HIGH vulnerabilities and secrets while emitting advisory misconfiguration SARIF; GitHub reusables block CRITICAL/HIGH source-tree scans. |
 | Trivy **image** scan | `release-images.yml:130-147`, `:285-302` | Scans the built container at its digest; SARIF upload to GitHub Security; `exit-code: 1` CRITICAL,HIGH, `ignore-unfixed: true`. |
 | Cosign keyless sign | `release-images.yml:162-177`, `:317-331` | Every tag at digest signed via GitHub OIDC. Verifiable with `cosign verify --certificate-identity-regexp ...`. |
 | SPDX SBOM | `release-images.yml:121-128`, `:276-283` | `anchore/sbom-action` uploads SBOM artefact per image. |
