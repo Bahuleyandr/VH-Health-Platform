@@ -204,7 +204,7 @@ describe('billing v2 front-office audit logging', () => {
       .send({});
 
     expect(response.status).toBe(200);
-    expect(issueInvoiceMock).toHaveBeenCalledWith('77');
+    expect(issueInvoiceMock).toHaveBeenCalledWith('77', { tenantId: TENANT_ID });
     expect(logAuditMock).toHaveBeenCalledWith(
       expect.any(Object),
       'FRONT_OFFICE_BILLING_INVOICE_ISSUED',
