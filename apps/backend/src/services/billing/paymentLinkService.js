@@ -87,7 +87,7 @@ export async function createPaymentLink({
 }) {
   if (!amount || Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
   const tenant = normalizeTenantId(tenantId);
-  const subject = await resolvePaymentLinkSubject({ tenantId: tenant, invoice_id, patient_uid });
+  if (!invoice_id && !patient_uid) throw AppError.badRequest('patient_uid is required');
 
   const vpa = process.env.HOSPITAL_UPI_VPA;
   const payeeName = process.env.HOSPITAL_UPI_PAYEE_NAME || process.env.HOSPITAL_NAME;
@@ -97,6 +97,8 @@ export async function createPaymentLink({
       'UPI VPA + payee name required (set HOSPITAL_UPI_VPA + HOSPITAL_UPI_PAYEE_NAME or HOSPITAL_NAME env)',
     );
   }
+
+  const subject = await resolvePaymentLinkSubject({ tenantId: tenant, invoice_id, patient_uid });
 
   const token = generateToken();
   const transactionRef = `VH-${subject.invoiceId || 'AD'}-${token.slice(0, 10)}`;
