@@ -250,8 +250,11 @@ jobs:
           actual="$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
             "$DALEK_HOST" \
             "sha256sum /usr/local/sbin/vhhealth-gha-deploy 2>/dev/null | cut -d ' ' -f1" || true)"
+          actual="${actual:-missing}"
+          echo "expected_sha=$expected" >> "$GITHUB_OUTPUT"
+          echo "actual_sha=$actual" >> "$GITHUB_OUTPUT"
           if [ "$actual" != "$expected" ]; then
-            echo "::warning::Dalekdefender host helper is missing or stale; skipping cluster mutation. Install $helper_path to /usr/local/sbin/vhhealth-gha-deploy."
+            echo "::warning::Dalekdefender host helper is missing or stale; skipping cluster mutation. expected_sha=$expected actual_sha=$actual. Install $helper_path to /usr/local/sbin/vhhealth-gha-deploy."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

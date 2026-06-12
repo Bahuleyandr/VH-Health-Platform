@@ -106,6 +106,13 @@ ssh dalekdefender 'cd ~/VH-Health-Platform && git pull --ff-only'
 ssh dalekdefender 'cd ~/VH-Health-Platform && sudo install -o root -g root -m 0755 infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh /usr/local/sbin/vhhealth-gha-deploy'
 ```
 
+Verify the host helper hash matches the repo helper before re-running deploy:
+
+```bash
+sha256sum infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh
+ssh dalekdefender 'sha256sum /usr/local/sbin/vhhealth-gha-deploy'
+```
+
 The deploy user should have passwordless sudo for only
 `/usr/local/sbin/vhhealth-gha-deploy`. The helper rejects non-GHCR digests and
 non-40-char commits, refreshes the `ghcr-read` pull secret when credentials are
