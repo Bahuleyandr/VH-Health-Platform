@@ -112,7 +112,8 @@ non-40-char commits, refreshes the `ghcr-read` pull secret when credentials are
 provided, waits for backend/admin rollout, and on failure prints bounded
 Kubernetes diagnostics before restoring the previous digest-pinned images. Do
 not use this test rig for real PHI; failed-startup diagnostics include pod
-events and backend log tails.
+events and backend log tails. CI compares the host helper SHA256 with this repo
+file and skips the cluster mutation step while the host copy is stale.
 
 ## Updating
 

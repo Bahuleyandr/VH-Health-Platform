@@ -69,7 +69,9 @@ longer writes any Kubernetes Secret and no longer needs docker/k3s-ctr sudo.
    runs the limited `kubectl set image`, `kubectl set env`, and
    `kubectl rollout status` operations in namespace `vhhealth`. Install the
    repo version so failed rollouts emit Kubernetes diagnostics and restore the
-   previous digest-pinned images:
+   previous digest-pinned images. Until the host copy's SHA256 matches the repo
+   copy, GitHub/Forgejo deploy workflows intentionally skip the cluster mutation
+   step instead of risking another stale-helper timeout:
    ```bash
    cd ~/VH-Health-Platform
    sudo install -o root -g root -m 0755 \

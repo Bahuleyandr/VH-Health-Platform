@@ -7655,17 +7655,17 @@ model preop_checklists {
   metadata                  Json         @default("{}")
   created_at                DateTime     @default(now()) @db.Timestamptz(6)
   updated_at                DateTime     @default(now()) @db.Timestamptz(6)
+  blood_glucose_mg_dl       Decimal?     @db.Decimal(8, 2)
+  blood_glucose_checked_at  DateTime?    @db.Timestamptz(6)
+  eye_drops_given           Boolean      @default(false)
+  eye_drops_given_at        DateTime?    @db.Timestamptz(6)
+  eye_drops_notes           String?
   site_marked_side          String?      @db.VarChar(80)
   vitals                    Json         @default("{}")
   iv_access_secured         Boolean      @default(false)
   eye_drops_schedule        Json         @default("[]")
   preop_glucose_mg_dl       Int?
   ot_ready                  Boolean      @default(false)
-  blood_glucose_mg_dl       Decimal?     @db.Decimal(8, 2)
-  blood_glucose_checked_at  DateTime?    @db.Timestamptz(6)
-  eye_drops_given           Boolean      @default(false)
-  eye_drops_given_at        DateTime?    @db.Timestamptz(6)
-  eye_drops_notes           String?
   ot_schedules              ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                   tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
