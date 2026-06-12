@@ -205,8 +205,10 @@ describe('Notification Authorization', () => {
     it('should block PATIENT from accessing any phone notifications', async () => {
       const res = await authRequest('get', '/api/v1/notifications/0987654321', patientAToken);
 
-      // Notification route has no RBAC restriction — returns 400 (validation) or 200/500 (DB).
-      expect([400, 403, 200, 500]).toContain(res.statusCode);
+      // Legacy phone-number notification routes are intentionally gone because
+      // PII in URLs is unsafe.
+      expect(res.statusCode).toBe(410);
+      expect(res.body.success).toBe(false);
     });
   });
 });

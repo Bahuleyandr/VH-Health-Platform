@@ -13,7 +13,7 @@ describe('Billing API', () => {
   // Cleanup inserts between test runs to keep assertions deterministic.
   beforeAll(async () => {
     await prisma.payment_transactions.deleteMany({
-      where: { invoice: { patient_uid: { in: [patientUidA, patientUidB] } } },
+      where: { invoices: { patient_uid: { in: [patientUidA, patientUidB] } } },
     }).catch(() => {});
     await prisma.invoices.deleteMany({
       where: { patient_uid: { in: [patientUidA, patientUidB] } },
