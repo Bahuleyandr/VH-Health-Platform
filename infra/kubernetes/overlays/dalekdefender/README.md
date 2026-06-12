@@ -95,6 +95,25 @@ curl -sk -H "x-monitoring-token: ${MONITORING_TOKEN}" \
   https://dalekdefender.hippocampus-monitor.ts.net:8444/health/ready
 ```
 
+## Digest-pinned CI deploy helper
+
+GitHub Actions and Forgejo both deploy by sending verified GHCR image digests
+to a root-owned host helper. Install the repo version on the host whenever this
+file changes:
+
+```bash
+ssh dalekdefender 'cd ~/VH-Health-Platform && git pull --ff-only'
+ssh dalekdefender 'cd ~/VH-Health-Platform && sudo install -o root -g root -m 0755 infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh /usr/local/sbin/vhhealth-gha-deploy'
+```
+
+The deploy user should have passwordless sudo for only
+`/usr/local/sbin/vhhealth-gha-deploy`. The helper rejects non-GHCR digests and
+non-40-char commits, refreshes the `ghcr-read` pull secret when credentials are
+provided, waits for backend/admin rollout, and on failure prints bounded
+Kubernetes diagnostics before restoring the previous digest-pinned images. Do
+not use this test rig for real PHI; failed-startup diagnostics include pod
+events and backend log tails.
+
 ## Updating
 
 ```bash

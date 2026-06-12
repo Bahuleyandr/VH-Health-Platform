@@ -33,8 +33,11 @@ name: Deploy dalekdefender
 #     packages public).
 #   - Narrow /etc/sudoers.d on the host: the deploy user now needs ONLY
 #     passwordless access to the root-owned `/usr/local/sbin/vhhealth-gha-deploy`
-#     wrapper. The wrapper validates digest refs and commit SHA before running
-#     the limited kubectl set-image/set-env/rollout-status operations.
+#     wrapper from infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh.
+#     The wrapper validates digest refs and commit SHA before running the limited
+#     kubectl set-image/set-env/rollout-status operations, and the repo version
+#     emits bounded diagnostics plus restores the previous digests on rollout
+#     failure.
 #   - Restrict the Tailscale ACL so tag:gha-deploy can reach dalekdefender:22
 #     and nothing else.
 #   - Confirm no real PHI lives on this rig; keep it firewalled from

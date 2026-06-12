@@ -51,7 +51,7 @@ try {
   const prismaBin = join(backendRoot, 'node_modules', 'prisma', 'build', 'index.js');
   const pullResult = spawnSync(
     process.execPath,
-    [prismaBin, 'db', 'pull', `--schema=${tmpSchemaPath}`],
+    [prismaBin, 'db', 'pull', `--schema=${tmpSchemaPath}`, '--url', process.env.DATABASE_URL],
     { cwd: backendRoot, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' },
   );
   if (pullResult.status !== 0) {

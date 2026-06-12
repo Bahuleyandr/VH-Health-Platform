@@ -1,5 +1,12 @@
 name: Deploy dalekdefender
 
+# Build, scan, sign, verify, then pin digest refs on the Dalekdefender k3s test
+# rig through the root-owned helper at /usr/local/sbin/vhhealth-gha-deploy.
+# Install the repo version from
+# infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh so failed
+# rollouts emit bounded diagnostics and restore the previous digest-pinned
+# images.
+
 on:
   push:
     branches: [main]

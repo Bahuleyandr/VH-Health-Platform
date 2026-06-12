@@ -67,8 +67,18 @@ longer writes any Kubernetes Secret and no longer needs docker/k3s-ctr sudo.
    allow ONLY the root-owned `/usr/local/sbin/vhhealth-gha-deploy` wrapper.
    The wrapper validates GHCR digest refs and commit SHA from stdin before it
    runs the limited `kubectl set image`, `kubectl set env`, and
-   `kubectl rollout status` operations in namespace `vhhealth`. Remove docker /
-   `k3s ctr` / blanket kubectl.
+   `kubectl rollout status` operations in namespace `vhhealth`. Install the
+   repo version so failed rollouts emit Kubernetes diagnostics and restore the
+   previous digest-pinned images:
+   ```bash
+   cd ~/VH-Health-Platform
+   sudo install -o root -g root -m 0755 \
+     infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh \
+     /usr/local/sbin/vhhealth-gha-deploy
+   sudo visudo -f /etc/sudoers.d/vhhealth-gha-deploy
+   # allow only: /usr/local/sbin/vhhealth-gha-deploy
+   ```
+   Remove docker / `k3s ctr` / blanket kubectl.
 3. **Tailscale ACL:** restrict `tag:gha-deploy` to `dalekdefender:22` only
    (no other devices/ports). Verify in the Tailscale admin console.
 4. **Sentry DSNs:** the workflow no longer patches `vhhealth-backend` /

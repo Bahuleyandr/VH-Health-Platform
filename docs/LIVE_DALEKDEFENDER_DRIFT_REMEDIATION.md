@@ -2,9 +2,13 @@
 
 Last refreshed: 2026-06-12.
 
-## Current Decision
+## Current State
 
-Dalekdefender had real Prisma drift after commit `d774ad9e53e7e93ad62fc16fcb76f34566105a56`: route-critical contracts were healthy, but `prisma db pull` found live-only historical tables/columns. The production path is migration `299_live_schema_drift_archive.sql`.
+Dalekdefender had real Prisma drift after commit `d774ad9e53e7e93ad62fc16fcb76f34566105a56`: route-critical contracts were healthy, but `prisma db pull` found live-only historical tables/columns. The destructive archive/narrowing path is migration `299_live_schema_drift_archive.sql`; the final contract catch-up is `301_preop_claim_schema_contract.sql`.
+
+As of 2026-06-12, live Dalekdefender has applied migrations `298`, `299`, `300`,
+and `301`, DB contracts pass, route-critical schema drift has no missing tables,
+and the full Prisma pull/compare drift check reports no drift.
 
 The migration is intentionally conservative:
 
@@ -35,6 +39,20 @@ Recorded checksums:
 90e6d95a8e743777c4c6644703aae8ef4350387e1450cebff07702fc0fa4ed2d  vhhealth.schema.sql
 ```
 
+Immediately before applying the live destructive/narrowing migrations, a second
+backup was taken:
+
+```text
+/home/bahuleyan/backups/vhhealth/20260612T100205Z-pre-live-drift-apply
+```
+
+Recorded checksums:
+
+```text
+b144519c2c30e85394a66a7118eda4fe7b8ee96e73d4eaeb29cb775d5e81807f  vhhealth.custom.dump
+ec9d7052e59d7c4f392b722b50237bbc19addf2b5060008fb82f551b06d5874e  vhhealth.schema.sql
+```
+
 ## Live Drift Counts
 
 Targeted live counts before remediation:
@@ -54,7 +72,11 @@ Targeted live counts before remediation:
 ## Apply/Verify Sequence
 
 1. Confirm backup exists and checksums read cleanly.
-2. Apply migration `299_live_schema_drift_archive.sql` through the normal backend migration runner or a controlled psql session that also records `_migrations`.
+2. Apply migrations `298_otp_session_hash_width.sql`,
+   `299_live_schema_drift_archive.sql`,
+   `300_india_deployability_controls.sql`, and
+   `301_preop_claim_schema_contract.sql` through the normal backend migration
+   runner or a controlled psql session that also records `_migrations`.
 3. Run:
 
 ```powershell
@@ -81,3 +103,33 @@ GET /api/v1/health/version
 GET /api/v1/health/live
 GET /api/v1/health/ready with the monitoring token
 ```
+
+## 2026-06-12 Live Proof
+
+Live apply used the current backend production image digest:
+
+```text
+ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:1feb81cb4fb9af3032782a7fd82c178471c561999b09450a4bc57c4fad215906
+```
+
+Post-apply evidence:
+
+- `_migrations` contains `298_otp_session_hash_width.sql`,
+  `299_live_schema_drift_archive.sql`,
+  `300_india_deployability_controls.sql`, and
+  `301_preop_claim_schema_contract.sql`.
+- `schema_drift_archives` contains 5 archived rows from the removed live-only
+  historical objects/columns.
+- Live-only historical tables `admission_advice`, `admission_advices`, and
+  `admission_room_days` no longer exist.
+- Removed columns are absent:
+  `admissions.admission_advice_id`, `insurance_claims.admission_id`,
+  `invoices.admission_id`, `preop_checklists.admission_id`, and
+  `radiology_orders.imaging_study_id`.
+- `anesthesia_records.intubation_grade` is `varchar(8)`.
+- `preop_checklists` and `insurance_claims` residual contract drift is now
+  explicit in migration `301` and `schema.prisma`.
+- `node scripts/check-db-contracts.mjs`: 13/13 passing.
+- `node scripts/ci-schema-drift.mjs`: 36 route-critical expected tables,
+  527 present tables, 0 missing route-critical tables.
+- `node scripts/check-schema-drift.mjs`: `schema.prisma` matches DB; no drift.
