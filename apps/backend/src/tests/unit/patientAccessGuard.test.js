@@ -106,6 +106,7 @@ describe('patientAccessGuard', () => {
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).not.toContain('ctm.staff_role');
     expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1);
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][5]).toBe('allow');
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][6]).toBe('care_team');

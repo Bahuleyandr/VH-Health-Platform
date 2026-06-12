@@ -7,8 +7,8 @@
 // gate, encounter CDS, dispense label) — the staff app's patient summary
 // sheet had to read allergies off the admission-scoped command-board
 // payload, so un-admitted patients always showed "No allergies recorded".
-// This read serves the union of all four allergy stores for ANY patient,
-// admitted or not.
+// This read serves the union of all four allergy stores for any clinically
+// related patient, admitted or not.
 
 import express from 'express';
 import logger from '../../logging/logger.js';

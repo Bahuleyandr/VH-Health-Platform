@@ -626,7 +626,7 @@ async function findActiveBreakGlass(req, patient, policy, rolePolicy) {
   return firstRow(rows);
 }
 
-async function findCareTeamRelationship(req, patient, role) {
+async function findCareTeamRelationship(req, patient) {
   const actorUid = cleanUuid(actorUidOf(req));
   const actorId = cleanInt(req?.user?.id);
   const patientUid = cleanUuid(patient?.uid);
@@ -646,7 +646,6 @@ async function findCareTeamRelationship(req, patient, role) {
         AND (
           ($3::uuid IS NOT NULL AND ctm.staff_uid = $3::uuid)
           OR ($4::int IS NOT NULL AND ctm.staff_id = $4::int)
-          OR ($5::text IS NOT NULL AND UPPER(COALESCE(ctm.staff_role, '')) = $5)
         )
       ORDER BY ctm.id DESC
       LIMIT 1`,
@@ -654,7 +653,6 @@ async function findCareTeamRelationship(req, patient, role) {
     patientUid,
     actorUid,
     actorId,
-    role || null,
   );
   return firstRow(rows);
 }
@@ -1032,7 +1030,7 @@ export async function authorizePatientAccessRequest(req, {
   }
 
   if (!decision && policy.relationship_checks.includes('care_team')) {
-    const careTeam = await findCareTeamRelationship(req, resolvedPatient, role);
+    const careTeam = await findCareTeamRelationship(req, resolvedPatient);
     if (careTeam?.care_team_id) {
       decision = allowDecision(args, 'care_team', 'active care-team relationship', { careTeamId: careTeam.care_team_id });
     }
