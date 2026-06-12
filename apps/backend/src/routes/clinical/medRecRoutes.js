@@ -28,14 +28,14 @@ const guardMedRecView = patientAccessGuard('MED_REC', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
 });
 const guardMedRecWrite = patientAccessGuard('MED_REC', {
-  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  policyCode: ACCESS_POLICY_CODES.PATIENT_MEDICATION_RECONCILIATION_WRITE,
 });
 const guardMedRecResourceView = patientAccessGuardForResource('MED_REC', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
   resourceType: 'medication_reconciliation',
 });
 const guardMedRecResourceWrite = patientAccessGuardForResource('MED_REC', {
-  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  policyCode: ACCESS_POLICY_CODES.PATIENT_MEDICATION_RECONCILIATION_WRITE,
   resourceType: 'medication_reconciliation',
 });
 

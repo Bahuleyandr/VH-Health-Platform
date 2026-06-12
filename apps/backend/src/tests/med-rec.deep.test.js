@@ -8,17 +8,24 @@
 
 import prisma from '../lib/prisma.js';
 import { authClient } from './testClient.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const PHONE = `+9199909${String(Date.now() % 10000).padStart(5, '0')}`;
+const DOCTOR_UID = 'b6b6b6b6-b6b6-4b6b-8b6b-b6b6b6b6b601';
 let patientId;
 let patientUid;
+let doctorId;
+let doctor;
 let recId;
 let items;
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM admissions WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'B6TEST Patient')`,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM medication_reconciliations WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'B6TEST Patient')`,
   ).catch(() => {});
@@ -28,32 +35,68 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM e_prescriptions WHERE patient_id IN (SELECT id FROM users WHERE name = 'B6TEST Patient')`,
   ).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = 'B6TEST Patient'`).catch(() => {});
 }
 
 d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
   beforeAll(async () => {
     await cleanup();
+    const doc = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'B6TEST Doctor', 'DOCTOR', true, $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET phone = EXCLUDED.phone,
+             name = EXCLUDED.name,
+             role = EXCLUDED.role,
+             is_active = EXCLUDED.is_active,
+             tenant_id = EXCLUDED.tenant_id,
+             updated_at = NOW()
+       RETURNING id, uid`,
+      DOCTOR_UID,
+      `+9199908${String(Date.now() % 10000).padStart(5, '0')}`,
+      DEFAULT_TENANT_ID,
+    );
+    doctorId = Number(doc[0].id);
+    doctor = authClient('DOCTOR', { uid: DOCTOR_UID, id: doctorId, phone: '9990800001' });
+
     const p = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (phone, name, role, is_active, chronic_medications, updated_at)
-       VALUES ($1, 'B6TEST Patient', 'PATIENT', true,
+      `INSERT INTO users (phone, name, role, is_active, tenant_id, chronic_medications, updated_at)
+       VALUES ($1, 'B6TEST Patient', 'PATIENT', true, $2::uuid,
                '["B6TEST Metformin 500mg", "B6TEST Telmisartan 40mg"]'::jsonb, NOW())
        RETURNING id, uid`,
       PHONE,
+      DEFAULT_TENANT_ID,
     );
     patientId = Number(p[0].id);
     patientUid = p[0].uid;
 
     await prisma.$executeRawUnsafe(
-      `INSERT INTO e_prescriptions (patient_id, status, medications, created_at, updated_at)
-       VALUES ($1, 'active',
+      `INSERT INTO e_prescriptions (tenant_id, patient_id, status, medications, created_at, updated_at)
+       VALUES ($1::uuid, $2, 'active',
                '[{"name":"B6TEST Atorvastatin 20mg","dose":"20mg","frequency":"HS"}]'::jsonb, NOW(), NOW())`,
+      DEFAULT_TENANT_ID,
       patientId,
     );
     await prisma.$executeRawUnsafe(
-      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
-       VALUES ($1::uuid, 'B6TEST Metformin 500mg', '500mg', 'oral', NOW() + INTERVAL '2 hours', 'scheduled')`,
+      `INSERT INTO medication_administrations
+         (tenant_id, patient_uid, medication_name, dose, route, scheduled_time, status)
+       VALUES
+         ($1::uuid, $2::uuid, 'B6TEST Metformin 500mg', '500mg', 'oral',
+          NOW() + INTERVAL '2 hours', 'scheduled')`,
+      DEFAULT_TENANT_ID,
       patientUid,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, admitting_doctor, attending_doctor,
+          admitted_at, ward, bed_number, created_by, created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'admitted', $3::uuid, $3::uuid,
+          NOW(), 'B6TEST Ward', 'B6T-01', $3::uuid, NOW(), NOW())`,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      DOCTOR_UID,
     );
   });
 
@@ -68,7 +111,7 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
       .send({ patient_uid: patientUid, rec_type: 'admission' });
     expect(nurse.status).toBe(403);
 
-    const res = await authClient('DOCTOR')
+    const res = await doctor
       .post('/api/v1/med-rec/start')
       .send({ patient_uid: patientUid, rec_type: 'admission' });
     expect(res.status).toBe(201);
@@ -95,7 +138,7 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
   });
 
   test('double-start is a 409 with the open rec id', async () => {
-    const res = await authClient('DOCTOR')
+    const res = await doctor
       .post('/api/v1/med-rec/start')
       .send({ patient_uid: patientUid, rec_type: 'admission' });
     expect(res.status).toBe(409);
@@ -104,17 +147,17 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
 
   test('decision validation: stop/change need reasons; change needs instructions', async () => {
     const metformin = items.find((i) => i.medication_name.toLowerCase().includes('metformin'));
-    const noReason = await authClient('DOCTOR')
+    const noReason = await doctor
       .patch(`/api/v1/med-rec/${recId}/items/${metformin.id}`)
       .send({ decision: 'stop' });
     expect(noReason.status).toBe(400);
 
-    const noInstructions = await authClient('DOCTOR')
+    const noInstructions = await doctor
       .patch(`/api/v1/med-rec/${recId}/items/${metformin.id}`)
       .send({ decision: 'change', reason: 'B6TEST renal dose adjustment' });
     expect(noInstructions.status).toBe(400);
 
-    const ok = await authClient('DOCTOR')
+    const ok = await doctor
       .patch(`/api/v1/med-rec/${recId}/items/${metformin.id}`)
       .send({
         decision: 'change',
@@ -126,7 +169,7 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
   });
 
   test('complete is blocked while items are undecided', async () => {
-    const res = await authClient('DOCTOR').post(`/api/v1/med-rec/${recId}/complete`);
+    const res = await doctor.post(`/api/v1/med-rec/${recId}/complete`);
     expect(res.status).toBe(409);
     expect(res.body.details.undecided.length).toBeGreaterThanOrEqual(1);
   });
@@ -134,12 +177,12 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
   test('decide the rest, complete, and the timeline shows medrec.completed', async () => {
     for (const item of items) {
       if (item.medication_name.toLowerCase().includes('metformin')) continue; // already decided
-      const res = await authClient('DOCTOR')
+      const res = await doctor
         .patch(`/api/v1/med-rec/${recId}/items/${item.id}`)
         .send({ decision: 'continue' });
       expect(res.status).toBe(200);
     }
-    const complete = await authClient('DOCTOR').post(`/api/v1/med-rec/${recId}/complete`);
+    const complete = await doctor.post(`/api/v1/med-rec/${recId}/complete`);
     expect(complete.status).toBe(200);
     expect(complete.body.data.reconciliation.status).toBe('completed');
     expect(complete.body.data.reconciliation.decision_counts).toMatchObject({ change: 1 });
@@ -163,7 +206,7 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
   });
 
   test('discharge rec produces a take-home list from continue/change/new', async () => {
-    const start = await authClient('DOCTOR')
+    const start = await doctor
       .post('/api/v1/med-rec/start')
       .send({ patient_uid: patientUid, rec_type: 'discharge' });
     expect(start.status).toBe(201);
@@ -187,7 +230,7 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
   });
 
   test('decisions are frozen after completion', async () => {
-    const res = await authClient('DOCTOR')
+    const res = await doctor
       .patch(`/api/v1/med-rec/${recId}/items/${items[0].id}`)
       .send({ decision: 'continue' });
     expect(res.status).toBe(409);

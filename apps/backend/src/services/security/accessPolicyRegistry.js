@@ -16,6 +16,7 @@ export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_BED_WRITE: 'patient.bed.write',
   PATIENT_CLINICAL_WORKFLOW_ACCESS: 'patient.clinical_workflow.access',
   PATIENT_CLINICAL_WORKFLOW_WRITE: 'patient.clinical_workflow.write',
+  PATIENT_MEDICATION_RECONCILIATION_WRITE: 'patient.medication_reconciliation.write',
 });
 
 const RELATIONSHIP_CHECKS = Object.freeze([
@@ -167,6 +168,14 @@ export const ACCESS_POLICIES = Object.freeze({
     action: 'UPDATE',
     requiredPhiLevel: 'patient_relationship_required',
     capabilityGroups: ['ip_flow', 'theatre', 'cath_lab'],
+  }),
+  [ACCESS_POLICY_CODES.PATIENT_MEDICATION_RECONCILIATION_WRITE]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_MEDICATION_RECONCILIATION_WRITE,
+    title: 'Write patient medication reconciliation',
+    resourceType: 'medication_reconciliation',
+    action: 'UPDATE',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'pharmacy'],
   }),
 });
 
