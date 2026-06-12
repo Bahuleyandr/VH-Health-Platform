@@ -353,72 +353,66 @@ model admins {
 }
 
 model admissions {
-  id                                                                    Int                   @id @default(autoincrement())
-  patient_uid                                                           String                @db.Uuid
-  status                                                                String?               @default("admitted") @db.VarChar(50)
-  allergies                                                             String[]
-  created_at                                                            DateTime?             @default(now()) @db.Timestamptz(6)
-  encounter_id                                                          String?               @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  admitting_doctor                                                      String?               @db.Uuid
-  attending_doctor                                                      String?               @db.Uuid
-  department                                                            String?               @db.VarChar(255)
-  ward                                                                  String?               @db.VarChar(255)
-  bed_id                                                                Int?
-  bed_number                                                            String?               @db.VarChar(50)
-  chief_complaint                                                       String?
-  admitting_diagnosis                                                   String?
-  admission_type                                                        String?               @db.VarChar(50)
-  priority                                                              String?               @db.VarChar(50)
-  insurance_info                                                        Json?
-  emergency_contact                                                     Json?
-  code_status                                                           String?               @default("full_code") @db.VarChar(50)
-  expected_los_days                                                     Int?
-  created_by                                                            String?               @db.Uuid
-  admitted_at                                                           DateTime?             @db.Timestamptz(6)
-  discharged_at                                                         DateTime?             @db.Timestamptz(6)
-  discharge_type                                                        String?               @db.VarChar(50)
-  discharge_summary                                                     Json?
-  updated_at                                                            DateTime?             @default(now()) @db.Timestamptz(6)
-  reason                                                                String?
-  reason_for_admission                                                  String?
-  discharge_disposition                                                 String?
-  from_er_visit_id                                                      Int?
-  er_arrival_at                                                         DateTime?             @db.Timestamptz(6)
-  bed_pending_since                                                     DateTime?             @db.Timestamptz(6)
-  room_category                                                         String?               @db.VarChar(40)
-  emergency_consent_bypass_at                                           DateTime?             @db.Timestamptz(6)
-  emergency_consent_bypass_by                                           String?               @db.Uuid
-  emergency_consent_bypass_reason                                       String?
-  discharge_pdf_key                                                     String?               @db.VarChar(255)
-  discharge_initiated_at                                                DateTime?             @db.Timestamptz(6)
-  billing_closed_at                                                     DateTime?             @db.Timestamptz(6)
-  summary_first_edit_at                                                 DateTime?             @db.Timestamptz(6)
-  summary_signed_at                                                     DateTime?             @db.Timestamptz(6)
-  discharge_drugs_dispensed_at                                          DateTime?             @db.Timestamptz(6)
-  policy_id                                                             Int?
-  package_id                                                            Int?
-  package_code                                                          String?               @db.VarChar(40)
-  package_estimated_cost_minor                                          BigInt?
-  govt_scheme                                                           String?               @db.VarChar(60)
-  govt_scheme_status                                                    String?               @db.VarChar(30)
-  next_review_at                                                        DateTime?             @db.Timestamptz(6)
-  prior_admission_id                                                    Int?
-  tenant_id                                                             String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  admission_advice_id                                                   Int?
-  admission_advice                                                      admission_advice[]
-  admission_advices_admission_advices_consumed_admission_idToadmissions admission_advices[]   @relation("admission_advices_consumed_admission_idToadmissions")
-  admission_room_days                                                   admission_room_days[]
-  admission_advices_admissions_admission_advice_idToadmission_advices   admission_advices?    @relation("admissions_admission_advice_idToadmission_advices", fields: [admission_advice_id], references: [id], onUpdate: NoAction)
-  emergency_visit                                                       emergency_visits?     @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
-  package                                                               packages?             @relation(fields: [package_id], references: [id], onUpdate: NoAction)
-  insurance_policy                                                      insurance_policies?   @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
-  prior_admission                                                       admissions?           @relation("AdmissionReadmissionChain", fields: [prior_admission_id], references: [id], onUpdate: NoAction)
-  readmissions                                                          admissions[]          @relation("AdmissionReadmissionChain")
-  tenants                                                               tenants               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admissions_tenant")
-  advance_deposits                                                      advance_deposits[]
-  attendant_passes                                                      attendant_passes[]
-  discharge_consults                                                    discharge_consults[]
-  preop_checklists                                                      preop_checklists[]
+  id                              Int                  @id @default(autoincrement())
+  patient_uid                     String               @db.Uuid
+  status                          String?              @default("admitted") @db.VarChar(50)
+  allergies                       String[]
+  created_at                      DateTime?            @default(now()) @db.Timestamptz(6)
+  encounter_id                    String?              @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admitting_doctor                String?              @db.Uuid
+  attending_doctor                String?              @db.Uuid
+  department                      String?              @db.VarChar(255)
+  ward                            String?              @db.VarChar(255)
+  bed_id                          Int?
+  bed_number                      String?              @db.VarChar(50)
+  chief_complaint                 String?
+  admitting_diagnosis             String?
+  admission_type                  String?              @db.VarChar(50)
+  priority                        String?              @db.VarChar(50)
+  insurance_info                  Json?
+  emergency_contact               Json?
+  code_status                     String?              @default("full_code") @db.VarChar(50)
+  expected_los_days               Int?
+  created_by                      String?              @db.Uuid
+  admitted_at                     DateTime?            @db.Timestamptz(6)
+  discharged_at                   DateTime?            @db.Timestamptz(6)
+  discharge_type                  String?              @db.VarChar(50)
+  discharge_summary               Json?
+  updated_at                      DateTime?            @default(now()) @db.Timestamptz(6)
+  reason                          String?
+  reason_for_admission            String?
+  discharge_disposition           String?
+  from_er_visit_id                Int?
+  er_arrival_at                   DateTime?            @db.Timestamptz(6)
+  bed_pending_since               DateTime?            @db.Timestamptz(6)
+  room_category                   String?              @db.VarChar(40)
+  emergency_consent_bypass_at     DateTime?            @db.Timestamptz(6)
+  emergency_consent_bypass_by     String?              @db.Uuid
+  emergency_consent_bypass_reason String?
+  discharge_pdf_key               String?              @db.VarChar(255)
+  discharge_initiated_at          DateTime?            @db.Timestamptz(6)
+  billing_closed_at               DateTime?            @db.Timestamptz(6)
+  summary_first_edit_at           DateTime?            @db.Timestamptz(6)
+  summary_signed_at               DateTime?            @db.Timestamptz(6)
+  discharge_drugs_dispensed_at    DateTime?            @db.Timestamptz(6)
+  policy_id                       Int?
+  package_id                      Int?
+  package_code                    String?              @db.VarChar(40)
+  package_estimated_cost_minor    BigInt?
+  govt_scheme                     String?              @db.VarChar(60)
+  govt_scheme_status              String?              @db.VarChar(30)
+  next_review_at                  DateTime?            @db.Timestamptz(6)
+  prior_admission_id              Int?
+  tenant_id                       String               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  emergency_visit                 emergency_visits?    @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
+  package                         packages?            @relation(fields: [package_id], references: [id], onUpdate: NoAction)
+  insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
+  prior_admission                 admissions?          @relation("AdmissionReadmissionChain", fields: [prior_admission_id], references: [id], onUpdate: NoAction)
+  readmissions                    admissions[]         @relation("AdmissionReadmissionChain")
+  tenants                         tenants              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admissions_tenant")
+  advance_deposits                advance_deposits[]
+  attendant_passes                attendant_passes[]
+  discharge_consults              discharge_consults[]
 
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
@@ -436,7 +430,6 @@ model admissions {
   @@index([policy_id], map: "idx_admissions_policy_id", where: raw("(policy_id IS NOT NULL)"))
   @@index([prior_admission_id], map: "idx_admissions_prior_admission", where: raw("(prior_admission_id IS NOT NULL)"))
   @@index([ward, admitted_at], map: "idx_admissions_ward_admitted", where: raw("(ward IS NOT NULL)"))
-  @@index([admission_advice_id], map: "idx_admissions_admission_advice_id", where: raw("(admission_advice_id IS NOT NULL)"))
 }
 
 model discharge_consults {
@@ -545,7 +538,7 @@ model anesthesia_records {
   preop_meds_held           Json         @default("[]")
   technique                 String?      @db.VarChar(80)
   airway_managed            String?      @db.VarChar(40)
-  intubation_grade          String?      @db.VarChar(40)
+  intubation_grade          String?      @db.VarChar(8)
   agents_used               Json         @default("[]")
   fluids_in_ml              Int?
   blood_products_in         Json         @default("[]")
@@ -785,7 +778,6 @@ model appointments {
   triage_acuity                        Int?                         @db.SmallInt
   tenant_id                            String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   queue_id                             Int?
-  admission_advices                    admission_advices?
   appointment_documents                appointment_documents[]
   appointment_status_history           appointment_status_history[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
@@ -2294,7 +2286,6 @@ model clinical_ai_imaging_studies {
   created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
   clinical_ai_imaging_findings clinical_ai_imaging_findings[]
   tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  radiology_orders             radiology_orders[]
 
   @@unique([tenant_id, study_instance_uid])
   @@index([tenant_id, patient_uid, study_date(sort: Desc)], map: "idx_clinical_ai_imaging_studies_patient")
@@ -5417,7 +5408,6 @@ model insurance_claims {
   rejection_reason                   String?
   created_at                         DateTime                             @default(now()) @db.Timestamp(6)
   updated_at                         DateTime                             @db.Timestamp(6)
-  admission_id                       Int?
   tenant_id                          String                               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   clinical_ai_appeal_letters         clinical_ai_appeal_letters[]
   clinical_ai_payer_variance_reviews clinical_ai_payer_variance_reviews[]
@@ -5434,8 +5424,6 @@ model insurance_claims {
   @@index([tenant_id], map: "idx_insurance_claims_tenant_id")
   @@index([parent_claim_id], map: "idx_insurance_claims_parent", where: raw("(parent_claim_id IS NOT NULL)"))
   @@index([stage], map: "idx_insurance_claims_stage", where: raw("(stage IS NOT NULL)"))
-  @@index([admission_id])
-  @@index([invoice_id])
 }
 
 model insurance_claim_caps {
@@ -5882,7 +5870,6 @@ model invoices {
   due_date             DateTime?              @db.Date
   created_at           DateTime               @default(now()) @db.Timestamp(6)
   updated_at           DateTime               @db.Timestamp(6)
-  admission_id         Int?
   tenant_id            String                 @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   claim_denials        claim_denials[]
   tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_invoices_tenant")
@@ -5894,7 +5881,6 @@ model invoices {
   @@index([payment_status])
   @@index([type])
   @@index([tenant_id], map: "idx_invoices_tenant_id")
-  @@index([admission_id])
 }
 
 model leave_applications {
@@ -7627,26 +7613,17 @@ model preop_checklists {
   metadata                  Json         @default("{}")
   created_at                DateTime     @default(now()) @db.Timestamptz(6)
   updated_at                DateTime     @default(now()) @db.Timestamptz(6)
-  admission_id              Int?
-  site_marked_side          String?      @db.VarChar(80)
-  vitals                    Json         @default("{}")
-  iv_access_secured         Boolean      @default(false)
-  eye_drops_schedule        Json         @default("[]")
-  preop_glucose_mg_dl       Int?
-  ot_ready                  Boolean      @default(false)
   blood_glucose_mg_dl       Decimal?     @db.Decimal(8, 2)
   blood_glucose_checked_at  DateTime?    @db.Timestamptz(6)
   eye_drops_given           Boolean      @default(false)
   eye_drops_given_at        DateTime?    @db.Timestamptz(6)
   eye_drops_notes           String?
-  admissions                admissions?  @relation(fields: [admission_id], references: [id], onUpdate: NoAction)
   ot_schedules              ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                   tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, ot_schedule_id])
   @@index([ot_schedule_id], map: "idx_preop_checklists_schedule")
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_preop_checklists_tenant_status")
-  @@index([admission_id], map: "idx_preop_checklists_admission")
 }
 
 model prescription_safety_overrides {
@@ -7809,41 +7786,38 @@ model quality_incidents {
 }
 
 model radiology_orders {
-  id                          Int                          @id @default(autoincrement())
-  patient_uid                 String                       @db.Uuid
-  encounter_id                Int?
-  modality                    String                       @db.VarChar(50)
-  body_part                   String                       @db.VarChar(100)
-  clinical_indication         String
-  priority                    String?                      @default("routine") @db.VarChar(50)
-  status                      String?                      @default("ordered") @db.VarChar(50)
-  ordered_by                  String                       @db.Uuid
-  radiologist                 String?                      @db.Uuid
-  report                      String?
-  report_completed_at         DateTime?                    @db.Timestamptz(6)
-  notes                       String?
-  created_at                  DateTime?                    @default(now()) @db.Timestamptz(6)
-  updated_at                  DateTime?                    @default(now()) @db.Timestamptz(6)
-  acquired_at                 DateTime?                    @db.Timestamptz(6)
-  acquired_by                 String?                      @db.Uuid
-  acquired_by_name            String?                      @db.VarChar(160)
-  tech_uid                    String?                      @db.Uuid
-  tech_name                   String?                      @db.VarChar(160)
-  report_signed_off_at        DateTime?                    @db.Timestamptz(6)
-  report_signed_off_by        String?                      @db.Uuid
-  tenant_id                   String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  imaging_study_id            Int?
-  tech_license_number         String?                      @db.VarChar(120)
-  pacs_study_instance_uid     String?                      @db.VarChar(200)
-  acquisition_evidence        Json                         @default("{}")
-  tenants                     tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
-  clinical_ai_imaging_studies clinical_ai_imaging_studies? @relation(fields: [imaging_study_id], references: [id], onUpdate: NoAction)
+  id                      Int       @id @default(autoincrement())
+  patient_uid             String    @db.Uuid
+  encounter_id            Int?
+  modality                String    @db.VarChar(50)
+  body_part               String    @db.VarChar(100)
+  clinical_indication     String
+  priority                String?   @default("routine") @db.VarChar(50)
+  status                  String?   @default("ordered") @db.VarChar(50)
+  ordered_by              String    @db.Uuid
+  radiologist             String?   @db.Uuid
+  report                  String?
+  report_completed_at     DateTime? @db.Timestamptz(6)
+  notes                   String?
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+  acquired_at             DateTime? @db.Timestamptz(6)
+  acquired_by             String?   @db.Uuid
+  acquired_by_name        String?   @db.VarChar(160)
+  tech_uid                String?   @db.Uuid
+  tech_name               String?   @db.VarChar(160)
+  report_signed_off_at    DateTime? @db.Timestamptz(6)
+  report_signed_off_by    String?   @db.Uuid
+  tenant_id               String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tech_license_number     String?   @db.VarChar(120)
+  pacs_study_instance_uid String?   @db.VarChar(200)
+  acquisition_evidence    Json      @default("{}")
+  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
 
   @@index([tenant_id], map: "idx_radiology_orders_tenant_id")
   @@index([pacs_study_instance_uid], map: "idx_radiology_orders_pacs_study_uid", where: raw("(pacs_study_instance_uid IS NOT NULL)"))
   @@index([status, created_at], map: "idx_radiology_orders_pending_acquisition", where: raw("((status)::text = ANY (ARRAY[('ordered'::character varying)::text, ('acquired'::character varying)::text, ('in_progress'::character varying)::text]))"))
   @@index([report_completed_at], map: "idx_radiology_orders_signoff_pending", where: raw("((report_completed_at IS NOT NULL) AND (report_signed_off_at IS NULL))"))
-  @@index([imaging_study_id], map: "idx_radiology_orders_imaging_study_id", where: raw("(imaging_study_id IS NOT NULL)"))
 }
 
 model referrals {
@@ -8991,7 +8965,6 @@ model tenants {
   abdm_practitioner_mappings                 abdm_practitioner_mappings[]
   abdm_webhook_events                        abdm_webhook_events[]
   abha_profiles                              abha_profiles[]
-  admission_advice                           admission_advice[]
   admissions                                 admissions[]
   allergies                                  allergies[]
   ambulance_requests                         ambulance_requests[]
@@ -9667,7 +9640,6 @@ model users {
   email_verified                                                                   Boolean                           @default(false)
   abdm_consents                                                                    abdm_consents[]
   abdm_data_requests                                                               abdm_data_requests[]
-  admission_advices                                                                admission_advices[]
   annual_review_reminders                                                          annual_review_reminders[]
   annual_tax_summaries                                                             annual_tax_summaries[]
   appointment_documents_appointment_documents_doctor_idTousers                     appointment_documents[]           @relation("appointment_documents_doctor_idTousers")
@@ -14154,72 +14126,4 @@ model portal_proxy_grants {
 
   @@unique([patient_uid, proxy_uid], map: "uq_portal_proxy_grants_active", where: raw("((status)::text = 'active'::text)"))
   @@index([proxy_uid, status], map: "idx_portal_proxy_grants_proxy")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model admission_advice {
-  id                Int         @id @default(autoincrement())
-  patient_uid       String      @db.Uuid
-  advising_doctor   String      @db.Uuid
-  appointment_id    Int?
-  working_diagnosis String
-  severity          String?     @db.VarChar(30)
-  recommended_ward  String?     @db.VarChar(255)
-  notes             String?
-  status            String      @default("pending") @db.VarChar(30)
-  admission_id      Int?
-  created_by        String?     @db.Uuid
-  tenant_id         String      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  created_at        DateTime    @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime    @default(now()) @db.Timestamptz(6)
-  admissions        admissions? @relation(fields: [admission_id], references: [id], onUpdate: NoAction, map: "fk_admission_advice_admission")
-  tenants           tenants     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_admission_advice_tenant")
-
-  @@index([patient_uid], map: "idx_admission_advice_patient_uid")
-  @@index([status, created_at(sort: Desc)], map: "idx_admission_advice_status_created", where: raw("((status)::text = 'pending'::text)"))
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model admission_advices {
-  id                                                             Int          @id @default(autoincrement())
-  appointment_id                                                 Int          @unique(map: "idx_admission_advices_appointment")
-  patient_id                                                     Int?
-  advised_by                                                     String?      @db.Uuid
-  working_diagnosis                                              String?
-  urgency                                                        String       @default("routine") @db.VarChar(20)
-  notes                                                          String?
-  status                                                         String       @default("PENDING") @db.VarChar(20)
-  consumed_admission_id                                          Int?
-  created_at                                                     DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at                                                     DateTime     @default(now()) @db.Timestamptz(6)
-  consumed_at                                                    DateTime?    @db.Timestamptz(6)
-  revoked_at                                                     DateTime?    @db.Timestamptz(6)
-  tenant_id                                                      String       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  appointments                                                   appointments @relation(fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  admissions_admission_advices_consumed_admission_idToadmissions admissions?  @relation("admission_advices_consumed_admission_idToadmissions", fields: [consumed_admission_id], references: [id], onUpdate: NoAction)
-  users                                                          users?       @relation(fields: [patient_id], references: [id], onUpdate: NoAction)
-  admissions_admissions_admission_advice_idToadmission_advices   admissions[] @relation("admissions_admission_advice_idToadmission_advices")
-
-  @@index([patient_id], map: "idx_admission_advices_patient")
-  @@index([status, created_at(sort: Desc)], map: "idx_admission_advices_status_created")
-  @@index([tenant_id], map: "idx_admission_advices_tenant")
-}
-
-model admission_room_days {
-  id            Int        @id @default(autoincrement())
-  admission_id  Int
-  patient_uid   String     @db.Uuid
-  service_date  DateTime   @db.Date
-  room_category String?    @db.VarChar(40)
-  bed_id        Int?
-  amount        Decimal    @db.Decimal(12, 2)
-  notes         String?
-  tenant_id     String     @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  created_at    DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime   @default(now()) @db.Timestamptz(6)
-  admissions    admissions @relation(fields: [admission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([admission_id, service_date, room_category])
-  @@index([admission_id, service_date], map: "idx_admission_room_days_admission")
 }
