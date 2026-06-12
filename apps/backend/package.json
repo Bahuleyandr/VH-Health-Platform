@@ -19,6 +19,8 @@
     "check:phi-tenant-id": "node scripts/check-phi-tenant-id.mjs",
     "check:clinical-ai-external-regions": "node scripts/check-clinical-ai-external-region-guards.mjs",
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
+    "india:preflight": "node scripts/india-deployability-preflight.mjs",
+    "india:evidence-template": "node scripts/india-evidence-template.mjs",
     "secrets:scan": "node ../../scripts/scan-secrets.mjs",
     "security:audit-secret-encryption": "node src/scripts/security/audit-secret-encryption.js",
     "test:db:setup": "node scripts/ensure-test-db.mjs",

@@ -54,7 +54,8 @@ For the wider Indian hospital go-live packet, pair this technical checklist with
    `ABDM_CALLBACK_AUTHENTICITY` and `ABDM_M2_ENCRYPTED_PUSH` evidence rows.
    `india-deployability-preflight.mjs` remains red until these are verified,
    accepted as formal exceptions, or marked not applicable for a non-ABDM
-   deployment.
+   deployment. Accepted rows must include `evidence_uri`, `verified_by`, and
+   `verified_at`; exceptions and not-applicable decisions also require `notes`.
 
 ## Suggested order
 

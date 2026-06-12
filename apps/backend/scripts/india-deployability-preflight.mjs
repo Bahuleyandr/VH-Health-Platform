@@ -8,64 +8,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import pg from 'pg';
-
-const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
-
-const REQUIRED_TABLES = [
-  'patient_consents',
-  'patient_data_rights_requests',
-  'data_processing_activities',
-  'data_retention_policies',
-  'abdm_webhook_events',
-  'nabh_indicator_snapshots',
-  'india_compliance_evidence',
-  'billing_invoices',
-  'billing_payments',
-  'pharmacy_orders',
-  'pharmacy_inventory_batches',
-  'pharmacy_suppliers',
-];
-
-const RETENTION_TABLES = [
-  'users',
-  'patient_consents',
-  'patient_data_rights_requests',
-  'abdm_consent_artifacts',
-  'abdm_data_requests',
-  'abdm_data_transfers',
-  'abdm_webhook_events',
-  'audit_logs',
-  'clinical_audit_events',
-  'nabh_indicator_snapshots',
-  'billing_invoices',
-  'billing_payments',
-  'pharmacy_orders',
-  'pharmacy_inventory_batches',
-  'pharmacy_suppliers',
-];
-
-const REQUIRED_EVIDENCE_CONTROLS = [
-  'DPDP_NOTICE_PURPOSE_MAP',
-  'DPDP_DSR_DRY_RUN',
-  'DPDP_RETENTION_SCHEDULE',
-  'ABDM_CALLBACK_AUTHENTICITY',
-  'ABDM_M2_ENCRYPTED_PUSH',
-  'NABH_AUDIT_EXPORT',
-  'INDIA_LOG_RETENTION_180D',
-  'DR_RESTORE_DRILL',
-  'VAPT_OR_SIGNED_EXCEPTION',
-  'SIEM_ALERTS_ONCALL',
-  'LOCAL_REGION_BACKUP_JURISDICTION',
-  'IMAGE_SIGNATURE_ADMISSION',
-  'BILLING_GST_TPA_RECON',
-  'PHARMACY_LICENSE_PRESCRIPTION_CONTROL',
-];
-
-const ACCEPTED_EVIDENCE_STATUSES = new Set([
-  'verified',
-  'accepted_exception',
-  'not_applicable',
-]);
+import {
+  ACCEPTED_EVIDENCE_STATUSES,
+  DEFAULT_TENANT_ID,
+  REQUIRED_EVIDENCE_CONTROL_CODES,
+  REQUIRED_TABLES,
+  RETENTION_TABLES,
+  evidenceAcceptanceIssues,
+} from './indiaDeployabilityControls.mjs';
 
 const ABDM_REQUIRED_ENV = [
   'ABDM_CLIENT_ID',
@@ -260,17 +210,17 @@ async function checkEvidenceLedger(client, report, tenantId, existingTables) {
   }
 
   const { rows } = await client.query(
-    `SELECT control_code, control_area, status, evidence_uri, verified_at
+    `SELECT control_code, control_area, status, evidence_uri, verified_by, verified_at, notes
        FROM india_compliance_evidence
       WHERE tenant_id = $1::uuid
         AND control_code = ANY($2::text[])
       ORDER BY control_area, control_code`,
-    [tenantId, REQUIRED_EVIDENCE_CONTROLS],
+    [tenantId, REQUIRED_EVIDENCE_CONTROL_CODES],
   );
 
   const byCode = new Map(rows.map((row) => [row.control_code, row]));
-  const missing = REQUIRED_EVIDENCE_CONTROLS.filter((code) => !byCode.has(code));
-  const unaccepted = REQUIRED_EVIDENCE_CONTROLS
+  const missing = REQUIRED_EVIDENCE_CONTROL_CODES.filter((code) => !byCode.has(code));
+  const unaccepted = REQUIRED_EVIDENCE_CONTROL_CODES
     .map((code) => byCode.get(code))
     .filter((row) => row && !ACCEPTED_EVIDENCE_STATUSES.has(row.status))
     .map((row) => ({
@@ -280,6 +230,19 @@ async function checkEvidenceLedger(client, report, tenantId, existingTables) {
       has_evidence_uri: Boolean(row.evidence_uri),
       verified_at: row.verified_at,
     }));
+  const incompleteAccepted = REQUIRED_EVIDENCE_CONTROL_CODES
+    .map((code) => byCode.get(code))
+    .filter((row) => row && ACCEPTED_EVIDENCE_STATUSES.has(row.status))
+    .map((row) => ({
+      control_code: row.control_code,
+      control_area: row.control_area,
+      status: row.status,
+      issues: evidenceAcceptanceIssues(row),
+      has_evidence_uri: Boolean(row.evidence_uri),
+      has_verified_by: Boolean(row.verified_by),
+      verified_at: row.verified_at,
+    }))
+    .filter((row) => row.issues.length > 0);
 
   if (missing.length > 0) {
     addCheck(report, 'blocker', 'india-evidence-missing', 'Required India evidence controls have not been seeded.', { missing });
@@ -292,8 +255,14 @@ async function checkEvidenceLedger(client, report, tenantId, existingTables) {
     });
   }
 
-  if (missing.length === 0 && unaccepted.length === 0) {
-    addCheck(report, 'pass', 'india-evidence-accepted', `${REQUIRED_EVIDENCE_CONTROLS.length} India evidence controls are accepted.`);
+  if (incompleteAccepted.length > 0) {
+    addCheck(report, 'blocker', 'india-evidence-acceptance-incomplete', 'Accepted India evidence rows are missing evidence URI, verifier, timestamp, or required notes.', {
+      incomplete: incompleteAccepted,
+    });
+  }
+
+  if (missing.length === 0 && unaccepted.length === 0 && incompleteAccepted.length === 0) {
+    addCheck(report, 'pass', 'india-evidence-accepted', `${REQUIRED_EVIDENCE_CONTROL_CODES.length} India evidence controls are accepted with evidence pointers.`);
   }
 }
 

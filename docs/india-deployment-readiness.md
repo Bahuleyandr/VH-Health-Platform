@@ -71,6 +71,9 @@ migrations and seed data are applied:
 node -r dotenv/config apps/backend/scripts/india-deployability-preflight.mjs `
   --advisory `
   --output output/india-readiness/<hospital>/<YYYY-MM-DD>/india-preflight.json
+
+npm --prefix apps/backend run india:evidence-template -- `
+  --output output/india-readiness/<hospital>/<YYYY-MM-DD>/india-evidence-template.json
 ```
 
 Use advisory mode during readiness collection. For production, omit
@@ -79,8 +82,11 @@ ABDM, NABH, CERT-In, DR, VAPT/SIEM, billing, and pharmacy evidence is accepted
 in `india_compliance_evidence`.
 
 Accepted evidence states are `verified`, `accepted_exception`, and
-`not_applicable`. Anything left as `pending` or `in_progress` blocks real PHI.
-The seeded control codes are:
+`not_applicable`. Accepted rows must include `evidence_uri`, `verified_by`, and
+`verified_at`; `accepted_exception` and `not_applicable` also require `notes`.
+Anything left as `pending` or `in_progress`, or accepted without those fields,
+blocks real PHI. Migration `302_india_evidence_acceptance_guard.sql` enforces
+this at the database level. The seeded control codes are:
 
 | Control code | Area | Required evidence |
 |---|---|---|
