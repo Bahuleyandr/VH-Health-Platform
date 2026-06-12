@@ -10,10 +10,12 @@ import process from 'node:process';
 import pg from 'pg';
 import {
   ACCEPTED_EVIDENCE_STATUSES,
+  ABDM_CALLBACK_EVIDENCE_WINDOW_DAYS,
   DEFAULT_TENANT_ID,
   REQUIRED_EVIDENCE_CONTROL_CODES,
   REQUIRED_TABLES,
   RETENTION_TABLES,
+  abdmCallbackEvidenceIssues,
   evidenceAcceptanceIssues,
 } from './indiaDeployabilityControls.mjs';
 
@@ -266,7 +268,7 @@ async function checkEvidenceLedger(client, report, tenantId, existingTables) {
   }
 }
 
-async function checkAbdm(client, report, existingTables) {
+async function checkAbdm(client, report, tenantId, existingTables) {
   const abdmEnabled = /^(1|true|yes)$/i.test((process.env.ABDM_ENABLED || '').trim());
   if (!abdmEnabled) {
     addCheck(report, 'warning', 'abdm-disabled', 'ABDM_ENABLED is not true; ABDM production launch remains blocked until owner-side onboarding is complete.');
@@ -288,20 +290,41 @@ async function checkAbdm(client, report, existingTables) {
   const { rows } = await client.query(
     `SELECT
         COUNT(*)::int AS total_recent,
+        COUNT(*) FILTER (WHERE signature_verified = true)::int AS signed_recent,
         COUNT(*) FILTER (WHERE signature_verified = false)::int AS unsigned_recent
        FROM abdm_webhook_events
-      WHERE received_at >= NOW() - INTERVAL '30 days'`,
+      WHERE tenant_id = $1::uuid
+        AND received_at >= NOW() - ($2::int * INTERVAL '1 day')`,
+    [tenantId, ABDM_CALLBACK_EVIDENCE_WINDOW_DAYS],
   );
 
   const totalRecent = rows[0]?.total_recent ?? 0;
+  const signedRecent = rows[0]?.signed_recent ?? 0;
   const unsignedRecent = rows[0]?.unsigned_recent ?? 0;
-  if (unsignedRecent > 0) {
-    addCheck(report, 'blocker', 'abdm-unsigned-callbacks-recent', 'Recent ABDM webhook events include callbacks without verified signatures.', {
+  const evidenceIssues = abdmCallbackEvidenceIssues({ signedRecent, unsignedRecent });
+
+  if (evidenceIssues.includes('missing_recent_signed_callback_event')) {
+    addCheck(report, 'blocker', 'abdm-signed-callback-evidence-missing', 'ABDM is enabled but no recent signed callback event exists for this tenant.', {
+      window_days: ABDM_CALLBACK_EVIDENCE_WINDOW_DAYS,
+      tenant_id: tenantId,
       total_recent: totalRecent,
+      signed_recent: signedRecent,
       unsigned_recent: unsignedRecent,
     });
-  } else {
-    addCheck(report, 'pass', 'abdm-callback-signatures-clear', `No unsigned ABDM callback events in the last 30 days (${totalRecent} recent event(s)).`);
+  }
+
+  if (unsignedRecent > 0) {
+    addCheck(report, 'blocker', 'abdm-unsigned-callbacks-recent', 'Recent ABDM webhook events include callbacks without verified signatures.', {
+      window_days: ABDM_CALLBACK_EVIDENCE_WINDOW_DAYS,
+      tenant_id: tenantId,
+      total_recent: totalRecent,
+      signed_recent: signedRecent,
+      unsigned_recent: unsignedRecent,
+    });
+  }
+
+  if (evidenceIssues.length === 0) {
+    addCheck(report, 'pass', 'abdm-callback-signatures-clear', `${signedRecent} signed ABDM callback event(s) and 0 unsigned event(s) in the last ${ABDM_CALLBACK_EVIDENCE_WINDOW_DAYS} days for this tenant.`);
   }
 }
 
@@ -381,7 +404,7 @@ await withDb(args, report, async (client) => {
   await checkRetentionPolicies(client, report, args.tenantId, existingTables);
   await checkDataRightsSla(client, report, args.tenantId, existingTables);
   await checkEvidenceLedger(client, report, args.tenantId, existingTables);
-  await checkAbdm(client, report, existingTables);
+  await checkAbdm(client, report, args.tenantId, existingTables);
   await checkNabh(client, report, args.tenantId, existingTables);
 });
 

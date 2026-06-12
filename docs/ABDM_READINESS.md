@@ -1,6 +1,6 @@
 # ABDM Certification Readiness (roadmap C1)
 
-Status date: 2026-06-12. Preflight: `node -r dotenv/config apps/backend/scripts/abdm-preflight.mjs`
+Status date: 2026-06-13. Preflight: `node -r dotenv/config apps/backend/scripts/abdm-preflight.mjs`
 
 ABDM M1/M2/M3 certification is the India-market equivalent of "Epic-level
 interop" (and increasingly a government-empanelment requirement). The
@@ -56,6 +56,9 @@ For the wider Indian hospital go-live packet, pair this technical checklist with
    accepted as formal exceptions, or marked not applicable for a non-ABDM
    deployment. Accepted rows must include `evidence_uri`, `verified_by`, and
    `verified_at`; exceptions and not-applicable decisions also require `notes`.
+   When `ABDM_ENABLED=true`, the India preflight also requires at least one
+   tenant-scoped signed callback event in the last 30 days and blocks on any
+   unsigned recent callback events.
 
 ## Suggested order
 

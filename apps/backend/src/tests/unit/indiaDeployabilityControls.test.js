@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import {
   REQUIRED_EVIDENCE_CONTROLS,
+  abdmCallbackEvidenceIssues,
   evidenceAcceptanceIssues,
   makeEvidenceTemplate,
 } from '../../../scripts/indiaDeployabilityControls.mjs';
@@ -53,6 +54,32 @@ describe('india deployability evidence controls', () => {
     expect(sql).toContain('india_compliance_evidence_acceptance_evidence_check');
     expect(sql).toContain("COALESCE(metadata, '{}'::jsonb)");
     expect(sql).toContain("status IN ('accepted_exception', 'not_applicable')");
+  });
+
+  it('blocks ABDM readiness when no recent signed callback evidence exists', () => {
+    expect(abdmCallbackEvidenceIssues({ signedRecent: 0, unsignedRecent: 0 }))
+      .toEqual(['missing_recent_signed_callback_event']);
+  });
+
+  it('blocks ABDM readiness when recent callbacks include unsigned events', () => {
+    expect(abdmCallbackEvidenceIssues({ signedRecent: 2, unsignedRecent: 1 }))
+      .toEqual(['unsigned_recent_callback_event']);
+  });
+
+  it('accepts ABDM callback evidence only when recent signed events exist and unsigned events are absent', () => {
+    expect(abdmCallbackEvidenceIssues({ signedRecent: 1, unsignedRecent: 0 }))
+      .toEqual([]);
+  });
+
+  it('keeps the ABDM preflight callback query tenant-scoped and fail-closed on missing signed evidence', () => {
+    const script = fs.readFileSync(
+      new URL('../../../scripts/india-deployability-preflight.mjs', import.meta.url),
+      'utf8',
+    );
+
+    expect(script).toContain('tenant_id = $1::uuid');
+    expect(script).toContain('signature_verified = true');
+    expect(script).toContain('abdm-signed-callback-evidence-missing');
   });
 });
 

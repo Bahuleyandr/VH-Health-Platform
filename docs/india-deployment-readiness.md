@@ -1,6 +1,6 @@
 # India Deployment Readiness
 
-Status date: 2026-06-12. Scope: compliance, validation, and go-live evidence
+Status date: 2026-06-13. Scope: compliance, validation, and go-live evidence
 for an Indian hospital deployment of VH Health Platform. This runbook is an
 operator checklist, not legal advice; hospital counsel and the appointed data
 protection/security officers must approve the final packet before real patient
@@ -135,7 +135,10 @@ Before any ABDM production toggle:
       selected HIP/HIU identifiers.
 - [ ] Bridge registration is complete for the exact facility/software endpoint.
 - [ ] Callback host is reachable only through the approved ingress path, and
-      callback authenticity/timestamp checks are verified in runtime logs.
+      callback authenticity/timestamp checks are verified in runtime logs. The
+      India preflight requires at least one tenant-scoped signed callback event
+      in the last 30 days and blocks on any unsigned recent callback event when
+      `ABDM_ENABLED=true`.
 - [ ] `node -r dotenv/config apps/backend/scripts/abdm-preflight.mjs` passes in
       the target environment.
 - [ ] ABHA link/unlink/verify flows are UAT-tested at the reception desk.

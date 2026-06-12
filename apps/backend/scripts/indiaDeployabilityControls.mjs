@@ -56,7 +56,7 @@ export const REQUIRED_EVIDENCE_CONTROLS = [
     control_code: 'ABDM_CALLBACK_AUTHENTICITY',
     control_area: 'ABDM',
     control_name: 'ABDM callback HMAC/timestamp/replay validation proven in logs',
-    required_evidence: 'Runtime preflight/log excerpt proving callback secret, HIP ID, timestamp, request-id, and replay validation.',
+    required_evidence: 'Runtime preflight/log excerpt proving callback secret, HIP ID, timestamp, request-id, replay validation, and at least one recent signed callback event.',
   },
   {
     control_code: 'ABDM_M2_ENCRYPTED_PUSH',
@@ -129,6 +129,8 @@ export const ACCEPTED_EVIDENCE_STATUSES = new Set([
   'not_applicable',
 ]);
 
+export const ABDM_CALLBACK_EVIDENCE_WINDOW_DAYS = 30;
+
 export function evidenceAcceptanceIssues(row) {
   const status = String(row?.status || '').trim();
   if (!ACCEPTED_EVIDENCE_STATUSES.has(status)) return [];
@@ -140,6 +142,16 @@ export function evidenceAcceptanceIssues(row) {
   if ((status === 'accepted_exception' || status === 'not_applicable') && !hasText(row.notes)) {
     issues.push(`missing_${status}_notes`);
   }
+  return issues;
+}
+
+export function abdmCallbackEvidenceIssues({
+  signedRecent = 0,
+  unsignedRecent = 0,
+} = {}) {
+  const issues = [];
+  if (Number(signedRecent) <= 0) issues.push('missing_recent_signed_callback_event');
+  if (Number(unsignedRecent) > 0) issues.push('unsigned_recent_callback_event');
   return issues;
 }
 
