@@ -38,6 +38,7 @@ TOTP_KEY="$(openssl rand -base64 32)"
 BK_KEY="$(openssl rand -base64 32)"
 API_KEY="phone-$(openssl rand -hex 16)"
 ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)"
+MONITORING_TOKEN="$(openssl rand -hex 32)"
 
 ssh dalekdefender "sudo kubectl create namespace vhhealth --dry-run=client -o yaml | sudo kubectl apply -f -"
 
@@ -49,6 +50,7 @@ ssh dalekdefender "sudo kubectl -n vhhealth create secret generic vhhealth-backe
   --from-literal=DATABASE_URL='postgresql://vhhealth:${PASSWORD}@vhhealth-postgres:5432/vhhealth' \
   --from-literal=JWT_SECRET='${JWT}' \
   --from-literal=API_KEY='${API_KEY}' \
+  --from-literal=MONITORING_TOKEN='${MONITORING_TOKEN}' \
   --from-literal=FIELD_ENCRYPTION_KEY='${FE_KEY}' \
   --from-literal=TOTP_ENCRYPTION_KEY='${TOTP_KEY}' \
   --from-literal=BACKUP_ENCRYPTION_KEY='${BK_KEY}' \
@@ -67,6 +69,7 @@ ssh dalekdefender "sudo kubectl -n vhhealth create secret generic vhhealth-backe
 # Print the API_KEY — you'll need it for the APK build dart-define.
 echo "API_KEY=${API_KEY}"
 echo "ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_PASSWORD}"
+echo "MONITORING_TOKEN=${MONITORING_TOKEN}"
 
 # 5) Apply Postgres first, then create the runtime RLS role.
 ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -f infra/kubernetes/overlays/dalekdefender/postgres.yaml"
@@ -88,6 +91,8 @@ ssh dalekdefender "sudo kubectl -n vhhealth exec deploy/vhhealth-backend -- node
 ```bash
 # From any tailnet device (the laptop, the phone via Tailscale on Android):
 curl -sk https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1/health
+curl -sk -H "x-monitoring-token: ${MONITORING_TOKEN}" \
+  https://dalekdefender.hippocampus-monitor.ts.net:8444/health/ready
 ```
 
 ## Updating

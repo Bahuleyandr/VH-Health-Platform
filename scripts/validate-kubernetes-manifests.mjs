@@ -84,7 +84,10 @@ function validateTarget(kustomize, kubeconform, target, tmpDir) {
       { label: 'backend Service', pattern: /kind:\s+Service[\s\S]*name:\s+vhhealth-backend/ },
       { label: 'backend migration Job', pattern: /kind:\s+Job[\s\S]*name:\s+vhhealth-backend-migrate/ },
       { label: 'backend liveness probe uses /health/live', pattern: /livenessProbe:[\s\S]*path:\s+\/health\/live/ },
-      { label: 'backend readiness probe uses /health/ready', pattern: /readinessProbe:[\s\S]*path:\s+\/health\/ready/ },
+      {
+        label: 'backend readiness probe authenticates /health/ready with monitoring token',
+        pattern: /readinessProbe:[\s\S]*exec:[\s\S]*MONITORING_TOKEN[\s\S]*\/health\/ready[\s\S]*x-monitoring-token/,
+      },
       { label: 'backend release worker cap is CLUSTER_WORKERS=2', pattern: /name:\s+CLUSTER_WORKERS[\s\S]*value:\s+"2"/ },
       { label: 'backend secret reference', pattern: /secretRef:[\s\S]*name:\s+vhhealth-backend-env/ },
       { label: 'admin secret reference', pattern: /secretRef:[\s\S]*name:\s+vhhealth-admin-env/ },

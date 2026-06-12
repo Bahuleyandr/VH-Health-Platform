@@ -14,6 +14,13 @@ const startChunk = Number(process.env.JEST_CI_START_CHUNK || 1);
 const endChunk = process.env.JEST_CI_END_CHUNK
   ? Number(process.env.JEST_CI_END_CHUNK)
   : null;
+const isolatedTestPatterns = String(
+  process.env.JEST_CI_ISOLATED_TESTS
+    || 'document-integrity.deep.test.js,pharmacy-ward-indent.test.js',
+)
+  .split(',')
+  .map((pattern) => pattern.trim())
+  .filter(Boolean);
 const passthroughArgs = process.argv.slice(2);
 const maxBuffer = 64 * 1024 * 1024;
 
@@ -62,6 +69,34 @@ function run(args, options = {}) {
   });
 }
 
+function shouldRunIsolated(testFile) {
+  return isolatedTestPatterns.some((pattern) => testFile.includes(pattern));
+}
+
+function executionGroupsForChunk(chunk) {
+  const groups = [];
+  let currentGroup = [];
+
+  const flushCurrentGroup = () => {
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
+      currentGroup = [];
+    }
+  };
+
+  for (const testFile of chunk) {
+    if (shouldRunIsolated(testFile)) {
+      flushCurrentGroup();
+      groups.push([testFile]);
+    } else {
+      currentGroup.push(testFile);
+    }
+  }
+
+  flushCurrentGroup();
+  return groups;
+}
+
 const listResult = run(['--runInBand', '--listTests', ...passthroughArgs], {
   capture: true,
 });
@@ -95,6 +130,9 @@ console.log(
   `Running ${testFiles.length} Jest files in ${chunkCount} chunk(s) ` +
   `of up to ${chunkSize} with ${oldSpaceMb} MB old-space and ${testTimeoutMs} ms timeout each.`
 );
+if (isolatedTestPatterns.length > 0) {
+  console.log(`Isolating Jest files matching: ${isolatedTestPatterns.join(', ')}`);
+}
 if (startChunk > 1 || endChunk !== null) {
   console.log(`Running chunk window ${startChunk}-${endChunk ?? chunkCount} for local triage.`);
 }
@@ -103,18 +141,30 @@ for (let index = firstIndex; index < lastIndexExclusive; index += chunkSize) {
   const chunkNumber = Math.floor(index / chunkSize) + 1;
   const chunk = testFiles.slice(index, index + chunkSize);
   console.log(`\n[Jest CI] Chunk ${chunkNumber}/${chunkCount}: ${chunk.length} file(s)`);
-  const result = run([
-    '--runInBand',
-    '--forceExit',
-    `--testTimeout=${testTimeoutMs}`,
-    ...passthroughArgs,
-    '--runTestsByPath',
-    ...chunk,
-  ]);
+  const executionGroups = executionGroupsForChunk(chunk);
 
-  if (result.status !== 0) {
-    console.error(`[Jest CI] Chunk ${chunkNumber}/${chunkCount} failed.`);
-    process.exit(result.status || 1);
+  for (let groupIndex = 0; groupIndex < executionGroups.length; groupIndex += 1) {
+    const group = executionGroups[groupIndex];
+    if (executionGroups.length > 1) {
+      console.log(`[Jest CI] Chunk ${chunkNumber}/${chunkCount} group ${groupIndex + 1}/${executionGroups.length}: ${group.length} file(s)`);
+      for (const testFile of group) {
+        console.log(`  - ${path.relative(backendRoot, testFile)}`);
+      }
+    }
+
+    const result = run([
+      '--runInBand',
+      '--forceExit',
+      `--testTimeout=${testTimeoutMs}`,
+      ...passthroughArgs,
+      '--runTestsByPath',
+      ...group,
+    ]);
+
+    if (result.status !== 0) {
+      console.error(`[Jest CI] Chunk ${chunkNumber}/${chunkCount} failed.`);
+      process.exit(result.status || 1);
+    }
   }
 }
 

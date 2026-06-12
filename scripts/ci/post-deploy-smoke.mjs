@@ -15,6 +15,12 @@ const requireVersionMatch = truthy(process.env.VH_REQUIRE_VERSION_MATCH);
 const sentryRequired = truthy(process.env.SENTRY_SMOKE_REQUIRED);
 const versionMatchTimeoutMs = Number(process.env.VH_VERSION_MATCH_TIMEOUT_MS || 10 * 60 * 1000);
 const versionMatchPollMs = Number(process.env.VH_VERSION_MATCH_POLL_MS || 15 * 1000);
+const monitoringToken = firstNonEmpty(
+  process.env.VH_MONITORING_TOKEN,
+  process.env.MONITORING_TOKEN,
+  process.env.METRICS_TOKEN,
+  process.env.INTERNAL_MONITORING_TOKEN,
+);
 
 const results = [];
 
@@ -26,6 +32,23 @@ function truthy(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
+function firstNonEmpty(...values) {
+  return values.find((value) => String(value || '').trim())?.trim() || '';
+}
+
+function baseHeaders(extra = {}) {
+  return {
+    'User-Agent': 'vh-health-forgejo-post-deploy-smoke/1.0',
+    ...extra,
+  };
+}
+
+function monitoringHeaders() {
+  return monitoringToken
+    ? baseHeaders({ 'x-monitoring-token': monitoringToken })
+    : baseHeaders();
+}
+
 function appendResult(result) {
   results.push({
     checked_at: new Date().toISOString(),
@@ -33,13 +56,11 @@ function appendResult(result) {
   });
 }
 
-async function probeJson(label, url, { required = true, expectStatus = 200 } = {}) {
+async function probeJson(label, url, { required = true, expectStatus = 200, headers = null } = {}) {
   try {
     const startedAt = Date.now();
     const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'vh-health-forgejo-post-deploy-smoke/1.0',
-      },
+      headers: headers || baseHeaders(),
     });
     const text = await response.text();
     let json = null;
@@ -172,9 +193,9 @@ async function sendSentrySmoke({ name, dsn }) {
 }
 
 const live = await probeJson('backend:live', `${healthOrigin}/health/live`);
-await probeJson('backend:ready', `${healthOrigin}/health/ready`);
+await probeJson('backend:ready', `${healthOrigin}/health/ready`, { headers: monitoringHeaders() });
 let version = await probeJson('backend:version', `${healthOrigin}/health/version`);
-await probeJson('backend:metrics', `${healthOrigin}/health/metrics`, { required: false });
+await probeJson('backend:metrics', `${healthOrigin}/health/metrics`, { required: false, headers: monitoringHeaders() });
 await probeJson('admin:login', `${adminOrigin}/login`);
 
 if (version.ok && expectedCommit) {

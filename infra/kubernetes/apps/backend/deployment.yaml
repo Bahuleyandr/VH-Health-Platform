@@ -132,8 +132,10 @@ spec:
               cpu: "2000m"
               memory: "2Gi"
           # `/health/live` has no DB dependency. `/health/ready` checks DB
-          # reachability plus the migration-106 table required by appointment
-          # lifecycle code before admitting traffic.
+          # reachability plus tenant/RLS posture before admitting traffic.
+          # Readiness uses an exec probe so the protected monitoring endpoint
+          # can receive the pod's MONITORING_TOKEN without baking the secret
+          # value into this manifest.
           startupProbe:
             httpGet:
               path: /health/live
@@ -152,9 +154,35 @@ spec:
             failureThreshold: 3
             successThreshold: 1
           readinessProbe:
-            httpGet:
-              path: /health/ready
-              port: http
+            exec:
+              command:
+                - node
+                - -e
+                - |
+                  (async () => {
+                    const token = process.env.MONITORING_TOKEN || process.env.METRICS_TOKEN || process.env.INTERNAL_MONITORING_TOKEN;
+                    if (!token) {
+                      console.error('MONITORING_TOKEN, METRICS_TOKEN, or INTERNAL_MONITORING_TOKEN is required for readiness');
+                      process.exit(1);
+                    }
+                    const port = process.env.PORT || '5000';
+                    try {
+                      const response = await fetch(`http://127.0.0.1:${port}/health/ready`, {
+                        headers: {
+                          'x-forwarded-proto': 'https',
+                          'x-monitoring-token': token,
+                        },
+                        signal: AbortSignal.timeout(2500),
+                      });
+                      if (!response.ok) {
+                        console.error(await response.text());
+                        process.exit(1);
+                      }
+                    } catch (error) {
+                      console.error(error.message);
+                      process.exit(1);
+                    }
+                  })();
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
