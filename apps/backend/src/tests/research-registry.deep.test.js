@@ -7,20 +7,33 @@
 
 import prisma from '../lib/prisma.js';
 import { authClient } from './testClient.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const TEST_NAME = 'D6TEST Subject';
+const DOCTOR_UID = 'd6d6d6d6-d6d6-4d6d-8d6d-d6d6d6d6d601';
 const REG_CODE = `D6T${String(Date.now()).slice(-6)}`;
 
 let patientUid;
+let doctorId;
+let doctor;
+let consentId;
 let registryId;
 let formId;
 let enrollmentId;
 let responseId;
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM patient_consents WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`,
+    TEST_NAME,
+  ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM admissions WHERE patient_uid IN (SELECT uid FROM users WHERE name = $1)`,
+    TEST_NAME,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM research_registries WHERE code LIKE 'D6T%'`,
   ).catch(() => {});
@@ -32,20 +45,39 @@ async function cleanup() {
   ).catch(() => {});
   // clinical_audit_events is append-only — the C4 hash chain must never
   // have holes, so test cleanup deliberately leaves audit rows in place.
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = $1`, TEST_NAME).catch(() => {});
 }
 
 d('Research/registry capture — deep round-trip (roadmap D6)', () => {
-  const doctor = authClient('DOCTOR');
   const admin = authClient('ADMIN');
 
   beforeAll(async () => {
     await cleanup();
+    const doc = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'D6TEST Doctor', 'DOCTOR', true, $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET phone = EXCLUDED.phone,
+             name = EXCLUDED.name,
+             role = EXCLUDED.role,
+             is_active = EXCLUDED.is_active,
+             tenant_id = EXCLUDED.tenant_id,
+             updated_at = NOW()
+       RETURNING id, uid`,
+      DOCTOR_UID,
+      `+9198823${String(Date.now() % 10000).padStart(4, '0')}`,
+      DEFAULT_TENANT_ID,
+    );
+    doctorId = Number(doc[0].id);
+    doctor = authClient('DOCTOR', { uid: DOCTOR_UID, id: doctorId, phone: '9882300001' });
+
     const u = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (phone, name, role, gender, birthday, is_active, updated_at)
-       VALUES ($1, $2, 'PATIENT', 'female', '1980-03-15', true, NOW()) RETURNING uid`,
+      `INSERT INTO users (phone, name, role, gender, birthday, is_active, tenant_id, updated_at)
+       VALUES ($1, $2, 'PATIENT', 'female', '1980-03-15', true, $3::uuid, NOW()) RETURNING uid`,
       `+9198822${String(Date.now() % 10000).padStart(4, '0')}`,
       TEST_NAME,
+      DEFAULT_TENANT_ID,
     );
     patientUid = u[0].uid;
     await prisma.$queryRawUnsafe(
@@ -53,6 +85,27 @@ d('Research/registry capture — deep round-trip (roadmap D6)', () => {
        VALUES ($1::uuid, 72.5, 164, NOW())`,
       patientUid,
     );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, admitting_doctor, attending_doctor,
+          admitted_at, ward, bed_number, created_by, created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'admitted', $3::uuid, $3::uuid,
+          NOW(), 'D6TEST Ward', 'D6T-01', $3::uuid, NOW(), NOW())`,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      DOCTOR_UID,
+    );
+    const consent = await prisma.$queryRawUnsafe(
+      `INSERT INTO patient_consents
+         (tenant_id, patient_uid, consent_type, granted, status, granted_at, source, version)
+       VALUES
+         ($1::uuid, $2::uuid, 'research', true, 'active', NOW(), 'test', 'v1')
+       RETURNING id`,
+      DEFAULT_TENANT_ID,
+      patientUid,
+    );
+    consentId = consent[0].id;
   });
 
   afterAll(async () => {
@@ -118,7 +171,7 @@ d('Research/registry capture — deep round-trip (roadmap D6)', () => {
   test('enrolls the patient with a generated subject code + timeline event', async () => {
     const res = await doctor.post(`/api/v1/research/registries/${registryId}/enrollments`).send({
       patient_uid: patientUid,
-      consent_ref: 'CONSENT-D6-001',
+      consent_ref: String(consentId),
     });
     expect(res.status).toBe(201);
     enrollmentId = res.body.data.enrollment.id;

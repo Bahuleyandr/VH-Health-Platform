@@ -7,16 +7,23 @@
 import prisma from '../lib/prisma.js';
 import { authClient } from './testClient.js';
 import { getActiveProblemSummary } from '../services/clinical/problemListService.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
 
 const PHONE = `+9199905${String(Date.now() % 10000).padStart(5, '0')}`;
+const DOCTOR_UID = 'b7b7b7b7-b7b7-4b7b-8b7b-b7b7b7b7b701';
 let patientUid;
 let patientId;
 let diagnosisId;
+let doctorId;
+let doctor;
 
 async function cleanup() {
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM admissions WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_code_bindings WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'B7TEST Patient')`,
   ).catch(() => {});
@@ -33,24 +40,56 @@ async function cleanup() {
   await prisma.$executeRawUnsafe(
     `DELETE FROM diagnoses WHERE description LIKE 'B7TEST%'`,
   ).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = 'B7TEST Patient'`).catch(() => {});
 }
 
 d('Problem list — deep round-trip (roadmap B7)', () => {
   beforeAll(async () => {
     await cleanup();
+    const doc = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1::uuid, $2, 'B7TEST Doctor', 'DOCTOR', true, $3::uuid, NOW())
+       ON CONFLICT (uid) DO UPDATE
+         SET phone = EXCLUDED.phone,
+             name = EXCLUDED.name,
+             role = EXCLUDED.role,
+             is_active = EXCLUDED.is_active,
+             tenant_id = EXCLUDED.tenant_id,
+             updated_at = NOW()
+       RETURNING id, uid`,
+      DOCTOR_UID,
+      `+9199907${String(Date.now() % 10000).padStart(5, '0')}`,
+      DEFAULT_TENANT_ID,
+    );
+    doctorId = Number(doc[0].id);
+    doctor = authClient('DOCTOR', { uid: DOCTOR_UID, id: doctorId, phone: '9990700001' });
+
     const p = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (phone, name, role, is_active, updated_at)
-       VALUES ($1, 'B7TEST Patient', 'PATIENT', true, NOW()) RETURNING id, uid`,
+      `INSERT INTO users (phone, name, role, is_active, tenant_id, updated_at)
+       VALUES ($1, 'B7TEST Patient', 'PATIENT', true, $2::uuid, NOW()) RETURNING id, uid`,
       PHONE,
+      DEFAULT_TENANT_ID,
     );
     patientId = Number(p[0].id);
     patientUid = p[0].uid;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO admissions
+         (tenant_id, patient_uid, status, admitting_doctor, attending_doctor,
+          admitted_at, ward, bed_number, created_by, created_at, updated_at)
+       VALUES
+         ($1::uuid, $2::uuid, 'admitted', $3::uuid, $3::uuid,
+          NOW(), 'B7TEST Ward', 'B7T-01', $3::uuid, NOW(), NOW())`,
+      DEFAULT_TENANT_ID,
+      patientUid,
+      DOCTOR_UID,
+    );
 
     const dx = await prisma.$queryRawUnsafe(
-      `INSERT INTO diagnoses (patient_uid, icd10_code, icd10_description, description, status, severity)
-       VALUES ($1::uuid, 'B7T.9', 'B7TEST Type 2 diabetes mellitus', 'B7TEST T2DM', 'active', 'moderate')
+      `INSERT INTO diagnoses (tenant_id, patient_uid, icd10_code, icd10_description, description, status, severity)
+       VALUES ($1::uuid, $2::uuid, 'B7T.9', 'B7TEST Type 2 diabetes mellitus', 'B7TEST T2DM', 'active', 'moderate')
        RETURNING id`,
+      DEFAULT_TENANT_ID,
       patientUid,
     );
     diagnosisId = Number(dx[0].id);
@@ -69,7 +108,7 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
       .send({ patient_uid: patientUid, title: 'B7TEST Hypertension' });
     expect(nurse.status).toBe(403);
 
-    const res = await authClient('DOCTOR')
+    const res = await doctor
       .post('/api/v1/problems')
       .send({
         patient_uid: patientUid,
@@ -134,14 +173,14 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
   });
 
   test('duplicate active coded problem is rejected with 409', async () => {
-    const res = await authClient('DOCTOR')
+    const res = await doctor
       .post('/api/v1/problems')
       .send({ patient_uid: patientUid, title: 'B7TEST HTN again', icd10_code: 'B7T.0' });
     expect(res.status).toBe(409);
   });
 
   test('resolve → reactivate flow with audit fields', async () => {
-    const resolve = await authClient('DOCTOR')
+    const resolve = await doctor
       .patch(`/api/v1/problems/${problemId}`)
       .send({ status: 'resolved', resolution_notes: 'B7TEST controlled on therapy' });
     expect(resolve.status).toBe(200);
@@ -149,7 +188,7 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
     expect(resolve.body.data.problem.resolved_date).toBeTruthy();
     expect(resolve.body.data.problem.resolution_notes).toBe('B7TEST controlled on therapy');
 
-    const reactivate = await authClient('DOCTOR')
+    const reactivate = await doctor
       .patch(`/api/v1/problems/${problemId}`)
       .send({ status: 'active' });
     expect(reactivate.status).toBe(200);
@@ -167,29 +206,29 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
 
   test('invalid transition is a 400, not a 500 (same-status PATCH stays a no-op 200)', async () => {
     // Same-status PATCH is a legitimate idempotent field update.
-    const noop = await authClient('DOCTOR')
+    const noop = await doctor
       .patch(`/api/v1/problems/${problemId}`)
       .send({ status: 'active', notes: 'B7TEST noop-note' });
     expect(noop.status).toBe(200);
 
     // resolved → inactive is NOT in the transition matrix.
-    const scratch = await authClient('DOCTOR')
+    const scratch = await doctor
       .post('/api/v1/problems')
       .send({ patient_uid: patientUid, title: 'B7TEST Scratch problem' });
     expect(scratch.status).toBe(201);
     const scratchId = scratch.body.data.problem.id;
-    const resolved = await authClient('DOCTOR')
+    const resolved = await doctor
       .patch(`/api/v1/problems/${scratchId}`)
       .send({ status: 'resolved' });
     expect(resolved.status).toBe(200);
-    const bad = await authClient('DOCTOR')
+    const bad = await doctor
       .patch(`/api/v1/problems/${scratchId}`)
       .send({ status: 'inactive' });
     expect(bad.status).toBe(400);
   });
 
   test('diagnosis promotion creates a problem once, then reports already_active', async () => {
-    const first = await authClient('DOCTOR')
+    const first = await doctor
       .post(`/api/v1/problems/promote/${diagnosisId}`)
       .send({ is_chronic: true });
     expect(first.status).toBe(201);
@@ -200,7 +239,7 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
       source_diagnosis_id: diagnosisId,
     });
 
-    const second = await authClient('DOCTOR')
+    const second = await doctor
       .post(`/api/v1/problems/promote/${diagnosisId}`)
       .send({});
     expect(second.status).toBe(200);
@@ -213,7 +252,7 @@ d('Problem list — deep round-trip (roadmap B7)', () => {
     expect(all.body.data.count).toBeGreaterThanOrEqual(2);
     expect(all.body.data.problems[0].status).toBe('active');
 
-    const active = await authClient('DOCTOR')
+    const active = await doctor
       .get(`/api/v1/problems/patient/${patientUid}`)
       .query({ status: 'active' });
     expect(active.status).toBe(200);
