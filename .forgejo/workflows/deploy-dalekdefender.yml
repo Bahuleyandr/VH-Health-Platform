@@ -33,6 +33,7 @@ jobs:
       COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
       COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
       COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      GHCR_IMAGE_OWNER: ${{ vars.GHCR_IMAGE_OWNER }}
       NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_ADMIN }}
     steps:
       - uses: https://data.forgejo.org/actions/checkout@v4
@@ -52,8 +53,9 @@ jobs:
             mkdir -p output/dalekdefender
             printf 'Dalekdefender deploy skipped; missing Forgejo secrets: %s\n' "${missing[*]}" \
               | tee output/dalekdefender/SKIPPED.txt
+            printf '::error::Dalekdefender deploy prerequisites missing: %s\n' "${missing[*]}"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
@@ -93,7 +95,9 @@ jobs:
         if: steps.preflight.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          # Dalekdefender's root deploy helper and image policy accept the GitHub
+          # package namespace, not the Forgejo mirror owner.
+          owner_lc="$(printf '%s' "${GHCR_IMAGE_OWNER:-bahuleyandr}" | tr '[:upper:]' '[:lower:]')"
           backend_image="ghcr.io/${owner_lc}/vh-health-platform-backend"
           admin_image="ghcr.io/${owner_lc}/vh-health-platform-adminportal"
           tag="dalek-${GITHUB_SHA}"
@@ -210,9 +214,9 @@ jobs:
           if [ -z "${TS_OAUTH_SECRET:-}" ]; then missing+=(TS_OAUTH_SECRET); fi
           if [ -z "${DALEKDEFENDER_SSH_KEY:-}" ]; then missing+=(DALEKDEFENDER_SSH_KEY); fi
           if [ ${#missing[@]} -ne 0 ]; then
-            echo "Skipping deploy; missing Forgejo secrets: ${missing[*]}"
+            printf '::error::Skipping deploy; missing Forgejo secrets: %s\n' "${missing[*]}"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit 1
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 

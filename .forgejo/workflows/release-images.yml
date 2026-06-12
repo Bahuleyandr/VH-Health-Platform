@@ -69,6 +69,7 @@ jobs:
       COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
       COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
       COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+      GHCR_IMAGE_OWNER: ${{ vars.GHCR_IMAGE_OWNER }}
       RELEASE_PLATFORMS: ${{ vars.RELEASE_PLATFORMS }}
       NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
       NEXT_PUBLIC_APP_NAME: ${{ vars.NEXT_PUBLIC_APP_NAME }}
@@ -121,7 +122,9 @@ jobs:
             exit 0
           fi
 
-          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          # Forgejo mirrors this repo under a different user, but production
+          # manifests, image policy, and Dalekdefender consume Bahuleyandr GHCR.
+          owner_lc="$(printf '%s' "${GHCR_IMAGE_OWNER:-bahuleyandr}" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner_lc}/${{ matrix.image_name }}"
           echo "selected=true" >> "$GITHUB_OUTPUT"
           echo "IMAGE=$image" >> "$GITHUB_ENV"
