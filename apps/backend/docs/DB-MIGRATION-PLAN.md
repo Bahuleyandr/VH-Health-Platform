@@ -4,9 +4,16 @@
 > Kubernetes cluster inside the hospital.
 > **Drafted:** 2026-04-04 (original — targeting managed SaaS)
 > **Rewritten:** 2026-04-23 (on-prem CNPG target)
-> **Status:** Plan locked; execution gated on Ansible + platform manifests landing (agents A/B).
+> **Last reviewed:** 2026-06-12
+> **Status:** Reusable CNPG cutover runbook. Validate against the current
+> deployment manifests, sealed secrets, and DB guardrails before each hospital
+> production cutover.
 
-> **Pre-requisite completed:** DB fully validated and all migrations applied (164 tables, 0 errors). Schema dump available at `docs/schema-dump.sql`. Rebuild guide at `docs/DB-REBUILD-GUIDE.md`.
+> **Current schema source:** Prisma migrations under
+> `apps/backend/prisma/migrations`, raw SQL migrations under
+> `apps/backend/src/migrations`, and the release guardrails in
+> [`../../../docs/DB_SCHEMA_GUARDRAILS.md`](../../../docs/DB_SCHEMA_GUARDRAILS.md).
+> Static schema dumps are no longer treated as current documentation.
 
 ---
 
@@ -299,7 +306,9 @@ Don't decommission immediately.
 - Run `pg_dump` on both legacy and CNPG daily; diff row counts on the 10
   highest-volume tables. Any divergence → investigate; do not decommission
   until 14 consecutive days of parity.
-- Script scaffold at `apps/backend/scripts/compare-dbs.mjs` (to be written).
+- Record the exact parity queries, row counts, dump checksums, reviewer, and
+  date in the cutover evidence packet. Do not decommission on an undocumented
+  verbal parity check.
 
 ### 13. Decommission legacy Postgres
 
@@ -389,7 +398,7 @@ legacy DB.
 
 ## Related files
 
-- [`../SYSTEM-ARCHITECTURE.md`](../SYSTEM-ARCHITECTURE.md) — cluster topology reference
+- [`../../../docs/SYSTEM-ARCHITECTURE.md`](../../../docs/SYSTEM-ARCHITECTURE.md) — cluster topology reference
 - [`DISASTER-RECOVERY.md`](DISASTER-RECOVERY.md) — DR runbook (backup + PITR scenarios)
 - [`RUNBOOKS/db-restore.md`](RUNBOOKS/db-restore.md) — hot-path restore runbook
 - [`../../../docs/DEPLOYMENT_GUIDE.md`](../../../docs/DEPLOYMENT_GUIDE.md) — end-to-end deployment guide

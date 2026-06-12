@@ -50,7 +50,7 @@ export default function backupDb(envFile, label) {
   try {
     // Check pg_dump is available before attempting
     try { execSync('which pg_dump', { stdio: 'pipe' }); } catch {
-      logger.warn(`⚠️  pg_dump not found on this system — skipping ${label} backup. Use Supabase dashboard or docs/DB-REBUILD-GUIDE.md for backups.`);
+      logger.warn(`⚠️  pg_dump not found on this system — skipping ${label} backup. Use apps/backend/docs/RUNBOOKS/db-restore.md and docs/PRODUCTION_DB_HARDENING.md for backup/restore evidence.`);
       return;
     }
     execSync(`pg_dump "${dbUrl}" > "${backupFile}"`, { stdio: 'inherit' });

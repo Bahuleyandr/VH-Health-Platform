@@ -11,7 +11,7 @@
 > - [`india-deployment-readiness.md`](india-deployment-readiness.md) — India
 >   compliance, ABDM/DPDP/CERT-In, and go-live evidence gates
 > - [`../apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) — DR scenarios
-> - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — data cutover from legacy deployment
+> - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — CNPG data cutover runbook
 > - [`../apps/backend/docs/RUNBOOKS/`](../apps/backend/docs/RUNBOOKS/) — day-2 runbooks
 
 ---
@@ -350,18 +350,20 @@ Optional but recommended:
 
 ---
 
-## 6. Data migration from legacy Postgres
+## 6. Data migration to CNPG Postgres
 
 See [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md)
-for the full step-by-step. Summary:
+for the full step-by-step. Treat this as a controlled cutover, not a schema
+rebuild from a static dump. Summary:
 
 1. Apply the CNPG `Cluster` manifest → 3-replica Postgres 17 healthy.
-2. Take final `pg_dump` from legacy DB.
-3. `kubectl cp` dump to `vhhealth-pg-1` and `pg_restore`.
+2. Take a final logical backup from the source DB and record checksums.
+3. Restore into the CNPG primary using the reviewed dump/restore path.
 4. Update `vhhealth-db-url` sealed secret to point at `vhhealth-pg-rw`.
 5. `kubectl -n vhhealth rollout restart deployment/vhhealth-backend`.
-6. Verify application end-to-end.
-7. Keep legacy DB in standby for 30 days; then decommission.
+6. Run the DB guardrails, smoke journeys, and backup/restore evidence checks.
+7. Keep the source DB read-only in standby for 30 days; then decommission only
+   after documented row-count parity and owner sign-off.
 
 ---
 

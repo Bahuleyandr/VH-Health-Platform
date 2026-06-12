@@ -13,7 +13,8 @@
 ## Required Evidence
 
 - Forgejo CI green on `main`.
-- Backend health check: `GET https://api.vhhealth.app/api/v1/health`.
+- Backend health checks: `GET https://api.vhhealth.app/api/v1/health/live`
+  and `GET https://api.vhhealth.app/api/v1/health/version`.
 - Admin portal load check: `GET https://admin.vhhealth.app/login`.
 - Staff app rebuilt into `D:\Dev\Tools\VH Health Staff`.
 - Staff role workflow sweep:

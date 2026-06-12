@@ -144,9 +144,10 @@ Schema is managed by Prisma migrations plus raw SQL migrations under
 Important DB docs:
 
 - [`docs/DB_SCHEMA_GUARDRAILS.md`](docs/DB_SCHEMA_GUARDRAILS.md)
+- [`docs/PRODUCTION_DB_HARDENING.md`](docs/PRODUCTION_DB_HARDENING.md)
+- [`apps/backend/docs/DB-MIGRATION-PLAN.md`](apps/backend/docs/DB-MIGRATION-PLAN.md)
+- [`apps/backend/docs/RUNBOOKS/db-restore.md`](apps/backend/docs/RUNBOOKS/db-restore.md)
 - [`docs/CANONICAL_CLINICAL_TIMELINE.md`](docs/CANONICAL_CLINICAL_TIMELINE.md)
-- [`apps/backend/docs/DB-REBUILD-GUIDE.md`](apps/backend/docs/DB-REBUILD-GUIDE.md)
-- [`apps/backend/docs/DB-MIGRATION-MANIFEST.md`](apps/backend/docs/DB-MIGRATION-MANIFEST.md)
 - [`apps/backend/docs/DB-SCHEMA-REFERENCE.md`](apps/backend/docs/DB-SCHEMA-REFERENCE.md)
 
 Super admins can inspect the database through the admin dashboard at

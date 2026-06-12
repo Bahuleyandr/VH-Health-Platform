@@ -34,7 +34,9 @@ Two systems define the DB schema:
 | **Prisma schema** | Core 67 tables — models Prisma client queries directly | `prisma/schema.prisma` |
 | **SQL migrations** | Extended 97 tables + column additions | `src/migrations/*.sql` |
 
-Both must be applied to a fresh DB. See `docs/DB-REBUILD-GUIDE.md` for step-by-step instructions.
+Both must be applied to a fresh DB. For current rebuild validation, use
+[`../../../docs/DB_SCHEMA_GUARDRAILS.md`](../../../docs/DB_SCHEMA_GUARDRAILS.md)
+and the Docker-backed backend guardrail runner.
 
 ---
 

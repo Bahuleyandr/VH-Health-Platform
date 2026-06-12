@@ -100,8 +100,10 @@ $env:VH_STAFF_TEST_PASSWORD='<seeded staff password>'
 .\scripts\smoke-staff-role-workflows.ps1 -IncludeCreates
 ```
 
-Attach `docs/STAFF_ROLE_WORKFLOW_SWEEP.md`, backup evidence, and one restore
-drill record before approving a real production tag.
+Attach a freshly generated staff role workflow sweep for the target commit,
+backup evidence, and one restore drill record before approving a real
+production tag. The committed `docs/STAFF_ROLE_WORKFLOW_SWEEP.md` file is a
+historical evidence snapshot, not a substitute for a target-release run.
 
 For Indian hospital production tags, also attach the completed
 [`india-deployment-readiness.md`](india-deployment-readiness.md) evidence packet.

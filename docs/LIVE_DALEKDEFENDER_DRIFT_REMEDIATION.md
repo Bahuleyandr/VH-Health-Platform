@@ -133,3 +133,39 @@ Post-apply evidence:
 - `node scripts/ci-schema-drift.mjs`: 36 route-critical expected tables,
   527 present tables, 0 missing route-critical tables.
 - `node scripts/check-schema-drift.mjs`: `schema.prisma` matches DB; no drift.
+
+## 2026-06-12 Deploy Helper Follow-Up
+
+The database drift remediation is complete, but the Dalekdefender deployment
+path is still intentionally safe-skipping cluster mutation until the host helper
+is updated by an operator with root access.
+
+Verified state:
+
+- Live backend health is OK at `GET /api/v1/health/live`.
+- Live backend version still reports commit
+  `d774ad9e53e7e93ad62fc16fcb76f34566105a56`.
+- GitHub deploy workflow run `27417215390` completed successfully by
+  safe-skipping cluster mutation and emitted both helper hashes in the warning.
+- The remote checkout at `~/VH-Health-Platform` is fast-forwarded to
+  `d2b689f99abc78f66153c9199450c95a27855603`.
+- The remote checkout still has two untracked local files:
+  `apps/admin/Dockerfile.dalek` and `apps/backend/Dockerfile.dalek`.
+- Repo helper hash:
+  `1dd343bdcc3ba73ce2decbbd163e6ac1f3dcecc753ece91f313106cd6b4591a3`.
+- Host helper hash:
+  `9928c3ec05d3e4e1fe67cbb69d77db1237d04d6b829ce29f4fd10cb16ac3ab6a`.
+
+Next operator action:
+
+```bash
+cd ~/VH-Health-Platform
+sudo install -o root -g root -m 0755 \
+  infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh \
+  /usr/local/sbin/vhhealth-gha-deploy
+sha256sum infra/kubernetes/overlays/dalekdefender/vhhealth-gha-deploy.sh
+sha256sum /usr/local/sbin/vhhealth-gha-deploy
+```
+
+After the hashes match, re-run the Dalekdefender deploy workflow and verify
+`/api/v1/health/version` reports the target commit.

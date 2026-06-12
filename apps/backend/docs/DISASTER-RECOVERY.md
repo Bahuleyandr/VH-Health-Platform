@@ -297,12 +297,13 @@ kubectl -n vhhealth-platform cnpg status vhhealth-pg
 
 | Level | Responder | Contact | Escalation Trigger |
 |-------|-----------|---------|-------------------|
-| L1 | On-call engineer | [Phone/Slack TBD] | Any alert from Prometheus/Alertmanager |
-| L2 | Backend lead | [Phone/Slack TBD] | L1 unresolved after 15 minutes |
-| L3 | Platform lead (k8s + CNPG) | [Phone/Slack TBD] | Cluster-level failure, quorum loss |
-| L4 | Hospital IT director | [Phone/Slack TBD] | Patient-safety impact or data breach |
+| L1 | On-call engineer | Configure in incident contact registry before go-live | Any alert from Prometheus/Alertmanager |
+| L2 | Backend lead | Configure in incident contact registry before go-live | L1 unresolved after 15 minutes |
+| L3 | Platform lead (k8s + CNPG) | Configure in incident contact registry before go-live | Cluster-level failure, quorum loss |
+| L4 | Hospital IT director | Configure in incident contact registry before go-live | Patient-safety impact or data breach |
 
-> **Action required**: Fill in contact details for each level before this runbook goes live.
+> **Go-live gate:** this runbook is not production-complete until each level has
+> a tested phone/alert route in the hospital incident contact registry.
 
 ---
 

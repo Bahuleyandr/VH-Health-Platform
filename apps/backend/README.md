@@ -76,9 +76,9 @@ See the current DB guardrail doc:
 | --- | --- |
 | Backend conventions | [`CLAUDE.md`](CLAUDE.md) |
 | Backend docs index | [`docs/README.md`](docs/README.md) |
-| API reference | [`docs/API_DOCUMENTATION.md`](docs/API_DOCUMENTATION.md) |
-| DB rebuild | [`docs/DB-REBUILD-GUIDE.md`](docs/DB-REBUILD-GUIDE.md) |
-| Migration manifest | [`docs/DB-MIGRATION-MANIFEST.md`](docs/DB-MIGRATION-MANIFEST.md) |
+| API reference | [`src/docs/swagger.yaml`](src/docs/swagger.yaml), validated by `npm run swagger:validate` |
+| DB schema guardrails | [`../../docs/DB_SCHEMA_GUARDRAILS.md`](../../docs/DB_SCHEMA_GUARDRAILS.md) |
+| DB cutover plan | [`docs/DB-MIGRATION-PLAN.md`](docs/DB-MIGRATION-PLAN.md) |
 | Disaster recovery | [`docs/DISASTER-RECOVERY.md`](docs/DISASTER-RECOVERY.md) |
 | Runbooks | [`docs/RUNBOOKS/README.md`](docs/RUNBOOKS/README.md) |
 | Release gate | [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md) |

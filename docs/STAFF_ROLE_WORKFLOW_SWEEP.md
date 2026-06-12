@@ -4,6 +4,10 @@ Last generated: 2026-05-14 16:24:10 +05:30
 
 Target: `https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1`
 
+> Historical evidence snapshot. Regenerate this report with
+> `scripts/smoke-staff-role-workflows.ps1` for every release or trial approval;
+> do not treat this dated output as fresh Dalekdefender proof.
+
 This is a live contract smoke for the seeded staff accounts. It verifies login, staff profile, attendance state, notifications, messaging, and the role-specific operational endpoints that the Flutter staff app opens. It does not expose tokens or API keys in this report.
 
 ## Summary
