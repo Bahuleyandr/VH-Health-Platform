@@ -59,6 +59,7 @@ data:
   HTTP_BODY_LIMIT: "10mb"
   STATEMENT_TIMEOUT_MS: "30000"
   AUTH_ENFORCE_TENANT_RLS: "true"
+  HL7_INBOUND_ENABLED: "false"
   # Tenant-RLS runtime role (roadmap A2): tenant-scoped transactions SET LOCAL
   # ROLE to this non-owner, non-BYPASSRLS role before applying
   # app.current_tenant_id. The connection role `vhhealth` owns the tables

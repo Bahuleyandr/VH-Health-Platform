@@ -13,13 +13,15 @@ const ENCRYPTION_KEY_HELP =
 
 const SIGNED_INTEGRATION_SECRET_HELP =
   'Generate with `openssl rand -base64 32` and store as a SealedSecret. ' +
-  'HL7_INBOUND_SHARED_SECRET signs inbound HL7 writes; ABDM_CALLBACK_SECRET signs public ABDM callbacks.';
+  'Set HL7_INBOUND_ENABLED=true only after provisioning HL7_INBOUND_SHARED_SECRET; ' +
+  'ABDM_CALLBACK_SECRET signs public ABDM callbacks.';
 
 // Define the expected environment variables schema
 const envSchema = Joi.object({
   API_KEY: Joi.string().required().label('API_KEY'),
-  HL7_INBOUND_SHARED_SECRET: Joi.when('NODE_ENV', {
-    is: 'production',
+  HL7_INBOUND_ENABLED: Joi.string().valid('true', 'false').default('false').label('HL7_INBOUND_ENABLED'),
+  HL7_INBOUND_SHARED_SECRET: Joi.when('HL7_INBOUND_ENABLED', {
+    is: 'true',
     then: Joi.string().min(MIN_KEY_LENGTH).required(),
     otherwise: Joi.string().allow('').optional(),
   }).label('HL7_INBOUND_SHARED_SECRET'),

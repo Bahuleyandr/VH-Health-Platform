@@ -26,8 +26,16 @@ function runValidateEnv(extraEnv = {}) {
 }
 
 describe('validateEnv signed integration secrets', () => {
-  it('fails closed in production when HL7 inbound shared secret is missing', () => {
+  it('allows production boot when HL7 inbound is disabled and its secret is absent', () => {
     const result = runValidateEnv();
+
+    expect(result.status).toBe(0);
+  });
+
+  it('fails closed in production when HL7 inbound is enabled without a shared secret', () => {
+    const result = runValidateEnv({
+      HL7_INBOUND_ENABLED: 'true',
+    });
 
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain('HL7_INBOUND_SHARED_SECRET');
@@ -35,6 +43,7 @@ describe('validateEnv signed integration secrets', () => {
 
   it('allows production boot when HL7 signing secret is provisioned and ABDM is disabled', () => {
     const result = runValidateEnv({
+      HL7_INBOUND_ENABLED: 'true',
       HL7_INBOUND_SHARED_SECRET: 'test-hl7-inbound-shared-secret-32chars',
       ABDM_ENABLED: 'false',
     });
@@ -44,7 +53,6 @@ describe('validateEnv signed integration secrets', () => {
 
   it('requires ABDM callback signing secret when ABDM callbacks are enabled', () => {
     const result = runValidateEnv({
-      HL7_INBOUND_SHARED_SECRET: 'test-hl7-inbound-shared-secret-32chars',
       ABDM_ENABLED: 'true',
       ABDM_HIP_ID: 'VH-HIP',
     });
@@ -55,7 +63,6 @@ describe('validateEnv signed integration secrets', () => {
 
   it('allows ABDM-enabled boot when callback HIP id and signing secret are provisioned', () => {
     const result = runValidateEnv({
-      HL7_INBOUND_SHARED_SECRET: 'test-hl7-inbound-shared-secret-32chars',
       ABDM_ENABLED: 'true',
       ABDM_HIP_ID: 'VH-HIP',
       ABDM_CALLBACK_SECRET: 'test-abdm-callback-shared-secret-32chars',
