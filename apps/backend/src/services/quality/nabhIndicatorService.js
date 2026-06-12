@@ -140,8 +140,8 @@ const INDICATORS = {
       prisma.$queryRawUnsafe(
         `SELECT COALESCE(SUM(
                   GREATEST(0, EXTRACT(EPOCH FROM (
-                    LEAST(COALESCE(discharged_at, NOW()), ($2::date + 1)::timestamptz)
-                    - GREATEST(admitted_at, $1::date::timestamptz)
+                    LEAST(COALESCE(discharged_at, NOW()), ($3::date + 1)::timestamptz)
+                    - GREATEST(admitted_at, $2::date::timestamptz)
                   )) / 86400)
                 ), 0)::numeric(14,2) AS patient_days
            FROM admissions

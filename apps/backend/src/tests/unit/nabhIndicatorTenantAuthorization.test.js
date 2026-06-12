@@ -61,6 +61,12 @@ describe('NABH indicator tenant authorization', () => {
     const incidentSql = queryRawUnsafeMock.mock.calls.at(-1)[0];
     expect(incidentSql).toContain('TRIM(incident_type)');
     expect(incidentSql).not.toContain('TRIM(category)');
+
+    const patientDaysCall = queryRawUnsafeMock.mock.calls[7];
+    expect(patientDaysCall[0]).toContain('tenant_id = $1::uuid');
+    expect(patientDaysCall[0]).toContain('GREATEST(admitted_at, $2::date::timestamptz)');
+    expect(patientDaysCall[0]).toContain('LEAST(COALESCE(discharged_at, NOW()), ($3::date + 1)::timestamptz)');
+    expect(patientDaysCall.slice(1)).toEqual([TENANT, '2026-06-01', '2026-06-30']);
   });
 
   it('writes and lists snapshots under the caller tenant', async () => {
