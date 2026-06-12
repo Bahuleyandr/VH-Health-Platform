@@ -504,7 +504,8 @@ async function loadRenalContext(patientId) {
                   'unit', unit,
                   'received_at', received_at
                 )
-              ) AS labs`,
+              ) AS labs
+          FROM recent_labs`,
       patientId,
     );
     const labs = Array.isArray(rows[0]?.labs) ? rows[0].labs : [];

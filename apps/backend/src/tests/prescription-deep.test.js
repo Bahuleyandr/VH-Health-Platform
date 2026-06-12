@@ -21,6 +21,18 @@ function staffAs(id) {
   };
 }
 
+function doctorAs(id) {
+  const token = generateTestToken('DOCTOR', {
+    uid: DOCTOR_UID,
+    id,
+    phone: '9000050002'
+  });
+  return {
+    post: path =>
+      request(app).post(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`)
+  };
+}
+
 function clientAs(role, uid, id) {
   const token = generateTestToken(role, { uid, id });
   return {
@@ -99,6 +111,9 @@ async function cleanupFixtures(patientId, doctorId) {
       `DELETE FROM pharmacy_catalog WHERE name = $1`,
       PEDIATRIC_PARACETAMOL_NAME
     )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, PATIENT_UID)
     .catch(() => {});
   await prisma
     .$executeRawUnsafe(
@@ -235,8 +250,34 @@ describe('E-prescriptions — deep integration', () => {
     );
   });
 
+  it('blocks renal-risk medicines when severe eGFR evidence exists in lab_results', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO lab_results
+         (tenant_id, patient_uid, patient_name, test_code, test_name, value_numeric, unit, status, received_at)
+       VALUES
+         ('00000000-0000-4000-8000-000000000001'::uuid, $1::uuid, 'Prescription Test Patient',
+          'EGFR', 'eGFR', 22, 'mL/min/1.73m2', 'final', NOW())`,
+      PATIENT_UID,
+    );
+
+    const safety = await validatePrescriptionSafety(patientId, [
+      { name: 'Nitrofurantoin 100mg', dosage: '100mg', frequency: 'BD', duration: '5 days' },
+    ]);
+
+    expect(safety.safe).toBe(false);
+    expect(safety.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'RENAL_MEDICATION_REVIEW',
+          medication: 'Nitrofurantoin 100mg',
+          latest_egfr: 22,
+        }),
+      ]),
+    );
+  });
+
   it('creates a structured prescription with medications and vitals stored as jsonb', async () => {
-    const res = await staffAs(staffId)
+    const res = await doctorAs(doctorId)
       .post('/api/v1/prescriptions/create')
       .send({
         patient_id: patientId,
@@ -306,6 +347,27 @@ describe('E-prescriptions — deep integration', () => {
     });
   });
 
+  it('blocks nursing staff from creating doctor-only prescriptions', async () => {
+    const res = await staffAs(staffId)
+      .post('/api/v1/prescriptions/create')
+      .send({
+        patient_id: patientId,
+        doctor_id: doctorId,
+        diagnosis: 'Nurse-created prescription attempt',
+        medications: [
+          {
+            name: 'Cetirizine',
+            dosage: '10mg',
+            frequency: 'OD',
+            duration: '5 days',
+          }
+        ],
+      });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({ success: false, error: 'Forbidden' });
+  });
+
   // Finding: 2026-05-09-inpatient-admission-patient-discharge-rx-unlinked-to-followup
   // When the doctor enters a follow_up_date on a prescription that has
   // no source-visit appointment_id (the discharge-desk path is the
@@ -314,7 +376,7 @@ describe('E-prescriptions — deep integration', () => {
   // "your follow-up is on X — here are the meds to take until then"
   // as a single card.
   it('back-links the auto-booked follow-up appointment to a discharge-style prescription', async () => {
-    const res = await staffAs(staffId)
+    const res = await doctorAs(doctorId)
       .post('/api/v1/prescriptions/create')
       .send({
         patient_id: patientId,
@@ -768,7 +830,7 @@ describe('E-prescriptions — deep integration', () => {
   });
 
   it('creates medication reminders from a q6h paediatric prescription', async () => {
-    const res = await staffAs(staffId)
+    const res = await doctorAs(doctorId)
       .post('/api/v1/prescriptions/create')
       .send({
         patient_id: patientId,
