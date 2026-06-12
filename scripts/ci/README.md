@@ -65,6 +65,16 @@ Forgejo CD surfaces:
 - `deploy-dalekdefender.yml`: build, scan, sign, verify, and deploy backend/admin
   images to the Dalekdefender test rig by digest.
 
+Forgejo CD prerequisite checks live in
+`scripts/ci/forgejo-deploy-preflight.mjs` so local operators and workflows use
+the same secret contract. The deploy path is intentionally strict: image
+release and Dalekdefender deploy require registry auth plus
+`COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, and `COSIGN_PUBLIC_KEY`; the remote
+pin step additionally requires `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, and
+`DALEKDEFENDER_SSH_KEY`. Post-deploy smoke can still be configured as a
+soft-skip gate with `--allow-skip`, but a first-class Forgejo deployment should
+set `VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN`.
+
 Branch-push optimization:
 
 - Pull requests, `main`, and manual dispatches run the full default stage set.

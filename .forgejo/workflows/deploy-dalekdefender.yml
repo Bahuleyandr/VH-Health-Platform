@@ -42,22 +42,10 @@ jobs:
 
       - name: Probe image release prerequisites
         id: preflight
-        run: |
-          set -euo pipefail
-          missing=()
-          if [ -z "${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}" ]; then missing+=(CONTAINER_REGISTRY_USERNAME_or_GHCR_USERNAME); fi
-          if [ -z "${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}" ]; then missing+=(CONTAINER_REGISTRY_PASSWORD_or_GHCR_TOKEN); fi
-          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then missing+=(COSIGN_PRIVATE_KEY); fi
-          if [ -z "${COSIGN_PUBLIC_KEY:-}" ]; then missing+=(COSIGN_PUBLIC_KEY); fi
-          if [ ${#missing[@]} -ne 0 ]; then
-            mkdir -p output/dalekdefender
-            printf 'Dalekdefender deploy skipped; missing Forgejo secrets: %s\n' "${missing[*]}" \
-              | tee output/dalekdefender/SKIPPED.txt
-            printf '::error::Dalekdefender deploy prerequisites missing: %s\n' "${missing[*]}"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+        run: >
+          node scripts/ci/forgejo-deploy-preflight.mjs
+          --mode dalek-images
+          --summary-file output/dalekdefender/SKIPPED.md
 
       - name: Login to GHCR
         if: steps.preflight.outputs.skip != 'true'
@@ -205,20 +193,13 @@ jobs:
       GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
       GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
     steps:
+      - uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Probe deploy prerequisites
         id: prereq
-        run: |
-          set -euo pipefail
-          missing=()
-          if [ -z "${TS_OAUTH_CLIENT_ID:-}" ]; then missing+=(TS_OAUTH_CLIENT_ID); fi
-          if [ -z "${TS_OAUTH_SECRET:-}" ]; then missing+=(TS_OAUTH_SECRET); fi
-          if [ -z "${DALEKDEFENDER_SSH_KEY:-}" ]; then missing+=(DALEKDEFENDER_SSH_KEY); fi
-          if [ ${#missing[@]} -ne 0 ]; then
-            printf '::error::Skipping deploy; missing Forgejo secrets: %s\n' "${missing[*]}"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy
 
       - name: Tailscale connect
         if: steps.prereq.outputs.skip != 'true'

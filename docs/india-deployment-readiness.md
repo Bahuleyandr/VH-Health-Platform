@@ -1,6 +1,6 @@
 # India Deployment Readiness
 
-Status date: 2026-06-11. Scope: compliance, validation, and go-live evidence
+Status date: 2026-06-12. Scope: compliance, validation, and go-live evidence
 for an Indian hospital deployment of VH Health Platform. This runbook is an
 operator checklist, not legal advice; hospital counsel and the appointed data
 protection/security officers must approve the final packet before real patient
@@ -39,7 +39,11 @@ Use current official copies before a production launch:
 
 Real patient PHI/PII is blocked until every **Must** gate below is green and
 the **Counsel/official sign-off** items are either approved or explicitly
-deferred in the hospital risk register.
+deferred in the hospital risk register. Migration
+`300_india_deployability_controls.sql` seeds the machine-readable baseline:
+data-processing activities, retention policies, and the
+`india_compliance_evidence` ledger. The production preflight must pass without
+`--advisory` before a real-patient tenant is accepted.
 
 | Area | Gate | Evidence required | Metric |
 |---|---|---|---|
@@ -57,6 +61,43 @@ deferred in the hospital risk register.
 | Clinical AI | Must if enabled | Tenant preflight, pilot evidence pack, human-review policy, no automatic patient dispatch unless approved, local/external model routing decision. | First-pilot evidence pack has no blockers; 100% risky outputs human-reviewed. |
 | ISO 27001/SOC 2 style controls | Should | Control matrix, access reviews, vendor register, vulnerability SLAs, change-management evidence, incident postmortem template. | Monthly access review and vuln triage cadence active. |
 | Medical-device posture | Counsel/official sign-off | Intended-use statement and CDSCO counsel review if software claims diagnosis, treatment, monitoring, triage, or automated clinical decisioning. | Decision-support disclaimer approved, or CDSCO regulatory path opened. |
+
+## Machine-checkable controls
+
+Run the India deployability preflight against the target database after
+migrations and seed data are applied:
+
+```powershell
+node -r dotenv/config apps/backend/scripts/india-deployability-preflight.mjs `
+  --advisory `
+  --output output/india-readiness/<hospital>/<YYYY-MM-DD>/india-preflight.json
+```
+
+Use advisory mode during readiness collection. For production, omit
+`--advisory`; the command exits non-zero until schema, DPDP/DSR/retention,
+ABDM, NABH, CERT-In, DR, VAPT/SIEM, billing, and pharmacy evidence is accepted
+in `india_compliance_evidence`.
+
+Accepted evidence states are `verified`, `accepted_exception`, and
+`not_applicable`. Anything left as `pending` or `in_progress` blocks real PHI.
+The seeded control codes are:
+
+| Control code | Area | Required evidence |
+|---|---|---|
+| `DPDP_NOTICE_PURPOSE_MAP` | DPDP | Privacy notice and purpose map approved. |
+| `DPDP_DSR_DRY_RUN` | DPDP | Five-scenario data-principal request dry run completed. |
+| `DPDP_RETENTION_SCHEDULE` | DPDP | Hospital retention schedule approved against seeded policies. |
+| `ABDM_CALLBACK_AUTHENTICITY` | ABDM | Callback HMAC, timestamp, request-id, and replay validation proven. |
+| `ABDM_M2_ENCRYPTED_PUSH` | ABDM | M2 encrypted data-push dry run passed. |
+| `NABH_AUDIT_EXPORT` | NABH | Indicator snapshot and assessor export evidence attached. |
+| `INDIA_LOG_RETENTION_180D` | CERT-In | 180-day security/application log retention in Indian jurisdiction. |
+| `DR_RESTORE_DRILL` | DR | Timed restore and downtime drill evidence attached. |
+| `VAPT_OR_SIGNED_EXCEPTION` | Security | External VAPT report or signed exception attached. |
+| `SIEM_ALERTS_ONCALL` | Security | SIEM/on-call routing verified for high/critical incidents. |
+| `LOCAL_REGION_BACKUP_JURISDICTION` | DR | India-region/on-prem backup and log storage approved. |
+| `IMAGE_SIGNATURE_ADMISSION` | Security | Image signature admission policy enabled or exception accepted. |
+| `BILLING_GST_TPA_RECON` | Billing | GST/TPA/billing reconciliation workflow approved. |
+| `PHARMACY_LICENSE_PRESCRIPTION_CONTROL` | Pharmacy | Supplier license, batch/expiry, and prescription-control evidence approved. |
 
 ## Detailed checklist
 
@@ -298,6 +339,7 @@ output folder or release artifact store:
 
 ```text
 output/india-readiness/<hospital>/<YYYY-MM-DD>/
+  india-preflight.json
   00-signoffs/
   01-legal-privacy/
   02-abdm/

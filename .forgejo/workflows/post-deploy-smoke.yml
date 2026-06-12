@@ -34,20 +34,17 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run post-deploy smoke
-        run: |
-          set -euo pipefail
-          if [ -z "${VH_TRIAL_API_ORIGIN:-}" ] || [ -z "${VH_TRIAL_ADMIN_ORIGIN:-}" ]; then
-            mkdir -p output/post-deploy-smoke
-            cat > output/post-deploy-smoke/SKIPPED.md <<'EOF'
-          # Post Deploy Smoke Skipped
+      - name: Probe post-deploy smoke prerequisites
+        id: preflight
+        run: >
+          node scripts/ci/forgejo-deploy-preflight.mjs
+          --mode post-deploy-smoke
+          --allow-skip
+          --summary-file output/post-deploy-smoke/SKIPPED.md
 
-          Configure `VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN` in Forgejo repository secrets to enable this deployment smoke gate.
-          EOF
-            echo "Post-deploy smoke skipped: VH_TRIAL_API_ORIGIN and VH_TRIAL_ADMIN_ORIGIN are not configured."
-            exit 0
-          fi
-          node scripts/ci/post-deploy-smoke.mjs
+      - name: Run post-deploy smoke
+        if: steps.preflight.outputs.skip != 'true'
+        run: node scripts/ci/post-deploy-smoke.mjs
 
       - name: Upload post-deploy smoke report
         if: always()

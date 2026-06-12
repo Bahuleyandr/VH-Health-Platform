@@ -134,15 +134,10 @@ jobs:
 
       - name: Validate release credentials
         if: steps.selection.outputs.selected == 'true'
-        run: |
-          set -euo pipefail
-          registry_user="${CONTAINER_REGISTRY_USERNAME:-${GHCR_USERNAME:-}}"
-          registry_password="${CONTAINER_REGISTRY_PASSWORD:-${GHCR_TOKEN:-}}"
-          missing=0
-          if [ -z "$registry_user" ]; then echo "::error::CONTAINER_REGISTRY_USERNAME or GHCR_USERNAME is required"; missing=1; fi
-          if [ -z "$registry_password" ]; then echo "::error::CONTAINER_REGISTRY_PASSWORD or GHCR_TOKEN is required"; missing=1; fi
-          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then echo "::error::COSIGN_PRIVATE_KEY is required for Forgejo image releases"; missing=1; fi
-          exit "$missing"
+        run: >
+          node scripts/ci/forgejo-deploy-preflight.mjs
+          --mode release-images
+          --summary-file output/release-images/${{ matrix.app }}/MISSING_SECRETS.md
 
       - name: Login to GHCR
         if: steps.selection.outputs.selected == 'true'

@@ -112,6 +112,16 @@ deploy path. Required release configuration:
 | `GHCR_USERNAME`/`GHCR_TOKEN` or `CONTAINER_REGISTRY_USERNAME`/`CONTAINER_REGISTRY_PASSWORD` | Forgejo secrets | Container release and Dalekdefender image pushes |
 | `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY` | Forgejo secrets | Container signing and deploy verification |
 | `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DALEKDEFENDER_SSH_KEY` | Forgejo secrets | Dalekdefender deploy |
+| `VH_TRIAL_API_ORIGIN`, `VH_TRIAL_ADMIN_ORIGIN` | Forgejo secrets | Hosted post-deploy smoke |
+
+Forgejo deploy/release prerequisites are enforced by:
+
+```bash
+node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-images
+node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy
+node scripts/ci/forgejo-deploy-preflight.mjs --mode release-images
+node scripts/ci/forgejo-deploy-preflight.mjs --mode post-deploy-smoke --allow-skip
+```
 
 Never commit real API keys, passwords, tokens, keystores, DSNs, or live test
 credentials. Store them in the deployment secret store or in local ignored env
