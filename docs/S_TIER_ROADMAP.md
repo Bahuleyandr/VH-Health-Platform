@@ -195,7 +195,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
 | WS5 | 5 | 0 | queued |
-| WS6 | 5 | 3 | B6.1 mobile PHI ✅ · B6.2 patient fixes ✅ · B6.3 admin (debug-handle/ROLE_RANK/a11y/force-dynamic/no-store) ✅ · next: B6.4 staff override-reason/CPOE, B6.5 i18n. (ADM-2 unsafe-eval left in place w/ documented removal path; ADM-4 god-page splits deferred) |
+| WS6 | 5 | 4 | B6.1 mobile PHI ✅ · B6.2 patient ✅ · B6.3 admin ✅ · B6.4 staff override-reason hardening (STF-2) ✅ · next: B6.5 staff i18n (LARGE — ~42% screens English-only). (ADM-2 unsafe-eval left w/ removal path; ADM-4 god-page splits deferred) |
 | WS7 | 4 | 0 | queued (engagements flagged) |
 | WS8 | 4 | 1 | B8.1 doc-truth sync (CLAUDE.md/arch docs + docs/README index) ✅ · next: B8.2 ADRs/change-mgmt, B8.3 repo housekeeping, B8.4 retire swarm gate |
 
