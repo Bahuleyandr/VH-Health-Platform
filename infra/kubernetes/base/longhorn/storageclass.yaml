@@ -1,0 +1,69 @@
+# longhorn/storageclass.yaml — Longhorn StorageClasses (INF-5 / B2.6)
+#
+# Two classes:
+#   longhorn         — 3-replica, Retain, for production stateful workloads
+#   longhorn-single  — 1-replica, Delete, for scratch / dev use where
+#                      local-path is unavailable (e.g. single-node staging)
+#
+# The `longhorn` class is NOT the Kubernetes default (defaultClass: false in
+# the ArgoCD Application values). Each StatefulSet PVC that migrates from
+# local-path explicitly names `storageClassName: longhorn`. This avoids
+# accidentally migrating workloads before the operator data-move is complete.
+#
+# reclaimPolicy: Retain — on PVC deletion the PV is kept (Longhorn volume
+# goes to "detached" state). The operator must manually run:
+#   kubectl delete pv <pv-name>   # or use the Longhorn UI
+# before a fresh PVC can bind a new volume. This is intentional for PHI
+# data: no accidental erasure.
+#
+# volumeBindingMode: WaitForFirstConsumer — the PV is only provisioned when
+# a pod is scheduled, ensuring the Longhorn replica lands on the same zone
+# as the pod. Important for 3-node clusters with zone labels.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn
+  labels:
+    app.kubernetes.io/name: longhorn
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # This is NOT the default class — explicit adoption only.
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  # Number of data replicas. With 3 nodes this means one replica per node.
+  numberOfReplicas: "3"
+  # Tolerate degraded state (1 replica missing) for up to 10 minutes before
+  # failing. Gives time for a node to come back.
+  staleReplicaTimeout: "30"
+  # Filesystem for block volumes.
+  fsType: ext4
+  # Longhorn backup target (inherits from defaultSettings in the app).
+  # Individual volumes can override.
+  recurringJobSelector: '[]'
+  dataLocality: best-effort   # Prefer a local replica where possible.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-single
+  labels:
+    app.kubernetes.io/name: longhorn
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  fsType: ext4
+  dataLocality: strict-local  # Must run on the same node as the pod.

@@ -26,3 +26,7 @@ resources:
   - cluster.yaml
   - poolers.yaml
   - scheduled-backup.yaml
+  # REL-2 / B2.2: DR drill template (not applied by ArgoCD — operator uses
+  # this file as a copy-paste template for drills and real incidents).
+  # The CronJob for WAL archive verification IS applied continuously.
+  - r2-backup-hardening.yaml

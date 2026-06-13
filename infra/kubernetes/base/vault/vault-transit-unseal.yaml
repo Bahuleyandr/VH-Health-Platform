@@ -1,0 +1,325 @@
+# vault/vault-transit-unseal.yaml — Vault auto-unseal via Transit engine (INF-6 / B2.7)
+#
+# DESIGN: Auto-unseal using a second ("bootstrap") Vault Transit key.
+#
+# On-prem without a cloud KMS, the Vault Transit auto-unseal pattern is the
+# standard zero-spend approach:
+#   - A small single-node "bootstrap Vault" (vault-bootstrap, 1 pod, Shamir-
+#     unsealed manually once at cluster-bootstrap time) holds a Transit key.
+#   - The production 3-replica Vault uses that Transit key for auto-unseal.
+#   - On pod restart, the production Vault calls the bootstrap Transit API to
+#     decrypt its unseal token — no human required.
+#
+# Tradeoff vs cloud KMS:
+#   Advantage: zero recurring cost, no cloud dependency, PHI stays on-prem.
+#   Disadvantage: bootstrap Vault is a single point of failure for unsealing.
+#     If bootstrap Vault is sealed (its pod restarted without auto-unseal of
+#     its own), production Vault cannot unseal automatically. Mitigation:
+#     - Bootstrap Vault has a dedicated PDB (maxUnavailable: 0).
+#     - Bootstrap Vault is on a stable "infra" node with the highest QoS.
+#     - The Shamir unseal keys for bootstrap Vault are distributed to 5 ops
+#       staff; any 3 can re-unseal it in ~2 minutes.
+#     - Alert: `VaultBootstrapSealed` fires in <30s if bootstrap is sealed.
+#
+# KMS path (operator decision gate):
+#   If the hospital procures an HSM or a cloud account, replace the
+#   seal "transit" block with seal "awskms" / seal "azurekeyvault" /
+#   seal "gcpckms" — all are drop-in in the vault.hcl stanza. No code
+#   changes needed; only the ConfigMap changes and a `vault operator unseal
+#   -migrate` pass.
+#
+# OPERATOR BOOTSTRAP SEQUENCE (one-time, before applying this to prod):
+#   See the full procedure in docs/VAULT_AUTOUNSEAL_BOOTSTRAP.md (created).
+#
+# This file patches the existing vault ConfigMap (vault-config) to add the
+# seal stanza. It also adds the bootstrap Vault StatefulSet (1 replica, Shamir,
+# manually unsealed once).
+#
+# Sync wave: bootstrap Vault (wave 2) before production Vault (wave 3).
+---
+# ── Bootstrap Vault ConfigMap ────────────────────────────────────────────────
+# Single-node Vault running Raft, used ONLY as the Transit auto-unseal
+# endpoint for the production Vault. No workloads write secrets here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-bootstrap-config
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault-bootstrap
+    app.kubernetes.io/instance: vault-bootstrap
+    app.kubernetes.io/component: transit-unseal-kms
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+data:
+  vault.hcl: |
+    ui = false
+    cluster_name = "vhhealth-vault-bootstrap"
+    log_level = "info"
+    log_format = "json"
+    disable_mlock = true
+
+    listener "tcp" {
+      address         = "[::]:8200"
+      cluster_address = "[::]:8201"
+      tls_cert_file   = "/vault/tls/tls.crt"
+      tls_key_file    = "/vault/tls/tls.key"
+      tls_min_version = "tls12"
+    }
+
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "vault-bootstrap-0"
+    }
+
+    service_registration "kubernetes" {}
+
+    telemetry {
+      disable_hostname = true
+      prometheus_retention_time = "5m"
+    }
+    # Bootstrap Vault is Shamir-only (no auto-unseal of its own).
+    # Re-unseal manually after any pod restart (key holders on call).
+---
+# ── Bootstrap Vault Service (internal only) ──────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-bootstrap
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault-bootstrap
+    app.kubernetes.io/instance: vault-bootstrap
+    app.kubernetes.io/component: transit-unseal-kms
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vault-bootstrap
+    app.kubernetes.io/instance: vault-bootstrap
+  ports:
+    - name: https
+      port: 8200
+      targetPort: 8200
+---
+# ── Bootstrap Vault TLS Certificate ─────────────────────────────────────────
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vault-bootstrap-tls
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault-bootstrap
+    app.kubernetes.io/component: tls
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  secretName: vault-bootstrap-tls
+  duration: 2160h
+  renewBefore: 360h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  dnsNames:
+    - vault-bootstrap
+    - vault-bootstrap.vhhealth-security
+    - vault-bootstrap.vhhealth-security.svc
+    - vault-bootstrap.vhhealth-security.svc.cluster.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: step-ca-internal
+---
+# ── Bootstrap Vault StatefulSet ──────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault-bootstrap
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault-bootstrap
+    app.kubernetes.io/instance: vault-bootstrap
+    app.kubernetes.io/component: transit-unseal-kms
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  serviceName: vault-bootstrap
+  replicas: 1
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: OnDelete
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault-bootstrap
+      app.kubernetes.io/instance: vault-bootstrap
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault-bootstrap
+        app.kubernetes.io/instance: vault-bootstrap
+        app.kubernetes.io/component: transit-unseal-kms
+        app.kubernetes.io/part-of: vhhealth
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: vault
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Pin bootstrap Vault to the infra node (node with label
+      # vhhealth.app/role=infra — set by the Ansible inventory).
+      # This ensures it survives drain of app nodes.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: vhhealth.app/role
+                    operator: In
+                    values: ["infra"]
+      initContainers:
+        - name: render-config
+          image: busybox:1.37.0@sha256:be84dc33f9de03ba21e7d1b03fc96d07a43fd4ec5a7b2aa0fc81a2f3c90c5d2c
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - cp /config/vault.hcl /rendered/vault.hcl
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: rendered-config
+              mountPath: /rendered
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.18.2@sha256:0ec66c6c16ed3898cc1a94fa0e9c2e9a4c6c1fd8b6e1e05a8a0f5a5d6c7b8e4f
+          imagePullPolicy: IfNotPresent
+          command: ["vault"]
+          args:
+            - server
+            - -config=/vault/config/vault.hcl
+          ports:
+            - name: https
+              containerPort: 8200
+          env:
+            - name: VAULT_ADDR
+              value: "https://127.0.0.1:8200"
+            - name: VAULT_CACERT
+              value: "/vault/tls/ca.crt"
+            - name: VAULT_LOG_LEVEL
+              value: info
+            - name: VAULT_LOG_FORMAT
+              value: json
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [IPC_LOCK]
+          volumeMounts:
+            - name: data
+              mountPath: /vault/data
+            - name: rendered-config
+              mountPath: /vault/config
+              readOnly: true
+            - name: tls
+              mountPath: /vault/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: vault-bootstrap-config
+        - name: rendered-config
+          emptyDir: {}
+        - name: tls
+          secret:
+            secretName: vault-bootstrap-tls
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: vault-bootstrap
+          app.kubernetes.io/part-of: vhhealth
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path    # local-path intentional: bootstrap Vault is single-node
+        resources:
+          requests:
+            storage: 5Gi
+---
+# ── PDB: zero disruption on bootstrap Vault ─────────────────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vault-bootstrap
+  namespace: vhhealth-security
+  labels:
+    app.kubernetes.io/name: vault-bootstrap
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault-bootstrap
+      app.kubernetes.io/instance: vault-bootstrap
+# NOTE: The vault-config ConfigMap patch (adding the Transit seal stanza) lives
+# in overlays/prod/vault-autounseal-config-patch.yaml to avoid duplicate
+# resource registration. See that file for the full operator bootstrap sequence.

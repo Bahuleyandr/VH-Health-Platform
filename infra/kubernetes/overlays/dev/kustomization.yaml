@@ -8,6 +8,7 @@
 #   - No Falco, no Kured (we reboot dev manually; runtime security
 #     traces add noise without value).
 #   - Prometheus retention shortened to 7d.
+#   - No Longhorn (use local-path in dev — Longhorn prereqs are heavy).
 #
 # We inherit the base via a filtered `resources:` that excludes the
 # services we're dropping. Instead of trying to unload resources from

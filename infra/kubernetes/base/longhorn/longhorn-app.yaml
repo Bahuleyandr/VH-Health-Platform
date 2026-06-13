@@ -1,0 +1,162 @@
+# longhorn/longhorn-app.yaml — Longhorn replicated block storage (INF-5 / B2.6)
+#
+# Longhorn is installed as an ArgoCD Application using the official Helm chart.
+# It is NOT embedded in the base Kustomization (kustomize cannot inflate CRDs
+# from Helm reliably without the helmCharts inflator and chart vendoring). Argo
+# CD's native Helm source is cleaner for an operator-installed component.
+#
+# Longhorn version pinned: 1.7.2 (stable). Upgrade requires draining replicas
+# first — see the Longhorn upgrade runbook in this file's trailing comment.
+#
+# Sync wave −5: storage must be ready before any StatefulSet PVCs are bound.
+# CRD establishment takes ~20s; the wave gap gives the operator time to register
+# the CRDs before wave 0 platform resources start binding PVCs.
+#
+# Node requirements (pre-install — operator step):
+#   - iscsi_tcp kernel module loaded on every node (RKE2 nodes need this).
+#   - open-iscsi installed: `ansible -m package -a "name=open-iscsi state=present"`
+#   - cryptsetup (optional, for LUKS volume encryption).
+#   See: https://longhorn.io/docs/1.7.x/deploy/install/#installation-requirements
+#
+# CNPG note: CNPG already replicates at the PostgreSQL layer (3-instance cluster
+# with 1 synchronous standby). Switching CNPG PVCs from local-path to Longhorn
+# (replica=3) therefore gives TRIPLE redundancy: PG streaming replication AND
+# 3 copies of each block device. This is intentional — storage and app-layer
+# durability are orthogonal. The tradeoff is 3× the write IOPS on storage nodes
+# (each 100 GiB PG data PVC becomes 300 GiB of block across 3 nodes). Accept
+# this for prod; for dev keep local-path (see overlays/dev).
+#
+# Migration of existing PVCs: local-path volumes cannot be live-migrated to
+# Longhorn. The operator must:
+#   1. Scale down the StatefulSet.
+#   2. Take a final backup (CNPG barman, MinIO mc mirror, etc.).
+#   3. Delete the old PVC.
+#   4. Patch the StatefulSet's volumeClaimTemplate storageClass to longhorn.
+#   5. Scale back up — the operator creates a fresh Longhorn PV and restores from backup.
+# See operator steps at the bottom of this file.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn
+  namespace: argocd
+  annotations:
+    # Wave −5: Longhorn CRDs + controller before anything that needs PVCs.
+    argocd.argoproj.io/sync-wave: "-5"
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://charts.longhorn.io
+    chart: longhorn
+    targetRevision: "1.7.2"
+    helm:
+      # Values inline — no separate values file needed for the baseline.
+      values: |
+        defaultSettings:
+          # 3-replica default for all volumes. Individual PVCs can override
+          # with a storage class that sets numberOfReplicas.
+          defaultReplicaCount: 3
+          # Replica soft anti-affinity: allow scheduling on the same node
+          # only when no other node is available (3 nodes × 3 replicas works
+          # without this but is safer with it for future drains).
+          replicaSoftAntiAffinity: true
+          # Storage over-provisioning factor: 200% is the Longhorn default.
+          # At 3 nodes × ~500 GiB usable per node = 1.5 TiB raw storage
+          # (Longhorn does not pool — each replica is a full copy on its node).
+          storageOverProvisioningPercentage: 150
+          # Backups to MinIO bucket `longhorn-backups` via S3-compatible API.
+          # The secret `longhorn-s3-secret` (in longhorn-system) must be
+          # created by the operator before the first volume backup.
+          # Format: s3://longhorn-backups@apsouth1/
+          backupTarget: "s3://longhorn-backups@apsouth1/"
+          backupTargetCredentialSecret: longhorn-s3-secret
+          # Allow node drain even when replicas are on that node — Longhorn
+          # evicts replicas gracefully.
+          nodeDrainPolicy: always-allow
+          # Orphan auto-deletion (avoid PVC-name conflicts on redeployments).
+          orphanAutoDeletion: true
+          # Priority class for Longhorn system pods — avoid eviction during
+          # pressure (uses the same class as kube-system daemonsets by default).
+          priorityClass: "system-cluster-critical"
+
+        longhornManager:
+          priorityClass: "system-cluster-critical"
+
+        longhornDriver:
+          priorityClass: "system-cluster-critical"
+
+        longhornUI:
+          priorityClass: "system-cluster-critical"
+
+        ingress:
+          enabled: true
+          ingressClassName: nginx
+          host: longhorn.vhhealth.hospital.local
+          tls: true
+          tlsSecret: longhorn-tls
+          annotations:
+            cert-manager.io/cluster-issuer: step-ca-internal
+            nginx.ingress.kubernetes.io/auth-type: basic
+            nginx.ingress.kubernetes.io/auth-secret: longhorn-basic-auth
+            nginx.ingress.kubernetes.io/auth-realm: "Longhorn UI — VH Health Ops"
+            # Block external access — LAN-only ingress class enforced at nginx level.
+
+        persistence:
+          defaultClass: false   # We declare our own StorageClass below.
+          defaultFsType: ext4
+          defaultReplicaCount: 3
+          reclaimPolicy: Retain  # Retain data on PVC delete — explicit cleanup required.
+
+        serviceMonitor:
+          enabled: true
+          additionalLabels:
+            release: vhhealth-monitoring
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: longhorn-system
+  syncPolicy:
+    automated:
+      prune: false         # Never auto-delete Longhorn volumes — operator gates deletion.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m
+  revisionHistoryLimit: 3
+
+# =============================================================================
+# OPERATOR PRE-INSTALL CHECKLIST (gated — do NOT apply longhorn-app.yaml
+# to ArgoCD until all boxes are checked):
+#
+# [ ] On each node: `modprobe iscsi_tcp && apt-get install -y open-iscsi`
+#     Ansible playbook: infra/ansible/playbooks/longhorn-prereqs.yml (created)
+# [ ] Verify: `lsmod | grep iscsi_tcp` shows the module on all 3 nodes.
+# [ ] Create the longhorn-s3-secret in longhorn-system:
+#       kubectl create secret generic longhorn-s3-secret \
+#         -n longhorn-system \
+#         --from-literal=AWS_ACCESS_KEY_ID=<minio-access-key> \
+#         --from-literal=AWS_SECRET_ACCESS_KEY=<minio-secret-key> \
+#         --from-literal=AWS_ENDPOINTS=https://minio-api.vhhealth-platform.svc.cluster.local \
+#         --from-literal=AWS_CERT=<base64-ca-cert>
+# [ ] Create the longhorn-basic-auth secret for UI:
+#       htpasswd -nb opsadmin <password> | kubectl create secret generic \
+#         longhorn-basic-auth -n longhorn-system \
+#         --from-file=auth=/dev/stdin
+# [ ] Create the longhorn-backups MinIO bucket (no objectLock — Longhorn uses
+#     its own snapshot model; objectLock conflicts with backup cleanup):
+#       mc mb local/longhorn-backups
+# [ ] After Longhorn is Ready: apply the longhorn StorageClass + PVC migration
+#     steps per infra/kubernetes/base/longhorn/storageclass.yaml.
+# =============================================================================

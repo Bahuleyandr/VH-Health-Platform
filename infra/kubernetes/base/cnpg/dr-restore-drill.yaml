@@ -1,0 +1,94 @@
+# cnpg/dr-restore-drill.yaml — CNPG PITR scratch-cluster template (REL-2 / B2.2)
+#
+# This file is NOT applied by ArgoCD in normal operations. It is a TEMPLATE
+# that the operator copies and fills in for each DR drill or real incident.
+#
+# Usage (copy-paste workflow — do NOT use kustomize apply on this file directly):
+#
+#   1. Determine recovery target time T (RFC3339):
+#        T="2026-06-13T10:00:00+05:30"
+#
+#   2. Substitute variables (requires envsubst or manual edit):
+#        CF_R2_ACCOUNT_ID=<your-account-id>  # from cnpg-backup-credentials
+#        RECOVERY_TARGET_TIME="${T}"
+#        envsubst < infra/kubernetes/base/cnpg/dr-restore-drill.yaml \
+#          > /tmp/drill-cluster.yaml
+#
+#   3. Create scratch namespace and apply:
+#        kubectl create namespace vhhealth-drill --dry-run=client -o yaml | kubectl apply -f -
+#        kubectl apply -f /tmp/drill-cluster.yaml
+#
+#   4. Copy backup credentials to the scratch namespace:
+#        kubectl get secret cnpg-backup-credentials -n vhhealth-platform -o yaml \
+#          | sed 's/namespace: vhhealth-platform/namespace: vhhealth-drill/' \
+#          | kubectl apply -f -
+#
+#   5. Watch recovery and run the drill script:
+#        bash infra/kubernetes/base/cnpg/dr-restore-drill.sh
+#
+# Full procedure + results template: docs/DR_RESTORE_DRILL.md
+
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vhhealth-pg-drill
+  namespace: vhhealth-drill
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: vhhealth-pg-drill
+    app.kubernetes.io/component: dr-drill
+    app.kubernetes.io/part-of: vhhealth
+  annotations:
+    # PHI warning: this cluster will contain production data. It MUST be
+    # deleted immediately after the drill. The drill script enforces this.
+    vhhealth.app/phi-warning: "DRILL CLUSTER — DELETE IMMEDIATELY AFTER USE"
+    vhhealth.app/drill-date: "${DRILL_DATE}"     # filled by operator
+spec:
+  description: "DR restore drill — temporary, DELETE after drill"
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2-1
+  instances: 1
+  # Single instance for the drill — we need data verification, not HA.
+  # Do NOT promote to primary; access is read-only via kubectl exec.
+
+  enableSuperuserAccess: true   # needed only for drill verification queries
+  # NOTE: superuser access is safe for a drill cluster (isolated namespace,
+  # deleted immediately). Do NOT enable on the production cluster.
+
+  storage:
+    size: 110Gi           # +10% headroom over prod 100Gi for WAL replay overhead
+    storageClass: local-path
+
+  walStorage:
+    size: 25Gi
+    storageClass: local-path
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+
+  bootstrap:
+    recovery:
+      source: vhhealth-pg-r2
+      recoveryTarget:
+        # Set to the recovery target time (10 minutes ago or the declared incident time).
+        # Format: RFC3339 with timezone. Example: "2026-06-13T10:00:00+05:30"
+        targetTime: "${RECOVERY_TARGET_TIME}"
+        targetAction: promote    # Auto-promote to allow read access for verification
+
+  externalClusters:
+    - name: vhhealth-pg-r2
+      barmanObjectStore:
+        destinationPath: "s3://vhhealth-db-backups/cluster/"
+        endpointURL: "https://${CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        s3Credentials:
+          accessKeyId:
+            name: cnpg-backup-credentials
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: cnpg-backup-credentials
+            key: SECRET_ACCESS_KEY

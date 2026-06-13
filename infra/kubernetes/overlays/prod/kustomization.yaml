@@ -25,6 +25,24 @@ resources:
 # (written by scripts/update-prod-digests.mjs via release-pin-digests.yml).
 
 patches:
+  # ── INF-5 / B2.6: Longhorn PVC migration ──────────────────────────────────
+  # Switches stateful PVCs from local-path → longhorn (3-replica block storage).
+  # OPERATOR-GATED: do NOT activate until the Longhorn operator pre-install
+  # checklist in base/longhorn/longhorn-app.yaml is complete AND all
+  # StatefulSet data-move procedures have been executed per
+  # longhorn-pvc-patch.yaml's header comment. Each service requires a
+  # maintenance window. Activate by un-commenting the line below.
+  # - longhorn-pvc-patch.yaml
+
+  # ── INF-6 / B2.7: Vault Transit auto-unseal ──────────────────────────────
+  # OPERATOR-GATED: un-comment BOTH lines below only after completing the
+  # vault-bootstrap initialization sequence in VAULT_SECRET_ROTATION_RUNBOOK.md.
+  # Applying prematurely will cause the prod Vault ConfigMap to reference a
+  # Transit token that doesn't exist yet — Vault will fail to start.
+  # - vault-autounseal-config-patch.yaml
+  # - vault-autounseal-patch.yaml
+
+  # ── Prod sizing ────────────────────────────────────────────────────────────
   # Prod sizing: 2 CPU requested on Postgres (vs base's 1) — we run hot.
   - target:
       kind: Cluster

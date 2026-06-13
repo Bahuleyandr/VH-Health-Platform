@@ -1,0 +1,103 @@
+---
+# longhorn-prereqs.yml — Longhorn node prerequisites (INF-5 / B2.6)
+#
+# Run BEFORE applying the Longhorn ArgoCD Application to the cluster.
+# Idempotent — safe to re-run.
+#
+# Usage:
+#   ansible-playbook -i inventories/prod/hosts.yml playbooks/longhorn-prereqs.yml
+#   ansible-playbook -i inventories/prod/hosts.yml playbooks/longhorn-prereqs.yml --check
+#
+# What it does:
+#   1. Installs open-iscsi and loads iscsi_tcp kernel module (required by
+#      Longhorn's iSCSI transport layer on RKE2/containerd nodes).
+#   2. Installs cryptsetup (optional; needed for LUKS encryption of Longhorn
+#      volumes — not enabled by default but required if activated later).
+#   3. Persists iscsi_tcp across reboots via /etc/modules-load.d/.
+#   4. Starts + enables the iscsid daemon.
+#   5. Verifies the module is loaded and reports.
+#
+# References:
+#   https://longhorn.io/docs/1.7.x/deploy/install/#installation-requirements
+
+- name: Longhorn node prerequisites
+  hosts: k8s_nodes
+  become: true
+  gather_facts: true
+
+  vars:
+    longhorn_packages:
+      - open-iscsi
+      - cryptsetup
+      - nfs-common      # Required if NFS-backed volumes are ever used.
+      - util-linux      # Provides blkid, lsblk.
+    longhorn_kernel_modules:
+      - iscsi_tcp
+
+  tasks:
+    - name: Install Longhorn prerequisite packages (apt)
+      ansible.builtin.apt:
+        name: "{{ longhorn_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install Longhorn prerequisite packages (dnf/rpm)
+      ansible.builtin.dnf:
+        name: "{{ longhorn_packages | difference(['nfs-common']) + ['nfs-utils'] }}"
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Ensure /etc/modules-load.d/ exists
+      ansible.builtin.file:
+        path: /etc/modules-load.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Persist iscsi_tcp across reboots
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/iscsi.conf
+        content: |
+          # Longhorn requires iscsi_tcp — managed by Ansible longhorn-prereqs.yml
+          iscsi_tcp
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Load iscsi_tcp kernel module now
+      community.general.modprobe:
+        name: iscsi_tcp
+        state: present
+
+    - name: Enable and start iscsid service
+      ansible.builtin.systemd:
+        name: iscsid
+        enabled: true
+        state: started
+
+    - name: Verify iscsi_tcp is loaded
+      ansible.builtin.command: lsmod
+      register: lsmod_out
+      changed_when: false
+
+    - name: Assert iscsi_tcp appears in lsmod
+      ansible.builtin.assert:
+        that:
+          - "'iscsi_tcp' in lsmod_out.stdout"
+        fail_msg: >
+          iscsi_tcp kernel module is NOT loaded on {{ inventory_hostname }}.
+          Longhorn will fail to provision volumes. Check dmesg for errors.
+        success_msg: "iscsi_tcp module confirmed loaded on {{ inventory_hostname }}"
+
+    - name: Report open-iscsi version
+      ansible.builtin.command: iscsiadm --version
+      register: iscsi_ver
+      changed_when: false
+      failed_when: false
+
+    - name: Print open-iscsi version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ iscsi_ver.stdout | default('iscsiadm not found') }}"

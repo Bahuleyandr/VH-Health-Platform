@@ -1,0 +1,81 @@
+# overlays/prod/vault-autounseal-config-patch.yaml — INF-6 / B2.7
+#
+# Replaces the vault.hcl ConfigMap data key to add the Transit seal stanza.
+# This is a strategic-merge patch on the vault-config ConfigMap defined in
+# base/vault/vault.yaml.
+#
+# OPERATOR GATE: this patch must NOT be applied until after:
+#   1. vault-bootstrap StatefulSet is Running and initialized (Shamir, one-time).
+#   2. Transit engine enabled + autounseal key created on vault-bootstrap.
+#   3. vault-autounseal-token SealedSecret created in vhhealth-security.
+#   4. Full sequence documented in docs/VAULT_SECRET_ROTATION_RUNBOOK.md.
+#
+# After applying: run `vault operator unseal -migrate` on each pod (once)
+# to migrate from Shamir → Transit. Online migration, no downtime.
+#
+# To activate, uncomment the patch entry in overlays/prod/kustomization.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: vhhealth-security
+data:
+  vault.hcl: |
+    ui = true
+    cluster_name = "vhhealth-vault"
+    log_level = "info"
+    log_format = "json"
+    disable_mlock = true
+
+    # ── Transit Auto-Unseal ──────────────────────────────────────────────────
+    # Unseals production Vault by calling vault-bootstrap's Transit API.
+    # __TRANSIT_TOKEN__ is replaced at init-container time by sed using the
+    # TRANSIT_TOKEN env var (sourced from vault-autounseal-token Secret).
+    # See overlays/prod/vault-autounseal-patch.yaml for the StatefulSet patch
+    # that injects the env var and runs the sed substitution.
+    seal "transit" {
+      address         = "https://vault-bootstrap.vhhealth-security.svc.cluster.local:8200"
+      token           = "__TRANSIT_TOKEN__"
+      key_name        = "autounseal"
+      mount_path      = "transit/"
+      tls_ca_cert     = "/vault/tls/ca.crt"
+      tls_skip_verify = "false"
+    }
+
+    listener "tcp" {
+      address         = "[::]:8200"
+      cluster_address = "[::]:8201"
+      tls_cert_file   = "/vault/tls/tls.crt"
+      tls_key_file    = "/vault/tls/tls.key"
+      tls_min_version = "tls12"
+    }
+
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "__POD_NAME__"
+      retry_join {
+        leader_api_addr         = "https://vault-0.vault-internal.vhhealth-security.svc.cluster.local:8200"
+        leader_ca_cert_file     = "/vault/tls/ca.crt"
+        leader_client_cert_file = "/vault/tls/tls.crt"
+        leader_client_key_file  = "/vault/tls/tls.key"
+      }
+      retry_join {
+        leader_api_addr         = "https://vault-1.vault-internal.vhhealth-security.svc.cluster.local:8200"
+        leader_ca_cert_file     = "/vault/tls/ca.crt"
+        leader_client_cert_file = "/vault/tls/tls.crt"
+        leader_client_key_file  = "/vault/tls/tls.key"
+      }
+      retry_join {
+        leader_api_addr         = "https://vault-2.vault-internal.vhhealth-security.svc.cluster.local:8200"
+        leader_ca_cert_file     = "/vault/tls/ca.crt"
+        leader_client_cert_file = "/vault/tls/tls.crt"
+        leader_client_key_file  = "/vault/tls/tls.key"
+      }
+    }
+
+    service_registration "kubernetes" {}
+
+    telemetry {
+      disable_hostname = true
+      prometheus_retention_time = "5m"
+    }

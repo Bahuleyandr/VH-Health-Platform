@@ -5,3 +5,7 @@ metadata:
   name: vhhealth-vault
 resources:
   - vault.yaml
+  # INF-6 / B2.7: Bootstrap Vault (transit auto-unseal KMS) + patched
+  # prod Vault ConfigMap with seal stanza. Operator-gated — read the
+  # bootstrap sequence in vault-transit-unseal.yaml before applying.
+  - vault-transit-unseal.yaml

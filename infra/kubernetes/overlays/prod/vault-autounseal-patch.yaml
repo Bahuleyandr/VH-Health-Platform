@@ -1,0 +1,45 @@
+# overlays/prod/vault-autounseal-patch.yaml — INF-6 / B2.7
+#
+# Patches the production Vault StatefulSet to:
+#   1. Inject the transit token from the vault-autounseal-token Secret
+#      into the init-container's `sed` substitution.
+#   2. Add the vault-bootstrap-tls CA to the TLS volume mount so Vault
+#      can verify the bootstrap endpoint.
+#
+# OPERATOR GATE: this patch is INERT until the vault-autounseal-token
+# SealedSecret is created and the base vault-config ConfigMap (in
+# vault-transit-unseal.yaml) replaces the original vault-config.
+# Apply after completing the bootstrap sequence in vault-transit-unseal.yaml.
+#
+# After applying:
+#   kubectl rollout restart statefulset/vault -n vhhealth-security
+#   # Then on each pod:
+#   kubectl exec -n vhhealth-security vault-0 -- vault operator unseal -migrate
+#   kubectl exec -n vhhealth-security vault-1 -- vault operator unseal -migrate
+#   kubectl exec -n vhhealth-security vault-2 -- vault operator unseal -migrate
+#   # Confirm: vault status should show "Recovery Seal Type: transit"
+- target:
+    kind: StatefulSet
+    name: vault
+    namespace: vhhealth-security
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/initContainers/0/command
+      value:
+        - sh
+        - -c
+        - |
+          set -eu
+          # Substitute POD_NAME and TRANSIT_TOKEN placeholders.
+          sed \
+            -e "s/__POD_NAME__/${POD_NAME}/g" \
+            -e "s/__TRANSIT_TOKEN__/${TRANSIT_TOKEN}/g" \
+            /config/vault.hcl > /rendered/vault.hcl
+    - op: add
+      path: /spec/template/spec/initContainers/0/env/-
+      value:
+        name: TRANSIT_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: vault-autounseal-token
+            key: token

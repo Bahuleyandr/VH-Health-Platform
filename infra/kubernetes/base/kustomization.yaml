@@ -37,3 +37,8 @@ resources:
   # header for the install command); the ClusterPolicy CRD must exist before
   # ArgoCD can apply this resource.
   - image-policy
+  # Longhorn replicated block storage (INF-5 / B2.6). The ArgoCD Application
+  # CR in this directory installs Longhorn via Helm; the StorageClass is
+  # declared here so prod overlay patches can reference it.
+  # NOTE: dev overlay intentionally excludes longhorn — it uses local-path.
+  - longhorn
