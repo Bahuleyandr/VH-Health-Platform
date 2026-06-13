@@ -47,6 +47,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
   recordClinicalAuditEvent: recordClinicalAuditEventMock,
+  recordMedicationSafetyReviews: jest.fn(async () => []),
 }));
 
 jest.unstable_mockModule('../../services/doctor/doctorRefService.js', () => ({
@@ -134,15 +135,24 @@ describe('clinical record tenant authorization invariants', () => {
 
     queryRawUnsafeMock.mockReset();
     queryRawUnsafeMock
+      // 1) reconciliation header fetch (getReconciliation)
       .mockResolvedValueOnce([{
         id: MEDREC,
         tenant_id: TENANT,
         patient_uid: PATIENT,
+        patient_id: 1,
         encounter_id: null,
         rec_type: 'admission',
         status: 'in_progress',
       }])
-      .mockResolvedValueOnce([{ id: 9, medication_name: 'Metformin', decision: 'continue' }]);
+      // 2) existing-item fetch (used for change-detail + safety-review medication name)
+      .mockResolvedValueOnce([{
+        id: 9, medication_name: 'Metformin', dose: '500mg', frequency: 'BD', route: 'PO', source: 'home',
+      }])
+      // 3) item UPDATE ... RETURNING (now inside the atomic prisma.$transaction)
+      .mockResolvedValueOnce([{
+        id: 9, medication_name: 'Metformin', decision: 'continue', safety_review_id: null, decided_by: ACTOR,
+      }]);
 
     await decideItem(MEDREC, 9, { decision: 'continue' }, {
       tenantId: TENANT,
@@ -150,9 +160,14 @@ describe('clinical record tenant authorization invariants', () => {
       actorRole: 'PHARMACY_STAFF',
     });
 
+    // All three queries must be tenant-scoped: header read, item read, and the
+    // atomic item UPDATE (tenant_id moved to $11 with the structured-change columns).
     expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('tenant_id = $2::uuid');
-    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('AND tenant_id = $7::uuid');
-    expect(queryRawUnsafeMock.mock.calls[1][7]).toBe(TENANT);
+    expect(queryRawUnsafeMock.mock.calls[0][2]).toBe(TENANT);
+    expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('tenant_id = $3::uuid');
+    expect(queryRawUnsafeMock.mock.calls[1][3]).toBe(TENANT);
+    expect(queryRawUnsafeMock.mock.calls[2][0]).toContain('AND tenant_id = $11::uuid');
+    expect(queryRawUnsafeMock.mock.calls[2][11]).toBe(TENANT);
   });
 
   it('tenant-scopes diagnosis status updates', async () => {
