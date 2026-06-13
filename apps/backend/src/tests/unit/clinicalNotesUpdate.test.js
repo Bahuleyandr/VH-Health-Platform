@@ -13,22 +13,35 @@ const updateMock = jest.fn();
 const usersFindManyMock = jest.fn();
 const userFindUniqueMock = jest.fn();
 
+// The clinical-notes service now wraps its detail write + canonical event
+// write in `prisma.$transaction(async (tx) => {...})` (B0.5 — atomic clinical
+// writes). The mock $transaction faithfully runs the callback with a `tx` that
+// is this same mocked prisma object, so `tx.clinical_notes.update(...)` etc.
+// hit the per-model mocks above and every recorded call / assertion still
+// works. The canonical event write inside the tx no-ops by design: it guards
+// on `typeof db.$queryRawUnsafe === 'function'` and this mock intentionally
+// exposes no raw client, so `recordCanonicalClinicalEvent` returns null
+// without touching the timeline/audit tables — these unit tests validate the
+// note service's own logic, not the canonical layer.
+const prismaMock = {
+  clinical_notes: {
+    findUnique: findUniqueMock,
+    findFirst: findFirstMock,
+    create: createMock,
+    update: updateMock
+  },
+  appointments: {
+    findUnique: appointmentFindUniqueMock
+  },
+  users: {
+    findUnique: userFindUniqueMock,
+    findMany: usersFindManyMock
+  },
+  $transaction: jest.fn(async (cb) => cb(prismaMock))
+};
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    clinical_notes: {
-      findUnique: findUniqueMock,
-      findFirst: findFirstMock,
-      create: createMock,
-      update: updateMock
-    },
-    appointments: {
-      findUnique: appointmentFindUniqueMock
-    },
-    users: {
-      findUnique: userFindUniqueMock,
-      findMany: usersFindManyMock
-    }
-  }
+  default: prismaMock
 }));
 
 const { createNote, updateNote } = await import('../../services/emr/clinicalNotesService.js');
