@@ -63,7 +63,7 @@ From root [`CLAUDE.md`](../CLAUDE.md):
 
 | Path | Stack | Role |
 |---|---|---|
-| [`apps/backend`](../apps/backend) | Node.js 22 + Express 5 + PostgreSQL 17 (raw `pg`) | REST API consumed by every client |
+| [`apps/backend`](../apps/backend) | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
 | [`apps/admin`](../apps/admin) | Next.js 15 + React 19 + TypeScript | Admin/super-admin web portal |
 | [`apps/patient`](../apps/patient) | Flutter 3.41 + Firebase OTP | Patient mobile app |
 | [`apps/staff`](../apps/staff) | Flutter 3.41 + staff JWT | Staff/clinical mobile app |
@@ -91,7 +91,7 @@ the monorepo paths under `apps/` and `packages/`.
 
 Each app keeps its own `CLAUDE.md`:
 
-- [`apps/backend/CLAUDE.md`](../apps/backend/CLAUDE.md) — API structure, auth, security, raw-`pg` DB patterns, HIPAA/PHI logging
+- [`apps/backend/CLAUDE.md`](../apps/backend/CLAUDE.md) — API structure, auth, security, Prisma DB patterns, HIPAA/PHI logging
 - [`apps/admin/CLAUDE.md`](../apps/admin/CLAUDE.md) — Next.js routing, httpOnly-cookie auth, `fetchAdminAPI`, god-page refactor pattern
 - [`apps/patient/CLAUDE.md`](../apps/patient/CLAUDE.md) — routes, Firebase OTP flow, status enums, endpoint map
 - [`apps/staff/CLAUDE.md`](../apps/staff/CLAUDE.md) — staff auth, offline queue, role config
@@ -437,8 +437,7 @@ was retired in batches 28–31:
   `DatabaseManager` shim + `dbHealthMonitor`.
 
 [`apps/backend/prisma/schema.prisma`](../apps/backend/prisma/schema.prisma)
-is the **canonical** schema with 219 models (regen'd from the live
-DB in batch 24). `prisma db pull` is the authoritative refresh path;
+is the **canonical** schema with 527 models (regenerated via `prisma db pull` after each migration). `prisma db pull` is the authoritative refresh path;
 `apps/backend/scripts/check-schema-drift.mjs` fails CI if the
 committed schema drifts from the DB.
 
@@ -453,11 +452,11 @@ Exports from `src/lib/prisma.js`:
 
 ### Resilience
 
-- **30s `statement_timeout`** on every query (prevents pool exhaustion from runaway queries).
+- **`statement_timeout`** on every query (60s, enforced by the CNPG cluster in `infra/kubernetes/base/cnpg/cluster.yaml`; prevents pool exhaustion from runaway queries).
 - **Circuit breaker**: after 5 consecutive failures, new queries reject immediately for 30s, then auto-resets half-open.
 - **Slow-query logging**: queries > 1000 ms logged as warnings with duration + truncated SQL.
 - **Pool error events** are logged (silent connection loss is noisy).
-- **Read replica** via `prismaReadOnly` with primary fallback when `DATABASE_READ_URL` is unset.
+- **Read replica** via `prismaReadOnly` — capability exists; routes to `DATABASE_READ_URL` when set, otherwise falls back to primary. `DATABASE_READ_URL` is currently a placeholder in the prod Sealed Secret; the CNPG RO pooler endpoint exists (`infra/kubernetes/base/cnpg/poolers.yaml`) but is not yet wired, so all reads currently use primary.
 
 ### Schema + migrations
 
@@ -466,7 +465,7 @@ Raw SQL migrations live in [`apps/backend/src/migrations/`](../apps/backend/src/
 Older docs may mention a pre-merge `apps/backend/migrations/` directory. That
 directory is no longer part of the current checkout; use `src/migrations/`.
 
-CI runs [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) after `prisma db push` to apply the raw migrations, because the Prisma schema only represents ~69 of the ~170 tables tests need. The remainder exist only as raw SQL.
+CI runs [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) (using `000_baseline.sql` + numbered deltas) to apply the raw migrations, because `prisma db push` was removed from CI after the schema grew Postgres features Prisma cannot emit declaratively. The Prisma schema is regenerated via `prisma db pull` after any migration that touches a Prisma-modelled table.
 
 ### Test-DB sync — the RLS drop step
 
@@ -838,7 +837,7 @@ Cheatsheet for common changes. All paths relative to repo root.
 | Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). If the table isn't one of the 11 in migration 075, add it there AND add a `tenant_id uuid NOT NULL DEFAULT DEFAULT_TENANT_ID` column in a new migration. |
 | Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.example`](../apps/admin/.env.example). |
 | Add a k8s workload | New Kustomize base under [`infra/kubernetes/apps/<name>/`](../infra/kubernetes/apps/) with `deployment.yaml` + `service.yaml` + `kustomization.yaml`. Reference it from [`infra/kubernetes/apps/kustomization.yaml`](../infra/kubernetes/apps/kustomization.yaml). Image tag pinned in the overlay at [`overlays/prod/kustomization.yaml`](../infra/kubernetes/overlays/prod/kustomization.yaml). ArgoCD's `vhhealth-apps` Application will pick it up. |
-| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `075` is the last; `076_` next). Raw SQL, no Prisma. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
+| Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `304` is the last; `305_` next). Raw SQL, no `prisma db push`. Write the `.sql`, run `node scripts/qa-reset.mjs` (or equivalent fresh DB), `npx prisma db pull --schema=prisma/schema.prisma`, then `node scripts/check-schema-drift.mjs` to confirm. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
 | Debug test-DB schema-sync failure | [`apps/backend/scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs), especially the "drop RLS policies" block starting around line 548. Prisma's `db push --accept-data-loss` conflicts with the live `tenant_isolation` policies; the script drops them, runs push, lets migration 075 recreate them. |
 | Rotate a JWT / API key / encryption key | [`apps/backend/docs/RUNBOOKS/cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md) + [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md). The flow is: update the plain Secret → `kubeseal` → commit → ArgoCD reconciles → `rollout restart deployment/vhhealth-backend`. |
 | Add a clinical-AI module | Service in [`apps/backend/src/services/ai/`](../apps/backend/src/services/ai/) + raw-SQL migration for the tables + admin route in [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin/clinicalAi/) + tracker update at [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md) + admin UI at [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/). |

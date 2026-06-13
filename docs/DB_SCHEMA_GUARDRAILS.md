@@ -33,12 +33,7 @@ first two variables blank for `test:db:setup`. The bootstrap intentionally uses
 `127.0.0.1:55432/vhhealth_test` when those variables are absent.
 
 The Prisma schema includes a pgvector-backed `Unsupported("vector")` column.
-Local Postgres must provide the `vector` extension before `prisma db push` can
-create that table. `npm run test:db:setup` checks this before resetting the
-schema. If local Postgres does not have pgvector, use the Docker-backed
-guardrail runner. It starts a disposable `pgvector/pgvector:pg16` container on a
-free local port, applies Prisma + raw SQL migrations, seeds comprehensive QA
-data, runs the contract checks, then removes the container:
+Local Postgres must provide the `vector` extension for the raw SQL migrations to succeed (the baseline SQL creates the vector extension). `npm run test:db:setup` checks this before resetting the schema. If local Postgres does not have pgvector, use the Docker-backed guardrail runner. It starts a disposable `pgvector/pgvector:pg16` container on a free local port, applies raw SQL migrations (via `ci-setup-db.mjs`), seeds comprehensive QA data, runs the contract checks, then removes the container:
 
 ```powershell
 cd apps/backend
@@ -52,7 +47,7 @@ $env:VH_KEEP_DOCKER_TEST_DB='true'
 npm run ci:db-guardrails:docker
 ```
 
-The older fully manual equivalent is:
+The older fully manual equivalent (note: `prisma db push` is removed from CI; use `ci-setup-db.mjs` for fresh-DB setup instead):
 
 ```powershell
 docker run --rm -p 55433:5432 `
@@ -66,9 +61,8 @@ $env:DATABASE_URL="postgresql://postgres:$($env:PGPASSWORD)@127.0.0.1:55433/vhhe
 $env:VH_ALLOW_NON_TEST_DATA_SEED='true'
 cd apps/backend
 npm run db:ensure-pgvector
-npx prisma db push --skip-generate --accept-data-loss
-node scripts/check-schema-drift.mjs
-node scripts/ci-setup-db.mjs
+node scripts/ci-setup-db.mjs        # applies 000_baseline.sql + numbered deltas
+node scripts/check-schema-drift.mjs # verify schema.prisma matches DB
 npm run ci:db-guardrails
 ```
 
@@ -78,9 +72,9 @@ The backend reusable workflow uses the `pgvector/pgvector:pg16` service image
 and now runs:
 
 - `npm run db:ensure-pgvector`
-- Prisma `db push`
-- `node scripts/check-schema-drift.mjs` before raw migrations add unmanaged tables
-- raw SQL migrations
+- `000_baseline.sql` via `scripts/ci-setup-db.mjs` (raw SQL is source of truth; `prisma db push` was removed from CI after the schema grew Postgres features Prisma cannot emit declaratively)
+- `node scripts/check-schema-drift.mjs` (verifies committed `schema.prisma` matches the migrated DB)
+- remaining numbered raw SQL migrations
 - `npm run db:contracts`
 - `npm run seed:test-data`
 - `npm run db:contracts:seeded`

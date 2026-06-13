@@ -1,7 +1,7 @@
 # CLAUDE.md — VHHealth Staff App
 
 ## Project Overview
-Flutter mobile app for hospital staff. Handles attendance logging, leave management, appointment confirmations, investigation uploads, pharmacy order management, and staff profile.
+Flutter mobile app for hospital staff — a full clinical EMR covering MAR/BCMA closed-loop medication administration, CPOE order composer, structured e-prescribing, IPD ward management, maternity, operating theatre, blood bank, clinical-AI decision support, beds/housekeeping, telemedicine, and the traditional HR functions (attendance, leave, profile). As of the latest count, the app has ~199 Dart source files across 40+ feature modules.
 
 ## Tech Stack
 - **Framework**: Flutter 3.8.1+, Dart (null-safe)
@@ -16,6 +16,7 @@ Flutter mobile app for hospital staff. Handles attendance logging, leave managem
 ```
 lib/
   main.dart                          # Entry point, ThemeNotifier, MaterialApp.router
+  firebase_options.dart              # Firebase config
   core/
     config/api_config.dart           # Base URL, API key, JWT headers
     navigation/app_router.dart       # GoRouter routes + auth guard
@@ -26,18 +27,48 @@ lib/
     widgets/
       staff_scaffold.dart            # Bottom nav scaffold wrapper
       sos_button.dart                # Emergency SOS FAB
-  features/
-    auth/
-      screens/login_screen.dart      # Employee ID + password/PIN login
-      services/login_service.dart    # Auth flow handler
-    dashboard/screens/               # Home: check-in status, stats, feature grid
-    attendance/screens/              # Check in/out button + history
-    leave/screens/                   # Apply leave form + balance + history
-    appointments/screens/            # Today's appointments, confirm/cancel
-    investigations/screens/          # Upload investigation results
-    pharmacy/screens/                # Confirm/update pharmacy orders
-    profile/screens/                 # View/edit staff profile
-    settings/screens/                # Theme toggle, notifications, logout
+  features/                          # ~40 feature modules (199 Dart files total)
+    auth/                            # Employee ID + password/PIN login
+    dashboard/                       # Home: check-in status, stats, feature grid
+    attendance/                      # Check in/out + history
+    leave/                           # Apply leave form + balance + history
+    appointments/                    # Today's appointments, confirm/cancel
+    investigations/                  # Upload investigation results
+    pharmacy/                        # Confirm/update pharmacy orders (BCMA/MAR)
+    profile/                         # View/edit staff profile
+    settings/                        # Theme toggle, notifications, logout
+    emr/                             # Clinical EMR: notes, vitals, diagnoses, MAR
+    ipd/                             # IPD ward management + patient command board
+    opd/                             # Outpatient workspace + OP Workspace
+    nursing/                         # Nursing tasks, I/O charts, medication rounds
+    doctor/                          # Doctor workflows, CPOE order composer
+    beds/                            # Bed board, bed transfers, housekeeping
+    housekeeping/                    # Housekeeping task management
+    maternity/                       # Maternity / labour & delivery
+    theatre/                         # Operating theatre scheduling + CSSD
+    bloodbank/                       # Blood bank requests + transfusion
+    radiology/                       # Radiology orders + PACS viewer link
+    dietary/                         # Dietary orders + nutrition management
+    referrals/                       # Internal/external referral workflows
+    clinical_ai/                     # Clinical AI decision support panels
+    diagnostics/                     # Lab/diagnostic order management
+    schedule/                        # Staff scheduling + shift management
+    telemedicine/                     # Telemedicine session management
+    messaging/                       # Secure staff messaging
+    notifications/                   # Push notification centre
+    hr/                              # HR admin (payroll, credentialing)
+    payroll/                         # Payroll summary view
+    reports/                         # Clinical + operational reports
+    safety/                          # Incident reporting, code blue
+    about/                           # App version + build info
+    splash/                          # Splash + version-gate screen
+    phone/                           # Staff phone directory
+    directory/                       # Staff directory
+    audit/                           # Audit log viewer
+    productivity/                    # Task management + to-do
+    reception/                       # Reception + visitor management
+    ward/                            # Ward round support
+    cath_lab/                        # Catheterisation lab workflows
 ```
 
 ## Auth Flow
@@ -48,7 +79,7 @@ lib/
 5. All subsequent calls include `Authorization: Bearer <jwt>`
 6. PIN login: `POST /api/v1/auth/staff/login-pin` with `{ employeeId, pin }`
 
-## API Endpoints Used
+## API Endpoints Used (representative — not exhaustive)
 | Feature | Endpoint | Method |
 |---------|----------|--------|
 | Login (password) | `/auth/staff/login` | POST |
@@ -61,6 +92,13 @@ lib/
 | Upload investigation | `/staff/medical/investigations` | POST |
 | Upload consultation | `/staff/medical/consultations` | POST |
 | Update pharmacy order | `/staff/pharmacy/orders` | POST |
+| MAR/BCMA administration | `/staff/mar/*` | GET, POST |
+| CPOE orders (structured) | `/staff/orders/*` | GET, POST |
+| IPD/admission management | `/staff/admissions/*`, `/staff/ipd/*` | GET, POST, PUT |
+| Bed management | `/staff/beds/*` | GET, POST, PUT |
+| Theatre scheduling | `/staff/theatre/*` | GET, POST |
+| Blood bank | `/staff/blood-bank/*` | GET, POST |
+| Clinical AI panels | `/staff/clinical-ai/*` | GET, POST |
 | Staff profile | `/staff/:identifier` (GET), `/staff/:id` (PUT) | GET, PUT |
 | Appointments list | `/appointments/list` | GET |
 
