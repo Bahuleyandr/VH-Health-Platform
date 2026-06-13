@@ -195,7 +195,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
 | WS5 | 5 | 0 | queued |
-| WS6 | 5 | 1 | B6.1 mobile PHI hardening (FLAG_SECURE both apps, VHSecureStorage, clipboard clearance) ✅ · B6.2 patient fixes, B6.3 admin, B6.4 staff UX, B6.5 i18n next |
+| WS6 | 5 | 2 | B6.1 mobile PHI hardening ✅ · B6.2 patient fixes (_isLoading/push-allowlist/tryParse/App-Check/keys) ✅ · next: B6.3 admin (unsafe-eval/debug-handle/ROLE_RANK/a11y), B6.4 staff UX, B6.5 i18n |
 | WS7 | 4 | 0 | queued (engagements flagged) |
 | WS8 | 4 | 1 | B8.1 doc-truth sync (CLAUDE.md/arch docs + docs/README index) ✅ · next: B8.2 ADRs/change-mgmt, B8.3 repo housekeeping, B8.4 retire swarm gate |
 
