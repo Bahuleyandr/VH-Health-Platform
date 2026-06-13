@@ -17,7 +17,7 @@
  * dispense flow uses it as a hint, not a hard auto-swap.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
@@ -1149,7 +1149,7 @@ export async function receivePurchaseOrderLine({
   const cleanLot = safeText(lotNumber, 120);
   const performerUid = maybeUuid(performedBy, 'performed_by');
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tid || DEFAULT_TENANT_ID, async (tx) => {
     // 1. Resolve the PO line — gives us inventory_item_id + parent PO id.
     const lines = await tx.$queryRawUnsafe(
       `SELECT id, purchase_order_id, inventory_item_id, ordered_quantity, received_quantity

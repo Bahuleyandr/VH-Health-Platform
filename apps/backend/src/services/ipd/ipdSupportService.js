@@ -847,7 +847,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
   const searchTerms = catalogSearchTerms(medicationName, details);
   const wildcardTerms = searchTerms.map((term) => `%${term}%`);
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await setTenantTx(order.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
     const existing = await tx.$queryRawUnsafe(
       `SELECT wi.id
          FROM ward_indents wi

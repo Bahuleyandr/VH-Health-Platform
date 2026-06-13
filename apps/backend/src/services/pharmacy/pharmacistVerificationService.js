@@ -19,8 +19,9 @@
 //     this barcode exactly (marFiveRightsService).
 
 import { randomBytes } from 'node:crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { evaluateDrugKb } from '../clinical/drugKnowledgeBaseService.js';
@@ -166,7 +167,7 @@ export async function verifyOrder(orderId, {
   ];
 
   // Phase 1 — atomic verdict + safety reviews + canonical event.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(order.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE pharmacy_orders SET
          clinical_verification_status = $2,
