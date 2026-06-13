@@ -192,9 +192,9 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 | WS0 | 7 | 7 | ✅ COMPLETE |
 | WS1 | 7 | 7 | ✅ COMPLETE — RLS 283 tbl (B1.1/2) · interactive-txn scoping (B1.3) · blocking cross-tenant gate (B1.4) · crypto envelope/KMS (B1.5/SEC-4) · SEC-5/6/7/8 (B1.6) · pen-prep + SAST (B1.7). Follow-up (hardening, non-blocking): B1.3b (~97 remaining $transaction sites + createEnhancementClaim tenant_id; stale insurance_claims doc) |
 | WS2 | 8 | 6 | B2.1 monitoring ✅ · INF-3/9/10/11 ✅ · B2.4/B2.8 timeouts ✅ · B2.6 Longhorn ✅ · B2.7 Vault auto-unseal ✅ · B2.2 DR-drill harness ✅ (operator runs the timed drill) · next: B2.3 outage-CronJobs, B2.5 fallback metrics |
-| WS3 | 5 | 0 | queued |
+| WS3 | 5 | 1 | B3.1 deterministic journey gate — harness + 5 core journeys (43 tests, blocking CI, swarm replacement) ✅ · B3.1b: 6 journeys remain (dynamic-acute-abdomen, obstetric-anc, pediatric-opd, surgical-day-care, tpa-insurance-claim) · next: B3.2 coverage floors, B3.3 Flutter clinical tests, B3.4 FHIR/SAST blocking, B3.5 supply-chain/SBOM |
 | WS4 | 6 | 0 | queued |
-| WS5 | 5 | 1 | B5.1 AI safety holes (AI-1 unknown-module disable · AI-2 accepted-only patient helper · AI-4 defense hardening+ajv · AI-5 citations-blocking · AI-6 retries) ✅ · next: B5.2 triage chatbot governance, B5.3 outcome scoreboard, B5.4 deep-tier readiness, B5.5 knowledge layer |
+| WS5 | 5 | 3 | B5.1 AI safety holes ✅ · B5.2 triage governance (local-default/model-bump/defenses) ✅ · B5.3 outcome scoreboard ✅ · next: B5.4 deep-tier readiness (GPU flagged), B5.5 knowledge layer |
 | WS6 | 5 | 5 | ✅ COMPLETE — B6.1 mobile PHI · B6.2 patient · B6.3 admin · B6.4 staff override-reason · B6.5 i18n (6 priority clinical screens; 282 raw strings tracked for follow-up). Deferred-w/-path: ADM-2 unsafe-eval, ADM-4 god-page splits |
 | WS7 | 4 | 0 | queued (engagements flagged) |
 | WS8 | 4 | 4 | ✅ COMPLETE — B8.1 doc-truth sync · B8.2 ADRs + change-mgmt · B8.3 housekeeping/archive · B8.4 swarm-goal retired |
