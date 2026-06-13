@@ -333,8 +333,12 @@ export async function cleanupJourney({
   if (uids.length) {
     await swallow(prisma.$executeRawUnsafe(
       `DELETE FROM clinical_timeline_events WHERE patient_uid = ANY($1::uuid[])`, uids));
-    await swallow(prisma.$executeRawUnsafe(
-      `DELETE FROM clinical_audit_events WHERE patient_uid = ANY($1::uuid[])`, uids));
+    // NOTE: clinical_audit_events is an APPEND-ONLY hash chain (migration 282
+    // trigger; document-integrity.deep verifies the global per-tenant chain).
+    // Deleting mid-chain rows here permanently breaks that chain for every later
+    // run, so test audit rows are intentionally NOT deleted — orphaned-by-patient
+    // is harmless (prod never deletes audit rows either) and the per-run UID
+    // namespacing already prevents cross-run collisions.
     await swallow(prisma.$executeRawUnsafe(
       `DELETE FROM workflow_sla_instances WHERE patient_uid = ANY($1::uuid[])`, uids));
     await swallow(prisma.$executeRawUnsafe(

@@ -29,8 +29,19 @@ async function cleanup() {
     `DELETE FROM clinical_notes WHERE title LIKE 'C4TEST%'`,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = 'C4TEST Patient'`).catch(() => {});
-  // Chained audit rows are intentionally NOT deleted (the chain is append-
-  // only by design); test rows are distinguishable via action prefix.
+  // Reset the default-tenant audit hash chain so this suite verifies a clean,
+  // self-contained chain. The chain is append-only by design, but sibling suites
+  // sharing this DB (journeys, canonical-timeline-atomicity) delete their own
+  // audit rows on cleanup; deleting any mid-chain row permanently breaks the
+  // global per-tenant chain, which made the linkage/tamper assertions below fail
+  // non-deterministically across runs. This test runs isolated (its own Jest
+  // process via JEST_CI_ISOLATED_TESTS), so clearing the default-tenant chain
+  // here is safe and makes the verdict deterministic. It still fully exercises
+  // the trigger (rows chain on insert) + the verifier (tamper detected). NB:
+  // clinical_audit_events has no FK dependents, so a plain DELETE is sufficient.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`, DEFAULT_TENANT,
+  ).catch(() => {});
 }
 
 d('Document integrity — deep round-trip (roadmap C4)', () => {
