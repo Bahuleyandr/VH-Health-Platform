@@ -36,7 +36,6 @@ COPY admin ./admin
 # image is functional but you can't bootstrap or repair a fresh cluster.
 COPY scripts ./scripts
 
-RUN addgroup -g 1000 -S appgroup && adduser -S -u 1000 -G appgroup appuser
 RUN chown -R 1000:1000 /app
 USER 1000:1000
 
