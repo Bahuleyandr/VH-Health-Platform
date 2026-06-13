@@ -178,7 +178,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
 | WS5 | 5 | 0 | queued |
-| WS6 | 5 | 0 | queued |
+| WS6 | 5 | 1 | B6.1 mobile PHI hardening (FLAG_SECURE both apps, VHSecureStorage, clipboard clearance) ✅ · B6.2 patient fixes, B6.3 admin, B6.4 staff UX, B6.5 i18n next |
 | WS7 | 4 | 0 | queued (engagements flagged) |
 | WS8 | 4 | 0 | queued |
 
