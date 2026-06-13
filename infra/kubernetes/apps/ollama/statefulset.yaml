@@ -33,10 +33,14 @@ spec:
       terminationGracePeriodSeconds: 60
       automountServiceAccountToken: false
       securityContext:
-        runAsNonRoot: false
-        # Ollama upstream runs as root by default to manage the
-        # model cache directory perms. Keep upstream-default but
-        # drop all capabilities below.
+        # INF-11: run as non-root. An initContainer chowns the model PVC
+        # to UID 1000 so Ollama can write the model cache as a regular user.
+        # OLLAMA_MODELS is redirected to /ollama/models (owned by UID 1000)
+        # instead of the upstream default /root/.ollama.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       # Scheduled onto a GPU node. The ollama image links against
@@ -49,6 +53,32 @@ spec:
         - key: nvidia.com/gpu
           operator: Exists
           effect: NoSchedule
+      # INF-11: initContainer runs as root (only) to chown the model
+      # PVC mount to UID 1000 (the Ollama process user). This is the
+      # minimum-privilege approach: root access is scoped to the init
+      # phase only, the main container never runs as root, and the
+      # PVC directory is owned by the app user before Ollama starts.
+      initContainers:
+        - name: model-dir-init
+          image: docker.io/library/busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 1000:1000 /ollama/models
+              echo "Model directory ownership set to 1000:1000"
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE]
+          volumeMounts:
+            - name: models
+              mountPath: /ollama/models
       containers:
         - name: ollama
           image: docker.io/ollama/ollama:0.5.4
@@ -62,6 +92,15 @@ spec:
             # localhost-only).
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
+            # INF-11: redirect model storage away from /root/.ollama
+            # (which requires root ownership) to /ollama/models, which
+            # the initContainer chowned to UID 1000.
+            - name: OLLAMA_MODELS
+              value: "/ollama/models"
+            # HOME must also point away from /root since the container
+            # user (UID 1000) cannot write there.
+            - name: HOME
+              value: "/ollama"
             # Pre-warm + keep models in GPU memory between requests
             # so the first call after idle isn't a cold-load.
             - name: OLLAMA_KEEP_ALIVE
@@ -89,13 +128,19 @@ spec:
               memory: "16Gi"
               nvidia.com/gpu: "1"
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL
           volumeMounts:
             - name: models
-              mountPath: /root/.ollama
+              mountPath: /ollama/models
+            # HOME for the ollama process (writable temp state).
+            - name: ollama-home
+              mountPath: /ollama
             # tmp for short-lived inference scratch.
             - name: tmp
               mountPath: /tmp
@@ -128,6 +173,12 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 4Gi
+        # INF-11: writable home dir for the non-root ollama process.
+        # Small — only holds Ollama's process-level temp state (locks,
+        # sockets). Models live on the PVC at /ollama/models.
+        - name: ollama-home
+          emptyDir:
+            sizeLimit: 512Mi
   volumeClaimTemplates:
     - metadata:
         name: models

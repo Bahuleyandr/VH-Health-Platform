@@ -91,7 +91,70 @@ data:
     "upstream_response_time":"$upstream_response_time","upstream_status":"$upstream_status"}
   annotations-risk-level: "Critical"
   strict-validate-path-type: "true"
+  # allow-snippet-annotations is intentionally false — arbitrary per-Ingress
+  # nginx snippets are a CVE class (NGINX Ingress CVE-2021-25742 / CVE-2023-5043).
+  # Security headers that were previously injected via configuration-snippet
+  # are now authoritative here in the controller ConfigMap via http-snippet
+  # (global) and proxy-set-headers (per-Ingress-class, see the two header
+  # ConfigMaps below). Application-specific CSP is enforced by Helmet.js in
+  # each app — the ingress layer provides transport-level defaults only.
   allow-snippet-annotations: "false"
+  # proxy-set-headers: points at the common security-headers ConfigMap.
+  # This ConfigMap is applied by nginx to every proxied response via
+  # more_set_headers (nginx_http_headers_more_module). It covers the
+  # headers that are uniform across all Ingresses so that even during
+  # a backend restart, the very first HTTP response byte is hardened.
+  proxy-set-headers: "vhhealth-ingress/nginx-security-headers"
+  # http-snippet injects nginx directives at the http { } level.
+  # Used here to set HSTS globally so it applies to nginx's own error
+  # pages (40x, 50x) which bypass proxy-set-headers.
+  http-snippet: |
+    more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+    more_set_headers "X-Content-Type-Options: nosniff";
+    more_set_headers "X-Frame-Options: DENY";
+    more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+    more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+---
+# nginx-security-headers — the authoritative layer for HTTP security headers.
+#
+# Consumed by `proxy-set-headers: vhhealth-ingress/nginx-security-headers`
+# in the controller ConfigMap above. nginx applies these to every proxied
+# response via `more_set_headers` (nginx_headers_more module, bundled in
+# the ingress-nginx image). The keys are HTTP header names; the values are
+# the literal header values.
+#
+# SECURITY LAYER OWNERSHIP (INF-3 resolution):
+#   Layer                 Owner                  Scope
+#   ─────────────────────────────────────────────────────────────
+#   Transport headers     THIS ConfigMap          All proxied responses
+#   (HSTS, X-Frame, etc.) + http-snippet above    + nginx error pages
+#   Content-Security-     Application (Helmet.js  Per-app (app.js / Next.js
+#   Policy                or next.config.js)      middleware); NOT set here
+#                                                 because CSP varies by app.
+#
+# Do NOT re-enable allow-snippet-annotations or configuration-snippet
+# annotations on Ingress objects — that's the attack surface blocked by
+# CVE-2021-25742/CVE-2023-5043. The above http-snippet and this
+# proxy-set-headers ConfigMap are the ONLY nginx-layer header mechanisms.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-security-headers
+  namespace: vhhealth-ingress
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/component: security-headers
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # Transport-security headers uniform across all VH Health Ingresses.
+  # CSP is deliberately absent — it is app-specific and enforced by
+  # Helmet.js (backend) and next.config.js headers() (admin).
+  Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+  X-Content-Type-Options: "nosniff"
+  X-Frame-Options: "DENY"
+  Referrer-Policy: "strict-origin-when-cross-origin"
+  Permissions-Policy: "geolocation=(), microphone=(), camera=()"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

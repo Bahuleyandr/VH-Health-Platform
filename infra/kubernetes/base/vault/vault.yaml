@@ -448,5 +448,40 @@ spec:
       scrapeTimeout: 10s
       params:
         format: ["prometheus"]
+      # INF-10: Use the step-ca internal CA cert for TLS verification instead
+      # of skipping verification. The Vault TLS certificate is signed by
+      # step-ca-internal ClusterIssuer (see the Certificate resource above);
+      # the CA cert is stored in the `vault-tls` Secret under the key `ca.crt`
+      # (cert-manager populates ca.crt from the ClusterIssuer's root bundle).
+      # Prometheus scrapes Vault over HTTPS and verifies the server cert using
+      # this CA. No insecureSkipVerify needed.
+      #
+      # OPERATOR NOTE: if `vault-tls` Secret is in vhhealth-security namespace
+      # but Prometheus is in vhhealth-monitoring, you must create a
+      # ServiceAccount token or use a cross-namespace secret projection.
+      # The cleanest approach: cert-manager Certificate with `secretTemplate`
+      # copying the CA cert to vhhealth-monitoring, OR using the
+      # `caConfigMap` field with a ConfigMap copy of the CA cert (simpler,
+      # CA-cert-only, no private key exposure). The caFile approach below
+      # uses a Secret reference within the same namespace as the ServiceMonitor.
+      # If the Secret is cross-namespace, mirror it as a ConfigMap:
+      #   kubectl get secret vault-tls -n vhhealth-security \
+      #     -o jsonpath='{.data.ca\.crt}' | base64 -d \
+      #   | kubectl create configmap vault-ca-cert \
+      #       --namespace vhhealth-monitoring \
+      #       --from-file=ca.crt=/dev/stdin
+      # Then switch to: caConfigMap: { name: vault-ca-cert, key: ca.crt }
       tlsConfig:
-        insecureSkipVerify: true
+        insecureSkipVerify: false
+        # ca.crt is populated by cert-manager from the step-ca-internal
+        # ClusterIssuer root bundle into the vault-tls Secret.
+        # The Secret must be in the same namespace as Prometheus
+        # (vhhealth-monitoring) — mirror it per the operator note above
+        # if it is not already there.
+        ca:
+          secret:
+            name: vault-ca-cert
+            key: ca.crt
+        # serverName must match one of the SANs in the Vault TLS cert
+        # (see the Certificate dnsNames above).
+        serverName: vault.vhhealth-security.svc.cluster.local

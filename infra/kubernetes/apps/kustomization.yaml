@@ -40,3 +40,47 @@ images:
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
   - name: ghcr.io/bahuleyandr/vhhealth-staff-web
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+# ── INF-9: ADMIN_IP_ALLOWLIST must NOT be empty in production ────────────────
+# The backend middleware (ipAllowlistMiddleware.js) fails CLOSED when
+# NODE_ENV=production and ADMIN_IP_ALLOWLIST is empty — all /api/v1/admin/*
+# and /api/v1/system/* requests return HTTP 403 until this is set.
+# The admin Next.js middleware (middleware.ts) has the same fail-closed logic.
+#
+# Set this to the hospital VPN/management CIDR(s) before going live.
+# Comma-separated IPs and IPv4 CIDRs are accepted.
+# Example: "10.10.0.0/16,192.168.100.0/24"
+#
+# OPERATOR ACTION: replace the placeholder below with the actual hospital
+# VPN/management CIDRs, then commit. Do NOT leave it as-is for production —
+# all admin endpoints will return 403 until this is filled.
+patches:
+  - target:
+      kind: ConfigMap
+      name: vhhealth-backend-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: vhhealth-backend-config
+      data:
+        # FILL_ME: replace with hospital VPN/mgmt CIDR(s) before first production
+        # sync. Example: "10.10.0.0/16,192.168.100.0/24"
+        # Behavior when empty (NODE_ENV=production): middleware fails CLOSED —
+        # all /api/v1/admin/*, /api/v1/system/*, and admin-route-protected
+        # endpoints return HTTP 403 (code: ADMIN_IP_ALLOWLIST_REQUIRED).
+        ADMIN_IP_ALLOWLIST: "FILL_ME_WITH_HOSPITAL_VPN_CIDR"
+  - target:
+      kind: ConfigMap
+      name: vhhealth-admin-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: vhhealth-admin-config
+      data:
+        # FILL_ME: replace with hospital VPN/mgmt CIDR(s) before first production
+        # sync. Must match the backend ADMIN_IP_ALLOWLIST above.
+        # Behavior when empty (NODE_ENV=production): Next.js middleware.ts
+        # fails CLOSED — admin portal returns 403 for all requests.
+        ADMIN_IP_ALLOWLIST: "FILL_ME_WITH_HOSPITAL_VPN_CIDR"
