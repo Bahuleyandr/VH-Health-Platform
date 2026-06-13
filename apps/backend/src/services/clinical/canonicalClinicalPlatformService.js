@@ -641,17 +641,17 @@ export async function transitionEncounter(encounterId, nextStatus, input = {}, o
     if (tenantId) params.push(tenantId);
     const rows = await db.$queryRawUnsafe(
       `UPDATE patient_encounters
-          SET status = $2,
+          SET status = $2::text,
               ${timestampColumn ? `${timestampColumn} = NOW(),` : ''}
               ${actorColumn ? `${actorColumn} = $3::uuid,` : ''}
               updated_by = $3::uuid,
               updated_at = NOW(),
               status_history = status_history || jsonb_build_array(jsonb_build_object(
-                'from_status', $4,
-                'to_status', $2,
+                'from_status', $4::text,
+                'to_status', $2::text,
                 'changed_at', NOW(),
                 'changed_by', $3::uuid,
-                'reason', $5,
+                'reason', $5::text,
                 'metadata', $6::jsonb
               ))
         WHERE id = $1::uuid${tenantFilter}
