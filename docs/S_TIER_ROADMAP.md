@@ -4,6 +4,23 @@
 **Source findings:** `docs/PLATFORM_AUDIT_2026-06-13.md` (11-agent audit) +
 `docs/EPIC_LEVEL_ROADMAP.md`. **Status today:** overall **B−**. **Target:** **A+/S**.
 
+## GOAL (autonomous loop — set 2026-06-13)
+
+**Objective:** take the platform from B− to **A+/S tier** by completing every
+in-our-control batch in this roadmap (WS1–WS8), **local-only**, each validated
+green, before **2026-06-30**.
+
+**DONE =** all non-`[flagged]` batches merged to local `main` · full chunked
+backend suite green (`npm --prefix apps/backend run test:ci`) · admin + Flutter
+analyze/test green · S-tier scorecard A+ column (§2) met. `[flagged]` external /
+hardware / engagement items are packaged for the operator (not blockers for the
+"internal A+/S" milestone).
+
+**Driven by a self-paced loop:** each iteration reads the tracker + execution log
+(§6), executes the next pending batch in dependency order (subagent → review diff
+→ validate → commit local → update tracker), periodically re-runs the chunked
+suite for regression, and continues until DONE. No push until the user says.
+
 ## Decisions (locked 2026-06-13)
 
 1. **Tenant model:** Both in parallel — single-tenant hardening *and* full multi-tenant SaaS RLS.
