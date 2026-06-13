@@ -13,7 +13,7 @@
 // so existing callers (mobile + admin) keep working unchanged. Findings:
 //   2026-05-09-emergency-walk-in-doctor-order-sets-500
 //   2026-05-10-emergency-walk-in-doctor-chest-pain-orderset-500
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -30,6 +30,7 @@ import {
   recordCanonicalClinicalEvent,
   recordMedicationSafetyReviews,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 
 // ===================================================================
@@ -979,7 +980,7 @@ export async function verifyOrder(orderId, verifiedBy) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1036,7 +1037,7 @@ export async function completeOrder(orderId, completedBy) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1093,7 +1094,7 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {
@@ -1152,7 +1153,7 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
 
   // Atomic clinical write (canonical timeline invariant): status change +
   // canonical timeline/audit events persist together or not at all.
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(existing.tenant_id || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_orders.update({
       where: { id: existing.id },
       data: {

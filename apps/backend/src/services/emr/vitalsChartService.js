@@ -1,5 +1,5 @@
 // src/services/emr/vitalsChartService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
@@ -527,7 +527,7 @@ export async function recordVitals(data) {
   // the recorded vitals. The canonical timeline event therefore carries the
   // vitals row + provenance labelling (the load-bearing clinical record);
   // the enrichment is attached to the service response only.
-  const record = await prisma.$transaction(async (tx) => {
+  const record = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.vitals_chart.create({
       data: {
         patient_uid: resolvedPatientUid,
@@ -934,7 +934,7 @@ export async function recordIntakeOutput(data) {
 
   // Atomic clinical write (canonical timeline invariant): the I/O detail row
   // + its canonical timeline/audit events persist together or not at all.
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.intake_output.create({
       data: {
         patient_uid,

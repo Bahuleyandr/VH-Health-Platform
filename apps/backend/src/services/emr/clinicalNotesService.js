@@ -1,6 +1,7 @@
 // src/services/emr/clinicalNotesService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { AppError } from '../../utils/AppError.js';
 import { assertCanWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
@@ -359,7 +360,7 @@ export async function createNote(data) {
   // row + its canonical timeline/audit events persist together or not at
   // all. Schema defaults: version=1, is_addendum=false, is_signed=false,
   // created_at=now(). We pass them explicitly to mirror the pre-ORM INSERT.
-  const created = await prisma.$transaction(async (tx) => {
+  const created = await setTenantTx((data.tenant_id || data.tenantId) || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_notes.create({
       data: {
         encounter_id: resolvedEncounterId ?? null,
