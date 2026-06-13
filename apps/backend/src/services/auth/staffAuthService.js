@@ -405,7 +405,7 @@ export class StaffAuthService {
           )
       `, [deviceToken]);
 
-      if (deviceResult.length === 0) {
+      if (deviceResult.rows.length === 0) {
         throw new Error('Invalid or expired device token');
       }
 
@@ -540,7 +540,7 @@ export class StaffAuthService {
         WHERE s.session_token = $1 AND s.expires_at > NOW()
       `, [incomingHash]);
 
-      if (sessionResult.length === 0) throw new Error('Invalid or expired session');
+      if (sessionResult.rows.length === 0) throw new Error('Invalid or expired session');
       const session = sessionResult.rows[0];
       if (!session.is_active) throw new Error('Account deactivated');
 
@@ -725,12 +725,12 @@ export class StaffAuthService {
   static async logoutStaff(staffUid, deviceToken, req) {
     try {
       const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-      if (userResult.length === 0) throw new Error('Staff not found');
+      if (userResult.rows.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
 
       if (deviceToken) {
         const deviceResult = await query('SELECT device_id FROM staff_devices WHERE device_token = $1 AND staff_id = $2', [deviceToken, userId]);
-        if (deviceResult.length > 0) {
+        if (deviceResult.rows.length > 0) {
           await query('DELETE FROM staff_auth_sessions WHERE staff_id = $1 AND device_id = $2', [userId, deviceResult.rows[0].device_id]);
         }
       } else {
@@ -748,7 +748,7 @@ export class StaffAuthService {
   static async listStaffDevices(staffUid) {
     try {
       const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-      if (userResult.length === 0) throw new Error('Staff not found');
+      if (userResult.rows.length === 0) throw new Error('Staff not found');
       const userId = userResult.rows[0].id;
 
       const devices = await query(`
@@ -764,7 +764,10 @@ export class StaffAuthService {
         WHERE staff_id = $1 AND is_active = true
         ORDER BY last_used DESC NULLS LAST
       `, [userId]);
-      return devices;
+      // `query()` returns the pg-style wrapper `{ rows, rowCount }`; callers
+      // (controller → `{ devices }`, staff app casts `data['devices']` to a
+      // List) expect a bare array, so unwrap `.rows` here.
+      return devices.rows;
     } catch (error) {
       logger.error('List devices error:', error);
       throw error;
@@ -811,7 +814,7 @@ export class StaffAuthService {
    */
   static async _verifyDeviceOwnership(staffUid, deviceToken) {
     const userResult = await query('SELECT id FROM users WHERE uid = $1', [staffUid]);
-    if (userResult.length === 0) {
+    if (userResult.rows.length === 0) {
       throw new Error('Staff not found');
     }
     const userId = userResult.rows[0].id;
@@ -821,7 +824,7 @@ export class StaffAuthService {
       [deviceToken, userId]
     );
 
-    if (deviceResult.length === 0) {
+    if (deviceResult.rows.length === 0) {
       throw new Error('Device not found or unauthorized');
     }
     return deviceResult.rows[0].id; // Return the internal (auto-incrementing) device ID
