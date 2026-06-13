@@ -7,6 +7,7 @@
 // admissions/beds/bed_transfers/patient_consents CRUD, stats) is now
 // going through the typed client.
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -92,22 +93,24 @@ function recordCanonicalAdmissionEvent(input, tx) {
   return recordCanonicalClinicalEvent(input, { db: tx });
 }
 
-// SEC-3 — open a PHI interactive transaction that is RLS-tenant-scoped when a
-// tenantId is known, and otherwise behaves exactly like the legacy
-// `prisma.$transaction` (permissive — single-tenant / untenanted callers).
+// SEC-3 — open a PHI interactive transaction that is ALWAYS RLS-tenant-scoped:
+// to the caller's tenantId when one is known, and otherwise to the
+// DEFAULT_TENANT_ID single-tenant floor (the same fallback
+// tenantContextMiddleware applies). This means the GUC `app.current_tenant_id`
+// is set for every transaction this helper opens, so migration 075/304's
+// tenant_isolation policy enforces row scoping + WITH CHECK on the whole
+// transaction — including the canonical timeline/audit writes that ride on the
+// same `tx` — instead of ever falling through to its permissive branch.
 //
-// Why the conditional: setTenantTx throws without a tenantId, but many ADT
-// entry points are still reachable with options.tenantId === null (legacy
-// single-tenant installs, internal jobs). For those we must preserve the
-// pre-SEC-3 permissive behaviour. When tenantId IS present (the multi-tenant
-// request path, where tenantContextMiddleware always resolves one under
-// AUTH_ENFORCE_TENANT_RLS), the whole transaction — including the canonical
-// timeline/audit writes that ride on the same `tx` — runs with
-// `app.current_tenant_id` set, so migration 075/304's tenant_isolation policy
-// enforces row scoping + WITH CHECK inside the tx instead of falling through
-// to its permissive branch.
+// Why the fallback (not a throw): many ADT entry points are still reachable
+// with options.tenantId === null (legacy single-tenant installs, internal
+// jobs). Scoping those to DEFAULT_TENANT_ID preserves their behaviour on the
+// single-tenant deployment (all rows carry the default tenant) while keeping
+// RLS active, and never makes a falsy tenant throw — authenticated-no-tenant
+// requests are already 403'd upstream by tenantContextMiddleware when
+// AUTH_ENFORCE_TENANT_RLS is on.
 function scopedTx(tenantId, fn) {
-  return tenantId ? setTenantTx(tenantId, fn) : prisma.$transaction(fn);
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, fn);
 }
 
 function shouldMinimizeInpatientPayload(role) {

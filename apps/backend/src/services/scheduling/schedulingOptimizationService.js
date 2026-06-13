@@ -5,7 +5,7 @@
 // auto-blocking), generated slot grids, no-show-fed overbooking
 // suggestions, waitlist auto-fill, and bookable rooms/equipment.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -363,7 +363,14 @@ export async function bookResource({
     throw AppError.badRequest('starts_at/ends_at window invalid', 'SCHED_RESOURCE_WINDOW');
   }
   await assertPatientInTenant(tid, patientUid);
-  return prisma.$transaction(async (tx) => {
+  // Tenant-scope this multi-statement PHI write (resource_bookings carries
+  // tenant_id + patient_uid). A bare prisma.$transaction leaves the
+  // app.current_tenant_id GUC unset, so migration 075/304's tenant_isolation
+  // policy falls through to its PERMISSIVE branch and the FOR UPDATE lock,
+  // overlap check, and INSERT can all see/write cross-tenant rows. `tid` is
+  // already <in-scope tenant> || DEFAULT_TENANT_ID via tenantOr(), so the
+  // single-tenant fallback keeps working and this never passes a falsy tenant.
+  return setTenantTx(tid, async (tx) => {
     // Serialise per resource, then overlap-check inside the tx.
     await tx.$queryRawUnsafe(
       `SELECT id FROM bookable_resources

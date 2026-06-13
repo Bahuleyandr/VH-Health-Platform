@@ -2,19 +2,24 @@
 // Migrated from raw pg to Prisma ORM
 
 import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizeClinicalJustification } from '../insurance/clinicalJustificationTemplate.js';
 
-// SEC-3 — open a financial interactive transaction that is RLS-tenant-scoped
-// when a tenantId is known, falling back to the legacy permissive
-// `prisma.$transaction` for untenanted/single-tenant callers (setTenantTx
-// throws without a tenantId). When scoped, `invoices` (a tenant_isolation
-// table) writes inside the tx are constrained to the caller's tenant — both
-// the USING filter on the row lock/lookup and WITH CHECK on the update.
+// SEC-3 — open a financial interactive transaction that is ALWAYS RLS-tenant-
+// scoped. A known tenantId scopes to it; a falsy tenantId (single-tenant
+// operation) scopes to DEFAULT_TENANT_ID rather than falling through to a bare
+// `prisma.$transaction`, which would leave app.current_tenant_id unset and hit
+// the permissive branch of every tenant_isolation policy. The default-tenant
+// path is load-bearing for single-tenant deployments, so a falsy tenant must
+// NOT throw — it just removes the permissive-open branch so the GUC is always
+// set. When scoped, `invoices` (a tenant_isolation table) writes inside the tx
+// are constrained to the resolved tenant — both the USING filter on the row
+// lock/lookup and WITH CHECK on the update.
 function scopedTx(tenantId, fn) {
-  return tenantId ? setTenantTx(tenantId, fn) : prisma.$transaction(fn);
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, fn);
 }
 
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];

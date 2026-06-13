@@ -321,23 +321,25 @@ export async function cancelProcedure(procedureId, { tenantId, reason }) {
   if (!reason || !String(reason).trim()) {
     throw AppError.badRequest('Cancellation reason required', 'DENTAL_CANCEL_REASON_REQUIRED');
   }
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE dental_procedures
-     SET status = 'cancelled', cancelled_reason = $2, updated_at = NOW()
-     WHERE id = $1 AND tenant_id = $3::uuid AND status IN ('planned', 'in_progress')
-     RETURNING id, status, cancelled_reason`,
-    Number(procedureId), String(reason).trim(), tenantOr(tenantId),
-  );
-  if (!rows.length) {
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT status FROM dental_procedures WHERE id = $1 AND tenant_id = $2::uuid`,
-      Number(procedureId),
-      tenantOr(tenantId),
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE dental_procedures
+       SET status = 'cancelled', cancelled_reason = $2, updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $3::uuid AND status IN ('planned', 'in_progress')
+       RETURNING id, status, cancelled_reason`,
+      Number(procedureId), String(reason).trim(), tenantOr(tenantId),
     );
-    if (!existing.length) throw AppError.notFound('Procedure not found', 'DENTAL_PROCEDURE_NOT_FOUND');
-    throw AppError.invalidTransition(existing[0].status, 'cancelled', ['planned', 'in_progress']);
-  }
-  return rows[0];
+    if (!rows.length) {
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT status FROM dental_procedures WHERE id = $1 AND tenant_id = $2::uuid`,
+        Number(procedureId),
+        tenantOr(tenantId),
+      );
+      if (!existing.length) throw AppError.notFound('Procedure not found', 'DENTAL_PROCEDURE_NOT_FOUND');
+      throw AppError.invalidTransition(existing[0].status, 'cancelled', ['planned', 'in_progress']);
+    }
+    return rows[0];
+  });
 }
 
 export async function listProcedures(patientUid, { tenantId, status = null } = {}) {

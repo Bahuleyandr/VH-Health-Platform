@@ -198,9 +198,11 @@ export async function ensureAppointmentQueueForAppointment(
         SET queue_id = $1::int,
             updated_at = NOW()
       WHERE id = $2::int
+        AND tenant_id = $3::uuid
         AND (queue_id IS NULL OR queue_id <> $1::int)`,
     queue.id,
     appointmentId,
+    tenantId,
   );
 
   if (queue.created_now === true) {
