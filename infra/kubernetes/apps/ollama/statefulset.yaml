@@ -128,6 +128,12 @@ spec:
               memory: "16Gi"
               nvidia.com/gpu: "1"
           securityContext:
+            # INF-11 hardening: readOnlyRootFilesystem added (WS5 B5.4).
+            # Ollama writes model cache to /ollama/models (PVC-backed) and
+            # process temp state to /ollama (emptyDir). The root filesystem
+            # itself is read-only. If Ollama writes anything else to rootfs
+            # at runtime, add a named emptyDir volumeMount for that path.
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000

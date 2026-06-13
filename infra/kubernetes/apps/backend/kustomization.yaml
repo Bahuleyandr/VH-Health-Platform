@@ -38,3 +38,8 @@ resources:
   - network-policy.yaml
   - service-monitor.yaml
   - backup-cronjob.yaml
+  # REL-3 / WS2 B2.3: outage-critical jobs promoted from in-process scheduler
+  # to native CronJobs so they survive backend Deployment downtime.
+  - ward-downtime-packs-cronjob.yaml
+  - backup-verification-cronjob.yaml
+  - canary-health-check-cronjob.yaml

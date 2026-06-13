@@ -74,14 +74,64 @@ spec:
             summary: "No backend targets up for 2m — downtime procedure may apply"
             runbook: "docs/DOWNTIME_PROCEDURE.md"
 
+        # REL-3 / WS2 B2.3: WardDowntimePacksStale — corrected to use the
+        # kube-state-metrics CronJob success timestamp metric.
+        #
+        # Previous expression used kube_job_status_completion_time which is only
+        # emitted for Job objects that have completed — it was never emitted
+        # because no CronJob existed (packs ran in-process). With the new
+        # ward-downtime-packs CronJob, kube_cronjob_status_last_successful_time
+        # is set after every successful Job completion and is the right metric.
+        #
+        # Alert logic:
+        #   - Fires when the CronJob's last successful run was >45 minutes ago.
+        #     The schedule is every 15 min; 45 min = 3 missed cycles before we page.
+        #   - absent() guard fires immediately if the metric is missing entirely
+        #     (e.g. the CronJob was deleted or the namespace is broken).
         - alert: WardDowntimePacksStale
           expr: |
-            time() - max(kube_job_status_completion_time{job_name=~"ward-downtime-packs.*"}) > 3600
-          for: 15m
+            (
+              time() - max(kube_cronjob_status_last_successful_time{
+                namespace="vhhealth",
+                cronjob="ward-downtime-packs"
+              }) > 2700
+            )
+            or
+            (
+              absent(kube_cronjob_status_last_successful_time{
+                namespace="vhhealth",
+                cronjob="ward-downtime-packs"
+              })
+            )
+          for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "Ward downtime packs have not regenerated in >1h (in-process cron — investigate backend logs)"
+            summary: "Ward downtime packs CronJob (ward-downtime-packs) has not completed successfully in >45 min"
+            description: |
+              kube_cronjob_status_last_successful_time for ward-downtime-packs is stale or absent.
+              Check: kubectl get cronjob ward-downtime-packs -n vhhealth
+                     kubectl get jobs -n vhhealth -l app.kubernetes.io/name=ward-downtime-packs
+            runbook: "docs/DOWNTIME_PROCEDURE.md"
+
+        # CronJob failure rate guard — fires when any outage-critical job
+        # fails repeatedly. Covers backup-verification and canary-health-check
+        # in addition to ward-downtime-packs.
+        - alert: OutageCriticalCronJobFailing
+          expr: |
+            kube_job_status_failed{
+              namespace="vhhealth",
+              job_name=~"(ward-downtime-packs|backup-verification|canary-health-check)-.*"
+            } > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Outage-critical CronJob {{ $labels.job_name }} has failed pods"
+            description: |
+              One or more outage-critical job pods have failed in the last 10 minutes.
+              Check: kubectl describe job {{ $labels.job_name }} -n vhhealth
+                     kubectl logs -n vhhealth -l job-name={{ $labels.job_name }}
             runbook: "docs/DOWNTIME_PROCEDURE.md"
 
     - name: backend-db

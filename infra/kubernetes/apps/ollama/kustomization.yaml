@@ -46,6 +46,11 @@ resources:
   - statefulset.yaml
   - service.yaml
   - network-policy.yaml
+  # WS5 B5.4: deep-tier readiness preflight Job. Verifies Ollama endpoint
+  # is reachable and at least one model is loaded before enabling the
+  # clinical-AI deep tier. Run this Job after model pull (see Job comments
+  # for the full operator checklist).
+  - deep-tier-preflight-job.yaml
   # Note: PVC lives on the StatefulSet's volumeClaimTemplates. An empty
   # pvc.yaml exists in this dir for overlays that want to patch storage
   # class / size separately, but it's NOT included in resources because

@@ -1,0 +1,184 @@
+# Deep-tier AI readiness preflight Job (WS5 B5.4 / EPIC G1)
+#
+# Purpose: verifies that the Ollama endpoint is reachable and that at least one
+# model is loaded before the clinical-AI deep tier is enabled for patient care.
+# This is a one-shot Job (not a CronJob) intended to be run:
+#   a) Manually by the operator after first deploying Ollama + pulling a model:
+#        kubectl create job --from=cronjob/... -n vhhealth deep-tier-preflight-$(date +%s)
+#      Or simply apply this Job manifest directly once the model is loaded.
+#   b) As an ArgoCD sync-wave 3 hook in the ward-pilot rollout (Phase 4 of
+#      docs/CLINICAL_AI_ROLLOUT_PLAN.md). Set the hook annotation when wiring
+#      the ward pilot ArgoCD Application.
+#
+# Acceptance criteria (PENDING hardware):
+#   - Job completes successfully   → Ollama Service is reachable from within the
+#     cluster, the /api/tags endpoint responds with ≥1 model listed.
+#   - Job fails / BackoffLimit hit → Ollama is not ready; deep tier must not be
+#     enabled (backend env CLINICAL_AI_DEEP_PROVIDER should remain unset or
+#     point at a stub).
+#
+# [flagged: GPU hardware] This Job can run on any node — it only tests the
+# Service endpoint, not GPU inference. The Ollama StatefulSet itself
+# (statefulset.yaml) is what requires a GPU node. Until a GPU node is
+# provisioned and the StatefulSet's pod is Running, this preflight will fail
+# (Service exists but no backend pod → connection refused).
+#
+# Operator checklist before running this Job:
+#   1. GPU node provisioned and labelled nvidia.com/gpu.present=true.        [flagged: GPU hardware]
+#   2. nvidia-device-plugin DaemonSet installed and healthy.                 [flagged: GPU hardware]
+#   3. Ollama StatefulSet pod is Running (check: kubectl get pod -n vhhealth -l app.kubernetes.io/name=ollama).
+#   4. At least one model pulled (e.g.: kubectl exec -n vhhealth ollama-0 -- ollama pull qwen2.5:14b).
+#   5. Backend ConfigMap updated: CLINICAL_AI_DEEP_PROVIDER=ollama,
+#      CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434,
+#      CLINICAL_AI_DEEP_MODEL=<model-name>.
+#
+# [flagged: WARD PILOT] After this Job passes, enable the ward pilot for a
+# single ward per PER_TENANT_ROLLOUT_PLAYBOOK.md before fleet-wide rollout.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: deep-tier-preflight
+  annotations:
+    # Sync-wave 3 so it runs after Ollama StatefulSet (wave 0 default) is
+    # applied. Operators running the ward-pilot ArgoCD Application should add:
+    #   argocd.argoproj.io/hook: PostSync
+    #   argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: deep-tier-preflight
+    app.kubernetes.io/component: deep-tier-llm
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  backoffLimit: 3
+  # 10-minute hard cap — if Ollama hasn't responded in 10 min after pod
+  # start, the pod is stuck (GPU OOM on model load, network misconfiguration,
+  # etc.). Operator must kubectl describe pod to diagnose.
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: deep-tier-preflight
+        app.kubernetes.io/component: deep-tier-llm
+        app.kubernetes.io/part-of: vhhealth
+    spec:
+      restartPolicy: OnFailure
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: preflight
+          # curlimages/curl — same image family as canary-health-check-cronjob.yaml.
+          # IMAGE DIGEST pinned for supply-chain compliance — the :8.11.1 tag is
+          # kept for readability; the @sha256 digest is authoritative (Kyverno
+          # image-verification requires an immutable reference). Same digest as
+          # the canary CronJob (identical curlimages/curl:8.11.1 manifest list).
+          image: docker.io/curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              OLLAMA_URL="http://ollama-internal.vhhealth.svc.cluster.local:11434"
+              MAX_WAIT=300          # 5 min — model may still be cold-loading on first start
+              POLL_INTERVAL=15
+              ELAPSED=0
+
+              echo "[deep-tier-preflight] Waiting for Ollama at ${OLLAMA_URL} ..."
+
+              # 1. Poll until the root endpoint responds 200 (liveness equivalent).
+              until curl -sf --max-time 10 --connect-timeout 5 \
+                    "${OLLAMA_URL}/" > /dev/null 2>&1; do
+                if [ "${ELAPSED}" -ge "${MAX_WAIT}" ]; then
+                  echo "[deep-tier-preflight] FAIL: Ollama root endpoint not reachable after ${ELAPSED}s"
+                  exit 1
+                fi
+                echo "[deep-tier-preflight] Not ready yet (${ELAPSED}s elapsed), retrying in ${POLL_INTERVAL}s..."
+                sleep "${POLL_INTERVAL}"
+                ELAPSED=$(( ELAPSED + POLL_INTERVAL ))
+              done
+
+              echo "[deep-tier-preflight] Ollama root endpoint reachable. Checking loaded models..."
+
+              # 2. GET /api/tags — must return at least one model entry.
+              TAGS_RESPONSE=$(curl -sf --max-time 15 --connect-timeout 5 \
+                "${OLLAMA_URL}/api/tags" 2>/dev/null || echo "CURL_FAILED")
+
+              if [ "${TAGS_RESPONSE}" = "CURL_FAILED" ]; then
+                echo "[deep-tier-preflight] FAIL: /api/tags request failed"
+                exit 1
+              fi
+
+              echo "[deep-tier-preflight] /api/tags response: ${TAGS_RESPONSE}"
+
+              # Simple check: the response must contain "models" key with at
+              # least one entry (non-empty array). jq is not available in
+              # curlimages/curl; use grep for the structural check.
+              MODEL_COUNT=$(echo "${TAGS_RESPONSE}" \
+                | grep -o '"name"' \
+                | wc -l \
+                | tr -d ' ')
+
+              if [ "${MODEL_COUNT}" -eq 0 ]; then
+                echo "[deep-tier-preflight] FAIL: no models are loaded in Ollama."
+                echo "  → Run: kubectl exec -n vhhealth ollama-0 -- ollama pull <model>"
+                echo "  → Then re-run this preflight Job."
+                exit 1
+              fi
+
+              echo "[deep-tier-preflight] OK — ${MODEL_COUNT} model(s) loaded."
+
+              # 3. Verify the configured deep-tier model is present (if set).
+              if [ -n "${CLINICAL_AI_DEEP_MODEL:-}" ]; then
+                if echo "${TAGS_RESPONSE}" | grep -q "\"${CLINICAL_AI_DEEP_MODEL}\""; then
+                  echo "[deep-tier-preflight] OK — configured model '${CLINICAL_AI_DEEP_MODEL}' is present."
+                else
+                  echo "[deep-tier-preflight] WARNING: CLINICAL_AI_DEEP_MODEL='${CLINICAL_AI_DEEP_MODEL}' not found in loaded models."
+                  echo "  Loaded models: ${TAGS_RESPONSE}"
+                  echo "  → Pull the model, then re-run this preflight Job."
+                  exit 1
+                fi
+              else
+                echo "[deep-tier-preflight] SKIP model-name check — CLINICAL_AI_DEEP_MODEL not set."
+              fi
+
+              echo "[deep-tier-preflight] PASS — deep-tier endpoint is healthy and ready."
+              exit 0
+          env:
+            # Read the configured deep-tier model name so we can verify it's
+            # loaded. Sourced from the backend ConfigMap / Secret.
+            - name: CLINICAL_AI_DEEP_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: vhhealth-backend-config
+                  key: CLINICAL_AI_DEEP_MODEL
+                  optional: true
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi

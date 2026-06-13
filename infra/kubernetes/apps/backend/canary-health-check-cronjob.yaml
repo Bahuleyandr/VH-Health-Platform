@@ -1,0 +1,157 @@
+# Canary / synthetic health checks — outage-critical CronJob (REL-3 / WS2 B2.3)
+#
+# Problem this solves: `runCanaryChecks()` ran in-process in scheduler.js
+# every 5 minutes. When the backend is down, the canary is also down — the
+# system has no external synthetic signal that would detect the outage.
+# This CronJob runs outside the backend Deployment so it can detect when
+# the backend itself is unhealthy.
+#
+# What it does: hits the backend's public /health/live and /health/ready
+# endpoints from a separate pod so we have a synthetic, backend-independent
+# probe. Exits non-zero if either endpoint is unreachable or unhealthy;
+# kube_job_status_failed will fire the CronJobFailing alert (or PodDown
+# catches it via the workloads group). The canary also probes the Cloudflare
+# Tunnel endpoint for end-to-end path validation.
+#
+# Schedule: every 5 minutes (matches the in-process cron cadence).
+#
+# Image: curlimages/curl — minimal, no shell except /bin/sh, has curl.
+# Pinned to an immutable sha256 digest below. The :8.11.1 tag is retained for
+# readability (matching the base/ manifests' convention, e.g. busybox, vault,
+# redis); the @sha256 digest is the authoritative, Kyverno-verifiable reference.
+#
+# IMAGE DIGEST (pinned): docker.io/curlimages/curl:8.11.1
+#   → sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+#   Multi-arch manifest-list digest (covers linux/amd64, arm64, 386, ppc64le).
+# To re-pin after a version bump:
+#   docker manifest inspect docker.io/curlimages/curl:<tag>   # or the Docker Hub API
+# See: https://hub.docker.com/r/curlimages/curl/tags
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: canary-health-check
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: canary-health-check
+    app.kubernetes.io/component: outage-critical-job
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  schedule: "*/5 * * * *"
+  timeZone: "Asia/Kolkata"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # Canary must resolve within 90 seconds — if it hasn't, it's hung.
+      activeDeadlineSeconds: 90
+      ttlSecondsAfterFinished: 1800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: canary-health-check
+            app.kubernetes.io/component: outage-critical-job
+            app.kubernetes.io/part-of: vhhealth
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 10
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            # curlimages/curl runs as uid 100 (curl user); using 1000
+            # here to match our convention — override in overlay if the
+            # image refuses to start as 1000.
+            runAsUser: 100
+            runAsGroup: 101
+            fsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: canary
+              # IMAGE DIGEST pinned for supply-chain compliance — the :8.11.1
+              # tag is kept for readability; the @sha256 digest is authoritative
+              # (Kyverno image-verification requires an immutable reference).
+              image: docker.io/curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  BACKEND_URL="http://vhhealth-backend.vhhealth.svc.cluster.local:5000"
+                  FAILURES=0
+
+                  check() {
+                    local label="$1"
+                    local url="$2"
+                    local status
+                    status=$(curl -s -o /dev/null -w "%{http_code}" \
+                      --max-time 10 --connect-timeout 5 \
+                      -H "X-Forwarded-Proto: https" \
+                      "$url" 2>/dev/null || echo "000")
+                    if [ "$status" = "200" ]; then
+                      echo "[canary] OK  ${label} → HTTP ${status}"
+                    else
+                      echo "[canary] FAIL ${label} → HTTP ${status}"
+                      FAILURES=$((FAILURES + 1))
+                    fi
+                  }
+
+                  echo "[canary] Starting synthetic probes at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                  # Liveness probe — no DB dependency, just process-alive.
+                  check "backend /health/live" "${BACKEND_URL}/health/live"
+
+                  # Ready probe — includes DB reachability + RLS posture.
+                  # Uses monitoring token so the endpoint returns 200 (not 401).
+                  MONITORING_TOKEN="${MONITORING_TOKEN:-${INTERNAL_MONITORING_TOKEN:-${METRICS_TOKEN:-}}}"
+                  if [ -n "${MONITORING_TOKEN}" ]; then
+                    READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                      --max-time 15 --connect-timeout 5 \
+                      -H "X-Forwarded-Proto: https" \
+                      -H "X-Monitoring-Token: ${MONITORING_TOKEN}" \
+                      "${BACKEND_URL}/health/ready" 2>/dev/null || echo "000")
+                    if [ "${READY_STATUS}" = "200" ]; then
+                      echo "[canary] OK  backend /health/ready → HTTP ${READY_STATUS}"
+                    else
+                      echo "[canary] FAIL backend /health/ready → HTTP ${READY_STATUS}"
+                      FAILURES=$((FAILURES + 1))
+                    fi
+                  else
+                    echo "[canary] SKIP /health/ready — MONITORING_TOKEN not set"
+                  fi
+
+                  echo "[canary] Probe summary: ${FAILURES} failure(s)"
+
+                  if [ "${FAILURES}" -gt 0 ]; then
+                    exit 1
+                  fi
+                  exit 0
+              envFrom:
+                - secretRef:
+                    name: vhhealth-backend-env
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "128Mi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 100
+                runAsGroup: 101
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 32Mi

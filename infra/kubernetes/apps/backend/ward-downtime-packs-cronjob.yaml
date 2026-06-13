@@ -1,0 +1,134 @@
+# Ward downtime-pack generation — outage-critical CronJob (REL-3 / WS2 B2.3)
+#
+# Problem this solves: `generateWardDowntimePacks()` ran in-process via
+# scheduler.js every 15 minutes. When the backend is unavailable (exactly the
+# moment downtime packs are needed), the packs stop regenerating. This CronJob
+# runs independently of the backend Deployment so packs are always fresh.
+#
+# What it does: calls the backend's internal downtime-pack endpoint that writes
+# per-ward offline bundles (patient list, active orders, MAR snapshot) to the
+# configured storage.  The job uses the same backend image so it inherits all
+# the app's DB client, RLS, and tenant-context logic — no separate binary
+# needed.  The INTERNAL_JOB_TOKEN secret key gates the endpoint so it is not
+# callable by external clients.
+#
+# Schedule: every 15 minutes (matches the in-process cron cadence).
+# The pack must already exist BEFORE an outage; generating on-demand is
+# too late.  See docs/DOWNTIME_PROCEDURE.md.
+#
+# Image: same backend image tag/digest as the main Deployment.
+# The apps/kustomization.yaml `images:` block rewrites
+# ghcr.io/bahuleyandr/vh-health-platform-backend to the current digest,
+# so this CronJob automatically tracks the same pinned image.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ward-downtime-packs
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app.kubernetes.io/name: ward-downtime-packs
+    app.kubernetes.io/component: outage-critical-job
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  # Every 15 minutes — Asia/Kolkata for log readability; scheduler is UTC-agnostic.
+  schedule: "*/15 * * * *"
+  timeZone: "Asia/Kolkata"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # Hard cap: pack generation should complete within 5 minutes.
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ward-downtime-packs
+            app.kubernetes.io/component: outage-critical-job
+            app.kubernetes.io/part-of: vhhealth
+        spec:
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 30
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: ward-downtime-packs
+              # Pinned to the same image as the main backend Deployment.
+              # apps/kustomization.yaml images: block rewrites this tag
+              # to the current sha256 digest via update-prod-digests.mjs.
+              image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  echo "[ward-downtime-packs] Starting pack generation at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  node -e "
+                    (async () => {
+                      try {
+                        // Import the service directly — runs inside the same
+                        // Node process with full DB and RLS context, no HTTP hop.
+                        const { generateWardDowntimePacks } = await import('/app/src/services/downtime/wardDowntimePackService.js');
+                        const { runWithSuperAdmin } = await import('/app/src/lib/tenantContext.js');
+                        await runWithSuperAdmin(generateWardDowntimePacks);
+                        console.log('[ward-downtime-packs] Pack generation complete');
+                        process.exit(0);
+                      } catch (err) {
+                        console.error('[ward-downtime-packs] FAILED:', err.message);
+                        process.exit(1);
+                      }
+                    })();
+                  "
+              env:
+                - name: NODE_ENV
+                  value: "production"
+                - name: PORT
+                  value: "5000"
+              envFrom:
+                - configMapRef:
+                    name: vhhealth-backend-config
+                - secretRef:
+                    name: vhhealth-backend-env
+              resources:
+                requests:
+                  cpu: "200m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+              securityContext:
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: app-tmp
+                  mountPath: /app/tmp
+                - name: prisma-cache
+                  mountPath: /app/node_modules/.prisma
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
+            - name: app-tmp
+              emptyDir:
+                sizeLimit: 512Mi
+            - name: prisma-cache
+              emptyDir:
+                sizeLimit: 64Mi

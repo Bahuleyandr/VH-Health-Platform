@@ -116,6 +116,20 @@ spec:
         - protocol: TCP
           port: 587
 
+    # Ollama deep-tier LLM — same namespace (vhhealth).
+    # Backend calls CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434
+    # for deep-tier clinical AI modules (discharge_summary, medication_reconciliation,
+    # abnormal_result_triage, obstetric_risk_assistant).
+    # The Ollama NetworkPolicy (apps/ollama/network-policy.yaml) mirrors this by
+    # allowing ingress from app.kubernetes.io/name=vhhealth-backend pods only.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ollama
+      ports:
+        - protocol: TCP
+          port: 11434
+
     # NTP (node-local chrony fans out; still allow as belt-and-braces for
     # clock-sensitive operations like TOTP verification)
     - to:
