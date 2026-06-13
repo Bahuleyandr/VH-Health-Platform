@@ -1,7 +1,10 @@
 # monitoring/chart-tracker.yaml — metadata tracking for Helm charts
 #
-# The kube-prometheus-stack and loki-stack charts are Argo-managed
-# Applications. This ConfigMap tracks the pinned versions.
+# The kube-prometheus-stack and loki-stack charts are deployed as Argo CD
+# Applications defined in base/argocd/applications/monitoring.yaml (two
+# multi-source Applications: vhhealth-kube-prometheus and vhhealth-loki).
+# This ConfigMap tracks the pinned versions; update it alongside the
+# targetRevision fields in monitoring.yaml whenever charts are upgraded.
 ---
 apiVersion: v1
 kind: ConfigMap

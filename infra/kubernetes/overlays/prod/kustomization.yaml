@@ -6,8 +6,11 @@
 #     hosts).
 #   - Resource overrides for highest-traffic services (slightly larger
 #     requests/limits than the base defaults).
-#   - No Helm chart rendering — Argo CD takes care of Harbor, monitoring,
-#     Falco, and Argo CD itself as their own Applications.
+#   - No Helm chart rendering — Argo CD takes care of Harbor, Falco, and
+#     Argo CD itself as their own Applications. Monitoring (kube-prometheus-
+#     stack + loki-stack) is deployed via the ArgoCD Applications in
+#     base/argocd/applications/monitoring.yaml (multi-source: git for values,
+#     Helm chart repos for the charts). Values live in base/monitoring/*.yaml.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:

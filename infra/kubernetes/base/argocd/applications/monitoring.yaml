@@ -1,0 +1,128 @@
+# argocd/applications/monitoring.yaml — Argo CD Applications for the
+# VH Health monitoring stack: kube-prometheus-stack and loki-stack.
+#
+# These deploy from upstream Helm charts (not the kustomize base) so
+# they are separate Applications from the platform + apps Application CRs.
+# Values are sourced from the committed files in base/monitoring/ — that
+# is the single source of truth; edit there, not here.
+#
+# Chart versions are pinned. Update here and in monitoring/chart-tracker.yaml
+# together.
+#
+# NOTE: The monitoring namespace (vhhealth-monitoring) is created by the
+# Namespace resource in base/_common/namespaces.yaml (wave 0). Prometheus
+# CRDs are provided by the kube-prometheus-stack chart itself (crds.enabled:
+# true in kube-prometheus-values.yaml); do NOT pre-install them manually.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-kube-prometheus
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # Deploy after CRDs + operators (wave 2) and before workloads (wave 4).
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    # Keep in sync with monitoring/chart-tracker.yaml kubePrometheusStackVersion.
+    targetRevision: "65.2.0"
+    helm:
+      releaseName: vhhealth-monitoring
+      valueFiles:
+        # Path relative to the ArgoCD Application's source repository.
+        # Because this Application's source is the Helm chart repo (not the
+        # git repo), we must inline the values or use a multi-source
+        # Application. We use multi-source: git for values + helm for chart.
+      values: ""
+  sources:
+    - repoURL: https://github.com/Bahuleyandr/VH-Health-Platform
+      targetRevision: HEAD
+      ref: vhhealth-git
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      # Keep in sync with monitoring/chart-tracker.yaml kubePrometheusStackVersion.
+      targetRevision: "65.2.0"
+      helm:
+        releaseName: vhhealth-monitoring
+        valueFiles:
+          - $vhhealth-git/infra/kubernetes/base/monitoring/kube-prometheus-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vhhealth-monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+      # kube-prometheus-stack replaces some resources on upgrade; allow
+      # ArgoCD to replace (not patch) CRD ownership.
+      - Replace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  revisionHistoryLimit: 5
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-loki
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # Same wave as Prometheus — both are monitoring infrastructure.
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: vhhealth
+  # Multi-source: git repo for values + helm chart repo for the chart.
+  sources:
+    - repoURL: https://github.com/Bahuleyandr/VH-Health-Platform
+      targetRevision: HEAD
+      ref: vhhealth-git
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki-stack
+      # Keep in sync with monitoring/chart-tracker.yaml lokiStackVersion.
+      targetRevision: "2.10.2"
+      helm:
+        releaseName: vhhealth-loki
+        valueFiles:
+          - $vhhealth-git/infra/kubernetes/base/monitoring/loki-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vhhealth-monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  revisionHistoryLimit: 5
