@@ -10,9 +10,11 @@ import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
 const transactionMock = jest.fn(async (cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
+const setTenantTxMock = jest.fn(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryUnsafeMock, $transaction: transactionMock },
+  setTenantTx: setTenantTxMock,
 }));
 
 const {
@@ -42,6 +44,8 @@ const DOCTOR = '22222222-2222-4222-8222-222222222222';
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   transactionMock.mockClear();
+  setTenantTxMock.mockReset();
+  setTenantTxMock.mockImplementation(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 });
 
 // ---------------------------------------------------------------------------
@@ -304,7 +308,8 @@ describe('createFollowUp', () => {
       reason: 'Post-discharge review',
     });
 
-    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
     expect(row.status).toBe('scheduled');
     expect(row.appointment_id).toBe(30);
     expect(queryUnsafeMock.mock.calls.some((c) => /INSERT INTO appointments/i.test(c[0]))).toBe(true);

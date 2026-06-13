@@ -13,7 +13,7 @@
  * patient-app visibility; backend never auto-publishes.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
@@ -167,6 +167,7 @@ function shouldBookFollowUpAppointment({ originKind, dueAt, doctorUid, bookAppoi
 
 async function reserveFollowUpAppointment({
   db = prisma,
+  tenantId,
   patientUid,
   doctorUid,
   dueAt,
@@ -222,13 +223,13 @@ async function reserveFollowUpAppointment({
     `INSERT INTO appointments
        (phone, patient_id, patient_name, doctor_id, doctor_name,
         appointment_date, appointment_time, reason, notes, status,
-        department, visit_type, created_by, created_at, updated_at)
+        department, visit_type, created_by, tenant_id, created_at, updated_at)
      VALUES
        ($1, $2::int, $3, $4::int, $5,
         ($6::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
         to_char($6::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI'),
         $7, $8, 'SCHEDULED',
-        $9, 'FOLLOW_UP', $10::uuid, NOW(), NOW())
+        $9, 'FOLLOW_UP', $10::uuid, $11::uuid, NOW(), NOW())
      RETURNING id`,
     patient.phone || '',
     Number(patient.id),
@@ -240,6 +241,7 @@ async function reserveFollowUpAppointment({
     'Booked from discharge follow-up plan',
     doctor.department || null,
     createdBy,
+    tenantId,
   );
   return appointments[0];
 }
@@ -827,9 +829,10 @@ export async function createFollowUp({
 
   try {
     if (!wantsAppointment) return insertFollowUp(prisma);
-    return prisma.$transaction(async (tx) => {
+    return setTenantTx(tid, async (tx) => {
       const appointment = await reserveFollowUpAppointment({
         db: tx,
+        tenantId: tid,
         patientUid: cleanUid,
         doctorUid: cleanDoctorUid,
         dueAt: cleanDueAt,

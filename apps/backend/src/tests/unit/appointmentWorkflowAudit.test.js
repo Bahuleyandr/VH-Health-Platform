@@ -7,12 +7,14 @@ const prismaMock = {
   $queryRawUnsafe: jest.fn(),
   $executeRawUnsafe: jest.fn(),
 };
+const setTenantTxMock = jest.fn();
 const logAuditMock = jest.fn();
 const ensureAppointmentQueueForAppointmentMock = jest.fn();
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
+  setTenantTx: setTenantTxMock,
 }));
 
 jest.unstable_mockModule('../../utils/logAudit.js', () => ({
@@ -101,6 +103,11 @@ describe('appointment workflow audit logging', () => {
     txQueryRawUnsafe.mockReset();
     txExecuteRawUnsafe.mockReset();
     prismaMock.$transaction.mockImplementation(async (callback) => callback({
+      $queryRawUnsafe: txQueryRawUnsafe,
+      $executeRawUnsafe: txExecuteRawUnsafe,
+    }));
+    setTenantTxMock.mockReset();
+    setTenantTxMock.mockImplementation(async (tenantId, cb) => cb({
       $queryRawUnsafe: txQueryRawUnsafe,
       $executeRawUnsafe: txExecuteRawUnsafe,
     }));

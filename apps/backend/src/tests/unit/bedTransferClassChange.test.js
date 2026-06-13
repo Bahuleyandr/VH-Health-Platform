@@ -31,6 +31,7 @@ import { jest } from '@jest/globals';
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn();
 const txMock = jest.fn();
+const setTenantTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -38,6 +39,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $executeRawUnsafe: executeRawMock,
     $transaction: txMock,
   },
+  setTenantTx: setTenantTxMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
@@ -56,9 +58,12 @@ beforeEach(() => {
   queryRawMock.mockReset();
   executeRawMock.mockReset();
   txMock.mockReset();
+  setTenantTxMock.mockReset();
   // Make $transaction invoke the callback with our tx mock shim so
   // the same queryRawMock / executeRawMock instrumented sites fire.
   txMock.mockImplementation(async (fn) => fn(TX_CLIENT));
+  // setTenantTx(tenantId, fn) mirrors $transaction but takes a leading tenant arg.
+  setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn(TX_CLIENT));
   executeRawMock.mockResolvedValue(1);
 });
 

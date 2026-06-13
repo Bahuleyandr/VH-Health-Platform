@@ -2,7 +2,7 @@
 // Full pharmacy order lifecycle: PENDING → CONFIRMED → PREPARING → DISPATCHED → DELIVERED
 
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -107,8 +107,8 @@ export const placeOrder = async (req, res) => {
         patient_id, phone, patient_name, patient_phone, order_note,
         prescription_photo_key, delivery_type,
         delivery_address, delivery_landmark, delivery_lat, delivery_lng,
-        delivery_phone, status, prescribed_by, ordered_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PENDING',$13::uuid, NOW(), NOW())
+        delivery_phone, status, prescribed_by, tenant_id, ordered_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PENDING',$13::uuid,$14::uuid, NOW(), NOW())
       RETURNING id, uid, patient_id, patient_name, patient_phone, phone, status,
         order_note, total_amount, created_at, updated_at, order_number, delivery_type
     `,
@@ -118,7 +118,8 @@ export const placeOrder = async (req, res) => {
       delivery_address || null, delivery_landmark || null,
       delivery_lat || null, delivery_lng || null,
       delivery_phone || patientPhone,
-      req.user?.uid || null
+      req.user?.uid || null,
+      req.tenantId
     );
 
     const order = result[0];
@@ -493,7 +494,7 @@ export const markDelivered = async (req, res) => {
     // stock decrement + Rx fulfilment hook in the same transaction.
     // Findings: 2026-05-08-walk-in-opd-pharmacy-dispense-no-stock-decrement,
     // 2026-05-08-walk-in-opd-pharmacy-prescription-not-fulfilled-after-dispense.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(req.tenantId, async (tx) => {
       const updated = await tx.$queryRawUnsafe(
         `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(),
            delivery_tracking_active=FALSE, updated_at=NOW()

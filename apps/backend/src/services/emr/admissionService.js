@@ -2024,6 +2024,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
         const finalNumber = `${parent.claim_number}-F${existingFinal + 1}`;
         finalClaim = await prisma.insurance_claims.create({
           data: {
+            tenant_id: phase1.tenant_id,
             claim_number: finalNumber,
             patient_uid: parent.patient_uid,
             invoice_id: parent.invoice_id,

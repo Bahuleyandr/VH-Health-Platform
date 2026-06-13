@@ -889,7 +889,7 @@ export async function correctVitals(vitalsId, data) {
 }
 
 export async function recordIntakeOutput(data) {
-  const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description, recorded_by } = data;
+  const { tenant_id, tenantId, patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description, recorded_by } = data;
 
   if (!patient_uid || !io_type || !category || amount_ml === undefined || !recorded_by) {
     throw AppError.badRequest('patient_uid, io_type, category, amount_ml, and recorded_by are required');
@@ -903,6 +903,26 @@ export async function recordIntakeOutput(data) {
   if (typeof amount_ml !== 'number' || amount_ml < 0) {
     throw AppError.badRequest('amount_ml must be a non-negative number');
   }
+
+  // Resolve the tenant the same way recordVitals does: prefer the patient's
+  // own tenant_id, fall back to a (validated) caller-supplied tenant, else the
+  // default tenant. This stamps tenant_id on the intake_output row so the
+  // migration 075/304 tenant_isolation policy can scope it (the column existed
+  // but was never populated by this write — a cross-tenant RLS gap).
+  const patientForTenant = await prisma.users.findUnique({
+    where: { uid: patient_uid },
+    select: { tenant_id: true },
+  });
+  const rawRequestedTenantId = tenant_id || tenantId || null;
+  const requestedTenantId = normalizeTenantId(rawRequestedTenantId);
+  const patientTenantId = normalizeTenantId(patientForTenant?.tenant_id);
+  if (rawRequestedTenantId && !requestedTenantId) {
+    throw AppError.badRequest('tenant_id must be a valid UUID');
+  }
+  if (requestedTenantId && patientTenantId && requestedTenantId !== patientTenantId) {
+    throw AppError.notFound('Patient not found');
+  }
+  const resolvedTenantId = patientTenantId || requestedTenantId || DEFAULT_TENANT_ID;
 
   // Wave-4B-2 (migration 223) — admission encounter_id is a UUID; the
   // pre-admission HL7 visit_no path is int. Split the input across both
@@ -918,6 +938,7 @@ export async function recordIntakeOutput(data) {
     const row = await tx.intake_output.create({
       data: {
         patient_uid,
+        tenant_id: resolvedTenantId,
         encounter_id: normalizedEncounter.encounter_id,
         encounter_uid: normalizedEncounter.encounter_uid,
         io_type,

@@ -1,6 +1,6 @@
 // src/controllers/appointment/appointmentWorkflowController.js
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../../services/maternity/maternityService.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
@@ -1609,7 +1609,7 @@ export const registerWalkIn = async (req, res) => {
       }
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(actingTenantId, async (tx) => {
       let appointmentDepartment = await resolveWalkInDepartment(tx, {
         department,
         departmentId: department_id ?? departmentId,
@@ -2058,11 +2058,11 @@ export const registerWalkIn = async (req, res) => {
           const invRows = await tx.$queryRawUnsafe(
             `INSERT INTO investigations
                (phone, patient_id, patient_uid, test_name, test_type,
-                status, priority, requested_by, requested_at, updated_at)
-             VALUES ($1, $2::int, $3::uuid, $4, $5, 'REQUESTED', $6, $7::uuid, NOW(), NOW())
+                status, priority, requested_by, requested_at, updated_at, tenant_id)
+             VALUES ($1, $2::int, $3::uuid, $4, $5, 'REQUESTED', $6, $7::uuid, NOW(), NOW(), $8::uuid)
              RETURNING id, test_name, test_type, status, priority`,
             investigationPhone, patientId, patientUid,
-            testName.slice(0, 255), testType, testPriority, staffUid,
+            testName.slice(0, 255), testType, testPriority, staffUid, actingTenantId,
           );
           labOrders.push(invRows[0]);
         }
@@ -2107,9 +2107,9 @@ export const registerWalkIn = async (req, res) => {
               `INSERT INTO maternity_pregnancies
                  (patient_uid, lmp_date, edd_date, edd_method,
                   gravida, parity, living_children, abortions,
-                  booking_status, booking_visit_date, status, created_by)
+                  booking_status, booking_visit_date, status, created_by, tenant_id)
                VALUES ($1::uuid, $2::date, $3::date, 'lmp',
-                       $4, $5, $6, $7, 'booked', $9::date, 'ongoing', $8::uuid)`,
+                       $4, $5, $6, $7, 'booked', $9::date, 'ongoing', $8::uuid, $10::uuid)`,
               patientUid, lmp_date, computedEdd,
               parseInt(gravida, 10) || 1,
               parseInt(parity, 10) || 0,
@@ -2117,6 +2117,7 @@ export const registerWalkIn = async (req, res) => {
               parseInt(abortions, 10) || 0,
               staffUid,
               todayDate,
+              actingTenantId,
             );
           }
           await tx.$executeRawUnsafe(

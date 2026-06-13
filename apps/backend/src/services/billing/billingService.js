@@ -585,7 +585,7 @@ class BillingService {
     // workflow and uses `insurance_preauth.parent_preauth_id` instead
     // (see CLAUDE.md table-split note + commit 8c2b157a).
     const parentRows = await prisma.$queryRawUnsafe(
-      `SELECT id, claim_number, patient_uid, invoice_id, insurance_provider, policy_number
+      `SELECT id, claim_number, patient_uid, invoice_id, insurance_provider, policy_number, tenant_id
          FROM insurance_claims WHERE id = $1::int`,
       Number(parentClaimId),
     );
@@ -632,7 +632,12 @@ class BillingService {
       : null;
 
     try {
-      const created = await prisma.$transaction(async (tx) => {
+      // SEC: scope the tx to the parent claim's tenant so insurance_claims (a
+      // tenant_isolation table) is RLS-filtered on the suffix-count read and
+      // WITH CHECK-enforced on the enhancement INSERT. A bare prisma.$transaction
+      // leaves app.current_tenant_id unset → policy falls to its permissive
+      // branch. setTenantTx sets the GUC as the first statement of the tx.
+      const created = await setTenantTx(parent.tenant_id, async (tx) => {
         const countRows = await tx.$queryRawUnsafe(
           `SELECT COUNT(*)::int AS n
              FROM insurance_claims
@@ -647,11 +652,11 @@ class BillingService {
              (claim_number, patient_uid, invoice_id,
               insurance_provider, policy_number,
               claim_amount, status, stage, parent_claim_id,
-              documents, submitted_at, created_at, updated_at)
+              documents, tenant_id, submitted_at, created_at, updated_at)
            VALUES ($1, $2::uuid, $3::int,
                    $4, $5,
                    $6::numeric, 'submitted', 'enhancement', $7::int,
-                   $8::jsonb, NOW(), NOW(), NOW())
+                   $8::jsonb, $9::uuid, NOW(), NOW(), NOW())
            RETURNING id, claim_number, patient_uid, invoice_id,
                      insurance_provider, policy_number, claim_amount,
                      status, stage, parent_claim_id, documents,
@@ -664,6 +669,7 @@ class BillingService {
           amount,
           Number(parentClaimId),
           docsJson,
+          parent.tenant_id,
         );
         return insertedRows[0];
       });

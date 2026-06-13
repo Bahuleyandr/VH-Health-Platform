@@ -1,5 +1,5 @@
 // src/services/emr/cdsEngine.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
@@ -87,7 +87,26 @@ async function resolveUserIdFromUid(patientUid) {
 
 async function persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData }) {
   try {
-    await prisma.cds_alerts.create({
+    // Resolve the owning tenant from the patient. cds_alerts carries a
+    // tenant_id with a DB DEFAULT of the global default tenant, so a bare
+    // create without tenant_id silently writes the alert into the WRONG
+    // tenant — fail SAFE instead (skip the write) when it can't be resolved.
+    const owner = await prisma.users.findUnique({
+      where: { uid: patientUid },
+      select: { tenant_id: true },
+    });
+    const tenantId = owner?.tenant_id ?? null;
+    if (!tenantId) {
+      logger.error(
+        `Skipping CDS alert persist (${alertType}): could not resolve owning tenant for patient_uid=${patientUid}`,
+      );
+      return;
+    }
+
+    // Open a tenant-scoped transaction so the RLS tenant_isolation policy
+    // (migration 239) fires for the INSERT's WITH CHECK. A bare
+    // prisma.cds_alerts.create runs with the GUC unset → permissive branch.
+    await setTenantTx(tenantId, (tx) => tx.cds_alerts.create({
       data: {
         patient_uid: patientUid,
         encounter_id: safeEncounterIdInt(encounterId),
@@ -96,8 +115,9 @@ async function persistCdsAlert({ patientUid, encounterId, alertType, severity, t
         title,
         description,
         source_data: sourceData ?? null,
+        tenant_id: tenantId,
       },
-    });
+    }));
   } catch (persistErr) {
     logger.error(`Failed to persist CDS alert (${alertType}): ${persistErr.message}`);
   }
