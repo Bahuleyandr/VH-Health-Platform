@@ -86,6 +86,7 @@ import {
   PHARMACY_SUPPLY_ROUTE_ROLES,
   RADIOLOGY_ROUTE_ROLES,
   RECORD_ROUTE_ROLES,
+  STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES,
   STAFF_PATIENT_MESSAGING_ROUTE_ROLES,
   TECHNICAL_ADMIN_ROUTE_ROLES,
   THEATRE_ROUTE_ROLES,
@@ -140,6 +141,7 @@ import recordRoutes from './routes/record/index.js';
 import housekeepingRoutes from './routes/housekeepingRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
+import staffPhoneRoutes from './routes/staff/phoneRoutes.js';
 import storageRoutes from './routes/storage/storageRoutes.js';
 import uploadRoutes from './routes/upload/uploadRoutes.js';
 import userRoutes from './routes/user/index.js';
@@ -670,6 +672,14 @@ app.use('/api/v1/abdm', abdmPatientRoutes);
 // ROLE-PROTECTED ROUTES (JWT enforced globally above)
 // ====================================
 
+// Phone self-service is intentionally broader than staff administration:
+// every staff role can read its mobile home/alerts/messages/attendance
+// summary, while the legacy /staff router below keeps its narrower gates.
+app.use(
+  '/api/v1/staff',
+  requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES),
+  staffPhoneRoutes,
+);
 app.use('/api/v1/staff', staffRoutes);
 
 // Housekeeping — top-level canonical surface. Same controller already

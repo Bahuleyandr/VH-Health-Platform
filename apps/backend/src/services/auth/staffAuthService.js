@@ -33,6 +33,17 @@ const query = async (sql, params = []) => {
   return { rows: [], rowCount: Number(rowCount) || 0 };
 };
 
+const attendanceRecordedAtSql = 'COALESCE(sa.check_in_time, sa.timestamp)';
+const attendanceLocalRecordedAtSql =
+  `(((${attendanceRecordedAtSql}) AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone'))`;
+const attendanceLocalCheckInSql =
+  "((sa.check_in_time AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone'))";
+const attendanceLocalCheckOutSql =
+  "((sa.check_out_time AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone'))";
+const attendanceLocalIsoSql = (expression) =>
+  `to_char(${expression}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
+const localDayStartUtcSql = (dateExpression) =>
+  `(((${dateExpression})::timestamp AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC')`;
 
 const MAX_DEVICES_PER_STAFF = parseInt(process.env.MAX_DEVICES_PER_STAFF) || 5;
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS) || AUTH_CONFIG.rateLimit.loginAttempts;
@@ -908,13 +919,16 @@ export class StaffAuthService {
       SELECT sa.id, sa.staff_id, sa.staff_uid, sa.type, sa.location,
              sa.check_in_time, sa.check_out_time, sa.attendance_type,
              sa.attendance_status, sa.minutes_late, sa.notes, sa.created_at,
-             sa.timestamp, COALESCE(sa.check_in_time, sa.timestamp) AS recorded_at
+             sa.timestamp,
+             ${attendanceLocalIsoSql(attendanceLocalCheckInSql)} AS local_check_in_time,
+             ${attendanceLocalIsoSql(attendanceLocalCheckOutSql)} AS local_check_out_time,
+             ${attendanceLocalIsoSql(attendanceLocalRecordedAtSql)} AS recorded_at
       FROM staff_attendance sa
       LEFT JOIN users u ON u.id = sa.staff_id
       WHERE (sa.staff_uid = $1::uuid OR u.uid = $1::uuid)
-        AND COALESCE(sa.check_in_time, sa.timestamp) >= CURRENT_DATE
-        AND COALESCE(sa.check_in_time, sa.timestamp) < CURRENT_DATE + INTERVAL '1 day'
-      ORDER BY COALESCE(sa.check_in_time, sa.timestamp) DESC
+        AND ${attendanceRecordedAtSql} >= ${localDayStartUtcSql('CURRENT_DATE')}
+        AND ${attendanceRecordedAtSql} < ${localDayStartUtcSql("CURRENT_DATE + INTERVAL '1 day'")}
+      ORDER BY ${attendanceRecordedAtSql} DESC
       LIMIT 1
     `, [staffUid]);
     const row = result.rows[0];
@@ -925,8 +939,8 @@ export class StaffAuthService {
     const isCheckedIn = Boolean(row.check_in_time) && !row.check_out_time;
     return {
       ...row,
-      checkInTime: row.check_in_time,
-      checkOutTime: row.check_out_time,
+      checkInTime: row.local_check_in_time || row.check_in_time,
+      checkOutTime: row.local_check_out_time || row.check_out_time,
       isCheckedIn,
       status: isCheckedIn
         ? 'checked-in'
@@ -956,14 +970,14 @@ export class StaffAuthService {
     let where = 'WHERE (sa.staff_uid = $1::uuid OR u.uid = $1::uuid)';
     if (startDate) {
       params.push(startDate);
-      where += ` AND DATE(COALESCE(sa.check_in_time, sa.timestamp)) >= $${params.length}::date`;
+      where += ` AND ${attendanceRecordedAtSql} >= ${localDayStartUtcSql(`$${params.length}::date`)}`;
     }
     if (endDate) {
       params.push(endDate);
-      where += ` AND DATE(COALESCE(sa.check_in_time, sa.timestamp)) <= $${params.length}::date`;
+      where += ` AND ${attendanceRecordedAtSql} < ${localDayStartUtcSql(`$${params.length}::date + INTERVAL '1 day'`)}`;
     }
     if (!startDate && !endDate) {
-      where += " AND COALESCE(sa.check_in_time, sa.timestamp) >= NOW() - INTERVAL '30 days'";
+      where += ` AND ${attendanceRecordedAtSql} >= NOW() - INTERVAL '30 days'`;
     }
 
     params.push(safeLimit, offset);
@@ -971,11 +985,14 @@ export class StaffAuthService {
       SELECT sa.id, sa.staff_id, sa.staff_uid, sa.type, sa.location,
              sa.check_in_time, sa.check_out_time, sa.attendance_type,
              sa.attendance_status, sa.minutes_late, sa.notes, sa.created_at,
-             sa.timestamp
+             sa.timestamp,
+             ${attendanceLocalIsoSql(attendanceLocalCheckInSql)} AS local_check_in_time,
+             ${attendanceLocalIsoSql(attendanceLocalCheckOutSql)} AS local_check_out_time,
+             ${attendanceLocalIsoSql(attendanceLocalRecordedAtSql)} AS recorded_at
       FROM staff_attendance sa
       LEFT JOIN users u ON u.id = sa.staff_id
       ${where}
-      ORDER BY COALESCE(sa.check_in_time, sa.timestamp) DESC
+      ORDER BY ${attendanceRecordedAtSql} DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
 

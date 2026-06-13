@@ -11,6 +11,8 @@ import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+const localIsoSql = (column) =>
+  `to_char(((${column} AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone')), 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
 
 function tenantOf(req) {
   return req.tenantId || req.user?.tenant_id || req.user?.tenantId || DEFAULT_TENANT_ID;
@@ -48,7 +50,9 @@ async function getAttendanceStatus(req) {
   if (!staffId && !staffUid) return null;
   const { start, end } = todayRange();
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, attendance_status, type, check_in_time, check_out_time, timestamp, location
+    `SELECT id, attendance_status, type, check_in_time, check_out_time, timestamp, location,
+            ${localIsoSql('check_in_time')} AS local_check_in_time,
+            ${localIsoSql('check_out_time')} AS local_check_out_time
        FROM staff_attendance
       WHERE (($1::int IS NOT NULL AND staff_id = $1::int)
          OR ($2::uuid IS NOT NULL AND staff_uid = $2::uuid))
@@ -75,8 +79,8 @@ async function getAttendanceStatus(req) {
     id: row.id,
     status: row.attendance_status || (checkedIn ? 'checked_in' : 'checked_out'),
     is_checked_in: checkedIn,
-    check_in_time: row.check_in_time,
-    check_out_time: row.check_out_time,
+    check_in_time: row.local_check_in_time || row.check_in_time,
+    check_out_time: row.local_check_out_time || row.check_out_time,
     location: row.location,
   };
 }
