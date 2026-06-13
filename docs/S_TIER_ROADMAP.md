@@ -174,7 +174,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 |---|---|---|---|
 | WS0 | 7 | 7 | ✅ COMPLETE |
 | WS1 | 7 | 3 | B1.1/B1.2 RLS coverage (283 tables, migr 304) ✅ · B1.6 SEC-5/6/7/8 ✅ · B1.3/B1.4/B1.5/B1.7 next |
-| WS2 | 8 | 0 | queued |
+| WS2 | 8 | 2 | B2.1 monitoring/alerting GitOps + Watchdog ✅ · B2.8 infra-hardening INF-3/9/10/11 ✅ · B2.2 DR drill, B2.3 CronJobs, B2.4 HTTP timeouts, B2.5 fallback metrics, B2.6 Longhorn, B2.7 Vault auto-unseal, B2.8-backend next |
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
 | WS5 | 5 | 0 | queued |
