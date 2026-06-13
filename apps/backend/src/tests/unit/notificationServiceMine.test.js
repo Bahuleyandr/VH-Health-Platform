@@ -4,11 +4,17 @@ const queryUnsafeMock = jest.fn();
 const executeUnsafeMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
 
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryUnsafeMock,
+  $executeRawUnsafe: executeUnsafeMock,
+};
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryUnsafeMock,
-    $executeRawUnsafe: executeUnsafeMock,
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

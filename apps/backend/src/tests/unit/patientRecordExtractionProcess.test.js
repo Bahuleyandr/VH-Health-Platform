@@ -7,11 +7,16 @@ const getSignedFileUrlMock = jest.fn();
 const ingestClinicalDocumentUploadMock = jest.fn();
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $executeRawUnsafe: jest.fn(),
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafeMock,
-    $executeRawUnsafe: jest.fn(),
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

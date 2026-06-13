@@ -11,11 +11,17 @@ const queryUnsafeMock = jest.fn();
 const transactionMock = jest.fn();
 const reassignIdentifiersMock = jest.fn();
 
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryUnsafeMock,
+  $transaction: transactionMock,
+};
+const __prismaTxMock = { $queryRawUnsafe: queryUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryUnsafeMock,
-    $transaction: transactionMock,
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaTxMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaTxMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaTxMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', () => ({
   reassignIdentifiersForMerge: reassignIdentifiersMock,

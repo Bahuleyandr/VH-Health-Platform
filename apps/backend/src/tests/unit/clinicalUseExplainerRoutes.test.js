@@ -75,8 +75,13 @@ jest.unstable_mockModule('../../services/ai/workflowCheckpointStore.js', () => (
 jest.unstable_mockModule('../../services/ai/workflowGraphRunner.js', () => ({
   resumeWorkflow: jest.fn(),
 }));
+const __prismaDefaultMock = { $queryRawUnsafe: jest.fn(() => Promise.resolve([])) };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: jest.fn(() => Promise.resolve([])) },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 // shared.js exports the requireClinicalAiUse middleware. Bypass the

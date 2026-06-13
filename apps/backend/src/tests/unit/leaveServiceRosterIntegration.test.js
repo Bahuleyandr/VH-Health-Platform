@@ -32,7 +32,13 @@ const prismaMock = {
   },
 };
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: prismaMock }));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaMock,
+  setTenantTx: async (_tenantId, fn) => fn(tx),
+  setTenant: async (_tenantId, fn) => fn(tx),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(tx),
+  pickTenantClient: () => prismaMock,
+}));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     info: jest.fn(),

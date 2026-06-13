@@ -11,11 +11,16 @@ import { jest } from '@jest/globals';
 const queryUnsafeMock = jest.fn();
 const transactionMock = jest.fn();
 
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryUnsafeMock,
+  $transaction: transactionMock,
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryUnsafeMock,
-    $transaction: transactionMock,
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock }),
+  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryUnsafeMock }),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn({ $queryRawUnsafe: queryUnsafeMock }),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 const {

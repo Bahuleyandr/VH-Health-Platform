@@ -12,11 +12,16 @@ const queryUnsafeMock = jest.fn();
 const getActiveAlertsMock = jest.fn();
 const getProtocolRemindersMock = jest.fn();
 
+const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: queryUnsafeMock },
+  default: __prismaDefaultMock,
   // B7/B8: the helper now reaches problemListService → terminologyService,
   // which named-imports prismaReadOnly; route reads through the same mock.
   prismaReadOnly: { $queryRawUnsafe: queryUnsafeMock },
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 jest.unstable_mockModule('../../services/emr/cdsEngine.js', () => ({
   getActiveAlerts: getActiveAlertsMock,

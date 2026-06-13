@@ -3,11 +3,16 @@ import { jest } from '@jest/globals';
 const attendanceFindMany = jest.fn();
 const leaveFindMany = jest.fn();
 
+const __prismaDefaultMock = {
+  staff_attendance: { findMany: attendanceFindMany },
+  leave_applications: { findMany: leaveFindMany },
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    staff_attendance: { findMany: attendanceFindMany },
-    leave_applications: { findMany: leaveFindMany },
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

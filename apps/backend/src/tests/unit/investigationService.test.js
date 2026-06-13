@@ -5,18 +5,23 @@ const findUniqueMock = jest.fn();
 const findManyMock = jest.fn();
 const countMock = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    users: {
-      findUnique: findUniqueMock,
-    },
-    investigations: {
-      findMany: findManyMock,
-      count: countMock,
-      findUnique: findUniqueMock,
-      update: updateMock,
-    },
+const __prismaDefaultMock = {
+  users: {
+    findUnique: findUniqueMock,
   },
+  investigations: {
+    findMany: findManyMock,
+    count: countMock,
+    findUnique: findUniqueMock,
+    update: updateMock,
+  },
+};
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 const {

@@ -7,20 +7,26 @@ const staffFindMany = jest.fn();
 const staffAttendanceFindMany = jest.fn();
 const generateAnnualTaxSummary = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafe,
-    users: {
-      findUnique: usersFindUnique,
-      findMany: usersFindMany,
-    },
-    staff: {
-      findMany: staffFindMany,
-    },
-    staff_attendance: {
-      findMany: staffAttendanceFindMany,
-    },
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryRawUnsafe,
+  users: {
+    findUnique: usersFindUnique,
+    findMany: usersFindMany,
   },
+  staff: {
+    findMany: staffFindMany,
+  },
+  staff_attendance: {
+    findMany: staffAttendanceFindMany,
+  },
+};
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

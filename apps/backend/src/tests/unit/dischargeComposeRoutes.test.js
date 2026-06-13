@@ -35,8 +35,13 @@ jest.unstable_mockModule('../../routes/admin/clinicalAi/audit.js', () => ({
   logClinicalAiAudit: auditMock,
 }));
 
+const __prismaDefaultMock = { $queryRawUnsafe: jest.fn(() => Promise.resolve([])) };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: jest.fn(() => Promise.resolve([])) },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 const router = (await import('../../routes/admin/clinicalAi/dischargeComposeRoutes.js')).default;

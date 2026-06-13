@@ -4,7 +4,14 @@ import { jest } from '@jest/globals';
 // in the clinical-AI discharge path. The whole module pulls in the LLM
 // client + event outbox at import time, so stub those out; we only call
 // the pure buildDischargeMedications helper exposed via __testing__.
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: {} }));
+const __prismaDefaultMock = {};
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
+}));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));

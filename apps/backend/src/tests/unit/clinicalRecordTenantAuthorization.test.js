@@ -33,6 +33,10 @@ const recordClinicalAuditEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
+  setTenantTx: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
+  setTenant: async (_tenantId, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn({ $queryRawUnsafe: queryRawUnsafeMock }),
+  pickTenantClient: () => prismaMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

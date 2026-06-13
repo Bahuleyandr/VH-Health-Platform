@@ -19,18 +19,23 @@ const txWardIndentFindUniqueMock = jest.fn();
 const txWardIndentCreateMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    attendant_passes: {
-      findMany: attendantPassesFindMany,
-      update: attendantPassesUpdate,
-    },
-    advance_deposits: {
-      aggregate: advanceDepositsAggregate,
-    },
-    $queryRawUnsafe: queryRawUnsafeMock,
-    $transaction: transactionMock,
+const __prismaDefaultMock = {
+  attendant_passes: {
+    findMany: attendantPassesFindMany,
+    update: attendantPassesUpdate,
   },
+  advance_deposits: {
+    aggregate: advanceDepositsAggregate,
+  },
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $transaction: transactionMock,
+};
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

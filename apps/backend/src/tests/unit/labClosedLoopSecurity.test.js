@@ -6,12 +6,21 @@ const transactionMock = jest.fn();
 const txQueryRawUnsafeMock = jest.fn();
 const txExecuteRawUnsafeMock = jest.fn();
 
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryRawUnsafeMock,
+  $executeRawUnsafe: executeRawUnsafeMock,
+  $transaction: transactionMock,
+};
+const __prismaTxMock = {
+  $queryRawUnsafe: txQueryRawUnsafeMock,
+  $executeRawUnsafe: txExecuteRawUnsafeMock,
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafeMock,
-    $executeRawUnsafe: executeRawUnsafeMock,
-    $transaction: transactionMock,
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaTxMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaTxMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaTxMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

@@ -13,6 +13,10 @@ const recordCanonicalClinicalEventMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
+  setTenantTx: async (_tenantId, fn) => fn(txMock),
+  setTenant: async (_tenantId, fn) => fn(txMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(txMock),
+  pickTenantClient: () => prismaMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

@@ -27,14 +27,19 @@ import { jest } from '@jest/globals';
 const queryRawMock = jest.fn();
 const queryRawTaggedMock = jest.fn();
 
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryRawMock,
+  // getDoctorSchema uses the tagged-template form; return a rich
+  // column list so it caches a schema object that exercises the
+  // age_range filter (we only assert on the WHERE SQL anyway).
+  $queryRaw: queryRawTaggedMock,
+};
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawMock,
-    // getDoctorSchema uses the tagged-template form; return a rich
-    // column list so it caches a schema object that exercises the
-    // age_range filter (we only assert on the WHERE SQL anyway).
-    $queryRaw: queryRawTaggedMock,
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },

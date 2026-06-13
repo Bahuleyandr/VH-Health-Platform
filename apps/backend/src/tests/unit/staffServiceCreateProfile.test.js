@@ -5,16 +5,22 @@ const usersCreate = jest.fn();
 const onboardingCreate = jest.fn();
 const bcryptHash = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    $queryRawUnsafe: queryRawUnsafe,
-    users: {
-      create: usersCreate,
-    },
-    staff_onboarding_tasks: {
-      create: onboardingCreate,
-    },
+const __prismaDefaultMock = {
+  $queryRawUnsafe: queryRawUnsafe,
+  users: {
+    create: usersCreate,
   },
+  staff_onboarding_tasks: {
+    create: onboardingCreate,
+  },
+};
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

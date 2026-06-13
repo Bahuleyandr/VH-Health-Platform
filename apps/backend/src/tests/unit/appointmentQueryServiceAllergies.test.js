@@ -4,14 +4,19 @@ const findManyMock = jest.fn();
 const countMock = jest.fn();
 const queryUnsafeMock = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    appointments: {
-      count: countMock,
-      findMany: findManyMock,
-    },
-    $queryRawUnsafe: queryUnsafeMock,
+const __prismaDefaultMock = {
+  appointments: {
+    count: countMock,
+    findMany: findManyMock,
   },
+  $queryRawUnsafe: queryUnsafeMock,
+};
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

@@ -5,13 +5,19 @@ const staffFindMany = jest.fn();
 const staffAttendanceFindMany = jest.fn();
 const queryRaw = jest.fn();
 
+const __prismaDefaultMock = {
+  users: { findMany: usersFindMany },
+  staff: { findMany: staffFindMany },
+  staff_attendance: { findMany: staffAttendanceFindMany },
+  $queryRaw: queryRaw,
+};
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    users: { findMany: usersFindMany },
-    staff: { findMany: staffFindMany },
-    staff_attendance: { findMany: staffAttendanceFindMany },
-    $queryRaw: queryRaw,
-  },
+  default: __prismaDefaultMock,
+  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
+  pickTenantClient: () => __prismaDefaultMock,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

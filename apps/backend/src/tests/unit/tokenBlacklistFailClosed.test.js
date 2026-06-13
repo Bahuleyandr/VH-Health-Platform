@@ -23,7 +23,13 @@ const redisMock = {
   isRedisConnected: jest.fn(),
 };
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: prismaMock }));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaMock,
+  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
+  setTenant: async (_tenantId, fn) => fn(prismaMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
+  pickTenantClient: () => prismaMock,
+}));
 jest.unstable_mockModule('../../lib/redis.js', () => redisMock);
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn() },

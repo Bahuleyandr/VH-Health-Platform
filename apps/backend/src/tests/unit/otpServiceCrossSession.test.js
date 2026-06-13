@@ -8,7 +8,13 @@
 import { jest } from '@jest/globals';
 
 import mockPrisma from '../__mocks__/prisma.js';
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: mockPrisma }));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: mockPrisma,
+  setTenantTx: async (_tenantId, fn) => fn(mockPrisma),
+  setTenant: async (_tenantId, fn) => fn(mockPrisma),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(mockPrisma),
+  pickTenantClient: () => mockPrisma,
+}));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },

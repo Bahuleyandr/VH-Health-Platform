@@ -33,6 +33,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   prismaReadOnly: prismaStub,
   setTenant: jest.fn(),
   circuitBreakerStatus: jest.fn(() => ({})),
+  setTenantTx: async (_tenantId, fn) => fn(prismaStub),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaStub),
+  pickTenantClient: () => prismaStub,
 }));
 
 const { createNote } = await import('../../services/emr/clinicalNotesService.js');

@@ -41,7 +41,11 @@ const prismaMock = {
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: prismaMock
+  default: prismaMock,
+  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
+  setTenant: async (_tenantId, fn) => fn(prismaMock),
+  runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
+  pickTenantClient: () => prismaMock,
 }));
 
 const { createNote, updateNote } = await import('../../services/emr/clinicalNotesService.js');
