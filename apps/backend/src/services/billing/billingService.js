@@ -1,11 +1,21 @@
 // src/services/billing/billingService.js
 // Migrated from raw pg to Prisma ORM
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizeClinicalJustification } from '../insurance/clinicalJustificationTemplate.js';
+
+// SEC-3 — open a financial interactive transaction that is RLS-tenant-scoped
+// when a tenantId is known, falling back to the legacy permissive
+// `prisma.$transaction` for untenanted/single-tenant callers (setTenantTx
+// throws without a tenantId). When scoped, `invoices` (a tenant_isolation
+// table) writes inside the tx are constrained to the caller's tenant — both
+// the USING filter on the row lock/lookup and WITH CHECK on the update.
+function scopedTx(tenantId, fn) {
+  return tenantId ? setTenantTx(tenantId, fn) : prisma.$transaction(fn);
+}
 
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];
 const VALID_PAYMENT_METHODS = ['cash', 'card', 'upi', 'insurance', 'cheque'];
@@ -168,7 +178,10 @@ class BillingService {
     // array form) because the tenant-RLS model wrapper in src/lib/prisma.js
     // returns real Promises under an active tenant context, which the
     // array form rejects (see roadmap A2 notes in lib/prisma.js).
-    const [transaction, updatedInvoice] = await prisma.$transaction(async (tx) => Promise.all([
+    // SEC-3: scopedTx scopes the tx to `tenantId` so the invoices update runs
+    // under the tenant_isolation policy (the bare $transaction left the GUC
+    // unset → permissive branch → cross-tenant invoice write was reachable).
+    const [transaction, updatedInvoice] = await scopedTx(tenantId, async (tx) => Promise.all([
       tx.payment_transactions.create({
         data: {
           invoice_id: invoiceId,
@@ -226,7 +239,10 @@ class BillingService {
     }
 
     // Interactive form — see roadmap A2 note on the model wrapper.
-    const [total, invoices] = await prisma.$transaction(async (tx) => Promise.all([
+    // SEC-3: scope the read tx to `tenantId` (defense-in-depth atop the
+    // app-level tenant_id filter) and route it to the read replica when one is
+    // configured (readOnly). Falls back to a permissive primary tx untenanted.
+    const [total, invoices] = await scopedTx(tenantId, async (tx) => Promise.all([
       tx.invoices.count({ where }),
       tx.invoices.findMany({
         where,
@@ -690,7 +706,10 @@ class BillingService {
     if (status && VALID_CLAIM_STATUSES.includes(status)) where.status = status;
 
     // Interactive form — see roadmap A2 note on the model wrapper.
-    const [total, claims] = await prisma.$transaction(async (tx) => Promise.all([
+    // SEC-3: scope the read tx to `tenantId` so insurance_claims (a
+    // tenant_isolation table) is RLS-filtered inside the tx, defense-in-depth
+    // atop the app-level tenant_id where-clause.
+    const [total, claims] = await scopedTx(tenantId, async (tx) => Promise.all([
       tx.insurance_claims.count({ where }),
       tx.insurance_claims.findMany({
         where,

@@ -6,18 +6,25 @@ const updateMock = jest.fn();
 const auditCreateMock = jest.fn();
 const queryUnsafeMock = jest.fn();
 
-jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: {
-    admissions: {
-      findUnique: findUniqueMock,
-      findFirst: findFirstMock,
-      update: updateMock,
-    },
-    audit_logs: {
-      create: auditCreateMock,
-    },
-    $queryRawUnsafe: queryUnsafeMock,
+const prismaDefaultMock = {
+  admissions: {
+    findUnique: findUniqueMock,
+    findFirst: findFirstMock,
+    update: updateMock,
   },
+  audit_logs: {
+    create: auditCreateMock,
+  },
+  $queryRawUnsafe: queryUnsafeMock,
+  $transaction: jest.fn(async (callback) => callback(prismaDefaultMock)),
+};
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: prismaDefaultMock,
+  // SEC-3: admissionService imports setTenantTx for its tenant-scoped discharge
+  // transactions. This test only exercises markDischargeDrugsDispensed (not a
+  // converted path), but the named import must still resolve at module load.
+  setTenantTx: jest.fn(async (_tenantId, callback) => callback(prismaDefaultMock)),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

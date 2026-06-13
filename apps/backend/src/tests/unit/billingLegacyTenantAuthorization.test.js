@@ -15,8 +15,16 @@ const mockPrisma = {
   $transaction: jest.fn(async (callback) => callback(mockPrisma)),
 };
 
+// SEC-3: billingService now opens tenant-scoped reads/writes via setTenantTx
+// when a tenantId is present. In this unit test we don't exercise real RLS —
+// just run the callback with the mock client so the where-clause assertions
+// below still apply (the tenant scoping is verified end-to-end in
+// tenant-rls-interactive-tx.deep.test.js against a live DB).
+const setTenantTx = jest.fn(async (_tenantId, callback) => callback(mockPrisma));
+
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: mockPrisma,
+  setTenantTx,
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({

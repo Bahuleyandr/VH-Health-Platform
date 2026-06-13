@@ -11,11 +11,17 @@
 //   - `prismaReadOnly` — a second PrismaClient bound to DATABASE_READ_URL
 //     for analytics / dashboards / exports. Falls back to primary when
 //     DATABASE_READ_URL is unset (same contract as DatabaseManager.readPool).
-//   - `setTenant(tenantId, fn, { superAdmin })` — wraps `fn(tx)` in a
+//   - `setTenant(tenantId, fn, { superAdmin, readOnly })` — wraps `fn(tx)` in a
 //     $transaction with `SET LOCAL app.current_tenant_id = $1`, activating
-//     the RLS policies installed by migration 075. `tx` is a Prisma client
+//     the RLS policies installed by migration 075/304. `tx` is a Prisma client
 //     you can call `$queryRaw`/`$executeRaw` on exactly like the top-level
-//     prisma instance.
+//     prisma instance. `{ readOnly: true }` routes the tx to the read replica
+//     when DATABASE_READ_URL is configured (primary otherwise).
+//   - `setTenantTx(tenantId, fn, { superAdmin, readOnly })` — same mechanics,
+//     the explicit primitive for code opening its OWN interactive transaction
+//     for a multi-statement PHI/financial write that must be tenant-isolated.
+//     A bare `prisma.$transaction(async (tx) => …)` is NOT tenant-scoped (the
+//     GUC stays unset → policy falls through to its permissive branch).
 //
 // Usage (unchanged for existing code):
 //   import prisma from '../lib/prisma.js';
@@ -334,10 +340,118 @@ export const prismaReadOnly = process.env.DATABASE_READ_URL
   : prisma;
 
 /**
+ * Pick the client a tenant-scoped transaction should open on. Read-only /
+ * analytics paths route to the read replica when one is configured
+ * (`DATABASE_READ_URL` set → `prismaReadOnly` is a *distinct* wrapped client);
+ * everything else runs on the primary. When no replica is configured
+ * `prismaReadOnly === prisma`, so `readOnly` is a no-op and behaviour is
+ * unchanged — preserving the current single-DB contract exactly.
+ *
+ * NOTE: both returned clients are the circuit-breaker-wrapped proxies, so the
+ * breaker bookkeeping still fires for the outer `$transaction`. The
+ * `inSetTenant` context marker (set by the caller) stops the proxy's raw-query
+ * auto-wrapper from re-wrapping queries that already run inside this tx.
+ */
+function pickTenantClient({ readOnly = false } = {}) {
+  return readOnly ? prismaReadOnly : prisma;
+}
+
+/**
+ * Internal: open a `$transaction` on `client`, install the tenant-scoping
+ * preamble (SET LOCAL ROLE when a runtime role is configured, then
+ * `set_config('app.current_tenant_id', …, true)`) as the FIRST statements, and
+ * run `fn(tx)` so every query in the callback is RLS-scoped to `gucValue`.
+ *
+ * The GUC is transaction-local (`set_config(…, true)` — auto-cleared at
+ * COMMIT/ROLLBACK, no session-state leak between pooled connections), exactly
+ * mirroring the original setTenant mechanics. Shared by setTenant() and
+ * setTenantTx() so both use one audited GUC/role code path.
+ *
+ * Runtime-role escape hatch: when AUTH_TENANT_RLS_RUNTIME_ROLE (canonical,
+ * prod-facing name — see roadmap item A2) or AUTH_TENANT_RLS_TEST_ROLE
+ * (legacy alias kept for existing rigs/tests) is set, SET LOCAL ROLE to that
+ * role BEFORE the GUC. Two deployment shapes need it:
+ *   * dalekdefender / CI: connection role is a SUPERUSER → bypasses RLS even
+ *     under FORCE; the non-bypass role restores enforcement.
+ *   * CNPG prod: connection role OWNS the tables; FORCE (migrations
+ *     237/238/239/272/304) covers owned tables, and the runtime role is
+ *     belt-and-braces for any future unforced table.
+ */
+function runTenantScopedTransaction(client, gucValue, fn) {
+  const testRole = tenantRlsRuntimeRole();
+  return client.$transaction(async (tx) => {
+    if (testRole) {
+      // Identifier injection is gated to env config — never user input.
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${testRole}`);
+    }
+    await tx.$queryRawUnsafe(
+      "SELECT set_config('app.current_tenant_id', $1, true)",
+      gucValue,
+    );
+    return fn(tx);
+  });
+}
+
+/**
+ * Open a tenant-scoped INTERACTIVE transaction and run `fn(tx)` with RLS
+ * enforcement active for every query inside it.
+ *
+ * This is the primitive for code that needs to open its OWN interactive
+ * transaction (multi-statement atomic writes, FOR UPDATE locks, etc.) AND
+ * have it tenant-isolated. A bare `prisma.$transaction(async (tx) => …)` is
+ * NOT tenant-scoped: the `tx` client it hands you skips the prisma proxy's
+ * auto-wrapper, so the `app.current_tenant_id` GUC stays unset and migration
+ * 075/304's tenant_isolation policy falls through to its PERMISSIVE branch —
+ * i.e. cross-tenant rows are reachable inside that tx. `setTenantTx` issues
+ * `set_config('app.current_tenant_id', …, true)` (and SET LOCAL ROLE when a
+ * runtime role is configured) as the FIRST statements of the transaction, so
+ * the policy's strict branch (`tenant_id = app_current_tenant_id_uuid()`)
+ * applies to every subsequent query and WITH CHECK on every write.
+ *
+ * Mechanics are identical to setTenant() (shared code path); the difference is
+ * intent + naming: reach for setTenantTx at a call site that previously used a
+ * raw `prisma.$transaction` for a multi-step PHI/financial mutation.
+ *
+ * The RLS policies recognize three GUC cases:
+ *   - GUC unset/empty  → permissive (legacy / non-tenant-aware code path)
+ *   - GUC = 'bypass'   → full access (SUPER_ADMIN cross-tenant reads)
+ *   - GUC = <uuid>     → only rows whose tenant_id matches the uuid
+ *
+ * @param {string|null} tenantId UUID. Required unless superAdmin is true.
+ * @param {(tx) => Promise<T>} fn Callback receiving the tenant-scoped client.
+ * @param {Object} [options]
+ * @param {boolean} [options.superAdmin=false] set GUC to 'bypass' (cross-tenant).
+ * @param {boolean} [options.readOnly=false] route to the read replica when
+ *   DATABASE_READ_URL is configured; primary otherwise (no-op when unset).
+ */
+export async function setTenantTx(tenantId, fn, { superAdmin = false, readOnly = false } = {}) {
+  if (!superAdmin && !tenantId) {
+    throw new Error('setTenantTx requires tenantId (or { superAdmin: true } to bypass)');
+  }
+  const gucValue = superAdmin ? 'bypass' : tenantId;
+  const client = pickTenantClient({ readOnly });
+
+  // Mark the context so the prisma proxy's auto-wrapper does NOT re-wrap raw
+  // queries that already run inside this transaction (would recurse and nest
+  // $transactions). Calls *outside* this fn (e.g. a sibling promise after
+  // `await setTenantTx(...)`) see no inSetTenant flag and behave normally.
+  return runInTenantContext(
+    superAdmin ? null : tenantId,
+    () => runTenantScopedTransaction(client, gucValue, fn),
+    { superAdmin, inSetTenant: true },
+  );
+}
+
+/**
  * Execute `fn(tx)` inside a $transaction with tenant-scoped RLS active.
  * Sets `app.current_tenant_id` via `set_config(..., true)` so the GUC is
  * transaction-local (auto-cleared at COMMIT/ROLLBACK — no session-state
  * leak between pooled connections).
+ *
+ * Thin wrapper over setTenantTx() — kept as the canonical name used by the
+ * 288+ existing call sites + the prisma proxy auto-wrapper. New code that is
+ * converting a raw `prisma.$transaction` PHI/financial write should call
+ * setTenantTx() directly (identical behaviour, clearer intent).
  *
  * The RLS policies installed by migration 075 recognize three cases:
  *   - GUC unset/empty  → permissive (legacy / non-tenant-aware code path)
@@ -345,7 +459,8 @@ export const prismaReadOnly = process.env.DATABASE_READ_URL
  *   - GUC = <uuid>     → only rows whose tenant_id matches the uuid
  *
  * Pass `{ superAdmin: true }` for cross-tenant admin reads; `tenantId` is
- * then ignored.
+ * then ignored. Pass `{ readOnly: true }` to route to the read replica when
+ * DATABASE_READ_URL is configured (primary otherwise).
  *
  * Usage:
  *   const rows = await setTenant(req.user.tenantId, (tx) =>
@@ -356,44 +471,13 @@ export const prismaReadOnly = process.env.DATABASE_READ_URL
  * @param {(tx) => Promise<T>} fn Callback receiving the tenant-scoped client.
  * @param {Object} [options]
  * @param {boolean} [options.superAdmin=false]
+ * @param {boolean} [options.readOnly=false]
  */
-export async function setTenant(tenantId, fn, { superAdmin = false } = {}) {
+export async function setTenant(tenantId, fn, { superAdmin = false, readOnly = false } = {}) {
   if (!superAdmin && !tenantId) {
     throw new Error('setTenant requires tenantId (or { superAdmin: true } to bypass)');
   }
-  const gucValue = superAdmin ? 'bypass' : tenantId;
-
-  // Mark the context so the auto-wrapper at the top of this file doesn't
-  // re-wrap raw queries that already run inside this transaction (would
-  // recurse and nest $transactions). Calls *outside* this fn (e.g. a
-  // sibling promise after `await setTenant(...)`) see no inSetTenant flag
-  // and behave normally.
-  // Runtime-role escape hatch: when AUTH_TENANT_RLS_RUNTIME_ROLE (canonical,
-  // prod-facing name — see roadmap item A2) or AUTH_TENANT_RLS_TEST_ROLE
-  // (legacy alias kept for existing rigs/tests) is set, SET LOCAL ROLE to
-  // that role BEFORE the GUC. Two deployment shapes need it:
-  //   * dalekdefender / CI: connection role is a SUPERUSER → bypasses RLS
-  //     even under FORCE; the non-bypass role restores enforcement.
-  //   * CNPG prod: connection role OWNS the tables; FORCE (migrations
-  //     237/238/239/272) covers owned tables, and the runtime role is
-  //     belt-and-braces for any future unforced table.
-  const testRole = tenantRlsRuntimeRole();
-
-  return runInTenantContext(
-    superAdmin ? null : tenantId,
-    () => prisma.$transaction(async (tx) => {
-      if (testRole) {
-        // Identifier injection is gated to env config — never user input.
-        await tx.$executeRawUnsafe(`SET LOCAL ROLE ${testRole}`);
-      }
-      await tx.$queryRawUnsafe(
-        "SELECT set_config('app.current_tenant_id', $1, true)",
-        gucValue,
-      );
-      return fn(tx);
-    }),
-    { superAdmin, inSetTenant: true },
-  );
+  return setTenantTx(tenantId, fn, { superAdmin, readOnly });
 }
 
 /** Reset circuit-breaker state. Test-only. */
@@ -441,6 +525,16 @@ export function tenantRlsRuntimeRole(env = process.env) {
  * 2026-05-17-cross-tenant-rls-receptionist-2242cd96 (a bootstrap superuser
  * connection makes the Phase-2 cutover a no-op despite the flag being on).
  *
+ * Read-replica posture (SEC-3): when DATABASE_READ_URL is configured,
+ * setTenant/setTenantTx route `readOnly` tenant transactions to the replica
+ * client. SET LOCAL ROLE applies there too, but if the replica's effective
+ * role (its runtime role, else its connection role) has SUPERUSER/BYPASSRLS,
+ * every tenant-scoped READ on the replica silently bypasses RLS — the same
+ * inert-isolation failure as the primary, on a path the primary probe never
+ * sees. Pass `replicaProbed` + the replica's role facts to fold that into the
+ * verdict; omit them (default) on single-DB deployments and the replica
+ * branch is skipped entirely.
+ *
  * @returns {{enforced:boolean, ok:boolean, effectiveRole:string|null,
  *            bypassesRls:boolean, reason:string}}
  */
@@ -451,6 +545,10 @@ export function evaluateTenantRlsPosture({
   testRole = null,
   testRoleBypassesRls = false,
   effectiveRoleOwnsUnforcedRlsTables = 0,
+  replicaProbed = false,
+  replicaConnectionRole = null,
+  replicaConnectionBypassesRls = false,
+  replicaTestRoleBypassesRls = false,
 } = {}) {
   if (!enforced) {
     return {
@@ -464,6 +562,12 @@ export function evaluateTenantRlsPosture({
   }
   const effectiveRole = testRole || connectionRole;
   const bypassesRls = testRole ? testRoleBypassesRls : connectionBypassesRls;
+  // Replica's effective role: SET LOCAL ROLE (the same runtime role) applies on
+  // the replica too, so the same test-role-vs-connection-role precedence holds.
+  const replicaEffectiveRole = replicaProbed ? (testRole || replicaConnectionRole) : null;
+  const replicaBypassesRls = replicaProbed
+    ? (testRole ? replicaTestRoleBypassesRls : replicaConnectionBypassesRls)
+    : false;
   if (bypassesRls) {
     return {
       enforced: true,
@@ -471,6 +575,8 @@ export function evaluateTenantRlsPosture({
       effectiveRole,
       bypassesRls,
       unforcedOwnedRlsTables: effectiveRoleOwnsUnforcedRlsTables,
+      replicaEffectiveRole,
+      replicaBypassesRls,
       reason: 'effective_role_bypasses_rls',
     };
   }
@@ -487,7 +593,24 @@ export function evaluateTenantRlsPosture({
       effectiveRole,
       bypassesRls: false,
       unforcedOwnedRlsTables: effectiveRoleOwnsUnforcedRlsTables,
+      replicaEffectiveRole,
+      replicaBypassesRls,
       reason: 'owner_exempt_unforced_tables',
+    };
+  }
+  // Replica role bypasses RLS — tenant-scoped reads routed to the replica
+  // (setTenant/setTenantTx { readOnly:true }) leak cross-tenant even though the
+  // primary is sound. Only reachable when a distinct replica was probed.
+  if (replicaProbed && replicaBypassesRls) {
+    return {
+      enforced: true,
+      ok: false,
+      effectiveRole,
+      bypassesRls: false,
+      unforcedOwnedRlsTables: 0,
+      replicaEffectiveRole,
+      replicaBypassesRls: true,
+      reason: 'replica_role_bypasses_rls',
     };
   }
   return {
@@ -496,6 +619,8 @@ export function evaluateTenantRlsPosture({
     effectiveRole,
     bypassesRls: false,
     unforcedOwnedRlsTables: 0,
+    replicaEffectiveRole,
+    replicaBypassesRls: false,
     reason: 'enforced',
   };
 }
@@ -534,6 +659,33 @@ export async function tenantRlsRolePosture() {
       testRole || '',
     );
     const row = rows?.[0] || {};
+
+    // SEC-3 — when a distinct read replica is configured, probe ITS role too:
+    // setTenant/setTenantTx { readOnly:true } route tenant-scoped reads there,
+    // so a SUPERUSER/BYPASSRLS replica role is just as inert as on the primary.
+    // Best-effort: a failed replica probe must not corrupt the primary verdict.
+    let replicaProbed = false;
+    let replicaRow = {};
+    if (prismaReadOnly !== prisma) {
+      try {
+        const replicaRows = await prismaReadOnly.$queryRawUnsafe(
+          `SELECT
+             session_user AS connection_role,
+             COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = session_user), false) AS connection_bypasses_rls,
+             CASE WHEN NULLIF($1, '') IS NOT NULL
+                  THEN COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = NULLIF($1, '')), true)
+                  ELSE false END AS test_role_bypasses_rls`,
+          testRole || '',
+        );
+        replicaRow = replicaRows?.[0] || {};
+        replicaProbed = true;
+      } catch (replicaErr) {
+        logger.warn('Tenant RLS replica posture probe failed (primary verdict unaffected)', {
+          message: replicaErr?.message,
+        });
+      }
+    }
+
     return {
       ...evaluateTenantRlsPosture({
         enforced,
@@ -542,8 +694,14 @@ export async function tenantRlsRolePosture() {
         testRole,
         testRoleBypassesRls: row.test_role_bypasses_rls === true,
         effectiveRoleOwnsUnforcedRlsTables: Number(row.unforced_owned_rls_tables) || 0,
+        replicaProbed,
+        replicaConnectionRole: replicaRow.connection_role ?? null,
+        replicaConnectionBypassesRls: replicaRow.connection_bypasses_rls === true,
+        replicaTestRoleBypassesRls: replicaRow.test_role_bypasses_rls === true,
       }),
       connectionRole: row.connection_role ?? null,
+      replicaConnectionRole: replicaProbed ? (replicaRow.connection_role ?? null) : null,
+      replicaProbed,
       testRole,
       runtimeRole: testRole,
     };
@@ -615,6 +773,23 @@ export async function logTenantRlsRolePosture() {
           connectionRole: posture.connectionRole,
           effectiveRole: posture.effectiveRole,
           unforcedOwnedRlsTables: posture.unforcedOwnedRlsTables,
+        },
+      );
+      return posture;
+    }
+    if (posture.reason === 'replica_role_bypasses_rls') {
+      logger.error(
+        'TENANT RLS IS PARTIALLY INERT ON THE READ REPLICA: AUTH_ENFORCE_TENANT_RLS=true and the ' +
+          'primary role is sound, but the read replica (DATABASE_READ_URL) effective role ' +
+          `'${posture.replicaEffectiveRole}' has SUPERUSER/BYPASSRLS — every tenant-scoped read routed ` +
+          'to the replica (setTenant/setTenantTx { readOnly:true }) silently bypasses RLS, so ' +
+          'analytics/dashboard/export reads can leak cross-tenant. Connect the replica as a ' +
+          'non-superuser, non-BYPASSRLS role, or set AUTH_TENANT_RLS_RUNTIME_ROLE to one.',
+        {
+          connectionRole: posture.connectionRole,
+          effectiveRole: posture.effectiveRole,
+          replicaConnectionRole: posture.replicaConnectionRole,
+          replicaEffectiveRole: posture.replicaEffectiveRole,
         },
       );
       return posture;

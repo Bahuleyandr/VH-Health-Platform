@@ -6,7 +6,7 @@
 // typed surface still can't express; everything else (audit_logs,
 // admissions/beds/bed_transfers/patient_consents CRUD, stats) is now
 // going through the typed client.
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -90,6 +90,24 @@ export function canAllocateIcuBedForAdmission(role) {
 // every other error propagates.
 function recordCanonicalAdmissionEvent(input, tx) {
   return recordCanonicalClinicalEvent(input, { db: tx });
+}
+
+// SEC-3 — open a PHI interactive transaction that is RLS-tenant-scoped when a
+// tenantId is known, and otherwise behaves exactly like the legacy
+// `prisma.$transaction` (permissive — single-tenant / untenanted callers).
+//
+// Why the conditional: setTenantTx throws without a tenantId, but many ADT
+// entry points are still reachable with options.tenantId === null (legacy
+// single-tenant installs, internal jobs). For those we must preserve the
+// pre-SEC-3 permissive behaviour. When tenantId IS present (the multi-tenant
+// request path, where tenantContextMiddleware always resolves one under
+// AUTH_ENFORCE_TENANT_RLS), the whole transaction — including the canonical
+// timeline/audit writes that ride on the same `tx` — runs with
+// `app.current_tenant_id` set, so migration 075/304's tenant_isolation policy
+// enforces row scoping + WITH CHECK inside the tx instead of falling through
+// to its permissive branch.
+function scopedTx(tenantId, fn) {
+  return tenantId ? setTenantTx(tenantId, fn) : prisma.$transaction(fn);
 }
 
 function shouldMinimizeInpatientPayload(role) {
@@ -1824,7 +1842,10 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
   // The final-claim opening is best-effort by design (TPA desk
   // ultimately fills the amount once the bill closes), so it now runs
   // OUTSIDE the transaction after Phase 1 commits.
-  const phase1 = await prisma.$transaction(async (tx) => {
+  // SEC-3: scopedTx makes this interactive tx RLS-tenant-scoped when tenantId
+  // is known (the canonical timeline writes via emitDischargeWorkflowOpened
+  // ride on the same `tx`, so they inherit the scope — no double-wrap).
+  const phase1 = await scopedTx(tenantId, async (tx) => {
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, patient_uid, status, encounter_id, insurance_info,
              discharge_initiated_at, billing_closed_at
@@ -2734,7 +2755,10 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy, option
   // vacate the bed (status → cleaning + clear back-links), record the
   // bed transfer audit row, queue the housekeeping ticket, stamp
   // audit_logs. Everything here must succeed or roll back together.
-  const phase1 = await prisma.$transaction(async (tx) => {
+  // SEC-3: scopedTx makes this interactive tx RLS-tenant-scoped when tenantId
+  // is known (the canonical timeline write via emitFinalDischargeCompleted
+  // rides on the same `tx`, so it inherits the scope — no double-wrap).
+  const phase1 = await scopedTx(tenantId, async (tx) => {
     // FOR UPDATE lock on the admission to serialise concurrent state changes.
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, patient_uid, bed_id, status, admitted_at
@@ -2902,7 +2926,10 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   if (!transferredBy) throw AppError.badRequest('transferredBy is required');
   const tenantId = options.tenantId || null;
 
-  const phase1 = await prisma.$transaction(async (tx) => {
+  // SEC-3: scopedTx makes this interactive tx RLS-tenant-scoped when tenantId
+  // is known (the canonical timeline write via recordCanonicalAdmissionEvent
+  // rides on the same `tx`, so it inherits the scope — no double-wrap).
+  const phase1 = await scopedTx(tenantId, async (tx) => {
     // FOR UPDATE lock on the admission row.
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, patient_uid, bed_id, ward, status

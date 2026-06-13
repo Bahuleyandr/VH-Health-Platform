@@ -154,6 +154,89 @@ describe('evaluateTenantRlsPosture', () => {
     expect(v.ok).toBe(true);
     expect(v.effectiveRole).toBe('vhhealth_app');
   });
+
+  // SEC-3 — read-replica posture. setTenant/setTenantTx { readOnly:true } route
+  // tenant-scoped reads to the replica when DATABASE_READ_URL is configured, so
+  // a SUPERUSER/BYPASSRLS replica role makes those reads inert even when the
+  // primary is sound. These cases only fire when replicaProbed is true.
+  it('ignores replica role facts entirely when no replica was probed', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth_app',
+      connectionBypassesRls: false,
+      // replicaProbed defaults false → single-DB deployment
+      replicaConnectionRole: 'some_superuser',
+      replicaConnectionBypassesRls: true,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.reason).toBe('enforced');
+    expect(v.replicaEffectiveRole).toBeNull();
+    expect(v.replicaBypassesRls).toBe(false);
+  });
+
+  it('flags inert replica RLS when the replica connection role bypasses (primary sound)', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth_app',
+      connectionBypassesRls: false,
+      replicaProbed: true,
+      replicaConnectionRole: 'replica_super',
+      replicaConnectionBypassesRls: true,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe('replica_role_bypasses_rls');
+    expect(v.effectiveRole).toBe('vhhealth_app'); // primary unaffected
+    expect(v.replicaEffectiveRole).toBe('replica_super');
+    expect(v.replicaBypassesRls).toBe(true);
+  });
+
+  it('is ok when both primary and replica connection roles are non-bypassing', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth_app',
+      connectionBypassesRls: false,
+      replicaProbed: true,
+      replicaConnectionRole: 'vhhealth_app_ro',
+      replicaConnectionBypassesRls: false,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.reason).toBe('enforced');
+    expect(v.replicaEffectiveRole).toBe('vhhealth_app_ro');
+    expect(v.replicaBypassesRls).toBe(false);
+  });
+
+  it('uses the runtime role as the replica effective role (SET LOCAL ROLE applies on the replica too)', () => {
+    // Connection role on the replica bypasses, but a non-bypassing runtime role
+    // is SET LOCAL ROLE'd before reads → replica is sound.
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'vhhealth',
+      connectionBypassesRls: true,
+      testRole: 'vhhealth_app',
+      testRoleBypassesRls: false,
+      replicaProbed: true,
+      replicaConnectionRole: 'replica_super',
+      replicaConnectionBypassesRls: true,
+      replicaTestRoleBypassesRls: false,
+    });
+    expect(v.ok).toBe(true);
+    expect(v.reason).toBe('enforced');
+    expect(v.replicaEffectiveRole).toBe('vhhealth_app');
+    expect(v.replicaBypassesRls).toBe(false);
+  });
+
+  it('primary bypass verdict wins over a replica bypass verdict', () => {
+    const v = evaluateTenantRlsPosture({
+      enforced: true,
+      connectionRole: 'postgres',
+      connectionBypassesRls: true,
+      replicaProbed: true,
+      replicaConnectionRole: 'replica_super',
+      replicaConnectionBypassesRls: true,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe('effective_role_bypasses_rls');
+  });
 });
 
 describe('tenantRlsRuntimeRole', () => {
