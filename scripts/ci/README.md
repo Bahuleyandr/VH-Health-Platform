@@ -22,7 +22,10 @@ Stages:
 - `fhir`: FHIR R4 sample validation, with golden samples treated as strict.
 - `admin`: admin audit/lint/type-check/test/build/Clinical AI bundle check.
 - `flutter`: workspace `dart pub get`, Melos bootstrap, format, analyze, test.
-- `infra`: Kubernetes manifest validation.
+- `infra`: Kubernetes manifest validation + prod image-digest pin guard
+  (`scripts/check-prod-digests-pinned.mjs`, fails on `main` if any
+  `infra/kubernetes/apps/kustomization.yaml` digest is the all-zeros
+  placeholder; no-op off-main).
 - `smoke`: local QA orchestrator with role and desktop smoke coverage.
 
 Provider wrappers:

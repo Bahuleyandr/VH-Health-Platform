@@ -13,9 +13,12 @@
 # PREREQUISITE (operator): install Kyverno ≥ 1.12 first —
 #   kubectl create ns kyverno
 #   kubectl apply -f https://github.com/kyverno/kyverno/releases/download/v1.12.5/install.yaml
-# then add `- image-policy` to base/kustomization.yaml resources. The policy
-# starts in Audit mode; flip validationFailureAction to Enforce after one
-# clean sync (see docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md §6).
+# This policy is now wired into base/kustomization.yaml (via image-policy/
+# kustomization.yaml), so ArgoCD will apply it once the Kyverno CRDs exist. The
+# policy starts in Audit mode; flip validationFailureAction to Enforce after one
+# clean audit cycle (see docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md §6).
+# Flipping to Enforce BEFORE a clean cycle risks a cluster-wide pod-admission
+# outage — the security sweep flagged this; do not skip the audit cycle.
 ---
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy

@@ -28,3 +28,12 @@ resources:
   - falco
   - kured
   - argocd
+  # Kyverno ClusterPolicy that verifies keyless-cosign image signatures at
+  # admission (audit finding M16 / B0.6). Renders the policy in Audit mode;
+  # the operator flips validationFailureAction to Enforce after one clean audit
+  # cycle (see image-policy/kyverno-verify-images.yaml + the operator step in
+  # docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md §6). PREREQUISITE: Kyverno must
+  # be installed in the cluster (it is NOT vendored here — see the policy file
+  # header for the install command); the ClusterPolicy CRD must exist before
+  # ArgoCD can apply this resource.
+  - image-policy

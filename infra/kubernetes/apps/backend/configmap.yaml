@@ -62,9 +62,15 @@ data:
   HL7_INBOUND_ENABLED: "false"
   # Tenant-RLS runtime role (roadmap A2): tenant-scoped transactions SET LOCAL
   # ROLE to this non-owner, non-BYPASSRLS role before applying
-  # app.current_tenant_id. The connection role `vhhealth` owns the tables
-  # (CNPG bootstrap.initdb.owner) and would otherwise be exempt from any
-  # tenant_isolation policy that is not FORCEd. The role itself is created by
-  # CNPG `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured at
-  # backend boot.
+  # app.current_tenant_id. This is the SET LOCAL ROLE TARGET and stays
+  # `vhhealth_app` — do NOT change it to the connection role.
+  #
+  # As of INF-4/INF-8 the backend now CONNECTS as `vhhealth_runtime` (LOGIN,
+  # NOSUPERUSER, NOBYPASSRLS — see DATABASE_URL in sealed-secret.yaml.example),
+  # which is granted membership in vhhealth_app so SET LOCAL ROLE succeeds.
+  # vhhealth_runtime does NOT own the tables, so even unforced tenant_isolation
+  # policies are enforced on the connection — and SET LOCAL ROLE vhhealth_app
+  # remains the belt-and-braces scope marker. Both roles are created by CNPG
+  # `spec.managed.roles` (base/cnpg/cluster.yaml); grants are ensured at backend
+  # boot (ensureTenantRlsRuntimeRoleGrants in src/lib/prisma.js).
   AUTH_TENANT_RLS_RUNTIME_ROLE: "vhhealth_app"

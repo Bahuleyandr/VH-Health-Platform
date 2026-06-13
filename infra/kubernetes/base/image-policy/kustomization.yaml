@@ -1,0 +1,15 @@
+# image-policy/kustomization.yaml
+#
+# Kyverno image-signature admission policy (audit finding M16 / B0.6). Wired
+# into base/kustomization.yaml. The ClusterPolicy renders in Audit mode; the
+# operator flips it to Enforce after one clean audit cycle (see the policy file
+# header). PREREQUISITE: Kyverno must already be installed in the cluster — the
+# kyverno.io/v1 ClusterPolicy CRD is NOT vendored here, so kustomize builds with
+# `-ignore-missing-schemas` (CI already passes that to kubeconform) and ArgoCD
+# applies it only after Kyverno's CRDs exist.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  name: vhhealth-image-policy
+resources:
+  - kyverno-verify-images.yaml

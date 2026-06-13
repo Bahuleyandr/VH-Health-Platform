@@ -36,8 +36,14 @@
 # `project_vh_health_schema_drift_fix.md` for the full rationale.
 #
 # Security: same non-root + readOnlyRootFilesystem + tmp volumes as the
-# main Deployment. Uses the same image & same DATABASE_URL Secret —
-# no separate credentials to manage.
+# main Deployment. Uses the same image and the same vhhealth-backend-env Secret,
+# but OVERRIDES DATABASE_URL from the DATABASE_SUPERUSER_URL key (audit findings
+# INF-4 + INF-8): the Deployment connects as the NOSUPERUSER/NOBYPASSRLS
+# `vhhealth_runtime` role (RLS enforced), while migrations need DDL privileges
+# so this Job connects as the bootstrap OWNER role `vhhealth`. The migration
+# scripts (scripts/ensure-pgvector-extension.mjs, scripts/ci-setup-db.mjs) read
+# DATABASE_URL, so this `env:` override (which takes precedence over envFrom)
+# transparently points them at the owner DSN — no backend code change needed.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -88,6 +94,17 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            # Override DATABASE_URL with the superuser/owner DSN for migrations
+            # ONLY (INF-4/INF-8). Takes precedence over the envFrom value below.
+            # The Deployment keeps the vhhealth_runtime DATABASE_URL; this Job
+            # alone uses the owner connection so it can run DDL + CREATE
+            # EXTENSION. Key lives in the same vhhealth-backend-env SealedSecret
+            # (see sealed-secret.yaml.example → DATABASE_SUPERUSER_URL).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-backend-env
+                  key: DATABASE_SUPERUSER_URL
           envFrom:
             - configMapRef:
                 name: vhhealth-backend-config

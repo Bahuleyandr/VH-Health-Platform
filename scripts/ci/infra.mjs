@@ -84,6 +84,13 @@ export function runInfraStage({ install } = {}) {
     run(process.execPath, ['scripts/validate-kubernetes-manifests.mjs'], {
       env: installedTools?.env,
     });
+
+    // B0.6 / H11: fail the build if any prod image digest is still the
+    // all-zeros fail-closed placeholder when running on `main` (the script
+    // auto-detects main via GITHUB_REF/GITHUB_EVENT_NAME and is a no-op
+    // off-main, where placeholders are expected until the release pipeline
+    // writes real digests).
+    run(process.execPath, ['scripts/check-prod-digests-pinned.mjs']);
   } finally {
     if (installedTools?.temporary && installedTools?.dir) {
       rmSync(installedTools.dir, { recursive: true, force: true });

@@ -43,12 +43,30 @@ spec:
   startDelay: 60
   switchoverDelay: 60
 
-  # Superuser access via the operator-managed `app` user. External
-  # connections come in through the `vhhealth-pg-rw` service (primary)
-  # or via the PgBouncer pooler in poolers.yaml.
-  enableSuperuserAccess: true
-  superuserSecret:
-    name: vhhealth-pg-superuser
+  # Superuser access is DISABLED (audit findings INF-4 + INF-8). Previously
+  # `true`, which let the backend connect as the Postgres superuser `postgres`
+  # and meant any non-FORCE RLS policy was silently bypassed. The app now
+  # connects as the NOSUPERUSER/NOBYPASSRLS `vhhealth_runtime` role (see
+  # managed.roles below + the backend DATABASE_URL SealedSecret). External
+  # connections still come in through the `vhhealth-pg-rw` service (primary) or
+  # the PgBouncer pooler in poolers.yaml.
+  #
+  # Migration ordering: the migration Job needs DDL privileges. It connects as
+  # the bootstrap OWNER role `vhhealth` (bootstrap.initdb.owner, secret
+  # vhhealth-pg-app) via DATABASE_SUPERUSER_URL — the owner can run every
+  # migration's DDL on its own objects, and the trusted extensions in
+  # postInitApplicationSQL (pgcrypto/citext/uuid-ossp/pg_stat_statements) plus
+  # pgvector are creatable by the database owner on the CNPG image. If a future
+  # migration needs true superuser (e.g. an UNTRUSTED extension or an event
+  # trigger on system objects), re-enable a scoped superuser path for the Job
+  # ONLY — never for the backend Deployment.
+  #
+  # OPERATOR: with enableSuperuserAccess:false the operator no longer manages a
+  # `postgres` superuser password; the vhhealth-pg-superuser Secret becomes
+  # unused. Leaving superuserSecret referenced is harmless (the operator ignores
+  # it when access is disabled) but we drop it to avoid implying the password is
+  # live. Re-add it only alongside enableSuperuserAccess:true.
+  enableSuperuserAccess: false
 
   postgresql:
     parameters:
@@ -121,6 +139,41 @@ spec:
         inherit: true
         replication: false
         bypassrls: false
+      # vhhealth_runtime — the backend's NORMAL connection login role (audit
+      # findings INF-4 + INF-8 / mirrors the dalekdefender precedent in
+      # overlays/dalekdefender/rls-runtime-role.sql §M17). Prod previously
+      # connected as the superuser `vhhealth` (bootstrap.initdb.owner), which
+      # bypasses ALL row-level security — every tenant_isolation policy is
+      # silently inert outside a SET LOCAL ROLE transaction. This LOGIN role is
+      # NOSUPERUSER + NOBYPASSRLS, so RLS is actually enforced on the app's
+      # connection; tenant-scoped transactions still SET LOCAL ROLE vhhealth_app
+      # (AUTH_TENANT_RLS_RUNTIME_ROLE) as before. The superuser DSN is reserved
+      # for the migration Job only (DATABASE_SUPERUSER_URL).
+      #
+      # `inRoles: [vhhealth_app]` grants membership so the SET LOCAL ROLE target
+      # is reachable. Object-level grants (SELECT/INSERT/... on tables) are
+      # applied idempotently at backend boot by ensureTenantRlsRuntimeRoleGrants
+      # (src/lib/prisma.js), exactly like vhhealth_app — so ordering with
+      # migrations is not a concern. Password is sourced from the
+      # vhhealth-pg-runtime SealedSecret; the operator applies AND rotates it
+      # (runtime-credentials.sealed-secret.yaml.example).
+      - name: vhhealth_runtime
+        ensure: present
+        comment: >-
+          Backend connection login role — NOSUPERUSER NOBYPASSRLS so tenant RLS
+          enforces. Password managed via the vhhealth-pg-runtime secret; the
+          superuser DSN is reserved for the migration Job only.
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        inRoles:
+          - vhhealth_app
+        passwordSecret:
+          name: vhhealth-pg-runtime
       # vhhealth_readonly — dashboards/exports read role. Audit finding H10
       # (2026-06-10): the password was previously set INLINE at initdb
       # ("set-in-sealed-secret" — a predictable literal) and never rotated.

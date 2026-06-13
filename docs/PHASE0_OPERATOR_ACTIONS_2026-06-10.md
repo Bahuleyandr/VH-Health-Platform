@@ -166,14 +166,20 @@ commit lands.
 
 `infra/kubernetes/base/image-policy/kyverno-verify-images.yaml` verifies
 keyless-cosign signatures at admission, keyed to the release workflows' OIDC
-identity. It is **not yet wired into the base kustomization** because Kyverno
-must be installed first:
+identity. It **is now wired into the base kustomization** (B0.6 —
+`image-policy/kustomization.yaml` + the `- image-policy` entry in
+`base/kustomization.yaml`) and renders in **Audit** mode. Kyverno must still be
+installed before ArgoCD can apply the ClusterPolicy CRD:
 
-1. Install Kyverno ≥ 1.12 (see the file header for the command).
-2. Add `- image-policy` to `infra/kubernetes/base/kustomization.yaml`.
-3. Watch one full sync in Audit mode, then flip
-   `validationFailureAction: Audit → Enforce`.
+1. Install Kyverno ≥ 1.12 (see the policy file header for the command) — still
+   pending (the ansible bootstrap does NOT install it yet).
+2. ~~Add `- image-policy` to `infra/kubernetes/base/kustomization.yaml`.~~ DONE
+   (committable now).
+3. Watch one full sync in Audit mode, confirm zero unexpected violations, then
+   flip `validationFailureAction: Audit → Enforce`. Flipping before a clean
+   audit cycle risks a cluster-wide pod-admission outage.
 
+- [ ] Kyverno installed (date / initials): ______
 - [ ] Enforcing (date / initials): ______
 
 ## 7. M14 / M13 / L11 / M17 — remaining infra operator steps
@@ -202,3 +208,41 @@ must be installed first:
    any CSP violity errors before rollout completes.
 
 - [ ] All recorded in SECURITY_HARDENING_CHECKLIST (date / initials): ______
+
+## 8. INF-4 / INF-8 — prod backend connects as non-superuser runtime role (B0.2)
+
+The prod CNPG manifest now declares a `vhhealth_runtime` LOGIN role
+(NOSUPERUSER, NOBYPASSRLS, member of `vhhealth_app`) and sets
+`enableSuperuserAccess: false` (`base/cnpg/cluster.yaml`). The backend
+Deployment must connect as `vhhealth_runtime`; the superuser/owner DSN is
+reserved for the PreSync migration Job via `DATABASE_SUPERUSER_URL`. Committable
+now: the manifests + the two sealed-secret EXAMPLE templates. Operator steps to
+make it live:
+
+1. **Seal the runtime role password.** Generate a strong password, build a
+   `kubernetes.io/basic-auth` Secret named `vhhealth-pg-runtime`
+   (username=`vhhealth_runtime`), and seal it per
+   `base/cnpg/runtime-credentials.sealed-secret.yaml.example`. Commit the sealed
+   file (drop `.example`). CNPG's managed.roles reconcile sets/rotates the role
+   password from it.
+2. **Re-seal the backend env Secret** (`vhhealth-backend-env`) with two new/
+   changed keys (see `apps/backend/sealed-secret.yaml.example`):
+   - `DATABASE_URL` → `postgresql://vhhealth_runtime:<pw>@vhhealth-pg-rw.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require`
+     (SAME password as step 1).
+   - `DATABASE_SUPERUSER_URL` → owner DSN
+     `postgresql://vhhealth:<owner-pw>@vhhealth-pg-rw.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require`
+     (owner password from the existing `vhhealth-pg-app` secret). Consumed ONLY
+     by the migration Job.
+3. **Sync order.** Apply the CNPG Cluster change (role + enableSuperuserAccess:
+   false) and the runtime SealedSecret first; the operator reconciles the role.
+   Then the backend re-deploy picks up the new DATABASE_URL, and the migration
+   Job uses DATABASE_SUPERUSER_URL.
+4. **Verify** with `kubectl cnpg psql vhhealth-pg -- -c "\du vhhealth_runtime"`
+   (expect `Cannot bypass RLS`, not Superuser). Then hit the backend's
+   `/health/ready` and confirm the boot log says
+   `Tenant RLS posture OK — isolation will enforce` (logTenantRlsRolePosture in
+   `src/lib/prisma.js`) with effectiveRole `vhhealth_app` via SET LOCAL ROLE and
+   the connection role `vhhealth_runtime` — NOT a superuser/owner.
+
+- [ ] Runtime SealedSecret applied + role verified non-superuser (date / initials): ______
+- [ ] Backend DATABASE_URL/DATABASE_SUPERUSER_URL re-sealed + posture OK (date / initials): ______

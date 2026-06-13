@@ -26,6 +26,7 @@ const fhirPatterns = [
 const infraPatterns = [
   /^infra\/kubernetes\//,
   /^scripts\/validate-kubernetes-manifests\.mjs$/,
+  /^scripts\/check-prod-digests-pinned\.mjs$/,
 ];
 const securityOnlyPatterns = [
   /^docs\//,
