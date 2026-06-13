@@ -218,7 +218,7 @@ export const confirmAppointment = async (req, res) => {
     const staffId = req.user?.id;
     const { confirmation_notes, appointment_date, appointment_time } = req.body;
 
-    const { result, a, tokenNumber, newDate, newTime } = await prisma.$transaction(async (tx) => {
+    const { result, a, tokenNumber, newDate, newTime } = await setTenantTx(tenantId, async (tx) => {
       const apptRows = await tx.$queryRawUnsafe(
         'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
@@ -372,7 +372,7 @@ export const markNoShow = async (req, res) => {
     const tenantId = requireTenantId(req);
     const staffId = req.user?.id;
 
-    const { result, prevStatus } = await prisma.$transaction(async (tx) => {
+    const { result, prevStatus } = await setTenantTx(tenantId, async (tx) => {
       const appt = await tx.$queryRawUnsafe(
         'SELECT id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
@@ -437,7 +437,7 @@ export const rescheduleAppointment = async (req, res) => {
       original,
       replacement,
       prevStatus,
-    } = await prisma.$transaction(async (tx) => {
+    } = await setTenantTx(tenantId, async (tx) => {
       const apptRows = await tx.$queryRawUnsafe(
         `SELECT id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
                 appointment_date, appointment_time, status, reason, notes,
@@ -618,7 +618,7 @@ export const completeAppointment = async (req, res) => {
     const staffId = req.user?.id;
     const { notes } = req.body;
 
-    const { result, prevStatus, patientId } = await prisma.$transaction(async (tx) => {
+    const { result, prevStatus, patientId } = await setTenantTx(tenantId, async (tx) => {
       const appt = await tx.$queryRawUnsafe(
         'SELECT id, patient_id, doctor_id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),
@@ -703,7 +703,7 @@ export const cancelAppointment = async (req, res) => {
     const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
 
-    const { result, patientId, prevStatus } = await prisma.$transaction(async (tx) => {
+    const { result, patientId, prevStatus } = await setTenantTx(tenantId, async (tx) => {
       const appt = await tx.$queryRawUnsafe(
         'SELECT id, patient_id, status, tenant_id FROM appointments WHERE id=$1 AND tenant_id=$2::uuid FOR UPDATE',
         Number(id),

@@ -822,7 +822,7 @@ export const markCounterDispensed = async (req, res) => {
       ? String(receipt_delivery).toLowerCase()
       : null;
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(req.tenantId, async (tx) => {
       // Pull state + delivery_type up-front so the wrong-flow guard
       // returns a clean 400 instead of an empty UPDATE result.
       const existing = await tx.$queryRawUnsafe(
