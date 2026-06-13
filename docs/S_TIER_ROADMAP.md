@@ -191,7 +191,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 |---|---|---|---|
 | WS0 | 7 | 7 | ✅ COMPLETE |
 | WS1 | 7 | 7 | ✅ COMPLETE — RLS 283 tbl (B1.1/2) · interactive-txn scoping (B1.3) · blocking cross-tenant gate (B1.4) · crypto envelope/KMS (B1.5/SEC-4) · SEC-5/6/7/8 (B1.6) · pen-prep + SAST (B1.7). Follow-up (hardening, non-blocking): B1.3b (~97 remaining $transaction sites + createEnhancementClaim tenant_id; stale insurance_claims doc) |
-| WS2 | 8 | 2 | B2.1 monitoring/alerting GitOps + Watchdog ✅ · B2.8 infra-hardening INF-3/9/10/11 ✅ · B2.2 DR drill, B2.3 CronJobs, B2.4 HTTP timeouts, B2.5 fallback metrics, B2.6 Longhorn, B2.7 Vault auto-unseal, B2.8-backend next |
+| WS2 | 8 | 3 | B2.1 monitoring GitOps + Watchdog ✅ · INF-3/9/10/11 infra-hardening ✅ · B2.4 HTTP timeouts + B2.8 statement_timeout ✅ · next: B2.2 DR drill, B2.3 outage-CronJobs, B2.5 fallback metrics, B2.6 Longhorn, B2.7 Vault auto-unseal |
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
 | WS5 | 5 | 0 | queued |
