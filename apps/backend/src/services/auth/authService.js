@@ -21,6 +21,19 @@ import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
 
+// Password-reset OTPs are hashed before storage (B0.3 / SEC-1). Bcrypt cost is
+// kept low because OTPs are short-lived — mirrors OTP_HASH_ROUNDS in
+// services/otpService.js and services/auth/otpService.js so every OTP surface
+// uses the same cost. Verifiers detect a $2-prefixed value and bcrypt.compare;
+// any in-flight legacy plaintext row still matches via the === fallback.
+const OTP_HASH_ROUNDS = 6;
+
+// Lock a single password-reset OTP after this many failed verify attempts
+// (matches SECURITY_CONFIG.otp.maxAttemptsPerPhone). Once locked the row is
+// marked used so the admin must request a fresh OTP — blocks online guessing
+// of the 6-digit code.
+const PASSWORD_RESET_OTP_MAX_ATTEMPTS = 5;
+
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */
   static async authenticateWithFirebase(idToken, deviceInfo, req, opts = {}) {
@@ -391,10 +404,15 @@ export class AuthService {
       const otp = crypto.randomInt(100000, 999999).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
+      // B0.3 / SEC-1: never persist the plaintext OTP — store a bcrypt hash so
+      // a DB read cannot reveal a live admin password-reset code. The plaintext
+      // is only returned below for delivery (and only in development).
+      const otpHash = await bcrypt.hash(otp, OTP_HASH_ROUNDS);
+
       await prisma.password_reset_otps.create({
         data: {
           user_id: admin.uid,
-          otp,
+          otp: otpHash,
           expires_at: expiresAt,
         },
       });
@@ -413,41 +431,78 @@ export class AuthService {
 
   static async adminResetPassword(identity, otp, newPassword) {
     try {
-      // Use Prisma transaction for atomicity
+      // ── Phase 0 (plain prisma): identify admin, find the live OTP, verify it,
+      // and count failed attempts. The attempt increment / lock MUST happen
+      // outside the transaction — a throw inside $transaction would roll the
+      // counter back, defeating the lockout. Only the password mutation needs
+      // transactional atomicity (Phase 1 below).
+      const admin = await prisma.admins.findFirst({
+        where: {
+          OR: [
+            { username: { equals: identity, mode: 'insensitive' } },
+            { email: { equals: identity, mode: 'insensitive' } },
+          ],
+        },
+        select: { uid: true },
+      });
+      if (!admin) throw new Error('Admin not found');
+
+      // B0.3 / SEC-1: fetch the latest live OTP row by user_id ONLY — never by
+      // `otp`, because the stored value is now a bcrypt hash and a
+      // plaintext-equality match would never succeed (and matching by hash
+      // input is impossible). We compare the supplied code against the hash
+      // with a timing-safe bcrypt.compare.
+      const otpRecord = await prisma.password_reset_otps.findFirst({
+        where: {
+          user_id: admin.uid,
+          expires_at: { gt: new Date() },
+          used: false,
+        },
+        orderBy: { created_at: 'desc' },
+        select: { id: true, otp: true, attempts: true },
+      });
+      if (!otpRecord) throw new Error('Invalid or expired OTP');
+
+      // Timing-safe comparison for hashed OTPs; the plaintext branch only
+      // matches legacy rows written before B0.3 hashing (they expire within
+      // minutes) so in-flight resets keep working during rollout.
+      const otpMatches = typeof otpRecord.otp === 'string' && otpRecord.otp.startsWith('$2')
+        ? await bcrypt.compare(otp, otpRecord.otp)
+        : otpRecord.otp === otp;
+
+      if (!otpMatches) {
+        // Count this failure; once the per-OTP cap is reached, burn the OTP
+        // (mark used) so an attacker cannot keep guessing the 6-digit code.
+        const newAttempts = (otpRecord.attempts ?? 0) + 1;
+        await prisma.password_reset_otps.update({
+          where: { id: otpRecord.id },
+          data: {
+            attempts: newAttempts,
+            ...(newAttempts >= PASSWORD_RESET_OTP_MAX_ATTEMPTS && { used: true }),
+          },
+        });
+        if (newAttempts >= PASSWORD_RESET_OTP_MAX_ATTEMPTS) {
+          throw new Error('Too many invalid attempts. Please request a new OTP.');
+        }
+        throw new Error('Invalid or expired OTP');
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10);
+
+      // ── Phase 1 (transaction): rotate the password and burn the OTP
+      // atomically, scoped so the OTP can only be consumed once even under
+      // concurrent requests (used=false guard in the conditional update).
       return await prisma.$transaction(async (tx) => {
-        const admin = await tx.admins.findFirst({
-          where: {
-            OR: [
-              { username: { equals: identity, mode: 'insensitive' } },
-              { email: { equals: identity, mode: 'insensitive' } },
-            ],
-          },
-          select: { uid: true },
+        const burned = await tx.password_reset_otps.updateMany({
+          where: { id: otpRecord.id, used: false },
+          data: { used: true },
         });
-        if (!admin) throw new Error('Admin not found');
-
-        const otpRecord = await tx.password_reset_otps.findFirst({
-          where: {
-            user_id: admin.uid,
-            otp,
-            expires_at: { gt: new Date() },
-            used: false,
-          },
-          orderBy: { created_at: 'desc' },
-          select: { id: true },
-        });
-        if (!otpRecord) throw new Error('Invalid or expired OTP');
-
-        const newHash = await bcrypt.hash(newPassword, 10);
+        // Lost the race (another concurrent reset already consumed this OTP).
+        if (burned.count === 0) throw new Error('Invalid or expired OTP');
 
         await tx.admins.update({
           where: { uid: admin.uid },
           data: { password_hash: newHash, password_changed_at: new Date() },
-        });
-
-        await tx.password_reset_otps.update({
-          where: { id: otpRecord.id },
-          data: { used: true },
         });
 
         return { message: 'Password reset successfully' };
