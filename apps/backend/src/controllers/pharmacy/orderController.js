@@ -132,7 +132,8 @@ export const updateOrderStatus = async (req, res) => {
       status,
       notes,
       updatedBy,
-      updatedByRole
+      updatedByRole,
+      req.tenantId
     );
 
     if (!result) {

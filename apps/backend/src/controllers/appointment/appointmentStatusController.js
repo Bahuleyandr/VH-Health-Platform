@@ -80,7 +80,8 @@ export const updateAppointmentStatus = async (req, res) => {
       id,
       statusValidation.status,
       notes,
-      req.user?.name
+      req.user?.name,
+      tenantId
     );
     attachAppointmentPhiContext(req, {
       ...updatedAppointment,

@@ -62,6 +62,7 @@ router.post('/:id/decide', requireStaffOrAdmin, wrap(async (req) =>
     chosenBedId: req.body.chosen_bed_id,
     notes: req.body.notes,
     actorUid: req.user?.uid,
+    tenantId: req.tenantId,
   }),
 ));
 

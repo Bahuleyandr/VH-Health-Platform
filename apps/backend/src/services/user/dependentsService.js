@@ -13,10 +13,11 @@
 // elders the guardian wants to track). This service is for actual user
 // rows with their own UID/MRN that the guardian acts on behalf of.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const VALID_LINK_RELATIONSHIPS = new Set([
   'parent', 'mother', 'father', 'legal_guardian', 'grandparent',
@@ -97,7 +98,7 @@ export class DependentsService {
    * Idempotent: re-linking the same (dependent, guardian) pair returns the
    * existing link.
    */
-  static async linkDependent({ guardianUserId, guardianUid, dependentIdentifier, relationship }) {
+  static async linkDependent({ guardianUserId, guardianUid, dependentIdentifier, relationship, tenantId = null }) {
     if (!Number.isInteger(guardianUserId) || guardianUserId <= 0) {
       throw AppError.badRequest('Invalid guardian user id', 'INVALID_GUARDIAN');
     }
@@ -190,7 +191,7 @@ export class DependentsService {
     const params = relationshipNorm
       ? [guardianUserId, dependent.id, relationshipNorm]
       : [guardianUserId, dependent.id];
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const result = await tx.$queryRawUnsafe(
         `UPDATE users
             SET guardian_user_id = $1${setRelationshipClause},
@@ -243,7 +244,7 @@ export class DependentsService {
    * to the calling guardian's id so a guardian can only unlink their own
    * dependents (IDOR guard).
    */
-  static async unlinkDependent({ guardianUserId, guardianUid, dependentId }) {
+  static async unlinkDependent({ guardianUserId, guardianUid, dependentId, tenantId = null }) {
     if (!Number.isInteger(guardianUserId) || guardianUserId <= 0) {
       throw AppError.badRequest('Invalid guardian user id', 'INVALID_GUARDIAN');
     }
@@ -267,7 +268,7 @@ export class DependentsService {
     }
 
     // Phase 1 — atomic unlink + audit.
-    await prisma.$transaction(async (tx) => {
+    await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const result = await tx.$queryRawUnsafe(
         `UPDATE users
             SET guardian_user_id = NULL,

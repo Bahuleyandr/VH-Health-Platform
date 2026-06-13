@@ -107,6 +107,7 @@ export async function recordDecision({
   chosenBedId = null,
   notes = null,
   actorUid,
+  tenantId = null,
 }) {
   const id = Number.parseInt(inspectionId, 10);
   if (!Number.isInteger(id) || id <= 0) throw AppError.badRequest('inspectionId must be a positive integer');
@@ -132,7 +133,7 @@ export async function recordDecision({
     throw AppError.badRequest(`chosen_bed_id ${chosenBedId} was not in this inspection's shown_bed_ids`);
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const result = await tx.$queryRawUnsafe(
       `UPDATE bed_inspections
           SET decision = $2,

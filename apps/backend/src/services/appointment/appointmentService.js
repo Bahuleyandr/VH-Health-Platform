@@ -214,7 +214,7 @@ export class AppointmentService {
     }
   }
 
-  async updateAppointmentStatus(id, status, notes = null, _updatedBy = null) {
+  async updateAppointmentStatus(id, status, notes = null, _updatedBy = null, tenantId = null) {
     try {
       const apptId = parseInt(id);
       const normalizedStatus = String(status || '').toUpperCase();
@@ -233,7 +233,7 @@ export class AppointmentService {
       // emergency walk-in but leaves the visit unrouted — see finding
       // 2026-05-10-dynamic-acute-abdomen-receptionist-fallback-no-visit-number.
       if (normalizedStatus === 'CONFIRMED') {
-        await prisma.$transaction(async (tx) => {
+        await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
           const apptRows = await tx.$queryRawUnsafe(
             `SELECT id, patient_id, doctor_id, appointment_date,
                     token_number, confirmed_at, department, status, visit_type
@@ -297,9 +297,9 @@ export class AppointmentService {
           // Mirror registerWalkIn — emergency confirmations need an
           // emergency_visits row so the ED queue, MLC flow, and triage
           // workflow can pick the patient up. Idempotent on
-          // (tenant_id, visit_number). Tenant context isn't threaded
-          // through this service path, so fall back to the platform
-          // default tenant (the same default registerWalkIn uses).
+          // (tenant_id, visit_number). Tenant is threaded from the caller
+          // (req.tenantId); fall back to the platform default tenant (the
+          // same default registerWalkIn uses) when unset.
           if (deptPrefix(resolvedDept) === 'EMER' || String(a.visit_type || '').toUpperCase() === 'EMERGENCY') {
             const patientRow = await tx.$queryRawUnsafe(
               'SELECT uid FROM users WHERE id = $1::int LIMIT 1',
@@ -312,14 +312,13 @@ export class AppointmentService {
                 date: a.appointment_date || new Date(),
                 tokenNumber,
               });
-              const tenantId = '00000000-0000-4000-8000-000000000001';
               await tx.$executeRawUnsafe(
                 `INSERT INTO emergency_visits
                    (tenant_id, visit_number, patient_uid, arrival_mode,
                     chief_complaint, status)
                  VALUES ($1::uuid, $2, $3::uuid, 'walk_in', $4, 'arriving')
                  ON CONFLICT (tenant_id, visit_number) DO NOTHING`,
-                tenantId, visitNo, patientUid,
+                tenantId || DEFAULT_TENANT_ID, visitNo, patientUid,
                 'Confirmed via /status fallback',
               );
             }
@@ -390,7 +389,7 @@ export class AppointmentService {
     try {
       return await this.updateAppointmentStatus(
         id, APPOINTMENT_CONFIG.STATUSES.CANCELLED,
-        `Cancelled by ${cancelledBy}`
+        `Cancelled by ${cancelledBy}`, null, null
       );
     } catch (error) {
       logger.error('Error cancelling appointment:', error);

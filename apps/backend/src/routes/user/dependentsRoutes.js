@@ -66,6 +66,7 @@ router.post('/link', async (req, res) => {
       guardianUid: uid,
       dependentIdentifier: identifier,
       relationship: req.body?.relationship,
+      tenantId: req.tenantId,
     });
     return success(res, { dependent }, 'Dependent linked', HTTP_STATUS.CREATED);
   } catch (err) {
@@ -81,6 +82,7 @@ router.delete('/:id', async (req, res) => {
       guardianUserId: id,
       guardianUid: uid,
       dependentId: req.params.id,
+      tenantId: req.tenantId,
     });
     return success(res, result, 'Dependent unlinked');
   } catch (err) {

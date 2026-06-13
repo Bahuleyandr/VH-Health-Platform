@@ -94,7 +94,7 @@ router.post('/cds/alerts/:id/acknowledge', guardClinicalDecisionResourceWrite, a
       return error(res, 'Valid alert ID is required', 400);
     }
 
-    const acknowledged = await cdsEngine.acknowledgeAlert(alertId, req.user.uid, override_reason || null);
+    const acknowledged = await cdsEngine.acknowledgeAlert(alertId, req.user.uid, override_reason || null, req.tenantId);
 
     logPhiAccess({
       userId: req.user.uid,

@@ -1,7 +1,8 @@
 // src/services/emr/cdsEngine.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
 
 
@@ -913,14 +914,15 @@ function evaluateUnmetRecommendations(recommendations, ctx) {
  * @param {number} alertId
  * @param {string} acknowledgedBy - UID of the acknowledging clinician
  * @param {string|null} overrideReason
+ * @param {string|null} tenantId - canonical tenant UUID (req.tenantId) for RLS scope
  * @returns {Object} Updated alert row
  */
-export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason = null) {
+export async function acknowledgeAlert(alertId, acknowledgedBy, overrideReason = null, tenantId = null) {
   if (!alertId || !acknowledgedBy) {
     throw AppError.badRequest('Alert ID and acknowledgedBy are required');
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const existing = await tx.cds_alerts.findUnique({
       where: { id: Number(alertId) },
       select: { id: true, acknowledged: true, source_data: true },
