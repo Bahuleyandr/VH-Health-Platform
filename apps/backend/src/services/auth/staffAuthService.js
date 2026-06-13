@@ -10,6 +10,7 @@ import logger from '../../logging/logger.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
+import { isTokenBlacklisted } from '../../utils/tokenBlacklist.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 import { getUserSessionDeviceType } from './userActiveSession.js';
 
@@ -514,6 +515,21 @@ export class StaffAuthService {
     try {
       const decoded = verifyToken(refreshToken);
       if (!decoded) throw new Error('Invalid or expired refresh token');
+
+      // B0.4 / SEC-2: the refresh endpoint must only accept genuine refresh
+      // tokens. Without this check an *access* token (minted on every login,
+      // no `type` claim) could be replayed here to mint fresh access tokens
+      // indefinitely. generateRefreshToken() stamps `type: 'refresh'`.
+      if (decoded.type !== 'refresh') {
+        throw new Error('Invalid or expired refresh token');
+      }
+
+      // B0.4 / SEC-2: honour revocation. A logged-out / rotated refresh token
+      // whose staff_auth_sessions row still exists must not mint new tokens —
+      // check the jti blacklist before doing any work (logout bypass).
+      if (decoded.jti && await isTokenBlacklisted(decoded.jti)) {
+        throw new Error('Token has been revoked');
+      }
 
       const incomingHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
       const sessionResult = await query(`
