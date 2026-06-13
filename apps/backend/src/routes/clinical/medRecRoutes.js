@@ -97,6 +97,10 @@ router.patch('/:id/items/:itemId', guardMedRecResourceWrite, async (req, res) =>
       decision: req.body.decision,
       reason: req.body.reason ?? null,
       newInstructions: req.body.new_instructions ?? null,
+      changedDose: req.body.changed_dose ?? null,
+      changedRoute: req.body.changed_route ?? null,
+      changedFrequency: req.body.changed_frequency ?? null,
+      safetyRationale: req.body.safety_rationale ?? null,
     }, { actorUid: req.user?.uid || null, actorRole: req.user?.role || null, tenantId: req.tenantId });
     return success(res, { item }, 'Item decided');
   } catch (err) {

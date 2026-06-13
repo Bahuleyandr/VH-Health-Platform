@@ -6105,10 +6105,16 @@ model medication_reconciliation_items {
   metadata                   Json                       @default("{}")
   created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  changed_dose               String?                    @db.VarChar(120)
+  changed_route              String?                    @db.VarChar(40)
+  changed_frequency          String?                    @db.VarChar(120)
+  safety_review_id           String?                    @db.Uuid
+  medication_safety_reviews  medication_safety_reviews? @relation(fields: [safety_review_id], references: [id], onUpdate: NoAction, map: "fk_medication_reconciliation_items_safety_review")
   tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_reconciliation_items_tenant")
   medication_reconciliations medication_reconciliations @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([reconciliation_id, id], map: "idx_medication_reconciliation_items_rec")
+  @@index([safety_review_id], map: "idx_medication_reconciliation_items_safety_review", where: raw("(safety_review_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -13734,27 +13740,28 @@ model workflow_sla_instances {
 }
 
 model medication_safety_reviews {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id         String    @db.Uuid
-  patient_uid       String?   @db.Uuid
-  patient_id        Int?
-  encounter_id      String?   @db.Uuid
-  prescription_id   Int?
-  clinical_order_id Int?
-  review_type       String    @db.VarChar(80)
-  severity          String    @default("info") @db.VarChar(30)
-  status            String    @default("warning") @db.VarChar(40)
-  finding_code      String?   @db.VarChar(100)
-  medication_name   String?
-  message           String
-  override_required Boolean   @default(false)
-  override_reason   String?
-  overridden_by     String?   @db.Uuid
-  overridden_at     DateTime? @db.Timestamptz(6)
-  payload           Json      @default("{}")
-  created_by        String?   @db.Uuid
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+  id                              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                       String                            @db.Uuid
+  patient_uid                     String?                           @db.Uuid
+  patient_id                      Int?
+  encounter_id                    String?                           @db.Uuid
+  prescription_id                 Int?
+  clinical_order_id               Int?
+  review_type                     String                            @db.VarChar(80)
+  severity                        String                            @default("info") @db.VarChar(30)
+  status                          String                            @default("warning") @db.VarChar(40)
+  finding_code                    String?                           @db.VarChar(100)
+  medication_name                 String?
+  message                         String
+  override_required               Boolean                           @default(false)
+  override_reason                 String?
+  overridden_by                   String?                           @db.Uuid
+  overridden_at                   DateTime?                         @db.Timestamptz(6)
+  payload                         Json                              @default("{}")
+  created_by                      String?                           @db.Uuid
+  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
+  medication_reconciliation_items medication_reconciliation_items[]
 
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_medication_safety_reviews_patient_time", where: raw("(patient_uid IS NOT NULL)"))
   @@index([prescription_id, created_at(sort: Desc)], map: "idx_medication_safety_reviews_prescription", where: raw("(prescription_id IS NOT NULL)"))

@@ -3,6 +3,7 @@
 import {
   normalizeMedicationEntry,
   mergeMedicationLists,
+  buildChangeDetail,
   REC_TYPES,
   ITEM_DECISIONS,
 } from '../../services/clinical/medicationReconciliationService.js';
@@ -48,5 +49,32 @@ describe('med-rec constants', () => {
   test('three reconciliation points; five decisions', () => {
     expect(REC_TYPES).toEqual(['admission', 'transfer', 'discharge']);
     expect(ITEM_DECISIONS).toEqual(['continue', 'stop', 'change', 'new', 'hold']);
+  });
+});
+
+describe('med-rec buildChangeDetail (B4.3 structured change detail)', () => {
+  const item = { dose: '500mg', route: 'oral', frequency: 'BD' };
+
+  test('captures from/to per changed field only', () => {
+    expect(buildChangeDetail(item, { changedDose: '500mg', changedFrequency: 'OD' }))
+      .toEqual({
+        dose: { from: '500mg', to: '500mg' },
+        frequency: { from: 'BD', to: 'OD' },
+      });
+  });
+
+  test('omits fields with no new value and trims', () => {
+    expect(buildChangeDetail(item, { changedRoute: '  IV ' }))
+      .toEqual({ route: { from: 'oral', to: 'IV' } });
+  });
+
+  test('returns empty object when nothing changed', () => {
+    expect(buildChangeDetail(item, {})).toEqual({});
+    expect(buildChangeDetail(item, { changedDose: '', changedRoute: null })).toEqual({});
+  });
+
+  test('from side falls back to null when source field absent', () => {
+    expect(buildChangeDetail({}, { changedDose: '250mg' }))
+      .toEqual({ dose: { from: null, to: '250mg' } });
   });
 });

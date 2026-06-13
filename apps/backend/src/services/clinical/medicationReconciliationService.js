@@ -17,6 +17,7 @@ import { AppError } from '../../utils/AppError.js';
 import {
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent,
+  recordMedicationSafetyReviews,
 } from './canonicalClinicalPlatformService.js';
 
 export const REC_TYPES = Object.freeze(['admission', 'transfer', 'discharge']);
@@ -149,7 +150,9 @@ export async function getReconciliation(recId, { includeItems = true, tenantId =
   const itemTenantFilter = tenantId ? ' AND tenant_id = $2::uuid' : '';
   const items = await prisma.$queryRawUnsafe(
     `SELECT id, medication_name, dose, frequency, route, source, source_ref,
-            decision, decision_reason, new_instructions, decided_by, decided_at
+            decision, decision_reason, new_instructions,
+            changed_dose, changed_route, changed_frequency, safety_review_id,
+            decided_by, decided_at
        FROM medication_reconciliation_items
       WHERE reconciliation_id = $1::uuid${itemTenantFilter}
       ORDER BY id`,
@@ -297,8 +300,30 @@ export async function startReconciliation({
   return getReconciliation(rec.id, { tenantId: patient.tenant_id });
 }
 
+/**
+ * Build the structured change-detail object for a `change` decision, pulling
+ * the "to" side from the explicit changed_* fields and the "from" side from
+ * the item's snapshot. Pure — exported for unit tests.
+ */
+export function buildChangeDetail(item, { changedDose, changedRoute, changedFrequency } = {}) {
+  const detail = {};
+  const pairs = [
+    ['dose', item?.dose ?? null, changedDose],
+    ['route', item?.route ?? null, changedRoute],
+    ['frequency', item?.frequency ?? null, changedFrequency],
+  ];
+  for (const [field, from, to] of pairs) {
+    if (to != null && String(to).trim() !== '') {
+      detail[field] = { from, to: String(to).trim() };
+    }
+  }
+  return detail;
+}
+
 export async function decideItem(recId, itemId, {
   decision, reason = null, newInstructions = null,
+  changedDose = null, changedRoute = null, changedFrequency = null,
+  safetyRationale = null,
 } = {}, context = {}) {
   if (!ITEM_DECISIONS.includes(decision)) {
     throw AppError.badRequest(`decision must be one of ${ITEM_DECISIONS.join(', ')}`, 'MEDREC_BAD_DECISION');
@@ -306,8 +331,22 @@ export async function decideItem(recId, itemId, {
   if (['stop', 'change', 'hold'].includes(decision) && !(reason || '').trim()) {
     throw AppError.badRequest(`decision '${decision}' requires a reason`, 'MEDREC_REASON_REQUIRED');
   }
-  if (decision === 'change' && !(newInstructions || '').trim()) {
-    throw AppError.badRequest("decision 'change' requires new_instructions", 'MEDREC_INSTRUCTIONS_REQUIRED');
+  const hasStructuredChange = [changedDose, changedRoute, changedFrequency]
+    .some((v) => v != null && String(v).trim() !== '');
+  // A `change` must spell out WHAT changed: either structured dose/route/
+  // frequency detail or free-text instructions (or both).
+  if (decision === 'change' && !hasStructuredChange && !(newInstructions || '').trim()) {
+    throw AppError.badRequest(
+      "decision 'change' requires change detail (changed_dose/changed_route/changed_frequency or new_instructions)",
+      'MEDREC_CHANGE_DETAIL_REQUIRED',
+    );
+  }
+  // Structured change detail only makes sense on a `change`.
+  if (decision !== 'change' && hasStructuredChange) {
+    throw AppError.badRequest(
+      'changed_dose/changed_route/changed_frequency are only valid for a change decision',
+      'MEDREC_CHANGE_DETAIL_UNEXPECTED',
+    );
   }
   const rec = await getReconciliation(recId, { includeItems: false, tenantId: tenantIdFromContext(context) });
   if (!rec) throw AppError.notFound('Reconciliation not found', 'MEDREC_NOT_FOUND');
@@ -315,45 +354,111 @@ export async function decideItem(recId, itemId, {
     throw AppError.conflict(`Reconciliation is ${rec.status} — decisions are frozen`, 'MEDREC_NOT_OPEN');
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE medication_reconciliation_items SET
-       decision = $3, decision_reason = $4, new_instructions = $5,
-       decided_by = $6::uuid, decided_at = NOW(), updated_at = NOW()
-     WHERE id = $2::int AND reconciliation_id = $1::uuid
-       AND tenant_id = $7::uuid
-     RETURNING id, medication_name, dose, frequency, route, source, decision,
-               decision_reason, new_instructions, decided_by, decided_at`,
-    recId,
+  // Look up the item first so the safety review (recorded BEFORE the row is
+  // stamped, to capture its id) can carry the medication name.
+  const existingRows = await prisma.$queryRawUnsafe(
+    `SELECT id, medication_name, dose, frequency, route, source
+       FROM medication_reconciliation_items
+      WHERE id = $1::int AND reconciliation_id = $2::uuid AND tenant_id = $3::uuid
+      LIMIT 1`,
     itemId,
-    decision,
-    reason,
-    newInstructions,
-    context.actorUid || null,
+    recId,
     rec.tenant_id,
   );
-  const item = rows[0];
-  if (!item) throw AppError.notFound('Reconciliation item not found', 'MEDREC_ITEM_NOT_FOUND');
+  const existing = existingRows[0];
+  if (!existing) throw AppError.notFound('Reconciliation item not found', 'MEDREC_ITEM_NOT_FOUND');
 
-  await recordClinicalAuditEvent({
-    tenantId: rec.tenant_id,
-    patientUid: rec.patient_uid,
-    encounterId: rec.encounter_id,
-    action: 'medrec.item_decided',
-    actorUid: context.actorUid || null,
-    actorRole: context.actorRole || null,
-    resourceType: 'medication_reconciliation_item',
-    resourceTable: 'medication_reconciliation_items',
-    resourceId: String(item.id),
-    afterState: { decision, reason, new_instructions: newInstructions },
-    metadata: {
-      reconciliation_id: recId,
-      rec_type: rec.rec_type,
-      medication_name: item.medication_name,
-    },
-    idempotencyKey: `medication_reconciliation_items:${item.id}:decided:${decision}:${Date.now()}`,
+  const changeDetail = decision === 'change'
+    ? buildChangeDetail(existing, { changedDose, changedRoute, changedFrequency })
+    : {};
+  // A medication_safety_reviews row is wired when a stop/change carries a
+  // clinical safety rationale (e.g. nephrotoxicity, duplicate therapy,
+  // interaction). The reconciliation reason itself is the workflow reason;
+  // safetyRationale is the explicit safety-significant justification.
+  const wantsSafetyReview = ['stop', 'change'].includes(decision)
+    && !!(safetyRationale || '').trim();
+
+  const item = await prisma.$transaction(async (tx) => {
+    let safetyReviewId = null;
+    if (wantsSafetyReview) {
+      const reviews = await recordMedicationSafetyReviews({
+        tenantId: rec.tenant_id,
+        patientUid: rec.patient_uid,
+        patientId: rec.patient_id,
+        encounterId: rec.encounter_id,
+        actorUid: context.actorUid || null,
+        safety: {
+          safe: false,
+          blockers: [],
+          warnings: [{
+            type: 'med_rec_change',
+            severity: 'medium',
+            medication_name: existing.medication_name,
+            message: safetyRationale.trim(),
+            reconciliation_id: recId,
+            decision,
+          }],
+        },
+      }, { db: tx });
+      safetyReviewId = reviews[0]?.id || null;
+    }
+
+    const updatedRows = await tx.$queryRawUnsafe(
+      `UPDATE medication_reconciliation_items SET
+         decision = $3, decision_reason = $4, new_instructions = $5,
+         changed_dose = $6, changed_route = $7, changed_frequency = $8,
+         safety_review_id = COALESCE($9::uuid, safety_review_id),
+         decided_by = $10::uuid, decided_at = NOW(), updated_at = NOW()
+       WHERE id = $2::int AND reconciliation_id = $1::uuid
+         AND tenant_id = $11::uuid
+       RETURNING id, medication_name, dose, frequency, route, source, decision,
+                 decision_reason, new_instructions, changed_dose, changed_route,
+                 changed_frequency, safety_review_id, decided_by, decided_at`,
+      recId,
+      itemId,
+      decision,
+      reason,
+      newInstructions,
+      decision === 'change' ? changedDose : null,
+      decision === 'change' ? changedRoute : null,
+      decision === 'change' ? changedFrequency : null,
+      safetyReviewId,
+      context.actorUid || null,
+      rec.tenant_id,
+    );
+    const updated = updatedRows[0];
+    if (!updated) throw AppError.notFound('Reconciliation item not found', 'MEDREC_ITEM_NOT_FOUND');
+
+    await recordClinicalAuditEvent({
+      tenantId: rec.tenant_id,
+      patientUid: rec.patient_uid,
+      encounterId: rec.encounter_id,
+      action: 'medrec.item_decided',
+      actorUid: context.actorUid || null,
+      actorRole: context.actorRole || null,
+      resourceType: 'medication_reconciliation_item',
+      resourceTable: 'medication_reconciliation_items',
+      resourceId: String(updated.id),
+      afterState: {
+        decision,
+        reason,
+        new_instructions: newInstructions,
+        change_detail: changeDetail,
+        safety_review_id: safetyReviewId,
+      },
+      metadata: {
+        reconciliation_id: recId,
+        rec_type: rec.rec_type,
+        medication_name: updated.medication_name,
+        safety_review_recorded: !!safetyReviewId,
+      },
+      idempotencyKey: `medication_reconciliation_items:${updated.id}:decided:${decision}:${Date.now()}`,
+    }, { db: tx });
+
+    return updated;
   });
 
-  return item;
+  return { ...item, change_detail: changeDetail };
 }
 
 export async function completeReconciliation(recId, context = {}) {
@@ -378,11 +483,21 @@ export async function completeReconciliation(recId, context = {}) {
       .filter((i) => ['continue', 'change', 'new'].includes(i.decision))
       .map((i) => ({
         medication_name: i.medication_name,
-        dose: i.dose,
-        frequency: i.frequency,
-        route: i.route,
+        // For a `change`, the take-home dose/route/frequency is the new
+        // ("to") value where supplied, falling back to the source value.
+        dose: i.decision === 'change' ? (i.changed_dose ?? i.dose) : i.dose,
+        frequency: i.decision === 'change' ? (i.changed_frequency ?? i.frequency) : i.frequency,
+        route: i.decision === 'change' ? (i.changed_route ?? i.route) : i.route,
         decision: i.decision,
         instructions: i.new_instructions || null,
+        change_detail: i.decision === 'change'
+          ? buildChangeDetail(i, {
+            changedDose: i.changed_dose,
+            changedRoute: i.changed_route,
+            changedFrequency: i.changed_frequency,
+          })
+          : null,
+        safety_review_id: i.safety_review_id || null,
       }))
     : null;
 
@@ -443,6 +558,7 @@ export default {
   ITEM_DECISIONS,
   normalizeMedicationEntry,
   mergeMedicationLists,
+  buildChangeDetail,
   gatherMedicationSources,
   getReconciliation,
   listReconciliations,

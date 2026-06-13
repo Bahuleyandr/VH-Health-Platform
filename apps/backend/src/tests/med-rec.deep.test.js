@@ -163,9 +163,84 @@ d('Medication reconciliation — deep round-trip (roadmap B6)', () => {
         decision: 'change',
         reason: 'B6TEST renal dose adjustment',
         new_instructions: 'Metformin 500mg OD (was BD) — eGFR 42',
+        changed_frequency: 'OD',
+        safety_rationale: 'B6TEST eGFR 42 — reduce frequency to avoid lactic acidosis risk',
       });
     expect(ok.status).toBe(200);
     expect(ok.body.data.item.decision).toBe('change');
+    // B4.3: structured change detail persisted alongside free-text instructions.
+    expect(ok.body.data.item.changed_frequency).toBe('OD');
+    expect(ok.body.data.item.change_detail).toMatchObject({ frequency: { to: 'OD' } });
+    // B4.3 / brief: a stop/change with a safety rationale wires a
+    // medication_safety_reviews row and links it back onto the item.
+    expect(ok.body.data.item.safety_review_id).toBeTruthy();
+  });
+
+  test('safety review row is written atomically and linked to the item (B4.3)', async () => {
+    const metformin = items.find((i) => i.medication_name.toLowerCase().includes('metformin'));
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT mri.safety_review_id, mri.changed_frequency,
+              msr.id AS review_id, msr.review_type, msr.severity, msr.message,
+              msr.medication_name, msr.patient_uid
+         FROM medication_reconciliation_items mri
+         JOIN medication_safety_reviews msr ON msr.id = mri.safety_review_id
+        WHERE mri.id = $1::int`,
+      metformin.id,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].review_id).toBe(rows[0].safety_review_id);
+    expect(rows[0].review_type).toBe('med_rec_change');
+    expect(rows[0].patient_uid).toBe(patientUid);
+    expect(String(rows[0].message)).toContain('B6TEST eGFR 42');
+
+    // Atomicity: the per-item decision also wrote a clinical_audit_event in the
+    // same transaction, flagged as carrying a safety review.
+    const audit = await prisma.$queryRawUnsafe(
+      `SELECT metadata FROM clinical_audit_events
+        WHERE resource_table = 'medication_reconciliation_items'
+          AND resource_id = $1
+          AND action = 'medrec.item_decided'
+        ORDER BY occurred_at DESC LIMIT 1`,
+      String(metformin.id),
+    );
+    expect(audit.length).toBe(1);
+    expect(audit[0].metadata?.safety_review_recorded).toBe(true);
+  });
+
+  test('structured change detail without instructions is accepted; mismatched fields rejected', async () => {
+    // Start a fresh transfer rec to exercise validation paths cleanly.
+    const start = await doctor
+      .post('/api/v1/med-rec/start')
+      .send({ patient_uid: patientUid, rec_type: 'transfer', transfer_context: 'B6TEST ICU→ward' });
+    expect(start.status).toBe(201);
+    const rec = start.body.data.reconciliation;
+    const first = rec.items[0];
+
+    // change with ONLY structured detail (no new_instructions) → allowed.
+    const structuredOnly = await doctor
+      .patch(`/api/v1/med-rec/${rec.id}/items/${first.id}`)
+      .send({ decision: 'change', reason: 'B6TEST route switch', changed_route: 'IV' });
+    expect(structuredOnly.status).toBe(200);
+    expect(structuredOnly.body.data.item.changed_route).toBe('IV');
+    expect(structuredOnly.body.data.item.safety_review_id).toBeFalsy(); // no safety rationale → no review
+
+    // structured change fields on a non-change decision → 400.
+    const second = rec.items[1] || rec.items[0];
+    const wrongDecision = await doctor
+      .patch(`/api/v1/med-rec/${rec.id}/items/${second.id}`)
+      .send({ decision: 'continue', changed_dose: '10mg' });
+    expect(wrongDecision.status).toBe(400);
+
+    // change with neither structured detail nor instructions → 400.
+    const noDetail = await doctor
+      .patch(`/api/v1/med-rec/${rec.id}/items/${second.id}`)
+      .send({ decision: 'change', reason: 'B6TEST missing detail' });
+    expect(noDetail.status).toBe(400);
+
+    // Clean up this rec so it does not perturb later list-count assertions.
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM medication_reconciliations WHERE id = $1::uuid`, rec.id,
+    ).catch(() => {});
   });
 
   test('complete is blocked while items are undecided', async () => {
