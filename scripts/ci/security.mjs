@@ -103,12 +103,15 @@ async function ensureGitleaks() {
 }
 
 /**
- * Try to run semgrep with the focused VH Health config (.semgrep.yml).
- * Returns true if it ran, false if semgrep is not installed.
+ * Run semgrep with the focused VH Health config (.semgrep.yml).
+ * Returns true if semgrep ran successfully, false if semgrep is not installed
+ * (the caller skips gracefully so dev machines without semgrep are not broken).
  * Findings are written to output/security/semgrep-focused.sarif.
- * CI keeps this advisory (continue-on-error in the workflow); flip to
- * blocking per docs/SECURITY_CONTROLS_SELFASSESSMENT.md §8 once the
- * initial finding backlog is triaged (WS3 B3.4 target: 2026-06-24).
+ *
+ * WS3 B3.4 (2026-06-13): semgrep is now BLOCKING on CI. Any finding causes
+ * the security stage to fail. If semgrep is not installed the stage skips
+ * gracefully — install semgrep to get full coverage:
+ *   pip install semgrep
  */
 function runSemgrepFocused() {
   // Discover semgrep: prefer a venv the CI workflow may have installed,
@@ -120,7 +123,7 @@ function runSemgrepFocused() {
   const semgrepBin = candidates.find((bin) => checkCommand(bin, ['--version']));
   if (!semgrepBin) {
     console.log(
-      'semgrep not found — skipping focused SAST scan.\n' +
+      'semgrep not found — skipping focused SAST scan (not installed).\n' +
       'Install with: pip install semgrep\n' +
       'Then run: semgrep scan --config .semgrep.yml --sarif --output output/security/semgrep-focused.sarif',
     );
@@ -154,15 +157,9 @@ function runSemgrepFocused() {
     ...excludeDirs.flatMap((d) => ['--exclude', d]),
   ];
 
-  try {
-    run(semgrepBin, args);
-    console.log('Semgrep focused scan complete. Results: output/security/semgrep-focused.sarif');
-  } catch (err) {
-    // In advisory mode we log findings but do not fail the stage.
-    // Remove this try/catch (or the 'continue-on-error' in the workflow)
-    // once the backlog is clear (WS3 B3.4).
-    console.warn('Semgrep found potential issues (advisory — not blocking):', err.message);
-  }
+  // WS3 B3.4: errors propagate — any semgrep finding fails the stage.
+  run(semgrepBin, args);
+  console.log('Semgrep focused scan complete. Results: output/security/semgrep-focused.sarif');
   return true;
 }
 
@@ -173,8 +170,10 @@ export async function runSecurityStage() {
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'range'], { env: gitleaksEnv });
 
-  // Advisory SAST scan with focused VH Health ruleset.
-  // This supplements (not replaces) the broader p/owasp-top-ten scan in
-  // the security-sweep.yml workflow step.
+  // WS3 B3.4 (2026-06-13): SAST scan with focused VH Health ruleset.
+  // Now BLOCKING — any semgrep finding throws and fails this stage.
+  // On dev machines without semgrep installed, the call skips gracefully.
+  // The GHA workflow installs semgrep unconditionally (pip install semgrep)
+  // so findings never pass silently on CI.
   runSemgrepFocused();
 }

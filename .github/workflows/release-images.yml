@@ -227,6 +227,21 @@ jobs:
             echo "::endgroup::"
           done <<< "$TAGS"
 
+      - name: Verify cosign signature (WS3 B3.5 supply-chain gate)
+        # Verify that the signature we just recorded is readable from the
+        # registry before declaring the build complete. This catches any
+        # keyless-OIDC / Rekor transparency-log failure immediately in CI
+        # rather than at deploy time.
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.images.outputs.backend }}
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE}@${DIGEST}"
+          echo "cosign verify passed for ${IMAGE}@${DIGEST}"
+
       - name: Write build summary
         if: always()
         env:
@@ -250,7 +265,7 @@ jobs:
             echo ""
             echo "**SBOM:** attached as workflow artifact \`vh-health-backend-sbom.spdx.json\`"
             echo ""
-            echo "**Signed:** cosign keyless via GitHub OIDC"
+            echo "**Signed + verified:** cosign keyless via GitHub OIDC"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-admin:
@@ -411,6 +426,17 @@ jobs:
             echo "::endgroup::"
           done <<< "$TAGS"
 
+      - name: Verify cosign signature (WS3 B3.5 supply-chain gate)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.images.outputs.admin }}
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE}@${DIGEST}"
+          echo "cosign verify passed for ${IMAGE}@${DIGEST}"
+
       - name: Write build summary
         if: always()
         env:
@@ -434,7 +460,7 @@ jobs:
             echo ""
             echo "**SBOM:** attached as workflow artifact \`vh-health-adminportal-sbom.spdx.json\`"
             echo ""
-            echo "**Signed:** cosign keyless via GitHub OIDC"
+            echo "**Signed + verified:** cosign keyless via GitHub OIDC"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-staff-web:
@@ -588,6 +614,17 @@ jobs:
             echo "::endgroup::"
           done <<< "$TAGS"
 
+      - name: Verify cosign signature (WS3 B3.5 supply-chain gate)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.images.outputs.staff_web }}
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release-images\.yml@.*$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE}@${DIGEST}"
+          echo "cosign verify passed for ${IMAGE}@${DIGEST}"
+
       - name: Write build summary
         if: always()
         env:
@@ -611,7 +648,7 @@ jobs:
             echo ""
             echo "**SBOM:** attached as workflow artifact \`vhhealth-staff-web-sbom.spdx.json\`"
             echo ""
-            echo "**Signed:** cosign keyless via GitHub OIDC"
+            echo "**Signed + verified:** cosign keyless via GitHub OIDC"
           } >> "$GITHUB_STEP_SUMMARY"
 
   summary:

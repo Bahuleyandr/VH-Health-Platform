@@ -1,11 +1,23 @@
 name: Canonical CI
 
+# WS3 B3.5 CI consolidation (2026-06-13):
+# This workflow runs the repo-owned local CI script (scripts/ci/run.mjs) on
+# FEATURE BRANCH pushes only. Its primary value is fast, changed-file-aware
+# feedback during development before a PR is opened.
+#
+# PRs to main are gated by the per-stack GHA-native workflows (ci-backend.yml,
+# ci-flutter.yml, ci-admin.yml, etc.) which run the canonical reusable job
+# definitions and are more precisely scoped. Running this workflow on
+# pull_request: too would create duplicate status checks for the same PR.
+#
+# If this local-runner output diverges from the per-stack workflows, treat the
+# per-stack GHA workflows as authoritative for merge blocking.
+
 on:
-  pull_request:
-    branches: [main]
   push:
     branches:
       - '**'
+      - '!main'   # main is covered by ci-backend/ci-flutter/ci-admin path filters
   workflow_dispatch:
 
 permissions:
@@ -17,7 +29,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Repo-owned CI runner
+    name: Repo-owned CI runner (feature branches)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

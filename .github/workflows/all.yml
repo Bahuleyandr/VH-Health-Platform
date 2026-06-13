@@ -22,6 +22,64 @@ jobs:
     uses: ./.github/workflows/secret-scan.yml
     secrets: inherit
 
+  # WS3 B3.4 CI-9: Semgrep SAST blocking gate in the scheduled/manual sweep.
+  # Findings fail the workflow. Mirrors the gate in ci-backend.yml so the
+  # full-stack sweep is also a hard conformance check, not just advisory.
+  semgrep-sast:
+    name: Semgrep SAST (full codebase)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install semgrep
+        run: pip install --quiet semgrep
+
+      - name: Semgrep focused scan (blocking)
+        run: |
+          mkdir -p output/security
+          semgrep scan \
+            --config .semgrep.yml \
+            --sarif \
+            --output output/security/semgrep-focused.sarif \
+            --timeout 300 \
+            --jobs 4 \
+            --exclude apps/backend/node_modules \
+            --exclude apps/admin/node_modules \
+            --exclude infra/mcp \
+            --exclude infra/onprem \
+            --exclude 'apps/admin/.next' \
+            --exclude output \
+            --exclude build \
+            --exclude apps/backend/src/logs \
+            --exclude apps/patient/build \
+            --exclude apps/staff/build \
+            --exclude tmp \
+            .
+
+      - name: Upload Semgrep SARIF (soft-fail — GHAS not required)
+        if: always() && hashFiles('output/security/semgrep-focused.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: output/security/semgrep-focused.sarif
+          category: semgrep-full-sweep
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **Full Stack Sweep / Semgrep SAST failed** on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true
+
   flutter-workspace:
     uses: ./.github/workflows/_reusable-flutter-workspace.yml
     with:
@@ -41,7 +99,9 @@ jobs:
     uses: ./.github/workflows/_reusable-backend-fhir.yml
     with:
       notify_on_failure: true
-      notification_label: Full Stack Sweep / backend FHIR (non-blocking)
+      # WS3 B3.4 CI-1: blocking=true — golden-bundle violations fail the sweep.
+      blocking: true
+      notification_label: Full Stack Sweep / backend FHIR
     secrets: inherit
 
   admin-lint-typecheck-build:

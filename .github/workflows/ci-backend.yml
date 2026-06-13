@@ -32,7 +32,60 @@ jobs:
     needs: lint-and-test
     uses: ./.github/workflows/_reusable-backend-fhir.yml
 
+  semgrep:
+    # WS3 B3.4 CI-9: Semgrep SAST is BLOCKING. The scan uses the repo's own
+    # .semgrep.yml ruleset (VH Health focused rules). Any finding exits non-zero
+    # and fails the job. The SARIF upload is soft-fail (GHAS not required).
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install semgrep
+        run: pip install --quiet semgrep
+
+      - name: Semgrep focused scan (blocking)
+        run: |
+          mkdir -p output/security
+          semgrep scan \
+            --config .semgrep.yml \
+            --sarif \
+            --output output/security/semgrep-focused.sarif \
+            --timeout 300 \
+            --jobs 4 \
+            --exclude apps/backend/node_modules \
+            --exclude apps/admin/node_modules \
+            --exclude infra/mcp \
+            --exclude infra/onprem \
+            --exclude 'apps/admin/.next' \
+            --exclude output \
+            --exclude build \
+            --exclude apps/backend/src/logs \
+            --exclude apps/patient/build \
+            --exclude apps/staff/build \
+            --exclude tmp \
+            .
+
+      - name: Upload Semgrep SARIF to GitHub Security tab
+        # Soft-fail: upload requires GHAS on private repos; the gate is the
+        # scan step above.
+        if: always() && hashFiles('output/security/semgrep-focused.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: output/security/semgrep-focused.sarif
+          category: semgrep-backend
+
   codeql:
+    # WS3 B3.4 CI-9: CodeQL now blocking. The analysis step fails CI on
+    # findings. The SARIF upload step remains soft-fail (continue-on-error)
+    # because upload to GitHub Security tab requires GitHub Advanced Security
+    # (GHAS), which is unavailable on private repos without the add-on.
+    # Separation: analysis exit-code is the gate; upload failure is noise.
+    name: CodeQL SAST
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -48,5 +101,19 @@ jobs:
           source-root: apps/backend
 
       - name: Perform CodeQL Analysis
+        id: codeql-analyze
         uses: github/codeql-action/analyze@v4
-        continue-on-error: true  # SARIF upload fails on private repos without GitHub Advanced Security
+        with:
+          # Write SARIF results to a local file so we can upload separately.
+          output: codeql-results
+          upload: false
+
+      - name: Upload SARIF to GitHub Security tab
+        # Soft-fail: SARIF upload requires GHAS on private repos.
+        # The gate is the analysis step above, not this upload.
+        if: always() && steps.codeql-analyze.outcome != 'cancelled'
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: codeql-results
+          category: codeql-backend

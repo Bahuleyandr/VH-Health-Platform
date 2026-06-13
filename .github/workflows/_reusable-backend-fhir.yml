@@ -13,6 +13,15 @@ on:
         required: false
         type: string
         default: Backend FHIR conformance
+      blocking:
+        description: >
+          When true (default), golden-bundle failures fail the workflow.
+          Set to false only for the non-blocking legacy call in all.yml until
+          that sweep is updated. CI-1/CI-9 (WS3 B3.4): flip this to blocking
+          everywhere — any golden-bundle regression must fail CI.
+        required: false
+        type: boolean
+        default: true
     secrets:
       DISCORD_WEBHOOK_URL:
         required: false
@@ -24,7 +33,9 @@ jobs:
   fhir-conformance:
     name: Backend FHIR conformance
     runs-on: ubuntu-latest
-    continue-on-error: true
+    # continue-on-error removed (WS3 B3.4 CI-1): golden-bundle failures now
+    # fail the workflow. The job itself uses exit 1 on strict violations;
+    # informational samples still use || true inline.
     timeout-minutes: 15
     defaults:
       run:
