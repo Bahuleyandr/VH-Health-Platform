@@ -326,6 +326,38 @@ class _MarScanScreenState extends State<MarScanScreen> {
   }
 }
 
+/// Override categories for the MAR 5-rights check. Each maps to a stable
+/// audit string sent to the backend as part of the override_reason payload.
+enum _MarOverrideCategory {
+  patientRefused('patient-refused', 'Patient refused per order'),
+  clinicalJudgement('clinical-judgement', 'Clinical judgement override'),
+  doseAdjustedPerOrder('dose-adjusted-per-order', 'Dose adjusted per order'),
+  timingVariance('timing-variance', 'Timing variance — within window'),
+  documentationCorrection(
+    'documentation-correction',
+    'Documentation correction',
+  ),
+  other('other', 'Other (specify below)');
+
+  const _MarOverrideCategory(this.value, this.label);
+  final String value;
+  final String label;
+}
+
+/// Returns true if the text is meaningfully written — rejects all-whitespace,
+/// single-character repeats (e.g. "aaaaa"), and anything under [minLength].
+bool _isMeaningfulText(String text, {int minLength = 15}) {
+  final t = text.trim();
+  if (t.length < minLength) return false;
+  // Reject strings made of a single repeated character (e.g. "aaaaaaaaaaaaa").
+  // We compare every code unit to the first, which is correct for ASCII-range
+  // repeat-character patterns (the most common gaming attempt).
+  if (t.isNotEmpty && t.codeUnits.every((u) => u == t.codeUnitAt(0))) {
+    return false;
+  }
+  return true;
+}
+
 class _OverrideSection extends StatefulWidget {
   const _OverrideSection({required this.onOverride, required this.busy});
   final void Function(String reason) onOverride;
@@ -336,17 +368,37 @@ class _OverrideSection extends StatefulWidget {
 }
 
 class _OverrideSectionState extends State<_OverrideSection> {
-  final TextEditingController _reason = TextEditingController();
+  _MarOverrideCategory? _category;
+  final TextEditingController _justification = TextEditingController();
 
   @override
   void dispose() {
-    _reason.dispose();
+    _justification.dispose();
     super.dispose();
+  }
+
+  bool get _valid {
+    if (_category == null) return false;
+    final text = _justification.text;
+    // "other" requires a non-empty justification regardless.
+    if (_category == _MarOverrideCategory.other && text.trim().isEmpty) {
+      return false;
+    }
+    return _isMeaningfulText(text);
+  }
+
+  /// Builds the structured override_reason string sent to the backend.
+  /// Format: "[category-value] justification text"
+  /// This is parseable by the audit system while remaining a single string
+  /// that the backend override_reason column already accepts.
+  String get _payload {
+    final cat = _category!.value;
+    final just = _justification.text.trim();
+    return '[$cat] $just';
   }
 
   @override
   Widget build(BuildContext context) {
-    final valid = _reason.text.trim().length >= 5;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -366,17 +418,58 @@ class _OverrideSectionState extends State<_OverrideSection> {
             AppStrings.of(context).marScanOverrideHint,
             style: const TextStyle(fontSize: 12),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          // ── Step 1: structured category ──
+          DropdownButtonFormField<_MarOverrideCategory>(
+            decoration: const InputDecoration(
+              labelText: 'Override category *',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            initialValue: _category,
+            hint: const Text('Select a category'),
+            items: _MarOverrideCategory.values
+                .map(
+                  (c) => DropdownMenuItem(value: c, child: Text(c.label)),
+                )
+                .toList(),
+            onChanged: (v) => setState(() => _category = v),
+          ),
+          const SizedBox(height: 10),
+          // ── Step 2: free-text justification ──
           TextField(
-            controller: _reason,
+            controller: _justification,
             maxLines: 3,
             decoration: InputDecoration(
-              labelText: AppStrings.of(context).marScanOverrideReasonLabel,
+              labelText: 'Clinical justification *',
+              hintText: 'Min 15 characters — describe the specific situation',
               border: const OutlineInputBorder(),
+              // Live validation indicator
+              suffixIcon: _justification.text.isEmpty
+                  ? null
+                  : Icon(
+                      _isMeaningfulText(_justification.text)
+                          ? Icons.check_circle_outline
+                          : Icons.error_outline,
+                      color: _isMeaningfulText(_justification.text)
+                          ? AppTheme.successGreen
+                          : AppTheme.errorRed,
+                      size: 18,
+                    ),
             ),
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 8),
+          if (_justification.text.trim().isNotEmpty &&
+              !_isMeaningfulText(_justification.text)) ...[
+            const SizedBox(height: 4),
+            Text(
+              _justification.text.trim().length < 15
+                  ? 'Minimum 15 characters required'
+                  : 'Justification must not be a repeated character',
+              style: const TextStyle(fontSize: 11, color: AppTheme.errorRed),
+            ),
+          ],
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -384,9 +477,9 @@ class _OverrideSectionState extends State<_OverrideSection> {
                 backgroundColor: AppTheme.errorRed,
                 foregroundColor: Colors.white,
               ),
-              onPressed: (!valid || widget.busy)
+              onPressed: (!_valid || widget.busy)
                   ? null
-                  : () => widget.onOverride(_reason.text.trim()),
+                  : () => widget.onOverride(_payload),
               child: Text(
                 widget.busy
                     ? AppStrings.of(context).marScanRecording
