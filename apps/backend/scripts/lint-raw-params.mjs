@@ -101,9 +101,82 @@ for (const file of files) {
   }
 }
 
+// ── Second check: uncast params inside jsonb_build_object/jsonb_build_array ──
+//
+// A bare placeholder ($N) used as a VALUE inside jsonb_build_object(...) /
+// jsonb_build_array(...) has no inferable type — the function signature is
+// `VARIADIC "any"`, so Postgres can't decide what `$N` is and the query fails
+// at PARSE time with SQLSTATE 42P08 "could not determine data type of parameter
+// $N". Postgres reports the LOWEST-numbered unresolved param, so one 42P08 can
+// hide several uncast params. The array-form check above never inspects SQL
+// text, so it cannot see this class. When such a query sits behind a
+// best-effort/swallowed try-catch the request still succeeds but the error is
+// logged centrally by the Prisma error listener in src/lib/prisma.js. Reference
+// fix: canonicalClinicalPlatformService.transitionEncounter (2026-06-13). See
+// the raw-params section of apps/backend/CLAUDE.md.
+//
+// A param is EXONERATED when it carries a `$N::type` cast anywhere in the same
+// SQL template (the type then resolves once for the whole statement), e.g. a
+// param cast in a WHERE clause and reused bare inside the jsonb builder.
+
+/** The backtick-delimited template literal enclosing `pos`, or null. */
+function enclosingTemplate(src, pos) {
+  const start = src.lastIndexOf('`', pos);
+  const end = src.indexOf('`', pos);
+  if (start === -1 || end === -1 || end < pos) return null;
+  return src.slice(start + 1, end);
+}
+
+for (const file of files) {
+  const src = readFileSync(file, 'utf8');
+  const re = /jsonb_build_(?:object|array)\s*\(/g;
+  const reported = new Set(); // absolute char index → dedupe nested builders
+  let m;
+  while ((m = re.exec(src))) {
+    // Skip occurrences inside a `//` line comment (e.g. a SQL snippet in a doc
+    // comment) — those aren't executed.
+    const lineStart = src.lastIndexOf('\n', m.index) + 1;
+    if (src.slice(lineStart, m.index).includes('//')) continue;
+
+    // Paren-match the builder body.
+    let depth = 1;
+    let i = m.index + m[0].length;
+    let bodyEnd = -1;
+    while (i < src.length && depth > 0) {
+      const c = src[i];
+      if (c === '(') depth++;
+      else if (c === ')') { depth--; if (depth === 0) { bodyEnd = i; break; } }
+      i++;
+    }
+    if (bodyEnd === -1) continue;
+
+    const bodyStart = m.index + m[0].length;
+    const body = src.slice(bodyStart, bodyEnd);
+    const query = enclosingTemplate(src, m.index) || body;
+
+    // Bare params in the body: `$N` NOT immediately followed by `::`.
+    const paramRe = /\$(\d+)(?!::)/g;
+    let p;
+    while ((p = paramRe.exec(body))) {
+      const absIdx = bodyStart + p.index;
+      if (reported.has(absIdx)) continue; // same token seen via an outer builder
+      const n = p[1];
+      if (new RegExp('\\$' + n + '::').test(query)) continue; // cast elsewhere
+      reported.add(absIdx);
+      const lineNumber = src.slice(0, absIdx).split('\n').length;
+      console.error(
+        `✗ ${file}:${lineNumber} — uncast param $${n} inside jsonb_build_object/array; ` +
+        `add an explicit ::type cast (Postgres can't infer it → 42P08 "could not determine data type of parameter $${n}")`,
+      );
+      offenders++;
+    }
+  }
+}
+
 if (offenders > 0) {
-  console.error(`\nFAIL: ${offenders} site(s) using the broken array-param form.`);
-  console.error('Fix: change `prisma.$queryRawUnsafe(sql, [a, b])` to `prisma.$queryRawUnsafe(sql, a, b)`.\n');
+  console.error(`\nFAIL: ${offenders} raw-param hygiene issue(s).`);
+  console.error('Array-form: change `prisma.$queryRawUnsafe(sql, [a, b])` to spread `(sql, a, b)`.');
+  console.error('jsonb-cast: a bare `$N` inside jsonb_build_object/array needs an explicit `::type` cast.\n');
   process.exit(1);
 }
-console.log(`✓ 0 offending sites across ${files.length} files. Raw-param spread form is consistent.`);
+console.log(`✓ 0 offending sites across ${files.length} files. Raw-param spread form + jsonb param casts are consistent.`);

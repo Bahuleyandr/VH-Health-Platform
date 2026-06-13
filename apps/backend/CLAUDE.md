@@ -399,6 +399,23 @@ SQL, JWT auth, or test infrastructure:
   (commit `d27d79b9`). On any raw-SQL change, grep for `(sql, \w+\)`
   and verify the variable is spread at the call site or the function
   signature already spreads it.
+- **Params inside `jsonb_build_object` / `jsonb_build_array` need explicit
+  `::type` casts.** A bare `$N` used as a VALUE in these builders has no
+  inferable type (the signature is `VARIADIC "any"`), so the query fails at
+  PARSE time with `42P08 could not determine data type of parameter $N`.
+  Postgres names the LOWEST-numbered unresolved param, so a 42P08 on `$2` can
+  actually require casting `$2`/`$4`/`$5`… When the call is best-effort /
+  swallowed the request still returns 2xx, but the Prisma error listener in
+  `src/lib/prisma.js` logs it centrally as `Prisma[primary] error` — so it can
+  masquerade as an unrelated path's failure (to pinpoint, temporarily log
+  `args[0]` + `new Error().stack` in the `wrapWithCircuitBreaker` catch, then
+  revert). Tagged-template `` $queryRaw`…` `` is safe (Prisma sends typed
+  values); only the `…Unsafe` forms are at risk. A param already cast elsewhere
+  in the same query (e.g. `$2::int` in a WHERE) resolves once and is fine.
+  `npm run lint:raw-params` catches this class too (added 2026-06-13). Reference
+  fix: `transitionEncounter` in
+  `services/clinical/canonicalClinicalPlatformService.js` — `status` is
+  `VARCHAR(30)`, so `$2`/`$4`/`$5` became `::text`.
 - **`req.user.id` is the int DB id**, surfaced by `jwtMiddleware` when the
   token carries `id`/`userId`/`user_id`. `req.user.uid` is the uuid.
   IDOR checks against integer FK columns (`appointments.patient_id`,
