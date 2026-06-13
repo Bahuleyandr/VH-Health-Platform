@@ -7,6 +7,7 @@ import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 @visibleForTesting
 String safetyOwnerForAlert(NotificationItem item) {
@@ -219,14 +220,15 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         leading: const NavigationBackAction(),
-        title: const Text('Safety Center'),
+        title: Text(s.safetyCenterTitle),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: s.safetyCenterRefreshTooltip,
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -236,26 +238,26 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-          ? _ErrorState(message: _error!, onRetry: _load)
+          ? _ErrorState(message: _error!, onRetry: _load, retryLabel: s.safetyCenterRetry)
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                 children: [
-                  _buildSummary(),
+                  _buildSummary(s),
                   const SizedBox(height: 14),
-                  _buildCriticalAlerts(theme),
+                  _buildCriticalAlerts(theme, s),
                   const SizedBox(height: 14),
-                  _buildDischargeReadiness(theme),
+                  _buildDischargeReadiness(theme, s),
                   const SizedBox(height: 14),
-                  _buildHousekeepingSla(theme),
+                  _buildHousekeepingSla(theme, s),
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildSummary() {
+  Widget _buildSummary(AppStrings s) {
     final overdueHousekeeping = _housekeepingTasks
         .where((task) => _isOverdue(task['sla_due_at']))
         .length;
@@ -263,7 +265,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
       children: [
         Expanded(
           child: _MetricCard(
-            label: 'Critical alerts',
+            label: s.safetyCenterMetricCriticalAlerts,
             value: _criticalAlerts.where((item) => !item.isRead).length,
             icon: Icons.priority_high,
             color: AppTheme.errorOnSurface,
@@ -272,7 +274,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         const SizedBox(width: 10),
         Expanded(
           child: _MetricCard(
-            label: 'Discharge blockers',
+            label: s.safetyCenterMetricDischargeBlockers,
             value: _dischargeItems.length,
             icon: Icons.rule_folder,
             color: AppTheme.warningOnSurface,
@@ -281,7 +283,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
         const SizedBox(width: 10),
         Expanded(
           child: _MetricCard(
-            label: 'Cleaning overdue',
+            label: s.safetyCenterMetricCleaningOverdue,
             value: overdueHousekeeping,
             icon: Icons.cleaning_services,
             color: overdueHousekeeping > 0
@@ -293,15 +295,14 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
     );
   }
 
-  Widget _buildCriticalAlerts(ThemeData theme) {
+  Widget _buildCriticalAlerts(ThemeData theme, AppStrings s) {
     final items = _criticalAlerts.take(8).toList(growable: false);
     return _SafetySection(
-      title: 'Critical alerts',
-      subtitle:
-          'Unread or high-priority workflow alerts that need acknowledgement.',
+      title: s.safetyCenterCriticalAlertsTitle,
+      subtitle: s.safetyCenterCriticalAlertsSubtitle,
       icon: Icons.notifications_active_outlined,
-      empty: 'No critical alerts waiting.',
-      actionLabel: 'Open Alerts',
+      empty: s.safetyCenterCriticalAlertsEmpty,
+      actionLabel: s.safetyCenterCriticalAlertsAction,
       onAction: () => context.push('/notifications'),
       children: items.map((item) {
         final route = item.actionRoute;
@@ -313,7 +314,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           title: item.title,
           subtitle: [
             if (item.body.isNotEmpty) item.body,
-            'Owner: ${safetyOwnerForAlert(item)}',
+            '${s.safetyCenterOwnerPrefix}: ${safetyOwnerForAlert(item)}',
             safetyEscalationLabel(item),
             item.normalizedPriority.isNotEmpty
                 ? item.normalizedPriority
@@ -325,7 +326,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
               TextButton.icon(
                 onPressed: () => _acknowledge(item),
                 icon: const Icon(Icons.done_all, size: 16),
-                label: const Text('Acknowledge'),
+                label: Text(s.safetyCenterAcknowledge),
               ),
             if (route != null)
               FilledButton.tonalIcon(
@@ -339,14 +340,14 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
     );
   }
 
-  Widget _buildDischargeReadiness(ThemeData theme) {
+  Widget _buildDischargeReadiness(ThemeData theme, AppStrings s) {
     final items = _dischargeItems.take(8).toList(growable: false);
     return _SafetySection(
-      title: 'Discharge blockers',
-      subtitle: 'Role-owned items blocking final discharge.',
+      title: s.safetyCenterDischargeTile,
+      subtitle: s.safetyCenterDischargeSubtitle,
       icon: Icons.rule_folder_outlined,
-      empty: 'No discharge blockers.',
-      actionLabel: 'Open Discharge Hub',
+      empty: s.safetyCenterDischargeEmpty,
+      actionLabel: s.safetyCenterDischargeAction,
       onAction: () => context.push('/emr/discharge-hub'),
       children: items.map((hub) {
         final admission = _asMap(hub['admission']);
@@ -368,8 +369,8 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           color: AppTheme.warningOnSurface,
           title: _text(admission['patient_name'], 'Patient'),
           subtitle: blockerText.isEmpty
-              ? 'Owner: ${owners.isEmpty ? 'Discharge team' : owners} - Pending work items: ${_text(counts['pending'], '0')}'
-              : 'Owner: ${owners.isEmpty ? 'Discharge team' : owners} - $blockerText',
+              ? '${s.safetyCenterOwnerPrefix}: ${owners.isEmpty ? 'Discharge team' : owners} - Pending work items: ${_text(counts['pending'], '0')}'
+              : '${s.safetyCenterOwnerPrefix}: ${owners.isEmpty ? 'Discharge team' : owners} - $blockerText',
           meta: [
             _text(admission['ward']),
             if (_text(admission['bed_number']).isNotEmpty)
@@ -379,7 +380,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
             FilledButton.tonalIcon(
               onPressed: () => _openDischarge(hub),
               icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('Open hub'),
+              label: Text(s.safetyCenterDischargeOpenHub),
             ),
           ],
         );
@@ -387,14 +388,14 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
     );
   }
 
-  Widget _buildHousekeepingSla(ThemeData theme) {
+  Widget _buildHousekeepingSla(ThemeData theme, AppStrings s) {
     final items = _housekeepingTasks.take(8).toList(growable: false);
     return _SafetySection(
-      title: 'Bed cleaning SLA',
-      subtitle: 'Assigned housekeeping tasks sorted by closest SLA deadline.',
+      title: s.safetyCenterHousekeepingTitle,
+      subtitle: s.safetyCenterHousekeepingSubtitle,
       icon: Icons.cleaning_services_outlined,
-      empty: 'No assigned cleaning tasks.',
-      actionLabel: 'Open Housekeeping',
+      empty: s.safetyCenterHousekeepingEmpty,
+      actionLabel: s.safetyCenterHousekeepingAction,
       onAction: _openHousekeeping,
       children: items.map((task) {
         final overdue = _isOverdue(task['sla_due_at']);
@@ -408,7 +409,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
           color: overdue ? AppTheme.errorOnSurface : AppTheme.primaryTeal,
           title: location.isEmpty ? 'Cleaning request' : location,
           subtitle: [
-            'Owner: Housekeeping',
+            '${s.safetyCenterOwnerPrefix}: Housekeeping',
             safetyHousekeepingSlaLabel(task),
             _text(task['request_type'], 'cleaning').replaceAll('_', ' '),
             _text(task['status'], 'assigned').replaceAll('_', ' '),
@@ -422,7 +423,7 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
             FilledButton.tonalIcon(
               onPressed: _openHousekeeping,
               icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('Open task'),
+              label: Text(s.safetyCenterHousekeepingOpenTask),
             ),
           ],
         );
@@ -656,12 +657,14 @@ class _SafetyRow extends StatelessWidget {
 class _ErrorState extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
+  final String? retryLabel;
 
-  const _ErrorState({required this.message, required this.onRetry});
+  const _ErrorState({required this.message, required this.onRetry, this.retryLabel});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final label = retryLabel ?? AppStrings.of(context).safetyCenterRetry;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -675,7 +678,7 @@ class _ErrorState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(label),
             ),
           ],
         ),

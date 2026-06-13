@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../l10n/app_strings.dart';
 import '../../appointments/models/staff_appointment.dart';
 
 class OpNursingDashboardScreen extends StatefulWidget {
@@ -94,6 +95,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyR, control: true): _load,
@@ -104,21 +106,21 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
       child: Focus(
         autofocus: true,
         child: StaffScaffold(
-          title: 'OP Nursing Dashboard',
+          title: s.opNursingDashboardTitle,
           actions: [
             IconButton(
-              tooltip: 'Refresh',
+              tooltip: s.opNursingDashboardRefreshTooltip,
               onPressed: _loading ? null : _load,
               icon: const Icon(Icons.refresh),
             ),
           ],
-          body: _buildBody(),
+          body: _buildBody(s),
         ),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppStrings s) {
     return RefreshIndicator(
       onRefresh: _load,
       child: Scrollbar(
@@ -131,18 +133,18 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(),
+              _buildHeader(s),
               const SizedBox(height: 14),
-              _buildSearchAndFilters(),
+              _buildSearchAndFilters(s),
               const SizedBox(height: 14),
-              _buildStats(),
+              _buildStats(s),
               const SizedBox(height: 16),
               if (_loading)
                 const SkeletonList()
               else if (_error != null)
                 ErrorState(message: _error!, onRetry: _load)
               else
-                _buildQueueList(),
+                _buildQueueList(s),
             ],
           ),
         ),
@@ -150,7 +152,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(AppStrings s) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -166,12 +168,12 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
             runSpacing: 8,
             children: [
               _DateChip(
-                label: 'Today',
+                label: s.opNursingDateToday,
                 selected: _isSameDay(_selectedDate, DateTime.now()),
                 onTap: () => _setDate(DateTime.now()),
               ),
               _DateChip(
-                label: 'Tomorrow',
+                label: s.opNursingDateTomorrow,
                 selected: _isSameDay(
                   _selectedDate,
                   DateTime.now().add(const Duration(days: 1)),
@@ -180,7 +182,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
                     _setDate(DateTime.now().add(const Duration(days: 1))),
               ),
               _DateChip(
-                label: 'Following day',
+                label: s.opNursingDateFollowingDay,
                 selected: _isSameDay(
                   _selectedDate,
                   DateTime.now().add(const Duration(days: 2)),
@@ -221,7 +223,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'OP Nursing Queue',
+                      s.opNursingQueueTitle,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: AppTheme.textPrimary,
                         fontWeight: FontWeight.w900,
@@ -257,7 +259,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
     );
   }
 
-  Widget _buildSearchAndFilters() {
+  Widget _buildSearchAndFilters(AppStrings s) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -271,12 +273,12 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
             controller: _searchCtrl,
             focusNode: _searchFocus,
             decoration: InputDecoration(
-              hintText: 'Search patient, phone, doctor, department',
+              hintText: s.opNursingSearchHint,
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _query.isEmpty
                   ? null
                   : IconButton(
-                      tooltip: 'Clear search',
+                      tooltip: s.opNursingClearSearchTooltip,
                       onPressed: () {
                         _searchCtrl.clear();
                         setState(() => _query = '');
@@ -296,24 +298,24 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
               runSpacing: 8,
               children: [
                 _FilterChipButton(
-                  label: 'Active',
+                  label: s.opNursingFilterActive,
                   selected: _statusFilter == 'active',
                   onTap: () => setState(() => _statusFilter = 'active'),
                 ),
                 _FilterChipButton(
-                  label: 'Overdue',
+                  label: s.opNursingFilterOverdue,
                   selected: _statusFilter == 'overdue',
                   color: AppTheme.warningOnSurface,
                   onTap: () => setState(() => _statusFilter = 'overdue'),
                 ),
                 _FilterChipButton(
-                  label: 'Completed',
+                  label: s.opNursingFilterCompleted,
                   selected: _statusFilter == 'completed',
                   color: AppTheme.successOnSurface,
                   onTap: () => setState(() => _statusFilter = 'completed'),
                 ),
                 _FilterChipButton(
-                  label: 'All',
+                  label: s.opNursingFilterAll,
                   selected: _statusFilter == 'all',
                   onTap: () => setState(() => _statusFilter = 'all'),
                 ),
@@ -325,28 +327,28 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
     );
   }
 
-  Widget _buildStats() {
+  Widget _buildStats(AppStrings s) {
     final stats = [
       _QueueStat(
-        label: 'Active queue',
+        label: s.opNursingStatActiveQueue,
         value: _activeCount,
         icon: Icons.queue_outlined,
         color: AppTheme.primaryBlue,
       ),
       _QueueStat(
-        label: 'Needs triage',
+        label: s.opNursingStatNeedsTriage,
         value: _activeCount,
         icon: Icons.fact_check_outlined,
         color: AppTheme.accentCyan,
       ),
       _QueueStat(
-        label: 'Overdue wait',
+        label: s.opNursingStatOverdueWait,
         value: _overdueCount,
         icon: Icons.timer_outlined,
         color: AppTheme.warningOnSurface,
       ),
       _QueueStat(
-        label: 'Completed',
+        label: s.opNursingStatCompleted,
         value: _completedCount,
         icon: Icons.check_circle_outline,
         color: AppTheme.successOnSurface,
@@ -369,7 +371,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
     );
   }
 
-  Widget _buildQueueList() {
+  Widget _buildQueueList(AppStrings s) {
     final appointments = _filtered;
     if (appointments.isEmpty) {
       return Container(
@@ -389,7 +391,7 @@ class _OpNursingDashboardScreenState extends State<OpNursingDashboardScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              'No matching OP appointments',
+              s.opNursingNoMatchingAppointments,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: AppTheme.textPrimary,
                 fontWeight: FontWeight.w800,
@@ -536,69 +538,78 @@ class _OpQueueCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (appointment.doctorName.isNotEmpty)
-                _InfoPill(
-                  icon: Icons.medical_services_outlined,
-                  label: appointment.doctorName,
-                ),
-              if (appointment.department.isNotEmpty)
-                _InfoPill(
-                  icon: Icons.business_outlined,
-                  label: appointment.department,
-                ),
-              if (appointment.reason.isNotEmpty)
-                _InfoPill(
-                  icon: Icons.local_hospital_outlined,
-                  label: appointment.reason,
-                ),
-              if (overdue)
-                _InfoPill(
-                  icon: Icons.timer_outlined,
-                  label: 'Overdue wait',
-                  color: AppTheme.warningOnSurface,
-                ),
-            ],
-          ),
+          Builder(builder: (ctx) {
+            final s = AppStrings.of(ctx);
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (appointment.doctorName.isNotEmpty)
+                  _InfoPill(
+                    icon: Icons.medical_services_outlined,
+                    label: appointment.doctorName,
+                  ),
+                if (appointment.department.isNotEmpty)
+                  _InfoPill(
+                    icon: Icons.business_outlined,
+                    label: appointment.department,
+                  ),
+                if (appointment.reason.isNotEmpty)
+                  _InfoPill(
+                    icon: Icons.local_hospital_outlined,
+                    label: appointment.reason,
+                  ),
+                if (overdue)
+                  _InfoPill(
+                    icon: Icons.timer_outlined,
+                    label: s.opNursingCardOverdueWait,
+                    color: AppTheme.warningOnSurface,
+                  ),
+              ],
+            );
+          }),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _ActionChipButton(
-                icon: Icons.folder_shared_outlined,
-                label: 'Records',
-                onTap: onOpenRecords,
-              ),
-              _ActionChipButton(
-                icon: Icons.biotech_outlined,
-                label: 'Investigations',
-                onTap: onOpenInvestigations,
-              ),
-              _ActionChipButton(
-                icon: Icons.edit_note_outlined,
-                label: 'Nursing note',
-                onTap: onOpenNursingNotes,
-              ),
-              _ActionChipButton(
-                icon: Icons.timeline_outlined,
-                label: 'Timeline',
-                onTap: onOpenTimeline,
-              ),
-            ],
-          ),
+          Builder(builder: (ctx) {
+            final s = AppStrings.of(ctx);
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _ActionChipButton(
+                  icon: Icons.folder_shared_outlined,
+                  label: s.opNursingCardRecords,
+                  onTap: onOpenRecords,
+                ),
+                _ActionChipButton(
+                  icon: Icons.biotech_outlined,
+                  label: s.opNursingCardInvestigations,
+                  onTap: onOpenInvestigations,
+                ),
+                _ActionChipButton(
+                  icon: Icons.edit_note_outlined,
+                  label: s.opNursingCardNursingNote,
+                  onTap: onOpenNursingNotes,
+                ),
+                _ActionChipButton(
+                  icon: Icons.timeline_outlined,
+                  label: s.opNursingCardTimeline,
+                  onTap: onOpenTimeline,
+                ),
+              ],
+            );
+          }),
           if (!hasPatientUid) ...[
             const SizedBox(height: 10),
-            Text(
-              'Patient UID missing; patient actions use phone or ID only.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppTheme.warningOnSurface,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            Builder(builder: (ctx) {
+              final s = AppStrings.of(ctx);
+              return Text(
+                s.opNursingPatientUidMissing,
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                  color: AppTheme.warningOnSurface,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+            }),
           ],
         ],
       ),

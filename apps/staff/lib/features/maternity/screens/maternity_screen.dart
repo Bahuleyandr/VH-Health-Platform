@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class _ActiveLabor {
   _ActiveLabor.fromJson(Map<String, dynamic> j)
@@ -103,15 +104,16 @@ class _MaternityScreenState extends State<MaternityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Maternity'),
+        title: Text(s.maternityTitle),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _fetch,
-            tooltip: 'Refresh',
+            tooltip: s.maternityRefreshTooltip,
           ),
         ],
       ),
@@ -134,32 +136,36 @@ class _MaternityScreenState extends State<MaternityScreen> {
                     const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: _fetch,
-                      child: const Text('Retry'),
+                      child: Text(s.maternityRetry),
                     ),
                   ],
                 ),
               ),
             )
           : _labors.isEmpty
-          ? const Center(
+          ? Center(
               child: Padding(
-                padding: EdgeInsets.all(32),
+                padding: const EdgeInsets.all(32),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.child_friendly, size: 64, color: Colors.grey),
-                    SizedBox(height: 16),
+                    const Icon(
+                      Icons.child_friendly,
+                      size: 64,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(height: 16),
                     Text(
-                      'Labour ward is quiet',
-                      style: TextStyle(
+                      s.maternityEmptyTitle,
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text(
-                      'No active labour admissions right now.',
-                      style: TextStyle(color: Colors.grey),
+                      s.maternityEmptyBody,
+                      style: const TextStyle(color: Colors.grey),
                     ),
                   ],
                 ),
@@ -186,6 +192,7 @@ class _LaborCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final theme = Theme.of(context);
     return Card(
       shape: RoundedRectangleBorder(
@@ -212,7 +219,7 @@ class _LaborCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Patient ${labor.patientUid.substring(0, 8)} · admitted ${labor.ageHours} ago',
+                        '${s.maternityPatientPrefix} ${labor.patientUid.substring(0, 8)} · ${s.maternityAdmittedPrefix} ${labor.ageHours} ago',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.outline,
                         ),
@@ -233,7 +240,7 @@ class _LaborCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        '⚠ HIGH RISK',
+                        s.maternityHighRiskLabel,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: Colors.amber.shade900,
                           fontWeight: FontWeight.w700,
@@ -248,10 +255,11 @@ class _LaborCard extends StatelessWidget {
               spacing: 14,
               runSpacing: 6,
               children: [
-                _stat('Cervix', '${labor.cervixDilation ?? "—"} cm'),
-                _stat('FHR', '${labor.fetalHr ?? "—"}'),
-                _stat('Ctx /10min', '${labor.contractions ?? "—"}'),
-                if (labor.reason != null) _stat('Reason', labor.reason!),
+                _stat(s.maternityStatCervix, '${labor.cervixDilation ?? "—"} cm'),
+                _stat(s.maternityStatFhr, '${labor.fetalHr ?? "—"}'),
+                _stat(s.maternityStatCtx, '${labor.contractions ?? "—"}'),
+                if (labor.reason != null)
+                  _stat(s.maternityStatReason, labor.reason!),
               ],
             ),
             const SizedBox(height: 14),
@@ -262,7 +270,7 @@ class _LaborCard extends StatelessWidget {
                     onPressed: () =>
                         context.push('/maternity/labor/${labor.id}/chart'),
                     icon: const Icon(Icons.show_chart),
-                    label: const Text('Partograph chart'),
+                    label: Text(s.maternityActionPartographChart),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -275,7 +283,7 @@ class _LaborCard extends StatelessWidget {
                       if (added == true) onChanged();
                     },
                     icon: const Icon(Icons.add),
-                    label: const Text('New entry'),
+                    label: Text(s.maternityActionNewEntry),
                   ),
                 ),
               ],

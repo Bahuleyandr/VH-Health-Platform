@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 import '../widgets/partograph_chart.dart';
 
 class PartographViewScreen extends StatefulWidget {
@@ -87,12 +88,15 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final actionCount = _points.where((p) => p.onActionLine == true).length;
     final alertCount = _points.where((p) => p.onAlertLine == true).length;
+    final actionSuffix = actionCount == 1 ? 'y' : 'ies';
+    final alertSuffix = alertCount == 1 ? 'y' : 'ies';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Partograph'),
+        title: Text(s.partographViewTitle),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _fetch),
         ],
@@ -115,11 +119,11 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.warning_amber),
                       title: Text(
-                        'Action line crossed in $actionCount entr${actionCount == 1 ? "y" : "ies"}',
+                        // pluralisation kept in Dart; key holds the base pattern
+                        s.partographViewActionLineCrossed(actionCount)
+                            .replaceAll('{suffix}', actionSuffix),
                       ),
-                      subtitle: const Text(
-                        'Escalate to obstetrician — labour progress is below the WHO action line.',
-                      ),
+                      subtitle: Text(s.partographViewActionLineSubtitle),
                     ),
                   )
                 else if (alertCount > 0)
@@ -128,11 +132,10 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.info_outline),
                       title: Text(
-                        'Alert line crossed in $alertCount entr${alertCount == 1 ? "y" : "ies"}',
+                        s.partographViewAlertLineCrossed(alertCount)
+                            .replaceAll('{suffix}', alertSuffix),
                       ),
-                      subtitle: const Text(
-                        'Increase frequency of monitoring; consider intervention if no progress.',
-                      ),
+                      subtitle: Text(s.partographViewAlertLineSubtitle),
                     ),
                   ),
                 if (_activePhaseStart != null) ...[
@@ -146,11 +149,9 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                     activePhaseStart: _activePhaseStart!,
                   ),
                 ] else
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'No active phase anchor recorded — set labor_started_at on admission to plot the chart.',
-                    ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(s.partographViewNoAnchor),
                   ),
               ],
             ),
@@ -164,7 +165,7 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
           }
         },
         icon: const Icon(Icons.add),
-        label: const Text('New entry'),
+        label: Text(s.partographViewNewEntry),
       ),
     );
   }
@@ -177,10 +178,11 @@ class _PointTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (points.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Text('No entries yet — tap "New entry" to record.'),
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(s.partographViewNoEntries),
       );
     }
     final theme = Theme.of(context);
@@ -190,7 +192,7 @@ class _PointTimeline extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Recent entries', style: theme.textTheme.titleSmall),
+            Text(s.partographViewRecentEntries, style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             ...points.reversed.take(8).map((p) {
               final hours =

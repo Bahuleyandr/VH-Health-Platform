@@ -2363,6 +2363,299 @@ class AppStrings {
   String get errorRestartOrContact => _t('error.restart_or_contact');
   String get appointmentsNoToday => _t('appointments.no_today');
 
+  // ── OP Nursing Dashboard ───────────────────────────────────────────
+  String get opNursingDashboardTitle => _t('op_nursing_dashboard.title');
+  String get opNursingDashboardRefreshTooltip =>
+      _t('op_nursing_dashboard.refresh_tooltip');
+  String get opNursingQueueTitle => _t('op_nursing_dashboard.queue_title');
+  String get opNursingSearchHint => _t('op_nursing_dashboard.search_hint');
+  String get opNursingClearSearchTooltip =>
+      _t('op_nursing_dashboard.clear_search_tooltip');
+  String get opNursingFilterActive => _t('op_nursing_dashboard.filter.active');
+  String get opNursingFilterOverdue =>
+      _t('op_nursing_dashboard.filter.overdue');
+  String get opNursingFilterCompleted =>
+      _t('op_nursing_dashboard.filter.completed');
+  String get opNursingFilterAll => _t('op_nursing_dashboard.filter.all');
+  String get opNursingStatActiveQueue =>
+      _t('op_nursing_dashboard.stat.active_queue');
+  String get opNursingStatNeedsTriage =>
+      _t('op_nursing_dashboard.stat.needs_triage');
+  String get opNursingStatOverdueWait =>
+      _t('op_nursing_dashboard.stat.overdue_wait');
+  String get opNursingStatCompleted =>
+      _t('op_nursing_dashboard.stat.completed');
+  String get opNursingNoMatchingAppointments =>
+      _t('op_nursing_dashboard.no_matching_appointments');
+  String get opNursingDateToday => _t('op_nursing_dashboard.date.today');
+  String get opNursingDateTomorrow => _t('op_nursing_dashboard.date.tomorrow');
+  String get opNursingDateFollowingDay =>
+      _t('op_nursing_dashboard.date.following_day');
+  String get opNursingCardRecords => _t('op_nursing_dashboard.card.records');
+  String get opNursingCardInvestigations =>
+      _t('op_nursing_dashboard.card.investigations');
+  String get opNursingCardNursingNote =>
+      _t('op_nursing_dashboard.card.nursing_note');
+  String get opNursingCardTimeline =>
+      _t('op_nursing_dashboard.card.timeline');
+  String get opNursingCardOverdueWait =>
+      _t('op_nursing_dashboard.card.overdue_wait');
+  String get opNursingPatientUidMissing =>
+      _t('op_nursing_dashboard.patient_uid_missing');
+
+  // ── Maternity screen ───────────────────────────────────────────────
+  String get maternityTitle => _t('maternity.title');
+  String get maternityRefreshTooltip => _t('maternity.refresh_tooltip');
+  String get maternityRetry => _t('maternity.retry');
+  // REVIEW: clinical — confirm 'Labour ward is quiet' phrasing with midwifery staff
+  String get maternityEmptyTitle => _t('maternity.empty_title');
+  String get maternityEmptyBody => _t('maternity.empty_body');
+  String get maternityAdmittedPrefix => _t('maternity.admitted_prefix');
+  String get maternityPatientPrefix => _t('maternity.patient_prefix');
+  String get maternityHighRiskLabel => _t('maternity.high_risk_label');
+  String get maternityStatCervix => _t('maternity.stat.cervix');
+  String get maternityStatFhr => _t('maternity.stat.fhr');
+  String get maternityStatCtx => _t('maternity.stat.ctx');
+  String get maternityStatReason => _t('maternity.stat.reason');
+  String get maternityActionPartographChart =>
+      _t('maternity.action.partograph_chart');
+  String get maternityActionNewEntry => _t('maternity.action.new_entry');
+
+  // ── Partograph entry screen ────────────────────────────────────────
+  String get partographEntryTitle => _t('partograph_entry.title');
+  String get partographSectionLabourProgress =>
+      _t('partograph_entry.section.labour_progress');
+  String get partographSectionFetalStatus =>
+      _t('partograph_entry.section.fetal_status');
+  String get partographSectionMaternalVitals =>
+      _t('partograph_entry.section.maternal_vitals');
+  String get partographSectionDrugsFluids =>
+      _t('partograph_entry.section.drugs_fluids');
+  String get partographCervixDilation =>
+      _t('partograph_entry.cervix_dilation');
+  String get partographCervixDilationHint =>
+      _t('partograph_entry.cervix_dilation_hint');
+  String get partographDescent => _t('partograph_entry.descent');
+  String get partographCtxPer10min => _t('partograph_entry.ctx_per_10min');
+  String get partographCtxDuration => _t('partograph_entry.ctx_duration');
+  String get partographCtxIntensity => _t('partograph_entry.ctx_intensity');
+  String get partographCtxWeak => _t('partograph_entry.ctx.weak');
+  String get partographCtxModerate => _t('partograph_entry.ctx.moderate');
+  String get partographCtxStrong => _t('partograph_entry.ctx.strong');
+  String get partographFhr => _t('partograph_entry.fhr');
+  String get partographDecelerations => _t('partograph_entry.decelerations');
+  String get partographDecelNone => _t('partograph_entry.decel.none');
+  String get partographDecelEarly => _t('partograph_entry.decel.early');
+  String get partographDecelLate => _t('partograph_entry.decel.late');
+  String get partographDecelVariable => _t('partograph_entry.decel.variable');
+  String get partographAmnioticFluid => _t('partograph_entry.amniotic_fluid');
+  String get partographMoulding => _t('partograph_entry.moulding');
+  String get partographBpSystolic => _t('partograph_entry.bp_systolic');
+  String get partographBpDiastolic => _t('partograph_entry.bp_diastolic');
+  String get partographPulse => _t('partograph_entry.pulse');
+  String get partographTemperature => _t('partograph_entry.temperature');
+  String get partographUrineOutput => _t('partograph_entry.urine_output');
+  String get partographUrineProtein => _t('partograph_entry.urine_protein');
+  String get partographUrineAcetone => _t('partograph_entry.urine_acetone');
+  String get partographOxytocin => _t('partograph_entry.oxytocin');
+  String get partographOxytocinDrops => _t('partograph_entry.oxytocin_drops');
+  String get partographOtherDrugs => _t('partograph_entry.other_drugs');
+  String get partographIvFluids => _t('partograph_entry.iv_fluids');
+  String get partographNotes => _t('partograph_entry.notes');
+  String get partographSaving => _t('partograph_entry.saving');
+  String get partographSaveEntry => _t('partograph_entry.save_entry');
+  // REVIEW: critical clinical alert — escalation to obstetrician
+  String get partographSavedActionLine =>
+      _t('partograph_entry.saved_action_line');
+  // REVIEW: clinical alert
+  String get partographSavedAlertLine =>
+      _t('partograph_entry.saved_alert_line');
+  String get partographSaved => _t('partograph_entry.saved');
+
+  // ── Partograph view screen ─────────────────────────────────────────
+  String get partographViewTitle => _t('partograph_view.title');
+  // REVIEW: critical clinical alert label — escalation to obstetrician
+  String partographViewActionLineCrossed(int count) =>
+      _t('partograph_view.action_line_crossed').replaceAll('{n}', '$count');
+  String get partographViewActionLineSubtitle =>
+      _t('partograph_view.action_line_subtitle');
+  String partographViewAlertLineCrossed(int count) =>
+      _t('partograph_view.alert_line_crossed').replaceAll('{n}', '$count');
+  String get partographViewAlertLineSubtitle =>
+      _t('partograph_view.alert_line_subtitle');
+  String get partographViewNoAnchor => _t('partograph_view.no_anchor');
+  String get partographViewNewEntry => _t('partograph_view.new_entry');
+  String get partographViewRecentEntries =>
+      _t('partograph_view.recent_entries');
+  String get partographViewNoEntries => _t('partograph_view.no_entries');
+
+  // ── Safety Center screen ───────────────────────────────────────────
+  String get safetyCenterTitle => _t('safety_center.title');
+  String get safetyCenterRefreshTooltip =>
+      _t('safety_center.refresh_tooltip');
+  String get safetyCenterMetricCriticalAlerts =>
+      _t('safety_center.metric.critical_alerts');
+  String get safetyCenterMetricDischargeBlockers =>
+      _t('safety_center.metric.discharge_blockers');
+  String get safetyCenterMetricCleaningOverdue =>
+      _t('safety_center.metric.cleaning_overdue');
+  String get safetyCenterCriticalAlertsTitle =>
+      _t('safety_center.critical_alerts.title');
+  String get safetyCenterCriticalAlertsSubtitle =>
+      _t('safety_center.critical_alerts.subtitle');
+  String get safetyCenterCriticalAlertsEmpty =>
+      _t('safety_center.critical_alerts.empty');
+  String get safetyCenterCriticalAlertsAction =>
+      _t('safety_center.critical_alerts.action');
+  String get safetyCenterAcknowledge => _t('safety_center.acknowledge');
+  String get safetyCenterDischargeTile =>
+      _t('safety_center.discharge.title');
+  String get safetyCenterDischargeSubtitle =>
+      _t('safety_center.discharge.subtitle');
+  String get safetyCenterDischargeEmpty => _t('safety_center.discharge.empty');
+  String get safetyCenterDischargeAction =>
+      _t('safety_center.discharge.action');
+  String get safetyCenterDischargeOpenHub =>
+      _t('safety_center.discharge.open_hub');
+  String get safetyCenterHousekeepingTitle =>
+      _t('safety_center.housekeeping.title');
+  String get safetyCenterHousekeepingSubtitle =>
+      _t('safety_center.housekeeping.subtitle');
+  String get safetyCenterHousekeepingEmpty =>
+      _t('safety_center.housekeeping.empty');
+  String get safetyCenterHousekeepingAction =>
+      _t('safety_center.housekeeping.action');
+  String get safetyCenterHousekeepingOpenTask =>
+      _t('safety_center.housekeeping.open_task');
+  String get safetyCenterOwnerPrefix => _t('safety_center.owner_prefix');
+  String get safetyCenterRetry => _t('safety_center.retry');
+
+  // ── Reception Counter screen ───────────────────────────────────────
+  String get receptionCounterTitle => _t('reception_counter.title');
+  String get receptionCounterModeTitle => _t('reception_counter.mode_title');
+  String get receptionCounterModeSubtitle =>
+      _t('reception_counter.mode_subtitle');
+  String get receptionCounterRefreshTooltip =>
+      _t('reception_counter.refresh_tooltip');
+  String get receptionCounterStatTodayOpd =>
+      _t('reception_counter.stat.today_opd');
+  String get receptionCounterStatActiveIp =>
+      _t('reception_counter.stat.active_ip');
+  String get receptionCounterTabOpd => _t('reception_counter.tab.opd');
+  String get receptionCounterTabIp => _t('reception_counter.tab.ip_admission');
+  String get receptionCounterTabToday => _t('reception_counter.tab.today');
+  String get receptionCounterOpdTitle =>
+      _t('reception_counter.opd.title');
+  String get receptionCounterIpTitle =>
+      _t('reception_counter.ip.title');
+  String get receptionCounterTodayTitle =>
+      _t('reception_counter.today.title');
+  String get receptionCounterPatientLookupTitle =>
+      _t('reception_counter.patient_lookup.title');
+  String get receptionCounterPatientLookupHint =>
+      _t('reception_counter.patient_lookup.hint');
+  String get receptionCounterDoctorTitle =>
+      _t('reception_counter.doctor.title');
+  String get receptionCounterDoctorSearchHint =>
+      _t('reception_counter.doctor.search_hint');
+  String get receptionCounterDoctorNoneMatch =>
+      _t('reception_counter.doctor.none_match');
+  String get receptionCounterDoctorCouldNotLoad =>
+      _t('reception_counter.doctor.could_not_load');
+  String get receptionCounterPatientPhone =>
+      _t('reception_counter.patient.phone');
+  String get receptionCounterPatientName =>
+      _t('reception_counter.patient.name');
+  String get receptionCounterOpdReason => _t('reception_counter.opd.reason');
+  String get receptionCounterOpdNotes => _t('reception_counter.opd.notes');
+  String get receptionCounterOpdBookButton =>
+      _t('reception_counter.opd.book_button');
+  String get receptionCounterIpChiefComplaint =>
+      _t('reception_counter.ip.chief_complaint');
+  String get receptionCounterIpDiagnosis =>
+      _t('reception_counter.ip.diagnosis');
+  String get receptionCounterIpWard => _t('reception_counter.ip.ward');
+  String get receptionCounterIpBed => _t('reception_counter.ip.bed');
+  String get receptionCounterIpPriority =>
+      _t('reception_counter.ip.priority');
+  String get receptionCounterIpCodeStatus =>
+      _t('reception_counter.ip.code_status');
+  String get receptionCounterIpConsentTitle =>
+      _t('reception_counter.ip.consent_title');
+  String get receptionCounterIpConsentSubtitle =>
+      _t('reception_counter.ip.consent_subtitle');
+  String get receptionCounterIpCreateButton =>
+      _t('reception_counter.ip.create_button');
+  String get receptionCounterWardFloor =>
+      _t('reception_counter.ward.floor');
+  String get receptionCounterBed => _t('reception_counter.bed');
+  String get receptionCounterBedSelectWardFirst =>
+      _t('reception_counter.bed.select_ward_first');
+  String get receptionCounterBedUnavailable =>
+      _t('reception_counter.bed.unavailable');
+  String get receptionCounterBedNoFree =>
+      _t('reception_counter.bed.no_free');
+  String get receptionCounterOpdAppointments =>
+      _t('reception_counter.today.opd_appointments');
+  String get receptionCounterActiveAdmissions =>
+      _t('reception_counter.today.active_admissions');
+  String get receptionCounterTodayNoAppointments =>
+      _t('reception_counter.today.no_appointments');
+  String get receptionCounterTodayNoAdmissions =>
+      _t('reception_counter.today.no_admissions');
+  String get receptionCounterTodayOpenAppointments =>
+      _t('reception_counter.today.open_appointments');
+  String get receptionCounterClearPatient =>
+      _t('reception_counter.clear_patient');
+  String get receptionCounterSelectedPatient =>
+      _t('reception_counter.selected_patient');
+  String get receptionCounterUnnamedPatient =>
+      _t('reception_counter.unnamed_patient');
+  String get receptionCounterUnknownPatient =>
+      _t('reception_counter.unknown_patient');
+  String get receptionCounterAdmissionActive =>
+      _t('reception_counter.admission_active');
+  String get receptionCounterValidatePhoneOrPatient =>
+      _t('reception_counter.validate.phone_or_patient');
+  String get receptionCounterValidateDoctor =>
+      _t('reception_counter.validate.doctor');
+  String get receptionCounterValidateReason =>
+      _t('reception_counter.validate.reason');
+  String get receptionCounterValidateSelectPatient =>
+      _t('reception_counter.validate.select_patient');
+  String get receptionCounterValidateAdmittingDoctor =>
+      _t('reception_counter.validate.admitting_doctor');
+  String get receptionCounterValidateChiefComplaint =>
+      _t('reception_counter.validate.chief_complaint');
+  String get receptionCounterValidatePatientName =>
+      _t('reception_counter.validate.patient_name');
+  // REVIEW: clinical confirmation
+  String get receptionCounterOpdBookedSuccess =>
+      _t('reception_counter.opd_booked_success');
+  // REVIEW: clinical confirmation
+  String get receptionCounterIpCreatedPrefix =>
+      _t('reception_counter.ip_created_prefix');
+  String get receptionCounterIpHospitalIdPrefix =>
+      _t('reception_counter.ip_hospital_id_prefix');
+  String get receptionCounterAdmissionLookupHint =>
+      _t('reception_counter.admission_lookup.hint');
+  String get receptionCounterNewPatient =>
+      _t('reception_counter.admission_lookup.new_patient');
+  String get receptionCounterMultipleMatches =>
+      _t('reception_counter.admission_lookup.multiple_matches');
+  String get receptionCounterLastIpPrefix =>
+      _t('reception_counter.admission_lookup.last_ip_prefix');
+  String receptionCounterPriorAdmissions(int count) => count == 1
+      ? _t('reception_counter.admission_lookup.prior_admission_one')
+      : _t('reception_counter.admission_lookup.prior_admission_other')
+            .replaceAll('{n}', '$count');
+  String get receptionCounterOpenFrontOffice =>
+      _t('reception_counter.open_front_office');
+  String get receptionCounterOpenAdmissions =>
+      _t('reception_counter.open_admissions');
+  String get receptionCounterSearchTooltip =>
+      _t('reception_counter.search_tooltip');
+
   // ────────────────────────────────────────────────────────────────────
   // Translation tables.
   // ────────────────────────────────────────────────────────────────────
@@ -4271,6 +4564,211 @@ class AppStrings {
       'error.something_went_wrong': 'Something went wrong',
       'error.restart_or_contact': 'Please restart the app or contact support.',
       'appointments.no_today': 'No appointments today',
+      // OP Nursing Dashboard (B6.5)
+      'op_nursing_dashboard.title': 'OP Nursing Dashboard',
+      'op_nursing_dashboard.refresh_tooltip': 'Refresh',
+      'op_nursing_dashboard.queue_title': 'OP Nursing Queue',
+      'op_nursing_dashboard.search_hint':
+          'Search patient, phone, doctor, department',
+      'op_nursing_dashboard.clear_search_tooltip': 'Clear search',
+      'op_nursing_dashboard.filter.active': 'Active',
+      'op_nursing_dashboard.filter.overdue': 'Overdue',
+      'op_nursing_dashboard.filter.completed': 'Completed',
+      'op_nursing_dashboard.filter.all': 'All',
+      'op_nursing_dashboard.stat.active_queue': 'Active queue',
+      'op_nursing_dashboard.stat.needs_triage': 'Needs triage',
+      'op_nursing_dashboard.stat.overdue_wait': 'Overdue wait',
+      'op_nursing_dashboard.stat.completed': 'Completed',
+      'op_nursing_dashboard.no_matching_appointments':
+          'No matching OP appointments',
+      'op_nursing_dashboard.date.today': 'Today',
+      'op_nursing_dashboard.date.tomorrow': 'Tomorrow',
+      'op_nursing_dashboard.date.following_day': 'Following day',
+      'op_nursing_dashboard.card.records': 'Records',
+      'op_nursing_dashboard.card.investigations': 'Investigations',
+      'op_nursing_dashboard.card.nursing_note': 'Nursing note',
+      'op_nursing_dashboard.card.timeline': 'Timeline',
+      'op_nursing_dashboard.card.overdue_wait': 'Overdue wait',
+      'op_nursing_dashboard.patient_uid_missing':
+          'Patient UID missing; patient actions use phone or ID only.',
+      // Maternity screen (B6.5)
+      'maternity.title': 'Maternity',
+      'maternity.refresh_tooltip': 'Refresh',
+      'maternity.retry': 'Retry',
+      'maternity.empty_title': 'Labour ward is quiet',
+      'maternity.empty_body': 'No active labour admissions right now.',
+      'maternity.admitted_prefix': 'admitted',
+      'maternity.patient_prefix': 'Patient',
+      'maternity.high_risk_label': '⚠ HIGH RISK',
+      'maternity.stat.cervix': 'Cervix',
+      'maternity.stat.fhr': 'FHR',
+      'maternity.stat.ctx': 'Ctx /10min',
+      'maternity.stat.reason': 'Reason',
+      'maternity.action.partograph_chart': 'Partograph chart',
+      'maternity.action.new_entry': 'New entry',
+      // Partograph entry screen (B6.5)
+      'partograph_entry.title': 'Partograph entry',
+      'partograph_entry.section.labour_progress': 'Labour progress',
+      'partograph_entry.section.fetal_status': 'Fetal status',
+      'partograph_entry.section.maternal_vitals': 'Maternal vitals',
+      'partograph_entry.section.drugs_fluids': 'Drugs / fluids',
+      'partograph_entry.cervix_dilation': 'Cervix dilation (cm)',
+      'partograph_entry.cervix_dilation_hint': 'Active phase begins at 4cm',
+      'partograph_entry.descent': 'Descent (fifths above brim, 0–5)',
+      'partograph_entry.ctx_per_10min': 'Contractions per 10 min',
+      'partograph_entry.ctx_duration': 'Contraction duration (sec)',
+      'partograph_entry.ctx_intensity': 'Contractions intensity',
+      'partograph_entry.ctx.weak': 'weak',
+      'partograph_entry.ctx.moderate': 'moderate',
+      'partograph_entry.ctx.strong': 'strong',
+      'partograph_entry.fhr': 'Fetal heart rate (bpm)',
+      'partograph_entry.decelerations': 'Decelerations',
+      'partograph_entry.decel.none': 'none',
+      'partograph_entry.decel.early': 'early',
+      'partograph_entry.decel.late': 'late',
+      'partograph_entry.decel.variable': 'variable',
+      'partograph_entry.amniotic_fluid': 'Amniotic fluid',
+      'partograph_entry.moulding': 'Moulding',
+      'partograph_entry.bp_systolic': 'BP systolic',
+      'partograph_entry.bp_diastolic': 'BP diastolic',
+      'partograph_entry.pulse': 'Pulse (bpm)',
+      'partograph_entry.temperature': 'Temperature (°C)',
+      'partograph_entry.urine_output': 'Urine output (mL)',
+      'partograph_entry.urine_protein': 'Urine protein',
+      'partograph_entry.urine_acetone': 'Urine acetone',
+      'partograph_entry.oxytocin': 'Oxytocin (units/L)',
+      'partograph_entry.oxytocin_drops': 'Oxytocin (drops/min)',
+      'partograph_entry.other_drugs': 'Other drugs given',
+      'partograph_entry.iv_fluids': 'IV fluids',
+      'partograph_entry.notes': 'Notes',
+      'partograph_entry.saving': 'Saving…',
+      'partograph_entry.save_entry': 'Save entry',
+      'partograph_entry.saved_action_line':
+          'Saved · ACTION line crossed — escalate to obstetrician',
+      'partograph_entry.saved_alert_line': 'Saved · alert line crossed',
+      'partograph_entry.saved': 'Saved',
+      // Partograph view screen (B6.5)
+      'partograph_view.title': 'Partograph',
+      'partograph_view.action_line_crossed':
+          'Action line crossed in {n} entr{suffix}',
+      'partograph_view.action_line_subtitle':
+          'Escalate to obstetrician — labour progress is below the WHO action line.',
+      'partograph_view.alert_line_crossed':
+          'Alert line crossed in {n} entr{suffix}',
+      'partograph_view.alert_line_subtitle':
+          'Increase frequency of monitoring; consider intervention if no progress.',
+      'partograph_view.no_anchor':
+          'No active phase anchor recorded — set labor_started_at on admission to plot the chart.',
+      'partograph_view.new_entry': 'New entry',
+      'partograph_view.recent_entries': 'Recent entries',
+      'partograph_view.no_entries':
+          'No entries yet — tap "New entry" to record.',
+      // Safety Center screen (B6.5)
+      'safety_center.title': 'Safety Center',
+      'safety_center.refresh_tooltip': 'Refresh',
+      'safety_center.metric.critical_alerts': 'Critical alerts',
+      'safety_center.metric.discharge_blockers': 'Discharge blockers',
+      'safety_center.metric.cleaning_overdue': 'Cleaning overdue',
+      'safety_center.critical_alerts.title': 'Critical alerts',
+      'safety_center.critical_alerts.subtitle':
+          'Unread or high-priority workflow alerts that need acknowledgement.',
+      'safety_center.critical_alerts.empty': 'No critical alerts waiting.',
+      'safety_center.critical_alerts.action': 'Open Alerts',
+      'safety_center.acknowledge': 'Acknowledge',
+      'safety_center.discharge.title': 'Discharge blockers',
+      'safety_center.discharge.subtitle':
+          'Role-owned items blocking final discharge.',
+      'safety_center.discharge.empty': 'No discharge blockers.',
+      'safety_center.discharge.action': 'Open Discharge Hub',
+      'safety_center.discharge.open_hub': 'Open hub',
+      'safety_center.housekeeping.title': 'Bed cleaning SLA',
+      'safety_center.housekeeping.subtitle':
+          'Assigned housekeeping tasks sorted by closest SLA deadline.',
+      'safety_center.housekeeping.empty': 'No assigned cleaning tasks.',
+      'safety_center.housekeeping.action': 'Open Housekeeping',
+      'safety_center.housekeeping.open_task': 'Open task',
+      'safety_center.owner_prefix': 'Owner',
+      'safety_center.retry': 'Retry',
+      // Reception Counter screen (B6.5)
+      'reception_counter.title': 'Reception Counter',
+      'reception_counter.mode_title': 'Counter Mode',
+      'reception_counter.mode_subtitle':
+          'Register OPD visits and IP admissions from one screen.',
+      'reception_counter.refresh_tooltip': 'Refresh',
+      'reception_counter.stat.today_opd': 'Today OPD',
+      'reception_counter.stat.active_ip': 'Active IP',
+      'reception_counter.tab.opd': 'OPD',
+      'reception_counter.tab.ip_admission': 'IP Admission',
+      'reception_counter.tab.today': 'Today',
+      'reception_counter.opd.title': 'New OPD appointment',
+      'reception_counter.ip.title': 'New IP admission',
+      'reception_counter.today.title': 'Today at counter',
+      'reception_counter.patient_lookup.title': 'Patient lookup',
+      'reception_counter.patient_lookup.hint': 'Hospital ID / phone / name',
+      'reception_counter.doctor.title': 'Doctor',
+      'reception_counter.doctor.search_hint':
+          'Search doctor by name, department, specialty',
+      'reception_counter.doctor.none_match': 'No doctor matches that search.',
+      'reception_counter.doctor.could_not_load': 'Could not load doctors.',
+      'reception_counter.patient.phone': 'Patient phone',
+      'reception_counter.patient.name': 'Patient name',
+      'reception_counter.opd.reason': 'Reason / chief complaint',
+      'reception_counter.opd.notes': 'Counter notes',
+      'reception_counter.opd.book_button': 'Book OPD appointment',
+      'reception_counter.ip.chief_complaint': 'Chief complaint',
+      'reception_counter.ip.diagnosis': 'Provisional diagnosis',
+      'reception_counter.ip.ward': 'Ward / floor',
+      'reception_counter.ip.bed': 'Bed',
+      'reception_counter.ip.priority': 'Priority',
+      'reception_counter.ip.code_status': 'Code status',
+      'reception_counter.ip.consent_title':
+          'Treatment consent captured at counter',
+      'reception_counter.ip.consent_subtitle':
+          'Required for routine IP admissions before the chart is opened.',
+      'reception_counter.ip.create_button': 'Create IP admission',
+      'reception_counter.ward.floor': 'Ward / floor',
+      'reception_counter.bed': 'Bed',
+      'reception_counter.bed.select_ward_first': 'Select ward first',
+      'reception_counter.bed.unavailable': 'Beds unavailable',
+      'reception_counter.bed.no_free': 'No free beds',
+      'reception_counter.today.opd_appointments': 'OPD appointments',
+      'reception_counter.today.active_admissions': 'Active admissions',
+      'reception_counter.today.no_appointments': 'No appointments loaded',
+      'reception_counter.today.no_admissions': 'No active admissions loaded',
+      'reception_counter.today.open_appointments': 'Open appointments',
+      'reception_counter.clear_patient': 'Clear',
+      'reception_counter.selected_patient': 'Selected patient',
+      'reception_counter.unnamed_patient': 'Unnamed patient',
+      'reception_counter.unknown_patient': 'Unknown Patient',
+      'reception_counter.admission_active': 'Admission active',
+      'reception_counter.validate.phone_or_patient':
+          'Select a patient or enter a valid phone number.',
+      'reception_counter.validate.doctor': 'Select the consulting doctor.',
+      'reception_counter.validate.reason': 'Enter the reason for visit.',
+      'reception_counter.validate.select_patient':
+          'Search and select a patient or enter a patient identifier.',
+      'reception_counter.validate.admitting_doctor':
+          'Select the admitting doctor.',
+      'reception_counter.validate.chief_complaint': 'Enter the chief complaint.',
+      'reception_counter.validate.patient_name':
+          'Enter patient name for a new IP admission.',
+      'reception_counter.opd_booked_success': 'OPD appointment booked.',
+      'reception_counter.ip_created_prefix': 'IP admission',
+      'reception_counter.ip_hospital_id_prefix': 'Hospital ID',
+      'reception_counter.admission_lookup.hint':
+          'Type patient phone to check prior admissions and IP number.',
+      'reception_counter.admission_lookup.new_patient':
+          'New patient number. Add patient name; Hospital ID and IP number will be generated on admission.',
+      'reception_counter.admission_lookup.multiple_matches':
+          'Multiple patients share this number. Use Patient lookup below to select the correct patient.',
+      'reception_counter.admission_lookup.last_ip_prefix': 'Last IP',
+      'reception_counter.admission_lookup.prior_admission_one':
+          '1 prior admission',
+      'reception_counter.admission_lookup.prior_admission_other':
+          '{n} prior admissions',
+      'reception_counter.open_front_office': 'Front Office',
+      'reception_counter.open_admissions': 'Admissions',
+      'reception_counter.search_tooltip': 'Search',
     },
     // ── हिन्दी (Hindi) ────────────────────────────────────────────────
     // Second-pass reviewed for register, common clinical-staff

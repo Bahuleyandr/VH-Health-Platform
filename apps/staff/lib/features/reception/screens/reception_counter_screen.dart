@@ -9,6 +9,7 @@ import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 import '../../appointments/models/staff_appointment.dart';
 
 class ReceptionCounterScreen extends StatefulWidget {
@@ -287,19 +288,20 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Future<void> _submitOpdBooking() async {
+    final s = AppStrings.of(context);
     final patientId = _patientId();
     final phone = _patientPhoneCtrl.text.trim();
     final reason = _opReasonCtrl.text.trim();
     if (patientId == null && _digitsOnly(phone).length < 10) {
-      _showError('Select a patient or enter a valid phone number.');
+      _showError(s.receptionCounterValidatePhoneOrPatient);
       return;
     }
     if (_selectedDoctorId == null) {
-      _showError('Select the consulting doctor.');
+      _showError(s.receptionCounterValidateDoctor);
       return;
     }
     if (reason.isEmpty) {
-      _showError('Enter the reason for visit.');
+      _showError(s.receptionCounterValidateReason);
       return;
     }
 
@@ -319,7 +321,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             : _opNotesCtrl.text.trim(),
       );
       if (!mounted) return;
-      _showSuccess('OPD appointment booked.');
+      _showSuccess(AppStrings.of(context).receptionCounterOpdBookedSuccess);
       _opReasonCtrl.clear();
       _opNotesCtrl.clear();
       await _loadWorkload();
@@ -331,21 +333,22 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Future<void> _submitIpAdmission() async {
+    final s = AppStrings.of(context);
     final patientQuery = _patientQuery();
     if (patientQuery.isEmpty) {
-      _showError('Search and select a patient or enter a patient identifier.');
+      _showError(s.receptionCounterValidateSelectPatient);
       return;
     }
     if ((_selectedDoctorUid ?? '').isEmpty) {
-      _showError('Select the admitting doctor.');
+      _showError(s.receptionCounterValidateAdmittingDoctor);
       return;
     }
     if (_chiefComplaintCtrl.text.trim().isEmpty) {
-      _showError('Enter the chief complaint.');
+      _showError(s.receptionCounterValidateChiefComplaint);
       return;
     }
     if (_patientUid() == null && _patientNameCtrl.text.trim().isEmpty) {
-      _showError('Enter patient name for a new IP admission.');
+      _showError(s.receptionCounterValidatePatientName);
       return;
     }
 
@@ -368,6 +371,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         'counter_consent_captured': _ipConsentCaptured,
       });
       if (!mounted) return;
+      final s = AppStrings.of(context);
       final admission = _admissionFromResponse(result);
       final ipNumber = _text(admission['ip_number']);
       final hospitalNumber = _text(
@@ -376,10 +380,11 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
       _showSuccess(
         [
           if (ipNumber.isEmpty)
-            'IP admission created'
+            '${s.receptionCounterIpCreatedPrefix} created'
           else
-            'IP admission $ipNumber created',
-          if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
+            '${s.receptionCounterIpCreatedPrefix} $ipNumber created',
+          if (hospitalNumber.isNotEmpty)
+            '${s.receptionCounterIpHospitalIdPrefix} $hospitalNumber',
         ].join(' - '),
       );
       _chiefComplaintCtrl.clear();
@@ -452,8 +457,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Reception Counter',
+      title: s.receptionCounterTitle,
       body: RefreshIndicator(
         onRefresh: _loadWorkload,
         child: ListView(
@@ -485,16 +491,17 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     return _Surface(
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final s = AppStrings.of(context);
           final compact = constraints.maxWidth < 620;
           final stats = [
             _CounterStat(
-              label: 'Today OPD',
+              label: s.receptionCounterStatTodayOpd,
               value: '${_todayAppointments.length}',
               icon: Icons.event_available,
               color: AppTheme.primaryBlue,
             ),
             _CounterStat(
-              label: 'Active IP',
+              label: s.receptionCounterStatActiveIp,
               value: '${_activeAdmissions.length}',
               icon: Icons.local_hospital,
               color: AppTheme.primaryTeal,
@@ -523,19 +530,19 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Counter Mode',
+                          s.receptionCounterModeTitle,
                           style: Theme.of(context).textTheme.titleLarge
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         Text(
-                          'Register OPD visits and IP admissions from one screen.',
+                          s.receptionCounterModeSubtitle,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Refresh',
+                    tooltip: s.receptionCounterRefreshTooltip,
                     onPressed: _loadWorkload,
                     icon: const Icon(Icons.refresh),
                   ),
@@ -574,19 +581,20 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildPatientLookup() {
+    final s = AppStrings.of(context);
     return _Surface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionTitle(
             icon: Icons.manage_search,
-            title: 'Patient lookup',
+            title: s.receptionCounterPatientLookupTitle,
             trailing: _selectedPatient == null
                 ? null
                 : TextButton.icon(
                     onPressed: () => setState(() => _selectedPatient = null),
                     icon: const Icon(Icons.close),
-                    label: const Text('Clear'),
+                    label: Text(s.receptionCounterClearPatient),
                   ),
           ),
           const SizedBox(height: 10),
@@ -598,7 +606,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                   onChanged: _queuePatientLookup,
                   onSubmitted: _searchPatients,
                   decoration: InputDecoration(
-                    labelText: 'Hospital ID / phone / name',
+                    labelText: s.receptionCounterPatientLookupHint,
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _lookupBusy
                         ? const Padding(
@@ -614,10 +622,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              IconButton.filledTonal(
-                tooltip: 'Search',
-                onPressed: () => _searchPatients(_searchCtrl.text),
-                icon: const Icon(Icons.search),
+              Builder(
+                builder: (ctx) => IconButton.filledTonal(
+                  tooltip: AppStrings.of(ctx).receptionCounterSearchTooltip,
+                  onPressed: () => _searchPatients(_searchCtrl.text),
+                  icon: const Icon(Icons.search),
+                ),
               ),
             ],
           ),
@@ -647,12 +657,13 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildDoctorPicker({bool framed = true}) {
+    final s = AppStrings.of(context);
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(
+        _SectionTitle(
           icon: Icons.medical_services_outlined,
-          title: 'Doctor',
+          title: s.receptionCounterDoctorTitle,
         ),
         const SizedBox(height: 10),
         FutureBuilder<List<Map<String, dynamic>>>(
@@ -664,7 +675,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             }
             if (snapshot.hasError) {
               return Text(
-                'Could not load doctors.',
+                s.receptionCounterDoctorCouldNotLoad,
                 style: TextStyle(color: AppTheme.errorOnSurface),
               );
             }
@@ -696,9 +707,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                       }
                     });
                   },
-                  decoration: const InputDecoration(
-                    labelText: 'Search doctor by name, department, specialty',
-                    prefixIcon: Icon(Icons.person_search_outlined),
+                  decoration: InputDecoration(
+                    labelText: s.receptionCounterDoctorSearchHint,
+                    prefixIcon: const Icon(Icons.person_search_outlined),
                   ),
                 ),
                 if (showOptions) ...[
@@ -725,10 +736,11 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildModeSwitcher() {
-    final tabs = const [
-      (Icons.event_available, 'OPD'),
-      (Icons.local_hospital, 'IP Admission'),
-      (Icons.view_list, 'Today'),
+    final s = AppStrings.of(context);
+    final tabs = [
+      (Icons.event_available, s.receptionCounterTabOpd),
+      (Icons.local_hospital, s.receptionCounterTabIp),
+      (Icons.view_list, s.receptionCounterTabToday),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -792,14 +804,15 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildOpdPanel({required Key key}) {
+    final s = AppStrings.of(context);
     return _Surface(
       key: key,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.event_available,
-            title: 'New OPD appointment',
+            title: s.receptionCounterOpdTitle,
           ),
           const SizedBox(height: 12),
           _buildPatientIdentityFields(),
@@ -845,9 +858,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _opReasonCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Reason / chief complaint',
-              prefixIcon: Icon(Icons.short_text),
+            decoration: InputDecoration(
+              labelText: s.receptionCounterOpdReason,
+              prefixIcon: const Icon(Icons.short_text),
             ),
           ),
           const SizedBox(height: 12),
@@ -855,9 +868,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             controller: _opNotesCtrl,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Counter notes',
-              prefixIcon: Icon(Icons.notes),
+            decoration: InputDecoration(
+              labelText: s.receptionCounterOpdNotes,
+              prefixIcon: const Icon(Icons.notes),
             ),
           ),
           const SizedBox(height: 16),
@@ -870,7 +883,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.send),
-            label: const Text('Book OPD appointment'),
+            label: Text(s.receptionCounterOpdBookButton),
           ),
         ],
       ),
@@ -878,14 +891,15 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildIpPanel({required Key key}) {
+    final s = AppStrings.of(context);
     return _Surface(
       key: key,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionTitle(
+          _SectionTitle(
             icon: Icons.local_hospital,
-            title: 'New IP admission',
+            title: s.receptionCounterIpTitle,
           ),
           const SizedBox(height: 12),
           _buildPatientIdentityFields(),
@@ -898,17 +912,17 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             controller: _chiefComplaintCtrl,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Chief complaint',
-              prefixIcon: Icon(Icons.report_problem_outlined),
+            decoration: InputDecoration(
+              labelText: s.receptionCounterIpChiefComplaint,
+              prefixIcon: const Icon(Icons.report_problem_outlined),
             ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _diagnosisCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Provisional diagnosis',
-              prefixIcon: Icon(Icons.assignment_outlined),
+            decoration: InputDecoration(
+              labelText: s.receptionCounterIpDiagnosis,
+              prefixIcon: const Icon(Icons.assignment_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -937,7 +951,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: _priority,
-                  decoration: const InputDecoration(labelText: 'Priority'),
+                  decoration: InputDecoration(labelText: s.receptionCounterIpPriority),
                   items: const ['Routine', 'Urgent', 'Emergency', 'Critical']
                       .map(
                         (value) =>
@@ -952,7 +966,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: _codeStatus,
-                  decoration: const InputDecoration(labelText: 'Code status'),
+                  decoration: InputDecoration(labelText: s.receptionCounterIpCodeStatus),
                   items: const ['Full Code', 'DNR', 'DNR/DNI', 'Comfort Care']
                       .map(
                         (value) =>
@@ -972,9 +986,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                 setState(() => _ipConsentCaptured = value ?? false),
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
-            title: const Text('Treatment consent captured at counter'),
+            title: Text(s.receptionCounterIpConsentTitle),
             subtitle: Text(
-              'Required for routine IP admissions before the chart is opened.',
+              s.receptionCounterIpConsentSubtitle,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ),
@@ -988,7 +1002,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.local_hospital),
-            label: const Text('Create IP admission'),
+            label: Text(s.receptionCounterIpCreateButton),
           ),
         ],
       ),
@@ -996,6 +1010,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildAdmissionLookupStatus() {
+    final s = AppStrings.of(context);
     if (_admissionLookupBusy) {
       return const LinearProgressIndicator(minHeight: 2);
     }
@@ -1008,10 +1023,10 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     }
     final lookup = _admissionLookup;
     if (lookup == null) {
-      return const _InfoStrip(
+      return _InfoStrip(
         icon: Icons.info_outline,
         color: AppTheme.primaryBlue,
-        text: 'Type patient phone to check prior admissions and IP number.',
+        text: s.receptionCounterAdmissionLookupHint,
       );
     }
 
@@ -1025,19 +1040,17 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
     final lastIp = _text(lookup['last_ip_number']);
     final priorCount = prior is List ? prior.length : 0;
     if (state == 'new_patient') {
-      return const _InfoStrip(
+      return _InfoStrip(
         icon: Icons.person_add_alt_1,
         color: AppTheme.primaryTeal,
-        text:
-            'New patient number. Add patient name; Hospital ID and IP number will be generated on admission.',
+        text: s.receptionCounterNewPatient,
       );
     }
     if (state == 'multiple_matches') {
-      return const _InfoStrip(
+      return _InfoStrip(
         icon: Icons.groups_outlined,
         color: AppTheme.warningAmber,
-        text:
-            'Multiple patients share this number. Use Patient lookup below to select the correct patient.',
+        text: s.receptionCounterMultipleMatches,
       );
     }
     return _InfoStrip(
@@ -1046,13 +1059,14 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
       text: [
         if (patientName.isNotEmpty) patientName,
         if (hospitalNumber.isNotEmpty) hospitalNumber,
-        if (lastIp.isNotEmpty) 'Last IP $lastIp',
-        '$priorCount prior admission${priorCount == 1 ? '' : 's'}',
+        if (lastIp.isNotEmpty) '${s.receptionCounterLastIpPrefix} $lastIp',
+        s.receptionCounterPriorAdmissions(priorCount),
       ].join(' - '),
     );
   }
 
   Widget _buildWardPicker() {
+    final s = AppStrings.of(context);
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _wardOptionsFuture,
       builder: (context, snapshot) {
@@ -1063,9 +1077,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         if (snapshot.hasError || wards.isEmpty) {
           return TextField(
             controller: _wardCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Ward / floor',
-              prefixIcon: Icon(Icons.meeting_room_outlined),
+            decoration: InputDecoration(
+              labelText: s.receptionCounterWardFloor,
+              prefixIcon: const Icon(Icons.meeting_room_outlined),
             ),
           );
         }
@@ -1075,9 +1089,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             : null;
         return DropdownButtonFormField<String>(
           initialValue: selectedValue,
-          decoration: const InputDecoration(
-            labelText: 'Ward / floor',
-            prefixIcon: Icon(Icons.meeting_room_outlined),
+          decoration: InputDecoration(
+            labelText: s.receptionCounterWardFloor,
+            prefixIcon: const Icon(Icons.meeting_room_outlined),
           ),
           isExpanded: true,
           items: wards.map((ward) {
@@ -1105,17 +1119,18 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildBedPicker() {
+    final s = AppStrings.of(context);
     final future = _bedOptionsFuture;
     if (future == null) {
       return DropdownButtonFormField<String>(
         initialValue: null,
-        decoration: const InputDecoration(
-          labelText: 'Bed',
-          prefixIcon: Icon(Icons.bed_outlined),
+        decoration: InputDecoration(
+          labelText: s.receptionCounterBed,
+          prefixIcon: const Icon(Icons.bed_outlined),
         ),
         items: const [],
         onChanged: null,
-        hint: const Text('Select ward first'),
+        hint: Text(s.receptionCounterBedSelectWardFirst),
       );
     }
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -1132,20 +1147,22 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         if (snapshot.hasError || beds.isEmpty) {
           return DropdownButtonFormField<String>(
             initialValue: null,
-            decoration: const InputDecoration(
-              labelText: 'Bed',
-              prefixIcon: Icon(Icons.bed_outlined),
+            decoration: InputDecoration(
+              labelText: s.receptionCounterBed,
+              prefixIcon: const Icon(Icons.bed_outlined),
             ),
             items: const [],
             onChanged: null,
-            hint: Text(snapshot.hasError ? 'Beds unavailable' : 'No free beds'),
+            hint: Text(snapshot.hasError
+                ? s.receptionCounterBedUnavailable
+                : s.receptionCounterBedNoFree),
           );
         }
         return DropdownButtonFormField<String>(
           initialValue: selectedValue,
-          decoration: const InputDecoration(
-            labelText: 'Bed',
-            prefixIcon: Icon(Icons.bed_outlined),
+          decoration: InputDecoration(
+            labelText: s.receptionCounterBed,
+            prefixIcon: const Icon(Icons.bed_outlined),
           ),
           isExpanded: true,
           items: beds
@@ -1173,6 +1190,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildPatientIdentityFields() {
+    final s = AppStrings.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 620;
@@ -1180,16 +1198,16 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
           controller: _patientPhoneCtrl,
           keyboardType: TextInputType.phone,
           onChanged: _onPatientPhoneChanged,
-          decoration: const InputDecoration(
-            labelText: 'Patient phone',
-            prefixIcon: Icon(Icons.phone_outlined),
+          decoration: InputDecoration(
+            labelText: s.receptionCounterPatientPhone,
+            prefixIcon: const Icon(Icons.phone_outlined),
           ),
         );
         final name = TextField(
           controller: _patientNameCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Patient name',
-            prefixIcon: Icon(Icons.person_outline),
+          decoration: InputDecoration(
+            labelText: s.receptionCounterPatientName,
+            prefixIcon: const Icon(Icons.person_outline),
           ),
         );
         if (compact) {
@@ -1207,6 +1225,7 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
   }
 
   Widget _buildTodayPanel({required Key key}) {
+    final s = AppStrings.of(context);
     return _Surface(
       key: key,
       child: Column(
@@ -1214,10 +1233,10 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
         children: [
           _SectionTitle(
             icon: Icons.view_list,
-            title: 'Today at counter',
+            title: s.receptionCounterTodayTitle,
             trailing: TextButton(
               onPressed: () => context.push('/appointments'),
-              child: const Text('Open appointments'),
+              child: Text(s.receptionCounterTodayOpenAppointments),
             ),
           ),
           const SizedBox(height: 12),
@@ -1225,8 +1244,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             const LinearProgressIndicator(minHeight: 2)
           else ...[
             _MiniList(
-              title: 'OPD appointments',
-              emptyText: 'No appointments loaded',
+              title: s.receptionCounterOpdAppointments,
+              emptyText: s.receptionCounterTodayNoAppointments,
               children: _todayAppointments.take(5).map((appointment) {
                 return ListTile(
                   dense: true,
@@ -1245,8 +1264,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             ),
             const SizedBox(height: 14),
             _MiniList(
-              title: 'Active admissions',
-              emptyText: 'No active admissions loaded',
+              title: s.receptionCounterActiveAdmissions,
+              emptyText: s.receptionCounterTodayNoAdmissions,
               children: _activeAdmissions.take(5).map((admission) {
                 final patientName = _text(
                   admission['patient_name'] ?? admission['patientName'],
@@ -1261,9 +1280,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.local_hospital),
                   title: Text(
-                    patientName.isEmpty ? 'Unknown Patient' : patientName,
+                    patientName.isEmpty
+                        ? s.receptionCounterUnknownPatient
+                        : patientName,
                   ),
-                  subtitle: Text(bed.isEmpty ? 'Admission active' : bed),
+                  subtitle: Text(
+                      bed.isEmpty ? s.receptionCounterAdmissionActive : bed),
                   trailing: Text(_text(admission['status']).toUpperCase()),
                 );
               }).toList(),
@@ -1277,12 +1299,12 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               OutlinedButton.icon(
                 onPressed: () => context.push('/front-office'),
                 icon: const Icon(Icons.space_dashboard_outlined),
-                label: const Text('Front Office'),
+                label: Text(s.receptionCounterOpenFrontOffice),
               ),
               OutlinedButton.icon(
                 onPressed: () => context.push('/emr/admissions'),
                 icon: const Icon(Icons.local_hospital),
-                label: const Text('Admissions'),
+                label: Text(s.receptionCounterOpenAdmissions),
               ),
             ],
           ),
@@ -1410,6 +1432,7 @@ class _SelectedPatientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final name = _text(patient['name']);
     final hospitalNumber = _text(patient['hospital_number']);
     final phone = _text(patient['phone']);
@@ -1429,7 +1452,7 @@ class _SelectedPatientCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.isEmpty ? 'Selected patient' : name,
+                  name.isEmpty ? s.receptionCounterSelectedPatient : name,
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
                 Text(
@@ -1456,6 +1479,7 @@ class _PatientMatchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final name = _text(patient['name']);
     final hospitalNumber = _text(patient['hospital_number']);
     final phone = _text(patient['phone']);
@@ -1463,7 +1487,7 @@ class _PatientMatchTile extends StatelessWidget {
       dense: true,
       contentPadding: EdgeInsets.zero,
       leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-      title: Text(name.isEmpty ? 'Unnamed patient' : name),
+      title: Text(name.isEmpty ? s.receptionCounterUnnamedPatient : name),
       subtitle: Text(
         [
           if (hospitalNumber.isNotEmpty) hospitalNumber,
@@ -1539,6 +1563,7 @@ class _DoctorTypeaheadList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (doctors.isEmpty) {
       return Container(
         width: double.infinity,
@@ -1549,7 +1574,7 @@ class _DoctorTypeaheadList extends StatelessWidget {
           border: Border.all(color: AppTheme.divider),
         ),
         child: Text(
-          'No doctor matches that search.',
+          s.receptionCounterDoctorNoneMatch,
           style: TextStyle(color: AppTheme.textSecondary),
         ),
       );

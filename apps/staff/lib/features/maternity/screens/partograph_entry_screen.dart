@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_staff/core/services/api_client.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 class PartographEntryScreen extends StatefulWidget {
   const PartographEntryScreen({super.key, required this.laborAdmissionId});
@@ -125,14 +126,15 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
         final data = response.dataAsMap();
         final onAction = data['on_action_line'] == true;
         final onAlert = data['on_alert_line'] == true;
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               onAction
-                  ? 'Saved · ACTION line crossed — escalate to obstetrician'
+                  ? s.partographSavedActionLine
                   : onAlert
-                  ? 'Saved · alert line crossed'
-                  : 'Saved',
+                  ? s.partographSavedAlertLine
+                  : s.partographSaved,
             ),
             backgroundColor: onAction
                 ? Colors.red[700]
@@ -219,46 +221,47 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Partograph entry')),
+      appBar: AppBar(title: Text(s.partographEntryTitle)),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(12),
           children: [
-            _section('Labour progress', [
+            _section(s.partographSectionLabourProgress, [
               _numField(
                 _cervixCtrl,
-                'Cervix dilation (cm)',
-                hint: 'Active phase begins at 4cm',
+                s.partographCervixDilation,
+                hint: s.partographCervixDilationHint,
               ),
-              _numField(_descentCtrl, 'Descent (fifths above brim, 0–5)'),
-              _numField(_ctxCountCtrl, 'Contractions per 10 min'),
-              _numField(_ctxDurCtrl, 'Contraction duration (sec)'),
+              _numField(_descentCtrl, s.partographDescent),
+              _numField(_ctxCountCtrl, s.partographCtxPer10min),
+              _numField(_ctxDurCtrl, s.partographCtxDuration),
               _enumField(
-                'Contractions intensity',
+                s.partographCtxIntensity,
                 _ctxIntensity,
-                const ['weak', 'moderate', 'strong'],
+                [s.partographCtxWeak, s.partographCtxModerate, s.partographCtxStrong],
                 (v) => setState(() => _ctxIntensity = v),
               ),
             ]),
             const SizedBox(height: 8),
-            _section('Fetal status', [
-              _numField(_fhrCtrl, 'Fetal heart rate (bpm)'),
-              _enumField('Decelerations', _decel, const [
-                'none',
-                'early',
-                'late',
-                'variable',
+            _section(s.partographSectionFetalStatus, [
+              _numField(_fhrCtrl, s.partographFhr),
+              _enumField(s.partographDecelerations, _decel, [
+                s.partographDecelNone,
+                s.partographDecelEarly,
+                s.partographDecelLate,
+                s.partographDecelVariable,
               ], (v) => setState(() => _decel = v)),
-              _enumField('Amniotic fluid', _amniotic, const [
+              _enumField(s.partographAmnioticFluid, _amniotic, const [
                 'intact_membranes',
                 'clear',
                 'meconium_thin',
                 'meconium_thick',
                 'blood',
               ], (v) => setState(() => _amniotic = v)),
-              _enumField('Moulding', _moulding, const [
+              _enumField(s.partographMoulding, _moulding, const [
                 '0',
                 '1+',
                 '2+',
@@ -266,41 +269,41 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               ], (v) => setState(() => _moulding = v)),
             ]),
             const SizedBox(height: 8),
-            _section('Maternal vitals', [
+            _section(s.partographSectionMaternalVitals, [
               Row(
                 children: [
-                  Expanded(child: _numField(_bpSysCtrl, 'BP systolic')),
+                  Expanded(child: _numField(_bpSysCtrl, s.partographBpSystolic)),
                   const SizedBox(width: 8),
-                  Expanded(child: _numField(_bpDiaCtrl, 'BP diastolic')),
+                  Expanded(child: _numField(_bpDiaCtrl, s.partographBpDiastolic)),
                 ],
               ),
-              _numField(_pulseCtrl, 'Pulse (bpm)'),
-              _numField(_tempCtrl, 'Temperature (°C)'),
-              _numField(_urineCtrl, 'Urine output (mL)'),
+              _numField(_pulseCtrl, s.partographPulse),
+              _numField(_tempCtrl, s.partographTemperature),
+              _numField(_urineCtrl, s.partographUrineOutput),
               _enumField(
-                'Urine protein',
+                s.partographUrineProtein,
                 _urineProtein,
                 const ['nil', 'trace', '1+', '2+', '3+'],
                 (v) => setState(() => _urineProtein = v),
               ),
               _enumField(
-                'Urine acetone',
+                s.partographUrineAcetone,
                 _urineAcetone,
                 const ['nil', 'trace', '1+', '2+', '3+'],
                 (v) => setState(() => _urineAcetone = v),
               ),
             ]),
             const SizedBox(height: 8),
-            _section('Drugs / fluids', [
-              _numField(_oxytocinCtrl, 'Oxytocin (units/L)'),
-              _numField(_oxytocinDropsCtrl, 'Oxytocin (drops/min)'),
+            _section(s.partographSectionDrugsFluids, [
+              _numField(_oxytocinCtrl, s.partographOxytocin),
+              _numField(_oxytocinDropsCtrl, s.partographOxytocinDrops),
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: TextFormField(
                   controller: _drugsCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Other drugs given',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: s.partographOtherDrugs,
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                 ),
@@ -309,9 +312,9 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: TextFormField(
                   controller: _ivCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'IV fluids',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: s.partographIvFluids,
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                 ),
@@ -321,9 +324,9 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
             TextFormField(
               controller: _notesCtrl,
               maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Notes',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: s.partographNotes,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
@@ -346,7 +349,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.save),
-              label: Text(_saving ? 'Saving…' : 'Save entry'),
+              label: Text(_saving ? s.partographSaving : s.partographSaveEntry),
             ),
             const SizedBox(height: 24),
           ],
