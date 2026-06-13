@@ -299,7 +299,7 @@ async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState) {
     await prisma.$executeRawUnsafe(
       `UPDATE billing_advances
           SET status = 'REFUND_DUE',
-              notes = CONCAT_WS(' | ', NULLIF(notes, ''), $2),
+              notes = CONCAT_WS(' | ', NULLIF(notes, ''), $2::text),
               updated_at = NOW()
         WHERE admission_id = $1::int
           AND status = 'ACTIVE'
