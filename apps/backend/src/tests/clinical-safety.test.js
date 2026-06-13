@@ -119,6 +119,92 @@ describe('Clinical safety controls', () => {
     expect(updated.override_reason).toContain('manual identity');
   });
 
+  // B4.2 — BCMA server-side two-scan enforcement. The patient-wristband scan
+  // ("right patient") AND the medication-barcode scan ("right drug") must both
+  // match before a dose is charted; the gate is enforced server-side with its
+  // own MAR_TWO_SCAN_REQUIRED code, the two scan timestamps are recorded for an
+  // auditable trail, and an override must leave a complete clinical_audit_events
+  // entry.
+  describe('B4.2 BCMA two-scan enforcement', () => {
+    it('rejects administration with a mismatched patient scan and no override (MAR_TWO_SCAN_REQUIRED)', async () => {
+      const maId = await seedMedicationAdministration();
+
+      await expect(
+        administerWithScan({
+          ma_id: maId,
+          scanned_patient_uid: OTHER_PATIENT_UID, // wristband does not match the MA's patient
+          scanned_barcode: 'amoxicillin',
+          administeredBy: CLINICIAN_UID,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'MAR_TWO_SCAN_REQUIRED',
+        details: { rights: expect.objectContaining({ patient: false }) },
+      });
+    });
+
+    it('administers on a matching wristband + medication barcode and stamps both scan timestamps', async () => {
+      const maId = await seedMedicationAdministration();
+
+      const updated = await administerWithScan({
+        ma_id: maId,
+        scanned_patient_uid: PATIENT_UID,
+        scanned_barcode: 'amoxicillin', // matches medication_name 'Amoxicillin 500mg'
+        administeredBy: CLINICIAN_UID,
+      });
+
+      expect(updated.status).toBe('administered');
+      expect(updated.all_rights_passed).toBe(true);
+      expect(updated.patient_scanned_at).not.toBeNull();
+      expect(updated.medication_scanned_at).not.toBeNull();
+
+      // The timestamps must also be durable on the row, not just in the RETURNING.
+      const [row] = await prisma.$queryRawUnsafe(
+        `SELECT patient_scanned_at, medication_scanned_at, all_rights_passed
+           FROM medication_administrations WHERE id = $1`,
+        maId,
+      );
+      expect(row.patient_scanned_at).not.toBeNull();
+      expect(row.medication_scanned_at).not.toBeNull();
+      expect(row.all_rights_passed).toBe(true);
+    });
+
+    it('administers a mismatched scan WITH an override and writes a clinical_audit_events row carrying the override', async () => {
+      const maId = await seedMedicationAdministration();
+      const overrideReason = 'Wristband barcode unreadable; identity confirmed against ID band and chart';
+
+      const updated = await administerWithScan({
+        ma_id: maId,
+        scanned_patient_uid: OTHER_PATIENT_UID, // patient right fails
+        scanned_barcode: 'amoxicillin',
+        administeredBy: CLINICIAN_UID,
+        overrideReason,
+      });
+
+      expect(updated.status).toBe('administered');
+      expect(updated.override_reason).toBe(overrideReason);
+
+      // A clinical_audit_events row must exist for this administration carrying
+      // the override in its metadata (the deep test queries clinical_timeline_events
+      // the same way for source_table/source_id).
+      const audit = await prisma.$queryRawUnsafe(
+        `SELECT action, resource_table, resource_id, metadata
+           FROM clinical_audit_events
+          WHERE resource_table = 'medication_administrations'
+            AND resource_id = $1
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        String(maId),
+      );
+      expect(audit.length).toBeGreaterThanOrEqual(1);
+      expect(audit[0].action).toBe('mar.administered');
+      expect(audit[0].metadata).toMatchObject({
+        two_scan_override: true,
+        override_reason: overrideReason,
+      });
+    });
+  });
+
   it('deduplicates MAR scheduling when carry-over timestamps differ only by milliseconds', async () => {
     const [first] = await scheduleMedications(PATIENT_UID, null, [{
       medication_name: 'Aspirin',

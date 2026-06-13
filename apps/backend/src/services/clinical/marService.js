@@ -1,9 +1,10 @@
 // src/services/clinical/marService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 import { BCMA_CONFIG } from '../../config/pharmacyConfig.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 // ===================================================================
 // Medication Administration Record (MAR) Service
@@ -128,6 +129,7 @@ async function recordCanonicalMarEvent({
   encounterId = null,
   sourceClinicalOrderId = null,
   payload = {},
+  db = null,
 } = {}) {
   if (!record?.id) return null;
   const status = record.status || null;
@@ -170,7 +172,7 @@ async function recordCanonicalMarEvent({
       tags: ['mar', 'medication'],
       timelineIdempotencyKey: `medication_administrations:${record.id}:${eventType}:${status || 'none'}:${stamp}`,
       auditIdempotencyKey: `medication_administrations:${record.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
-    });
+    }, db ? { db } : undefined);
   } catch (err) {
     logger.warn(`Canonical MAR event skipped for row ${record.id}`, {
       error: err?.message || String(err),
@@ -297,6 +299,11 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
  * @param {string} administeredBy - Staff UID
  * @param {string|null} notes
  * @param {string|null} witnessUid - For controlled substances
+ * @param {Object} [options]
+ * @param {string|null} [options.overrideReason] documented no-scan reason
+ * @param {string|null} [options.tenantId] canonical tenant (req.tenantId). Falls
+ *   back to the MA row's tenant_id, then DEFAULT_TENANT_ID. The write + audit run
+ *   inside setTenantTx(tenantId) so they are provably tenant-isolated (B4.2).
  * @returns {Object} Updated record
  */
 export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null, options = {}) {
@@ -360,33 +367,51 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
     );
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE medication_administrations
-     SET status = 'administered',
-         administered_at = NOW(),
-         administered_by = $2::uuid,
-         notes = COALESCE($3, notes),
-         witness_uid = $4::uuid,
-         override_reason = COALESCE($5, override_reason)
-     WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-               administered_at, status, administered_by, notes, witness_uid,
-               override_reason, tenant_id, created_at, updated_at`,
-    id, administeredBy, notes, witnessUid, noScanOverrideReason
-  );
+  // B4.2 — run the state mutation + canonical audit inside setTenantTx so both
+  // are provably tenant-isolated (a bare prisma.$transaction leaves the GUC unset
+  // → the tenant_isolation policy falls through to its permissive branch). Prefer
+  // the threaded tenant, fall back to the row's tenant_id (from the Phase-0 SELECT
+  // above), then the single-tenant floor. The WHERE re-asserts tenant_id so the
+  // write is scoped even if RLS is not yet force-enforced for the connection role.
+  // No scan timestamps are written here: this is the no-scan path (no wristband /
+  // barcode scan occurred), so patient_scanned_at / medication_scanned_at stay
+  // NULL — which is exactly what distinguishes a documented no-scan override from
+  // a real two-scan administration in the audit trail.
+  const tid = options.tenantId || existing[0].tenant_id || DEFAULT_TENANT_ID;
 
-  await recordCanonicalMarEvent({
-    record: rows[0],
-    eventType: 'mar.administered',
-    actorUid: administeredBy,
-    previousStatus: existing[0].status,
-    payload: noScanOverrideReason
-      ? { scanner_used: false, no_scan_override: true, no_scan_override_reason: noScanOverrideReason }
-      : { scanner_used: false },
+  const record = await setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE medication_administrations
+       SET status = 'administered',
+           administered_at = NOW(),
+           administered_by = $2::uuid,
+           notes = COALESCE($3, notes),
+           witness_uid = $4::uuid,
+           override_reason = COALESCE($5, override_reason)
+       WHERE id = $1 AND tenant_id = $6::uuid
+       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+                 administered_at, status, administered_by, notes, witness_uid,
+                 override_reason, tenant_id, created_at, updated_at,
+                 patient_scanned_at, medication_scanned_at`,
+      id, administeredBy, notes, witnessUid, noScanOverrideReason, tid
+    );
+
+    await recordCanonicalMarEvent({
+      record: rows[0],
+      eventType: 'mar.administered',
+      actorUid: administeredBy,
+      previousStatus: existing[0].status,
+      payload: noScanOverrideReason
+        ? { scanner_used: false, no_scan_override: true, no_scan_override_reason: noScanOverrideReason }
+        : { scanner_used: false },
+      db: tx,
+    });
+
+    return rows[0];
   });
 
   logger.info(`Medication ${id} administered by ${administeredBy}`);
-  return rows[0];
+  return record;
 }
 
 /**

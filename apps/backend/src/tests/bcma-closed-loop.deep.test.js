@@ -201,6 +201,40 @@ d('BCMA closed loop — deep round-trip (roadmap B1)', () => {
     expect(withReason.body.data.override_reason).toMatch(/scanner battery dead/);
   });
 
+  test('B4.2: administer-with-scan 409s on a mismatched patient scan, 200s with an override', async () => {
+    // Fresh scheduled row for this patient.
+    const ma3 = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations (patient_uid, medication_name, dose, route, scheduled_time, status)
+       VALUES ($1::uuid, 'B1TEST Paracetamol 500mg', '500mg', 'oral', NOW(), 'scheduled')
+       RETURNING id`,
+      patientUid,
+    );
+    const scanMaId = Number(ma3[0].id);
+
+    // Mismatched wristband UID (NURSE_UID is a real user but not this MA's
+    // patient) with no override → server-side two-scan gate rejects with 409.
+    const mismatch = await nurseClient()
+      .post(`/api/v1/clinical/mar/${scanMaId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: NURSE_UID,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+      });
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.code).toBe('MAR_TWO_SCAN_REQUIRED');
+
+    // Same mismatch WITH a documented override (>=5 chars) → administered.
+    const overridden = await nurseClient()
+      .post(`/api/v1/clinical/mar/${scanMaId}/administer-with-scan`)
+      .send({
+        scanned_patient_uid: NURSE_UID,
+        scanned_barcode: 'B1TEST Paracetamol 500mg',
+        override_reason: 'B1TEST wristband unreadable; identity confirmed verbally + ID band',
+      });
+    expect(overridden.status).toBe(200);
+    expect(overridden.body.data.status).toBe('administered');
+    expect(overridden.body.data.override_reason).toMatch(/wristband unreadable/);
+  });
+
   test('5-rights drug-right passes via med-pack barcode for the right patient', async () => {
     // Fresh scheduled row + the pack barcode of the verified order.
     const ma2 = await prisma.$queryRawUnsafe(

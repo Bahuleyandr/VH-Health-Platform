@@ -23,10 +23,11 @@
 //              (±60 minutes by default). If scheduled_time is null we treat
 //              `time` as a pass (SOS/STAT/unscheduled admins).
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const DEFAULT_WINDOW_MINUTES = 60;
 
@@ -45,7 +46,7 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, medication_name, dose, dosage, route,
-            scheduled_time, status,
+            scheduled_time, status, tenant_id,
             CASE
               WHEN scheduled_time IS NULL THEN NULL
               ELSE ROUND(
@@ -137,6 +138,7 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
       route: ma.route,
       scheduled_time: ma.scheduled_time,
       status: ma.status,
+      tenant_id: ma.tenant_id,
     },
     rights,
     allPassed,
@@ -151,10 +153,48 @@ export async function evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barc
 /**
  * Commit the MAR row with rights audit. Transitions status to 'administered'
  * the same way the plain marService.recordAdministration does, but additionally
- * writes the scanned identifiers, rights_passed jsonb, and override_reason.
+ * writes the scanned identifiers, rights_passed jsonb, override_reason, and the
+ * two bedside-scan timestamps.
+ *
+ * B4.2 — BCMA server-side two-scan enforcement. The bedside loop is a TWO-scan
+ * gate: the patient-wristband scan ("right patient") AND the medication-barcode
+ * scan ("right drug") must BOTH match before a dose is charted. This is enforced
+ * server-side here (in addition to the broader 5-rights check), so a tampered or
+ * partial client cannot chart a dose without a real two-scan match — or, when a
+ * scan genuinely can't happen (dead scanner, damaged wristband / barcode), an
+ * explicit override_reason that is persisted on the row and audited.
+ *
+ * @param {Object} params
+ * @param {number} params.ma_id medication_administrations.id
+ * @param {string} params.scanned_patient_uid wristband UUID
+ * @param {string} params.scanned_barcode medication / pack barcode
+ * @param {string} params.administeredBy acting staff UID
+ * @param {string|null} [params.overrideReason] documented reason a right failed
+ * @param {string|null} [params.tenantId] canonical tenant (req.tenantId). Falls
+ *   back to the MA row's tenant_id, then DEFAULT_TENANT_ID. The write + audit
+ *   run inside setTenantTx(tenantId) so they are provably tenant-isolated.
+ * @param {number} [params.windowMinutes] right-time tolerance
  */
-export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, windowMinutes = DEFAULT_WINDOW_MINUTES }) {
+export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_barcode, administeredBy, overrideReason = null, tenantId = null, windowMinutes = DEFAULT_WINDOW_MINUTES }) {
   const evaluation = await evaluate5Rights({ ma_id, scanned_patient_uid, scanned_barcode, windowMinutes });
+
+  // B4.2 — explicit two-scan gate. The "right patient" (wristband) and "right
+  // drug" (medication barcode) scans must BOTH match. This is the specific
+  // bedside-safety contract and fails with its own code BEFORE the broader
+  // 5-rights check below, so the client can distinguish "your two scans don't
+  // match" from a dose/route/time mismatch and drive the right override modal.
+  const twoScanOk = evaluation.rights.patient && evaluation.rights.drug;
+  if (!twoScanOk && !overrideReason) {
+    const err = AppError.conflict(
+      'Both patient-wristband and medication barcode must scan-match before administration',
+      'MAR_TWO_SCAN_REQUIRED',
+    );
+    err.details = { rights: evaluation.rights, context: evaluation.context };
+    throw err;
+  }
+
+  // Existing broader gate: any of the five rights (incl. dose/route/time) may
+  // still fail. Without an override that is also a 409 the client must resolve.
   if (!evaluation.allPassed && !overrideReason) {
     // Surface the failing rights so the client can drive the override modal.
     const err = AppError.conflict('5-rights check failed');
@@ -162,71 +202,99 @@ export async function administerWithScan({ ma_id, scanned_patient_uid, scanned_b
     throw err;
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE medication_administrations
-       SET status              = 'administered',
-           administered_at     = NOW(),
-           administered_by     = $2::uuid,
-           scanned_patient_uid = $3::uuid,
-           scanned_barcode     = $4,
-           rights_passed       = $5::jsonb,
-           all_rights_passed   = $6,
-           override_reason     = $7
-     WHERE id = $1
-     RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
-               status, notes, tenant_id, created_at, updated_at,
-               administered_at, administered_by, rights_passed,
-               all_rights_passed, override_reason`,
-    ma_id,
-    administeredBy,
-    scanned_patient_uid,
-    scanned_barcode,
-    JSON.stringify(evaluation.rights),
-    evaluation.allPassed,
-    overrideReason,
-  );
+  // Prefer the threaded tenant (req.tenantId — the canonical source), fall back
+  // to the MA row's tenant_id surfaced by evaluate5Rights, then the single-tenant
+  // floor. The UPDATE + canonical audit run inside setTenantTx so the
+  // tenant_isolation policy (migrations 239/304, FORCE) applies to both — a bare
+  // prisma.$queryRawUnsafe leaves the GUC unset and falls through to the policy's
+  // permissive branch (i.e. not provably tenant-scoped).
+  const tid = tenantId || evaluation.ma?.tenant_id || DEFAULT_TENANT_ID;
 
-  const record = rows[0];
-  if (record?.id) {
-    try {
+  const record = await setTenantTx(tid, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE medication_administrations
+         SET status                = 'administered',
+             administered_at       = NOW(),
+             administered_by       = $2::uuid,
+             scanned_patient_uid   = $3::uuid,
+             scanned_barcode       = $4,
+             rights_passed         = $5::jsonb,
+             all_rights_passed     = $6,
+             override_reason       = $7,
+             patient_scanned_at    = NOW(),
+             medication_scanned_at = NOW()
+       WHERE id = $1 AND tenant_id = $8::uuid
+       RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time,
+                 status, notes, tenant_id, created_at, updated_at,
+                 administered_at, administered_by, rights_passed,
+                 all_rights_passed, override_reason,
+                 patient_scanned_at, medication_scanned_at`,
+      ma_id,
+      administeredBy,
+      scanned_patient_uid,
+      scanned_barcode,
+      JSON.stringify(evaluation.rights),
+      evaluation.allPassed,
+      overrideReason,
+      tid,
+    );
+
+    const updated = rows[0];
+    if (updated?.id) {
+      // Canonical timeline + audit on the SAME tx so the audit row is
+      // tenant-scoped and atomic with the administration. The helper guards its
+      // own writes internally (returns null on failure), so a benign canonical
+      // miss does not abort the administration transaction.
       await recordCanonicalClinicalEvent({
-        tenantId: record.tenant_id,
-        patientUid: record.patient_uid,
+        tenantId: updated.tenant_id,
+        patientUid: updated.patient_uid,
         eventType: 'mar.administered',
-        eventStatus: record.status,
+        eventStatus: updated.status,
         sourceTable: 'medication_administrations',
-        sourceId: String(record.id),
+        sourceId: String(updated.id),
         resourceType: 'mar',
-        resourceId: String(record.id),
+        resourceId: String(updated.id),
         actorUid: administeredBy,
-        summary: `${record.medication_name || 'Medication'} administered with scan`,
+        summary: `${updated.medication_name || 'Medication'} administered with scan`,
         payload: {
-          medication_administration_id: record.id,
-          medication_name: record.medication_name || null,
-          dose: record.dose || record.dosage || null,
-          route: record.route || null,
-          scheduled_time: record.scheduled_time || null,
-          administered_at: record.administered_at || null,
-          rights_passed: record.rights_passed || evaluation.rights,
-          all_rights_passed: record.all_rights_passed,
-          override_reason: record.override_reason || null,
+          medication_administration_id: updated.id,
+          medication_name: updated.medication_name || null,
+          dose: updated.dose || updated.dosage || null,
+          route: updated.route || null,
+          scheduled_time: updated.scheduled_time || null,
+          administered_at: updated.administered_at || null,
+          rights_passed: updated.rights_passed || evaluation.rights,
+          all_rights_passed: updated.all_rights_passed,
+          override_reason: updated.override_reason || null,
+          two_scan_override: !twoScanOk,
+          patient_scanned_at: updated.patient_scanned_at || null,
+          medication_scanned_at: updated.medication_scanned_at || null,
           scanner_used: true,
+        },
+        // The audit row's metadata column is sourced from `metadata` (the
+        // timeline's payload is separate), so carry the override facts here too
+        // — an override must leave a complete, queryable audit trail (B4.2 §e).
+        metadata: {
+          two_scan_override: !twoScanOk,
+          override_reason: updated.override_reason || null,
+          rights_passed: updated.rights_passed || evaluation.rights,
+          all_rights_passed: updated.all_rights_passed,
+          patient_scanned_at: updated.patient_scanned_at || null,
+          medication_scanned_at: updated.medication_scanned_at || null,
         },
         beforeState: { status: evaluation.ma?.status || 'scheduled' },
         afterState: {
-          status: record.status,
-          rights_passed: record.rights_passed || evaluation.rights,
+          status: updated.status,
+          rights_passed: updated.rights_passed || evaluation.rights,
         },
         tags: ['mar', 'medication', 'barcode'],
-        timelineIdempotencyKey: `medication_administrations:${record.id}:mar.administered:scan:${record.administered_at?.toISOString?.() || Date.now()}`,
-        auditIdempotencyKey: `medication_administrations:${record.id}:audit:mar.administered:scan:${record.administered_at?.toISOString?.() || Date.now()}`,
-      });
-    } catch (err) {
-      logger.warn(`Canonical scanned MAR event skipped for row ${record.id}`, {
-        error: err?.message || String(err),
-      });
+        timelineIdempotencyKey: `medication_administrations:${updated.id}:mar.administered:scan:${updated.administered_at?.toISOString?.() || Date.now()}`,
+        auditIdempotencyKey: `medication_administrations:${updated.id}:audit:mar.administered:scan:${updated.administered_at?.toISOString?.() || Date.now()}`,
+      }, { db: tx });
     }
-  }
+    return updated;
+  });
+
   return record;
 }
 

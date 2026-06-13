@@ -303,6 +303,7 @@ router.post('/mar/:id/administer', paramId(), optionalString('notes', 500), opti
         overrideReason: override_reason && override_reason.trim().length >= 5
           ? override_reason.trim()
           : null,
+        tenantId: req.tenantId,
       }
     );
     return success(res, record, 'Medication administration recorded');
@@ -363,6 +364,7 @@ router.post('/mar/:id/administer-with-scan',
         scanned_barcode,
         administeredBy: req.user.uid,
         overrideReason: override_reason && override_reason.trim().length >= 5 ? override_reason.trim() : null,
+        tenantId: req.tenantId,
       });
       return success(res, record, 'Medication administration recorded');
     } catch (err) {

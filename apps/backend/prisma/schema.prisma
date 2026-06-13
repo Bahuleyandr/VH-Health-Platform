@@ -6056,31 +6056,33 @@ model medical_records {
 }
 
 model medication_administrations {
-  id                  Int       @id @default(autoincrement())
-  patient_uid         String    @db.Uuid
-  prescription_id     Int?
-  medication_name     String    @db.VarChar(255)
-  dose                String?   @db.VarChar(100)
-  dosage              String?   @db.VarChar(100)
-  route               String?   @db.VarChar(50)
-  scheduled_time      DateTime? @db.Timestamptz(6)
-  administered_at     DateTime? @db.Timestamptz(6)
-  administered_by     String?   @db.Uuid
-  status              String?   @default("scheduled") @db.VarChar(50)
-  notes               String?
-  witness_uid         String?   @db.Uuid
-  hold_reason         String?
-  refusal_reason      String?
-  created_at          DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
-  scanned_patient_uid String?   @db.Uuid
-  scanned_barcode     String?   @db.VarChar(100)
-  rights_passed       Json?
-  all_rights_passed   Boolean?
-  override_reason     String?
-  medication_index    Int?
-  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_administrations_tenant")
+  id                    Int       @id @default(autoincrement())
+  patient_uid           String    @db.Uuid
+  prescription_id       Int?
+  medication_name       String    @db.VarChar(255)
+  dose                  String?   @db.VarChar(100)
+  dosage                String?   @db.VarChar(100)
+  route                 String?   @db.VarChar(50)
+  scheduled_time        DateTime? @db.Timestamptz(6)
+  administered_at       DateTime? @db.Timestamptz(6)
+  administered_by       String?   @db.Uuid
+  status                String?   @default("scheduled") @db.VarChar(50)
+  notes                 String?
+  witness_uid           String?   @db.Uuid
+  hold_reason           String?
+  refusal_reason        String?
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  scanned_patient_uid   String?   @db.Uuid
+  scanned_barcode       String?   @db.VarChar(100)
+  rights_passed         Json?
+  all_rights_passed     Boolean?
+  override_reason       String?
+  medication_index      Int?
+  tenant_id             String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_scanned_at    DateTime? @db.Timestamptz(6)
+  medication_scanned_at DateTime? @db.Timestamptz(6)
+  tenants               tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_administrations_tenant")
 
   @@index([patient_uid, administered_at(sort: Desc)], map: "idx_med_admin_patient_time")
   @@index([tenant_id], map: "idx_medication_administrations_tenant_id")
