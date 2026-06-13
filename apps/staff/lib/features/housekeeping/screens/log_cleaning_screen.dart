@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -80,6 +83,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
     }
     setState(() => _submitting = true);
     try {
+      final evidence = _photo == null
+          ? null
+          : await StaffEvidenceUploadService.upload(_photo!);
       final result = await HrApiService.submitCleaningLog(
         cleaningType: _cleaningType,
         zoneId: _selectedZoneId,
@@ -89,6 +95,8 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
         notes: _notesCtrl.text.trim().isNotEmpty
             ? _notesCtrl.text.trim()
             : null,
+        photoKey: evidence?.storageKey,
+        photoUrl: evidence?.storageUrl,
       );
       final data = result['data'] as Map<String, dynamic>? ?? result;
       if (mounted) {

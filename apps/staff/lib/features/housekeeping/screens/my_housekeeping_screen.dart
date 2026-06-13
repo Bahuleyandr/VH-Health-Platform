@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import 'package:intl/intl.dart';
+
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -634,11 +637,16 @@ class _RequestCard extends StatelessWidget {
                   : () async {
                       setDialogState(() => submitting = true);
                       try {
+                        final evidence = photo == null
+                            ? null
+                            : await StaffEvidenceUploadService.upload(photo!);
                         await HrApiService.completeHousekeepingRequest(
                           requestId: requestId,
                           completionNotes: notesCtrl.text.trim().isNotEmpty
                               ? notesCtrl.text.trim()
                               : null,
+                          photoKey: evidence?.storageKey,
+                          photoUrl: evidence?.storageUrl,
                         );
                         if (ctx.mounted) {
                           Navigator.pop(ctx);

@@ -5,7 +5,12 @@ import crypto from 'crypto';
 import { OTP_CONFIG } from '../config/otpConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
+import bcrypt from 'bcrypt';
 import { maskPhoneForLog } from '../utils/logMasking.js';
+
+// OTPs are short-lived, so a low bcrypt cost is sufficient and keeps verify fast.
+// Matches services/auth/otpService.js (OTP_HASH_ROUNDS).
+const OTP_HASH_ROUNDS = 6;
 
 export class OTPService {
   static generateOTP(length = OTP_CONFIG.length) {
@@ -17,6 +22,8 @@ export class OTPService {
 
   static async storeOTP(phone, purpose = 'general', userId = null) {
     const otp = this.generateOTP();
+    // Hash before persisting — prevents plaintext OTP exposure on DB compromise.
+    const otpHash = await bcrypt.hash(otp, OTP_HASH_ROUNDS);
     const expiresAt = new Date(Date.now() + (OTP_CONFIG.expirationMinutes * 60 * 1000));
 
     try {
@@ -24,7 +31,7 @@ export class OTPService {
 
       const session = await prisma.otp_sessions.create({
         data: {
-          phone, otp, purpose,
+          phone, otp: otpHash, purpose,
           user_id: userId || null,
           expires_at: expiresAt,
           attempts: 0,
@@ -62,7 +69,13 @@ export class OTPService {
         return { valid: false, reason: 'Too many attempts' };
       }
 
-      if (session.otp !== inputOtp) {
+      // Timing-safe comparison via bcrypt for hashed OTPs; the plaintext
+      // branch only matches legacy rows written before this hashing change
+      // (they expire within minutes).
+      const otpMatches = typeof session.otp === 'string' && session.otp.startsWith('$2')
+        ? await bcrypt.compare(inputOtp, session.otp)
+        : session.otp === inputOtp;
+      if (!otpMatches) {
         return { valid: false, reason: 'Invalid OTP', attemptsLeft: OTP_CONFIG.maxAttempts - newAttempts };
       }
 

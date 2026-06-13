@@ -30,6 +30,7 @@ jobs:
     env:
       VH_BASE_URL: ${{ vars.VH_BASE_URL }}
       VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      PATIENT_CERT_PIN_HASHES: ${{ vars.PATIENT_CERT_PIN_HASHES }}
       PATIENT_ANDROID_KEYSTORE_BASE64: ${{ secrets.PATIENT_ANDROID_KEYSTORE_BASE64 }}
       PATIENT_ANDROID_KEY_ALIAS: ${{ secrets.PATIENT_ANDROID_KEY_ALIAS }}
       PATIENT_ANDROID_KEY_PASSWORD: ${{ secrets.PATIENT_ANDROID_KEY_PASSWORD }}
@@ -57,6 +58,7 @@ jobs:
           for name in \
             VH_BASE_URL \
             VH_API_KEY \
+            PATIENT_CERT_PIN_HASHES \
             PATIENT_ANDROID_KEYSTORE_BASE64 \
             PATIENT_ANDROID_KEY_ALIAS \
             PATIENT_ANDROID_KEY_PASSWORD \
@@ -86,6 +88,8 @@ jobs:
           flutter build apk --release
           --dart-define=VH_BASE_URL="${VH_BASE_URL}"
           --dart-define=VH_API_KEY="${VH_API_KEY}"
+          --dart-define=PRODUCTION=true
+          --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
 
       - name: Build release AAB
         working-directory: apps/patient
@@ -93,6 +97,8 @@ jobs:
           flutter build appbundle --release
           --dart-define=VH_BASE_URL="${VH_BASE_URL}"
           --dart-define=VH_API_KEY="${VH_API_KEY}"
+          --dart-define=PRODUCTION=true
+          --dart-define=CERT_PIN_HASHES="${PATIENT_CERT_PIN_HASHES}"
 
       - uses: softprops/action-gh-release@v3
         with:

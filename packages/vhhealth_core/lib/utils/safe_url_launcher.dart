@@ -9,9 +9,12 @@ class SafeUrlLauncher {
   SafeUrlLauncher._();
 
   /// Allowed URL schemes. Everything else is blocked.
+  /// Cleartext `http` is permitted only in debug builds (local dev); release
+  /// builds require `https` for any externally-sourced URL so a MITM cannot
+  /// downgrade a server-supplied link to cleartext.
   static const _allowedSchemes = {
     'https',
-    'http',
+    if (kDebugMode) 'http',
     'tel',
     'mailto',
     'geo',

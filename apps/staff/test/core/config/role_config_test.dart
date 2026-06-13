@@ -725,6 +725,55 @@ void main() {
       expect(RoleFeatures.hasPatientLookup(StaffRole.hr), isFalse);
     });
 
+    test('phone read-only patient lookup stays doctor-class only', () {
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.doctor),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.dutyDoctor),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.anaesthetist),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(
+          StaffRole.medicalSuperintendent,
+        ),
+        isTrue,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.admin),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.superAdmin),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.nurse),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.receptionist),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.billingStaff),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.housekeeping),
+        isFalse,
+      );
+      expect(
+        RoleFeatures.hasPhoneReadOnlyPatientLookup(StaffRole.general),
+        isFalse,
+      );
+    });
+
     test(
       'patient registry writes stay limited to front-office governance roles',
       () {

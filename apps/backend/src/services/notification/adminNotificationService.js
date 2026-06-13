@@ -46,6 +46,11 @@ export const adminNotificationService = {
    * Get notification system overview
    */
   async getOverview(days = 7) {
+    // `days` is interpolated into INTERVAL '<days> days' below. Coerce to a
+    // bounded integer so no SQL can be injected regardless of the caller.
+    days = Number.isFinite(Number.parseInt(days, 10))
+      ? Math.min(Math.max(Number.parseInt(days, 10), 1), 3650)
+      : 7;
     try {
       const [notificationStats, typeDistribution, userEngagement, recentActivity] = await Promise.all([
         // Overall notification statistics
@@ -206,6 +211,11 @@ export const adminNotificationService = {
    * Get delivery statistics
    */
   async getDeliveryStats(days = 30) {
+    // `days` is interpolated into INTERVAL '<days> days' below. Coerce to a
+    // bounded integer so no SQL can be injected regardless of the caller.
+    days = Number.isFinite(Number.parseInt(days, 10))
+      ? Math.min(Math.max(Number.parseInt(days, 10), 1), 3650)
+      : 30;
     try {
       const [deliveryMetrics, failureAnalysis, engagementRates] = await Promise.all([
         // Delivery success metrics

@@ -85,16 +85,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Load history
       try {
         final hist = await AttendanceApiService.getAttendanceHistory();
-        _history =
-            hist['records'] as List? ??
-            hist['history'] as List? ??
-            hist['attendance'] as List? ??
-            [];
+        _history = _historyItemsFrom(hist);
       } catch (e) {
         if (_staffId != null) {
           final hist = await AttendanceApiService.getAttendance(_staffId!);
-          _history =
-              hist['records'] as List? ?? hist['attendance'] as List? ?? [];
+          _history = _historyItemsFrom(hist);
         }
       }
     } catch (e) {
@@ -102,6 +97,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  List<dynamic> _historyItemsFrom(Map<String, dynamic> hist) {
+    return hist['items'] as List? ??
+        hist['records'] as List? ??
+        hist['history'] as List? ??
+        hist['attendance'] as List? ??
+        [];
   }
 
   Future<void> _loadCalendar() async {
@@ -731,10 +734,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       itemBuilder: (ctx, i) {
         final record = _history[i] as Map<String, dynamic>;
         final checkIn =
+            record['local_check_in_time'] as String? ??
+            record['checkInTime'] as String? ??
             record['check_in_time'] as String? ??
             record['checkIn'] as String? ??
             '';
         final checkOut =
+            record['local_check_out_time'] as String? ??
+            record['checkOutTime'] as String? ??
             record['check_out_time'] as String? ??
             record['checkOut'] as String? ??
             '';

@@ -1,58 +1,95 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-class StaffPhoneMoreScreen extends StatelessWidget {
+import '../../../core/config/role_config.dart';
+import '../../../core/services/auth_service.dart';
+
+class StaffPhoneMoreScreen extends StatefulWidget {
   const StaffPhoneMoreScreen({super.key});
 
   @override
+  State<StaffPhoneMoreScreen> createState() => _StaffPhoneMoreScreenState();
+}
+
+class _StaffPhoneMoreScreenState extends State<StaffPhoneMoreScreen> {
+  StaffRole _role = StaffRole.general;
+  bool _loadingRole = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    try {
+      final role = StaffRole.fromString(await AuthService.getRole());
+      if (mounted) {
+        setState(() {
+          _role = role;
+          _loadingRole = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingRole = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final tiles = <Widget>[
+      const _MoreTile(
+        icon: Icons.schedule_outlined,
+        title: 'My Roster',
+        subtitle: 'Your shifts and duty plan',
+        route: '/schedule',
+      ),
+      const _MoreTile(
+        icon: Icons.event_available_outlined,
+        title: 'Leave',
+        subtitle: 'Apply for leave and review status',
+        route: '/leave',
+      ),
+      const _MoreTile(
+        icon: Icons.help_outline,
+        title: 'Raise Query',
+        subtitle: 'Ask HR/Admin or your incharge',
+        route: '/phone/queries',
+      ),
+      const _MoreTile(
+        icon: Icons.report_gmailerrorred_outlined,
+        title: 'Incident Report / Staff Grievance',
+        subtitle: 'Confidential reporting and grievance submission',
+        route: '/reports-grievances',
+      ),
+      if (RoleFeatures.hasPhoneReadOnlyPatientLookup(_role))
+        const _MoreTile(
+          icon: Icons.folder_shared_outlined,
+          title: 'Read-Only Patient Lookup',
+          subtitle: 'Open authorized patient chart without write actions',
+          route: '/phone/patient-lookup',
+        ),
+      const _MoreTile(
+        icon: Icons.person_outline,
+        title: 'Profile',
+        subtitle: 'Staff profile and device details',
+        route: '/profile',
+      ),
+      const _MoreTile(
+        icon: Icons.settings_outlined,
+        title: 'Settings',
+        subtitle: 'Theme, language, and app settings',
+        route: '/settings',
+      ),
+    ];
+
     return Scaffold(
       appBar: AppBar(title: const Text('More')),
       body: ListView(
         padding: const EdgeInsets.all(12),
-        children: const [
-          _MoreTile(
-            icon: Icons.schedule_outlined,
-            title: 'My Roster',
-            subtitle: 'Your shifts and duty plan',
-            route: '/schedule',
-          ),
-          _MoreTile(
-            icon: Icons.event_available_outlined,
-            title: 'Leave',
-            subtitle: 'Apply for leave and review status',
-            route: '/leave',
-          ),
-          _MoreTile(
-            icon: Icons.help_outline,
-            title: 'Raise Query',
-            subtitle: 'Ask HR/Admin or your incharge',
-            route: '/phone/queries',
-          ),
-          _MoreTile(
-            icon: Icons.report_gmailerrorred_outlined,
-            title: 'Incident Report / Staff Grievance',
-            subtitle: 'Confidential reporting and grievance submission',
-            route: '/reports-grievances',
-          ),
-          _MoreTile(
-            icon: Icons.folder_shared_outlined,
-            title: 'Read-Only Patient Lookup',
-            subtitle: 'Open authorized patient chart without write actions',
-            route: '/phone/patient-lookup',
-          ),
-          _MoreTile(
-            icon: Icons.person_outline,
-            title: 'Profile',
-            subtitle: 'Staff profile and device details',
-            route: '/profile',
-          ),
-          _MoreTile(
-            icon: Icons.settings_outlined,
-            title: 'Settings',
-            subtitle: 'Theme, language, and app settings',
-            route: '/settings',
-          ),
+        children: [
+          if (_loadingRole) const LinearProgressIndicator(minHeight: 2),
+          ...tiles,
         ],
       ),
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/config/role_config.dart';
 import '../../../core/providers/message_unread_provider.dart';
 import '../../../core/providers/notification_provider.dart';
 import '../../../core/theme/app_theme.dart';
@@ -74,6 +75,13 @@ class _StaffPhoneHomeScreenState extends State<StaffPhoneHomeScreen> {
             final shift = data['shift'] is Map
                 ? Map<String, dynamic>.from(data['shift'] as Map)
                 : const <String, dynamic>{};
+            final staff = data['staff'] is Map
+                ? Map<String, dynamic>.from(data['staff'] as Map)
+                : const <String, dynamic>{};
+            final role = StaffRole.fromString(staff['role']?.toString() ?? '');
+            final isHousekeeping =
+                role == StaffRole.housekeeping ||
+                role == StaffRole.housekeepingIncharge;
             final unreadMessages = context
                 .watch<MessageUnreadProvider>()
                 .unreadCount;
@@ -158,30 +166,47 @@ class _StaffPhoneHomeScreenState extends State<StaffPhoneHomeScreen> {
                 const SizedBox(height: 18),
                 const _SectionTitle(title: 'Quick actions'),
                 const SizedBox(height: 8),
-                const Wrap(
+                Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _ActionChipButton(
+                    const _ActionChipButton(
                       icon: Icons.fingerprint,
                       label: 'Check in/out',
                       route: '/attendance',
                     ),
-                    _ActionChipButton(
+                    const _ActionChipButton(
+                      icon: Icons.event_available,
+                      label: 'Leave',
+                      route: '/leave',
+                    ),
+                    const _ActionChipButton(
                       icon: Icons.chat,
                       label: 'Message',
                       route: '/messaging',
                     ),
-                    _ActionChipButton(
+                    const _ActionChipButton(
                       icon: Icons.report_gmailerrorred,
                       label: 'Incident',
                       route: '/reports-grievances',
                     ),
-                    _ActionChipButton(
+                    const _ActionChipButton(
                       icon: Icons.help,
                       label: 'Query',
                       route: '/phone/queries',
                     ),
+                    if (isHousekeeping) ...[
+                      const _ActionChipButton(
+                        icon: Icons.checklist,
+                        label: 'HK Tasks',
+                        route: '/housekeeping-tasks',
+                      ),
+                      const _ActionChipButton(
+                        icon: Icons.cleaning_services,
+                        label: 'Housekeeping',
+                        route: '/housekeeping',
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 18),

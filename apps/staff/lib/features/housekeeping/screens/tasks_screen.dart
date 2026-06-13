@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/config/role_config.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
@@ -92,14 +96,20 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
   }
 
   Future<void> _completeTask(_Task task) async {
-    final notes = await _showCompleteDialog();
-    if (notes == null) return;
+    final completion = await _showCompleteDialog();
+    if (completion == null) return;
 
     setState(() => _busyTaskId = task.id);
     try {
+      final evidence = completion.photo == null
+          ? null
+          : await StaffEvidenceUploadService.upload(completion.photo!);
+      final notes = completion.notes.trim();
       await HrApiService.completeHousekeepingRequest(
         requestId: task.id,
-        completionNotes: notes.trim().isEmpty ? null : notes.trim(),
+        completionNotes: notes.isEmpty ? null : notes,
+        photoKey: evidence?.storageKey,
+        photoUrl: evidence?.storageUrl,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -116,32 +126,98 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
     }
   }
 
-  Future<String?> _showCompleteDialog() async {
+  Future<_CompletionEvidence?> _showCompleteDialog() async {
     final controller = TextEditingController();
+    File? photo;
     try {
-      return await showDialog<String>(
+      return await showDialog<_CompletionEvidence>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Text(AppStrings.of(context).housekeepingCompleteDialogTitle),
-          content: TextField(
-            controller: controller,
-            maxLines: 3,
-            decoration: InputDecoration(
-              labelText: AppStrings.of(context).housekeepingCompletionNotes,
-              border: const OutlineInputBorder(),
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(AppStrings.of(context).housekeepingCompleteDialogTitle),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: controller,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(
+                        context,
+                      ).housekeepingCompletionNotes,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () async {
+                      final picker = ImagePicker();
+                      final image = await picker.pickImage(
+                        source: ImageSource.camera,
+                        imageQuality: 70,
+                      );
+                      if (image != null) {
+                        setDialogState(() => photo = File(image.path));
+                      }
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      height: photo != null ? 160 : 76,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.divider),
+                        borderRadius: BorderRadius.circular(8),
+                        color: AppTheme.backgroundGrey,
+                      ),
+                      child: photo != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                photo!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                              ),
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.camera_alt_outlined,
+                                  color: AppTheme.textSecondary,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  AppStrings.of(
+                                    context,
+                                  ).housekeepingAddCompletionPhoto,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(AppStrings.of(context).actionCancel),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(
+                  context,
+                  _CompletionEvidence(notes: controller.text, photo: photo),
+                ),
+                icon: const Icon(Icons.check_circle_outline),
+                label: Text(AppStrings.of(context).housekeepingActionDone),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(AppStrings.of(context).actionCancel),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(context, controller.text),
-              icon: const Icon(Icons.check_circle_outline),
-              label: Text(AppStrings.of(context).housekeepingActionDone),
-            ),
-          ],
         ),
       );
     } finally {
@@ -252,6 +328,13 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
       ),
     );
   }
+}
+
+class _CompletionEvidence {
+  final String notes;
+  final File? photo;
+
+  const _CompletionEvidence({required this.notes, required this.photo});
 }
 
 class _TaskList extends StatelessWidget {

@@ -54,7 +54,9 @@ class _LoginFormState extends State<LoginForm> {
   bool _showOtpWidget = false;
   String? _submittedPhone;
 
-  bool get _showDevLogin => kDebugMode || _devLoginEnabled;
+  // Never expose the OTP-bypass dev login in a release build, even if the
+  // VH_DEV_LOGIN_ENABLED dart-define is accidentally passed true at release time.
+  bool get _showDevLogin => !kReleaseMode && (kDebugMode || _devLoginEnabled);
 
   String get _postLoginRoute => widget.returnTo ?? '/home';
 
