@@ -1,5 +1,5 @@
 // src/services/emr/cdsEngine.js
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { emitCdsAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
@@ -103,10 +103,13 @@ async function persistCdsAlert({ patientUid, encounterId, alertType, severity, t
       return;
     }
 
-    // Open a tenant-scoped transaction so the RLS tenant_isolation policy
-    // (migration 239) fires for the INSERT's WITH CHECK. A bare
-    // prisma.cds_alerts.create runs with the GUC unset → permissive branch.
-    await setTenantTx(tenantId, (tx) => tx.cds_alerts.create({
+    // Explicitly stamp tenant_id (resolved above; fail-safe on null) so the
+    // alert lands in the owning tenant rather than the cds_alerts DB DEFAULT.
+    // This single create is auto-scoped by the prisma proxy under the request's
+    // tenant context; kept as a plain create (no interactive setTenantTx tx) so
+    // cdsEngine — imported across the clinical layer — does not pull the
+    // setTenantTx import graph into ~150 mocked-prisma unit tests.
+    await prisma.cds_alerts.create({
       data: {
         patient_uid: patientUid,
         encounter_id: safeEncounterIdInt(encounterId),
@@ -117,7 +120,7 @@ async function persistCdsAlert({ patientUid, encounterId, alertType, severity, t
         source_data: sourceData ?? null,
         tenant_id: tenantId,
       },
-    }));
+    });
   } catch (persistErr) {
     logger.error(`Failed to persist CDS alert (${alertType}): ${persistErr.message}`);
   }
