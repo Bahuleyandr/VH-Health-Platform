@@ -1,4 +1,4 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
@@ -220,7 +220,7 @@ export async function transitionCareTeam({
   const normalizedId = id(careTeamId, 'care_team id');
   const status = enumValue(nextStatus, CARE_TEAM_STATUSES, 'next_status');
   const actor = uuid(changedBy, 'changed_by');
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId(tid), async (tx) => {
     const currentRows = await tx.$queryRawUnsafe(
       `SELECT id, status FROM care_teams WHERE tenant_id = $1::uuid AND id = $2`,
       tenantId(tid), normalizedId,
@@ -274,7 +274,7 @@ export async function addCareTeamMember({
   if (!staffUuid && !staffIntId) throw AppError.badRequest('staff_uid or staff_id is required');
   const actor = uuid(createdBy, 'created_by');
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tenantId(tid), async (tx) => {
       const teams = await tx.$queryRawUnsafe(
         `SELECT patient_uid FROM care_teams WHERE tenant_id = $1::uuid AND id = $2`,
         tenantId(tid), teamId,
@@ -328,7 +328,7 @@ export async function transitionCareTeamMember({
   const normalizedMemberId = id(memberId, 'care_team_member id');
   const status = enumValue(nextStatus, CARE_TEAM_MEMBER_STATUSES, 'next_status');
   const actor = uuid(changedBy, 'changed_by');
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId(tid), async (tx) => {
     const currentRows = await tx.$queryRawUnsafe(
       `SELECT id, care_team_id, status
          FROM care_team_members
@@ -438,7 +438,7 @@ export async function endPatientBreakGlass({
   const breakGlassIntId = id(breakGlassId, 'break_glass id');
   const nextStatus = enumValue(status, BREAK_GLASS_STATUSES, 'status', 'ended');
   const actor = uuid(endedBy, 'ended_by');
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId(tid), async (tx) => {
     const currentRows = await tx.$queryRawUnsafe(
       `SELECT id, patient_uid, actor_uid, status
          FROM patient_access_break_glass
@@ -626,7 +626,7 @@ export async function transitionLabSpecimen({
   const normalizedId = id(specimenId, 'specimen id');
   const status = enumValue(nextStatus, SPECIMEN_STATUSES, 'next_status');
   const actor = uuid(changedBy, 'changed_by');
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId(tid), async (tx) => {
     const currentRows = await tx.$queryRawUnsafe(
       `SELECT id, status FROM lab_specimens WHERE tenant_id = $1::uuid AND id = $2`,
       tenantId(tid), normalizedId,

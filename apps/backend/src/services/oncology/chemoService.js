@@ -20,7 +20,7 @@
 // administration, and withholding all emit canonical timeline + audit
 // events in the same transaction as the detail write.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 import { hasActivePrivilege } from '../staff/credentialingService.js';
@@ -118,7 +118,7 @@ export async function createProtocol({
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tenantOr(tenantId), async (tx) => {
       const protoRows = await tx.$queryRawUnsafe(
         `INSERT INTO chemo_protocols (tenant_id, code, name, indication, cycle_length_days, total_cycles, reference, created_by)
          VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid)
@@ -262,7 +262,7 @@ export async function createTreatmentPlan(protocolId, {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tenantOr(tenantId), async (tx) => {
       const rows = await tx.$queryRawUnsafe(
         `INSERT INTO chemo_treatment_plans
            (tenant_id, patient_uid, protocol_id, indication, planned_cycles, consent_ref,
@@ -403,7 +403,7 @@ export async function scheduleCycle(planId, {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tenantOr(tenantId), async (tx) => {
       const cycleRows = await tx.$queryRawUnsafe(
         `INSERT INTO chemo_cycles (tenant_id, plan_id, cycle_number, scheduled_date, weight_kg, bsa_m2, created_by)
          VALUES ($1::uuid, $2, $3, $4::date, $5, $6, $7::uuid)
@@ -527,7 +527,7 @@ export async function verifyAdministration(adminId, {
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       verifierRole === 'first'
         ? `UPDATE chemo_administrations
@@ -578,7 +578,7 @@ export async function recordChemoAdministration(adminId, { tenantId, actorUid = 
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE chemo_administrations
        SET status = 'administered', administered_by = $2::uuid, administered_at = NOW(), updated_at = NOW()
@@ -650,7 +650,7 @@ export async function withholdAdministration(adminId, { tenantId, reason }, { ac
     throw AppError.invalidTransition(admin.status, 'withheld', ['pending', 'first_verified', 'double_verified']);
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE chemo_administrations
        SET status = 'withheld', withheld_reason = $2, updated_at = NOW()

@@ -7,7 +7,7 @@
 //
 // Migration 174. Per project decision 2026-05-09.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
@@ -314,7 +314,7 @@ export async function collectAdvanceDeposit({
   // for typical throughput.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await setTenantTx(tid, async (tx) => {
         const receiptNumber = await nextReceiptNumber(tx);
         const deposit = await tx.advance_deposits.create({
           data: {
@@ -384,7 +384,7 @@ export async function refundAdvanceDeposit({
   }
   if (!refundedBy) throw AppError.badRequest('refundedBy is required');
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tid, async (tx) => {
     const parent = await tx.advance_deposits.findFirst({
       where: { id: parentDepositId, tenant_id: tid },
       select: {
@@ -618,7 +618,7 @@ export async function issueReplacementAttendantPass({
   admissionId, patientUid, patientName, wardId, wardName, issuedBy, notes = null, tenantId = null,
 }) {
   const tid = tenantOr(tenantId);
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tid, async (tx) => {
     const admission = await findAdmissionForTenant(tx, admissionId, tid);
     if (patientUid && patientUid !== admission.patient_uid) {
       throw AppError.forbidden('Attendant pass patient does not belong to this admission', 'PASS_PATIENT_MISMATCH');
@@ -800,7 +800,7 @@ export async function createWardIndent({
     if (!patientRows.length) throw AppError.notFound('Patient not found');
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tid, async (tx) => {
     if (resolvedWardId && resolvedWardName == null) {
       const ward = await tx.wards.findUnique({ where: { id: resolvedWardId }, select: { name: true } });
       resolvedWardName = ward?.name ?? null;
@@ -853,7 +853,11 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
          FROM ward_indents wi
          JOIN ward_indent_items wii ON wii.ward_indent_id = wi.id
         WHERE wii.notes LIKE $1
-          AND wi.tenant_id = COALESCE($2::uuid, wi.tenant_id)
+          -- Explicit tenant_id filter: when the order carries a tenant, the
+          -- dedup match is hard-scoped to it (no cross-tenant fall-through).
+          -- A null tenant (legacy tenant-less clinical order) still matches
+          -- any tenant, preserving the prior COALESCE($2, wi.tenant_id) intent.
+          AND ($2::uuid IS NULL OR wi.tenant_id = $2::uuid)
         ORDER BY wi.created_at DESC
         LIMIT 1`,
       `%clinical_order_id:${order.id}%`, order.tenant_id || null,
@@ -873,7 +877,12 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
          LEFT JOIN wards w ON w.id = b.ward_id
         WHERE a.encounter_id = $1::uuid
           AND a.patient_uid = $2::uuid
-          AND a.tenant_id = COALESCE($3::uuid, a.tenant_id)
+          -- Explicit tenant_id filter (defense-in-depth): a non-null order
+          -- tenant hard-scopes the admission match so a cross-tenant
+          -- encounter/patient collision cannot resolve the indent's tenant
+          -- to another hospital. Null tenant preserves the prior
+          -- COALESCE($3, a.tenant_id) any-tenant behaviour.
+          AND ($3::uuid IS NULL OR a.tenant_id = $3::uuid)
           AND COALESCE(a.status, 'admitted') NOT IN ('discharged', 'cancelled')
         ORDER BY a.admitted_at DESC NULLS LAST, a.id DESC
         LIMIT 1`,
@@ -1015,7 +1024,7 @@ async function transitionWardIndent({
   if (!actorUid) throw AppError.badRequest('actorUid is required');
   const tid = tenantOr(tenantId);
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tid, async (tx) => {
     const current = await tx.ward_indents.findFirst({
       where: { id: indentId, tenant_id: tid },
       select: { id: true, status: true },
@@ -1065,7 +1074,7 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
   if (!issuedBy) throw AppError.badRequest('issuedBy is required');
   const tid = tenantOr(tenantId);
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tid, async (tx) => {
     const current = await tx.ward_indents.findFirst({
       where: { id: indentId, tenant_id: tid },
       include: { items: true },

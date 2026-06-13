@@ -8,7 +8,7 @@
 // dispensable final-glasses prescription. Clinical writes follow the
 // canonical timeline invariant.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 
@@ -107,7 +107,7 @@ export async function recordExam({
   const iopAlert = (odIopMmhg !== null && Number(odIopMmhg) > IOP_ALERT_THRESHOLD_MMHG)
     || (osIopMmhg !== null && Number(osIopMmhg) > IOP_ALERT_THRESHOLD_MMHG);
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     let rows;
     try {
       rows = await tx.$queryRawUnsafe(

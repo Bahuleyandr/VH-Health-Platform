@@ -11,7 +11,7 @@
 // Canonical invariant: start/complete write timeline + audit events in the
 // same transaction; per-item decisions write clinical_audit_events.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import {
@@ -25,6 +25,21 @@ export const ITEM_DECISIONS = Object.freeze(['continue', 'stop', 'change', 'new'
 
 function tenantIdFromContext(context = {}) {
   return context.tenantId || context.tenant_id || null;
+}
+
+// SEC-3 — open an interactive transaction that is RLS-tenant-scoped when a
+// tenantId is known, falling back to the legacy permissive `prisma.$transaction`
+// for untenanted/single-tenant callers (setTenantTx throws without a tenantId,
+// and the start INSERT COALESCEs tenant_id to a default, so a null tenant is a
+// legitimate state). When scoped, every write inside the tx against the
+// tenant_isolation tables (medication_reconciliations,
+// medication_reconciliation_items, medication_safety_reviews) is constrained to
+// the caller's tenant — USING on lookups/locks and WITH CHECK on writes —
+// instead of falling through to migration 075/304's permissive branch. A bare
+// `prisma.$transaction` leaves app.current_tenant_id unset, so the policy never
+// fires; setTenantTx sets the GUC as the first statement of the tx.
+function scopedTx(tenantId, fn) {
+  return tenantId ? setTenantTx(tenantId, fn) : prisma.$transaction(fn);
 }
 
 /**
@@ -226,7 +241,7 @@ export async function startReconciliation({
     : [sources.inpatient_mar, sources.active_prescriptions, sources.home];
   const items = mergeMedicationLists(...orderedLists);
 
-  const rec = await prisma.$transaction(async (tx) => {
+  const rec = await scopedTx(patient.tenant_id, async (tx) => {
     const recRows = await tx.$queryRawUnsafe(
       `INSERT INTO medication_reconciliations
          (patient_uid, patient_id, tenant_id, admission_id, encounter_id, rec_type,
@@ -378,7 +393,7 @@ export async function decideItem(recId, itemId, {
   const wantsSafetyReview = ['stop', 'change'].includes(decision)
     && !!(safetyRationale || '').trim();
 
-  const item = await prisma.$transaction(async (tx) => {
+  const item = await scopedTx(rec.tenant_id, async (tx) => {
     let safetyReviewId = null;
     if (wantsSafetyReview) {
       const reviews = await recordMedicationSafetyReviews({
@@ -501,7 +516,7 @@ export async function completeReconciliation(recId, context = {}) {
       }))
     : null;
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await scopedTx(rec.tenant_id, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE medication_reconciliations SET
          status = 'completed', completed_by = $2::uuid, completed_at = NOW(),

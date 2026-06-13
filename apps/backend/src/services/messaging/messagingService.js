@@ -1,7 +1,7 @@
 // src/services/messaging/messagingService.js
 
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
@@ -583,7 +583,7 @@ const messagingService = {
     const normalizedTenant = normalizeTenant(tenantId);
 
     try {
-      const message = await prisma.$transaction(async tx => {
+      const message = await setTenantTx(normalizedTenant, async tx => {
         const thread = await resolveMessageThread(tx, {
           senderUid,
           recipientUid,
@@ -680,7 +680,7 @@ const messagingService = {
     };
 
     try {
-      const result = await prisma.$transaction(async tx => {
+      const result = await setTenantTx(normalizedTenant, async tx => {
         await assertThreadAccess(tx, {
           threadId,
           staffUid: senderUid,
@@ -771,7 +771,7 @@ const messagingService = {
     const normalizedTenant = normalizeTenant(tenantId);
 
     try {
-      const created = await prisma.$transaction(async tx => {
+      const created = await setTenantTx(normalizedTenant, async tx => {
         const recipients = await resolveRecipientUids({
           tenantId: normalizedTenant,
           scope,

@@ -14,10 +14,11 @@
 // lands inside the hash chain, so the signature act is chained too.
 
 import { createHash } from 'node:crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 // Signable documents. Fixed identifiers only — never user input.
 //   idType: 'int' | 'uuid' — how the table is keyed.
@@ -111,7 +112,16 @@ export async function signDocument({
   const { spec, row } = await fetchDocument(documentType, documentId);
   const hash = contentHashOf(row.doc);
 
-  const signature = await prisma.$transaction(async (tx) => {
+  // Tenant-scope the multi-statement PHI write (signature INSERT + canonical
+  // timeline/audit rows + signature UPDATE) so migration 075/304's
+  // tenant_isolation RLS policy enforces on every row. The document row's
+  // own tenant is the in-scope tenant; it falls back to DEFAULT_TENANT_ID
+  // exactly as the INSERT's COALESCE below and the canonical service's
+  // normalizeTenantId do, so the GUC matches every row written in this tx
+  // (a bare prisma.$transaction leaves the GUC unset → permissive policy).
+  const tenantId = row.tenant_id || DEFAULT_TENANT_ID;
+
+  const signature = await setTenantTx(tenantId, async (tx) => {
     const inserted = await tx.$queryRawUnsafe(
       `INSERT INTO clinical_document_signatures
          (tenant_id, patient_uid, document_type, document_table, document_id, content_hash,

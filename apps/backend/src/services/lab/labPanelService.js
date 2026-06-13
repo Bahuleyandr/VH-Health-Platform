@@ -12,7 +12,7 @@
 // 2026-05-08-lab-walk-in-lab-tech-no-structured-results.
 
 import crypto from 'node:crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -160,7 +160,7 @@ export async function recordLabPanel({
     }),
   );
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await setTenantTx(tid, async (tx) => {
     const rows = [];
     for (const { analyte, range, flag, isCritical } of enriched) {
       const created = await tx.lab_results.create({

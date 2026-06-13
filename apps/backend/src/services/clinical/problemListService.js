@@ -13,7 +13,7 @@
 // successful write lands the detail row + one clinical_timeline_events row +
 // one clinical_audit_events row in the same transaction.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
@@ -125,6 +125,21 @@ async function codeVerdicts({ icd10Code, snomedCode }) {
 
 function tenantIdFromContext(context = {}) {
   return context.tenantId || context.tenant_id || null;
+}
+
+// Open an interactive transaction that is RLS-tenant-scoped when a tenantId is
+// known, falling back to the legacy permissive `prisma.$transaction` for
+// untenanted/single-tenant callers. patient_problems carries a tenant_isolation
+// policy under FORCE ROW LEVEL SECURITY (migrations 276/306): a bare
+// `prisma.$transaction` leaves app.current_tenant_id unset, so the policy falls
+// through to its permissive branch (USING on lookups/locks + WITH CHECK on
+// writes never constrain to the tenant). setTenantTx sets the GUC as the first
+// statement of the tx so isolation actually fires. A null tenant is a legitimate
+// state here — the createProblem INSERT COALESCEs tenant_id to the default
+// tenant and setTenantTx throws without a tenantId — so untenanted callers keep
+// the existing bare-transaction behaviour unchanged.
+function scopedTx(tenantId, fn) {
+  return tenantId ? setTenantTx(tenantId, fn) : prisma.$transaction(fn);
 }
 
 async function getPatientByUid(patientUid, tenantId = null) {
@@ -254,8 +269,10 @@ export async function createProblem(input = {}, context = {}) {
 
   const verdicts = await codeVerdicts({ icd10Code, snomedCode });
 
-  // Phase 1 — atomic: detail row + timeline + audit in one transaction.
-  const problem = await prisma.$transaction(async (tx) => {
+  // Phase 1 — atomic: detail row + timeline + audit in one transaction,
+  // RLS-scoped to the patient's tenant (the value stamped on the inserted row
+  // via COALESCE below) so patient_problems' tenant_isolation WITH CHECK passes.
+  const problem = await scopedTx(patient.tenant_id, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO patient_problems
          (patient_uid, patient_id, tenant_id, title, icd10_code, snomed_code, severity,
@@ -360,8 +377,10 @@ export async function updateProblem(problemId, patch = {}, context = {}) {
   const resolving = nextStatus === 'resolved' && existing.status !== 'resolved';
   const reactivating = nextStatus === 'active' && existing.status !== 'active';
 
-  // Phase 1 — atomic update + events.
-  const updated = await prisma.$transaction(async (tx) => {
+  // Phase 1 — atomic update + events, RLS-scoped to the existing row's tenant
+  // (the same value the UPDATE matches in its WHERE tenant_id clause below) so
+  // patient_problems' tenant_isolation USING (lookup) + WITH CHECK (write) fire.
+  const updated = await scopedTx(existing.tenant_id, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE patient_problems SET
          status = $2,

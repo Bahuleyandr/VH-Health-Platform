@@ -9,7 +9,7 @@
 // (source staff|device), structured intra-dialytic complication events
 // with canonical timeline emission.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 
@@ -264,7 +264,7 @@ export async function prescribe({ tenantId, dialysis_patient_id, prescribed_by, 
   const pat = unwrap(patRows);
   if (!pat) throw AppError.notFound('Dialysis patient not found');
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     await tx.$queryRawUnsafe(
       `UPDATE dialysis_prescriptions
        SET status = 'superseded', superseded_at = NOW(), updated_at = NOW()
@@ -606,7 +606,7 @@ export async function recordSessionEvent({ tenantId, session_id, recorded_by, ac
     throw AppError.invalidTransition(sess.status, 'recording a complication', ['in_progress', 'completed']);
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     let event;
     try {
       const rows = await tx.$queryRawUnsafe(

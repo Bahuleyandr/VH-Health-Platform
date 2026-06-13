@@ -13,7 +13,7 @@
 //     .wl entries (modalities then pull the schedule instead of manual
 //     re-typing at the console).
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
@@ -106,7 +106,7 @@ export async function linkStudy(orderId, { studyInstanceUid, accessionNumber = n
   }
 
   const viewerUrl = buildViewerUrl(cleaned);
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(order.tenant_id, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE radiology_orders SET
          pacs_study_instance_uid = $2,

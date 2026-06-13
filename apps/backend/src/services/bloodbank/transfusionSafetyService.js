@@ -10,7 +10,7 @@
 //
 // Every step emits canonical timeline + audit events in-transaction.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
@@ -196,7 +196,7 @@ export async function crossmatchUnit(requestId, {
   }
 
   const isCompatible = result === 'compatible';
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await setTenantTx(tenantId, async (tx) => {
     const reqRows = await tx.$queryRawUnsafe(
       `UPDATE blood_requests SET
          cross_match_status = $2, cross_matched_by = $3::uuid, cross_matched_at = NOW(),
@@ -289,7 +289,7 @@ export async function recordBedsideVerification(requestId, {
     });
   }
 
-  const verification = await prisma.$transaction(async (tx) => {
+  const verification = await setTenantTx(tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO transfusion_verifications
          (tenant_id, request_id, unit_id, verifier_role, verified_by, scanned_unit_number,
@@ -380,7 +380,7 @@ export async function startTransfusion(requestId, context = {}) {
   }
   await assertBedsideVerified(requestId, { tenantId });
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE blood_requests SET
          transfusion_started_at = NOW(), transfusion_started_by = $2::uuid, updated_at = NOW()
@@ -416,7 +416,7 @@ export async function completeTransfusion(requestId, { notes = null } = {}, cont
     throw AppError.conflict('Start the transfusion before completing it', 'TRANSFUSION_NOT_STARTED');
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE blood_requests SET
          status = 'transfused', transfused_at = NOW(),
@@ -461,7 +461,7 @@ export async function recordReaction(requestId, {
   const request = await loadRequest(requestId, tenantId);
   if (!request) throw AppError.notFound('Blood request not found');
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO transfusion_reactions
          (tenant_id, request_id, unit_id, reaction_type, severity, onset_at, symptoms,

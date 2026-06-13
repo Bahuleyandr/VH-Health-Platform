@@ -20,9 +20,12 @@ const loggerMock = {
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: prismaMock,
-  setTenantTx: async (_tenantId, fn) => fn(prismaMock),
-  setTenant: async (_tenantId, fn) => fn(prismaMock),
-  runTenantScopedTransaction: async (_client, _guc, fn) => fn(prismaMock),
+  // Delegate to the per-test $transaction mock (each test wires it to its own
+  // tx object and asserts on that tx), so setTenantTx-converted code paths use
+  // the same tx the test instrumented rather than the generic default mock.
+  setTenantTx: async (_tenantId, fn) => prismaMock.$transaction(fn),
+  setTenant: async (_tenantId, fn) => prismaMock.$transaction(fn),
+  runTenantScopedTransaction: async (_client, _guc, fn) => prismaMock.$transaction(fn),
   pickTenantClient: () => prismaMock,
 }));
 

@@ -14,7 +14,7 @@
 // canonical clinical event pair in the same transaction as the detail row.
 
 import ExcelJS from 'exceljs';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
@@ -263,7 +263,7 @@ export async function enrollPatient(registryId, {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(scopedTenantId, async (tx) => {
       const inserted = await tx.$queryRawUnsafe(
         `INSERT INTO research_enrollments
            (tenant_id, registry_id, patient_uid, subject_code, status, match_id, consent_ref, enrolled_by)
@@ -324,7 +324,7 @@ export async function withdrawEnrollment(enrollmentId, { reason }, { actorUid = 
   if (!reason || !String(reason).trim()) {
     throw AppError.badRequest('Withdrawal reason is required', 'RESEARCH_WITHDRAW_REASON_REQUIRED');
   }
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(scopedTenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE research_enrollments
        SET status = 'withdrawn', withdrawn_at = NOW(), withdrawal_reason = $2, updated_at = NOW()
@@ -606,7 +606,7 @@ export async function submitCrfResponse(responseId, { actorUid = null, actorRole
     throw AppError.badRequest('CRF response incomplete', 'RESEARCH_RESPONSE_INCOMPLETE', { errors });
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(scopedTenantId, async (tx) => {
     const updated = await tx.$queryRawUnsafe(
       `UPDATE research_crf_responses
        SET status = 'submitted', submitted_at = NOW(), updated_at = NOW()

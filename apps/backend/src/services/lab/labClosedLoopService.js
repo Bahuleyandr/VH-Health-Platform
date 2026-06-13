@@ -16,7 +16,7 @@
 // deployment work; middleware-capable analyzers POST the same payloads to
 // the HTTP bridge endpoint.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { code39Svg } from '../../utils/barcode/code39.js';
@@ -146,7 +146,7 @@ export async function scanReceiveSpecimen({ barcode, actorUid = null, actorRole 
     throw AppError.conflict(`Specimen is ${specimen.status} — cannot receive`, 'LAB_SPECIMEN_WRONG_STATUS');
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE lab_specimens SET
          status = 'received', received_at = NOW(), received_by = $2::uuid, updated_at = NOW()

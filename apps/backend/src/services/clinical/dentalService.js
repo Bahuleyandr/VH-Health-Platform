@@ -7,7 +7,7 @@
 // procedure auto-resolves the finding it treats. Clinical writes follow
 // the canonical timeline invariant (detail + timeline + audit in one tx).
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService.js';
 
@@ -70,7 +70,7 @@ export async function recordToothFinding({
     throw AppError.badRequest(`surface must be one of: ${SURFACES.join(', ')}`, 'DENTAL_SURFACE_INVALID');
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO dental_tooth_findings
          (patient_uid, tooth_fdi, surface, finding, severity, noted_by, notes, tenant_id)
@@ -113,7 +113,7 @@ export async function resolveFinding(findingId, { tenantId, resolutionNote, proc
     procedure = procedureRows[0] || null;
     if (!procedure) throw AppError.notFound('Procedure not found', 'DENTAL_PROCEDURE_NOT_FOUND');
   }
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE dental_tooth_findings
        SET status = 'resolved', resolved_at = NOW(),
@@ -227,7 +227,7 @@ export async function planProcedure({
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO dental_procedures
          (patient_uid, tooth_fdi, surface, finding_id, procedure_name, procedure_code,
@@ -266,7 +266,7 @@ export async function planProcedure({
 export async function completeProcedure(procedureId, {
   tenantId, materials = null, anesthesia = null, notes = null,
 }, { actorUid = null, actorRole = null } = {}) {
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `UPDATE dental_procedures
        SET status = 'completed', performed_by = $2::uuid, performed_at = NOW(),
