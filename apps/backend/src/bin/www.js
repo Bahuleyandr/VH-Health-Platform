@@ -42,8 +42,44 @@ function normalizePort(val) {
 const PORT = normalizePort(process.env.PORT || '5000');
 app.set('port', PORT);
 
+// HTTP server timeout configuration (REL-4 / B2.4).
+//
+// Slow-loris and hung-request protection: without these, a client that
+// opens a connection and trickles headers (or never completes a request
+// body) ties up a worker indefinitely. The DB statement_timeout enforced
+// by CNPG only covers query time; non-DB paths (file uploads, external
+// API calls, etc.) are unprotected without request-level timeouts.
+//
+// Ordering constraint: keepAliveTimeout MUST be < headersTimeout.
+// Node.js has a known race where, on a keep-alive connection, the headers
+// timer fires before the keep-alive idle timer, causing an abrupt ECONNRESET
+// instead of a clean 408. Keeping keepAlive < headers avoids the race.
+//
+// Defaults (env-overridable):
+//   HTTP_REQUEST_TIMEOUT_MS  = 60000   (60 s) — max time from request start
+//                                               to response complete
+//   HTTP_KEEPALIVE_TIMEOUT_MS = 61000  (61 s) — idle keep-alive connection
+//   HTTP_HEADERS_TIMEOUT_MS  = 65000   (65 s) — max time to receive full headers
+//
+// requestTimeout < headersTimeout: a request that has been fully parsed
+// but not responded to within 60 s is killed before the 65 s header timer,
+// which is the normal case. headersTimeout covers the slow-header attack
+// window. keepAlive sits between the two so persistent connections are
+// recycled before the header timer would fire on a new request over the
+// same socket.
+const HTTP_REQUEST_TIMEOUT_MS  = parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS  || '60000', 10);
+const HTTP_KEEPALIVE_TIMEOUT_MS = parseInt(process.env.HTTP_KEEPALIVE_TIMEOUT_MS || '61000', 10);
+const HTTP_HEADERS_TIMEOUT_MS  = parseInt(process.env.HTTP_HEADERS_TIMEOUT_MS  || '65000', 10);
+
 // Create HTTP server
 const server = http.createServer(app);
+
+// Apply timeouts BEFORE listen() so they are set on the server object
+// before any connection arrives. These are server-level defaults that
+// apply to every incoming socket.
+server.requestTimeout  = HTTP_REQUEST_TIMEOUT_MS;
+server.keepAliveTimeout = HTTP_KEEPALIVE_TIMEOUT_MS;
+server.headersTimeout  = HTTP_HEADERS_TIMEOUT_MS;
 
 // Handle server errors
 function onError(error) {

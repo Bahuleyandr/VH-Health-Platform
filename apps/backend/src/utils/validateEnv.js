@@ -31,6 +31,22 @@ const envSchema = Joi.object({
   PORT: Joi.number().default(5000).label('PORT'),
   RATE_LIMIT_WINDOW_MS: Joi.number().optional().label('RATE_LIMIT_WINDOW_MS'),
   RATE_LIMIT_MAX: Joi.number().optional().label('RATE_LIMIT_MAX'),
+
+  // HTTP server timeouts (REL-4 / B2.4). Defaults: requestTimeout=60s,
+  // keepAliveTimeout=61s, headersTimeout=65s. keepAlive < headers is required
+  // to avoid the Node.js race where headersTimeout fires before keepAlive on
+  // a persistent connection, causing an abrupt ECONNRESET. All are optional.
+  HTTP_REQUEST_TIMEOUT_MS:   Joi.number().min(0).optional().label('HTTP_REQUEST_TIMEOUT_MS'),
+  HTTP_KEEPALIVE_TIMEOUT_MS: Joi.number().min(0).optional().label('HTTP_KEEPALIVE_TIMEOUT_MS'),
+  HTTP_HEADERS_TIMEOUT_MS:   Joi.number().min(0).optional().label('HTTP_HEADERS_TIMEOUT_MS'),
+
+  // App-layer DB statement timeout (DB-2 / B2.8). Applied to the PRIMARY
+  // connection via ?options=-c statement_timeout=<ms> in the URL (session
+  // default; overridden to 120s inside migration transactions). Default 30000.
+  // STATEMENT_TIMEOUT_READ_MS applies to the read replica only; 0 = leave at
+  // the CNPG cluster default (analytics queries may legitimately exceed 30s).
+  STATEMENT_TIMEOUT_MS:      Joi.number().min(0).optional().label('STATEMENT_TIMEOUT_MS'),
+  STATEMENT_TIMEOUT_READ_MS: Joi.number().min(0).optional().label('STATEMENT_TIMEOUT_READ_MS'),
   // E6 — hours between lab-result sign-off and automatic patient release
   // (0 = release immediately at sign-off; clinician hold always wins).
   PORTAL_RESULT_RELEASE_DELAY_HOURS: Joi.number().min(0).max(720).optional()

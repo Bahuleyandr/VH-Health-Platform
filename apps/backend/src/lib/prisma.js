@@ -129,11 +129,43 @@ let consecutiveFailures = 0;
 let circuitOpen = false;
 let circuitOpenedAt = null;
 
-function makeClient(url, tag) {
+/**
+ * Append `?options=-c statement_timeout=<ms>` (URL-encoded) to a Postgres
+ * connection URL so the app-layer statement_timeout fires before the CNPG
+ * cluster default (60s). A value of 0 or a falsy string means "do not set" —
+ * the cluster default governs. The option is idempotent: if the URL already
+ * carries an `options` query param we append to it with a space (the format
+ * Postgres libpq expects for multiple options).
+ *
+ * This is the standard approach for setting session-level GUCs via the
+ * connection string; it is equivalent to `SET statement_timeout = <ms>` issued
+ * immediately after connect but does not require an extra round-trip.
+ *
+ * MIGRATION SAFETY: runMigrations.js issues
+ *   `SET LOCAL statement_timeout = '120s'` inside each migration transaction
+ * which overrides the session-level default for that transaction only. The
+ * app-layer 30s cap therefore does NOT apply to migration DDL.
+ */
+function applyStatementTimeoutToUrl(url, timeoutMs) {
+  if (!url || !timeoutMs || timeoutMs <= 0) return url;
+  try {
+    const u = new URL(url);
+    const existing = u.searchParams.get('options');
+    const newOption = `-c statement_timeout=${timeoutMs}`;
+    u.searchParams.set('options', existing ? `${existing} ${newOption}` : newOption);
+    return u.toString();
+  } catch {
+    // Unparseable URL — return as-is and let Prisma surface the error.
+    return url;
+  }
+}
+
+function makeClient(url, tag, { statementTimeoutMs = 0 } = {}) {
   if (!url) {
     throw new Error(`DATABASE_URL is required to create Prisma[${tag}] client`);
   }
-  const adapter = new PrismaPg({ connectionString: url });
+  const connectionString = applyStatementTimeoutToUrl(url, statementTimeoutMs);
+  const adapter = new PrismaPg({ connectionString });
   const client = new PrismaClient({
     adapter,
     log: [
@@ -326,14 +358,45 @@ function wrapClient(baseClient, tag) {
   });
 }
 
-const basePrimary = makeClient(process.env.DATABASE_URL, 'primary');
+// App-layer statement_timeout (DB-2 / B2.8).
+//
+// STATEMENT_TIMEOUT_MS sets a session-level Postgres statement_timeout on the
+// PRIMARY connection so runaway app queries are killed at 30s (default) rather
+// than relying solely on the CNPG cluster cap (60s). This protects the
+// connection pool from slow queries that would otherwise hold a slot until the
+// cluster-level cap fires.
+//
+// Why the primary only (not the read replica):
+//   Analytics / export queries on the read replica can legitimately run longer
+//   than 30s (complex aggregations, large exports). Imposing the same cap there
+//   would cause false positives. Read-replica queries are still bounded by the
+//   CNPG cluster default (60s) and the circuit breaker. To add a separate read
+//   cap, set STATEMENT_TIMEOUT_READ_MS (0 = use cluster default).
+//
+// Migration safety: runMigrations.js issues
+//   `SET LOCAL statement_timeout = '120s'` inside each migration $transaction
+// which overrides the session default for that transaction. The 30s app-layer
+// cap does NOT affect DDL migrations.
+const PRIMARY_STATEMENT_TIMEOUT_MS = parseInt(process.env.STATEMENT_TIMEOUT_MS || '30000', 10);
+// 0 = leave at cluster default (no override appended to the read URL)
+const READ_STATEMENT_TIMEOUT_MS = parseInt(process.env.STATEMENT_TIMEOUT_READ_MS || '0', 10);
+
+const basePrimary = makeClient(
+  process.env.DATABASE_URL,
+  'primary',
+  { statementTimeoutMs: PRIMARY_STATEMENT_TIMEOUT_MS },
+);
 const prisma = wrapClient(basePrimary, 'primary');
 
 // Separate client for analytics / dashboards. If DATABASE_READ_URL is unset,
 // it re-uses the primary so callers always have a working client — same
 // contract as DatabaseManager.readPool.
 const baseReadOnly = process.env.DATABASE_READ_URL
-  ? makeClient(process.env.DATABASE_READ_URL, 'readOnly')
+  ? makeClient(
+    process.env.DATABASE_READ_URL,
+    'readOnly',
+    { statementTimeoutMs: READ_STATEMENT_TIMEOUT_MS },
+  )
   : basePrimary;
 export const prismaReadOnly = process.env.DATABASE_READ_URL
   ? wrapClient(baseReadOnly, 'readOnly')
