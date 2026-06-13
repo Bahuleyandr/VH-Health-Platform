@@ -173,7 +173,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 | WS | Batches | Done | Status |
 |---|---|---|---|
 | WS0 | 7 | 7 | ✅ COMPLETE |
-| WS1 | 7 | 0 | ▶ in progress (C-1/H-1/H-2/H-3/M-1/2/3/6/7/11 already fixed by landed sweep) |
+| WS1 | 7 | 3 | B1.1/B1.2 RLS coverage (283 tables, migr 304) ✅ · B1.6 SEC-5/6/7/8 ✅ · B1.3/B1.4/B1.5/B1.7 next |
 | WS2 | 8 | 0 | queued |
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
