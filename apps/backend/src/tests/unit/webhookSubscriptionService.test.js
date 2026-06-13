@@ -202,7 +202,8 @@ describe('updateSubscription', () => {
 describe('encryptWebhookSigningSecret', () => {
   it('encrypts the secret and stores only a deterministic hash companion', () => {
     const result = encryptWebhookSigningSecret('whsec_test');
-    expect(result.ciphertext).toMatch(/^enc:v1:/);
+    // Field-encryption envelope format (enc:v2: now; enc:v1: legacy still decrypts).
+    expect(result.ciphertext).toMatch(/^enc:v\d+:/);
     expect(result.ciphertext).not.toBe('whsec_test');
     expect(result.ciphertext_hash).toMatch(/^[0-9a-f]{64}$/);
   });

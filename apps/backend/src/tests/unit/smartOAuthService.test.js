@@ -177,7 +177,8 @@ describe('registerSmartApp', () => {
     // Verify the encrypted value + hash flowed into the INSERT params, not the plaintext.
     const params = queryUnsafeMock.mock.calls[0].slice(1);
     expect(params.some((p) => p === result.plaintext_client_secret)).toBe(false);
-    expect(params.some((p) => typeof p === 'string' && p.startsWith('enc:v1:'))).toBe(true);
+    // Encrypted with the field-encryption envelope (enc:v2: now; enc:v1: legacy).
+    expect(params.some((p) => typeof p === 'string' && /^enc:v\d+:/.test(p))).toBe(true);
     expect(params.some((p) => typeof p === 'string' && /^[0-9a-f]{64}$/.test(p))).toBe(true); // hash
   });
 

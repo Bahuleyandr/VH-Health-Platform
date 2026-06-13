@@ -73,6 +73,33 @@ const envSchema = Joi.object({
     .min(MIN_KEY_LENGTH)
     .required()
     .label('FIELD_ENCRYPTION_KEY'),
+  // Envelope-encryption KEK for enc:v2: field payloads. OPTIONAL: when unset,
+  // the KEK is derived from FIELD_ENCRYPTION_KEY so existing deployments keep
+  // working with no new secret. Set a dedicated value (openssl rand -base64 32)
+  // to separate the KEK from the legacy data key. FIELD_ENCRYPTION_KEK_ID stamps
+  // the keyId into each payload (default 'local-v1'); FIELD_ENCRYPTION_KEK_OLD*
+  // let a single process unwrap DEKs still wrapped under a retired KEK during
+  // rotation (see scripts/rotate-field-kek.mjs).
+  FIELD_ENCRYPTION_KEK: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .allow('')
+    .optional()
+    .label('FIELD_ENCRYPTION_KEK'),
+  FIELD_ENCRYPTION_KEK_ID: Joi.string().allow('').optional().label('FIELD_ENCRYPTION_KEK_ID'),
+  FIELD_ENCRYPTION_KEK_OLD: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .allow('')
+    .optional()
+    .label('FIELD_ENCRYPTION_KEK_OLD'),
+  FIELD_ENCRYPTION_KEK_OLD_ID: Joi.string().allow('').optional().label('FIELD_ENCRYPTION_KEK_OLD_ID'),
+  // Separate HMAC key for searchableHash() (deterministic search index). OPTIONAL:
+  // when unset, defaults to the legacy-derived key so existing search hashes keep
+  // matching. Rotating to a real value REQUIRES scripts/rebuild-search-hashes.mjs.
+  FIELD_SEARCH_HMAC_KEY: Joi.string()
+    .min(MIN_KEY_LENGTH)
+    .allow('')
+    .optional()
+    .label('FIELD_SEARCH_HMAC_KEY'),
   TOTP_ENCRYPTION_KEY: Joi.string()
     .min(MIN_KEY_LENGTH)
     .required()

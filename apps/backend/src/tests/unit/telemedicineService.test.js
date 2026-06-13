@@ -353,7 +353,8 @@ describe('provider_configs', () => {
     expect(params).not.toContain('daily-api-key');
     expect(params).not.toContain('daily-api-secret');
     expect(params).not.toContain('daily-webhook-secret');
-    expect(params.filter((p) => typeof p === 'string' && p.startsWith('enc:v1:'))).toHaveLength(3);
+    // All three secrets encrypted via the field-encryption envelope (enc:v2: now).
+    expect(params.filter((p) => typeof p === 'string' && /^enc:v\d+:/.test(p))).toHaveLength(3);
   });
 
   it('listProviderConfigs degrades on schema-missing', async () => {
