@@ -103,27 +103,65 @@ function forwardableHeaders(incoming: Headers): HeadersInit {
   return out;
 }
 
+// SEC-8: resolve the CSRF origin allowlist at module load. In production we
+// REFUSE to fall back to "http://localhost:3000" — a localhost default paired
+// with credentialed cookies silently disables CSRF protection on a deployed
+// instance. NEXT_PUBLIC_* vars are inlined at build time, so an unset value
+// here fails the production build / hard-errors at import rather than shipping
+// a wide-open proxy. Dev/test keep the localhost default for convenience.
+function resolveAllowedOrigins(): string[] {
+  const configured = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN;
+  if (!configured || !configured.trim()) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "NEXT_PUBLIC_ALLOWED_ORIGIN must be set in production — refusing to " +
+          "default to localhost (would disable CSRF protection on the proxy).",
+      );
+    }
+    return ["http://localhost:3000"];
+  }
+  return configured.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+const ALLOWED_ORIGINS = resolveAllowedOrigins();
+
 /**
  * CSRF Origin validation for mutation requests (POST/PUT/PATCH/DELETE).
- * Rejects cross-origin requests that don't match the allowed origin.
- * GET/HEAD/OPTIONS are exempt (safe methods per RFC 7231).
+ *
+ * SEC-8: unsafe methods now REQUIRE a valid Origin (or, failing that, a
+ * Referer) that matches the allowlist. A missing Origin/Referer is rejected
+ * rather than waved through — a forged cross-site form/fetch that omits Origin
+ * must not be able to ride the user's auth cookie. GET/HEAD/OPTIONS are exempt
+ * (safe methods per RFC 7231).
  */
 function validateMutationOrigin(req: NextRequest): NextResponse | null {
   const method = req.method;
   if (["GET", "HEAD", "OPTIONS"].includes(method)) return null;
 
-  const origin = req.headers.get("origin");
-  if (!origin) return null; // same-origin requests may omit origin
-
-  const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || "http://localhost:3000";
-  const allowedOrigins = allowed.split(",").map((s: string) => s.trim());
-
-  if (!allowedOrigins.includes(origin)) {
-    return NextResponse.json(
+  const reject = () =>
+    NextResponse.json(
       { message: "Forbidden: cross-origin mutation blocked" },
       { status: 403 },
     );
+
+  // Prefer the Origin header; fall back to the Referer's origin for clients
+  // that omit Origin on same-origin requests but still send a Referer.
+  let candidate = req.headers.get("origin");
+  if (!candidate) {
+    const referer = req.headers.get("referer");
+    if (referer) {
+      try {
+        candidate = new URL(referer).origin;
+      } catch {
+        return reject();
+      }
+    }
   }
+
+  // No Origin and no usable Referer → cannot prove same-origin → reject.
+  if (!candidate) return reject();
+
+  if (!ALLOWED_ORIGINS.includes(candidate)) return reject();
   return null;
 }
 

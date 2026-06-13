@@ -36,8 +36,8 @@ export const firebaseLogin = async (req, res) => {
 export const completeProfile = async (req, res) => {
   try {
     const profileData = req.body;
-    
-    const result = await firebaseAuthService.completeUserProfile(profileData);
+
+    const result = await firebaseAuthService.completeUserProfile(profileData, req);
     
     success(res, result, 'Profile completed successfully');
   } catch (err) {

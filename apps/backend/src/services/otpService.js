@@ -3,6 +3,7 @@
 
 import crypto from 'crypto';
 import { OTP_CONFIG } from '../config/otpConfig.js';
+import { SECURITY_CONFIG } from '../config/securityConfig.js';
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import bcrypt from 'bcrypt';
@@ -11,6 +12,14 @@ import { maskPhoneForLog } from '../utils/logMasking.js';
 // OTPs are short-lived, so a low bcrypt cost is sufficient and keeps verify fast.
 // Matches services/auth/otpService.js (OTP_HASH_ROUNDS).
 const OTP_HASH_ROUNDS = 6;
+
+// SEC-7: per-phone cross-session failed-verify cap. The active-session row
+// already caps attempts (OTP_CONFIG.maxAttempts), but an attacker can sidestep
+// that by requesting a fresh OTP after each burst — each request deletes the
+// prior session row and resets the counter. This counts failed verifies across
+// ALL sessions for the phone within the OTP lifetime as defence-in-depth (the
+// per-IP rate-limiter already guards the network layer).
+const CROSS_SESSION_MAX_FAILED_VERIFIES = SECURITY_CONFIG.otp.maxAttemptsPerPhone;
 
 export class OTPService {
   static generateOTP(length = OTP_CONFIG.length) {
@@ -47,25 +56,52 @@ export class OTPService {
     }
   }
 
+  // SEC-7: count failed verify attempts for this phone across ALL sessions
+  // within the OTP lifetime. Returns true when the cross-session cap is hit.
+  static async isPhoneVerifyLocked(phone) {
+    try {
+      const windowStart = new Date(Date.now() - (OTP_CONFIG.expirationMinutes * 60 * 1000));
+      const failedCount = await prisma.otp_logs.count({
+        where: {
+          phone,
+          action: 'verify',
+          success: false,
+          created_at: { gte: windowStart },
+        },
+      });
+      return failedCount >= CROSS_SESSION_MAX_FAILED_VERIFIES;
+    } catch (err) {
+      // Fail open on counter-read errors — the per-session cap + IP limiter
+      // still apply; a transient otp_logs read must not block legitimate login.
+      logger.warn('OTP cross-session counter read failed:', err.message);
+      return false;
+    }
+  }
+
   static async verifyOTP(phone, inputOtp, purpose = 'general') {
     try {
+      // SEC-7: cross-session failed-verify cap (defence-in-depth) — checked
+      // before touching the session so a fresh OTP request can't reset it.
+      if (await this.isPhoneVerifyLocked(phone)) {
+        await this.logActivity(phone, purpose, 'verify', false, 'cross_session_lock');
+        return { valid: false, reason: 'Too many attempts' };
+      }
+
       const session = await prisma.otp_sessions.findFirst({
-        where: { phone, purpose, verified: false },
+        // SEC-7: expiry predicate in the lookup itself — an expired row can no
+        // longer be selected and walked into the attempts/compare path.
+        where: { phone, purpose, verified: false, expires_at: { gt: new Date() } },
         orderBy: { created_at: 'desc' },
       });
 
       if (!session) return { valid: false, reason: 'OTP not found or expired' };
-
-      if (new Date() > new Date(session.expires_at)) {
-        await prisma.otp_sessions.update({ where: { id: session.id }, data: { verified: true } });
-        return { valid: false, reason: 'OTP expired' };
-      }
 
       const newAttempts = session.attempts + 1;
       await prisma.otp_sessions.update({ where: { id: session.id }, data: { attempts: newAttempts } });
 
       if (newAttempts > OTP_CONFIG.maxAttempts) {
         await prisma.otp_sessions.update({ where: { id: session.id }, data: { verified: true } });
+        await this.logActivity(phone, purpose, 'verify', false, 'max_attempts');
         return { valid: false, reason: 'Too many attempts' };
       }
 
@@ -76,6 +112,8 @@ export class OTPService {
         ? await bcrypt.compare(inputOtp, session.otp)
         : session.otp === inputOtp;
       if (!otpMatches) {
+        // Record the failed verify so the cross-session counter accumulates.
+        await this.logActivity(phone, purpose, 'verify', false, 'invalid_otp');
         return { valid: false, reason: 'Invalid OTP', attemptsLeft: OTP_CONFIG.maxAttempts - newAttempts };
       }
 

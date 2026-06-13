@@ -122,4 +122,102 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
       },
     });
   });
+
+  // SEC-5: identity must be resolved WITHIN a tenant, never across tenants.
+  const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+
+  it('SEC-5: scopes the user lookup by the default tenant when no tenant signal is present', async () => {
+    const existingUser = {
+      id: 7,
+      uid: '33333333-3333-4333-8333-333333333333',
+      tenant_id: DEFAULT_TENANT,
+      name: 'Existing',
+      phone: '+919876543210',
+      email: 'e@example.com',
+      role: 'PATIENT',
+      firebase_uid: 'firebase-uid-123',
+      gender: 'OTHER',
+      email_verified: true,
+      is_active: true,
+      last_login: new Date('2026-06-08T00:00:00.000Z'),
+    };
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([existingUser]);
+
+    await authenticateWithFirebase(
+      'firebase-id-token',
+      null,
+      { headers: { 'user-agent': 'jest' }, connection: { remoteAddress: '127.0.0.1' } },
+      { deviceType: 'mobile' },
+    );
+
+    // First $queryRawUnsafe call is the SELECT — it must be tenant-scoped and
+    // bind the default tenant as the first parameter.
+    const [sql, ...params] = prismaMock.$queryRawUnsafe.mock.calls[0];
+    expect(sql).toMatch(/WHERE\s+tenant_id\s*=\s*\$1::uuid/i);
+    expect(sql).not.toMatch(/WHERE\s+phone\s*=\s*\$1\s+OR\s+firebase_uid/i);
+    expect(params[0]).toBe(DEFAULT_TENANT);
+  });
+
+  it('SEC-5: sets tenant_id explicitly on the registration INSERT', async () => {
+    const insertedUser = {
+      id: 99,
+      uid: '44444444-4444-4444-8444-444444444444',
+      tenant_id: DEFAULT_TENANT,
+      name: null,
+      phone: '+919876543210',
+      email: null,
+      role: 'PATIENT',
+      firebase_uid: 'firebase-uid-123',
+      gender: null,
+      email_verified: false,
+      is_active: true,
+      last_login: new Date('2026-06-08T00:00:00.000Z'),
+    };
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([]) // SELECT → no existing user
+      .mockResolvedValueOnce([insertedUser]); // INSERT ... RETURNING
+
+    await authenticateWithFirebase(
+      'firebase-id-token',
+      null,
+      { headers: { 'user-agent': 'jest' }, connection: { remoteAddress: '127.0.0.1' } },
+      { deviceType: 'mobile' },
+    );
+
+    const [insertSql, ...insertParams] = prismaMock.$queryRawUnsafe.mock.calls[1];
+    expect(insertSql).toMatch(/INSERT INTO users\s*\(\s*tenant_id\b/i);
+    expect(insertParams[0]).toBe(DEFAULT_TENANT);
+  });
+
+  it('SEC-5: honours an explicit x-tenant-id header (SaaS path)', async () => {
+    const SAAS_TENANT = '55555555-5555-4555-8555-555555555555';
+    const req = {
+      headers: { 'user-agent': 'jest', 'x-tenant-id': SAAS_TENANT },
+      connection: { remoteAddress: '127.0.0.1' },
+    };
+
+    // resolveTenantForRequest validates the header tenant against the tenants
+    // table (getTenantById → prisma.$queryRawUnsafe). Return an active tenant,
+    // then the user-lookup SELECT (empty), then the INSERT RETURNING row.
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: SAAS_TENANT, status: 'active' }]) // getTenantById
+      .mockResolvedValueOnce([]) // user SELECT (scoped)
+      .mockResolvedValueOnce([{
+        id: 1, uid: '66666666-6666-4666-8666-666666666666', tenant_id: SAAS_TENANT,
+        name: null, phone: '+919876543210', email: null, role: 'PATIENT',
+        firebase_uid: 'firebase-uid-123', gender: null, email_verified: false,
+        is_active: true, last_login: new Date(),
+      }]);
+
+    await authenticateWithFirebase(
+      'firebase-id-token', null, req, { deviceType: 'mobile' },
+    );
+
+    // The user-lookup SELECT (2nd call) must bind the SaaS tenant, not default.
+    const selectParams = prismaMock.$queryRawUnsafe.mock.calls[1];
+    expect(selectParams[1]).toBe(SAAS_TENANT);
+    // And the INSERT (3rd call) must persist the SaaS tenant.
+    const insertParams = prismaMock.$queryRawUnsafe.mock.calls[2];
+    expect(insertParams[1]).toBe(SAAS_TENANT);
+  });
 });

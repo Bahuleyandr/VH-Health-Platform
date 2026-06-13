@@ -9,6 +9,7 @@ import admin from '../../utils/firebaseAdmin.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
 import { ensureHospitalNumber } from '../patient/patientIdentifierService.js';
+import { DEFAULT_TENANT_ID, resolveTenantForRequest } from '../tenant/tenantService.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 
 
@@ -64,29 +65,40 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
   
   const phone = normalizePhone(firebasePhone);
   const firebaseUid = decodedToken.uid;
-  
-  // Check if user exists in our database
+
+  // SEC-5: resolve the tenant from the REQUEST before we look up identity.
+  // This runs before tenantContextMiddleware (no req.user yet), so we derive
+  // the tenant from request-level signals (x-tenant-id / x-tenant-slug),
+  // falling back to the single-tenant default. Scoping the lookup by tenant
+  // prevents a phone that exists in two tenants from resolving arbitrarily
+  // and minting a JWT bound to the wrong tenant.
+  const tenantId = await resolveTenantForRequest(req);
+
+  // Check if user exists in our database — scoped to the resolved tenant.
   const userResult = await query(
     `SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid,
             gender, email_verified, is_active, last_sign_in_at AS last_login
        FROM users
-      WHERE phone = $1 OR firebase_uid = $2`,
-    [phone, firebaseUid]
+      WHERE tenant_id = $1::uuid
+        AND (phone = $2 OR firebase_uid = $3)`,
+    [tenantId, phone, firebaseUid]
   );
-  
+
   let user;
   let isNewUser = false;
-  
+
   if (userResult.length === 0) {
-    // Create new user
+    // Create new user — set tenant_id explicitly rather than relying on the
+    // column DEFAULT, so SaaS registrations land in the right tenant.
     const insertResult = await query(
       `INSERT INTO users (
-        phone, firebase_uid, role, registered_at, updated_at, last_sign_in_at,
+        tenant_id, phone, firebase_uid, role, registered_at, updated_at, last_sign_in_at,
         name, email, email_verified
-      ) VALUES ($1, $2, $3, NOW(), NOW(), NOW(), $4, $5, $6)
+      ) VALUES ($1::uuid, $2, $3, $4, NOW(), NOW(), NOW(), $5, $6, $7)
       RETURNING id, uid, tenant_id, name, phone, email, role, firebase_uid,
                 gender, email_verified, is_active, last_sign_in_at AS last_login`,
       [
+        tenantId,
         phone,
         firebaseUid,
         'PATIENT', // Default role
@@ -161,10 +173,14 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req, { devic
 };
 
 // Complete user profile
-export const completeUserProfile = async (profileData) => {
+export const completeUserProfile = async (profileData, req = null) => {
   const { phone, name, gender, email, birthday, anniversary, address, emergency_contact } = profileData;
   const normalizedPhone = normalizePhone(phone);
-  
+
+  // SEC-5: scope the profile update to the request's tenant so a phone
+  // shared across tenants only ever updates the row in the resolved tenant.
+  const tenantId = req ? await resolveTenantForRequest(req) : DEFAULT_TENANT_ID;
+
   // Update user profile. Explicit ::date casts on birthday/anniversary
   // so a `null`-coerced-to-text bind doesn't crash with the
   // "column is of type date but expression is of type text" error
@@ -174,12 +190,12 @@ export const completeUserProfile = async (profileData) => {
       name = $1, gender = $2, email = $3, birthday = $4::date,
       anniversary = $5::date, address = $6, emergency_contact = $7,
       profile_completed_at = NOW(), updated_at = NOW()
-    WHERE phone = $8
+    WHERE tenant_id = $8::uuid AND phone = $9
     RETURNING id, uid, tenant_id, name, phone, email, role, gender, is_active`,
     [
       name, gender, email, birthday || null,
       anniversary || null, address || null, emergency_contact || null,
-      normalizedPhone
+      tenantId, normalizedPhone
     ]
   );
   
@@ -220,7 +236,10 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
   const decodedToken = await admin.auth().verifyIdToken(idToken);
   const firebaseUid = decodedToken.uid;
   const normalizedPhone = normalizePhone(phone);
-  
+
+  // SEC-5: pin the tenant from the request before the identity lookup.
+  const tenantId = await resolveTenantForRequest(req);
+
   // Verify OTP using the OTP service
   const otpResult = await OTPService.verifyOTP(normalizedPhone, otp, 'account_linking');
   if (!otpResult.valid) {
@@ -228,11 +247,13 @@ export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
     throw error;
   }
-  
-  // Check if user exists
+
+  // Check if user exists — scoped to the resolved tenant.
   const userResult = await query(
-    'SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid, is_active FROM users WHERE phone = $1',
-    [normalizedPhone]
+    `SELECT id, uid, tenant_id, name, phone, email, role, firebase_uid, is_active
+       FROM users
+      WHERE tenant_id = $1::uuid AND phone = $2`,
+    [tenantId, normalizedPhone]
   );
   
   if (userResult.length === 0) {
@@ -447,25 +468,32 @@ const logFirebaseAuth = async (phone, action, success, failureReason, req) => {
 export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => {
   const { phone, name, gender, email, birthday, anniversary, address } = userData;
   const normalizedPhone = normalizePhone(phone);
-  
-  // Check if user already exists
-  const existingUser = await query('SELECT id, uid, phone FROM users WHERE phone = $1', [normalizedPhone]);
-  
+
+  // SEC-5: pin the tenant from the request before identity, so the
+  // existence check and the new row are both scoped to the right tenant.
+  const tenantId = await resolveTenantForRequest(req);
+
+  // Check if user already exists — within the resolved tenant.
+  const existingUser = await query(
+    'SELECT id, uid, phone FROM users WHERE tenant_id = $1::uuid AND phone = $2',
+    [tenantId, normalizedPhone]
+  );
+
   if (existingUser.length > 0) {
     const error = new Error('User already exists');
     error.statusCode = HTTP_STATUS.CONFLICT;
     throw error;
   }
-  
-  // Create new user
+
+  // Create new user — tenant_id set explicitly.
   const insertResult = await query(
     `INSERT INTO users (
-      phone, name, gender, email, birthday, anniversary, address,
+      tenant_id, phone, name, gender, email, birthday, anniversary, address,
       role, registered_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+    ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
     RETURNING id, uid, name, phone, email, role, is_active`,
     [
-      normalizedPhone, name, gender, email, birthday, 
+      tenantId, normalizedPhone, name, gender, email, birthday,
       anniversary, address, 'PATIENT'
     ]
   );

@@ -204,11 +204,69 @@ export async function resolveTenantForUser(userUid, { failClosed = false } = {})
   }
 }
 
+const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve the tenant a *pre-auth* request belongs to, BEFORE any user
+ * identity is looked up.
+ *
+ * This exists for auth entrypoints (Firebase OTP login, profile
+ * completion, account linking) that run before `tenantContextMiddleware`
+ * has a `req.user` to key off. On those flows we must pin the tenant from
+ * request-level signals so the identity lookup is scoped — otherwise a
+ * phone number that exists in two tenants resolves arbitrarily and we
+ * mint a JWT bound to the wrong tenant (SEC-5).
+ *
+ * Resolution order (first signal wins):
+ *   1. `x-tenant-id` header — an explicit tenant UUID (SaaS clients /
+ *      per-tenant ingress). Validated against the tenants table; an
+ *      unknown or non-active tenant is rejected.
+ *   2. `x-tenant-slug` header — a human-friendly tenant slug, resolved
+ *      via `getTenantBySlug`. Same active-status check.
+ *   3. DEFAULT_TENANT_ID — the single-tenant production floor. Today the
+ *      platform ships single-tenant, so absent any signal this is the
+ *      correct (and safe) answer. Documented so a future SaaS rollout
+ *      knows to start sending one of the headers above rather than
+ *      relying on this fallback.
+ *
+ * NOTE: we deliberately do NOT silently pick the first matching user row
+ * across tenants. When there is no tenant signal we use the configured
+ * default; we never let the *identity* decide the tenant.
+ *
+ * @param {import('express').Request} req
+ * @returns {Promise<string>} resolved tenant id (always a valid uuid)
+ */
+export async function resolveTenantForRequest(req) {
+  const headerGet = typeof req?.get === 'function'
+    ? (name) => req.get(name)
+    : (name) => req?.headers?.[String(name).toLowerCase()];
+
+  // 1. Explicit tenant UUID header.
+  const rawTenantId = clean(headerGet('x-tenant-id'));
+  if (rawTenantId && TENANT_UUID_RE.test(rawTenantId)) {
+    const tenant = await getTenantById(rawTenantId.toLowerCase());
+    if (tenant && tenant.status === 'active') return tenant.id;
+    throw AppError.badRequest('Unknown or inactive tenant', 'TENANT_NOT_RESOLVED');
+  }
+
+  // 2. Tenant slug header.
+  const rawSlug = clean(headerGet('x-tenant-slug'));
+  if (rawSlug) {
+    const tenant = await getTenantBySlug(rawSlug);
+    if (tenant && tenant.status === 'active') return tenant.id;
+    throw AppError.badRequest('Unknown or inactive tenant', 'TENANT_NOT_RESOLVED');
+  }
+
+  // 3. Single-tenant production floor.
+  return DEFAULT_TENANT_ID;
+}
+
 export default {
   createTenant,
   getTenantById,
   getTenantBySlug,
   listTenants,
+  resolveTenantForRequest,
   resolveTenantForUser,
   updateTenant,
   DEFAULT_TENANT_ID,

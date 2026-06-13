@@ -196,10 +196,6 @@ export function phiAccessLogger(recordType) {
   const middleware = function phiAccessLoggerMiddleware(req, res, next) {
     // Log after response is sent (fire-and-forget)
     res.on('finish', () => {
-      // Only log successful access (2xx/3xx), not auth failures or errors
-      if (res.statusCode >= 400) return;
-
-      const patientId = derivePatientId(req);
       const actorUid = req.acting?.actorUid ?? req.user?.uid ?? null;
       const subjectUid = req.user?.uid ?? null;
       const actingAsDependent = req.acting != null;
@@ -209,15 +205,43 @@ export function phiAccessLogger(recordType) {
       // the column always meant "who initiated this access".
       const userId = actorUid || req.user?.id;
 
-      // Skip if we can't identify who's accessing (middleware ran before auth)
+      // Skip if we can't identify who's accessing (middleware ran before auth).
+      // This also prevents double-logging auth-layer 401s — those never set
+      // req.user, so there's no authenticated actor to attribute the attempt to.
       if (!userId) return;
+
+      // SEC-6: a 403/404 against a resolved patient context is an *attempted
+      // unauthorized PHI access* and must be auditable for HIPAA breach
+      // detection — the success-only path used to drop these silently.
+      const isDenied = res.statusCode === 403 || res.statusCode === 404;
+
+      if (res.statusCode >= 400 && !isDenied) {
+        // Other 4xx/5xx (400 validation, 429 rate limit, 500 server error)
+        // are not PHI-access decisions — leave them to the error/security log.
+        return;
+      }
+
+      // For the denied path, only audit when a patient was actually resolved.
+      // A 404 on a route that never identified a patient (bad id, typo'd path)
+      // is not a PHI-access attempt and must not pollute the breach-detection
+      // trail. The access decision (set by the patient-access guard) is the
+      // authoritative signal; fall back to request-derived patient ids.
+      const resolvedPatientId = req.patientAccessDecision?.patient_uid
+        ?? req.patientAccessDecision?.patient_id
+        ?? derivePatientId(req);
+
+      if (isDenied && !resolvedPatientId) return;
+
+      const patientId = isDenied ? resolvedPatientId : derivePatientId(req);
 
       logPhiAccess({
         userId: String(userId),
         userRole: req.acting?.actorRole ?? req.user?.role ?? 'UNKNOWN',
         patientId: patientId ? String(patientId) : null,
         recordType,
-        action: deriveAction(req.method),
+        // Denied attempts are recorded as ACCESS_DENIED regardless of the HTTP
+        // verb; successful access keeps the VIEW/CREATE/UPDATE/DELETE mapping.
+        action: isDenied ? 'ACCESS_DENIED' : deriveAction(req.method),
         ip: req.ip,
         requestId: req.id,
         actorUid,
