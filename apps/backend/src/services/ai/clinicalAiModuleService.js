@@ -1898,17 +1898,29 @@ function sanitizeModuleKey(value) {
 
 function defaultModuleFor(moduleKey) {
   const key = sanitizeModuleKey(moduleKey);
+  // Registered modules return their declared config verbatim — flipping the
+  // fallback below does NOT change any registered module's behaviour.
+  // For an UNREGISTERED key we must fail safe: an unknown module is not a
+  // governed, enabled module. Returning enabled:true here previously let a
+  // typo'd / never-registered moduleKey bypass the enable gate AND the
+  // safety knobs (it inherited no reviewRoles, no signoff, no citations
+  // requirement). The safe default is enabled:false + clinician signoff +
+  // citations required, so an unknown key can never silently generate or
+  // reach a reviewer as an "acceptable" draft. (AI-1, WS5 B5.1.)
   return CLINICAL_AI_MODULES.find((module) => module.module_key === key) || {
     module_key: key,
     display_name: key || 'Unknown module',
     description: null,
-    enabled: true,
+    enabled: false,
     provider_override: null,
     model_override: null,
     external_allowed: false,
     max_tokens: null,
     temperature: null,
-    settings: {},
+    settings: {
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+    },
   };
 }
 

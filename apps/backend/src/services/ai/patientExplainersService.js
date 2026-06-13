@@ -24,7 +24,14 @@
  * explainers don't add their own per-module table.
  *
  * Decision-support only: nothing here ever auto-publishes to the patient
- * app. The patient app reads ONLY rows whose review.decision='accepted'.
+ * app. The patient app reads ONLY rows whose review.decision='accepted'
+ * AND generation.status is non-failed/non-pending — and that invariant is
+ * now ENFORCED IN CODE, not just documented here: the single sanctioned
+ * patient read path is
+ * clinicalAiWorkflowService.getPublishedAiOutputForPatient(), which hard-
+ * filters decision='accepted' + status IN ('draft','accepted') + tenant +
+ * patient scope and strips all internal fields. Patient surfaces MUST go
+ * through that helper; never query clinical_ai_generations directly. (AI-2.)
  */
 
 import crypto from 'crypto';

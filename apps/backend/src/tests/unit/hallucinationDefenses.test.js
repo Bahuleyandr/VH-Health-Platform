@@ -52,6 +52,52 @@ describe('hallucinationDefenses', () => {
       const flags = extractNumericMismatches({ draft, context });
       expect(flags.length).toBe(0);
     });
+
+    // AI-4a: unit normalization — equivalent quantities in different units
+    // must NOT read as a hallucinated number.
+    it('does not flag "120 mg" in the draft when the chart says "0.12 g" (mass equivalence)', () => {
+      const draft = { plan: 'Give 120 mg of the drug.' };
+      const context = { orders: [{ summary: 'dose 0.12 g' }] };
+      const flags = extractNumericMismatches({ draft, context });
+      expect(flags.length).toBe(0);
+    });
+
+    it('does not flag "0.12 g" in the draft when the chart says "120 mg" (reverse equivalence)', () => {
+      const draft = { plan: 'Give 0.12 g of the drug.' };
+      const context = { orders: [{ summary: 'dose 120 mg' }] };
+      const flags = extractNumericMismatches({ draft, context });
+      expect(flags.length).toBe(0);
+    });
+
+    it('does not flag mcg/mg equivalence (250 mcg vs 0.25 mg)', () => {
+      const draft = { plan: 'levothyroxine 250 mcg daily' };
+      const context = { medications: [{ summary: 'levothyroxine 0.25 mg daily' }] };
+      const flags = extractNumericMismatches({ draft, context });
+      expect(flags.length).toBe(0);
+    });
+
+    it('does not flag volume equivalence (1 L vs 1000 ml)', () => {
+      const draft = { plan: 'Infuse 1 L normal saline.' };
+      const context = { orders: [{ summary: 'normal saline 1000 ml' }] };
+      const flags = extractNumericMismatches({ draft, context });
+      expect(flags.length).toBe(0);
+    });
+
+    it('STILL flags a genuine dose drift after normalization (60 mg chart -> 120 mg draft)', () => {
+      const draft = { plan: 'Increase to 120 mg.' };
+      const context = { orders: [{ summary: 'current dose 60 mg' }] };
+      const flags = extractNumericMismatches({ draft, context });
+      expect(flags[0]?.code).toBe('UNVERIFIED_NUMERIC');
+      // The flagged value should be the unmatched draft quantity.
+      expect(flags[0].metadata.sample.join(' ')).toMatch(/120\s*mg/);
+    });
+
+    it('does not cross dimensions (120 mg drug must not match 120 ml volume)', () => {
+      const draft = { plan: 'Give 120 mg of the drug.' };
+      const context = { orders: [{ summary: 'volume 120 ml' }] };
+      const flags = extractNumericMismatches({ draft, context });
+      expect(flags[0]?.code).toBe('UNVERIFIED_NUMERIC');
+    });
   });
 
   describe('validateOutputSchema', () => {
@@ -67,6 +113,78 @@ describe('hallucinationDefenses', () => {
       const module = { settings: { outputSchema: { required: ['summary'] } } };
       const draft = { summary: 'ok' };
       expect(validateOutputSchema({ draft, module }).length).toBe(0);
+    });
+
+    // AI-4b: real JSON-schema validation via AJV — catches what the old
+    // shallow top-level-keys check missed.
+    it('flags a wrong-typed field (string where the schema requires an array)', () => {
+      const module = {
+        settings: {
+          outputSchema: {
+            type: 'object',
+            required: ['key_points'],
+            properties: { key_points: { type: 'array' } },
+          },
+        },
+      };
+      const draft = { key_points: 'should be an array' };
+      const flags = validateOutputSchema({ draft, module });
+      expect(flags[0]?.code).toBe('SCHEMA_VIOLATION');
+      expect(flags[0].metadata.error_count).toBeGreaterThan(0);
+    });
+
+    it('flags a missing NESTED required field (shallow check could not)', () => {
+      const module = {
+        settings: {
+          outputSchema: {
+            type: 'object',
+            required: ['vitals'],
+            properties: {
+              vitals: {
+                type: 'object',
+                required: ['heart_rate', 'spo2'],
+                properties: { heart_rate: { type: 'number' }, spo2: { type: 'number' } },
+              },
+            },
+          },
+        },
+      };
+      // Top-level key present, but nested required field missing — old shallow
+      // check would have passed this.
+      const draft = { vitals: { heart_rate: 80 } };
+      const flags = validateOutputSchema({ draft, module });
+      expect(flags[0]?.code).toBe('SCHEMA_VIOLATION');
+      expect(flags[0].message).toMatch(/spo2/);
+    });
+
+    it('passes a fully valid nested object', () => {
+      const module = {
+        settings: {
+          outputSchema: {
+            type: 'object',
+            required: ['vitals'],
+            properties: {
+              vitals: {
+                type: 'object',
+                required: ['heart_rate', 'spo2'],
+                properties: { heart_rate: { type: 'number' }, spo2: { type: 'number' } },
+              },
+            },
+          },
+        },
+      };
+      const draft = { vitals: { heart_rate: 80, spo2: 97 }, extra_field: 'allowed' };
+      expect(validateOutputSchema({ draft, module }).length).toBe(0);
+    });
+
+    it('still reports missing required top-level keys via metadata.missing', () => {
+      const module = {
+        settings: { outputSchema: { type: 'object', required: ['summary', 'diagnosis'] } },
+      };
+      const draft = { summary: 'ok' };
+      const flags = validateOutputSchema({ draft, module });
+      expect(flags[0]?.code).toBe('SCHEMA_VIOLATION');
+      expect(flags[0].metadata.missing).toContain('diagnosis');
     });
   });
 

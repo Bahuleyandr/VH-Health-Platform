@@ -14,6 +14,79 @@ import { describeSttConfig } from './sttService.js';
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_MODEL = 'llama3.1:8b';
 const DEFAULT_MAX_TOKENS = 2200;
+// AI-6 (WS5 B5.1): bounded retries before the template fallback. A single
+// transient blip (provider timeout, 5xx, empty completion) used to drop the
+// draft straight to the template fallback; on a high-risk module that quietly
+// degrades the output. Generation calls here are idempotent (no side effects
+// on the provider), so retrying transient failures a small, bounded number of
+// times is safe. Non-transient failures (4xx, unsupported provider, parse
+// errors) are NOT retried — they will not succeed on a second attempt.
+// Tunable via env so deployments (and tests) can tighten/relax the schedule.
+const RETRY_MAX_ATTEMPTS = Math.min(
+  Math.max(safeIntEnv(process.env.CLINICAL_AI_RETRY_ATTEMPTS, 2), 0),
+  5
+);
+const RETRY_BASE_DELAY_MS = Math.min(
+  Math.max(safeIntEnv(process.env.CLINICAL_AI_RETRY_BASE_MS, 250), 0),
+  10_000
+);
+const RETRY_MAX_DELAY_MS = Math.min(
+  Math.max(safeIntEnv(process.env.CLINICAL_AI_RETRY_MAX_MS, 2_000), RETRY_BASE_DELAY_MS),
+  30_000
+);
+
+function safeIntEnv(value, fallback) {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sleep(ms) {
+  if (!ms || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => { setTimeout(resolve, ms); });
+}
+
+/**
+ * Exponential backoff with full jitter. `attempt` is 0-based (the delay
+ * applied BEFORE the (attempt+1)-th retry). Full jitter (random in
+ * [0, cappedBackoff]) avoids retry stampedes when many drafts fail at once.
+ */
+function retryDelayMs(attempt) {
+  const exp = RETRY_BASE_DELAY_MS * (2 ** attempt);
+  const capped = Math.min(exp, RETRY_MAX_DELAY_MS);
+  return Math.floor(Math.random() * (capped + 1));
+}
+
+/**
+ * Classify whether a provider failure is worth retrying. Transient =
+ * timeout/abort, network reset, HTTP 5xx, HTTP 429, or an empty completion.
+ * Everything else (4xx other than 429, unsupported provider, JSON parse
+ * failures) is permanent for an idempotent retry and falls through to the
+ * template fallback immediately.
+ */
+function isTransientProviderError(err) {
+  if (!err) return false;
+  if (err.retryable === true) return true;
+  if (err.retryable === false) return false;
+  const status = Number(err.httpStatus);
+  if (Number.isFinite(status)) {
+    return status === 429 || (status >= 500 && status <= 599);
+  }
+  const name = String(err.name || '');
+  if (name === 'AbortError' || name === 'TimeoutError') return true;
+  const msg = String(err.message || '').toLowerCase();
+  return (
+    msg.includes('timeout')
+    || msg.includes('timed out')
+    || msg.includes('aborted')
+    || msg.includes('network')
+    || msg.includes('socket')
+    || msg.includes('econnreset')
+    || msg.includes('econnrefused')
+    || msg.includes('connection refused')
+    || msg.includes('fetch failed')
+    || msg.includes('empty content')
+  );
+}
 const SUPPORTED_PROVIDERS = ['template', 'ollama', 'openai-compatible', 'openai', 'anthropic'];
 const EXTERNAL_PROVIDERS = new Set(['openai', 'anthropic']);
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
@@ -427,7 +500,9 @@ async function callOllama(config, prompt, systemPrompt) {
   });
 
   if (!response.ok) {
-    throw new Error(`Ollama returned HTTP ${response.status}`);
+    const err = new Error(`Ollama returned HTTP ${response.status}`);
+    err.httpStatus = response.status;
+    throw err;
   }
 
   const payload = await response.json();
@@ -478,7 +553,9 @@ async function callOpenAICompatible(config, userPrompt, systemPrompt) {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI-compatible endpoint returned HTTP ${response.status}`);
+    const err = new Error(`OpenAI-compatible endpoint returned HTTP ${response.status}`);
+    err.httpStatus = response.status;
+    throw err;
   }
 
   const payload = await response.json();
@@ -516,7 +593,9 @@ async function callAnthropic(config, userPrompt, systemPrompt) {
   });
 
   if (!response.ok) {
-    throw new Error(`Anthropic endpoint returned HTTP ${response.status}`);
+    const err = new Error(`Anthropic endpoint returned HTTP ${response.status}`);
+    err.httpStatus = response.status;
+    throw err;
   }
 
   const payload = await response.json();
@@ -650,53 +729,96 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
     });
   }
 
-  try {
-    let result;
-    if (looksLikeOllama(config)) {
-      result = await callOllama(config, userPrompt, systemPrompt);
-    } else if (config.provider === 'anthropic') {
-      result = await callAnthropic(config, userPrompt, systemPrompt);
-    } else {
-      result = await callOpenAICompatible(config, userPrompt, systemPrompt);
-    }
-    const { text, usage } = result;
+  // AI-6: bounded retry loop. Try once, then retry transient failures up to
+  // RETRY_MAX_ATTEMPTS more times with jittered backoff. Permanent failures
+  // (4xx, parse errors) break out immediately. On exhaustion or a permanent
+  // failure we fall through to the clearly-labelled template fallback below.
+  const totalAttempts = 1 + RETRY_MAX_ATTEMPTS;
+  let lastError = null;
+  for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+    try {
+      let result;
+      if (looksLikeOllama(config)) {
+        result = await callOllama(config, userPrompt, systemPrompt);
+      } else if (config.provider === 'anthropic') {
+        result = await callAnthropic(config, userPrompt, systemPrompt);
+      } else {
+        result = await callOpenAICompatible(config, userPrompt, systemPrompt);
+      }
+      const { text, usage } = result;
 
-    if (!String(text || '').trim()) {
-      throw new Error('Model returned empty content');
-    }
-    const estimatedCostMinor = estimateCostMinor(config, usage);
+      if (!String(text || '').trim()) {
+        const emptyErr = new Error('Model returned empty content');
+        emptyErr.retryable = true;
+        throw emptyErr;
+      }
+      const estimatedCostMinor = estimateCostMinor(config, usage);
 
-    return {
-      text: String(text).trim(),
-      usedAi: true,
-      provider: looksLikeOllama(config) ? 'ollama' : config.provider,
-      model: config.model,
-      tier: config.tier,
-      moduleKey: config.moduleKey || taskType || null,
-      generation_mode: 'ai',
-      fallback_reason: null,
-      readiness_reason: null,
-      provider_status: 'used',
-      usage,
-      estimatedCostMinor,
-    };
-  } catch (err) {
-    logger.warn('Clinical AI generation failed; falling back to template', {
-      taskType,
-      tier: config.tier,
-      provider: config.provider,
-      model: config.model,
-      error: err.message,
-    });
-    return nonAiResult({
-      config: { ...config, provider: looksLikeOllama(config) ? 'ollama' : config.provider },
-      taskType,
-      reason: err.message,
-      usage: baseUsage,
-      generationMode: 'template_fallback',
-      providerStatus: 'error',
-    });
+      if (attempt > 0) {
+        logger.info('Clinical AI generation succeeded after retry', {
+          taskType,
+          tier: config.tier,
+          provider: config.provider,
+          model: config.model,
+          attempts: attempt + 1,
+        });
+      }
+
+      return {
+        text: String(text).trim(),
+        usedAi: true,
+        provider: looksLikeOllama(config) ? 'ollama' : config.provider,
+        model: config.model,
+        tier: config.tier,
+        moduleKey: config.moduleKey || taskType || null,
+        generation_mode: 'ai',
+        fallback_reason: null,
+        readiness_reason: null,
+        provider_status: 'used',
+        usage,
+        estimatedCostMinor,
+        retry_attempts: attempt,
+      };
+    } catch (err) {
+      lastError = err;
+      const transient = isTransientProviderError(err);
+      const hasMoreAttempts = attempt < totalAttempts - 1;
+      if (transient && hasMoreAttempts) {
+        const delayMs = retryDelayMs(attempt);
+        logger.warn('Clinical AI generation transient failure; retrying', {
+          taskType,
+          tier: config.tier,
+          provider: config.provider,
+          model: config.model,
+          attempt: attempt + 1,
+          max_attempts: totalAttempts,
+          delay_ms: delayMs,
+          error: err.message,
+        });
+        await sleep(delayMs);
+        continue;
+      }
+      break;
+    }
   }
+
+  logger.warn('Clinical AI generation failed; falling back to template', {
+    taskType,
+    tier: config.tier,
+    provider: config.provider,
+    model: config.model,
+    attempts: totalAttempts,
+    transient_last_error: isTransientProviderError(lastError),
+    error: lastError?.message,
+  });
+  return nonAiResult({
+    config: { ...config, provider: looksLikeOllama(config) ? 'ollama' : config.provider },
+    taskType,
+    reason: lastError?.message || 'clinical_ai_generation_failed',
+    usage: baseUsage,
+    generationMode: 'template_fallback',
+    providerStatus: 'error',
+  });
 }
 
 async function probeProvider(config) {

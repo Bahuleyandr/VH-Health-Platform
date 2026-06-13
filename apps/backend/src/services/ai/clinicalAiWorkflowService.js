@@ -254,10 +254,16 @@ function medicationSafetyFlags(context) {
 function buildCommonSafetyFlags(context, module, citations) {
   const flags = [];
   if (module?.settings?.requiresCitations && !citations.length) {
+    // AI-5 (WS5 B5.1): for modules that REQUIRE citations, zero citations is
+    // a blocking failure, not a reviewer hint. A 'critical' flag routes the
+    // draft through the existing dead-letter path in persist_generation
+    // (status='failed', never enqueued for review) instead of letting an
+    // uncited draft reach a reviewer as an acceptable item. Modules that do
+    // not require citations are unaffected.
     flags.push({
-      severity: 'high',
+      severity: 'critical',
       code: 'MISSING_CITATIONS',
-      message: 'AI draft has no chart citations and must not be accepted without manual review.',
+      message: 'AI draft has no chart citations but the module requires them; draft fails closed and must not be accepted.',
     });
   }
 
@@ -864,7 +870,11 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
         context_snapshot_id: state.snapshot.id || null,
         tenant_region: state.requestContext.tenant_region,
         output_defenses_ran: true,
-        defenses_passed: !asArray(state.outputDefenseFlags).length,
+        // AI-4c: heuristic defenses are NOT a safety proof. This flag means
+        // "no heuristic defense flag fired", not "verified safe" — a human
+        // reviewer remains authoritative. Renamed from the old
+        // `defenses_passed`, which read as a clean bill of health.
+        no_heuristic_flags: !asArray(state.outputDefenseFlags).length,
         output_defense_flag_codes: asArray(state.outputDefenseFlags).map((flag) => flag.code),
         defense_flag_codes: state.safetyFlags.map((flag) => flag.code),
         context_signature: state.contextSignature,
@@ -952,6 +962,11 @@ export { ADMISSION_MODULES };
 // Re-exported helpers for parent workflows that need to fabricate the
 // initial state shape that the admission_ai_draft graph expects.
 export { requireEnabledModule, resolveTenantId };
+
+// Exported as a pure function so the AI-5 invariant (zero citations on a
+// citations-required module is a CRITICAL/blocking flag) is unit-testable
+// without standing up the full admission workflow + DB.
+export { buildCommonSafetyFlags };
 
 export async function generateAdmissionAiDraft(admissionId, moduleKey, requestedBy, req = null) {
   const key = cleanText(moduleKey).toLowerCase();
@@ -1523,6 +1538,99 @@ export async function listReviews({ decision = null, moduleKey = null, reviewerR
   return { reviews: rows, count: rows.length };
 }
 
+// AI-2 (WS5 B5.1): the ONLY sanctioned read path for surfacing a clinical AI
+// output to a patient. Until now "the patient app reads only accepted rows"
+// was a comment in patientExplainersService; this makes the invariant code.
+//
+// Hard rules baked into the query (not optional params a caller can drop):
+//   1. clinical_ai_reviews.decision = 'accepted' — pending/rejected/
+//      needs_revision/edited reviews are NEVER published.
+//   2. clinical_ai_generations.status = 'draft' — a generation that was
+//      dead-lettered (status='failed') or is mid-review (pending) or was
+//      mutated post-review (reviewed/edited/rejected) is NEVER published.
+//      Note: 'draft' is the status a clean generation keeps; the workflow
+//      sets status='failed' for critical-flag drafts, and updateReview()
+//      moves accepted generations to status='accepted'. We therefore also
+//      accept 'accepted' generation status (the post-signoff state) — but
+//      NOT failed/pending/reviewed/rejected/edited.
+//   3. tenant scope — r.tenant_id must match.
+//   4. patient scope — r.patient_uid must match the requesting patient.
+//
+// Returns ONLY publishable fields. Internal artefacts — safety_flags,
+// reviewer identity/notes, provider/model, generation metadata, rejection
+// reasons — are deliberately omitted. When the reviewer edited the draft,
+// the edited (reviewer-authored) version is what gets published.
+export async function getPublishedAiOutputForPatient({
+  patientUid,
+  tenantId = null,
+  moduleKey = null,
+  limit = 50,
+} = {}) {
+  const uid = cleanText(patientUid);
+  if (!uid) {
+    throw AppError.badRequest('patientUid is required', 'CLINICAL_AI_PUBLISHED_PATIENT_REQUIRED');
+  }
+  const tid = resolveTenantId({ tenantId });
+  if (tid === null) {
+    // Patient-facing reads are always tenant-scoped; a null (all-tenants)
+    // scope is a SUPER_ADMIN affordance that must never publish PHI to a
+    // patient surface.
+    throw AppError.badRequest(
+      'tenantId is required for patient-facing AI output',
+      'CLINICAL_AI_PUBLISHED_TENANT_REQUIRED'
+    );
+  }
+  // moduleKey is bound as a parameter ($3) so it's injection-safe; normalize
+  // to the registry's lowercase form for an exact-match filter.
+  const key = moduleKey
+    ? cleanText(moduleKey).toLowerCase().replace(/[^a-z0-9_-]/g, '') || null
+    : null;
+
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT r.id AS review_id,
+              r.generation_id,
+              r.module_key,
+              r.patient_uid,
+              r.updated_at AS published_at,
+              COALESCE(r.edited_draft, g.draft) AS published_draft,
+              g.citations AS source_citations,
+              COALESCE(g.metadata->>'model_tier', g.metadata->>'tier') AS model_tier
+       FROM clinical_ai_reviews r
+       JOIN clinical_ai_generations g
+         ON g.id = r.generation_id
+        AND g.tenant_id = r.tenant_id
+       WHERE r.tenant_id = $1::uuid
+         AND r.patient_uid = $2::uuid
+         AND r.decision = 'accepted'
+         AND g.status IN ('draft', 'accepted')
+         AND ($3::text IS NULL OR r.module_key = $3)
+       ORDER BY r.updated_at DESC
+       LIMIT $4`,
+      tid,
+      uid,
+      key,
+      clampInt(limit, { min: 1, max: 200, fallback: 50 })
+    );
+  } catch (err) {
+    throw clinicalAiSchemaUnavailable(err, 'published_patient_output');
+  }
+
+  const outputs = asArray(rows).map((row) => ({
+    review_id: row.review_id,
+    generation_id: row.generation_id,
+    module_key: row.module_key,
+    patient_uid: row.patient_uid,
+    published_at: row.published_at,
+    output: row.published_draft || {},
+    source_citations: asArray(row.source_citations),
+    model_tier: row.model_tier || null,
+  }));
+
+  return { outputs, count: outputs.length };
+}
+
 export async function updateReview(reviewId, data = {}, reviewerUid = null, reviewerRole = null, options = {}) {
   const tid = resolveTenantId(options);
   const decision = cleanText(data.decision || 'pending').toLowerCase();
@@ -1755,6 +1863,7 @@ export default {
   getActiveBreakGlass,
   getBedForecast,
   getPharmacyStockoutForecast,
+  getPublishedAiOutputForPatient,
   listApprovals,
   listPrompts,
   listReviews,
