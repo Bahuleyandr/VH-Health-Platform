@@ -76,10 +76,16 @@ jobs:
             --format=json \
             --output=output/security/osv-lockfiles.json
 
-      # Semgrep stays advisory here; Phase-3 of the 2026-06-10 remediation
-      # plan flips it to blocking after the initial finding backlog is
-      # triaged (docs/PLATFORM_REMEDIATION_PLAN.md).
-      - name: Semgrep healthcare/web baseline
+      # Semgrep stays advisory here; WS3 B3.4 flips it to blocking after
+      # the initial finding backlog is triaged (target: 2026-06-24).
+      # See docs/SECURITY_CONTROLS_SELFASSESSMENT.md §8 for the gate criteria.
+      # Two passes are run:
+      #   1. Focused VH Health ruleset (.semgrep.yml) — tightly scoped,
+      #      high signal-to-noise, covers injection/secrets/SSRF/path-traversal/
+      #      crypto/PHI patterns specific to this codebase.
+      #   2. Broad OWASP/community baselines — wider coverage, more noise,
+      #      useful for discovery but advisory only.
+      - name: Semgrep focused VH Health ruleset
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -87,12 +93,39 @@ jobs:
           /tmp/vh-semgrep-venv/bin/python -m pip install --quiet --upgrade pip
           /tmp/vh-semgrep-venv/bin/python -m pip install --quiet semgrep
           /tmp/vh-semgrep-venv/bin/semgrep scan \
+            --config .semgrep.yml \
+            --sarif \
+            --output output/security/semgrep-focused.sarif \
+            --timeout 300 \
+            --jobs 4 \
+            --exclude apps/backend/node_modules \
+            --exclude apps/admin/node_modules \
+            --exclude infra/mcp \
+            --exclude infra/onprem \
+            --exclude apps/admin/.next \
+            --exclude output \
+            --exclude build \
+            --exclude apps/backend/src/logs \
+            --exclude apps/patient/build \
+            --exclude apps/staff/build
+
+      - name: Semgrep healthcare/web baseline (broad, advisory)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          /tmp/vh-semgrep-venv/bin/semgrep scan \
             --config p/owasp-top-ten \
             --config p/secrets \
             --config p/javascript \
             --config p/typescript \
             --sarif \
-            --output output/security/semgrep.sarif
+            --timeout 300 \
+            --output output/security/semgrep-broad.sarif \
+            --exclude apps/backend/node_modules \
+            --exclude apps/admin/node_modules \
+            --exclude infra/mcp \
+            --exclude output \
+            --exclude build
 
       # Audit finding M15: BLOCKING on the merge path for CRITICAL/HIGH vulns
       # and leaked secrets. Misconfiguration reporting stays advisory below

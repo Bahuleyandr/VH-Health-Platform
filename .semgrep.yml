@@ -1,0 +1,355 @@
+# .semgrep.yml — VH Health Platform focused SAST configuration
+#
+# Scope: OWASP-aligned rules for the JS/TS backend and Next.js admin portal.
+# Flutter/Dart is not supported by Semgrep OSS; Dart code is analysed by
+# `melos run analyze` (dart analyzer) + the flutter_security_check lint.
+#
+# CI integration: `.forgejo/workflows/security-sweep.yml` runs this config via
+#   semgrep scan --config .semgrep.yml
+# The CI step is ADVISORY (continue-on-error: true) until the initial finding
+# backlog is triaged. Flip to blocking per docs/SECURITY_CONTROLS_SELFASSESSMENT.md §8.
+#
+# To run locally (requires semgrep >=1.40):
+#   pip install semgrep
+#   semgrep scan --config .semgrep.yml --sarif --output output/security/semgrep-focused.sarif
+#   semgrep scan --config .semgrep.yml --text   # human-readable
+#   semgrep scan --config .semgrep.yml --json   # machine-readable
+#
+# Paths excluded from scanning (vendor / generated / non-production):
+#   apps/backend/node_modules/   apps/admin/node_modules/   infra/mcp/.../node_modules/
+#   apps/admin/.next/            output/                     apps/backend/src/logs/
+
+rules:
+
+  # ═══════════════════════════════════════════════════════════════
+  # OWASP A03 — Injection
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-no-raw-sql-template-literal
+    message: >
+      Template literal inside a raw SQL string may introduce SQL injection.
+      VH Health convention: use parameterized `$1/$2` placeholders or the
+      Prisma `$queryRaw` tagged-template form. See apps/backend/CLAUDE.md.
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern: |
+          $CONN.query(`... ${$VAR} ...`)
+      - pattern-not: |
+          $CONN.query(`... ${$SAFE_INT} ...`)
+        metavariable-regex:
+          metavariable: $SAFE_INT
+          regex: '^(parseInt|Number|Math\.).*$'
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  - id: vh-no-exec-sync-shell-interpolation
+    message: >
+      execSync / exec with shell:true and a variable interpolated into the
+      command string may allow command injection if the variable contains
+      shell metacharacters. Use `execFileSync` with an argv array instead.
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern: |
+          require('child_process').execSync(`... ${...} ...`, {shell: true, ...})
+      - pattern: |
+          execSync(`... ${...} ...`, {shell: true, ...})
+    paths:
+      include:
+        - "apps/backend/**/*.js"
+        - "scripts/**/*.mjs"
+
+  - id: vh-eval-dangerous
+    message: >
+      eval() / new Function() with external input can lead to arbitrary code
+      execution. Avoid in all production paths.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - pattern: eval($X)
+      - pattern: new Function($X)
+    paths:
+      include:
+        - "apps/backend/src/**"
+        - "apps/admin/src/**"
+
+  # ═══════════════════════════════════════════════════════════════
+  # OWASP A02 — Cryptographic Failures
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-weak-hash-md5-sha1
+    message: >
+      MD5 and SHA-1 are cryptographically broken for security purposes.
+      For password hashing use bcrypt (already used elsewhere in this codebase).
+      For integrity/fingerprinting use SHA-256 or better.
+    severity: WARNING
+    languages: [javascript, typescript]
+    patterns:
+      - pattern: crypto.createHash("md5")
+      - pattern: crypto.createHash('md5')
+      - pattern: crypto.createHash("sha1")
+      - pattern: crypto.createHash('sha1')
+    paths:
+      include:
+        - "apps/backend/src/**"
+        - "apps/admin/src/**"
+        - "scripts/**"
+
+  - id: vh-no-math-random-crypto
+    message: >
+      Math.random() is not cryptographically secure. For token generation,
+      OTP codes, or any security-sensitive random value use crypto.randomBytes()
+      or crypto.randomUUID() (already used in tokenHelpers.js).
+    severity: WARNING
+    languages: [javascript]
+    pattern: Math.random()
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  - id: vh-jwt-no-alg-allowlist
+    message: >
+      jwt.verify() called without an explicit `algorithms` option is vulnerable
+      to algorithm-confusion attacks. VH Health convention: always pass
+      `{ algorithms: ['HS256'] }` (see utils/jwtUtils.js).
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern: |
+          $JWT.verify($TOKEN, $SECRET, $CB)
+        pattern-not: |
+          $JWT.verify($TOKEN, $SECRET, {..., algorithms: [...], ...}, $CB)
+      - pattern: |
+          $JWT.verify($TOKEN, $SECRET)
+        pattern-not: |
+          $JWT.verify($TOKEN, $SECRET, {..., algorithms: [...], ...})
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  # ═══════════════════════════════════════════════════════════════
+  # OWASP A10 — Server-Side Request Forgery (SSRF)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-fetch-without-ssrf-guard
+    message: >
+      fetch() or axios() called with a URL that originates from request
+      input without going through utils/ssrfGuard. All outbound HTTP
+      calls using operator- or user-supplied URLs MUST pass through
+      the SSRF guard first (see services/hl7/hl7OutboundService.js for the pattern).
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern: fetch($URL, ...)
+        pattern-inside: |
+          function ... (..., $REQ, ...) { ... }
+        metavariable-regex:
+          metavariable: $URL
+          regex: '^req\.'
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  - id: vh-url-from-req-body-to-fetch
+    message: >
+      URL constructed from request body/params passed directly to fetch().
+      Validate against the SSRF guard (utils/ssrfGuard.js) before fetching.
+    severity: WARNING
+    languages: [javascript]
+    patterns:
+      - pattern: |
+          const $URL = $REQ.body.$FIELD;
+          ...
+          fetch($URL, ...)
+      - pattern: |
+          const $URL = $REQ.params.$FIELD;
+          ...
+          fetch($URL, ...)
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  # ═══════════════════════════════════════════════════════════════
+  # Path Traversal (OWASP A01)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-path-join-req-input
+    message: >
+      path.join() or path.resolve() with unvalidated request input can
+      allow directory traversal. Sanitize the input or use an allowlist of
+      valid path components before joining.
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern: path.join(..., $REQ.params.$K, ...)
+      - pattern: path.join(..., $REQ.body.$K, ...)
+      - pattern: path.join(..., $REQ.query.$K, ...)
+      - pattern: path.resolve(..., $REQ.params.$K, ...)
+      - pattern: path.resolve(..., $REQ.body.$K, ...)
+      - pattern: path.resolve(..., $REQ.query.$K, ...)
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+        - "apps/admin/src/**/*.ts"
+
+  # ═══════════════════════════════════════════════════════════════
+  # Hardcoded Secrets (OWASP A02 / supply-chain)
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-no-hardcoded-secret-string
+    message: >
+      Potential hardcoded secret detected. All secrets must be sourced from
+      environment variables or SealedSecrets — never literal strings.
+      If this is an example/placeholder value, add it to .gitleaks.toml
+      with a specific path allowlist (not a glob).
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - pattern: |
+          const $NAME = "..."
+        metavariable-regex:
+          metavariable: $NAME
+          regex: (?i)(secret|password|passwd|api_key|apikey|token|jwt_secret|private_key|access_key)
+        metavariable-pattern:
+          metavariable: "\"...\""
+          pattern-regex: '".{8,}"'
+      - pattern: |
+          const $NAME = '...'
+        metavariable-regex:
+          metavariable: $NAME
+          regex: (?i)(secret|password|passwd|api_key|apikey|token|jwt_secret|private_key|access_key)
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+        - "apps/admin/src/**/*.ts"
+    paths_exclude:
+      - "**/*.test.js"
+      - "**/*.spec.js"
+      - "**/*.test.ts"
+      - "**/*.spec.ts"
+      - "**/__tests__/**"
+
+  - id: vh-no-default-value-secret
+    message: >
+      String.fromEnvironment() with a defaultValue that looks like a real secret
+      ships the secret in the compiled app if the build variable is omitted.
+      Remove the defaultValue — a missing variable should fail the build.
+      (Audit finding H-7: `firebase_options.dart` had this pattern.)
+    severity: ERROR
+    languages: [javascript, typescript]
+    pattern: |
+      String.fromEnvironment($NAME, defaultValue: $DEFAULT)
+    metavariable-regex:
+      metavariable: $NAME
+      regex: (?i)(key|secret|token|password|pin|hash|api)
+    paths:
+      include:
+        - "apps/**"
+        - "packages/**"
+
+  # ═══════════════════════════════════════════════════════════════
+  # PHI / Healthcare-specific
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-console-log-phi
+    message: >
+      console.log() / console.error() with a variable that looks like PHI
+      (phone, name, uid, dob, diagnosis, mrn). Use the structured logger
+      (utils/logger.js) which has PHI redaction; never log raw PHI to stdout.
+    severity: WARNING
+    languages: [javascript]
+    patterns:
+      - pattern: console.log(..., $VAR, ...)
+        metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(phone|mobile|name|uid|dob|diagnosis|mrn|abha|patient|nhs)
+      - pattern: console.error(..., $VAR, ...)
+        metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(phone|mobile|name|uid|dob|diagnosis|mrn|abha|patient|nhs)
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  - id: vh-res-send-error-object
+    message: >
+      Sending a raw Error object or err.message/err.stack in an API response
+      can leak internal stack traces, file paths, and query details in production.
+      Use the platform error handler (utils/apiResponse.js `error()`) which
+      sanitises the response in non-dev environments.
+    severity: ERROR
+    languages: [javascript]
+    patterns:
+      - pattern: res.json({ ..., message: $ERR.message, ... })
+      - pattern: res.send($ERR.message)
+      - pattern: res.json({ ..., stack: $ERR.stack, ... })
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  - id: vh-dangerously-set-inner-html
+    message: >
+      dangerouslySetInnerHTML inserts raw HTML and is an XSS vector.
+      In the VH Health admin portal all patient-supplied content must be
+      sanitized with DOMPurify before insertion. Confirm the `html` value
+      is sanitized.
+    severity: ERROR
+    languages: [typescript, javascript]
+    pattern: |
+      dangerouslySetInnerHTML={{ __html: $VAL }}
+    paths:
+      include:
+        - "apps/admin/src/**"
+
+  # ═══════════════════════════════════════════════════════════════
+  # Prototype pollution / open redirect
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: vh-prototype-pollution-merge
+    message: >
+      Merging user-controlled input into an object without prototype check
+      can lead to prototype pollution. Use `Object.assign({}, ...)` with a
+      null-prototype target or validate keys explicitly.
+    severity: WARNING
+    languages: [javascript]
+    patterns:
+      - pattern: Object.assign($OBJ, $REQ.body)
+      - pattern: Object.assign($OBJ, $REQ.query)
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+
+  - id: vh-open-redirect
+    message: >
+      Redirect target derived from request input can enable open redirect attacks.
+      Validate the redirect URL against an allowlist before redirecting.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - pattern: res.redirect($REQ.query.$K)
+      - pattern: res.redirect($REQ.body.$K)
+      - pattern: res.redirect($REQ.params.$K)
+    paths:
+      include:
+        - "apps/backend/src/**/*.js"
+        - "apps/admin/src/**/*.ts"
+
+# ═══════════════════════════════════════════════════════════════
+# Global path exclusions (applied to all rules above)
+# ═══════════════════════════════════════════════════════════════
+# Semgrep OSS uses per-rule paths.exclude; global exclusions are listed
+# here for documentation purposes and enforced via the --exclude CLI flag.
+#
+# Excluded:
+#   apps/backend/node_modules/
+#   apps/admin/node_modules/
+#   infra/mcp/*/node_modules/
+#   infra/onprem/*/node_modules/
+#   apps/admin/.next/
+#   output/
+#   build/
+#   apps/backend/src/logs/
+#   apps/patient/build/
+#   apps/staff/build/
