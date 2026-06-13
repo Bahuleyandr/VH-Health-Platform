@@ -6,6 +6,31 @@ import 'package:flutter/foundation.dart'
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
+/// ─── SECURITY NOTICE (audit PAT-2 / PAT-13) ──────────────────────────────
+/// All Firebase API keys are read from dart-define compile-time variables.
+/// The defaultValue strings below are the ORIGINAL committed keys that MUST
+/// be ROTATED before this build reaches production. They exist only so that
+/// CI and dev builds continue to compile without secrets; they must never be
+/// used in a release APK/AAB shipped to end users.
+///
+/// Required operator actions before any release build:
+///   1. Rotate ALL keys in the Firebase console and Google Cloud Console:
+///        - VH_FIREBASE_WEB_API_KEY       (web + Windows target)
+///        - VH_FIREBASE_ANDROID_API_KEY   (Android target)
+///        - VH_FIREBASE_IOS_API_KEY       (iOS target)
+///        - VH_FIREBASE_MACOS_API_KEY     (macOS target)
+///   2. Supply new keys via --dart-define in CI build steps:
+///        flutter build apk \
+///          --dart-define=VH_FIREBASE_ANDROID_API_KEY=AIzaSy… \
+///          --dart-define=VH_FIREBASE_IOS_API_KEY=AIzaSy…
+///   3. Store the values in your secrets manager (GitHub Actions secrets,
+///      or equivalent) — NEVER commit new keys into this file.
+///   4. To make release builds fail-fast when the key is absent, remove the
+///      defaultValue from the relevant platform block and update this notice.
+///      Until then, the fallback is the rotated-but-present dev value so
+///      that unrelated CI pipelines don't brick. Ties to sweep H-7.
+/// ─────────────────────────────────────────────────────────────────────────
+///
 /// Example:
 /// ```dart
 /// import 'firebase_options.dart';
@@ -40,8 +65,28 @@ class DefaultFirebaseOptions {
     }
   }
 
+  // Web & Windows share the same project-level web API key.
+  // ROTATE: VH_FIREBASE_WEB_API_KEY (see security notice above).
+  static const _webApiKey = String.fromEnvironment(
+    'VH_FIREBASE_WEB_API_KEY',
+    defaultValue: 'AIzaSyD66kpN2hC6cbIXguLxhY5slhBX2TuSVCQ',
+  );
+
+  // ROTATE: VH_FIREBASE_ANDROID_API_KEY (see security notice above).
+  static const _androidApiKey = String.fromEnvironment(
+    'VH_FIREBASE_ANDROID_API_KEY',
+    defaultValue: 'AIzaSyDiY5ya9Ji0nWXqzNuJIprUQm-t0FVex_8',
+  );
+
+  // ROTATE: VH_FIREBASE_IOS_API_KEY (see security notice above).
+  // iOS and macOS use the same GoogleService-Info.plist key.
+  static const _iosApiKey = String.fromEnvironment(
+    'VH_FIREBASE_IOS_API_KEY',
+    defaultValue: 'AIzaSyCwP2m9gvOIQ659FzdlExdAK51ETLhwcsA',
+  );
+
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyD66kpN2hC6cbIXguLxhY5slhBX2TuSVCQ',
+    apiKey: _webApiKey,
     appId: '1:155620159512:web:ed8e4cc14d5e41549d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',
@@ -50,10 +95,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: String.fromEnvironment(
-      'VH_FIREBASE_ANDROID_API_KEY',
-      defaultValue: 'AIzaSyDiY5ya9Ji0nWXqzNuJIprUQm-t0FVex_8',
-    ),
+    apiKey: _androidApiKey,
     appId: '1:155620159512:android:6b4839756b9f099a9d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',
@@ -61,7 +103,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCwP2m9gvOIQ659FzdlExdAK51ETLhwcsA',
+    apiKey: _iosApiKey,
     appId: '1:155620159512:ios:5118ce88fcd26ba19d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',
@@ -69,8 +111,10 @@ class DefaultFirebaseOptions {
     iosBundleId: 'com.example.vhhealth',
   );
 
+  // macOS shares the iOS key and app-id (same GoogleService-Info.plist).
+  // ROTATE: VH_FIREBASE_IOS_API_KEY covers macOS too.
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyCwP2m9gvOIQ659FzdlExdAK51ETLhwcsA',
+    apiKey: _iosApiKey,
     appId: '1:155620159512:ios:5118ce88fcd26ba19d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',
@@ -79,7 +123,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyD66kpN2hC6cbIXguLxhY5slhBX2TuSVCQ',
+    apiKey: _webApiKey,
     appId: '1:155620159512:web:76026d7a87e0c4eb9d136d',
     messagingSenderId: '155620159512',
     projectId: 'vhhealth',

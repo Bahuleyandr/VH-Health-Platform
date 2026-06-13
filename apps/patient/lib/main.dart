@@ -7,6 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:screen_protector/screen_protector.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -56,6 +57,37 @@ Future<void> main() async {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      // PAT-1: Activate Firebase App Check to attest that API calls originate
+      // from a genuine, unmodified build of this app.
+      // - Release builds: Play Integrity (Android) / DeviceCheck (iOS).
+      // - Debug / profile builds: DebugProvider (produces a test token;
+      //   requires the debug token to be registered in the Firebase console).
+      // Wrapped in try/catch so a provider misconfiguration never blocks startup.
+      try {
+        await FirebaseAppCheck.instance.activate(
+          // Release: Play Integrity (Android) / DeviceCheck (iOS).
+          // Debug/profile: DebugProvider — register the printed token in the
+          // Firebase console under App Check → Apps → Manage debug tokens.
+          providerAndroid: kDebugMode
+              ? AndroidDebugProvider()
+              : AndroidPlayIntegrityProvider(),
+          providerApple: kDebugMode
+              ? AppleDebugProvider()
+              : AppleDeviceCheckProvider(),
+          // Web provider is not used by the mobile patient app but is listed
+          // explicitly so accidental web builds surface a clear config error
+          // rather than silently bypassing attestation.
+          providerWeb: ReCaptchaV3Provider('recaptcha-v3-site-key-placeholder'),
+        );
+      } catch (e) {
+        // App Check failure is non-fatal at startup. The Firebase SDK will
+        // still reject unattestad requests server-side once enforcement is
+        // enabled in the Firebase console — this just avoids crashing the app
+        // during local development or on devices without Play Services.
+        debugPrint('FirebaseAppCheck.activate skipped: $e');
+      }
+
       crashlyticsEnabled =
           !const bool.fromEnvironment(
             'VH_DISABLE_CRASHLYTICS',

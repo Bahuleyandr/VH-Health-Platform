@@ -50,7 +50,7 @@ class _LoginFormState extends State<LoginForm> {
   final _phoneController = TextEditingController();
   final _secureStorage = VHSecureStorage.instance;
 
-  final bool _isLoading = false;
+  bool _isLoading = false;
   bool _showOtpWidget = false;
   String? _submittedPhone;
 
@@ -88,13 +88,18 @@ class _LoginFormState extends State<LoginForm> {
   Future<void> _continueAsGuest() async {
     if (_isLoading) return;
     FocusScope.of(context).unfocus();
-    final userProvider = context.read<UserProvider>();
-    final sessionProvider = context.read<SessionTimeoutProvider>();
-    await FirebaseAuth.instance.signOut();
-    sessionProvider.pauseForGuest();
-    await userProvider.setGuest();
-    if (!mounted) return;
-    context.go(_guestRoute);
+    setState(() => _isLoading = true);
+    try {
+      final userProvider = context.read<UserProvider>();
+      final sessionProvider = context.read<SessionTimeoutProvider>();
+      await FirebaseAuth.instance.signOut();
+      sessionProvider.pauseForGuest();
+      await userProvider.setGuest();
+      if (!mounted) return;
+      context.go(_guestRoute);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   /// Debug-only shortcut that skips Firebase OTP. Calls the backend's
@@ -105,7 +110,7 @@ class _LoginFormState extends State<LoginForm> {
   Future<void> _devLogin() async {
     if (!_showDevLogin) return;
     if (_isLoading) return;
-
+    setState(() => _isLoading = true);
     try {
       final url = Uri.parse('${ApiConfig.baseUrl}/auth/dev/patient-login');
       final resp = await http
@@ -209,13 +214,20 @@ class _LoginFormState extends State<LoginForm> {
       developer.log('Dev login error: $e', name: 'Auth', stackTrace: st);
       if (!mounted) return;
       _showSnackBar('Dev login error: $e', Theme.of(context).colorScheme.error);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _triggerSOS() async {
     if (_isLoading) return;
     FocusScope.of(context).unfocus();
-    await SOSService.triggerSOS(context);
+    setState(() => _isLoading = true);
+    try {
+      await SOSService.triggerSOS(context);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _startOtpFlow() {

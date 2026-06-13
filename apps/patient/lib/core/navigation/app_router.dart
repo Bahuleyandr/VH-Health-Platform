@@ -310,8 +310,13 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/bills/:id',
-        builder: (context, state) =>
-            BillDetailScreen(invoiceId: int.parse(state.pathParameters['id']!)),
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/portal/bills' : null;
+        },
+        builder: (context, state) => BillDetailScreen(
+          invoiceId: int.tryParse(state.pathParameters['id']!)!,
+        ),
       ),
       GoRoute(
         path: '/portal/lab-results',
@@ -331,8 +336,12 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/tpa/claims/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/portal/tpa/claims' : null;
+        },
         builder: (context, state) => TpaClaimDetailScreen(
-          claimId: int.parse(state.pathParameters['id']!),
+          claimId: int.tryParse(state.pathParameters['id']!)!,
         ),
       ),
       GoRoute(
@@ -341,8 +350,12 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/messages/:id',
+        redirect: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '');
+          return id == null ? '/portal/messages' : null;
+        },
         builder: (context, state) => MessageThreadScreen(
-          threadId: int.parse(state.pathParameters['id']!),
+          threadId: int.tryParse(state.pathParameters['id']!)!,
         ),
       ),
       GoRoute(

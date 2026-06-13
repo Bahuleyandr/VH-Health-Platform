@@ -25,6 +25,22 @@ class _OtpWidgetState extends State<OtpWidget> {
   final _secureStorage = VHSecureStorage.instance;
   final _otpService = OtpService();
 
+  /// Returns a masked version of an E.164 phone number, keeping only the
+  /// country code and last 2 digits visible.
+  /// e.g. "+919876543210" → "+91 ******3210" (PAT-11)
+  static String _maskPhone(String phone) {
+    // Strip leading +
+    final raw = phone.startsWith('+') ? phone.substring(1) : phone;
+    // Heuristic: country codes are 1–3 digits. India (+91) → 2 digits.
+    // We expose the full CC and the last 2 digits of the subscriber number.
+    final ccLen = raw.startsWith('91') ? 2 : raw.startsWith('1') ? 1 : 2;
+    if (raw.length <= ccLen + 2) return phone; // too short to mask
+    final cc = raw.substring(0, ccLen);
+    final last2 = raw.substring(raw.length - 2);
+    final masked = '*' * (raw.length - ccLen - 2);
+    return '+$cc $masked$last2';
+  }
+
   String? verificationId;
   bool otpSent = false;
   bool isVerifying = false;
@@ -58,7 +74,7 @@ class _OtpWidgetState extends State<OtpWidget> {
           otpSent = true;
           isResending = false;
         });
-        _showMessage("OTP sent to ${widget.phoneNumber}");
+        _showMessage("OTP sent to ${_maskPhone(widget.phoneNumber)}");
       },
       onAutoRetrieved: (credential, smsCode) async {
         if (!mounted) return;

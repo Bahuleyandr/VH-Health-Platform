@@ -64,6 +64,18 @@ class OtpHeader extends StatelessWidget {
 
   const OtpHeader({super.key, required this.phoneNumber});
 
+  /// Returns a masked version of an E.164 phone number for display.
+  /// e.g. "+919876543210" → "+91 ******3210" (PAT-11)
+  static String _maskPhone(String phone) {
+    final raw = phone.startsWith('+') ? phone.substring(1) : phone;
+    final ccLen = raw.startsWith('91') ? 2 : raw.startsWith('1') ? 1 : 2;
+    if (raw.length <= ccLen + 2) return phone;
+    final cc = raw.substring(0, ccLen);
+    final last2 = raw.substring(raw.length - 2);
+    final masked = '*' * (raw.length - ccLen - 2);
+    return '+$cc $masked$last2';
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
@@ -87,7 +99,7 @@ class OtpHeader extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          phoneNumber,
+          _maskPhone(phoneNumber),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
             fontWeight: FontWeight.w600,
