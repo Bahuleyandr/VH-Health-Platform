@@ -79,13 +79,17 @@ export function canAllocateIcuBedForAdmission(role) {
   return normalizedRole ? ICU_ALLOCATE_ROLES.has(normalizedRole) : false;
 }
 
-async function bestEffortAdmissionTimelineEvent(label, input, options = {}) {
-  try {
-    return await recordCanonicalClinicalEvent(input, options);
-  } catch (err) {
-    logger.warn(`Canonical admission event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// a successful admission/bed/code-status/attending/review write must persist
+// the detail row + one clinical_timeline_events row + one clinical_audit_events
+// row in the SAME transaction. The canonical write therefore runs on the
+// transaction client (`tx`, required) and is NOT swallowed — a failure aborts
+// the transaction so the admission/bed mutation rolls back rather than leaving
+// the timeline/audit layer out of sync. recordCanonicalClinicalEvent still
+// tolerates a genuinely-absent canonical table (SQLSTATE 42P01) internally;
+// every other error propagates.
+function recordCanonicalAdmissionEvent(input, tx) {
+  return recordCanonicalClinicalEvent(input, { db: tx });
 }
 
 function shouldMinimizeInpatientPayload(role) {
@@ -1050,6 +1054,43 @@ async function admitPatient(data) {
       logger.warn(`admitPatient: attendant-pass issuance failed for admission ${admission.id}: ${e.message}`);
     }
 
+    // Canonical clinical timeline invariant: the admission detail row + its
+    // canonical timeline/audit events persist in the SAME transaction. Emitted
+    // here (inside the admit tx) on `tx` so a canonical-write failure rolls the
+    // admission back rather than leaving an admitted patient with no timeline /
+    // audit row. The payload uses only in-tx admission fields (patient_name,
+    // ward, bed_number set above); patient_hospital_number is a Phase-1.5
+    // post-commit enrichment and is deliberately not part of this write.
+    await recordCanonicalAdmissionEvent({
+      tenantId: admission.tenant_id || tenant_id,
+      patientUid: admission.patient_uid,
+      encounterId: admission.encounter_id,
+      eventType: 'admission.created',
+      eventSubtype: admission.admission_type,
+      eventStatus: admission.status,
+      sourceTable: 'admissions',
+      sourceId: admission.id,
+      resourceType: 'admission',
+      resourceId: admission.id,
+      actorUid: created_by,
+      summary: `${admission.patient_name || 'Patient'} admitted${admission.ward ? ` to ${admission.ward}` : ''}${admission.bed_number ? ` / ${admission.bed_number}` : ''}`,
+      payload: {
+        admission_id: admission.id,
+        admission_type: admission.admission_type,
+        priority: admission.priority,
+        department: admission.department,
+        ward: admission.ward,
+        bed_id: admission.bed_id,
+        bed_number: admission.bed_number,
+        admitting_doctor: admission.admitting_doctor,
+        attending_doctor: admission.attending_doctor,
+        admitting_diagnosis: admission.admitting_diagnosis,
+      },
+      afterState: admission,
+      timelineIdempotencyKey: `admissions:${admission.id}:created`,
+      auditIdempotencyKey: `admissions:${admission.id}:audit:created`,
+    }, tx);
+
     return admission;
   });
 
@@ -1254,35 +1295,12 @@ async function admitPatient(data) {
     logger.warn(`admitPatient: staff notification failed for admission ${admission.id}: ${e.message}`);
   }
 
-  await bestEffortAdmissionTimelineEvent('admission create', {
-    tenantId: admission.tenant_id || tenant_id,
-    patientUid: admission.patient_uid,
-    encounterId: admission.encounter_id,
-    eventType: 'admission.created',
-    eventSubtype: admission.admission_type,
-    eventStatus: admission.status,
-    sourceTable: 'admissions',
-    sourceId: admission.id,
-    resourceType: 'admission',
-    resourceId: admission.id,
-    actorUid: created_by,
-    summary: `${admission.patient_name || 'Patient'} admitted${admission.ward ? ` to ${admission.ward}` : ''}${admission.bed_number ? ` / ${admission.bed_number}` : ''}`,
-    payload: {
-      admission_id: admission.id,
-      admission_type: admission.admission_type,
-      priority: admission.priority,
-      department: admission.department,
-      ward: admission.ward,
-      bed_id: admission.bed_id,
-      bed_number: admission.bed_number,
-      admitting_doctor: admission.admitting_doctor,
-      attending_doctor: admission.attending_doctor,
-      admitting_diagnosis: admission.admitting_diagnosis,
-    },
-    afterState: admission,
-    timelineIdempotencyKey: `admissions:${admission.id}:created`,
-    auditIdempotencyKey: `admissions:${admission.id}:audit:created`,
-  });
+  // The canonical admission.created timeline + audit events were already
+  // written atomically with the admission row inside the admit transaction
+  // above (canonical timeline invariant). The Phase-1.5 best-effort steps
+  // here (hospital number, ER-order carry, OT schedule, advice close, preauth,
+  // staff notifications, ADT feed) are downstream side effects, not part of
+  // that canonical write.
 
   // Roadmap C2 (Phase 1.5, best-effort) — announce the admission to
   // subscribed third-party systems as ADT^A01.
@@ -1500,7 +1518,7 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
     });
 
     logger.info(`Bed ${bedRows[0].bed_number} (id=${bedId}) assigned to admission #${admissionId} (was bedless since ${admission.bed_pending_since})`);
-    await bestEffortAdmissionTimelineEvent('bed assign', {
+    await recordCanonicalAdmissionEvent({
       tenantId: updatedAdmission.tenant_id,
       patientUid: updatedAdmission.patient_uid,
       encounterId: updatedAdmission.encounter_id,
@@ -1524,7 +1542,7 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
       afterState: updatedAdmission,
       timelineIdempotencyKey: `admissions:${admissionId}:bed_assigned:${bedId}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:bed_assigned:${bedId}`,
-    }, { db: tx });
+    }, tx);
     return updatedAdmission;
   });
 }
@@ -3027,6 +3045,38 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
       },
     });
 
+    // Canonical clinical timeline invariant: the bed-transfer detail rows
+    // (bed_transfers + admissions update) + the canonical timeline/audit
+    // events persist in the SAME transaction, on `tx`. A canonical-write
+    // failure aborts the transfer rather than leaving the bed move without a
+    // timeline / audit row. The downstream housekeeping (bed-cleaning) request
+    // stays post-commit best-effort.
+    await recordCanonicalAdmissionEvent({
+      tenantId: updated.tenant_id,
+      patientUid: updated.patient_uid,
+      encounterId: updated.encounter_id,
+      eventType: 'bed.transferred',
+      eventSubtype: updated.ward || null,
+      eventStatus: updated.status,
+      sourceTable: 'bed_transfers',
+      sourceId: `${admissionId}:transfer:${toBedId}`,
+      resourceType: 'admission',
+      resourceId: admissionId,
+      actorUid: transferredBy,
+      summary: `Transferred to ${updated.ward || 'ward'}${updated.bed_number ? ` / ${updated.bed_number}` : ''}`,
+      payload: {
+        admission_id: admissionId,
+        from_bed_id: fromBedId || null,
+        to_bed_id: toBedId,
+        to_ward: updated.ward,
+        bed_number: updated.bed_number,
+        reason: reason || 'Transfer',
+      },
+      afterState: updated,
+      timelineIdempotencyKey: `admissions:${admissionId}:bed_transferred:${toBedId}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+      auditIdempotencyKey: `admissions:${admissionId}:audit:bed_transferred:${toBedId}:${updated.updated_at?.toISOString?.() || Date.now()}`,
+    }, tx);
+
     logger.info(`Admission #${admissionId} transferred: bed ${fromBedId} -> ${toBedId}`);
     return {
       updated,
@@ -3048,31 +3098,10 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     }
   }
 
-  await bestEffortAdmissionTimelineEvent('bed transfer', {
-    tenantId: phase1.updated.tenant_id,
-    patientUid: phase1.updated.patient_uid,
-    encounterId: phase1.updated.encounter_id,
-    eventType: 'bed.transferred',
-    eventSubtype: phase1.updated.ward || null,
-    eventStatus: phase1.updated.status,
-    sourceTable: 'bed_transfers',
-    sourceId: `${admissionId}:transfer:${toBedId}`,
-    resourceType: 'admission',
-    resourceId: admissionId,
-    actorUid: transferredBy,
-    summary: `Transferred to ${phase1.updated.ward || 'ward'}${phase1.updated.bed_number ? ` / ${phase1.updated.bed_number}` : ''}`,
-    payload: {
-      admission_id: admissionId,
-      from_bed_id: phase1.bedTurnover?.bed_id || null,
-      to_bed_id: toBedId,
-      to_ward: phase1.updated.ward,
-      bed_number: phase1.updated.bed_number,
-      reason: reason || 'Transfer',
-    },
-    afterState: phase1.updated,
-    timelineIdempotencyKey: `admissions:${admissionId}:bed_transferred:${toBedId}:${phase1.updated.updated_at?.toISOString?.() || Date.now()}`,
-    auditIdempotencyKey: `admissions:${admissionId}:audit:bed_transferred:${toBedId}:${phase1.updated.updated_at?.toISOString?.() || Date.now()}`,
-  });
+  // The canonical bed.transferred timeline + audit events were already written
+  // atomically with the transfer rows inside the transaction above (canonical
+  // timeline invariant). The bed-cleaning request above is post-commit
+  // best-effort and is not part of that canonical write.
 
   return phase1.updated;
 }
@@ -3731,7 +3760,7 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy, options = {}
     });
 
     logger.info(`Admission #${admissionId} code status changed: ${previousStatus} -> ${codeStatus}`);
-    await bestEffortAdmissionTimelineEvent('code status update', {
+    await recordCanonicalAdmissionEvent({
       tenantId: updated.tenant_id,
       patientUid: updated.patient_uid,
       encounterId: updated.encounter_id,
@@ -3753,7 +3782,7 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy, options = {}
       afterState: { code_status: codeStatus },
       timelineIdempotencyKey: `admissions:${admissionId}:code_status:${codeStatus}:${updated.updated_at?.toISOString?.() || Date.now()}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:code_status:${codeStatus}:${updated.updated_at?.toISOString?.() || Date.now()}`,
-    }, { db: tx });
+    }, tx);
     return updated;
   });
 }
@@ -3806,7 +3835,7 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options 
     });
 
     logger.info(`Admission #${admissionId} attending doctor changed: ${previousDoctor} -> ${doctorUid}`);
-    await bestEffortAdmissionTimelineEvent('attending doctor update', {
+    await recordCanonicalAdmissionEvent({
       tenantId: updated.tenant_id,
       patientUid: updated.patient_uid,
       encounterId: updated.encounter_id,
@@ -3827,7 +3856,7 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options 
       afterState: { attending_doctor: doctorUid },
       timelineIdempotencyKey: `admissions:${admissionId}:attending_doctor:${doctorUid}:${updated.updated_at?.toISOString?.() || Date.now()}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:attending_doctor:${doctorUid}:${updated.updated_at?.toISOString?.() || Date.now()}`,
-    }, { db: tx });
+    }, tx);
     return updated;
   });
 }
@@ -3888,7 +3917,7 @@ async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy, options 
     });
 
     logger.info(`Admission #${admissionId} next review set: ${previous ? new Date(previous).toISOString() : 'none'} -> ${parsed ? parsed.toISOString() : 'cleared'}`);
-    await bestEffortAdmissionTimelineEvent('next review update', {
+    await recordCanonicalAdmissionEvent({
       tenantId: updated.tenant_id,
       patientUid: updated.patient_uid,
       encounterId: updated.encounter_id,
@@ -3909,7 +3938,7 @@ async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy, options 
       afterState: { next_review_at: parsed ? parsed.toISOString() : null },
       timelineIdempotencyKey: `admissions:${admissionId}:next_review:${parsed ? parsed.toISOString() : 'cleared'}:${updated.updated_at?.toISOString?.() || Date.now()}`,
       auditIdempotencyKey: `admissions:${admissionId}:audit:next_review:${parsed ? parsed.toISOString() : 'cleared'}:${updated.updated_at?.toISOString?.() || Date.now()}`,
-    }, { db: tx });
+    }, tx);
     return updated;
   });
 }

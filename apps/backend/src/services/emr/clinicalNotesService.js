@@ -105,15 +105,27 @@ function assertOpenOpAppointmentSession(appt, action = 'write') {
   }
 }
 
-async function bestEffortCanonicalNoteEvent(label, input) {
-  try {
-    return await recordCanonicalClinicalEvent(input);
-  } catch (err) {
-    logger.warn(`Canonical note event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// every successful note write must persist the detail row + one
+// clinical_timeline_events row + one clinical_audit_events row in the SAME
+// transaction. The canonical write therefore runs on the transaction client
+// (`tx`) and is NOT swallowed — a failure must abort the transaction so the
+// note row rolls back rather than leaving the timeline/audit layer out of
+// sync. `recordCanonicalClinicalEvent` already tolerates a genuinely-absent
+// canonical table (SQLSTATE 42P01) via logCanonicalFailure; every other
+// error propagates and aborts the tx.
+function recordCanonicalNoteEvent(input, tx) {
+  return recordCanonicalClinicalEvent(input, { db: tx });
 }
 
+// The post-sign encounter lifecycle transition is a SEPARATE canonical
+// workflow step (it emits its own timeline + audit triple) — not part of the
+// note's own detail+timeline+audit triple. It must therefore stay best-effort
+// and post-commit: a note that has already been atomically signed (with its
+// canonical events) must not be rolled back because the encounter was already
+// signed/locked (a benign INVALID_ENCOUNTER_TRANSITION) or because the
+// lifecycle update hiccuped. Keeping it in the note's tx would regress the
+// prior tolerant behaviour and could abort a clinically-successful sign.
 async function bestEffortEncounterTransition(label, encounterId, nextStatus, input = {}) {
   if (!encounterId) return null;
   try {
@@ -343,51 +355,57 @@ export async function createNote(data) {
     }
   }
 
-  // Schema defaults: version=1, is_addendum=false, is_signed=false, created_at=now().
-  // We pass them explicitly to mirror the pre-ORM INSERT verbatim.
-  const created = await prisma.clinical_notes.create({
-    data: {
-      encounter_id: resolvedEncounterId ?? null,
-      appointment_id: appointmentIdNum,
-      patient_uid,
-      author_uid,
-      author_role,
-      note_type,
-      title: title || null,
-      content,
-      version: 1,
-      is_addendum: false,
-      is_signed: false
-    },
-    select: NOTE_SELECT
+  // Atomic clinical write (canonical timeline invariant): the note detail
+  // row + its canonical timeline/audit events persist together or not at
+  // all. Schema defaults: version=1, is_addendum=false, is_signed=false,
+  // created_at=now(). We pass them explicitly to mirror the pre-ORM INSERT.
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_notes.create({
+      data: {
+        encounter_id: resolvedEncounterId ?? null,
+        appointment_id: appointmentIdNum,
+        patient_uid,
+        author_uid,
+        author_role,
+        note_type,
+        title: title || null,
+        content,
+        version: 1,
+        is_addendum: false,
+        is_signed: false
+      },
+      select: NOTE_SELECT
+    });
+
+    await recordCanonicalNoteEvent({
+      tenantId: data.tenant_id || data.tenantId,
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_id,
+      eventType: 'note.created',
+      eventSubtype: row.note_type,
+      eventStatus: row.is_signed ? 'signed' : 'draft',
+      sourceTable: 'clinical_notes',
+      sourceId: row.id,
+      resourceType: 'clinical_note',
+      resourceId: row.id,
+      actorUid: row.author_uid,
+      actorRole: row.author_role,
+      summary: row.title || `${row.note_type} note created`,
+      payload: {
+        title: row.title,
+        note_type: row.note_type,
+        appointment_id: row.appointment_id,
+        version: row.version,
+        content: row.content,
+      },
+      afterState: row,
+    }, tx);
+    return row;
   });
 
   logger.info(
     `Clinical note created: id=${created.id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`
   );
-  await bestEffortCanonicalNoteEvent('note create', {
-    tenantId: data.tenant_id || data.tenantId,
-    patientUid: created.patient_uid,
-    encounterId: created.encounter_id,
-    eventType: 'note.created',
-    eventSubtype: created.note_type,
-    eventStatus: created.is_signed ? 'signed' : 'draft',
-    sourceTable: 'clinical_notes',
-    sourceId: created.id,
-    resourceType: 'clinical_note',
-    resourceId: created.id,
-    actorUid: created.author_uid,
-    actorRole: created.author_role,
-    summary: created.title || `${created.note_type} note created`,
-    payload: {
-      title: created.title,
-      note_type: created.note_type,
-      appointment_id: created.appointment_id,
-      version: created.version,
-      content: created.content,
-    },
-    afterState: created,
-  });
   return attachAuthorNames(created);
 }
 
@@ -444,45 +462,51 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
 
   const nextVersion = (versionAgg._max.version ?? 0) + 1;
 
-  const created = await prisma.clinical_notes.create({
-    data: {
-      encounter_id: parentNote.encounter_id,
-      patient_uid: parentNote.patient_uid,
-      author_uid: authorUid,
-      author_role: authorRole,
-      note_type: parentNote.note_type,
-      content: addendumContent,
-      version: nextVersion,
-      parent_note_id: rootNoteId,
-      is_addendum: true,
-      is_signed: false
-    },
-    select: NOTE_SELECT
+  // Atomic clinical write: addendum detail row + canonical timeline/audit
+  // events persist together (canonical timeline invariant).
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_notes.create({
+      data: {
+        encounter_id: parentNote.encounter_id,
+        patient_uid: parentNote.patient_uid,
+        author_uid: authorUid,
+        author_role: authorRole,
+        note_type: parentNote.note_type,
+        content: addendumContent,
+        version: nextVersion,
+        parent_note_id: rootNoteId,
+        is_addendum: true,
+        is_signed: false
+      },
+      select: NOTE_SELECT
+    });
+
+    await recordCanonicalNoteEvent({
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_id,
+      eventType: 'note.addendum_created',
+      eventSubtype: row.note_type,
+      eventStatus: 'draft',
+      sourceTable: 'clinical_notes',
+      sourceId: row.id,
+      resourceType: 'clinical_note',
+      resourceId: row.id,
+      actorUid: row.author_uid,
+      actorRole: row.author_role,
+      summary: `${row.note_type} addendum created`,
+      payload: {
+        parent_note_id: rootNoteId,
+        version: row.version,
+        content: row.content,
+      },
+      afterState: row,
+    }, tx);
+    return row;
   });
 
   logger.info(
     `Addendum added to note ${rootNoteId}: addendum_id=${created.id}, version=${nextVersion}, author=${authorUid}`
   );
-  await bestEffortCanonicalNoteEvent('note addendum', {
-    patientUid: created.patient_uid,
-    encounterId: created.encounter_id,
-    eventType: 'note.addendum_created',
-    eventSubtype: created.note_type,
-    eventStatus: 'draft',
-    sourceTable: 'clinical_notes',
-    sourceId: created.id,
-    resourceType: 'clinical_note',
-    resourceId: created.id,
-    actorUid: created.author_uid,
-    actorRole: created.author_role,
-    summary: `${created.note_type} addendum created`,
-    payload: {
-      parent_note_id: rootNoteId,
-      version: created.version,
-      content: created.content,
-    },
-    afterState: created,
-  });
   return attachAuthorNames(created);
 }
 
@@ -606,48 +630,54 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
   }
 
   const now = new Date();
-  const updated = await prisma.clinical_notes.update({
-    where: { id: Number(noteId) },
-    data: {
-      content,
-      version: existing.version + 1,
-      updated_at: now
-    },
-    select: NOTE_SELECT
+  // Atomic clinical write: note rewrite + canonical timeline/audit events
+  // persist together (canonical timeline invariant).
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_notes.update({
+      where: { id: Number(noteId) },
+      data: {
+        content,
+        version: existing.version + 1,
+        updated_at: now
+      },
+      select: NOTE_SELECT
+    });
+
+    await recordCanonicalNoteEvent({
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_id,
+      eventType: 'note.edited',
+      eventSubtype: row.note_type,
+      eventStatus: row.is_signed ? 'signed' : 'draft',
+      sourceTable: 'clinical_notes',
+      sourceId: row.id,
+      resourceType: 'clinical_note',
+      resourceId: row.id,
+      actorUid: editorUid,
+      actorRole: editorRole,
+      summary: `${row.note_type} note edited`,
+      payload: {
+        version: row.version,
+        appointment_id: row.appointment_id,
+        admin_override: adminOverride,
+      },
+      beforeState: {
+        version: existing.version,
+        content: existing.content,
+      },
+      afterState: {
+        version: row.version,
+        content: row.content,
+      },
+      timelineIdempotencyKey: `clinical_notes:${row.id}:edited:v${row.version}`,
+      auditIdempotencyKey: `clinical_notes:${row.id}:audit:edited:v${row.version}`,
+    }, tx);
+    return row;
   });
 
   logger.info(
     `Clinical note edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}, admin_override=${adminOverride}`
   );
-  await bestEffortCanonicalNoteEvent('note edit', {
-    patientUid: updated.patient_uid,
-    encounterId: updated.encounter_id,
-    eventType: 'note.edited',
-    eventSubtype: updated.note_type,
-    eventStatus: updated.is_signed ? 'signed' : 'draft',
-    sourceTable: 'clinical_notes',
-    sourceId: updated.id,
-    resourceType: 'clinical_note',
-    resourceId: updated.id,
-    actorUid: editorUid,
-    actorRole: editorRole,
-    summary: `${updated.note_type} note edited`,
-    payload: {
-      version: updated.version,
-      appointment_id: updated.appointment_id,
-      admin_override: adminOverride,
-    },
-    beforeState: {
-      version: existing.version,
-      content: existing.content,
-    },
-    afterState: {
-      version: updated.version,
-      content: updated.content,
-    },
-    timelineIdempotencyKey: `clinical_notes:${updated.id}:edited:v${updated.version}`,
-    auditIdempotencyKey: `clinical_notes:${updated.id}:audit:edited:v${updated.version}`,
-  });
   return attachAuthorNames(updated);
 }
 
@@ -718,47 +748,58 @@ export async function signNote(noteId, signerUid, actingUser = null) {
   }
 
   const now = new Date();
-  const updated = await prisma.clinical_notes.update({
-    where: { id: Number(noteId) },
-    data: {
-      is_signed: true,
-      signed_at: now,
-      signed_by: signerUid,
-      updated_at: now
-    },
-    select: NOTE_SELECT
+  // Atomic clinical write: signing the note, its canonical timeline/audit
+  // events, and the OP encounter sign-transition all persist together
+  // (canonical timeline invariant). A canonical/transition failure aborts
+  // the tx so the note does not silently flip to signed without a traceable
+  // timeline + audit row.
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_notes.update({
+      where: { id: Number(noteId) },
+      data: {
+        is_signed: true,
+        signed_at: now,
+        signed_by: signerUid,
+        updated_at: now
+      },
+      select: NOTE_SELECT
+    });
+
+    await recordCanonicalNoteEvent({
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_id,
+      eventType: 'note.signed',
+      eventSubtype: row.note_type,
+      eventStatus: 'signed',
+      sourceTable: 'clinical_notes',
+      sourceId: row.id,
+      resourceType: 'clinical_note',
+      resourceId: row.id,
+      actorUid: signerUid,
+      actorRole: actingUser?.role,
+      summary: `${row.note_type} note signed`,
+      payload: {
+        appointment_id: row.appointment_id,
+        version: row.version,
+        signed_at: row.signed_at,
+      },
+      beforeState: {
+        is_signed: existing.is_signed,
+        signed_at: existing.signed_at,
+      },
+      afterState: {
+        is_signed: row.is_signed,
+        signed_at: row.signed_at,
+      },
+      timelineIdempotencyKey: `clinical_notes:${row.id}:signed:${row.signed_at?.toISOString?.() || 'now'}`,
+      auditIdempotencyKey: `clinical_notes:${row.id}:audit:signed:${row.signed_at?.toISOString?.() || 'now'}`,
+    }, tx);
+    return row;
   });
 
   logger.info(`Clinical note signed: id=${noteId}, signed_by=${signerUid}`);
-  await bestEffortCanonicalNoteEvent('note sign', {
-    patientUid: updated.patient_uid,
-    encounterId: updated.encounter_id,
-    eventType: 'note.signed',
-    eventSubtype: updated.note_type,
-    eventStatus: 'signed',
-    sourceTable: 'clinical_notes',
-    sourceId: updated.id,
-    resourceType: 'clinical_note',
-    resourceId: updated.id,
-    actorUid: signerUid,
-    actorRole: actingUser?.role,
-    summary: `${updated.note_type} note signed`,
-    payload: {
-      appointment_id: updated.appointment_id,
-      version: updated.version,
-      signed_at: updated.signed_at,
-    },
-    beforeState: {
-      is_signed: existing.is_signed,
-      signed_at: existing.signed_at,
-    },
-    afterState: {
-      is_signed: updated.is_signed,
-      signed_at: updated.signed_at,
-    },
-    timelineIdempotencyKey: `clinical_notes:${updated.id}:signed:${updated.signed_at?.toISOString?.() || 'now'}`,
-    auditIdempotencyKey: `clinical_notes:${updated.id}:audit:signed:${updated.signed_at?.toISOString?.() || 'now'}`,
-  });
+  // Encounter lifecycle transition is a separate canonical step (own
+  // timeline+audit) and stays best-effort/post-commit — see helper comment.
   if (updated.encounter_id && updated.appointment_id) {
     await bestEffortEncounterTransition('note sign', updated.encounter_id, 'signed', {
       actorUid: signerUid,

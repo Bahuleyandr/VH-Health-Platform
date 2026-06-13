@@ -319,8 +319,19 @@ function orderClinicalSummary(order) {
   ].filter(Boolean).join(' ');
 }
 
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// a successful order create/verify/complete/cancel/discontinue must persist
+// the clinical_orders detail row + one clinical_timeline_events row + one
+// clinical_audit_events row (plus any medication_safety_reviews) in the SAME
+// transaction. This helper therefore runs on the transaction client (`tx`,
+// required) and is NOT swallowed — a failure propagates and aborts the
+// transaction so the order detail row / status change rolls back rather than
+// leaving the timeline/audit/safety layer out of sync.
+// recordCanonicalClinicalEvent still tolerates a genuinely-absent canonical
+// table (SQLSTATE 42P01) internally; every other error propagates.
 async function recordCanonicalOrderEvent({
   order,
+  tx,
   eventType,
   eventStatus = null,
   actorUid = null,
@@ -337,57 +348,50 @@ async function recordCanonicalOrderEvent({
     || order.created_at?.toISOString?.()
     || Date.now();
 
-  try {
-    if (safety && order.order_type === 'medication') {
-      await recordMedicationSafetyReviews({
-        tenantId: order.tenant_id,
-        patientUid: order.patient_uid,
-        encounterId: order.encounter_id,
-        clinicalOrderId: order.id,
-        safety,
-        actorUid: actorUid || order.ordered_by,
-      });
-    }
-
-    return await recordCanonicalClinicalEvent({
+  if (safety && order.order_type === 'medication') {
+    await recordMedicationSafetyReviews({
       tenantId: order.tenant_id,
       patientUid: order.patient_uid,
       encounterId: order.encounter_id,
-      eventType,
-      eventSubtype: order.order_type,
-      eventStatus: status,
-      sourceTable: 'clinical_orders',
-      sourceId: String(order.id),
-      resourceType: 'clinical_order',
-      resourceId: String(order.id),
-      actorUid: actorUid || order.ordered_by || order.verified_by || order.completed_by || order.cancelled_by,
-      actorRole,
-      summary: orderClinicalSummary(order),
-      payload: {
-        order_id: order.id,
-        order_number: order.order_number,
-        order_type: order.order_type,
-        priority: order.priority,
-        route: order.route,
-        previous_status: previousStatus,
-        status,
-        details: order.details,
-        notes: order.notes,
-        safety_warnings: safety?.warnings || [],
-        ...payload,
-      },
-      beforeState: beforeState || (previousStatus ? { status: previousStatus } : null),
-      afterState: afterState || { status },
-      tags: ['clinical_order', order.order_type].filter(Boolean),
-      timelineIdempotencyKey: `clinical_orders:${order.id}:${eventType}:${status || 'none'}:${stamp}`,
-      auditIdempotencyKey: `clinical_orders:${order.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
-    });
-  } catch (err) {
-    logger.warn(`Canonical clinical order event skipped for order ${order.id}`, {
-      error: err?.message || String(err),
-    });
-    return null;
+      clinicalOrderId: order.id,
+      safety,
+      actorUid: actorUid || order.ordered_by,
+    }, { db: tx });
   }
+
+  return recordCanonicalClinicalEvent({
+    tenantId: order.tenant_id,
+    patientUid: order.patient_uid,
+    encounterId: order.encounter_id,
+    eventType,
+    eventSubtype: order.order_type,
+    eventStatus: status,
+    sourceTable: 'clinical_orders',
+    sourceId: String(order.id),
+    resourceType: 'clinical_order',
+    resourceId: String(order.id),
+    actorUid: actorUid || order.ordered_by || order.verified_by || order.completed_by || order.cancelled_by,
+    actorRole,
+    summary: orderClinicalSummary(order),
+    payload: {
+      order_id: order.id,
+      order_number: order.order_number,
+      order_type: order.order_type,
+      priority: order.priority,
+      route: order.route,
+      previous_status: previousStatus,
+      status,
+      details: order.details,
+      notes: order.notes,
+      safety_warnings: safety?.warnings || [],
+      ...payload,
+    },
+    beforeState: beforeState || (previousStatus ? { status: previousStatus } : null),
+    afterState: afterState || { status },
+    tags: ['clinical_order', order.order_type].filter(Boolean),
+    timelineIdempotencyKey: `clinical_orders:${order.id}:${eventType}:${status || 'none'}:${stamp}`,
+    auditIdempotencyKey: `clinical_orders:${order.id}:audit:${eventType}:${status || 'none'}:${stamp}`,
+  }, { db: tx });
 }
 
 /**
@@ -590,36 +594,47 @@ export async function createOrder(data) {
 
   const orderNumber = await generateOrderNumber();
 
+  // Atomic clinical write (canonical timeline invariant): the order detail
+  // row + its canonical timeline/audit events (+ medication safety reviews)
+  // persist together or not at all. The downstream side effects (MAR
+  // schedule, ward indent, lab-worklist materialization, STAT push) are
+  // best-effort and run post-commit — they write other tables / call other
+  // services and must never roll back the recorded order.
   // `details` is a Json column — pass the object directly (Prisma serialises).
-  // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it explicitly,
-  // so we preserve that for clarity.
-  const order = await prisma.clinical_orders.create({
-    data: {
-      order_number: orderNumber,
-      encounter_id: n.encounter_id,
-      patient_uid: n.patient_uid,
-      order_type: n.order_type,
-      priority: n.priority,
-      details: n.details,
-      route: n.route,
-      status: 'ordered',
-      ordered_by: n.ordered_by,
-      start_date: n.start_date ? new Date(n.start_date) : null,
-      end_date: n.end_date ? new Date(n.end_date) : null,
-      notes: n.notes,
-    },
-    select: ORDER_RETURNING_SELECT,
+  // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it
+  // explicitly, so we preserve that for clarity.
+  const order = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_orders.create({
+      data: {
+        order_number: orderNumber,
+        encounter_id: n.encounter_id,
+        patient_uid: n.patient_uid,
+        order_type: n.order_type,
+        priority: n.priority,
+        details: n.details,
+        route: n.route,
+        status: 'ordered',
+        ordered_by: n.ordered_by,
+        start_date: n.start_date ? new Date(n.start_date) : null,
+        end_date: n.end_date ? new Date(n.end_date) : null,
+        notes: n.notes,
+      },
+      select: ORDER_RETURNING_SELECT,
+    });
+
+    await recordCanonicalOrderEvent({
+      order: row,
+      tx,
+      eventType: 'order.created',
+      eventStatus: row.status,
+      actorUid: n.ordered_by,
+      afterState: { status: row.status },
+      safety: cdsResult,
+    });
+    return row;
   });
 
   await dispatchPostCreateSideEffects(order);
-  await recordCanonicalOrderEvent({
-    order,
-    eventType: 'order.created',
-    eventStatus: order.status,
-    actorUid: n.ordered_by,
-    afterState: { status: order.status },
-    safety: cdsResult,
-  });
 
   logger.info(`Order created: ${orderNumber}, type=${n.order_type}, priority=${n.priority}, patient=${n.patient_uid}, by=${n.ordered_by}`);
 
@@ -679,8 +694,13 @@ export async function createOrdersBulk(items, { ordered_by } = {}) {
   // One DB read seeds the whole batch's order numbers.
   const orderNumbers = await generateOrderNumbers(prepared.length);
 
-  // Phase 1 — atomic insert. Every row or none; no best-effort calls
-  // inside the transaction (a swallowed Prisma error would abort the tx).
+  // Phase 1 — atomic insert. Every row inserts together with its canonical
+  // timeline/audit events (+ medication safety reviews) in ONE transaction
+  // (canonical timeline invariant): a canonical-write failure aborts the
+  // whole batch rather than leaving a detail row without its timeline/audit
+  // row. No SWALLOWED best-effort calls inside the tx — recordCanonicalOrderEvent
+  // re-throws (a swallowed Prisma error would silently abort the tx and the
+  // next tx.* call would fail with "current transaction is aborted").
   const createdRows = await prisma.$transaction(async (tx) => {
     const rows = [];
     for (let i = 0; i < prepared.length; i += 1) {
@@ -702,26 +722,29 @@ export async function createOrdersBulk(items, { ordered_by } = {}) {
         },
         select: ORDER_RETURNING_SELECT,
       });
+
+      await recordCanonicalOrderEvent({
+        order: row,
+        tx,
+        eventType: 'order.created',
+        eventStatus: row.status,
+        actorUid: row.ordered_by,
+        payload: { bulk_order_count: prepared.length },
+        afterState: { status: row.status },
+        safety: row.order_type === 'medication'
+          ? { safe: true, warnings: prepared[i].cds_warnings || [], blockers: [] }
+          : null,
+      });
       rows.push(row);
     }
     return rows;
   });
 
-  // Phase 1.5 — post-commit best-effort side effects per order.
+  // Phase 1.5 — post-commit best-effort side effects per order (MAR schedule,
+  // ward indent, lab-worklist materialization, STAT push). Failure here is
+  // logged, never rolls back the committed orders + canonical events.
   for (let i = 0; i < createdRows.length; i += 1) {
-    const order = createdRows[i];
-    await dispatchPostCreateSideEffects(order);
-    await recordCanonicalOrderEvent({
-      order,
-      eventType: 'order.created',
-      eventStatus: order.status,
-      actorUid: order.ordered_by,
-      payload: { bulk_order_count: createdRows.length },
-      afterState: { status: order.status },
-      safety: order.order_type === 'medication'
-        ? { safe: true, warnings: prepared[i].cds_warnings || [], blockers: [] }
-        : null,
-    });
+    await dispatchPostCreateSideEffects(createdRows[i]);
   }
 
   logger.info(`Bulk order create: ${createdRows.length} orders, encounter=${createdRows[0]?.encounter_id ?? 'none'}, by=${ordered_by}`);
@@ -954,22 +977,28 @@ export async function verifyOrder(orderId, verifiedBy) {
     throw AppError.badRequest(`Cannot verify order in status '${existing.status}'. Order must be in 'ordered' status.`);
   }
 
-  const updated = await prisma.clinical_orders.update({
-    where: { id: existing.id },
-    data: {
-      status: 'verified',
-      verified_by: verifiedBy,
-      verified_at: new Date(),
-    },
-    select: ORDER_RETURNING_SELECT,
-  });
+  // Atomic clinical write (canonical timeline invariant): status change +
+  // canonical timeline/audit events persist together or not at all.
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_orders.update({
+      where: { id: existing.id },
+      data: {
+        status: 'verified',
+        verified_by: verifiedBy,
+        verified_at: new Date(),
+      },
+      select: ORDER_RETURNING_SELECT,
+    });
 
-  await recordCanonicalOrderEvent({
-    order: updated,
-    eventType: 'order.verified',
-    eventStatus: updated.status,
-    actorUid: verifiedBy,
-    previousStatus: existing.status,
+    await recordCanonicalOrderEvent({
+      order: row,
+      tx,
+      eventType: 'order.verified',
+      eventStatus: row.status,
+      actorUid: verifiedBy,
+      previousStatus: existing.status,
+    });
+    return row;
   });
 
   logger.info(`Order ${updated.order_number} verified by ${verifiedBy}`);
@@ -1005,22 +1034,28 @@ export async function completeOrder(orderId, completedBy) {
     throw AppError.badRequest(`Cannot complete order in status '${existing.status}'`);
   }
 
-  const updated = await prisma.clinical_orders.update({
-    where: { id: existing.id },
-    data: {
-      status: 'completed',
-      completed_by: completedBy,
-      completed_at: new Date(),
-    },
-    select: ORDER_RETURNING_SELECT,
-  });
+  // Atomic clinical write (canonical timeline invariant): status change +
+  // canonical timeline/audit events persist together or not at all.
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_orders.update({
+      where: { id: existing.id },
+      data: {
+        status: 'completed',
+        completed_by: completedBy,
+        completed_at: new Date(),
+      },
+      select: ORDER_RETURNING_SELECT,
+    });
 
-  await recordCanonicalOrderEvent({
-    order: updated,
-    eventType: 'order.completed',
-    eventStatus: updated.status,
-    actorUid: completedBy,
-    previousStatus: existing.status,
+    await recordCanonicalOrderEvent({
+      order: row,
+      tx,
+      eventType: 'order.completed',
+      eventStatus: row.status,
+      actorUid: completedBy,
+      previousStatus: existing.status,
+    });
+    return row;
   });
 
   logger.info(`Order ${updated.order_number} completed by ${completedBy}`);
@@ -1056,23 +1091,29 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
     throw AppError.badRequest(`Cannot cancel order in status '${existing.status}'`);
   }
 
-  const updated = await prisma.clinical_orders.update({
-    where: { id: existing.id },
-    data: {
-      status: 'cancelled',
-      cancelled_by: cancelledBy,
-      cancel_reason: reason,
-    },
-    select: ORDER_RETURNING_SELECT,
-  });
+  // Atomic clinical write (canonical timeline invariant): status change +
+  // canonical timeline/audit events persist together or not at all.
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_orders.update({
+      where: { id: existing.id },
+      data: {
+        status: 'cancelled',
+        cancelled_by: cancelledBy,
+        cancel_reason: reason,
+      },
+      select: ORDER_RETURNING_SELECT,
+    });
 
-  await recordCanonicalOrderEvent({
-    order: updated,
-    eventType: 'order.cancelled',
-    eventStatus: updated.status,
-    actorUid: cancelledBy,
-    previousStatus: existing.status,
-    payload: { cancel_reason: reason },
+    await recordCanonicalOrderEvent({
+      order: row,
+      tx,
+      eventType: 'order.cancelled',
+      eventStatus: row.status,
+      actorUid: cancelledBy,
+      previousStatus: existing.status,
+      payload: { cancel_reason: reason },
+    });
+    return row;
   });
 
   logger.info(`Order ${updated.order_number} cancelled by ${cancelledBy}: ${reason}`);
@@ -1109,24 +1150,30 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
     throw AppError.badRequest(`Cannot discontinue order in status '${existing.status}'`);
   }
 
-  const updated = await prisma.clinical_orders.update({
-    where: { id: existing.id },
-    data: {
-      status: 'discontinued',
-      cancelled_by: discontinuedBy,
-      cancel_reason: reason,
-      end_date: new Date(),
-    },
-    select: ORDER_RETURNING_SELECT,
-  });
+  // Atomic clinical write (canonical timeline invariant): status change +
+  // canonical timeline/audit events persist together or not at all.
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.clinical_orders.update({
+      where: { id: existing.id },
+      data: {
+        status: 'discontinued',
+        cancelled_by: discontinuedBy,
+        cancel_reason: reason,
+        end_date: new Date(),
+      },
+      select: ORDER_RETURNING_SELECT,
+    });
 
-  await recordCanonicalOrderEvent({
-    order: updated,
-    eventType: 'order.discontinued',
-    eventStatus: updated.status,
-    actorUid: discontinuedBy,
-    previousStatus: existing.status,
-    payload: { discontinue_reason: reason },
+    await recordCanonicalOrderEvent({
+      order: row,
+      tx,
+      eventType: 'order.discontinued',
+      eventStatus: row.status,
+      actorUid: discontinuedBy,
+      previousStatus: existing.status,
+      payload: { discontinue_reason: reason },
+    });
+    return row;
   });
 
   logger.info(`Order ${updated.order_number} discontinued by ${discontinuedBy}: ${reason}`);

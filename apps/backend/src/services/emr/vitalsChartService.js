@@ -327,13 +327,16 @@ function auditValue(value) {
   return value;
 }
 
-async function bestEffortCanonicalVitalsEvent(label, input) {
-  try {
-    return await recordCanonicalClinicalEvent(input);
-  } catch (err) {
-    logger.warn(`Canonical vitals/I-O event failed during ${label}: ${err?.message || err}`);
-    return null;
-  }
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// a successful vitals / I-O write must persist the detail row + one
+// clinical_timeline_events row + one clinical_audit_events row in the SAME
+// transaction. The canonical write therefore runs on the transaction client
+// (`tx`) and is NOT swallowed — a failure aborts the transaction so the
+// detail row rolls back rather than leaving the timeline/audit layer out of
+// sync. recordCanonicalClinicalEvent still tolerates a genuinely-absent
+// canonical table (SQLSTATE 42P01); every other error propagates.
+function recordCanonicalVitalsEvent(input, tx) {
+  return recordCanonicalClinicalEvent(input, { db: tx });
 }
 
 // Convert a temperature value to Celsius, given the unit hint. Default unit
@@ -515,54 +518,92 @@ export async function recordVitals(data) {
     throw AppError.badRequest(`consciousness must be one of: ${VALID_CONSCIOUSNESS.join(', ')}`);
   }
 
-  const record = await prisma.vitals_chart.create({
-    data: {
-      patient_uid: resolvedPatientUid,
-      tenant_id: resolvedTenantId,
-      encounter_id: normalizedEncounterId,
-      encounter_uid: normalizedEncounterUid,
-      heart_rate: heart_rate ?? null,
-      systolic_bp: systolic_bp ?? null,
-      diastolic_bp: diastolic_bp ?? null,
-      temperature: normalizedTemperature ?? null,
-      temperature_route: normalizedTemperatureRoute,
-      spo2: spo2 ?? null,
-      respiratory_rate: respiratory_rate ?? null,
-      blood_glucose: blood_glucose ?? null,
-      pain_score: pain_score ?? null,
-      weight_kg: weight_kg ?? null,
-      height_cm: height_cm ?? null,
-      gcs_score: gcs_score ?? null,
-      supplemental_o2: supplemental_o2 ?? false,
-      o2_flow_rate: o2_flow_rate ?? null,
-      consciousness: consciousness ?? null,
-      // OB-specific fields. See finding
-      // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
-      fhr: fhr ?? null,
-      fundal_height_cm: fundal_height_cm ?? null,
-      // Urine dipstick (migration 211).
-      urine_albumin: normalizedAlbumin,
-      urine_sugar: normalizedSugar,
-      urine_ketones: normalizedKetones,
-      notes: stripNul(notes ?? null),
-      recorded_by,
-      source: normalizedSource,
-      source_device: source_device ? String(source_device).slice(0, 120) : null,
-      device_verified: normalizedSource === 'device' ? false : null,
-      ...(normalizedRecordedAt ? { recorded_at: normalizedRecordedAt } : {}),
-    },
-    select: VITAL_SELECT,
-  });
+  // Atomic clinical write (canonical timeline invariant): the vitals detail
+  // row, its in-row triage_acuity stamp, and the canonical timeline/audit
+  // events all persist together or not at all. The downstream enrichment
+  // (NEWS2, anomaly alerts, growth percentile, triage propagation to the
+  // ER/appointment rows) is best-effort and stays OUTSIDE the transaction —
+  // it writes other tables / calls other services and must never roll back
+  // the recorded vitals. The canonical timeline event therefore carries the
+  // vitals row + provenance labelling (the load-bearing clinical record);
+  // the enrichment is attached to the service response only.
+  const record = await prisma.$transaction(async (tx) => {
+    const row = await tx.vitals_chart.create({
+      data: {
+        patient_uid: resolvedPatientUid,
+        tenant_id: resolvedTenantId,
+        encounter_id: normalizedEncounterId,
+        encounter_uid: normalizedEncounterUid,
+        heart_rate: heart_rate ?? null,
+        systolic_bp: systolic_bp ?? null,
+        diastolic_bp: diastolic_bp ?? null,
+        temperature: normalizedTemperature ?? null,
+        temperature_route: normalizedTemperatureRoute,
+        spo2: spo2 ?? null,
+        respiratory_rate: respiratory_rate ?? null,
+        blood_glucose: blood_glucose ?? null,
+        pain_score: pain_score ?? null,
+        weight_kg: weight_kg ?? null,
+        height_cm: height_cm ?? null,
+        gcs_score: gcs_score ?? null,
+        supplemental_o2: supplemental_o2 ?? false,
+        o2_flow_rate: o2_flow_rate ?? null,
+        consciousness: consciousness ?? null,
+        // OB-specific fields. See finding
+        // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
+        fhr: fhr ?? null,
+        fundal_height_cm: fundal_height_cm ?? null,
+        // Urine dipstick (migration 211).
+        urine_albumin: normalizedAlbumin,
+        urine_sugar: normalizedSugar,
+        urine_ketones: normalizedKetones,
+        notes: stripNul(notes ?? null),
+        recorded_by,
+        source: normalizedSource,
+        source_device: source_device ? String(source_device).slice(0, 120) : null,
+        device_verified: normalizedSource === 'device' ? false : null,
+        ...(normalizedRecordedAt ? { recorded_at: normalizedRecordedAt } : {}),
+      },
+      select: VITAL_SELECT,
+    });
 
-  if (normalizedAcuity != null) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE vitals_chart SET triage_acuity = $1 WHERE id = $2 AND tenant_id = $3::uuid`,
-      normalizedAcuity,
-      record.id,
-      resolvedTenantId,
-    );
-    record.triage_acuity = normalizedAcuity;
-  }
+    if (normalizedAcuity != null) {
+      await tx.$executeRawUnsafe(
+        `UPDATE vitals_chart SET triage_acuity = $1 WHERE id = $2 AND tenant_id = $3::uuid`,
+        normalizedAcuity,
+        row.id,
+        resolvedTenantId,
+      );
+      row.triage_acuity = normalizedAcuity;
+    }
+
+    await recordCanonicalVitalsEvent({
+      patientUid: row.patient_uid,
+      tenantId: resolvedTenantId,
+      encounterId: row.encounter_uid || null,
+      eventType: 'vitals.recorded',
+      eventStatus: row.source === 'device' ? 'unverified' : 'recorded',
+      sourceTable: 'vitals_chart',
+      sourceId: row.id,
+      resourceType: 'vitals',
+      resourceId: row.id,
+      actorUid: row.recorded_by,
+      summary: row.source === 'device'
+        ? `Device vitals received (${row.source_device || 'monitor'}) — unverified`
+        : 'Vitals recorded',
+      payload: {
+        vitals: row,
+        source_kind: row.source,
+        verification_status: row.source === 'device' ? 'unverified' : 'verified',
+      },
+      afterState: row,
+      // Canonical timeline convention (docs/CANONICAL_CLINICAL_TIMELINE.md):
+      // device-synced observations are labelled unverified until reviewed.
+      tags: row.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
+    }, tx);
+
+    return row;
+  });
 
   let triage = null;
   if (normalizedAcuity != null) {
@@ -644,34 +685,10 @@ export async function recordVitals(data) {
   //   2026-05-22-pediatric-opd-nurse-d9b616dc (transient percentile).
   const growth = await computeGrowthForVitalsRow(record);
 
-  await bestEffortCanonicalVitalsEvent('vitals record', {
-    patientUid: record.patient_uid,
-    tenantId: resolvedTenantId,
-    encounterId: record.encounter_uid || null,
-    eventType: 'vitals.recorded',
-    eventStatus: record.source === 'device' ? 'unverified' : 'recorded',
-    sourceTable: 'vitals_chart',
-    sourceId: record.id,
-    resourceType: 'vitals',
-    resourceId: record.id,
-    actorUid: record.recorded_by,
-    summary: record.source === 'device'
-      ? `Device vitals received (${record.source_device || 'monitor'}) — unverified`
-      : 'Vitals recorded',
-    payload: {
-      vitals: record,
-      news2: news2Result,
-      alerts: alerts || [],
-      growth,
-      triage,
-      source_kind: record.source,
-      verification_status: record.source === 'device' ? 'unverified' : 'verified',
-    },
-    afterState: record,
-    // Canonical timeline convention (docs/CANONICAL_CLINICAL_TIMELINE.md):
-    // device-synced observations are labelled unverified until reviewed.
-    tags: record.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
-  });
+  // The canonical timeline + audit events were already written atomically
+  // with the vitals row inside the transaction above (canonical timeline
+  // invariant). NEWS2 / alerts / growth / triage computed here are best-effort
+  // enrichment returned to the caller, not part of the canonical write.
 
   logger.info(`Vitals recorded: id=${record.id}, patient=${resolvedPatientUid}, by=${recorded_by}`);
 
@@ -895,34 +912,40 @@ export async function recordIntakeOutput(data) {
   // 2026-05-09-inpatient-admission-nurse-io-encounter-uuid-500.
   const normalizedEncounter = normalizeEncounter(encounter_id ?? encounter_uid ?? null);
 
-  const created = await prisma.intake_output.create({
-    data: {
-      patient_uid,
-      encounter_id: normalizedEncounter.encounter_id,
-      encounter_uid: normalizedEncounter.encounter_uid,
-      io_type,
-      category,
-      amount_ml,
-      description: description ?? null,
-      recorded_by,
-    },
-    select: IO_SELECT,
-  });
+  // Atomic clinical write (canonical timeline invariant): the I/O detail row
+  // + its canonical timeline/audit events persist together or not at all.
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.intake_output.create({
+      data: {
+        patient_uid,
+        encounter_id: normalizedEncounter.encounter_id,
+        encounter_uid: normalizedEncounter.encounter_uid,
+        io_type,
+        category,
+        amount_ml,
+        description: description ?? null,
+        recorded_by,
+      },
+      select: IO_SELECT,
+    });
 
-  await bestEffortCanonicalVitalsEvent('I/O record', {
-    patientUid: created.patient_uid,
-    encounterId: created.encounter_uid || null,
-    eventType: 'io.recorded',
-    eventSubtype: created.io_type,
-    eventStatus: 'recorded',
-    sourceTable: 'intake_output',
-    sourceId: created.id,
-    resourceType: 'intake_output',
-    resourceId: created.id,
-    actorUid: created.recorded_by,
-    summary: `${created.io_type} ${created.amount_ml} mL recorded`,
-    payload: created,
-    afterState: created,
+    await recordCanonicalVitalsEvent({
+      patientUid: row.patient_uid,
+      encounterId: row.encounter_uid || null,
+      eventType: 'io.recorded',
+      eventSubtype: row.io_type,
+      eventStatus: 'recorded',
+      sourceTable: 'intake_output',
+      sourceId: row.id,
+      resourceType: 'intake_output',
+      resourceId: row.id,
+      actorUid: row.recorded_by,
+      summary: `${row.io_type} ${row.amount_ml} mL recorded`,
+      payload: row,
+      afterState: row,
+    }, tx);
+
+    return row;
   });
 
   logger.info(`I/O recorded: id=${created.id}, type=${io_type}, category=${category}, amount=${amount_ml}ml, patient=${patient_uid}`);
