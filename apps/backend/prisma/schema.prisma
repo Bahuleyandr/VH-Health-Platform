@@ -3201,6 +3201,7 @@ model clinical_ai_prompt_assignments {
   tenants                        tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([experiment_id, variant], map: "idx_clinical_ai_prompt_assignments_experiment")
+  @@index([tenant_id], map: "idx_clinical_ai_prompt_assignments_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -6637,10 +6638,11 @@ model pain_assessments {
 model password_reset_otps {
   id         Int      @id @default(autoincrement())
   user_id    String   @db.Uuid
-  otp        String   @db.VarChar(10)
+  otp        String   @db.VarChar(72)
   expires_at DateTime @db.Timestamp(6)
   used       Boolean  @default(false)
   created_at DateTime @default(now()) @db.Timestamp(6)
+  attempts   Int      @default(0)
 
   @@index([expires_at])
   @@index([user_id])
@@ -6696,6 +6698,7 @@ model patient_chat_messages {
   tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([conversation_id, created_at], map: "idx_patient_chat_msg_conv_time")
+  @@index([tenant_id], map: "idx_patient_chat_messages_tenant_id")
 }
 
 model patient_consents {
@@ -6843,34 +6846,36 @@ model patient_merge_requests {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an index with non-default null sort order and requires additional setup for migrations. Visit https://pris.ly/d/default-index-null-ordering for more info.
 model patient_problems {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  patient_uid         String    @db.Uuid
-  patient_id          Int?
-  title               String    @db.VarChar(255)
-  icd10_code          String?   @db.VarChar(20)
-  snomed_code         String?   @db.VarChar(80)
-  status              String    @default("active") @db.VarChar(20)
-  severity            String?   @db.VarChar(20)
-  is_chronic          Boolean   @default(false)
-  onset_date          DateTime? @db.Date
-  resolved_date       DateTime? @db.Date
-  managing_doctor_id  Int?
-  source_encounter_id String?   @db.Uuid
-  source_diagnosis_id Int?
-  notes               String?
-  resolution_notes    String?
-  recorded_by         String?   @db.Uuid
-  resolved_by         String?   @db.Uuid
-  metadata            Json      @default("{}")
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
-  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_problems_tenant")
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id             String                  @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid           String                  @db.Uuid
+  patient_id            Int?
+  title                 String                  @db.VarChar(255)
+  icd10_code            String?                 @db.VarChar(20)
+  snomed_code           String?                 @db.VarChar(80)
+  status                String                  @default("active") @db.VarChar(20)
+  severity              String?                 @db.VarChar(20)
+  is_chronic            Boolean                 @default(false)
+  onset_date            DateTime?               @db.Date
+  resolved_date         DateTime?               @db.Date
+  managing_doctor_id    Int?
+  source_encounter_id   String?                 @db.Uuid
+  source_diagnosis_id   Int?
+  notes                 String?
+  resolution_notes      String?
+  recorded_by           String?                 @db.Uuid
+  resolved_by           String?                 @db.Uuid
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_problems_tenant")
+  problem_episode_links problem_episode_links[]
 
   @@unique([tenant_id, patient_uid, icd10_code], map: "uq_patient_problems_active_code", where: raw("(((status)::text = 'active'::text) AND (icd10_code IS NOT NULL))"))
   @@index([tenant_id, patient_uid, status, created_at(sort: Desc)], map: "idx_patient_problems_patient_status")
   @@index([source_diagnosis_id], map: "idx_patient_problems_source_diagnosis", where: raw("(source_diagnosis_id IS NOT NULL)"))
   @@index([patient_uid, status, onset_date(sort: Desc)], map: "idx_patient_problems_patient_onset")
+  @@index([managing_doctor_id, status, created_at(sort: Desc)], map: "idx_patient_problems_doctor_status", where: raw("(managing_doctor_id IS NOT NULL)"))
 }
 
 model patient_records {
@@ -7213,6 +7218,7 @@ model pharmacy_goods_receipt_items {
   @@index([goods_receipt_id], map: "idx_pharmacy_grn_items_grn")
   @@index([inventory_item_id], map: "idx_pharmacy_grn_items_item")
   @@index([inventory_batch_id], map: "idx_pharmacy_grn_items_batch", where: raw("(inventory_batch_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_pharmacy_goods_receipt_items_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7440,6 +7446,7 @@ model pharmacy_purchase_order_items {
   @@unique([purchase_order_id, inventory_item_id])
   @@index([inventory_item_id], map: "idx_pharmacy_po_items_item")
   @@index([purchase_order_id], map: "idx_pharmacy_po_items_po")
+  @@index([tenant_id], map: "idx_pharmacy_purchase_order_items_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7712,6 +7719,7 @@ model provider_availability_templates {
   tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_availability_tenant")
 
   @@index([doctor_id, weekday], map: "idx_provider_availability_doctor", where: raw("is_active"))
+  @@index([tenant_id], map: "idx_provider_availability_templates_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7727,6 +7735,7 @@ model provider_leaves {
   tenants     tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_provider_leaves_tenant")
 
   @@index([doctor_id, starts_on, ends_on], map: "idx_provider_leaves_doctor")
+  @@index([tenant_id], map: "idx_provider_leaves_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9244,6 +9253,8 @@ model tenants {
   preop_checklists                           preop_checklists[]
   prescription_safety_overrides              prescription_safety_overrides[]
   prescriptions                              prescriptions[]
+  problem_episode_links                      problem_episode_links[]
+  problem_list_snapshots                     problem_list_snapshots[]
   provider_availability_templates            provider_availability_templates[]
   provider_leaves                            provider_leaves[]
   quality_incidents                          quality_incidents[]
@@ -9321,6 +9332,7 @@ model terminology_code_systems {
   terminology_concept_maps_terminology_concept_maps_source_systemToterminology_code_systems terminology_concept_maps[]     @relation("terminology_concept_maps_source_systemToterminology_code_systems")
   terminology_concept_maps_terminology_concept_maps_target_systemToterminology_code_systems terminology_concept_maps[]     @relation("terminology_concept_maps_target_systemToterminology_code_systems")
   terminology_concepts                                                                      terminology_concepts[]
+  terminology_import_batches                                                                terminology_import_batches[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9340,6 +9352,7 @@ model terminology_concepts {
 
   @@unique([system_key, code], map: "terminology_concepts_system_code_key")
   @@index([code], map: "idx_terminology_concepts_code")
+  @@index([system_key, status, category], map: "idx_terminology_concepts_category", where: raw("(category IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -9991,6 +10004,7 @@ model advance_deposits {
   @@index([admission_id], map: "idx_advance_deposits_admission")
   @@index([patient_uid], map: "idx_advance_deposits_patient")
   @@index([parent_deposit_id], map: "idx_advance_deposits_parent", where: raw("(parent_deposit_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_advance_deposits_tenant_id")
 }
 
 model attendant_passes {
@@ -10020,6 +10034,7 @@ model attendant_passes {
   @@index([admission_id])
   @@index([admission_id], map: "idx_attendant_passes_admission")
   @@index([status], map: "idx_attendant_passes_active", where: raw("((status)::text = 'active'::text)"))
+  @@index([tenant_id], map: "idx_attendant_passes_tenant_id")
 }
 
 model ward_indents {
@@ -10053,6 +10068,7 @@ model ward_indents {
   @@index([admission_id], map: "idx_ward_indents_admission_id", where: raw("(admission_id IS NOT NULL)"))
   @@index([patient_uid], map: "idx_ward_indents_patient_uid", where: raw("(patient_uid IS NOT NULL)"))
   @@index([status, requested_at], map: "idx_ward_indents_pending", where: raw("((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('approved'::character varying)::text, ('issued'::character varying)::text]))"))
+  @@index([tenant_id], map: "idx_ward_indents_tenant_id")
 }
 
 model ward_indent_items {
@@ -10302,6 +10318,7 @@ model billing_advances {
   @@index([patient_uid], map: "idx_advances_patient")
   @@index([status], map: "idx_advances_status")
   @@index([admission_id], map: "idx_advances_admission", where: raw("(admission_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_billing_advances_tenant_id")
 }
 
 model billing_invoice_counter {
@@ -10426,6 +10443,7 @@ model billing_payment_links {
   @@index([status, created_at(sort: Desc)], map: "idx_payment_links_status")
   @@index([expires_at], map: "idx_payment_links_expires", where: raw("((status)::text = ANY (ARRAY[('created'::character varying)::text, ('sent'::character varying)::text]))"))
   @@index([invoice_id], map: "idx_payment_links_invoice", where: raw("(invoice_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_billing_payment_links_tenant_id")
 }
 
 model billing_payments {
@@ -10485,6 +10503,7 @@ model billing_refunds {
   @@index([patient_uid], map: "idx_refunds_patient")
   @@index([raised_at(sort: Desc)], map: "idx_refunds_raised_at")
   @@index([approval_status], map: "idx_refunds_status")
+  @@index([tenant_id], map: "idx_billing_refunds_tenant_id")
 }
 
 model billing_service_master {
@@ -10519,6 +10538,7 @@ model clinical_order_set_applications {
 
   @@index([patient_uid, applied_at(sort: Desc)], map: "idx_clinical_order_set_apps_patient")
   @@index([encounter_id], map: "idx_clinical_order_set_apps_encounter", where: raw("(encounter_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_clinical_order_set_applications_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -10551,6 +10571,7 @@ model clinical_order_sets {
   clinical_order_set_items        clinical_order_set_items[]
 
   @@index([specialty, active], map: "idx_clinical_order_sets_specialty")
+  @@index([tenant_id], map: "idx_clinical_order_sets_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -10887,6 +10908,7 @@ model insurance_policies {
   @@index([policy_number], map: "idx_insurance_policies_policy_number")
   @@index([payer_id], map: "idx_insurance_policies_payer", where: raw("(payer_id IS NOT NULL)"))
   @@index([tpa_id], map: "idx_insurance_policies_tpa", where: raw("(tpa_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_insurance_policies_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11010,6 +11032,7 @@ model lab_critical_thresholds {
 
   @@index([loinc_code], map: "idx_critical_thresh_loinc", where: raw("((loinc_code IS NOT NULL) AND (is_active = true))"))
   @@index([test_code], map: "idx_critical_thresh_test_code", where: raw("(is_active = true)"))
+  @@index([tenant_id], map: "idx_lab_critical_thresholds_tenant_id")
 }
 
 model lab_pathologist_signoffs {
@@ -11028,6 +11051,7 @@ model lab_pathologist_signoffs {
 
   @@index([patient_uid, signed_at(sort: Desc)], map: "idx_path_signoff_patient")
   @@index([booking_id], map: "idx_path_signoff_booking", where: raw("(booking_id IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_lab_pathologist_signoffs_tenant_id")
 }
 
 model lab_results {
@@ -11148,6 +11172,7 @@ model maternity_anc_visits {
   @@unique([pregnancy_id, visit_date], map: "maternity_anc_visits_pregnancy_visit_date_uniq")
   @@index([pregnancy_id, visit_date(sort: Desc)], map: "idx_maternity_anc_pregnancy")
   @@index([pregnancy_id, visit_number], map: "idx_anc_visits_visit_number")
+  @@index([tenant_id], map: "idx_maternity_anc_visits_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11279,6 +11304,7 @@ model maternity_newborns {
 
   @@index([delivery_id, birth_order], map: "idx_maternity_newborns_delivery")
   @@index([newborn_patient_uid], map: "idx_maternity_newborns_patient_uid", where: raw("(newborn_patient_uid IS NOT NULL)"))
+  @@index([tenant_id], map: "idx_maternity_newborns_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11316,6 +11342,7 @@ model maternity_partograph_entries {
 
   @@index([labor_admission_id, recorded_at], map: "idx_maternity_partograph_labor")
   @@index([labor_admission_id], map: "idx_maternity_partograph_alert", where: raw("(on_action_line = true)"))
+  @@index([tenant_id], map: "idx_maternity_partograph_entries_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11349,6 +11376,7 @@ model maternity_postnatal_visits {
   maternity_newborns   maternity_newborns?  @relation(fields: [newborn_id], references: [id], onUpdate: NoAction)
 
   @@index([delivery_id, visit_at(sort: Desc)], map: "idx_maternity_pnc_delivery")
+  @@index([tenant_id], map: "idx_maternity_postnatal_visits_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11383,6 +11411,7 @@ model maternity_pregnancies {
 
   @@index([patient_uid, status], map: "idx_maternity_pregnancies_patient")
   @@index([edd_date], map: "idx_maternity_pregnancies_edd", where: raw("((status)::text = 'ongoing'::text)"))
+  @@index([tenant_id], map: "idx_maternity_pregnancies_tenant_id")
 }
 
 model or_procedure_catalog {
@@ -11404,6 +11433,7 @@ model or_procedure_catalog {
   updated_at           DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([specialty, active], map: "idx_or_procedure_specialty")
+  @@index([tenant_id], map: "idx_or_procedure_catalog_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11425,6 +11455,7 @@ model or_rooms {
   updated_at       DateTime  @default(now()) @db.Timestamptz(6)
 
   @@index([status, code], map: "idx_or_rooms_status")
+  @@index([tenant_id], map: "idx_or_rooms_tenant_id")
 }
 
 model overtime_requests {
@@ -11496,6 +11527,7 @@ model patient_messages {
   patient_message_threads patient_message_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([thread_id, created_at], map: "idx_patient_messages_thread")
+  @@index([tenant_id], map: "idx_patient_messages_tenant_id")
 }
 
 model pharmacy_expiry_scan_cache {
@@ -11698,6 +11730,7 @@ model tpa_claim_line_decisions {
   @@unique([claim_id, invoice_item_id])
   @@index([claim_id], map: "idx_tpa_claim_line_decisions_claim")
   @@index([invoice_item_id], map: "idx_tpa_claim_line_decisions_invoice_item")
+  @@index([tenant_id], map: "idx_tpa_claim_line_decisions_tenant_id")
 }
 
 model anesthesia_chart_entries {
@@ -11727,6 +11760,7 @@ model anesthesia_chart_entries {
   created_at      DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([ot_schedule_id, recorded_at], map: "idx_anesthesia_chart_schedule")
+  @@index([tenant_id], map: "idx_anesthesia_chart_entries_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -11754,6 +11788,7 @@ model bed_inspections {
   @@index([patient_uid, decision, initiated_at(sort: Desc)], map: "idx_bed_inspections_patient")
   @@index([shown_bed_ids], map: "idx_bed_inspections_shown_beds", type: Gin)
   @@index([expires_at], map: "idx_bed_inspections_pending_expires", where: raw("((decision)::text = 'pending'::text)"))
+  @@index([tenant_id], map: "idx_bed_inspections_tenant_id")
 }
 
 model bmw_waste_log {
@@ -12182,6 +12217,7 @@ model icu_assessments {
 
   @@index([icu_admission_id, recorded_at(sort: Desc)], map: "idx_icu_assess_admission")
   @@index([icu_admission_id, assessment_kind, recorded_at(sort: Desc)], map: "idx_icu_assess_kind")
+  @@index([tenant_id], map: "idx_icu_assessments_tenant_id")
 }
 
 model icu_daily_bundles {
@@ -12270,6 +12306,7 @@ model icu_flowsheet_entries {
   icu_admissions           icu_admissions @relation(fields: [icu_admission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([icu_admission_id, recorded_at], map: "idx_icu_flow_admission")
+  @@index([tenant_id], map: "idx_icu_flowsheet_entries_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12290,6 +12327,7 @@ model maternity_fetal_kicks {
   @@unique([pregnancy_id, log_date])
   @@index([pregnancy_id, log_date(sort: Desc)], map: "idx_anc_kicks_pregnancy_date")
   @@index([pregnancy_id, log_date], map: "idx_anc_kicks_low", where: raw("(low_count_flag = true)"))
+  @@index([tenant_id], map: "idx_maternity_fetal_kicks_tenant_id")
 }
 
 model maternity_supplements {
@@ -12311,6 +12349,7 @@ model maternity_supplements {
 
   @@index([pregnancy_id], map: "idx_anc_supplements_pregnancy")
   @@index([pregnancy_id, supplement], map: "idx_anc_supplements_active", where: raw("(end_date IS NULL)"))
+  @@index([tenant_id], map: "idx_maternity_supplements_tenant_id")
 }
 
 model mccd_serial_counter {
@@ -12572,6 +12611,8 @@ model pcpndt_sonologists {
   created_at              DateTime        @default(now()) @db.Timestamptz(6)
   updated_at              DateTime        @default(now()) @db.Timestamptz(6)
   pcpndt_form_f           pcpndt_form_f[]
+
+  @@index([tenant_id], map: "idx_pcpndt_sonologists_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -12834,6 +12875,7 @@ model knowledge_chunks {
   @@unique([document_id, chunk_index])
   @@index([document_id, chunk_index], map: "idx_knowledge_chunks_document")
   @@index([knowledge_base_id, tenant_id], map: "idx_knowledge_chunks_kb_tenant")
+  @@index([tenant_id], map: "idx_knowledge_chunks_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -13090,6 +13132,7 @@ model staff_leave_forecast_shift_risks {
   tenants                   tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([run_id, forecast_date, shift_label], map: "idx_staff_leave_forecast_shift_risks_run_date")
+  @@index([tenant_id], map: "idx_staff_leave_forecast_shift_risks_tenant_id")
 }
 
 model housekeeping_request_recipients {
@@ -13658,6 +13701,8 @@ model workflow_sla_rules {
   metadata              Json     @default("{}")
   created_at            DateTime @default(now()) @db.Timestamptz(6)
   updated_at            DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "idx_workflow_sla_rules_tenant_id")
 }
 
 model workflow_sla_instances {
@@ -14175,4 +14220,80 @@ model portal_proxy_grants {
 
   @@unique([patient_uid, proxy_uid], map: "uq_portal_proxy_grants_active", where: raw("((status)::text = 'active'::text)"))
   @@index([proxy_uid, status], map: "idx_portal_proxy_grants_proxy")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model problem_episode_links {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id        String           @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid      String           @db.Uuid
+  episode_name     String           @db.VarChar(255)
+  problem_id       String           @db.Uuid
+  link_role        String           @default("primary") @db.VarChar(40)
+  notes            String?
+  linked_by        String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  patient_problems patient_problems @relation(fields: [problem_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_episode_links_problem")
+  tenants          tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_episode_links_tenant")
+
+  @@index([tenant_id, patient_uid, episode_name], map: "idx_episode_links_patient")
+  @@index([problem_id], map: "idx_episode_links_problem")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model problem_list_snapshots {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id     String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  patient_uid   String   @db.Uuid
+  snapshot_type String   @default("discharge") @db.VarChar(40)
+  snapshot_date DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  encounter_id  String?  @db.Uuid
+  problems      Json     @default("[]")
+  generated_by  String?  @db.Uuid
+  metadata      Json     @default("{}")
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  tenants       tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_problem_snapshots_tenant")
+
+  @@index([encounter_id], map: "idx_problem_snapshots_encounter", where: raw("(encounter_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, snapshot_date(sort: Desc)], map: "idx_problem_snapshots_patient")
+}
+
+model terminology_audit_events {
+  id         BigInt   @id @default(autoincrement())
+  system_key String?  @db.VarChar(40)
+  action     String   @db.VarChar(80)
+  code       String?  @db.VarChar(120)
+  summary    String
+  actor_uid  String?  @db.Uuid
+  payload    Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at(sort: Desc)], map: "idx_tae_created")
+  @@index([system_key, action, created_at(sort: Desc)], map: "idx_tae_system_action")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model terminology_import_batches {
+  id                       BigInt                   @id @default(autoincrement())
+  system_key               String                   @db.VarChar(40)
+  source_ref               String
+  release_label            String?                  @db.VarChar(120)
+  status                   String                   @default("pending") @db.VarChar(20)
+  rows_processed           Int                      @default(0)
+  rows_inserted            Int                      @default(0)
+  rows_skipped             Int                      @default(0)
+  rows_failed              Int                      @default(0)
+  error_detail             String?
+  started_at               DateTime?                @db.Timestamptz(6)
+  finished_at              DateTime?                @db.Timestamptz(6)
+  run_by                   String?                  @db.Uuid
+  metadata                 Json                     @default("{}")
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  terminology_code_systems terminology_code_systems @relation(fields: [system_key], references: [system_key], onDelete: NoAction)
+
+  @@index([system_key, created_at(sort: Desc)], map: "idx_tib_system_created")
+  @@index([system_key, status, created_at(sort: Desc)], map: "idx_tib_system_status")
 }
