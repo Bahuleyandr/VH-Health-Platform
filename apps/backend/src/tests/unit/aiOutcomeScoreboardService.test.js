@@ -155,7 +155,10 @@ describe('aggregateOutcomeScoreboard', () => {
     // decided = 3 + 2 + 1 + 0 = 6
     expect(row.reviews.decided).toBe(6);
     expect(row.reviews.pending).toBe(2);
-    expect(row.reviews.acceptance_rate_pct).toBe(50);
+    expect(row.reviews.acceptance_rate_pct).toBe(50);   // 3/6
+    expect(row.reviews.edit_rate_pct).toBe(33.3);       // 2/6
+    expect(row.reviews.rejection_rate_pct).toBe(16.7);  // 1/6
+    expect(row.reviews.needs_revision_rate_pct).toBe(0); // 0/6
     expect(row.reviews.used_rate_pct).toBe(83.3);
     expect(row.reviews.avg_review_latency_minutes).toBe(42.4);
 
@@ -194,6 +197,9 @@ describe('aggregateOutcomeScoreboard', () => {
     expect(result.totals.modules_with_activity).toBe(1);
     expect(result.totals.generations.total).toBe(10);
     expect(result.totals.reviews.acceptance_rate_pct).toBe(50);
+    expect(result.totals.reviews.edit_rate_pct).toBe(33.3);        // 2/6
+    expect(result.totals.reviews.rejection_rate_pct).toBe(16.7);   // 1/6
+    expect(result.totals.reviews.needs_revision_rate_pct).toBe(0); // 0/6
     expect(result.totals.safety.flag_precision_pct).toBe(75);
     expect(result.totals.edits.sample_count).toBe(2);
     expect(result.totals.time_to_sign.ai_signed_count).toBe(6);
@@ -211,7 +217,75 @@ describe('aggregateOutcomeScoreboard', () => {
     const result = aggregateOutcomeScoreboard({});
     expect(result.modules).toEqual([]);
     expect(result.totals.reviews.acceptance_rate_pct).toBeNull();
+    expect(result.totals.reviews.edit_rate_pct).toBeNull();
+    expect(result.totals.reviews.rejection_rate_pct).toBeNull();
+    expect(result.totals.reviews.needs_revision_rate_pct).toBeNull();
     expect(result.totals.safety.flag_precision_pct).toBeNull();
     expect(result.medication_safety.override_rate_pct).toBeNull();
+  });
+
+  it('edit_rate_pct, rejection_rate_pct, needs_revision_rate_pct math with mixed decisions', () => {
+    // 10 decided: 2 accepted, 4 edited, 3 rejected, 1 needs_revision
+    const result = aggregateOutcomeScoreboard({
+      registry: [{ module_key: 'opd_assist', display_name: 'OPD Assist', enabled: true }],
+      reviews: [
+        {
+          module_key: 'opd_assist',
+          review_count: 12,
+          accepted_count: 2,
+          edited_count: 4,
+          rejected_count: 3,
+          needs_revision_count: 1,
+          pending_count: 2,
+          avg_review_latency_minutes: 5.5,
+        },
+      ],
+    });
+    const row = result.modules.find((m) => m.module_key === 'opd_assist');
+    expect(row).toBeTruthy();
+    // decided = 2 + 4 + 3 + 1 = 10
+    expect(row.reviews.decided).toBe(10);
+    expect(row.reviews.acceptance_rate_pct).toBe(20);      // 2/10
+    expect(row.reviews.edit_rate_pct).toBe(40);            // 4/10
+    expect(row.reviews.rejection_rate_pct).toBe(30);       // 3/10
+    expect(row.reviews.needs_revision_rate_pct).toBe(10);  // 1/10
+    expect(row.reviews.used_rate_pct).toBe(60);            // 6/10 (accepted + edited)
+    // Rates sum to 100% when no pending
+    expect(
+      row.reviews.acceptance_rate_pct +
+      row.reviews.edit_rate_pct +
+      row.reviews.rejection_rate_pct +
+      row.reviews.needs_revision_rate_pct,
+    ).toBe(100);
+    // Totals mirror the single module
+    expect(result.totals.reviews.edit_rate_pct).toBe(40);
+    expect(result.totals.reviews.rejection_rate_pct).toBe(30);
+    expect(result.totals.reviews.needs_revision_rate_pct).toBe(10);
+  });
+
+  it('all four rates are null when no reviews have been decided yet', () => {
+    const result = aggregateOutcomeScoreboard({
+      registry: [{ module_key: 'pending_module', display_name: 'Pending Only', enabled: true }],
+      reviews: [
+        {
+          module_key: 'pending_module',
+          review_count: 3,
+          accepted_count: 0,
+          edited_count: 0,
+          rejected_count: 0,
+          needs_revision_count: 0,
+          pending_count: 3,
+          avg_review_latency_minutes: null,
+        },
+      ],
+    });
+    const row = result.modules.find((m) => m.module_key === 'pending_module');
+    expect(row).toBeTruthy();
+    expect(row.reviews.decided).toBe(0);
+    expect(row.reviews.acceptance_rate_pct).toBeNull();
+    expect(row.reviews.edit_rate_pct).toBeNull();
+    expect(row.reviews.rejection_rate_pct).toBeNull();
+    expect(row.reviews.needs_revision_rate_pct).toBeNull();
+    expect(row.reviews.used_rate_pct).toBeNull();
   });
 });

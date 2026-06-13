@@ -173,6 +173,9 @@ function emptyModuleRow(moduleKey) {
       rejected: 0,
       needs_revision: 0,
       acceptance_rate_pct: null,
+      edit_rate_pct: null,
+      rejection_rate_pct: null,
+      needs_revision_rate_pct: null,
       used_rate_pct: null,
       avg_review_latency_minutes: null,
     },
@@ -244,6 +247,9 @@ export function aggregateOutcomeScoreboard({
     entry.reviews.rejected = rejected;
     entry.reviews.needs_revision = needsRevision;
     entry.reviews.acceptance_rate_pct = pct(accepted, decided);
+    entry.reviews.edit_rate_pct = pct(edited, decided);
+    entry.reviews.rejection_rate_pct = pct(rejected, decided);
+    entry.reviews.needs_revision_rate_pct = pct(needsRevision, decided);
     entry.reviews.used_rate_pct = pct(accepted + edited, decided);
     const latency = toFiniteNumber(row.avg_review_latency_minutes, NaN);
     entry.reviews.avg_review_latency_minutes = Number.isFinite(latency) ? round1(latency) : null;
@@ -331,7 +337,20 @@ export function aggregateOutcomeScoreboard({
   const totals = {
     modules_with_activity: moduleRows.filter((row) => row.generations.total + row.reviews.total > 0).length,
     generations: { total: 0, ai_generated: 0, fallback: 0 },
-    reviews: { total: 0, decided: 0, pending: 0, accepted: 0, edited: 0, rejected: 0, needs_revision: 0 },
+    reviews: {
+      total: 0,
+      decided: 0,
+      pending: 0,
+      accepted: 0,
+      edited: 0,
+      rejected: 0,
+      needs_revision: 0,
+      acceptance_rate_pct: null,
+      edit_rate_pct: null,
+      rejection_rate_pct: null,
+      needs_revision_rate_pct: null,
+      used_rate_pct: null,
+    },
     edits: { sample_count: allEditDistances.length, mean_edit_distance_pct: null, median_edit_distance_pct: null },
     safety: { flagged_total: 0, flagged_decided: 0, flagged_confirmed: 0, flagged_overridden: 0, missed_reject_count: 0 },
     time_to_sign: { ai_signed_count: 0, baseline_signed_count: 0, ai_avg_minutes: null, baseline_avg_minutes: null },
@@ -354,6 +373,9 @@ export function aggregateOutcomeScoreboard({
     totals.safety.missed_reject_count += row.safety.missed_reject_count;
   }
   totals.reviews.acceptance_rate_pct = pct(totals.reviews.accepted, totals.reviews.decided);
+  totals.reviews.edit_rate_pct = pct(totals.reviews.edited, totals.reviews.decided);
+  totals.reviews.rejection_rate_pct = pct(totals.reviews.rejected, totals.reviews.decided);
+  totals.reviews.needs_revision_rate_pct = pct(totals.reviews.needs_revision, totals.reviews.decided);
   totals.reviews.used_rate_pct = pct(totals.reviews.accepted + totals.reviews.edited, totals.reviews.decided);
   totals.safety.flag_precision_pct = pct(totals.safety.flagged_confirmed, totals.safety.flagged_decided);
   totals.safety.flag_override_rate_pct = pct(totals.safety.flagged_overridden, totals.safety.flagged_decided);
@@ -591,6 +613,9 @@ function queryMedicationSafety(tenantId, periodDays) {
 
 export const SCOREBOARD_DEFINITIONS = Object.freeze({
   acceptance_rate_pct: 'Reviews decided accepted/signed/approved as a share of all decided reviews (pending excluded).',
+  edit_rate_pct: 'Decided reviews where the clinician edited the draft before accepting, as a share of all decided reviews. High values mean the AI draft needed significant rework.',
+  rejection_rate_pct: 'Decided reviews where the draft was outright rejected, as a share of all decided reviews.',
+  needs_revision_rate_pct: 'Decided reviews sent back for revision, as a share of all decided reviews.',
   used_rate_pct: 'Decided reviews whose draft reached care (accepted or edited) as a share of all decided reviews.',
   mean_edit_distance_pct: `Word-level Levenshtein distance between original and edited drafts, normalized by the longer draft; capped at ${EDIT_DISTANCE_MAX_TOKENS} tokens per draft over the latest ${EDIT_DISTANCE_MAX_SAMPLES} edited reviews in the window.`,
   flag_precision_pct: 'Safety-flagged drafts the human reviewer also rejected/edited/sent back, as a share of flagged drafts with a human decision.',
