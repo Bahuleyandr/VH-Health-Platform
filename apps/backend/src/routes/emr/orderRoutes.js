@@ -179,6 +179,7 @@ router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ requir
       start_date,
       end_date,
       notes,
+      tenantId: req.tenantId,
     });
 
     logPhiAccess({
@@ -282,6 +283,7 @@ router.post('/orders/bulk', rejectMobileClinicalWrite, requireIdempotencyKey({ r
 
     const result = await orderEntryService.createOrdersBulk(items, {
       ordered_by: req.user.uid,
+      tenantId: req.tenantId,
     });
 
     // PHI log per distinct patient — a batch is normally one admission,
@@ -474,6 +476,7 @@ router.post('/order-sets', async (req, res, next) => {
       category,
       orders,
       created_by: req.user.uid,
+      tenantId: req.tenantId,
     });
 
     return success(res, result, 'Order set created', 201);

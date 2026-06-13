@@ -831,7 +831,7 @@ router.post(
 
     const doctorUid = req.user?.uid;
     await assertAdmissionInTenant(req, admissionId);
-    const result = await dischargeSummaryGenerator.signDischargeSummary(admissionId, doctorUid);
+    const result = await dischargeSummaryGenerator.signDischargeSummary(admissionId, doctorUid, req.tenantId);
 
     success(res, result, 'Discharge summary signed — now official and immutable');
   })

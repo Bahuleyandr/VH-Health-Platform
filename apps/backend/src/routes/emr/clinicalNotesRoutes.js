@@ -169,7 +169,8 @@ router.post('/notes/:id/addendum', rejectMobileClinicalWrite, guardClinicalNoteR
       noteId,
       content,
       req.user.uid,
-      author_role || req.user.role
+      author_role || req.user.role,
+      req.tenantId
     );
 
     // HIPAA audit — log addendum creation
@@ -212,6 +213,7 @@ async function adminUpdateNote(req, res, next) {
       req.user.uid,
       req.user.role,
       { id: req.user.id, uid: req.user.uid, role: req.user.role },
+      req.tenantId,
     );
 
     // HIPAA audit — log admin overwrite (action=UPDATE) so the legal trail
@@ -248,7 +250,7 @@ router.post('/notes/:id/sign', rejectMobileClinicalWrite, guardClinicalNoteResou
       id: req.user.id,
       uid: req.user.uid,
       role: req.user.role,
-    });
+    }, req.tenantId);
 
     // HIPAA audit — log note signing
     logPhiAccess({

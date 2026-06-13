@@ -421,9 +421,11 @@ export async function createNote(data) {
  * @param {Object} addendumContent - The addendum content (free-form JSON)
  * @param {string} authorUid - UID of the addendum author
  * @param {string} authorRole - Role of the addendum author
+ * @param {string|null} [tenantId] - Canonical tenant for RLS scoping (threaded
+ *   from the caller's req.tenantId); falls back to DEFAULT_TENANT_ID.
  * @returns {Object} Created addendum note row
  */
-export async function addAddendum(noteId, addendumContent, authorUid, authorRole) {
+export async function addAddendum(noteId, addendumContent, authorUid, authorRole, tenantId = null) {
   if (!addendumContent || Object.keys(addendumContent).length === 0) {
     throw AppError.badRequest('Addendum content is required');
   }
@@ -464,8 +466,10 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   const nextVersion = (versionAgg._max.version ?? 0) + 1;
 
   // Atomic clinical write: addendum detail row + canonical timeline/audit
-  // events persist together (canonical timeline invariant).
-  const created = await prisma.$transaction(async (tx) => {
+  // events persist together (canonical timeline invariant). Tenant-scoped so
+  // the writes land under the RLS tenant_isolation policy instead of its
+  // permissive (GUC-unset) branch.
+  const created = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_notes.create({
       data: {
         encounter_id: parentNote.encounter_id,
@@ -483,6 +487,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
     });
 
     await recordCanonicalNoteEvent({
+      tenantId: tenantId || DEFAULT_TENANT_ID,
       patientUid: row.patient_uid,
       encounterId: row.encounter_id,
       eventType: 'note.addendum_created',
@@ -536,9 +541,11 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
  * @param {string} editorUid - UID of the user performing the rewrite
  * @param {string} editorRole - Role of the editor
  * @param {{ id?: number|string, uid?: string, role: string }} [actingUser]
+ * @param {string|null} [tenantId] - Canonical tenant for RLS scoping (threaded
+ *   from the caller's req.tenantId); falls back to DEFAULT_TENANT_ID.
  * @returns {Object} Updated note row
  */
-export async function updateNote(noteId, content, editorUid, editorRole, actingUser = null) {
+export async function updateNote(noteId, content, editorUid, editorRole, actingUser = null, tenantId = null) {
   if (!editorUid || !editorRole) {
     throw AppError.badRequest('editorUid and editorRole are required');
   }
@@ -632,8 +639,10 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
 
   const now = new Date();
   // Atomic clinical write: note rewrite + canonical timeline/audit events
-  // persist together (canonical timeline invariant).
-  const updated = await prisma.$transaction(async (tx) => {
+  // persist together (canonical timeline invariant). Tenant-scoped so the
+  // writes land under the RLS tenant_isolation policy instead of its
+  // permissive (GUC-unset) branch.
+  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_notes.update({
       where: { id: Number(noteId) },
       data: {
@@ -645,6 +654,7 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
     });
 
     await recordCanonicalNoteEvent({
+      tenantId: tenantId || DEFAULT_TENANT_ID,
       patientUid: row.patient_uid,
       encounterId: row.encounter_id,
       eventType: 'note.edited',
@@ -695,9 +705,11 @@ export async function updateNote(noteId, content, editorUid, editorRole, actingU
  *   authorized supervisor) may sign a note bound to a specific OPD appointment.
  *   Defaults to the signer uid (role unknown) when omitted; an unbound note
  *   (no appointment) is unaffected by the guard.
+ * @param {string|null} [tenantId] - Canonical tenant for RLS scoping (threaded
+ *   from the caller's req.tenantId); falls back to DEFAULT_TENANT_ID.
  * @returns {Object} Updated note row
  */
-export async function signNote(noteId, signerUid, actingUser = null) {
+export async function signNote(noteId, signerUid, actingUser = null, tenantId = null) {
   if (!signerUid) {
     throw AppError.badRequest('Signer UID is required');
   }
@@ -753,8 +765,9 @@ export async function signNote(noteId, signerUid, actingUser = null) {
   // events, and the OP encounter sign-transition all persist together
   // (canonical timeline invariant). A canonical/transition failure aborts
   // the tx so the note does not silently flip to signed without a traceable
-  // timeline + audit row.
-  const updated = await prisma.$transaction(async (tx) => {
+  // timeline + audit row. Tenant-scoped so the writes land under the RLS
+  // tenant_isolation policy instead of its permissive (GUC-unset) branch.
+  const updated = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_notes.update({
       where: { id: Number(noteId) },
       data: {
@@ -767,6 +780,7 @@ export async function signNote(noteId, signerUid, actingUser = null) {
     });
 
     await recordCanonicalNoteEvent({
+      tenantId: tenantId || DEFAULT_TENANT_ID,
       patientUid: row.patient_uid,
       encounterId: row.encounter_id,
       eventType: 'note.signed',

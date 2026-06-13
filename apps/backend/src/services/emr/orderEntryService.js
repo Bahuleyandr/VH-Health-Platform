@@ -575,10 +575,16 @@ async function dispatchPostCreateSideEffects(order) {
 
 /**
  * Create a clinical order.
- * @param {Object} data - { encounter_id?, patient_uid, order_type, priority?, details, ordered_by, start_date?, end_date?, notes? }
+ * @param {Object} data - { encounter_id?, patient_uid, order_type, priority?, details, ordered_by, start_date?, end_date?, notes?, tenantId? }
  * @returns {Object} Created order with CDS check results
  */
 export async function createOrder(data) {
+  // RLS tenant scope (Batch 3 Wave B-prime): the canonical clinical write
+  // below must run with app.current_tenant_id set, else the tenant_isolation
+  // policy falls to its permissive branch. Threaded from the caller's
+  // req.tenantId; defaults to the single-tenant id (safe today, column
+  // default IS the default tenant) so test/legacy callers stay green.
+  const { tenantId = null } = data;
   const n = await normalizeOrderInput(data);
 
   // Run CDS safety checks. Blockers reject the order — surface the
@@ -604,7 +610,7 @@ export async function createOrder(data) {
   // `details` is a Json column — pass the object directly (Prisma serialises).
   // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it
   // explicitly, so we preserve that for clarity.
-  const order = await prisma.$transaction(async (tx) => {
+  const order = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.clinical_orders.create({
       data: {
         order_number: orderNumber,
@@ -659,11 +665,11 @@ export async function createOrder(data) {
  * Any validation/CDS failure aborts the whole batch before a row is
  * written; the offending item index is surfaced to the caller.
  * @param {Array<Object>} items - order payloads (same shape as createOrder's `data`)
- * @param {Object} ctx - { ordered_by }
+ * @param {Object} ctx - { ordered_by, tenantId? }
  * @returns {Array<{ order, cds_warnings }>}
  * Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
  */
-export async function createOrdersBulk(items, { ordered_by } = {}) {
+export async function createOrdersBulk(items, { ordered_by, tenantId = null } = {}) {
   if (!Array.isArray(items) || items.length === 0) {
     throw AppError.badRequest('orders must be a non-empty array');
   }
@@ -702,7 +708,11 @@ export async function createOrdersBulk(items, { ordered_by } = {}) {
   // row. No SWALLOWED best-effort calls inside the tx — recordCanonicalOrderEvent
   // re-throws (a swallowed Prisma error would silently abort the tx and the
   // next tx.* call would fail with "current transaction is aborted").
-  const createdRows = await prisma.$transaction(async (tx) => {
+  // RLS tenant scope (Batch 3 Wave B-prime): wrap the atomic insert so
+  // app.current_tenant_id is set for every clinical_orders + canonical
+  // timeline/audit write. tenantId is threaded from the caller's
+  // req.tenantId; default keeps single-tenant / test callers green.
+  const createdRows = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const rows = [];
     for (let i = 0; i < prepared.length; i += 1) {
       const n = prepared[i].normalized;
@@ -1462,11 +1472,13 @@ export async function getOrderSets(category) {
 
 /**
  * Create a new order set template.
- * @param {Object} data - { name, description?, category, orders, created_by }
+ * @param {Object} data - { name, description?, category, orders, created_by, tenantId? }
  * @returns {Object} Created order set
  */
 export async function createOrderSet(data) {
-  const { name, description, category, orders, created_by } = data;
+  const {
+    name, description, category, orders, created_by, tenantId = null,
+  } = data;
 
   if (!name || !category || !orders || !created_by) {
     throw AppError.badRequest('name, category, orders, and created_by are required');
@@ -1499,7 +1511,11 @@ export async function createOrderSet(data) {
 
   const code = `ORDERSET-${name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 50)}-${Date.now()}`;
 
-  const created = await prisma.$transaction(async (tx) => {
+  // RLS tenant scope (Batch 3 Wave B-prime): clinical_order_sets carries a
+  // tenant_isolation policy, so the insert must run with app.current_tenant_id
+  // set. tenantId is threaded from the caller's req.tenantId; default keeps
+  // single-tenant / test callers green.
+  const created = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const set = await tx.clinical_order_sets.create({
       data: {
         code: code.slice(0, 60),

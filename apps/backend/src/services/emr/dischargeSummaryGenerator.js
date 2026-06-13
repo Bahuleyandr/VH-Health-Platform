@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateClinicalText, getClinicalAiConfig } from '../ai/localLlmClient.js';
 import { publishEvent } from '../events/eventOutboxService.js';
@@ -1196,7 +1196,7 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
   return result;
 }
 
-export async function signDischargeSummary(admissionId, doctorUid) {
+export async function signDischargeSummary(admissionId, doctorUid, tenantId = null) {
   if (!doctorUid) throw AppError.badRequest('doctorUid is required');
 
   const admission = await prisma.admissions.findUnique({
@@ -1215,7 +1215,7 @@ export async function signDischargeSummary(admissionId, doctorUid) {
   const signedAt = new Date();
   const signer = await resolveSignerDetails(doctorUid);
 
-  const txnResult = await prisma.$transaction(async (tx) => {
+  const txnResult = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const note = await tx.clinical_notes.findFirst({
       where: {
         encounter_id: admission.encounter_id,

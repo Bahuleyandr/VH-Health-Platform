@@ -112,6 +112,7 @@ async function handleVitalsCorrection(req, res, next) {
       ...req.body,
       corrected_by: req.user.uid,
       ip_address: req.ip,
+      tenantId: req.tenantId,
     });
 
     logPhiAccess({

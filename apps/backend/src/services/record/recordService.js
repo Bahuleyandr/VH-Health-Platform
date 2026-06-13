@@ -2,11 +2,12 @@
 // Migrated from raw pg to Prisma ORM
 
 import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { buildPagination } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { encryptColumn } from '../security/phiColumnEncryption.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 function isValidUUID(uuid) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -579,13 +580,17 @@ export async function getMedicalRecordById(id) {
   }
 }
 
-export async function createMedicalRecord(data, doctorId, createdBy) {
+export async function createMedicalRecord(data, doctorId, createdBy, tenantId = null) {
   // patient_id enters this service as an INT (the API validator enforces
   // isInt). medical_records.patient_id is a UUID (batch 87 FK now
   // enforces users.uid). Resolve int → uuid here so the rest of the
   // service stays on the right semantics.
+  // RLS (Batch 3 Wave B-prime): medical_records + users are tenant-scoped
+  // (relrowsecurity + tenant_id). Run the write inside setTenantTx so
+  // app.current_tenant_id is set; a bare $transaction leaves it unset and
+  // the tenant_isolation policy falls to its permissive branch.
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const patient = await tx.users.findUnique({
         where: { id: parseInt(data.patient_id) },
         select: { id: true, uid: true, name: true, phone: true },

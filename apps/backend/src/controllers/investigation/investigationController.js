@@ -350,7 +350,8 @@ export const addInvestigationResults = async (req, res) => {
     const investigation = await investigationService.addResults(
       id,
       { results, interpretation, technician_notes, reviewed_by, re_run, re_run_reason },
-      userId
+      userId,
+      req.tenantId
     );
 
     if (!investigation) {

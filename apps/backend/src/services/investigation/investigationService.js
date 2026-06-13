@@ -3,10 +3,11 @@ import {
   MEDICAL_STAFF_ROLES,
   LAB_STAFF_ROLES
 } from '../../config/investigationConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination } from '../../utils/listQuery.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import {
   recordCanonicalClinicalEvent,
   startWorkflowSla,
@@ -723,7 +724,7 @@ function elevatePanicFlags(results) {
 // the per-version re_run_reason to reconstruct the full timeline.
 // Finding:
 // 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
-export const addResults = async (id, resultData, userId) => {
+export const addResults = async (id, resultData, userId, tenantId = null) => {
   const { results, interpretation, reviewed_by, re_run, re_run_reason } = resultData;
 
   const investId = parseInt(id, 10);
@@ -732,7 +733,7 @@ export const addResults = async (id, resultData, userId) => {
   // Snapshot prior state into previous_results before overwriting.
   // Use a transaction so a partial fail leaves the row intact.
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const existing = await tx.investigations.findUnique({
         where: { id: investId },
         select: {
@@ -895,6 +896,7 @@ export const addResults = async (id, resultData, userId) => {
       const critical = hasCriticalResultSignal(updated.results);
       await bestEffortInvestigationCanonical('investigation result', async () => {
         await recordCanonicalClinicalEvent({
+          tenantId: tenantId || DEFAULT_TENANT_ID,
           patientUid: updated.patient_uid,
           eventType: critical ? 'investigation.result_critical' : 'investigation.result_ready',
           eventSubtype: updated.test_type,
@@ -921,6 +923,7 @@ export const addResults = async (id, resultData, userId) => {
         });
         if (critical) {
           await startWorkflowSla({
+            tenantId: tenantId || DEFAULT_TENANT_ID,
             ruleCode: 'critical_result_ack',
             patientUid: updated.patient_uid,
             sourceTable: 'investigations',

@@ -805,7 +805,7 @@ export async function correctVitals(vitalsId, data) {
     throw AppError.badRequest('vitals id must be a positive integer');
   }
 
-  const { temperature_unit, corrected_by, ip_address, ...changes } = data;
+  const { temperature_unit, corrected_by, ip_address, tenantId, ...changes } = data;
   if (!corrected_by) {
     throw AppError.badRequest('corrected_by is required');
   }
@@ -842,7 +842,7 @@ export async function correctVitals(vitalsId, data) {
     throw AppError.badRequest('At least one vitals field is required for correction');
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const existing = await tx.vitals_chart.findUnique({
       where: { id },
       select: { ...VITAL_SELECT, created_at: true },

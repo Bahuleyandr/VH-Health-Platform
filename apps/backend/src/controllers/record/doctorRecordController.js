@@ -40,7 +40,8 @@ export async function createMedicalRecord(req, res) {
     const { record, patient } = await recordService.createMedicalRecord(
       req.body,
       doctorId,  // This is now the integer ID from users table
-      createdBy  // This is the UUID for audit purposes
+      createdBy,  // This is the UUID for audit purposes
+      req.tenantId  // RLS tenant scope (set by tenantContextMiddleware)
     );
 
     // Audit log
