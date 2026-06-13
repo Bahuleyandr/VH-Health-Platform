@@ -167,10 +167,13 @@ marks a sub-item gated externally. Finding IDs reference the audit.
 
 ## 6. Status tracker (updated each batch)
 
+_Execution log:_
+_2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C/7H/14M/12L; code-fixable items already in) + staff WIP + audit/roadmap docs. B0.7 already-green (CI-2 stale; roleMatrix 1262/1262). B0.3 admin reset-OTP hashed + 5-attempt lockout (migration 303, 9 tests). B0.4 staff refresh type+jti guard (5 tests). B0.5 atomic canonical-timeline writes across notes/vitals/I-O/orders/admission (atomicity test + 241 EMR tests green). B0.2 CNPG non-superuser `vhhealth_runtime` role + enableSuperuserAccess:false + migration-job superuser DSN. B0.6 Kyverno policy wired into base + placeholder-digest CI guard. Bonus: staffAuthService query()-wrapper bug fixed (closes task_b7c8a440). Commits 7fad8236→aa3f5d86. All local-only (no push per instruction). Operator-gated: seal vhhealth-pg-runtime + DATABASE_SUPERUSER_URL, install Kyverno + flip Audit→Enforce after clean cycle._
+
 | WS | Batches | Done | Status |
 |---|---|---|---|
-| WS0 | 7 | 0 | starting |
-| WS1 | 7 | 0 | queued |
+| WS0 | 7 | 7 | ✅ COMPLETE |
+| WS1 | 7 | 0 | ▶ in progress (C-1/H-1/H-2/H-3/M-1/2/3/6/7/11 already fixed by landed sweep) |
 | WS2 | 8 | 0 | queued |
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
