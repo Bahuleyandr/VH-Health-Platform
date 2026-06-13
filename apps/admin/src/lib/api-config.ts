@@ -600,7 +600,12 @@ export const requiresAuth = (endpoint: string): boolean =>
     return endpoint === route;
   });
 
-// Build the single WebSocket URL (always /ws; auth via ?token= query param)
+/**
+ * @deprecated ADM-10: No production callers exist. The WS connection is
+ * established directly in the hook using WS_BASE_URL + WS_ENDPOINT.
+ * Kept here only because src/__tests__/lib/api-config.test.ts imports it
+ * directly; remove alongside those tests in the cleanup branch.
+ */
 export const buildWsUrl = (token?: string): string => {
   const url = `${WS_BASE_URL}${WS_ENDPOINT}`;
   return token ? `${url}?token=${encodeURIComponent(token)}` : url;

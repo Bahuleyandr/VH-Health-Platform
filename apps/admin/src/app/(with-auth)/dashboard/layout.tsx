@@ -14,6 +14,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useIdleTimeout } from '@/hooks/useIdleTimeout';
 import { useAuth } from '@/contexts/AuthContext';
 import { AnnouncementBanner } from './notifications/components/AnnouncementBannerManager';
+import { ROLE_RANK } from '@/lib/routePolicy';
 import styles from './Dashboard.module.css';
 
 type NavItem = {
@@ -25,14 +26,6 @@ type NavItem = {
   minRole?: 'STAFF' | 'DOCTOR' | 'HR' | 'ADMIN' | 'SUPER_ADMIN';
   /** Optional permission requirements (ALL must be present; SUPER_ADMIN always allowed) */
   requiredPermissions?: string[];
-};
-
-const ROLE_RANK: Record<string, number> = {
-  STAFF: 0,
-  DOCTOR: 1,
-  HR: 2,
-  ADMIN: 3,
-  SUPER_ADMIN: 4,
 };
 
 const navigation: NavItem[] = [

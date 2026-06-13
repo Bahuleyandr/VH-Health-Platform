@@ -13,7 +13,9 @@ export * from "./useUploads";
 export * from "./useSOS";
 export * from "./useAttendance";
 export * from "./useSystemMonitoring";
-export * from "./useAdminWebSocket";
+// ADM-7: useAdminWebSocket is deprecated (no callers). Re-export removed so
+// the barrel does not inadvertently surface it as a public API.
+// export * from "./useAdminWebSocket";
 
 // Intentionally NOT re-exporting from './use-dashboard' to avoid duplicate
 // exports of `useDashboardData` (already re-exported via ./api-hooks).

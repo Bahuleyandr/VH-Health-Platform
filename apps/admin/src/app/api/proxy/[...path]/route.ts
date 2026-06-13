@@ -263,6 +263,11 @@ async function handleProxy(req: NextRequest) {
   respHeaders.delete("content-encoding");
   respHeaders.delete("content-length");
 
+  // ADM-7 (small): prevent the browser and any intermediate cache from storing
+  // PHI-bearing API responses. Upstream Cache-Control is overridden here
+  // because we cannot guarantee the backend always sends no-store.
+  respHeaders.set("Cache-Control", "no-store");
+
   return new NextResponse(body, {
     status: upstream.status,
     headers: respHeaders,

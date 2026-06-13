@@ -1,4 +1,8 @@
 // src/hooks/useAdminWebSocket.ts
+//
+// @deprecated No callers exist in the admin portal. The real-time channel is
+// consumed via the ticket-based useWebSocket in the dashboard entry point.
+// Remove this file once the audit-7 cleanup branch is merged.
 import { useCallback } from "react";
 import { useWebSocket } from "./useWebSocket";
 import { useQueryClient } from "@tanstack/react-query";

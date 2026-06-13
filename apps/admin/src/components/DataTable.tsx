@@ -44,13 +44,21 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div className="overflow-x-auto w-full">
-      <table className="min-w-full divide-y divide-border">
+      <table
+        className="min-w-full divide-y divide-border"
+        aria-label="Data table"
+      >
         <thead>
           <tr>
-            {selectable && <th className="w-12" />}
+            {selectable && (
+              <th scope="col" className="w-12">
+                <span className="sr-only">Select</span>
+              </th>
+            )}
             {columns.map((column) => (
               <th
                 key={String(column.key)}
+                scope="col"
                 className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
               >
                 {column.header}
@@ -68,7 +76,11 @@ export function DataTable<T extends { id: string }>({
             >
               {selectable && (
                 <td className="px-6 py-4">
+                  <label className="sr-only" htmlFor={`select-row-${row.id}`}>
+                    Select row {row.id}
+                  </label>
                   <input
+                    id={`select-row-${row.id}`}
                     type="checkbox"
                     checked={selectedRows.has(row.id)}
                     onChange={() => handleSelectRow(row.id)}

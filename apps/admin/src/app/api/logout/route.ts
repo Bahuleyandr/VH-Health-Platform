@@ -1,3 +1,7 @@
+// ADM-8: force-dynamic prevents Next.js from caching auth route responses at
+// the framework layer, which would let stale session state be served from cache.
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {

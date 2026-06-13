@@ -1,5 +1,10 @@
 // src/app/api/login/route.ts
 
+// ADM-8: force-dynamic prevents Next.js from caching auth route responses at
+// the framework layer, which would let stale session state (token or cookie)
+// be served from cache on subsequent requests.
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
 

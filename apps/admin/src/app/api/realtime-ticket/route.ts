@@ -5,6 +5,11 @@
 // mint a short-lived (~60s) WS-scoped JWT, and returns it to the browser.
 // The primary token is never exposed to JS — only this ticket is.
 
+// ADM-8: force-dynamic prevents Next.js from caching auth route responses at
+// the framework layer, which would let a stale ticket be returned from cache
+// after the session has been invalidated.
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
 

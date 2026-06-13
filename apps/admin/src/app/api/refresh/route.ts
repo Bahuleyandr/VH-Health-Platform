@@ -5,6 +5,10 @@
 // the new token. Never accepts a client-supplied token as input (that would
 // let the browser mint arbitrary session cookies).
 
+// ADM-8: force-dynamic prevents Next.js from caching auth route responses at
+// the framework layer, which would let stale session state be served from cache.
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { getServerBackendUrl } from "@/lib/api-config";
 

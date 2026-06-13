@@ -327,12 +327,12 @@ export function installApiFetchGuard() {
   if (installed || typeof window === 'undefined') return;
   installed = true;
 
-  // Dev helpers
-  window.__fetchGuardInstalled = true;
-  window.__fetchGuardApiBase = API_BASE_URL;
-  window.__testFetchGuard = (path: string) => fetch(path, { method: 'GET' });
-
+  // Dev helpers — only attach to window in development so an XSS in production
+  // cannot access a ready-made authenticated-fetch primitive (ADM-1).
   if (process.env.NODE_ENV === 'development') {
+    window.__fetchGuardInstalled = true;
+    window.__fetchGuardApiBase = API_BASE_URL;
+    window.__testFetchGuard = (path: string) => fetch(path, { method: 'GET' });
     console.info('[fetch-guard] installed', { API_BASE_URL });
   }
 
