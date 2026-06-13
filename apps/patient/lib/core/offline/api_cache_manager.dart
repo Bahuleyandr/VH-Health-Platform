@@ -4,8 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 /// Generic JSON response cache for API endpoints.
 ///
@@ -31,7 +31,7 @@ class ApiCacheManager {
   /// Retrieve or generate a 256-bit AES key stored in secure storage.
   static Future<encrypt.Key> _getEncryptionKey() async {
     if (_aesKey != null) return _aesKey!;
-    const storage = FlutterSecureStorage();
+    final storage = VHSecureStorage.instance;
     var keyBase64 = await storage.read(key: 'cache_aes_key');
     if (keyBase64 == null) {
       final random = Random.secure();

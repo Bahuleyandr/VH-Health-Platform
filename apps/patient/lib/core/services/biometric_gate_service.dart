@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 /// Gates sensitive actions behind biometric re-authentication.
 ///
@@ -21,7 +21,7 @@ class BiometricGateService {
   BiometricGateService._();
 
   static final _auth = LocalAuthentication();
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   /// Check if user has biometric enabled in settings.
   static Future<bool> get isBiometricEnabled async {

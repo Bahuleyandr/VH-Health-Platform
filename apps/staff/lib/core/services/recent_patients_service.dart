@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 import '../config/api_config.dart';
 
@@ -24,7 +24,7 @@ class RecentPatientsService {
   static const _keyPrefix = 'recent_patients:staff:';
   static const _maxEntries = 5;
 
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   @visibleForTesting
   static String? debugStaffIdentityOverride;

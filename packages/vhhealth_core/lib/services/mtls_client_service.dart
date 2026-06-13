@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'secure_storage.dart';
 
 /// Client-side mTLS plumbing.
 ///
@@ -29,7 +29,7 @@ class MtlsClientService {
   static const _certStorageKey = 'mtls_client_cert_pem';
   static const _keyStorageKey = 'mtls_client_key_pem';
 
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final _storage = VHSecureStorage.instance;
 
   /// Persist a newly provisioned cert + key.
   Future<void> installCertificate({

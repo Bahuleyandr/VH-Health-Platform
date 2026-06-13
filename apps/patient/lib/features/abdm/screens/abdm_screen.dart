@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -293,8 +295,14 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
                     icon: const Icon(Icons.copy),
                     tooltip: 'Copy ABHA Number',
                     onPressed: () {
+                      // PAT-9: Copy the ABHA number and schedule a clipboard
+                      // clear after 30 s so PHI does not linger in the
+                      // clipboard indefinitely (pastes into other apps, etc.).
                       Clipboard.setData(ClipboardData(text: _abhaNumber!));
-                      _showSnackBar('ABHA number copied');
+                      _showSnackBar('ABHA number copied — clipboard clears in 30 s');
+                      Timer(const Duration(seconds: 30), () {
+                        Clipboard.setData(const ClipboardData(text: ''));
+                      });
                     },
                   ),
                 ],

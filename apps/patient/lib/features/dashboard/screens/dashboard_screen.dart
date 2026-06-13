@@ -4,7 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -45,7 +45,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = VHSecureStorage.instance;
   late final String _name;
   late final String _hospitalNumber;
   late final bool _isGuestSession;

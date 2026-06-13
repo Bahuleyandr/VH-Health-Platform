@@ -7,8 +7,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -29,7 +29,7 @@ class InvestigationResultsTab extends StatefulWidget {
 
 class InvestigationResultsTabState extends State<InvestigationResultsTab>
     with AutomaticKeepAliveClientMixin {
-  static const _secureStorage = FlutterSecureStorage();
+  static final _secureStorage = VHSecureStorage.instance;
 
   List<dynamic> _investigations = [];
   bool _isLoadingResults = true;

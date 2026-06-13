@@ -1,8 +1,8 @@
 // otp_widget.dart - Main widget file (Business logic only)
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth/features/auth/widgets/otp_ui_components.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/features/auth/services/otp_service.dart';
 import 'dart:developer' as developer;
 
@@ -22,7 +22,7 @@ class OtpWidget extends StatefulWidget {
 
 class _OtpWidgetState extends State<OtpWidget> {
   final TextEditingController otpController = TextEditingController();
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = VHSecureStorage.instance;
   final _otpService = OtpService();
 
   String? verificationId;

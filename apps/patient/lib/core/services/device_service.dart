@@ -1,14 +1,14 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 
 /// Device management API calls.
 class DeviceService {
   DeviceService._();
 
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
   static const _uuid = Uuid();
 
   /// A unique device ID stored in secure storage. Uses UUID v4.

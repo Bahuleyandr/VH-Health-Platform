@@ -4,8 +4,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:screen_protector/screen_protector.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -119,7 +120,7 @@ Future<void> main() async {
       unawaited(() async {
         try {
           await NotificationScheduler.initialize();
-          final jwt = await const FlutterSecureStorage().read(key: 'jwt');
+          final jwt = await VHSecureStorage.instance.read(key: 'jwt');
           if (jwt == null || jwt.isEmpty) return;
           final remindersResp = await ApiClient.get('/reminders/medication');
           if (remindersResp.isSuccess && remindersResp.data is List) {
@@ -179,6 +180,23 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // PAT-6: block screenshots and suppress the app-switcher thumbnail
+    // so PHI cannot leak via Android recents or iOS Exposé.
+    // screen_protector handles FLAG_SECURE on Android and the
+    // resignActive snapshot blur on iOS; no-op on other platforms.
+    _applyScreenProtection();
+  }
+
+  Future<void> _applyScreenProtection() async {
+    try {
+      // protectDataLeakageOn: FLAG_SECURE (Android) + screenshot blocking.
+      // preventScreenshotOn: additionally blocks screenshot APIs on iOS.
+      await ScreenProtector.protectDataLeakageOn();
+      await ScreenProtector.preventScreenshotOn();
+    } catch (e) {
+      // Non-fatal — best-effort on platforms where the plugin has no impl.
+      if (kDebugMode) debugPrint('ScreenProtector init skipped: $e');
+    }
   }
 
   @override

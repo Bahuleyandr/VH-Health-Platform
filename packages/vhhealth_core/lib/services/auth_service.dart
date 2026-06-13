@@ -1,8 +1,12 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'secure_storage.dart';
 
 /// Shared JWT and user session storage for VHHealth apps.
 class AuthService {
-  static const _storage = FlutterSecureStorage();
+  // All reads/writes go through the centralized, properly-configured
+  // instance (EncryptedSharedPreferences on Android, Keychain on iOS).
+  // Do NOT create new FlutterSecureStorage() instances — use this getter.
+  static FlutterSecureStorage get _storage => VHSecureStorage.instance;
 
   // ── JWT (access token) ───────────────────────────────────────────────────
   static Future<String?> getJwt() => _storage.read(key: 'jwt');

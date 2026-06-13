@@ -7,7 +7,7 @@
 //   flutter run --dart-define=VH_API_KEY=your-secret-key
 //   flutter build apk --dart-define=VH_API_KEY=your-secret-key
 // This prevents the key from being committed to source control.
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../services/secure_storage.dart';
 
 class ApiConfig {
   ApiConfig._();
@@ -24,7 +24,8 @@ class ApiConfig {
   /// **Never hardcode this value in source code.**
   static const String apiKey = String.fromEnvironment('VH_API_KEY');
 
-  static const _storage = FlutterSecureStorage();
+  // Route through the centralized encrypted-storage singleton.
+  static final _storage = VHSecureStorage.instance;
 
   /// Standard headers for JSON requests (no JWT — for public endpoints).
   static Map<String, String> get jsonHeaders => {

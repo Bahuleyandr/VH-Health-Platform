@@ -1,6 +1,6 @@
 // Health Summary tab — self-contained widget with its own state and data fetching
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
@@ -28,7 +28,7 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
   }
 
   Future<void> _loadPatientId() async {
-    const storage = FlutterSecureStorage();
+    final storage = VHSecureStorage.instance;
     final pid = await storage.read(key: 'patient_id');
     final uid = await storage.read(key: 'firebase_uid');
     if (mounted) {

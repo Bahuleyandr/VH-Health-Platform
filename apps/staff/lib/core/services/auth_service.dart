@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
 import 'package:vhhealth_core/services/crash_reporter.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import 'api_client.dart';
@@ -9,7 +9,8 @@ import 'recent_patients_service.dart';
 import 'telemetry_service.dart';
 
 class AuthService {
-  static const _storage = FlutterSecureStorage();
+  // Centralized encrypted storage — same instance as api_config.dart and core.
+  static final _storage = VHSecureStorage.instance;
 
   static Future<void> _saveAuthenticatedStaffSession({
     required String employeeId,

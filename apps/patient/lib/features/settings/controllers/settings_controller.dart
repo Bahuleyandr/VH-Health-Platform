@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -23,7 +23,7 @@ class SettingsController {
   final String hospitalNumber;
 
   final LocalAuthentication _auth = LocalAuthentication();
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = VHSecureStorage.instance;
 
   // These will be initialized with proper context
   late BuildContext context;

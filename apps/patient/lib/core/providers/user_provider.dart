@@ -1,6 +1,6 @@
 // lib/core/providers/user_provider.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 /// Centralized user state — the single source of truth for the signed-in
 /// patient's identity.
@@ -14,7 +14,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// (logout, 401 session-expiry) — it is a *reference* to the one provider
 /// the widget tree owns, not a parallel copy of its state.
 class UserProvider extends ChangeNotifier {
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   /// The live provider instance, for service-layer code with no
   /// `BuildContext`. Set in the constructor; the app builds exactly one.

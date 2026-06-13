@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/api_response.dart';
 import '../services/http_client.dart';
+import '../services/secure_storage.dart';
 
 /// Emergency contact number for the SOS feature.
 /// Override at build time: `--dart-define=VH_SOS_NUMBER=+91XXXXXXXXXX`
@@ -18,7 +18,7 @@ const String kSosEmergencyNumber = String.fromEnvironment(
 /// Supply a [BuildContext] only if you want in-app SnackBars; pass
 /// `null` when calling from a background isolate.
 Future<void> triggerSOS([BuildContext? ctx]) async {
-  const storage = FlutterSecureStorage();
+  final storage = VHSecureStorage.instance;
   final storedPhone =
       await storage.read(key: 'user_phone') ?? await storage.read(key: 'phone');
   final phone = storedPhone?.trim();

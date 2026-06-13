@@ -5,6 +5,7 @@ export 'models/api_models.dart';
 export 'models/api_response.dart';
 export 'services/api_retry.dart';
 export 'services/auth_service.dart';
+export 'services/secure_storage.dart';
 export 'services/certificate_pinner.dart';
 export 'services/connectivity_service.dart';
 export 'services/connectivity_sync_service.dart';

@@ -9,7 +9,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
@@ -48,7 +48,7 @@ class _LoginFormState extends State<LoginForm> {
 
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = VHSecureStorage.instance;
 
   final bool _isLoading = false;
   bool _showOtpWidget = false;

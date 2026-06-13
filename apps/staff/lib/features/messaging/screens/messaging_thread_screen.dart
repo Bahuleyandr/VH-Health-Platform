@@ -713,12 +713,41 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     }
   }
 
+  // STF-3: clinical message bodies are PHI. Gate copy behind a confirmation
+  // dialog, and schedule a 60 s clipboard clear so the content doesn't
+  // linger in the clipboard indefinitely across app boundaries.
   Future<void> _copyMessage(ThreadMessage message) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Copy clinical message?'),
+        content: const Text(
+          'This message may contain patient-sensitive information. '
+          'The clipboard will be cleared automatically after 60 seconds.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Copy'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     await Clipboard.setData(ClipboardData(text: message.body));
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Message copied')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Message copied — clipboard clears in 60 s')),
+    );
+    // Clear clipboard after 60 s regardless of widget lifecycle.
+    Timer(const Duration(seconds: 60), () {
+      Clipboard.setData(const ClipboardData(text: ''));
+    });
   }
 
   Widget _buildMessageList() {

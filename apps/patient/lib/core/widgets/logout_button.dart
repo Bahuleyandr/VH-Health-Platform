@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
@@ -63,7 +63,7 @@ class LogoutButton extends StatelessWidget {
 
     try {
       // Unregister device and revoke session before clearing storage
-      const storage = FlutterSecureStorage();
+      final storage = VHSecureStorage.instance;
       final phone = await storage.read(key: 'user_phone') ?? '';
       try {
         await Future.wait([

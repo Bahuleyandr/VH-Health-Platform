@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:screen_protector/screen_protector.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -290,6 +291,18 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // STF-1: block screenshots and suppress the app-switcher thumbnail
+    // so clinical PHI cannot leak via Android recents or iOS Exposé.
+    _applyScreenProtection();
+  }
+
+  Future<void> _applyScreenProtection() async {
+    try {
+      await ScreenProtector.protectDataLeakageOn();
+      await ScreenProtector.preventScreenshotOn();
+    } catch (e) {
+      if (kDebugMode) debugPrint('ScreenProtector init skipped: $e');
+    }
   }
 
   @override

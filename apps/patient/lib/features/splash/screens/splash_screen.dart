@@ -10,7 +10,7 @@ import 'package:vhhealth_core/config/api_config.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -33,7 +33,7 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<double> _hintFade;
 
   final _localAuth = LocalAuthentication();
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = VHSecureStorage.instance;
 
   Timer? _autoAdvanceTimer;
   bool _navigating = false;

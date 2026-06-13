@@ -4,8 +4,8 @@
 // parent holds a GlobalKey<AppointmentsListTabState> and calls refresh()
 // after a new booking.
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:vhhealth/core/providers/websocket_provider.dart';
@@ -27,7 +27,7 @@ class AppointmentsListTab extends StatefulWidget {
 }
 
 class AppointmentsListTabState extends State<AppointmentsListTab> {
-  static const _secureStorage = FlutterSecureStorage();
+  static final _secureStorage = VHSecureStorage.instance;
 
   List<AppointmentInfo> _appointments = [];
   bool _loadingAppointments = true;

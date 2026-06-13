@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -84,7 +84,7 @@ class _RecordsScreenState extends State<RecordsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   // ignore: unused_field
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   List<_RecordItem> _hospitalRecords = [];
   List<_RecordItem> _myUploads = [];

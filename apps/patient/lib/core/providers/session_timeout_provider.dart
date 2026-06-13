@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 /// Tracks user activity and enforces an idle session timeout.
 ///
@@ -14,7 +14,7 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   Timer? _timer;
   bool _expired = false;
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   bool get isSessionExpired => _expired;
 

@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
@@ -17,7 +17,7 @@ class WebSocketService {
   WebSocketService._();
   static final WebSocketService instance = WebSocketService._();
 
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
   static const int _maxRetries = 5;
   static const Duration _maxDelay = Duration(seconds: 30);
 

@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,7 +13,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 class DocumentOpener {
   DocumentOpener._();
 
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   /// Download a file from a URL and open it with the system viewer.
   /// Shows a loading dialog while downloading.

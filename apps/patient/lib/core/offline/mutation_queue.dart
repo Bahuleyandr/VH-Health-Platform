@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth_core/services/connectivity_service.dart';
 
@@ -18,7 +18,7 @@ import 'package:vhhealth_core/services/connectivity_service.dart';
 class MutationQueue {
   MutationQueue._();
 
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
   static const _queueKey = 'mutation_queue';
   static bool _replaying = false;
 

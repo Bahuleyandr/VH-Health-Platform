@@ -1,10 +1,11 @@
 // lib/core/services/shared_prefs_service.dart
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 class SharedPrefsService {
   static const _tokenKey = 'auth_access_token';
-  static const FlutterSecureStorage _secure = FlutterSecureStorage();
+  static final FlutterSecureStorage _secure = VHSecureStorage.instance;
 
   static String? _cachedToken;
 

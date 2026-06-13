@@ -5,15 +5,16 @@
 // so staff and patient tokens never collide.
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth_core/config/api_config.dart' as core;
+import 'package:vhhealth_core/services/secure_storage.dart';
 
 export 'package:vhhealth_core/config/api_config.dart' hide ApiConfig;
 
 class ApiConfig {
   ApiConfig._();
 
-  static const _storage = FlutterSecureStorage();
+  // All credential reads/writes route through the centralized encrypted store.
+  static final _storage = VHSecureStorage.instance;
 
   // ── Delegate shared config to core ─────────────────────────────────────
   static String get baseUrl => core.ApiConfig.baseUrl;

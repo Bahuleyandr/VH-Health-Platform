@@ -4,8 +4,8 @@
 // booking it calls [onBooked] so the parent screen switches to — and
 // refreshes — the My-Appointments tab.
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:vhhealth/core/providers/user_provider.dart';
@@ -26,7 +26,7 @@ class AppointmentBookTab extends StatefulWidget {
 }
 
 class _AppointmentBookTabState extends State<AppointmentBookTab> {
-  static const _secureStorage = FlutterSecureStorage();
+  static final _secureStorage = VHSecureStorage.instance;
 
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();

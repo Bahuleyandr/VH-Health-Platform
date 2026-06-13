@@ -1,9 +1,10 @@
 // lib/core/navigation/app_router.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 
@@ -139,7 +140,7 @@ class AppRouter {
       // said yes, confirm against the JWT in secure storage.
       if (!isLoggedIn) {
         try {
-          final jwt = await const FlutterSecureStorage().read(key: 'jwt');
+          final jwt = await VHSecureStorage.instance.read(key: 'jwt');
           // Don't treat any non-empty secure-storage value as an
           // authenticated session — require a JWT-shaped string.
           isLoggedIn = _hasValidJwtShape(jwt);

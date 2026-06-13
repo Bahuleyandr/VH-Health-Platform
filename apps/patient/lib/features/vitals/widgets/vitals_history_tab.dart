@@ -3,7 +3,7 @@
 // to this file since the history tab is their only consumer.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -35,7 +35,7 @@ class _VitalsHistoryTabState extends State<VitalsHistoryTab> {
     try {
       // Resolve patient ID from secure storage (same pattern as HealthSummaryTab).
       // Falls back to firebase_uid, then phone number as last resort.
-      const storage = FlutterSecureStorage();
+      final storage = VHSecureStorage.instance;
       final patientId =
           await storage.read(key: 'patient_id') ??
           await storage.read(key: 'firebase_uid') ??

@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:vhhealth_core/services/secure_storage.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
@@ -12,7 +12,7 @@ import 'package:vhhealth/core/services/websocket_service.dart';
 class LogoutService {
   LogoutService._();
 
-  static const _storage = FlutterSecureStorage();
+  static final _storage = VHSecureStorage.instance;
 
   /// Full logout: clears credentials, disconnects services, wipes caches.
   static Future<void> logout() async {
