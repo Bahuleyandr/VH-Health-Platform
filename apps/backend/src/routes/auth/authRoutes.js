@@ -47,6 +47,10 @@ wrapRoutesWithValidation(
       // Used for: Admin testing, non-patient users, legacy support
       [
         '/verify-otp',
+        // Brake brute-force of the 6-digit code: this path mints a real
+        // PATIENT JWT, and per-session attempt caps alone don't stop an
+        // attacker requesting fresh sessions. Per-phone 3/10min.
+        otpRateLimiter,
         ...phoneOtpValidator,
         handleValidation,
         authController.verifyOtp

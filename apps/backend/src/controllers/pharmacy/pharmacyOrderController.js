@@ -132,7 +132,8 @@ export const placeOrder = async (req, res) => {
     setImmediate(async () => {
       try {
         await import('../../services/smsService.js');
-        logger.info(`Pharmacy order ${order.order_number} placed by ${patientName}`);
+        // Don't log raw patient name (PHI). Identify by order + patient id.
+        logger.info(`Pharmacy order ${order.order_number} placed by patient ${patientId}`);
       } catch (e) {
         logger.warn('Pharmacist alert failed:', e.message);
       }

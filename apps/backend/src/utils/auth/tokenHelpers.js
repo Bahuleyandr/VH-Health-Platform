@@ -1,5 +1,6 @@
 // src/utils/auth/tokenHelpers.js - Token Helper Functions
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { AUTH_CONFIG } from '../../config/authConfig.js';
 import logger from '../../logging/logger.js';
@@ -8,7 +9,11 @@ import logger from '../../logging/logger.js';
 export const generateToken = (payload, expiresIn = AUTH_CONFIG.jwt.expiresIn) => {
   try {
     return jwt.sign(
-      payload,
+      // Ensure every token carries a jti so it can be revoked/blacklisted on
+      // logout and refresh rotation. Without this, admin MFA-login tokens
+      // (the only callers of this named export) were unrevocable. Parity with
+      // utils/jwtUtils.generateToken. An explicit payload.jti is preserved.
+      { jti: crypto.randomUUID(), ...payload },
       AUTH_CONFIG.jwt.secret,
       {
         expiresIn,

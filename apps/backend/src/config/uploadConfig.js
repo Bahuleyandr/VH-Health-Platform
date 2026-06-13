@@ -3,8 +3,11 @@
 export const HOSPITAL_UPLOAD_CONFIG = {
   allowedMimeTypes: [
     // Images - Medical imaging and documents
+    // NOTE: image/svg+xml is intentionally excluded. SVGs can embed <script>
+    // and are served inline from R2 signed URLs => stored XSS. Medical images
+    // are raster (JPEG/PNG/TIFF/etc.) or PDF; there is no clinical need for SVG.
     'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/tiff',
-    'image/bmp', 'image/svg+xml',
+    'image/bmp',
     // Documents - Medical records and reports
     'application/pdf',
     'application/msword',

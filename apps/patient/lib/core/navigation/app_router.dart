@@ -99,7 +99,9 @@ class AppRouter {
   static final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
-    debugLogDiagnostics: true,
+    // Only log navigation (which includes patient/invoice IDs in route paths)
+    // in debug builds; on Android debugLogDiagnostics output reaches logcat.
+    debugLogDiagnostics: kDebugMode,
 
     // Handle auth redirects
     redirect: (context, state) async {

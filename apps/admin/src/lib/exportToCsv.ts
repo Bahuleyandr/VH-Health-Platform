@@ -30,7 +30,15 @@ export interface CsvExportOptions<T> {
  */
 function escapeCsvField(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const str = String(value);
+  let str = String(value);
+  // CSV/formula injection guard: a leading =, +, -, @, tab or CR makes
+  // Excel/Sheets evaluate the cell as a formula (e.g. =WEBSERVICE(...),
+  // =cmd|'/C calc'!A1). Prefix with a single quote so spreadsheet apps treat
+  // it as literal text. Fields here can carry user/PHI input (names, comments,
+  // audit strings).
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
   const needsQuoting =
     str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r");
   if (!needsQuoting) return str;

@@ -47,6 +47,7 @@ wrapRoutesWithValidation(
       // Used for: Admin testing, special cases
       [
         '/verify-otp',
+        otpRateLimiter,
         ...phoneOtpValidator,
         handleValidation,
         otpController.verifyOtp

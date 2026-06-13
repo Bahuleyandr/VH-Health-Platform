@@ -1,5 +1,6 @@
 // src/services/auth/adminOtpService.js - Admin OTP Service
 
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { OTP_CONFIG } from '../../config/otpConfig.js';
 import prisma from '../../lib/prisma.js';
@@ -199,16 +200,19 @@ export const forceSendOtp = async (phone, purpose, reason, bypassLimits, adminUi
   
   // Generate OTP directly
   const otp = OTP_CONFIG.devMode ? '123456' : crypto.randomInt(100000, 999999).toString();
+  // Hash before storage — never persist the plaintext OTP (DB-compromise exposure).
+  // Verifiers use bcrypt.compare for $2-prefixed values (see otpService.verifyOTP).
+  const otpHash = await bcrypt.hash(otp, 6);
   const expiresAt = new Date(Date.now() + (OTP_CONFIG.expirationMinutes * 60 * 1000));
-  
-  // Store OTP
+
+  // Store OTP (hashed)
   const result = await query(`
     INSERT INTO otp_sessions (
-      phone, otp, purpose, expires_at, 
+      phone, otp, purpose, expires_at,
       attempts, created_at, verified
     ) VALUES ($1, $2, $3, $4, 0, NOW(), false)
     RETURNING id
-  `, [normalizedPhone, otp, purpose, expiresAt]);
+  `, [normalizedPhone, otpHash, purpose, expiresAt]);
   
   const sessionId = result[0].id;
   

@@ -14,8 +14,16 @@ import { PATIENT } from '../../utils/roles.js';
 export async function getRecordsByUID(req, res) {
   try {
     const { uid } = req.params;
+
+    // IDOR guard: patients may only read their own records.
+    // Mirrors getConsultationsByUid below; other roles are gated by the
+    // route-level requireRole()/patientAccessGuard at the mount.
+    if (req.user?.role === PATIENT && String(req.user?.uid) !== String(uid)) {
+      return error(res, 'Access denied: Patients can only view their own records', 403);
+    }
+
     const records = await recordService.getRecordsByUID(uid);
-    
+
     success(res, {
       records,
       count: records.length,

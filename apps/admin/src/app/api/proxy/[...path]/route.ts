@@ -143,11 +143,16 @@ async function handleProxy(req: NextRequest) {
 
   const targetUrl = buildTargetUrl(req);
 
-  // Validate the proxy path against allowlist to prevent open relay
+  // Validate the proxy path against allowlist to prevent open relay.
+  // Match on segment boundaries, not raw string prefixes, so an entry like
+  // "api/v1/users" cannot also authorize a sibling route such as
+  // "api/v1/users-internal".
   const path = extractPathSegments(req).join("/");
-  const isAllowed = ALLOWED_PATH_PREFIXES.some((prefix) =>
-    path.startsWith(prefix) || `api/v1/${path}`.startsWith(prefix),
-  );
+  const candidate = path.startsWith("api/v1/") ? path : `api/v1/${path}`;
+  const isAllowed = ALLOWED_PATH_PREFIXES.some((prefix) => {
+    const boundary = prefix.endsWith("/") ? prefix : `${prefix}/`;
+    return candidate === prefix || candidate.startsWith(boundary);
+  });
   if (!isAllowed) {
     return NextResponse.json(
       { message: "Proxy path not allowed" },
