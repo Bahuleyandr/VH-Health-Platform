@@ -70,6 +70,7 @@ spec:
           image: orthancteam/orthanc:24.10.1
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           env:
@@ -117,6 +118,13 @@ spec:
         name: storage
       spec:
         accessModes: ["ReadWriteOnce"]
+        # storageClassName: longhorn   # OPERATOR: un-comment when Longhorn is
+        #                              # confirmed installed (INF-5/B2.6). Without
+        #                              # this the cluster default (local-path on
+        #                              # single-node) is used — NOT replicated.
+        #                              # Longhorn gives 3-replica block redundancy;
+        #                              # local-path has no replication.
+        #                              # See base/longhorn/longhorn-app.yaml.
         resources:
           requests:
             # Size for the retention target before enabling (CT ≈ 0.5 GB/study).
@@ -177,3 +185,44 @@ spec:
       ports:
         - port: 4242
           protocol: TCP
+    # Allow OHIF viewer pod (same namespace) to reach DICOMweb on :8042
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ohif
+      ports:
+        - port: 8042
+          protocol: TCP
+---
+# Orthanc egress: Orthanc is a DICOM node — it may need to push/query
+# remote modalities and reaches nothing inside the cluster as a client.
+# Allow only DNS; DICOM C-MOVE/C-STORE to the modality VLAN is handled
+# by the ipBlock rule if needed. Keep egress minimal.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orthanc-egress
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc
+  policyTypes:
+    - Egress
+  egress:
+    # kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # OPERATOR: if this Orthanc node must C-MOVE/C-STORE to remote AE
+    # (e.g. a secondary archive or a modality in the imaging VLAN), add
+    # an explicit ipBlock egress rule here. No cluster-internal egress
+    # needed — Orthanc does not initiate connections to backend pods.

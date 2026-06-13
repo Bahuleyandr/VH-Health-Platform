@@ -1,0 +1,64 @@
+# argocd-pacs-app.yaml — ArgoCD Application CR for the optional PACS module
+#
+# OPERATOR-GATED: this file documents the GitOps wiring for the PACS stack but
+# is NOT applied automatically. The Application is deliberately kept OUTSIDE the
+# base/argocd/applications/ set so it does not auto-deploy on the next ArgoCD
+# sync. Follow the full checklist in README.md before applying.
+#
+# To enable via GitOps:
+#   1. Complete all README.md pre-requisites (PVC sizing, AE titles, sealed
+#      secret, VLAN CIDR, Longhorn ready).
+#   2. Add this file to base/argocd/applications/kustomization.yaml resources,
+#      OR apply it once with:
+#        kubectl apply -f infra/kubernetes/optional/pacs/argocd-pacs-app.yaml
+#   3. ArgoCD will begin syncing `infra/kubernetes/optional/pacs` into the
+#      vhhealth namespace.
+#
+# The PACS Application syncs the optional/pacs Kustomize directory. It is a
+# separate Application from `vhhealth-platform` (which syncs overlays/prod) so
+# that the imaging stack can be enabled/disabled independently without touching
+# the core platform sync.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vhhealth-pacs
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/component: pacs
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # Wave 4: after platform storage (Longhorn wave -5) and cert-manager (wave 2)
+    # are ready. OHIF ingress needs cert-manager to issue the step-ca-internal TLS
+    # cert, and Orthanc PVC needs Longhorn (or local-path) to be available.
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: vhhealth
+  source:
+    repoURL: https://github.com/Bahuleyandr/VH-Health-Platform
+    targetRevision: HEAD
+    path: infra/kubernetes/optional/pacs
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vhhealth
+  syncPolicy:
+    # NOTE: automated sync intentionally disabled initially. Enable after
+    # the operator has verified the first manual sync succeeds.
+    # automated:
+    #   prune: true
+    #   selfHeal: true
+    syncOptions:
+      - CreateNamespace=false   # vhhealth namespace created by base overlay
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+  revisionHistoryLimit: 5

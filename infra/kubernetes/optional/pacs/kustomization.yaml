@@ -2,8 +2,21 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Roadmap B4 — opt-in PACS module. See README.md before enabling.
+#
+# NOT referenced by base/kustomization.yaml. To activate in prod, add to
+# overlays/prod/kustomization.yaml:
+#   resources:
+#     - ../../base
+#     - ../../optional/pacs
+#
+# Also add the sealed SealedSecret (registered-users.sealed-secret.yaml.example)
+# sealed with kubeseal and committed as registered-users.sealed-secret.yaml,
+# then add it to this resources list below.
 namespace: vhhealth
 
 resources:
   - orthanc.yaml
   - ohif.yaml
+  # Operator step: seal the example and commit the sealed file, then
+  # uncomment:
+  # - registered-users.sealed-secret.yaml

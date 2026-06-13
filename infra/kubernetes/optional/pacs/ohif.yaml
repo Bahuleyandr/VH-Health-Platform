@@ -1,6 +1,17 @@
-# OHIF viewer pointed at Orthanc DICOMweb (roadmap B4). Expose via
-# ingress-nginx + SSO only if remote reading is required; ward PCs reach the
-# Service directly on the LAN.
+# OHIF viewer pointed at Orthanc DICOMweb (roadmap B4).
+# Exposed LAN-only via the nginx-internal IngressClass at:
+#   https://imaging.vhhealth.hospital.local
+# Ward PCs can also reach the Service directly on the LAN via the above URL.
+# Remote-reading outside the LAN is NOT enabled by default; see README.md.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ohif-viewer
+  labels:
+    app.kubernetes.io/name: ohif
+    app.kubernetes.io/part-of: vhhealth-pacs
+automountServiceAccountToken: false
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -55,9 +66,29 @@ spec:
         app.kubernetes.io/name: ohif
         app.kubernetes.io/part-of: vhhealth-pacs
     spec:
+      serviceAccountName: ohif-viewer
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # ohif/app image ships nginx running as uid 101 (nginx user).
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ohif
+          # Pin the digest at enable time per SECURITY_HARDENING_CHECKLIST.md.
+          # Current: ohif/app:v3.9.2 — verify digest before first deploy.
           image: ohif/app:v3.9.2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # nginx writes PID/cache to /tmp, /var/cache/nginx
+            capabilities:
+              drop: ["ALL"]
+              # nginx needs to bind :80 on the pod network; NET_BIND_SERVICE
+              # lets it do so without root.
+              add: ["NET_BIND_SERVICE"]
           ports:
             - name: http
               containerPort: 80
@@ -65,6 +96,12 @@ spec:
             - name: config
               mountPath: /usr/share/nginx/html/app-config.js
               subPath: app-config.js
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
           resources:
             requests:
               cpu: 100m
@@ -75,6 +112,12 @@ spec:
         - name: config
           configMap:
             name: ohif-config
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -90,3 +133,109 @@ spec:
     - name: http
       port: 80
       targetPort: http
+---
+# LAN-only Ingress for the OHIF viewer.
+# Served by the nginx-internal IngressClass (hospital LAN only — NOT public
+# Cloudflare). TLS from step-ca-internal; hospital workstations must trust the
+# step-ca root CA (see base/cert-manager/ and HARDWARE_REQUIREMENTS.md).
+#
+# OPERATOR: set the correct hostname in your overlay patch before enabling.
+# Default: imaging.vhhealth.hospital.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ohif-viewer
+  labels:
+    app.kubernetes.io/name: ohif
+    app.kubernetes.io/part-of: vhhealth-pacs
+    app.kubernetes.io/exposure: lan-only
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+    cert-manager.io/cluster-issuer: step-ca-internal
+    # OHIF loads large DICOM data via XHR — allow up to 1 GiB bodies so
+    # bulk C-MOVE responses and multiframe images aren't truncated at nginx.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    # Security headers (LAN-only; no HSTS preload — step-ca-internal is
+    # a private CA not registered in the CT log preload list).
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=()";
+spec:
+  ingressClassName: nginx-internal
+  tls:
+    - hosts:
+        - imaging.vhhealth.hospital.local
+      secretName: ohif-viewer-tls
+  rules:
+    - host: imaging.vhhealth.hospital.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ohif-viewer
+                port:
+                  number: 80
+---
+# NetworkPolicy for OHIF viewer.
+#
+# Ingress: only the nginx-internal IngressClass controller pods (in the
+# vhhealth-ingress namespace) may reach port 80.
+#
+# Egress: only Orthanc DICOMweb (:8042) and kube-dns.
+# OHIF is a browser SPA — the pod itself just serves static assets; the
+# browser's XHR calls reach Orthanc directly from the client network.
+# The pod has no direct DICOM egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ohif-viewer
+  labels:
+    app.kubernetes.io/name: ohif
+    app.kubernetes.io/part-of: vhhealth-pacs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ohif
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # nginx-internal IngressClass controller in vhhealth-ingress namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: ingress-nginx-internal
+      ports:
+        - port: 80
+          protocol: TCP
+  egress:
+    # kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Orthanc DICOMweb (same namespace — pod-selector only)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orthanc
+      ports:
+        - port: 8042
+          protocol: TCP
