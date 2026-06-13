@@ -190,7 +190,7 @@ _2026-06-13 — **WS0 COMPLETE (7/7).** B0.1 landed in-flight security sweep (1C
 | WS | Batches | Done | Status |
 |---|---|---|---|
 | WS0 | 7 | 7 | ✅ COMPLETE |
-| WS1 | 7 | 4 | B1.1/B1.2 RLS (283 tbl) ✅ · B1.6 SEC-5/6/7/8 ✅ · B1.3 interactive-txn scoping + replica-aware setTenant (6 sites) ✅ · next: B1.4 cross-tenant gate, B1.5 crypto, B1.7 pen-prep, B1.3b (~97 remaining $transaction sites; createEnhancementClaim omits tenant_id; note insurance_claims now HAS tenant_id — fix stale CLAUDE.md/memory) |
+| WS1 | 7 | 5 | B1.1/B1.2 RLS (283 tbl) ✅ · B1.3 interactive-txn scoping ✅ · B1.4 cross-tenant gate (43 RLS tests, blocking CI) ✅ · B1.6 SEC-5/6/7/8 ✅ · next: B1.5 crypto envelope (SEC-4), B1.7 pen-prep, B1.3b (~97 $transaction sites + createEnhancementClaim tenant_id; fix stale insurance_claims doc) |
 | WS2 | 8 | 2 | B2.1 monitoring/alerting GitOps + Watchdog ✅ · B2.8 infra-hardening INF-3/9/10/11 ✅ · B2.2 DR drill, B2.3 CronJobs, B2.4 HTTP timeouts, B2.5 fallback metrics, B2.6 Longhorn, B2.7 Vault auto-unseal, B2.8-backend next |
 | WS3 | 5 | 0 | queued |
 | WS4 | 6 | 0 | queued |
