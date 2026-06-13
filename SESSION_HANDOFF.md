@@ -1,6 +1,6 @@
 # VH Health Platform - Session Handoff
 
-Last updated: 2026-06-01.
+Last updated: 2026-06-13.
 
 This file is the durable bootstrap note for continuing the current VH Health
 Platform work from another PC or a fresh Codex run. Treat the current worktree
@@ -8,14 +8,29 @@ and Forgejo state as authoritative; this note is only a map.
 
 ## Active Goal
 
-Implement the Staff app multi-device strategy and production-grade
-front-office/staff workflows, including role-aware inpatient visibility,
-OP/reception workbench improvements, governance toggles, auditability, and
-reliable DalekDefender-backed desktop builds.
+**S-Tier Roadmap (WS1–WS8) — target 2026-06-30.**
 
-Goal status at pause: active but intentionally paused. Do not mark the goal
-complete until every requirement in the original Staff App Multi-Device
-Strategy is implemented and verified end to end.
+See `docs/S_TIER_ROADMAP.md` for the full plan, batch sequencing, and per-batch
+status. The platform scored B− in the 2026-06-13 full-stack audit
+(`docs/PLATFORM_AUDIT_2026-06-13.md`). The S-tier roadmap drives it to A+/S
+(internal) by 2026-06-30.
+
+WS0 criticals are complete. WS1 (security/multi-tenancy) and WS2 (reliability)
+are partially complete. Next: finish WS2, execute WS3 (deterministic in-CI
+journey tests — the new quality gate replacing the agent swarm), then WS4–WS8
+in parallel tracks per the roadmap schedule.
+
+**Note on the agent swarm:** The headless Claude-agent swarm (previously running
+on Dalekdefender as `tmux attach -t vh-swarm`) is **retired**. It has been
+replaced by deterministic in-CI journey tests (WS3). Do not re-arm the swarm.
+The swarm codebase at `D:\Dev\Projects\vh-health-swarm` is preserved for
+reference only. The 2026-06-16 swarm-framing goal (`docs/GOAL_2026-06-16.md`)
+is superseded by the S-tier roadmap.
+
+**Note on the Staff app multi-device goal:** The prior active goal (Staff app
+multi-device strategy, last updated 2026-06-01) is absorbed into the S-tier
+roadmap under WS6 (apps hardening). The specific Staff app items below remain
+valid sub-tasks but are no longer the top-level goal.
 
 ## Canonical Repo And Branch
 

@@ -21,6 +21,9 @@ Thumbs.db
 melos_*.log
 output/
 
+# Temporary working directories
+tmp/
+
 # Node (tooling scripts only — real node_modules live in sibling repos)
 node_modules/
 
