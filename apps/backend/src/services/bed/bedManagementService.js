@@ -4,8 +4,9 @@
 // UPDATE row lock → conditional INSERT/UPDATE → state commit). Reads use
 // plain prisma.$queryRaw*.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
@@ -79,7 +80,7 @@ class BedManagementService {
     // prisma.$transaction runs the callback inside BEGIN/COMMIT — thrown
     // errors (including AppError) trigger automatic ROLLBACK before
     // propagating to the caller.
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, status, bed_number, bed_type FROM beds
           WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -153,7 +154,7 @@ class BedManagementService {
   // =========================================================================
   async dischargePatient(bedId, dischargedBy, options = {}) {
     const tenantId = tenantOf(options);
-    const { updated, patientUid, admissionId } = await prisma.$transaction(async (tx) => {
+    const { updated, patientUid, admissionId } = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, status, patient_uid, bed_number FROM beds
           WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -324,7 +325,7 @@ class BedManagementService {
   async transferPatient(patientUid, toBedId, reason, transferredBy, actorRole = null, options = {}) {
     const { acknowledgeClassChange = false } = options;
     const tenantId = tenantOf(options);
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
       const currentBedRows = await tx.$queryRawUnsafe(
         `SELECT id, tenant_id, bed_number, bed_type, ward_id
            FROM beds

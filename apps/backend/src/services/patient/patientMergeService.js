@@ -34,7 +34,7 @@
  * 'executed' status, which is intentionally one-way.
  */
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
@@ -164,7 +164,7 @@ export async function approveMerge({
   const approver = maybeUuid(approverUid, 'approver_uid');
   if (!approver) throw AppError.badRequest('approver_uid is required');
 
-  return await prisma.$transaction(async (tx) => {
+  return await setTenantTx(tid || DEFAULT_TENANT_ID, async (tx) => {
     const existingRows = await tx.$queryRawUnsafe(
       `SELECT id, status, requested_by FROM patient_merge_requests
        WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
@@ -271,7 +271,7 @@ export async function executeMerge({
   const executor = maybeUuid(executorUid, 'executor_uid');
   if (!executor) throw AppError.badRequest('executor_uid is required');
 
-  return await prisma.$transaction(async (tx) => {
+  return await setTenantTx(tid || DEFAULT_TENANT_ID, async (tx) => {
     const existingRows = await tx.$queryRawUnsafe(
       `SELECT id, status, candidate_id, primary_uid, secondary_uid, approver_uid
        FROM patient_merge_requests

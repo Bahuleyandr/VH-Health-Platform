@@ -14,9 +14,10 @@
 //   - 'expired' is set by a periodic sweep when a pending row outlives
 //     its expires_at — prevents stale shortlists from littering the UI.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const VALID_DECISIONS = new Set(['pending', 'chosen', 'declined', 'expired']);
 
@@ -64,7 +65,7 @@ export async function startInspection({
 
   const expiresAt = new Date(Date.now() + Math.max(1, Math.min(168, expiresInHours)) * 3600_000);
 
-  const inspection = await prisma.$transaction(async (tx) => {
+  const inspection = await setTenantTx(tid || DEFAULT_TENANT_ID, async (tx) => {
     const inserted = await tx.$queryRawUnsafe(
       `INSERT INTO bed_inspections
         (appointment_id, patient_uid, shown_bed_ids, inspected_by_attender,

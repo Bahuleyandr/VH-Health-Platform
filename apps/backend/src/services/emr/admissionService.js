@@ -827,7 +827,7 @@ async function admitPatient(data) {
 
   let carriedErOrders = [];
 
-  const admission = await prisma.$transaction(async (tx) => {
+  const admission = await setTenantTx(admissionTenantId || DEFAULT_TENANT_ID, async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findFirst({
       where: {
@@ -1420,7 +1420,7 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy, options = {}
   if (!assignedBy) throw AppError.badRequest('assignedBy is required');
   const tenantId = options.tenantId || null;
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since
       FROM admissions
@@ -3556,7 +3556,7 @@ async function saveAdmissionCaseSheet(admissionId, caseSheet, savedBy, savedByRo
   if (!savedByRole) throw AppError.badRequest('savedByRole is required');
   const tenantId = options.tenantId || null;
   const content = normalizeCaseSheet(caseSheet);
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     const admission = await findAdmissionById(tx, admissionId, {
       tenantId,
       select: {
@@ -3755,7 +3755,7 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy, options = {}
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
   const tenantId = options.tenantId || null;
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, code_status, patient_uid, status
@@ -3830,7 +3830,7 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy, options 
   //   2026-05-22-inpatient-admission-receptionist-06e43c24.
   await assertDoctorUid(doctorUid, 'doctor_uid');
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, attending_doctor, patient_uid, status
@@ -3910,7 +3910,7 @@ async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy, options 
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  return setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
     // FOR UPDATE lock on admission row.
     const admRows = await tx.$queryRaw`
       SELECT id, tenant_id, next_review_at, patient_uid, status

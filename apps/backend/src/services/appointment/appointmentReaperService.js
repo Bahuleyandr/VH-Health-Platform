@@ -28,7 +28,7 @@
 // across walk-in OPD findings. Bookkeeping companion to the existing
 // stuck-order escalation job.
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 
@@ -70,7 +70,7 @@ async function reapStaleScheduledVisitsInner({ graceMinutes = DEFAULT_GRACE_MIN 
 
   // Flip + history in one transaction so a partial failure doesn't
   // leave the audit trail desynced from the row state.
-  const reaped = await prisma.$transaction(async (tx) => {
+  const reaped = await setTenantTx(null, async (tx) => {
     const updated = await tx.appointments.updateMany({
       where: { id: { in: ids }, status: 'SCHEDULED', admin_override: false },
       data: { status: 'MISSED', updated_at: new Date() },
@@ -90,7 +90,7 @@ async function reapStaleScheduledVisitsInner({ graceMinutes = DEFAULT_GRACE_MIN 
       });
     }
     return updated.count;
-  });
+  }, { superAdmin: true });
 
   if (reaped > 0) {
     logger.info(`Visit reaper: marked ${reaped} stale SCHEDULED appointment(s) as MISSED (grace=${grace}m)`);

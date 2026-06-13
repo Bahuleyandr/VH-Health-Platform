@@ -2,8 +2,9 @@
 // Migrated from raw pg to Prisma ORM
 
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
 import { ensureAppointmentQueueForAppointment } from './appointmentQueueService.js';
@@ -93,7 +94,7 @@ export class AppointmentService {
     const hasDoctorId = doctor_id !== undefined && doctor_id !== null && String(doctor_id).trim() !== '';
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await setTenantTx(tenant_id || DEFAULT_TENANT_ID, async (tx) => {
         // Resolve patient phone and, when specified, doctor routing metadata.
         const [pRows, resolvedDoctor] = await Promise.all([
           tx.$queryRaw`
