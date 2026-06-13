@@ -154,10 +154,16 @@ d('Infection-control workbench — deep round-trip (roadmap D5)', () => {
   });
 
   test('antibiogram aggregates susceptibility + resistance flags', async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // ±1-day window so the assertion is not flaky at the UTC/local date
+    // boundary: the seed dates micro orders at NOW() (local), while a single
+    // UTC-day filter misses them when the run straddles midnight. Assertions
+    // key on the specific 'D5TEST E. coli' organism, so a wider window is safe.
+    const day = 24 * 60 * 60 * 1000;
+    const from = new Date(Date.now() - day).toISOString().slice(0, 10);
+    const to = new Date(Date.now() + day).toISOString().slice(0, 10);
     const res = await authClient('QUALITY_OFFICER')
       .get('/api/v1/infection-control/antibiogram')
-      .query({ from: today, to: today });
+      .query({ from, to });
     expect(res.status).toBe(200);
     const organism = res.body.data.organisms['D5TEST E. coli'];
     expect(organism).toBeDefined();
