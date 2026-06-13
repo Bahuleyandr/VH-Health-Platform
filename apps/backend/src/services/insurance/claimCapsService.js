@@ -51,11 +51,26 @@ function parseClaimId(claimId) {
  * `tpa_claims` when both match because that's the surface the route
  * (`/api/v1/insurance/claims/:id`) actively writes to today.
  *
+ * Tenant scoping is MANDATORY (fail closed). `insurance_claim_caps` has no
+ * tenant_id column and no RLS policy of its own (migrations 178/197/304); caps
+ * rows inherit tenant isolation ONLY transitively through this parent-claim
+ * lookup. A missing tenantId would probe insurance_claims/tpa_claims by id
+ * alone and hand back cross-tenant reach, so we refuse it outright rather than
+ * leave the unscoped path as a latent footgun for a future caller.
+ *
+ * @param {number|string} claimId
+ * @param {string} tenantId  REQUIRED — throws 403 TENANT_SCOPE_REQUIRED if falsy.
  * @returns {{ id: number, side: 'legacy'|'tpa', whereByParent: object }}
  */
-async function resolveClaimTarget(claimId, tenantId = null) {
+async function resolveClaimTarget(claimId, tenantId) {
+  if (!tenantId) {
+    throw AppError.forbidden(
+      'Tenant context is required for claim cap operations',
+      'TENANT_SCOPE_REQUIRED',
+    );
+  }
   const id = parseClaimId(claimId);
-  const where = tenantId ? { id, tenant_id: String(tenantId) } : { id };
+  const where = { id, tenant_id: String(tenantId) };
   const [tpa, legacy] = await Promise.all([
     prisma.tpa_claims.findFirst({
       where,

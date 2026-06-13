@@ -19,7 +19,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
-const { getClaimCaps } = await import('../../services/insurance/claimCapsService.js');
+const { getClaimCaps, setClaimCaps, deleteCap, applyCapsToInvoiceLines } = await import('../../services/insurance/claimCapsService.js');
 const { attachDocument, logCorrespondence } = await import('../../services/insurance/claimsService.js');
 
 beforeEach(() => {
@@ -94,5 +94,37 @@ describe('insurance claim-cap and TPA child-object tenant authorization', () => 
     expect(row.id).toBe(44);
     expect(queryRawUnsafeMock.mock.calls[0][0]).toContain('FROM insurance_preauth');
     expect(queryRawUnsafeMock.mock.calls[1][0]).toContain('INSERT INTO tpa_claim_correspondence');
+  });
+});
+
+describe('claim-cap fail-closed tenant guard (resolveClaimTarget requires tenantId)', () => {
+  const expectGuard = { statusCode: 403, code: 'TENANT_SCOPE_REQUIRED' };
+
+  it('rejects getClaimCaps when no tenant is supplied — and never probes the DB', async () => {
+    await expect(getClaimCaps(7)).rejects.toMatchObject(expectGuard);
+    expect(mockPrisma.tpa_claims.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.insurance_claims.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.insurance_claim_caps.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects applyCapsToInvoiceLines when no tenant is supplied', async () => {
+    await expect(
+      applyCapsToInvoiceLines(7, [{ category: 'pharmacy', amount: 100 }]),
+    ).rejects.toMatchObject(expectGuard);
+    expect(mockPrisma.tpa_claims.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects setClaimCaps when no tenant is supplied (after payload validation)', async () => {
+    await expect(
+      setClaimCaps({ claimId: 7, caps: [{ category: 'pharmacy', max_amount: 100 }], actorUid: 'staff-1' }),
+    ).rejects.toMatchObject(expectGuard);
+    expect(mockPrisma.tpa_claims.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleteCap when no tenant is supplied', async () => {
+    await expect(
+      deleteCap({ claimId: 7, category: 'pharmacy', actorUid: 'staff-1' }),
+    ).rejects.toMatchObject(expectGuard);
+    expect(mockPrisma.tpa_claims.findFirst).not.toHaveBeenCalled();
   });
 });
