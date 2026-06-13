@@ -17,7 +17,7 @@
 
 import crypto from 'crypto';
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
@@ -145,7 +145,7 @@ export async function addPatientIdentifier({
     // If isPrimary=true, demote any other primary of the same type for
     // this patient first. Run in a single transaction so the partial
     // unique index never sees two primaries simultaneously.
-    return await prisma.$transaction(async (tx) => {
+    return await setTenantTx(tid, async (tx) => {
       if (isPrimary) {
         await tx.$queryRawUnsafe(
           `UPDATE patient_identifiers
@@ -426,7 +426,7 @@ export async function retirePatientIdentifier({ tenantId = null, id } = {}) {
 export async function setPrimaryIdentifier({ tenantId = null, id } = {}) {
   const tid = resolveTenantId({ tenantId });
   const idVal = normalizeId(id, 'identifier id');
-  return await prisma.$transaction(async (tx) => {
+  return await setTenantTx(tid, async (tx) => {
     const targetRows = await tx.$queryRawUnsafe(
       `SELECT id, patient_uid, identifier_type, status
        FROM patient_identifiers

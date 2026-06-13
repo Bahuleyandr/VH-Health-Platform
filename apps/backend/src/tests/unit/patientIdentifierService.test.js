@@ -10,12 +10,14 @@ import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
 const transactionMock = jest.fn();
+const setTenantTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryUnsafeMock,
     $transaction: transactionMock,
   },
+  setTenantTx: setTenantTxMock,
 }));
 
 const {
@@ -37,8 +39,13 @@ const SECONDARY = '22222222-2222-4222-8222-222222222222';
 beforeEach(() => {
   queryUnsafeMock.mockReset();
   transactionMock.mockReset();
+  setTenantTxMock.mockReset();
   // Default: $transaction proxies to a tx object backed by the same mock.
   transactionMock.mockImplementation(async (cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
+  // addPatientIdentifier/setPrimaryIdentifier now run under setTenantTx(tid, cb)
+  // (sets app.current_tenant_id so RLS enforces inside the tx); proxy it to the
+  // same tx mock so the inner statements still record on queryUnsafeMock.
+  setTenantTxMock.mockImplementation(async (tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 });
 
 function mockNext(rows) {
@@ -72,7 +79,7 @@ describe('addPatientIdentifier', () => {
       createdBy: 'admin-uid',
     });
     expect(row.id).toBe(1);
-    expect(transactionMock).toHaveBeenCalled();
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
     const insertCall = queryUnsafeMock.mock.calls[0];
     expect(insertCall[0]).toMatch(/INSERT INTO patient_identifiers/);
     // tenant, uid, type, value, hash, issuer, assigned, expires, primary, metadata, createdBy
@@ -222,7 +229,7 @@ describe('setPrimaryIdentifier', () => {
     mockNext([{ id: 7, is_primary: true, identifier_type: 'mrn', status: 'active' }]);
     const row = await setPrimaryIdentifier({ tenantId: TENANT, id: 7 });
     expect(row.is_primary).toBe(true);
-    expect(transactionMock).toHaveBeenCalled();
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/UPDATE patient_identifiers[\s\S]*is_primary = false/);
     expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/SET is_primary = true/);
   });
