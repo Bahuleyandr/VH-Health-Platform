@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/services/staff_evidence_upload_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../l10n/app_strings.dart';
 
@@ -97,6 +100,9 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                 as Map;
         zoneName = zone['name'] as String?;
       }
+      final evidence = _photo == null
+          ? null
+          : await StaffEvidenceUploadService.upload(_photo!);
       final result = await HrApiService.raiseHousekeepingRequest(
         locationText: location.isNotEmpty ? location : zoneName ?? '',
         requestType: _requestType,
@@ -105,6 +111,8 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
         description: _descCtrl.text.trim().isNotEmpty
             ? _descCtrl.text.trim()
             : null,
+        photoKey: evidence?.storageKey,
+        photoUrl: evidence?.storageUrl,
       );
       final data = result['data'] as Map<String, dynamic>? ?? result;
       if (mounted) {

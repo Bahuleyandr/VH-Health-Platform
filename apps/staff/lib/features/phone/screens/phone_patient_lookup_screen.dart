@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/role_config.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 
@@ -18,14 +20,33 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
   final _ctrl = TextEditingController();
   Timer? _debounce;
   bool _loading = false;
+  bool? _allowed;
   String? _error;
   List<Map<String, dynamic>> _patients = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRoleGate();
+  }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _ctrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadRoleGate() async {
+    try {
+      final role = StaffRole.fromString(await AuthService.getRole());
+      if (!mounted) return;
+      setState(() {
+        _allowed = RoleFeatures.hasPhoneReadOnlyPatientLookup(role);
+      });
+    } catch (_) {
+      if (mounted) setState(() => _allowed = false);
+    }
   }
 
   void _onChanged(String value) {
@@ -60,6 +81,17 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final allowed = _allowed;
+    if (allowed == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Read-Only Patient Lookup')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (!allowed) {
+      return const _LookupDeniedScreen();
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Read-Only Patient Lookup')),
       body: ListView(
@@ -144,6 +176,44 @@ class _PhonePatientLookupScreenState extends State<PhonePatientLookupScreen> {
               ),
             );
           }),
+        ],
+      ),
+    );
+  }
+}
+
+class _LookupDeniedScreen extends StatelessWidget {
+  const _LookupDeniedScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Read-Only Patient Lookup')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.warningAmber.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppTheme.warningAmber.withValues(alpha: 0.35),
+              ),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lock_outline, color: AppTheme.warningAmber),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Patient lookup on phone is limited to doctor-class read-only access. Use Staff Desktop for clinical workflows.',
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

@@ -2018,6 +2018,16 @@ class RoleFeatures {
     };
   }
 
+  static bool hasPhoneReadOnlyPatientLookup(StaffRole role) {
+    return switch (role) {
+      StaffRole.doctor ||
+      StaffRole.dutyDoctor ||
+      StaffRole.anaesthetist ||
+      StaffRole.medicalSuperintendent => true,
+      _ => false,
+    };
+  }
+
   static bool hasPatientLookup(StaffRole role) {
     return switch (role) {
       StaffRole.admin ||
