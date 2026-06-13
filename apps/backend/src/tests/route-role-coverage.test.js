@@ -39,7 +39,10 @@ const EXEMPT_MOUNTS = {
   '/api/v1/sessions': 'own-session management; self-scoped to req.user',
   '/api/v1/auth/admin/totp': 'TOTP enroll/verify with its own scope guards (requireSetupScope)',
   '/api/v1/abdm': 'ABDM patient consent flows; self-scoped + signature-verified callbacks',
-  '/api/v1/staff': 'wrapAutoRBAC(staffRoutes) + controller-level narrowing (own profile vs admin)',
+  // NOTE: '/api/v1/staff' is NOT exempt — its first mount (app.js:678) is
+  // requireRole(...STAFF_PHONE_SELF_SERVICE_ROUTE_ROLES) + staffPhoneRoutes,
+  // so the path is mount-level gated. The later app.use('/api/v1/staff',
+  // staffRoutes) inherits that first gate (Express runs same-path mounts in order).
   '/api/v1/admin/ed': 'pure 308 redirect to the role-gated /api/v1/ed mount',
   '/api/v1/admin/surgical': 'pure 308 redirect to the role-gated /api/v1/surgical mount',
   '/api/v1/quality': 'controller-level isStaff/isClinical/isAdmin checks (roleHelpers) — candidate for mount-level requireRole, tracked in PLATFORM_REMEDIATION_PLAN',
