@@ -68,7 +68,7 @@
     "load-test:auth": "k6 run load-tests/k6/auth.js",
     "load-test:api": "k6 run load-tests/k6/api.js",
     "test:watch": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --watch",
-    "test:coverage": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --runInBand --coverage",
+    "test:coverage": "node scripts/run-coverage-jest.mjs",
     "test:suite": "node --experimental-vm-modules --max-old-space-size=2048 node_modules/jest/bin/jest.js --runInBand --testPathPatterns"
   },
   "repository": {
@@ -181,7 +181,49 @@
     "workerThreads": false,
     "testMatch": [
       "<rootDir>/src/tests/**/*.test.js"
-    ]
+    ],
+    "collectCoverageFrom": [
+      "src/services/auth/**/*.js",
+      "src/lib/prisma.js",
+      "src/lib/tenantContext.js",
+      "src/middleware/jwtMiddleware.js",
+      "src/middleware/tenantContextMiddleware.js",
+      "src/middleware/tenantRlsMiddleware.js",
+      "src/utils/clinical/prescriptionSafetyCheck.js",
+      "src/services/billing/**/*.js",
+      "src/services/emr/cdsEngine.js",
+      "src/services/cds/**/*.js"
+    ],
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/src/tests/",
+      "/src/scripts/"
+    ],
+    "coverageThreshold": {
+      "src/services/auth/adminOtpService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/auth/apiClientService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/auth/authService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/auth/firebaseAuthService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/auth/loginSessionHelper.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 75 },
+      "src/services/auth/mfaService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 60 },
+      "src/services/auth/otpService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/auth/staffAuthService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/auth/userActiveSession.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/lib/prisma.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/lib/tenantContext.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/middleware/jwtMiddleware.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/middleware/tenantContextMiddleware.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/middleware/tenantRlsMiddleware.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 50 },
+      "src/utils/clinical/prescriptionSafetyCheck.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/billing/billingService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/billing/billingV2Service.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/billing/cashDrawerService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/billing/ediGenerator.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 55 },
+      "src/services/billing/paymentLinkService.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/emr/cdsEngine.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/cds/cdsHooksAdapter.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 80 },
+      "src/services/cds/encounterCdsHelper.js": { "statements": 80, "lines": 80, "functions": 80, "branches": 55 }
+    }
   },
   "overrides": {
     "@google-cloud/firestore": "^8.5.0",
