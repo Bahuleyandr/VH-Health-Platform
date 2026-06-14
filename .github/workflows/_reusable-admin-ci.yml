@@ -34,6 +34,10 @@ jobs:
       NEXT_PUBLIC_API_KEY: test-api-key
       NEXT_PUBLIC_APP_NAME: VHHealth Admin
       NEXT_PUBLIC_APP_ORIGIN: http://localhost:3000
+      # SEC-8: the admin proxy refuses to build in production without an explicit
+      # CSRF origin allowlist. CI only needs a valid value to compile (this image
+      # is never deployed); prod bakes the real origin via release-images.yml.
+      NEXT_PUBLIC_ALLOWED_ORIGIN: http://localhost:3000
       NEXT_PUBLIC_WS_URL: ws://localhost:5000
       NEXT_PUBLIC_X_API_KEY: test-api-key
 
