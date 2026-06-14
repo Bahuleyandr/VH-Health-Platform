@@ -226,3 +226,9 @@ _2026-06-14 (WS5 B5.5 COMPLETE — clinical-AI knowledge curation; **🏁 S-TIER
 **Definition of "Internal A+/S" (Jun 30):** all non-`[flagged]` batches merged green;
 S-tier scorecard A+ column met; deterministic 11-journey gate green in CI; DR drill
 passed; monitoring live. **Externally-certified S:** flagged engagements cleared.
+
+**Operator go-live:** the remaining `[flagged]`/operator-gated tail (seal the
+non-superuser DB role, verify RLS enforcement at runtime, Kyverno Audit→Enforce,
+DR drill, monitoring, downtime LAN-mirror volume, knowledge/formulary load,
+external certs) is sequenced in dependency order in
+[`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIVATION_CHECKLIST.md).
