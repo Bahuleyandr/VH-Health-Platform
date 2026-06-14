@@ -17,6 +17,12 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
   logPhiAccess: jest.fn(),
 }));
 
+// NOTE: these cases use the LEGACY guard form (no careTeamModeGoverned option),
+// which is unchanged by Phase 0 — it always enforces (real 403 on deny) and
+// never consults the per-tenant enforcement-mode resolver. The off/shadow/
+// enforce mode behaviour for care-team-governed coverage is covered in
+// careTeamEnforcement-guard.test.js.
+
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: {
     warn: jest.fn(),

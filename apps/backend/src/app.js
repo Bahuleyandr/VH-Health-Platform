@@ -30,7 +30,7 @@ import tenantRoutes from './routes/admin/tenantRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
-import { phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
+import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
@@ -622,7 +622,7 @@ app.use(
   appointmentRoutes
 );
 app.use('/api/v1/records', patientRateLimiter, requireRole(...RECORD_ROUTE_ROLES), patientAccessGuard('MEDICAL_RECORD'), phiAccessLogger('MEDICAL_RECORD'), recordRoutes);
-app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), phiAccessLogger('INVESTIGATION'), investigationRoutes);
+app.use('/api/v1/investigations', patientInvestigationRateLimiter, requireRole(...INVESTIGATION_ROUTE_ROLES), patientAccessGuard('INVESTIGATION', { careTeamModeGoverned: true }), phiAccessLogger('INVESTIGATION'), investigationRoutes);
 // Pharmacy inventory and stores/purchase routes are operational supply-chain
 // surfaces. Mount them before the broader pharmacy-order router so stores and
 // purchase users do not need patient pharmacy-order permissions.
@@ -630,13 +630,13 @@ app.use('/api/v1/pharmacy/inventory/v2', patientRateLimiter, requireRole(...PHAR
 app.use('/api/v1/pharmacy-orders/inventory/v2', patientRateLimiter, requireRole(...PHARMACY_INVENTORY_PARENT_ROLES), pharmacyInventoryV2Routes);
 app.use('/api/v1/pharmacy-supply', adminRateLimiter, requireRole(...PHARMACY_SUPPLY_ROUTE_ROLES), pharmacySupplyRoutes);
 
-app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/pharmacy-orders', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PHARMACY_ORDER', { careTeamModeGoverned: true }), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
 // Alias mount: /api/v1/pharmacy/* → same sub-routes as /api/v1/pharmacy-orders/*.
 // The admin /dashboard/pharmacy/inventory page calls /pharmacy/inventory/*
 // (summary/low-stock/expiring-soon/expired); the canonical mount at
 // /pharmacy-orders/inventory/* still serves existing clients.
-app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
-app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
+app.use('/api/v1/pharmacy', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PHARMACY_ORDER', { careTeamModeGoverned: true }), phiAccessLogger('PHARMACY_ORDER'), pharmacyRoutes);
+app.use('/api/v1/prescriptions', patientRateLimiter, requireRole(...PHARMACY_ORDER_ROUTE_ROLES), patientAccessGuard('PRESCRIPTION', { careTeamModeGoverned: true }), phiAccessLogger('PRESCRIPTION'), prescriptionRoutes);
 app.use('/api/v1/delivery', patientRateLimiter, requireRole(...DELIVERY_ROUTE_ROLES), deliveryRoutes);
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
@@ -716,9 +716,9 @@ app.use(
 // guards inside bedManagementRoutes itself. Finding:
 //   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
 const BED_PARENT_ROLES = BED_PARENT_ROUTE_ROLES;
-app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_BOARD'), bedRouter);
-app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), phiAccessLogger('BED_MANAGEMENT'), bedManagementRoutes);
-app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), phiAccessLogger('WARD_BOARD'), wardRouter);
+app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), patientAccessGuard('BED_BOARD', { careTeamModeGoverned: true }), phiAccessLogger('BED_BOARD'), bedRouter);
+app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), patientAccessGuard('BED_MANAGEMENT', { careTeamModeGoverned: true }), phiAccessLogger('BED_MANAGEMENT'), bedManagementRoutes);
+app.use('/api/v1/wards', requireRole(...BED_PARENT_ROLES), patientAccessGuard('WARD_BOARD', { careTeamModeGoverned: true }), phiAccessLogger('WARD_BOARD'), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
 app.use('/api/v1/bed-inspections', requireRole(...BED_INSPECTION_ROUTE_ROLES), bedInspectionRoutes);
@@ -776,8 +776,8 @@ function clinicalParentPatientAccessGuard(req, res, next) {
 // stored-XSS protection previously covered only ~9 route files via opt-in
 // field lists; clinical notes/diagnoses/assessments reached storage raw.
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
-app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
-app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
+app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('NURSING_ASSESSMENT', { careTeamModeGoverned: true }), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
+app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_ENCOUNTER', { careTeamModeGoverned: true }), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
@@ -823,11 +823,11 @@ app.use('/api/v1/downtime', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogge
 app.use('/api/v1/terminology', requireRole(...CLINICAL_STAFF_ROLES), terminologyRoutes);
 
 // Longitudinal problem list (roadmap B7) — PHI by definition.
-app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
+app.use('/api/v1/problems', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('PROBLEM_LIST', { careTeamModeGoverned: true }), phiAccessLogger('PROBLEM_LIST'), problemListRoutes);
 
 // Unified allergies (roadmap A10 over HTTP; E5 follow-up) — union of all
 // four allergy stores for any patient, admitted or not. PHI by definition.
-app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ALLERGY'), allergyRoutes);
+app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ALLERGY', { careTeamModeGoverned: true }), phiAccessLogger('ALLERGY'), allergyRoutes);
 
 // Drug knowledge base (roadmap B2) — stateless KB evaluation + source
 // status. Reference data; patient-bound screening runs inside
@@ -835,14 +835,14 @@ app.use('/api/v1/allergies', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBo
 app.use('/api/v1/drug-kb', requireRole(...CLINICAL_STAFF_ROLES), drugKbRoutes);
 
 // BCMA support (roadmap B1) — wristband printing for the bedside scan loop.
-app.use('/api/v1/bcma', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('BCMA'), bcmaRoutes);
+app.use('/api/v1/bcma', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('BCMA', { careTeamModeGoverned: true }), phiAccessLogger('BCMA'), bcmaRoutes);
 
 // Medication reconciliation (roadmap B6) — admission/transfer/discharge.
-app.use('/api/v1/med-rec', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, phiAccessLogger('MED_REC'), medRecRoutes);
+app.use('/api/v1/med-rec', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('MED_REC', { careTeamModeGoverned: true }), phiAccessLogger('MED_REC'), medRecRoutes);
 
 // PACS / imaging viewer surface (roadmap B4) — study links, OHIF deep
 // links, modality worklist feed.
-app.use('/api/v1/pacs', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('RADIOLOGY_PACS'), pacsRoutes);
+app.use('/api/v1/pacs', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('RADIOLOGY_PACS', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY_PACS'), pacsRoutes);
 
 // Document integrity (roadmap C4) — e-signatures + audit hash-chain verify.
 app.use('/api/v1/integrity', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('DOCUMENT_SIGNATURE'), integrityRoutes);
@@ -884,33 +884,45 @@ app.use('/api/v1/ophthalmology', requireRole(...CLINICAL_STAFF_ROLES), sanitizeA
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr/timeline', requireRole(...EMR_TIMELINE_READ_ROLES), clinicalTimelineRoutes);
 app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
-app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_NOTE', [
+const EMR_CLINICAL_NOTE_PATHS = [
   '/api/v1/emr/notes',
   '/api/v1/emr/timeline',
   '/api/v1/emr/downtime-snapshot',
-]), clinicalNotesRoutes);
-app.use('/api/v1/emr', phiAccessLoggerForPaths('ADMISSION', [
+];
+const EMR_ADMISSION_PATHS = [
   '/api/v1/emr/command-board',
   '/api/v1/emr/admit',
   '/api/v1/emr/admission',
   '/api/v1/emr/admissions',
   /^\/api\/v1\/emr\/\d+\//,
-]), admissionRoutes);
-app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_ORDER', [
+];
+const EMR_CLINICAL_ORDER_PATHS = [
   '/api/v1/emr/orders',
   '/api/v1/emr/order-sets',
-]), orderRoutes);
-app.use('/api/v1/emr', phiAccessLoggerForPaths('VITAL_SIGN', [
+];
+const EMR_VITAL_SIGN_PATHS = [
   '/api/v1/emr/vitals',
   '/api/v1/emr/io',
-]), vitalsRoutes);
-app.use('/api/v1/emr', phiAccessLoggerForPaths('CLINICAL_DECISION', [
+];
+const EMR_CLINICAL_DECISION_PATHS = [
   '/api/v1/emr/cds',
-]), cdsRoutes);
-app.use('/api/v1/emr', phiAccessLoggerForPaths('DIAGNOSIS', [
+];
+const EMR_DIAGNOSIS_PATHS = [
   '/api/v1/emr/diagnosis',
   '/api/v1/emr/icd10',
-]), diagnosisRoutes);
+];
+app.use('/api/v1/emr', patientAccessGuardForPaths('CLINICAL_NOTE', EMR_CLINICAL_NOTE_PATHS, { careTeamModeGoverned: true }),
+  phiAccessLoggerForPaths('CLINICAL_NOTE', EMR_CLINICAL_NOTE_PATHS), clinicalNotesRoutes);
+app.use('/api/v1/emr', patientAccessGuardForPaths('ADMISSION', EMR_ADMISSION_PATHS, { careTeamModeGoverned: true }),
+  phiAccessLoggerForPaths('ADMISSION', EMR_ADMISSION_PATHS), admissionRoutes);
+app.use('/api/v1/emr', patientAccessGuardForPaths('CLINICAL_ORDER', EMR_CLINICAL_ORDER_PATHS, { careTeamModeGoverned: true }),
+  phiAccessLoggerForPaths('CLINICAL_ORDER', EMR_CLINICAL_ORDER_PATHS), orderRoutes);
+app.use('/api/v1/emr', patientAccessGuardForPaths('VITAL_SIGN', EMR_VITAL_SIGN_PATHS, { careTeamModeGoverned: true }),
+  phiAccessLoggerForPaths('VITAL_SIGN', EMR_VITAL_SIGN_PATHS), vitalsRoutes);
+app.use('/api/v1/emr', patientAccessGuardForPaths('CLINICAL_DECISION', EMR_CLINICAL_DECISION_PATHS, { careTeamModeGoverned: true }),
+  phiAccessLoggerForPaths('CLINICAL_DECISION', EMR_CLINICAL_DECISION_PATHS), cdsRoutes);
+app.use('/api/v1/emr', patientAccessGuardForPaths('DIAGNOSIS', EMR_DIAGNOSIS_PATHS, { careTeamModeGoverned: true }),
+  phiAccessLoggerForPaths('DIAGNOSIS', EMR_DIAGNOSIS_PATHS), diagnosisRoutes);
 
 // Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
 //
@@ -1005,15 +1017,15 @@ app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, s
 app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, logRoutes);
 
 // Radiology
-app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
+app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
 
 // Dietary / Nutrition
 app.use('/api/v1/dietary', requireRole(...DIETARY_ROUTE_ROLES), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('OPERATING_THEATRE', { careTeamModeGoverned: true }), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole(...THEATRE_ROUTE_ROLES), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ANESTHESIA_CHART', { careTeamModeGoverned: true }), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real
@@ -1029,18 +1041,19 @@ app.use('/api/v1/anesthesia', requireRole(...THEATRE_ROUTE_ROLES), sanitizeAllBo
 app.use(
   '/api/v1/surgical',
   requireRole(...THEATRE_ROUTE_ROLES),
+  patientAccessGuard('SURGICAL_DOCUMENTATION', { careTeamModeGoverned: true }),
   phiAccessLogger('SURGICAL_DOCUMENTATION'),
   surgicalDocumentationRoutes,
 );
-app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
+app.use('/api/v1/microbiology', requireRole(...MICROBIOLOGY_ROUTE_ROLES), patientAccessGuard('MICROBIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
 app.use('/api/v1/pcpndt', requireRole(...PCPNDT_ROUTE_ROLES), phiAccessLogger('PCPNDT'), pcpndtRoutes);
-app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/icu', requireRole(...ICU_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('ICU', { careTeamModeGoverned: true }), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole(...COMPLIANCE_ROUTE_ROLES), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
-app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
-app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), phiAccessLogger('DIALYSIS'), dialysisRoutes);
+app.use('/api/v1/death-certification', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), patientAccessGuard('DEATH_CERTIFICATION', { careTeamModeGoverned: true }), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
+app.use('/api/v1/dialysis', requireRole(...DIALYSIS_ROUTE_ROLES), patientAccessGuard('DIALYSIS', { careTeamModeGoverned: true }), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 
 // Blood Bank
-app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
+app.use('/api/v1/blood-bank', requireRole(...BLOOD_BANK_ROUTE_ROLES), patientAccessGuard('BLOOD_BANK', { careTeamModeGoverned: true }), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use(
@@ -1060,10 +1073,10 @@ app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRout
 // E6 — staff-side result release controls (hold with reason / release
 // early). Mounted BEFORE the generic /lab routers so their narrower
 // LAB_ROUTE_ROLES gate cannot shadow the clinical-staff gate here.
-app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
-app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labRoutes);
+app.use('/api/v1/lab/release', requireRole(...CLINICAL_STAFF_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), resultReleaseRoutes);
+app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
-app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
+app.use('/api/v1/lab', requireRole(...LAB_ROUTE_ROLES), patientAccessGuard('LAB_RESULT', { careTeamModeGoverned: true }), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 app.use('/api/v1/insurance', requireRole(...BILLING_ROUTE_ROLES), insuranceClaimsRoutes);
 // Chart-shaped TPA enhancement surface — keyed off admission_id, open
 // to clinicians so a treating consultant can initiate an enhancement
@@ -1096,22 +1109,22 @@ app.use(
   admissionAliasRouter,
 );
 app.use('/api/v1/pmjay', requireRole(...BILLING_ROUTE_ROLES), pmjayRoutes);
-app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+app.use('/api/v1/maternity', requireRole(...MATERNITY_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('MATERNITY_RECORD', { careTeamModeGoverned: true }), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 // A10 — paediatric immunisation tracking. Receptionists need write access
 // to seed a returning child's schedule; doctors + nurses to record doses.
-app.use('/api/v1/paediatric', requireRole(...PAEDIATRIC_ROUTE_ROLES), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
+app.use('/api/v1/paediatric', requireRole(...PAEDIATRIC_ROUTE_ROLES), patientAccessGuard('PAEDIATRIC_IMMUNISATION', { careTeamModeGoverned: true }), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
 app.use('/api/v1/productivity', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), productivityRoutes);
 app.use('/api/v1/dashboards', requireRole(...ADMIN_ROUTE_ROLES), dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole(...STAFF_PATIENT_MESSAGING_ROUTE_ROLES), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
-app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
+app.use('/api/v1/discharge-summaries', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('DISCHARGE_SUMMARY', { careTeamModeGoverned: true }), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);
 
 // Referral Management (route-level role checks)
-app.use('/api/v1/referrals', phiAccessLogger('REFERRAL'), referralRoutes);
+app.use('/api/v1/referrals', patientAccessGuard('REFERRAL', { careTeamModeGoverned: true }), phiAccessLogger('REFERRAL'), referralRoutes);
 
 // Inter-staff messaging — open to every staff role. Stage-5 added the
 // billing / TPA / admission-counter desk roles; the role-workflow sweep

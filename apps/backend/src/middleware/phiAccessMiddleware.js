@@ -18,6 +18,10 @@ import {
   shouldSkipAccessCheckError,
 } from '../services/security/accessDecisionService.js';
 import { policyCodeForRecordType } from '../services/security/accessPolicyRegistry.js';
+import {
+  CARE_TEAM_ENFORCEMENT_MODES,
+  resolveEnforcementModeForRequest,
+} from '../services/security/careTeamEnforcement.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
 import { logPhiAccess } from '../utils/hipaaAudit.js';
 
@@ -71,15 +75,58 @@ function deriveTenantId(req) {
     || DEFAULT_TENANT_ID;
 }
 
+/**
+ * Resolve the effective enforcement posture for a guard invocation.
+ *
+ * Legacy call sites (the dozens of route-level guards that pre-date the
+ * CareTeam ABAC rollout) are NOT care-team-mode-governed: they keep their
+ * historical contract of ALWAYS enforcing (real 403 on deny, 500 on
+ * unexpected error). Downgrading them to shadow would silently WEAKEN PHI
+ * access control that ships today — the opposite of the rollout's intent.
+ *
+ * Only call sites that explicitly opt in with `careTeamModeGoverned: true`
+ * (the newly-mounted coverage on the previously-audit-only PHI families) are
+ * governed by the per-tenant `care_team_enforcement_mode` flag, whose default
+ * is 'shadow'. For those, this returns the resolved mode; for legacy sites it
+ * returns 'enforce' without any tenant lookup.
+ *
+ * Fail-safe: if mode resolution throws for a governed site, fall back to the
+ * non-breaking 'shadow' default.
+ */
+async function resolveGuardMode(req, options) {
+  if (!options?.careTeamModeGoverned) return CARE_TEAM_ENFORCEMENT_MODES.ENFORCE;
+  try {
+    return await resolveEnforcementModeForRequest(req);
+  } catch {
+    return CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
+  }
+}
+
 export function patientAccessGuard(recordType = 'PHI', options = {}) {
   return async function patientAccessGuardMiddleware(req, res, next) {
+    // Phase 0 — resolve the enforcement posture for THIS call site.
+    // Legacy sites → 'enforce' (unchanged). Care-team-governed coverage →
+    // per-tenant mode (default 'shadow').
+    const mode = await resolveGuardMode(req, options);
+
+    // 'off' — skip ABAC entirely. The passive phiAccessLogger mounted after
+    // this guard in the chain still records the HIPAA access trail.
+    if (mode === CARE_TEAM_ENFORCEMENT_MODES.OFF) {
+      return next();
+    }
+
+    const shadow = mode === CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
+
     try {
       const decision = await authorizePatientAccessRequest(req, {
         policyCode: options.policyCode || policyCodeForRecordType(recordType),
         recordType,
+        shadowMode: shadow,
       });
       if (decision?.no_patient_context) {
-        if (options.requirePatientContext) {
+        // Only enforce mode may block on a missing-but-required patient
+        // context. Shadow must never block.
+        if (options.requirePatientContext && !shadow) {
           return res.status(403).json({
             success: false,
             message: 'Patient context is required for this PHI operation',
@@ -89,6 +136,9 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
         return next();
       }
 
+      // In shadow mode authorizePatientAccessRequest already returns
+      // allowed:true for a would-be denial (shadow_denied:true) and has
+      // written the deny audit row, so this branch only fires in enforce mode.
       if (!decision.allowed) {
         return res.status(403).json(patientAccessErrorPayload(decision));
       }
@@ -102,6 +152,18 @@ export function patientAccessGuard(recordType = 'PHI', options = {}) {
         logger.error('SECURITY ALERT: patient access guard SKIPPED (governance table missing, non-prod)', {
           path: req.originalUrl || req.url,
           sqlError: err?.message,
+        });
+        return next();
+      }
+      // CRITICAL NON-BREAKING GUARANTEE: in shadow mode the guard must NEVER
+      // block and NEVER 500. Any unexpected error fails OPEN (allow + log) so
+      // a PHI route can never be taken down by the access check while we are
+      // still observing. Legacy/enforce mode keeps the fail-closed 500.
+      if (shadow) {
+        logger.error('SECURITY ALERT: patient access guard failed OPEN in shadow mode (allowing request)', {
+          path: req.originalUrl || req.url,
+          recordType,
+          error: err?.message,
         });
         return next();
       }
@@ -122,16 +184,28 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
     idParam = 'id',
     idSelector = null,
     allowNoPatientResource = false,
+    careTeamModeGoverned = false,
   } = options;
 
   return async function patientAccessGuardForResourceMiddleware(req, res, next) {
+    // Phase 0 — resolve the enforcement posture for THIS call site. Legacy
+    // sites → 'enforce' (unchanged); care-team-governed → per-tenant mode.
+    const mode = await resolveGuardMode(req, { careTeamModeGoverned });
+
+    // 'off' — skip ABAC entirely; the downstream phiAccessLogger still runs.
+    if (mode === CARE_TEAM_ENFORCEMENT_MODES.OFF) {
+      return next();
+    }
+
+    const shadow = mode === CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
+
     try {
       const resourceId = typeof idSelector === 'function'
         ? idSelector(req)
         : req.params?.[idParam] ?? req.query?.[idParam] ?? req.body?.[idParam] ?? null;
 
       if (!resourceId) {
-        return patientAccessGuard(recordType, { policyCode })(req, res, next);
+        return patientAccessGuard(recordType, { policyCode, careTeamModeGoverned })(req, res, next);
       }
 
       const patient = await resolvePatientForResourceAccess(req, {
@@ -147,8 +221,11 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
         patient,
         resourceContext: { resourceType, resourceId },
         requireResolvedPatient: true,
+        shadowMode: shadow,
       });
 
+      // Shadow mode already coerces a would-be denial to allowed:true (after
+      // writing the deny audit row), so this only blocks in enforce mode.
       if (!decision.allowed) {
         return res.status(403).json(patientAccessErrorPayload(decision));
       }
@@ -161,6 +238,16 @@ export function patientAccessGuardForResource(recordType = 'PHI', options = {}) 
           path: req.originalUrl || req.url,
           resourceType,
           sqlError: err?.message,
+        });
+        return next();
+      }
+      // CRITICAL NON-BREAKING GUARANTEE: off/shadow never block and never 500.
+      // Fail OPEN on any unexpected error in shadow; only enforce fails closed.
+      if (shadow) {
+        logger.error('SECURITY ALERT: patient resource access guard failed OPEN in shadow mode (allowing request)', {
+          path: req.originalUrl || req.url,
+          resourceType,
+          error: err?.message,
         });
         return next();
       }

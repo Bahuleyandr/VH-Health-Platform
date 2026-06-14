@@ -1,6 +1,15 @@
 # CareTeam ABAC — Design (PHI access scoping for clinicians)
 
-Status: **DESIGN ONLY — not yet implemented. Human review required before any code/migration.**
+Status: **Phases 0–2 IMPLEMENTED in SHADOW mode (2026-06-14).** Per-tenant
+`care_team_enforcement_mode` flag (`tenants.settings`, default `shadow`, fail-safe);
+the existing `patientAccessGuard`/`patientAccessGuardForResource` extended via an opt-in
+`careTeamModeGoverned` flag over the genuinely-uncovered PHI families + EMR paths;
+best-effort admission care-team auto-population. Shadow can neither 403 nor 500 (fail-open,
+verified). **Correction to §1.5 below: its "~4 enforce / ~50 audit-only" split was inaccurate
+— dozens of route-level guards ALREADY enforce in production; the implementation left those
+hard-`enforce` (NOT downgraded) and applied shadow ONLY to the truly-uncovered families.**
+Deferred (operator/governance, NOT shipped): flipping any tenant to `enforce`, widening
+break-glass eligibility + the break-glass endpoint, the Phase-4 RLS backstop.
 Author: investigation pass, 2026-06-14. Target repo: `apps/backend`.
 Scope: attribute-based access control (ABAC) that scopes clinician PHI/chart access to the
 patient's **care team**, layered on the existing tenant RLS without breaking it.

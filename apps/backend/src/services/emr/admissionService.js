@@ -33,6 +33,7 @@ import {
   getHospitalNumberMap,
 } from '../patient/patientIdentifierService.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
+import { populateAdmissionCareTeam } from '../security/careTeamPopulationService.js';
 import {
   emitDischargeDrugsDispensed,
   emitDischargeWorkflowOpened,
@@ -1126,6 +1127,13 @@ async function admitPatient(data) {
   } catch (e) {
     logger.warn(`admitPatient: hospital-number ensure failed for patient ${patient_uid}: ${e.message}`);
   }
+
+  // CareTeam ABAC Phase 1 (best-effort, post-commit) — materialise the
+  // admitting + attending doctor onto an active `ip` care team for this
+  // patient/admission so the ABAC engine's care-team relationship check and the
+  // shadow-mode audit signal are meaningful. Idempotent + self-contained: it
+  // swallows every error internally and MUST NEVER block or fail the admission.
+  await populateAdmissionCareTeam(admission, { createdBy: created_by });
 
   if (carriedErOrders.length) {
     logger.info(
