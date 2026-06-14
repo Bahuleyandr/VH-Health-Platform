@@ -68,7 +68,11 @@ class OtpHeader extends StatelessWidget {
   /// e.g. "+919876543210" → "+91 ******3210" (PAT-11)
   static String _maskPhone(String phone) {
     final raw = phone.startsWith('+') ? phone.substring(1) : phone;
-    final ccLen = raw.startsWith('91') ? 2 : raw.startsWith('1') ? 1 : 2;
+    final ccLen = raw.startsWith('91')
+        ? 2
+        : raw.startsWith('1')
+        ? 1
+        : 2;
     if (raw.length <= ccLen + 2) return phone;
     final cc = raw.substring(0, ccLen);
     final last2 = raw.substring(raw.length - 2);

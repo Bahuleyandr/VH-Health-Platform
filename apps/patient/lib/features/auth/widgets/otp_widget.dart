@@ -33,7 +33,11 @@ class _OtpWidgetState extends State<OtpWidget> {
     final raw = phone.startsWith('+') ? phone.substring(1) : phone;
     // Heuristic: country codes are 1–3 digits. India (+91) → 2 digits.
     // We expose the full CC and the last 2 digits of the subscriber number.
-    final ccLen = raw.startsWith('91') ? 2 : raw.startsWith('1') ? 1 : 2;
+    final ccLen = raw.startsWith('91')
+        ? 2
+        : raw.startsWith('1')
+        ? 1
+        : 2;
     if (raw.length <= ccLen + 2) return phone; // too short to mask
     final cc = raw.substring(0, ccLen);
     final last2 = raw.substring(raw.length - 2);
