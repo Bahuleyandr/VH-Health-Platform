@@ -229,7 +229,7 @@ async function ensureDatabaseAndRole() {
     // ROLE to these so tenant_isolation policies actually fire even though
     // qa_writer/superuser connections would otherwise bypass them. qa_writer
     // cannot CREATE ROLE itself, so provision them here (idempotent).
-    for (const rlsRole of ['rls_test_app', 'rls_phase2_test_app', 'rls_http_test_app', 'rls_sectx_test_app', 'rls_phi_routes_test_app']) {
+    for (const rlsRole of ['rls_test_app', 'rls_phase2_test_app', 'rls_http_test_app', 'rls_sectx_test_app', 'rls_phi_routes_test_app', 'rls_journey_test_app']) {
       await dbClient.query(`
         DO $$ BEGIN
           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${rlsRole}') THEN

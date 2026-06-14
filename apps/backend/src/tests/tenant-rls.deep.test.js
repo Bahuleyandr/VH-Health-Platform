@@ -5,6 +5,9 @@
 //   3. Legacy db.query() continues to see all rows (GUC unset = permissive policy).
 //   4. RLS WITH CHECK blocks inserting a row into the wrong tenant.
 //   5. queryAsTenant throws on missing tenantId without superAdmin.
+//   6. WS1 B1.2 (migration 310): an INSERT that omits tenant_id auto-scopes to
+//      the request tenant via the GUC-reading column DEFAULT (the WITH CHECK
+//      then passes), proven end-to-end through setTenant().
 //
 // Why this test sets a non-owner role: Postgres exempts table OWNERS from RLS
 // by default. The test harness connects as the cluster superuser, which owns
@@ -39,6 +42,9 @@ const TENANT_A = '00000000-0000-4000-8000-000000000001'; // DEFAULT_TENANT_ID
 const TENANT_B = '00000000-0000-4000-8000-0000000000b2';
 const TAG_A = 'rls-deep-test-tenant-a';
 const TAG_B = 'rls-deep-test-tenant-b';
+// Tag for the WS1 B1.2 GUC-default insert (migration 310). Distinct so its
+// row is cleaned up alongside TAG_A / TAG_B without colliding with them.
+const TAG_GUC_DEFAULT = 'rls-deep-test-guc-default-b';
 const APP_ROLE = 'rls_test_app';
 
 // Shape that callers expected from the previous pg-based helpers: a plain
@@ -81,7 +87,21 @@ async function asAppRoleNoGuc(text, params) {
 }
 
 describeIfDb('Tenant RLS policies (migration 075)', () => {
+  // Remember any pre-existing runtime-role env so we can restore it in
+  // afterAll. The WS1 B1.2 test below drives setTenant() (not the inline
+  // asAppRole helper), so it needs setTenant to issue `SET LOCAL ROLE
+  // rls_test_app` — otherwise, when this suite's DATABASE_URL connects as a
+  // superuser (the default test URL), RLS is bypassed and the WITH CHECK
+  // assertion would be vacuous. tenantRlsRuntimeRole() reads process.env live
+  // per transaction, so setting it here is sufficient.
+  const prevRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+  const prevTestRole = process.env.AUTH_TENANT_RLS_TEST_ROLE;
+
   beforeAll(async () => {
+    // setTenant()'s SET LOCAL ROLE target. Scoped to this suite (restored in
+    // afterAll) so it can't leak the role into unrelated suites in the chunk.
+    process.env.AUTH_TENANT_RLS_TEST_ROLE = APP_ROLE;
+
     // Create the non-owner application role if it does not already exist, and
     // grant it the minimum privileges needed to exercise RLS on the two tables
     // this suite touches. CREATE ROLE is idempotent via DO/pg_roles check.
@@ -111,8 +131,8 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
     // the legacy owner path (so the seed itself is not subject to RLS).
     await ownerQuery(
       `DELETE FROM clinical_ai_generations
-       WHERE source_hash IN ($1, $2, 'rls-wrong-tenant-insert')`,
-      [TAG_A, TAG_B]
+       WHERE source_hash IN ($1, $2, $3, 'rls-wrong-tenant-insert')`,
+      [TAG_A, TAG_B, TAG_GUC_DEFAULT]
     );
 
     await ownerQuery(
@@ -136,13 +156,19 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
     // tenant row so the FK constraint doesn't fire.
     await ownerQuery(
       `DELETE FROM clinical_ai_generations
-       WHERE source_hash IN ($1, $2, 'rls-wrong-tenant-insert')`,
-      [TAG_A, TAG_B]
+       WHERE source_hash IN ($1, $2, $3, 'rls-wrong-tenant-insert')`,
+      [TAG_A, TAG_B, TAG_GUC_DEFAULT]
     );
     await ownerQuery(
       `DELETE FROM tenants WHERE id = $1::uuid`,
       [TENANT_B]
     );
+
+    // Restore the runtime-role env exactly as it was before this suite ran.
+    if (prevRuntimeRole === undefined) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
+    else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = prevRuntimeRole;
+    if (prevTestRole === undefined) delete process.env.AUTH_TENANT_RLS_TEST_ROLE;
+    else process.env.AUTH_TENANT_RLS_TEST_ROLE = prevTestRole;
   });
 
   it('blocks cross-tenant reads when scoped to TENANT_A', async () => {
@@ -228,6 +254,45 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
     await expect(
       setTenant(null, (tx) => tx.$queryRawUnsafe('SELECT 1'))
     ).rejects.toThrow(/requires tenantId/);
+  });
+
+  // WS1 B1.2 — multi-tenant INSERT completion (migration 310).
+  // Before 310, the tenant_id column DEFAULTed to the LITERAL default tenant,
+  // so an INSERT under setTenant(TENANT_B) that omitted tenant_id got the
+  // default-tenant value, which then FAILED the tenant_isolation WITH CHECK
+  // (default != TENANT_B) with a 42501 — only single-tenant inserts worked.
+  // Migration 310 changes the DEFAULT to read the GUC, so an insert that omits
+  // tenant_id auto-scopes to the request tenant and the WITH CHECK passes.
+  // This proves that end-to-end through the app's own setTenant() helper, under
+  // the non-owner / non-bypassrls rls_test_app role (so the WITH CHECK is
+  // genuinely enforced, not bypassed).
+  it('auto-populates tenant_id from the GUC default on an INSERT that omits it (migration 310)', async () => {
+    // setTenant issues SET LOCAL ROLE rls_test_app (AUTH_TENANT_RLS_TEST_ROLE,
+    // set in beforeAll) then SET LOCAL app.current_tenant_id = TENANT_B. The
+    // INSERT names NO tenant_id, so the GUC-reading column DEFAULT supplies it.
+    const inserted = await setTenant(TENANT_B, (tx) => tx.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_generations
+         (task_type, provider, model, prompt_version, source_hash, status)
+       VALUES ('rls_test', 'template', 'test', 'rls-v1', $1, 'draft')
+       RETURNING tenant_id`,
+      TAG_GUC_DEFAULT,
+    ));
+    // The write succeeded (no 42501) AND the row auto-scoped to TENANT_B.
+    expect(Array.isArray(inserted) ? inserted.length : 0).toBe(1);
+    expect(String(inserted[0].tenant_id)).toBe(TENANT_B);
+
+    // Independently confirm the persisted row carries TENANT_B (read via a
+    // super-admin bypass so the assertion can't be fooled by RLS filtering).
+    const verifyRows = await setTenant(
+      null,
+      (tx) => tx.$queryRawUnsafe(
+        `SELECT tenant_id FROM clinical_ai_generations WHERE source_hash = $1`,
+        TAG_GUC_DEFAULT,
+      ),
+      { superAdmin: true },
+    );
+    expect(verifyRows.length).toBe(1);
+    expect(String(verifyRows[0].tenant_id)).toBe(TENANT_B);
   });
 });
 
