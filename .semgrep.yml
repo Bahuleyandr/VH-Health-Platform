@@ -35,14 +35,16 @@ rules:
     patterns:
       - pattern: |
           $CONN.query(`... ${$VAR} ...`)
-      - pattern-not: |
-          $CONN.query(`... ${$SAFE_INT} ...`)
-        metavariable-regex:
-          metavariable: $SAFE_INT
-          regex: '^(parseInt|Number|Math\.).*$'
+      - pattern-not:
+          patterns:
+            - pattern: |
+                $CONN.query(`... ${$SAFE_INT} ...`)
+            - metavariable-regex:
+                metavariable: $SAFE_INT
+                regex: '^(parseInt|Number|Math\.).*$'
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   - id: vh-no-exec-sync-shell-interpolation
     message: >
@@ -58,8 +60,8 @@ rules:
           execSync(`... ${...} ...`, {shell: true, ...})
     paths:
       include:
-        - "apps/backend/**/*.js"
-        - "scripts/**/*.mjs"
+        - "**/apps/backend/**/*.js"
+        - "**/scripts/**/*.mjs"
 
   - id: vh-eval-dangerous
     message: >
@@ -72,8 +74,8 @@ rules:
       - pattern: new Function($X)
     paths:
       include:
-        - "apps/backend/src/**"
-        - "apps/admin/src/**"
+        - "**/apps/backend/src/**"
+        - "**/apps/admin/src/**"
 
   # ═══════════════════════════════════════════════════════════════
   # OWASP A02 — Cryptographic Failures
@@ -93,9 +95,9 @@ rules:
       - pattern: crypto.createHash('sha1')
     paths:
       include:
-        - "apps/backend/src/**"
-        - "apps/admin/src/**"
-        - "scripts/**"
+        - "**/apps/backend/src/**"
+        - "**/apps/admin/src/**"
+        - "**/scripts/**"
 
   - id: vh-no-math-random-crypto
     message: >
@@ -107,7 +109,7 @@ rules:
     pattern: Math.random()
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   - id: vh-jwt-no-alg-allowlist
     message: >
@@ -117,17 +119,25 @@ rules:
     severity: ERROR
     languages: [javascript]
     patterns:
-      - pattern: |
-          $JWT.verify($TOKEN, $SECRET, $CB)
-        pattern-not: |
-          $JWT.verify($TOKEN, $SECRET, {..., algorithms: [...], ...}, $CB)
-      - pattern: |
-          $JWT.verify($TOKEN, $SECRET)
-        pattern-not: |
-          $JWT.verify($TOKEN, $SECRET, {..., algorithms: [...], ...})
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  $JWT.verify($TOKEN, $SECRET, $CB)
+              # Suppress when an options object carrying `algorithms` is present,
+              # whether it is the 3rd arg (verify(t, s, {opts})) or the 3rd of a
+              # 4-arg callback form (verify(t, s, {opts}, cb)). Without the first
+              # pattern-not the common verify(t, s, {algorithms:[...]}) call is a
+              # false positive — it is exactly the compliant shape this rule wants.
+              - pattern-not: |
+                  $JWT.verify($TOKEN, $SECRET, {..., algorithms: [...], ...})
+              - pattern-not: |
+                  $JWT.verify($TOKEN, $SECRET, {..., algorithms: [...], ...}, $CB)
+          - patterns:
+              - pattern: |
+                  $JWT.verify($TOKEN, $SECRET)
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   # ═══════════════════════════════════════════════════════════════
   # OWASP A10 — Server-Side Request Forgery (SSRF)
@@ -143,14 +153,14 @@ rules:
     languages: [javascript]
     patterns:
       - pattern: fetch($URL, ...)
-        pattern-inside: |
+      - pattern-inside: |
           function ... (..., $REQ, ...) { ... }
-        metavariable-regex:
+      - metavariable-regex:
           metavariable: $URL
           regex: '^req\.'
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   - id: vh-url-from-req-body-to-fetch
     message: >
@@ -169,7 +179,7 @@ rules:
           fetch($URL, ...)
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   # ═══════════════════════════════════════════════════════════════
   # Path Traversal (OWASP A01)
@@ -191,8 +201,8 @@ rules:
       - pattern: path.resolve(..., $REQ.query.$K, ...)
     paths:
       include:
-        - "apps/backend/src/**/*.js"
-        - "apps/admin/src/**/*.ts"
+        - "**/apps/backend/src/**/*.js"
+        - "**/apps/admin/src/**/*.ts"
 
   # ═══════════════════════════════════════════════════════════════
   # Hardcoded Secrets (OWASP A02 / supply-chain)
@@ -208,46 +218,32 @@ rules:
     languages: [javascript, typescript]
     patterns:
       - pattern: |
-          const $NAME = "..."
-        metavariable-regex:
+          const $NAME = $VAL
+      - metavariable-regex:
           metavariable: $NAME
           regex: (?i)(secret|password|passwd|api_key|apikey|token|jwt_secret|private_key|access_key)
-        metavariable-pattern:
-          metavariable: "\"...\""
-          pattern-regex: '".{8,}"'
-      - pattern: |
-          const $NAME = '...'
-        metavariable-regex:
-          metavariable: $NAME
-          regex: (?i)(secret|password|passwd|api_key|apikey|token|jwt_secret|private_key|access_key)
+      # Only string literals of >=8 chars (excludes env-var reads, short flags, etc.)
+      - metavariable-regex:
+          metavariable: $VAL
+          regex: '^["''].{8,}["'']$'
     paths:
       include:
-        - "apps/backend/src/**/*.js"
-        - "apps/admin/src/**/*.ts"
-    paths_exclude:
-      - "**/*.test.js"
-      - "**/*.spec.js"
-      - "**/*.test.ts"
-      - "**/*.spec.ts"
-      - "**/__tests__/**"
+        - "**/apps/backend/src/**/*.js"
+        - "**/apps/admin/src/**/*.ts"
+      exclude:
+        - "**/*.test.js"
+        - "**/*.spec.js"
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+        - "**/__tests__/**"
 
-  - id: vh-no-default-value-secret
-    message: >
-      String.fromEnvironment() with a defaultValue that looks like a real secret
-      ships the secret in the compiled app if the build variable is omitted.
-      Remove the defaultValue — a missing variable should fail the build.
-      (Audit finding H-7: `firebase_options.dart` had this pattern.)
-    severity: ERROR
-    languages: [javascript, typescript]
-    pattern: |
-      String.fromEnvironment($NAME, defaultValue: $DEFAULT)
-    metavariable-regex:
-      metavariable: $NAME
-      regex: (?i)(key|secret|token|password|pin|hash|api)
-    paths:
-      include:
-        - "apps/**"
-        - "packages/**"
+  # NOTE: A `vh-no-default-value-secret` rule for Dart's
+  # `String.fromEnvironment($NAME, defaultValue: $SECRET)` (audit finding H-7,
+  # `firebase_options.dart`) was removed: that is Dart syntax and Semgrep OSS
+  # has no Dart parser, so the pattern can never compile (Stdlib.Parsing
+  # Parse_error) and aborted this whole config. Dart secret-default detection is
+  # covered by the `flutter_security_check` lint + `melos run analyze`, per the
+  # header note above. Do not re-add a Dart pattern under javascript/typescript.
 
   # ═══════════════════════════════════════════════════════════════
   # PHI / Healthcare-specific
@@ -261,17 +257,15 @@ rules:
     severity: WARNING
     languages: [javascript]
     patterns:
-      - pattern: console.log(..., $VAR, ...)
-        metavariable-regex:
-          metavariable: $VAR
-          regex: (?i)(phone|mobile|name|uid|dob|diagnosis|mrn|abha|patient|nhs)
-      - pattern: console.error(..., $VAR, ...)
-        metavariable-regex:
+      - pattern-either:
+          - pattern: console.log(..., $VAR, ...)
+          - pattern: console.error(..., $VAR, ...)
+      - metavariable-regex:
           metavariable: $VAR
           regex: (?i)(phone|mobile|name|uid|dob|diagnosis|mrn|abha|patient|nhs)
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   - id: vh-res-send-error-object
     message: >
@@ -282,12 +276,13 @@ rules:
     severity: ERROR
     languages: [javascript]
     patterns:
-      - pattern: res.json({ ..., message: $ERR.message, ... })
-      - pattern: res.send($ERR.message)
-      - pattern: res.json({ ..., stack: $ERR.stack, ... })
+      - pattern-either:
+          - pattern: "res.json({ ..., message: $ERR.message, ... })"
+          - pattern: "res.send($ERR.message)"
+          - pattern: "res.json({ ..., stack: $ERR.stack, ... })"
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   - id: vh-dangerously-set-inner-html
     message: >
@@ -296,12 +291,17 @@ rules:
       sanitized with DOMPurify before insertion. Confirm the `html` value
       is sanitized.
     severity: ERROR
+    # `typescript` covers .tsx/.jsx (the admin portal is all .tsx). The bare
+    # JSX-attribute fragment does not parse as a standalone expression, so the
+    # pattern is wrapped in a JSX element — this matches self-closing tags,
+    # tags with other attributes, and tags with children alike.
     languages: [typescript, javascript]
     pattern: |
-      dangerouslySetInnerHTML={{ __html: $VAL }}
+      <$EL dangerouslySetInnerHTML={{ __html: $VAL }} />
     paths:
       include:
-        - "apps/admin/src/**"
+        - "**/apps/admin/src/**/*.tsx"
+        - "**/apps/admin/src/**/*.jsx"
 
   # ═══════════════════════════════════════════════════════════════
   # Prototype pollution / open redirect
@@ -319,7 +319,7 @@ rules:
       - pattern: Object.assign($OBJ, $REQ.query)
     paths:
       include:
-        - "apps/backend/src/**/*.js"
+        - "**/apps/backend/src/**/*.js"
 
   - id: vh-open-redirect
     message: >
@@ -333,8 +333,8 @@ rules:
       - pattern: res.redirect($REQ.params.$K)
     paths:
       include:
-        - "apps/backend/src/**/*.js"
-        - "apps/admin/src/**/*.ts"
+        - "**/apps/backend/src/**/*.js"
+        - "**/apps/admin/src/**/*.ts"
 
 # ═══════════════════════════════════════════════════════════════
 # Global path exclusions (applied to all rules above)

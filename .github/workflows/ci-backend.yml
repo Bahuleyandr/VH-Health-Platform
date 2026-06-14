@@ -41,6 +41,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      actions: read   # codeql-action upload-sarif workflow-run lookup (private repo)
     steps:
       - uses: actions/checkout@v6
 
@@ -90,6 +91,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      actions: read   # codeql-action workflow-run lookup (private repo); matches release-images.yml
 
     steps:
       - uses: actions/checkout@v6

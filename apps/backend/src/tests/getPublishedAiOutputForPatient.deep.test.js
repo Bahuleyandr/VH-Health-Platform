@@ -79,9 +79,31 @@ async function cleanup() {
 
 describe('getPublishedAiOutputForPatient (AI-2 accepted-only enforcement)', () => {
   const seeded = {};
+  // Whether THIS suite created the OTHER_TENANT row (vs. it pre-existing on a
+  // shared QA DB, where other suites also reference it). Gates the afterAll
+  // delete so we never tear down a tenant another suite still depends on.
+  let createdOtherTenant = false;
 
   beforeAll(async () => {
     await cleanup();
+
+    // The cross-tenant negative case (step 6 below) inserts a generation under
+    // OTHER_TENANT_ID. clinical_ai_generations.tenant_id has a FK to tenants(id)
+    // with no default-backfill, so the second tenant must exist first or the
+    // INSERT fails with 23503 on a clean CI DB (only the default tenant is
+    // seeded by migration 013). slug/name are the only NOT-NULL columns without
+    // a usable default; region/compliance_profile/status default in-schema.
+    // ON CONFLICT keeps it idempotent; the affected-row count tells us whether
+    // we actually created the tenant so afterAll only cleans up what we added.
+    const inserted = await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name)
+         VALUES ($1::uuid, $2, $3)
+         ON CONFLICT (id) DO NOTHING`,
+      OTHER_TENANT_ID,
+      'ai2-xtenant-test',
+      'AI-2 cross-tenant isolation test tenant'
+    );
+    createdOtherTenant = inserted === 1;
 
     // 1. The ONE publishable row: accepted review + draft generation.
     seeded.acceptedGenId = await insertGeneration({
@@ -154,6 +176,24 @@ describe('getPublishedAiOutputForPatient (AI-2 accepted-only enforcement)', () =
 
   afterAll(async () => {
     await cleanup();
+    // Remove the cross-tenant test tenant ONLY if this suite created it, leaving
+    // the QA DB as we found it. cleanup() above already deleted this suite's
+    // dependent clinical_ai_* rows (keyed by patient_uid). The delete is further
+    // guarded by a NOT EXISTS over the other tenant-scoped tables this tenant
+    // could be referenced from (e.g. hl7-outbound suite writes hipaa_access_log
+    // under the same UUID) — so a shared/leftover tenant is never torn out from
+    // under another suite, and the FK can't 23503. Never touches the default
+    // tenant: the WHERE id pins OTHER_TENANT_ID.
+    if (createdOtherTenant) {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM tenants t
+          WHERE t.id = $1::uuid
+            AND NOT EXISTS (SELECT 1 FROM hipaa_access_log h WHERE h.tenant_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM clinical_ai_generations g WHERE g.tenant_id = t.id)
+            AND NOT EXISTS (SELECT 1 FROM clinical_ai_reviews r WHERE r.tenant_id = t.id)`,
+        OTHER_TENANT_ID
+      ).catch(() => {});
+    }
     await prisma.$disconnect().catch(() => {});
   });
 
