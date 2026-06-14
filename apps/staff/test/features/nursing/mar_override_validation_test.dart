@@ -105,7 +105,9 @@ void main() {
 
     test('accepts normal clinical justification text', () {
       expect(
-        isMeaningfulText('Patient already received this dose per attending order'),
+        isMeaningfulText(
+          'Patient already received this dose per attending order',
+        ),
         isTrue,
       );
       expect(
@@ -120,9 +122,17 @@ void main() {
       expect(isMeaningfulText('1111111111111111'), isFalse);
     });
 
-    test('accepts strings with leading/trailing whitespace when trimmed >= 15', () {
-      expect(isMeaningfulText('  Clinical judgement — patient condition changed  '), isTrue);
-    });
+    test(
+      'accepts strings with leading/trailing whitespace when trimmed >= 15',
+      () {
+        expect(
+          isMeaningfulText(
+            '  Clinical judgement — patient condition changed  ',
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('rejects strings that trim to all-same-char even with whitespace', () {
       // "aaa...aaa" surrounded by spaces still fails after trim.
@@ -247,43 +257,66 @@ void main() {
       expect(payload, startsWith('[documentation-correction]'));
     });
 
-    test('category values match the production enum strings (audit contract)', () {
-      // These strings are stored in the DB. Any rename is a breaking change.
-      expect(MarOverrideCategory.patientRefused.value, 'patient-refused');
-      expect(MarOverrideCategory.clinicalJudgement.value, 'clinical-judgement');
-      expect(MarOverrideCategory.doseAdjustedPerOrder.value, 'dose-adjusted-per-order');
-      expect(MarOverrideCategory.timingVariance.value, 'timing-variance');
-      expect(MarOverrideCategory.documentationCorrection.value, 'documentation-correction');
-      expect(MarOverrideCategory.other.value, 'other');
-    });
+    test(
+      'category values match the production enum strings (audit contract)',
+      () {
+        // These strings are stored in the DB. Any rename is a breaking change.
+        expect(MarOverrideCategory.patientRefused.value, 'patient-refused');
+        expect(
+          MarOverrideCategory.clinicalJudgement.value,
+          'clinical-judgement',
+        );
+        expect(
+          MarOverrideCategory.doseAdjustedPerOrder.value,
+          'dose-adjusted-per-order',
+        );
+        expect(MarOverrideCategory.timingVariance.value, 'timing-variance');
+        expect(
+          MarOverrideCategory.documentationCorrection.value,
+          'documentation-correction',
+        );
+        expect(MarOverrideCategory.other.value, 'other');
+      },
+    );
   });
 
   // ── Integration: full override scenario ───────────────────────────────────
   group('MAR override full scenario (clinical-safety integration)', () {
-    test('nurse cannot administer when category missing even with long text', () {
-      const text = 'Detailed clinical justification provided by attending';
-      // Valid text but no category → button stays disabled.
-      expect(isOverrideValid(category: null, justificationText: text), isFalse);
-      // Valid text + valid category → button is enabled.
-      expect(
-        isOverrideValid(
-          category: MarOverrideCategory.clinicalJudgement,
-          justificationText: text,
-        ),
-        isTrue,
-      );
-    });
+    test(
+      'nurse cannot administer when category missing even with long text',
+      () {
+        const text = 'Detailed clinical justification provided by attending';
+        // Valid text but no category → button stays disabled.
+        expect(
+          isOverrideValid(category: null, justificationText: text),
+          isFalse,
+        );
+        // Valid text + valid category → button is enabled.
+        expect(
+          isOverrideValid(
+            category: MarOverrideCategory.clinicalJudgement,
+            justificationText: text,
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('override payload is structurally parseable by audit tooling', () {
       // Audit tooling expects the format: "[category] justification"
       // Pattern: starts with '[', contains ']', category part is non-empty.
       final payload = buildOverridePayload(
         category: MarOverrideCategory.timingVariance,
-        justification: 'Within acceptable window per hospital protocol guidelines',
+        justification:
+            'Within acceptable window per hospital protocol guidelines',
       );
       final bracketStart = payload.indexOf('[');
       final bracketEnd = payload.indexOf(']');
-      expect(bracketStart, 0, reason: 'payload must start with category bracket');
+      expect(
+        bracketStart,
+        0,
+        reason: 'payload must start with category bracket',
+      );
       expect(bracketEnd, greaterThan(bracketStart + 1));
       final category = payload.substring(bracketStart + 1, bracketEnd);
       expect(category.isNotEmpty, isTrue);

@@ -74,7 +74,12 @@ bool isNewStatus(Object? status) {
 
 bool isActiveStatus(Object? status) {
   final value = status?.toString().toUpperCase();
-  return const {'CONFIRMED', 'PREPARING', 'READY', 'DISPATCHED'}.contains(value);
+  return const {
+    'CONFIRMED',
+    'PREPARING',
+    'READY',
+    'DISPATCHED',
+  }.contains(value);
 }
 
 bool isCompletedStatus(Object? status) {
@@ -87,15 +92,13 @@ bool isCompletedStatus(Object? status) {
 List<Map<String, dynamic>> filterNewOrders(List<Map<String, dynamic>> orders) =>
     orders.where((o) => isNewStatus(o['status'])).toList();
 
-List<Map<String, dynamic>> filterActiveOrders(List<Map<String, dynamic>> orders) =>
-    orders
-        .where((o) => isActiveStatus(o['status']))
-        .toList();
+List<Map<String, dynamic>> filterActiveOrders(
+  List<Map<String, dynamic>> orders,
+) => orders.where((o) => isActiveStatus(o['status'])).toList();
 
 List<Map<String, dynamic>> filterCompletedOrders(
   List<Map<String, dynamic>> orders,
-) =>
-    orders.where((o) => isCompletedStatus(o['status'])).toList();
+) => orders.where((o) => isCompletedStatus(o['status'])).toList();
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -106,11 +109,14 @@ void main() {
       expect(isNewStatus('PENDING'), isTrue);
     });
 
-    test('PLACED is a new status (legacy alias — backend renamed 2026-04-14)', () {
-      // Backend renamed "PLACED" to "PENDING" but old DB rows / API responses
-      // may still carry "PLACED". This must land in the new-orders tab.
-      expect(isNewStatus('PLACED'), isTrue);
-    });
+    test(
+      'PLACED is a new status (legacy alias — backend renamed 2026-04-14)',
+      () {
+        // Backend renamed "PLACED" to "PENDING" but old DB rows / API responses
+        // may still carry "PLACED". This must land in the new-orders tab.
+        expect(isNewStatus('PLACED'), isTrue);
+      },
+    );
 
     test('pending and placed are accepted case-insensitively', () {
       expect(isNewStatus('pending'), isTrue);
@@ -128,10 +134,19 @@ void main() {
   });
 
   group('isActiveStatus (active-orders tab gate)', () {
-    test('CONFIRMED is active', () => expect(isActiveStatus('CONFIRMED'), isTrue));
-    test('PREPARING is active', () => expect(isActiveStatus('PREPARING'), isTrue));
+    test(
+      'CONFIRMED is active',
+      () => expect(isActiveStatus('CONFIRMED'), isTrue),
+    );
+    test(
+      'PREPARING is active',
+      () => expect(isActiveStatus('PREPARING'), isTrue),
+    );
     test('READY is active', () => expect(isActiveStatus('READY'), isTrue));
-    test('DISPATCHED is active', () => expect(isActiveStatus('DISPATCHED'), isTrue));
+    test(
+      'DISPATCHED is active',
+      () => expect(isActiveStatus('DISPATCHED'), isTrue),
+    );
 
     test('PENDING is not active (it is new)', () {
       expect(isActiveStatus('PENDING'), isFalse);
@@ -143,8 +158,14 @@ void main() {
   });
 
   group('isCompletedStatus (completed-orders tab gate)', () {
-    test('DELIVERED is completed', () => expect(isCompletedStatus('DELIVERED'), isTrue));
-    test('CANCELLED is completed', () => expect(isCompletedStatus('CANCELLED'), isTrue));
+    test(
+      'DELIVERED is completed',
+      () => expect(isCompletedStatus('DELIVERED'), isTrue),
+    );
+    test(
+      'CANCELLED is completed',
+      () => expect(isCompletedStatus('CANCELLED'), isTrue),
+    );
 
     test('DISPATCHED is not completed (still active)', () {
       expect(isCompletedStatus('DISPATCHED'), isFalse);
@@ -223,7 +244,8 @@ void main() {
       expect(
         canWorkPharmacyOrders(PharmacyTestRole.storesPurchaseIncharge),
         isFalse,
-        reason: 'Stores/purchase role must not access patient dispensing workflow',
+        reason:
+            'Stores/purchase role must not access patient dispensing workflow',
       );
     });
 
@@ -250,18 +272,24 @@ void main() {
       expect(canManageFormulary(PharmacyTestRole.superAdmin), isTrue);
     });
 
-    test('plain pharmacy staff cannot manage formulary (can only dispense)', () {
-      // Clinical safety: plain staff should not add/remove drugs from
-      // the shared formulary used by OP/IP prescribing.
-      expect(
-        canManageFormulary(PharmacyTestRole.pharmacy),
-        isFalse,
-        reason: 'Plain pharmacy staff must not edit the shared formulary',
-      );
-    });
+    test(
+      'plain pharmacy staff cannot manage formulary (can only dispense)',
+      () {
+        // Clinical safety: plain staff should not add/remove drugs from
+        // the shared formulary used by OP/IP prescribing.
+        expect(
+          canManageFormulary(PharmacyTestRole.pharmacy),
+          isFalse,
+          reason: 'Plain pharmacy staff must not edit the shared formulary',
+        );
+      },
+    );
 
     test('stores/purchase incharge cannot manage formulary', () {
-      expect(canManageFormulary(PharmacyTestRole.storesPurchaseIncharge), isFalse);
+      expect(
+        canManageFormulary(PharmacyTestRole.storesPurchaseIncharge),
+        isFalse,
+      );
     });
 
     test('doctor cannot manage formulary', () {
@@ -291,14 +319,18 @@ void main() {
 
     test('stores/purchase incharge can manage inventory', () {
       // Core use-case: stores staff maintain drug master + stock oversight.
-      expect(canManageInventory(PharmacyTestRole.storesPurchaseIncharge), isTrue);
+      expect(
+        canManageInventory(PharmacyTestRole.storesPurchaseIncharge),
+        isTrue,
+      );
     });
 
     test('plain pharmacy staff cannot manage inventory (dispense-only)', () {
       expect(
         canManageInventory(PharmacyTestRole.pharmacy),
         isFalse,
-        reason: 'Plain pharmacy staff should not update stock or run expiry scans',
+        reason:
+            'Plain pharmacy staff should not update stock or run expiry scans',
       );
     });
   });

@@ -57,7 +57,8 @@ String doctorLabel(Map<String, dynamic> doctor) {
   int? resolvedId = int.tryParse(
     (doctor['user_id'] ?? doctor['userId'] ?? doctor['id'])?.toString() ?? '',
   );
-  final name = doctor['name']?.toString() ??
+  final name =
+      doctor['name']?.toString() ??
       (resolvedId == null ? 'Doctor' : 'Doctor #$resolvedId');
   final department = doctor['department']?.toString() ?? '';
   final specialization = doctor['specialization']?.toString() ?? '';
@@ -88,26 +89,32 @@ String bedLabel(Map<String, dynamic> bed) {
 void main() {
   // ── isEmergencyWardLabel ───────────────────────────────────────────────────
   group('isEmergencyWardLabel (ward priority auto-escalation)', () {
-    test('ward labels containing the substring "icu" trigger emergency priority', () {
-      // The check is `lower.contains('icu')` — so "ICU North" and "NICU" match
-      // because they contain the substring 'icu'. "Intensive Care Unit" does NOT
-      // contain 'icu' as a substring and correctly returns false.
-      expect(isEmergencyWardLabel('ICU North'), isTrue);
-      expect(isEmergencyWardLabel('NICU'), isTrue);
-      expect(isEmergencyWardLabel('icu'), isTrue);
-      // "Intensive Care Unit" spelled out does NOT contain 'icu' as a substring.
-      expect(isEmergencyWardLabel('Intensive Care Unit'), isFalse);
-    });
+    test(
+      'ward labels containing the substring "icu" trigger emergency priority',
+      () {
+        // The check is `lower.contains('icu')` — so "ICU North" and "NICU" match
+        // because they contain the substring 'icu'. "Intensive Care Unit" does NOT
+        // contain 'icu' as a substring and correctly returns false.
+        expect(isEmergencyWardLabel('ICU North'), isTrue);
+        expect(isEmergencyWardLabel('NICU'), isTrue);
+        expect(isEmergencyWardLabel('icu'), isTrue);
+        // "Intensive Care Unit" spelled out does NOT contain 'icu' as a substring.
+        expect(isEmergencyWardLabel('Intensive Care Unit'), isFalse);
+      },
+    );
 
     test('"er" exact match (case-insensitive) triggers emergency priority', () {
       expect(isEmergencyWardLabel('ER'), isTrue);
       expect(isEmergencyWardLabel('er'), isTrue);
     });
 
-    test('ward label containing " emergency" (mid-string) triggers emergency', () {
-      expect(isEmergencyWardLabel('Paediatric Emergency'), isTrue);
-      expect(isEmergencyWardLabel('Medical Emergency Unit'), isTrue);
-    });
+    test(
+      'ward label containing " emergency" (mid-string) triggers emergency',
+      () {
+        expect(isEmergencyWardLabel('Paediatric Emergency'), isTrue);
+        expect(isEmergencyWardLabel('Medical Emergency Unit'), isTrue);
+      },
+    );
 
     test('ward label starting with "emergency" triggers emergency', () {
       expect(isEmergencyWardLabel('Emergency Department'), isTrue);
@@ -196,10 +203,13 @@ void main() {
       expect(doctorLabel({'id': 7, 'name': 'Dr. Meena'}), 'Dr. Meena');
     });
 
-    test('falls back to "Doctor #id" when name is absent but id is present', () {
-      final label = doctorLabel({'id': 8});
-      expect(label, 'Doctor #8');
-    });
+    test(
+      'falls back to "Doctor #id" when name is absent but id is present',
+      () {
+        final label = doctorLabel({'id': 8});
+        expect(label, 'Doctor #8');
+      },
+    );
 
     test('falls back to "Doctor" when neither name nor id', () {
       expect(doctorLabel({}), 'Doctor');
@@ -271,155 +281,161 @@ void main() {
   });
 
   // ── frontOfficeWalkInRegistrationPayload ──────────────────────────────────
-  group('frontOfficeWalkInRegistrationPayload (walk-in registration contract)', () {
-    final basePatient = {
-      'id': 10,
-      'name': 'Arun Kumar',
-      'phone': '9123456780',
-    };
-    final baseDoctor = {
-      'id': 3,
-      'name': 'Dr. Sundaram',
-      'department': 'ENT',
-    };
+  group(
+    'frontOfficeWalkInRegistrationPayload (walk-in registration contract)',
+    () {
+      final basePatient = {
+        'id': 10,
+        'name': 'Arun Kumar',
+        'phone': '9123456780',
+      };
+      final baseDoctor = {'id': 3, 'name': 'Dr. Sundaram', 'department': 'ENT'};
 
-    test('visit_type is serialised in UPPERCASE for backend enum validation', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Routine follow-up visit',
-        visitType: 'routine',
+      test(
+        'visit_type is serialised in UPPERCASE for backend enum validation',
+        () {
+          final payload = frontOfficeWalkInRegistrationPayload(
+            patient: basePatient,
+            doctor: baseDoctor,
+            reason: 'Routine follow-up visit',
+            visitType: 'routine',
+          );
+          expect(
+            payload['visit_type'],
+            'ROUTINE',
+            reason: 'Backend enum validator requires uppercase visit_type',
+          );
+        },
       );
-      expect(
-        payload['visit_type'],
-        'ROUTINE',
-        reason: 'Backend enum validator requires uppercase visit_type',
-      );
-    });
 
-    test('emergency visit type is uppercased', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Chest pain with diaphoresis',
-        visitType: 'emergency',
-      );
-      expect(payload['visit_type'], 'EMERGENCY');
-    });
+      test('emergency visit type is uppercased', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Chest pain with diaphoresis',
+          visitType: 'emergency',
+        );
+        expect(payload['visit_type'], 'EMERGENCY');
+      });
 
-    test('whitespace-only notes field is stripped from payload', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Knee pain',
-        visitType: 'routine',
-        notes: '    ',
-      );
-      expect(
-        payload.containsKey('notes'),
-        isFalse,
-        reason: 'Blank notes must not be sent — backend may reject empty strings',
-      );
-    });
+      test('whitespace-only notes field is stripped from payload', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Knee pain',
+          visitType: 'routine',
+          notes: '    ',
+        );
+        expect(
+          payload.containsKey('notes'),
+          isFalse,
+          reason:
+              'Blank notes must not be sent — backend may reject empty strings',
+        );
+      });
 
-    test('whitespace-only insurer name is stripped from payload', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Lab results discussion',
-        visitType: 'routine',
-        insurerName: '   ',
-      );
-      expect(payload.containsKey('insurer_name'), isFalse);
-    });
+      test('whitespace-only insurer name is stripped from payload', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Lab results discussion',
+          visitType: 'routine',
+          insurerName: '   ',
+        );
+        expect(payload.containsKey('insurer_name'), isFalse);
+      });
 
-    test('reason is trimmed before serialisation', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: '  Cough and cold  ',
-        visitType: 'routine',
-      );
-      expect(payload['reason'], 'Cough and cold');
-      expect(payload['chief_complaint'], 'Cough and cold');
-    });
+      test('reason is trimmed before serialisation', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: '  Cough and cold  ',
+          visitType: 'routine',
+        );
+        expect(payload['reason'], 'Cough and cold');
+        expect(payload['chief_complaint'], 'Cough and cold');
+      });
 
-    test('patient_id is carried from selected patient', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: {'id': 42, 'name': 'Test Patient', 'phone': '9876543210'},
-        reason: 'Blood pressure review',
-        visitType: 'routine',
-      );
-      expect(payload['patient_id'], 42);
-    });
+      test('patient_id is carried from selected patient', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: {'id': 42, 'name': 'Test Patient', 'phone': '9876543210'},
+          reason: 'Blood pressure review',
+          visitType: 'routine',
+        );
+        expect(payload['patient_id'], 42);
+      });
 
-    test('lab-only walk-in without a doctor has null doctor_id', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: {'phone': '9000000001', 'name': 'Lab Only Patient'},
-        reason: 'CBC and LFT panel',
-        visitType: 'lab_only',
-        department: 'Laboratory',
-      );
-      expect(payload['doctor_id'], isNull);
-      expect(payload['visit_type'], 'LAB_ONLY');
-      expect(payload['department'], 'Laboratory');
-    });
+      test('lab-only walk-in without a doctor has null doctor_id', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: {'phone': '9000000001', 'name': 'Lab Only Patient'},
+          reason: 'CBC and LFT panel',
+          visitType: 'lab_only',
+          department: 'Laboratory',
+        );
+        expect(payload['doctor_id'], isNull);
+        expect(payload['visit_type'], 'LAB_ONLY');
+        expect(payload['department'], 'Laboratory');
+      });
 
-    test('appointment_time is always "Walk-in" (no slot booking)', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Routine check',
-        visitType: 'routine',
-      );
-      expect(payload['appointment_time'], 'Walk-in');
-    });
+      test('appointment_time is always "Walk-in" (no slot booking)', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Routine check',
+          visitType: 'routine',
+        );
+        expect(payload['appointment_time'], 'Walk-in');
+      });
 
-    test('MLC flag and required fields are included when mlc=true', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Road traffic accident',
-        visitType: 'emergency',
-        mlc: true,
-        mlcNumber: 'MLC-2026-001',
-        mlcNotes: 'Police intimation done — constable present',
-      );
-      expect(payload['mlc'], isTrue);
-      expect(payload['mlc_number'], 'MLC-2026-001');
-      expect(payload['mlc_notes'], 'Police intimation done — constable present');
-    });
+      test('MLC flag and required fields are included when mlc=true', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Road traffic accident',
+          visitType: 'emergency',
+          mlc: true,
+          mlcNumber: 'MLC-2026-001',
+          mlcNotes: 'Police intimation done — constable present',
+        );
+        expect(payload['mlc'], isTrue);
+        expect(payload['mlc_number'], 'MLC-2026-001');
+        expect(
+          payload['mlc_notes'],
+          'Police intimation done — constable present',
+        );
+      });
 
-    test('TPA payer details are included when patientCategory is tpa', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Post-surgery follow-up',
-        visitType: 'routine',
-        patientCategory: 'tpa',
-        payerType: 'tpa',
-        insurerName: 'Star Health',
-        policyNumber: 'SH-123456',
-      );
-      expect(payload['payer_type'], 'tpa');
-      expect(payload['insurer_name'], 'Star Health');
-      expect(payload['policy_number'], 'SH-123456');
-    });
+      test('TPA payer details are included when patientCategory is tpa', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Post-surgery follow-up',
+          visitType: 'routine',
+          patientCategory: 'tpa',
+          payerType: 'tpa',
+          insurerName: 'Star Health',
+          policyNumber: 'SH-123456',
+        );
+        expect(payload['payer_type'], 'tpa');
+        expect(payload['insurer_name'], 'Star Health');
+        expect(payload['policy_number'], 'SH-123456');
+      });
 
-    test('allergies and chronic medications intake fields are forwarded', () {
-      final payload = frontOfficeWalkInRegistrationPayload(
-        patient: basePatient,
-        doctor: baseDoctor,
-        reason: 'Diabetes management review',
-        visitType: 'routine',
-        allergies: 'Penicillin, Sulfa drugs',
-        chronicMedications: 'Metformin 1g BD, Atorvastatin 20mg HS',
-      );
-      expect(payload['allergies'], 'Penicillin, Sulfa drugs');
-      expect(
-        payload['chronic_medications'],
-        'Metformin 1g BD, Atorvastatin 20mg HS',
-      );
-    });
-  });
+      test('allergies and chronic medications intake fields are forwarded', () {
+        final payload = frontOfficeWalkInRegistrationPayload(
+          patient: basePatient,
+          doctor: baseDoctor,
+          reason: 'Diabetes management review',
+          visitType: 'routine',
+          allergies: 'Penicillin, Sulfa drugs',
+          chronicMedications: 'Metformin 1g BD, Atorvastatin 20mg HS',
+        );
+        expect(payload['allergies'], 'Penicillin, Sulfa drugs');
+        expect(
+          payload['chronic_medications'],
+          'Metformin 1g BD, Atorvastatin 20mg HS',
+        );
+      });
+    },
+  );
 }

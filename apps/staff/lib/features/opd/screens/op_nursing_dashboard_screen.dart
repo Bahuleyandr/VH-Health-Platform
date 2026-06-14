@@ -538,78 +538,84 @@ class _OpQueueCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Builder(builder: (ctx) {
-            final s = AppStrings.of(ctx);
-            return Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (appointment.doctorName.isNotEmpty)
-                  _InfoPill(
-                    icon: Icons.medical_services_outlined,
-                    label: appointment.doctorName,
-                  ),
-                if (appointment.department.isNotEmpty)
-                  _InfoPill(
-                    icon: Icons.business_outlined,
-                    label: appointment.department,
-                  ),
-                if (appointment.reason.isNotEmpty)
-                  _InfoPill(
-                    icon: Icons.local_hospital_outlined,
-                    label: appointment.reason,
-                  ),
-                if (overdue)
-                  _InfoPill(
-                    icon: Icons.timer_outlined,
-                    label: s.opNursingCardOverdueWait,
-                    color: AppTheme.warningOnSurface,
-                  ),
-              ],
-            );
-          }),
+          Builder(
+            builder: (ctx) {
+              final s = AppStrings.of(ctx);
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (appointment.doctorName.isNotEmpty)
+                    _InfoPill(
+                      icon: Icons.medical_services_outlined,
+                      label: appointment.doctorName,
+                    ),
+                  if (appointment.department.isNotEmpty)
+                    _InfoPill(
+                      icon: Icons.business_outlined,
+                      label: appointment.department,
+                    ),
+                  if (appointment.reason.isNotEmpty)
+                    _InfoPill(
+                      icon: Icons.local_hospital_outlined,
+                      label: appointment.reason,
+                    ),
+                  if (overdue)
+                    _InfoPill(
+                      icon: Icons.timer_outlined,
+                      label: s.opNursingCardOverdueWait,
+                      color: AppTheme.warningOnSurface,
+                    ),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 12),
-          Builder(builder: (ctx) {
-            final s = AppStrings.of(ctx);
-            return Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _ActionChipButton(
-                  icon: Icons.folder_shared_outlined,
-                  label: s.opNursingCardRecords,
-                  onTap: onOpenRecords,
-                ),
-                _ActionChipButton(
-                  icon: Icons.biotech_outlined,
-                  label: s.opNursingCardInvestigations,
-                  onTap: onOpenInvestigations,
-                ),
-                _ActionChipButton(
-                  icon: Icons.edit_note_outlined,
-                  label: s.opNursingCardNursingNote,
-                  onTap: onOpenNursingNotes,
-                ),
-                _ActionChipButton(
-                  icon: Icons.timeline_outlined,
-                  label: s.opNursingCardTimeline,
-                  onTap: onOpenTimeline,
-                ),
-              ],
-            );
-          }),
+          Builder(
+            builder: (ctx) {
+              final s = AppStrings.of(ctx);
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ActionChipButton(
+                    icon: Icons.folder_shared_outlined,
+                    label: s.opNursingCardRecords,
+                    onTap: onOpenRecords,
+                  ),
+                  _ActionChipButton(
+                    icon: Icons.biotech_outlined,
+                    label: s.opNursingCardInvestigations,
+                    onTap: onOpenInvestigations,
+                  ),
+                  _ActionChipButton(
+                    icon: Icons.edit_note_outlined,
+                    label: s.opNursingCardNursingNote,
+                    onTap: onOpenNursingNotes,
+                  ),
+                  _ActionChipButton(
+                    icon: Icons.timeline_outlined,
+                    label: s.opNursingCardTimeline,
+                    onTap: onOpenTimeline,
+                  ),
+                ],
+              );
+            },
+          ),
           if (!hasPatientUid) ...[
             const SizedBox(height: 10),
-            Builder(builder: (ctx) {
-              final s = AppStrings.of(ctx);
-              return Text(
-                s.opNursingPatientUidMissing,
-                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                  color: AppTheme.warningOnSurface,
-                  fontWeight: FontWeight.w700,
-                ),
-              );
-            }),
+            Builder(
+              builder: (ctx) {
+                final s = AppStrings.of(ctx);
+                return Text(
+                  s.opNursingPatientUidMissing,
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    color: AppTheme.warningOnSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                );
+              },
+            ),
           ],
         ],
       ),

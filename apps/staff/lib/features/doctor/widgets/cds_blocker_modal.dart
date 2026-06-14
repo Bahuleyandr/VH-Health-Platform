@@ -42,6 +42,7 @@ bool _isMeaningfulJustification(String text) {
 class CdsOverrideOutcome {
   CdsOverrideOutcome({this.overrideReason});
   final String? overrideReason;
+
   /// shouldProceed is true only when the structured fields have been fully
   /// validated — the reason string carries evidence of that validation.
   bool get shouldProceed =>
@@ -227,8 +228,7 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                 hint: const Text('Select a reason category'),
                 items: _CdsOverrideCategory.values
                     .map(
-                      (c) =>
-                          DropdownMenuItem(value: c, child: Text(c.label)),
+                      (c) => DropdownMenuItem(value: c, child: Text(c.label)),
                     )
                     .toList(),
                 onChanged: (v) => setState(() => _category = v),
@@ -250,9 +250,10 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                           _isMeaningfulJustification(_justificationCtrl.text)
                               ? Icons.check_circle_outline
                               : Icons.error_outline,
-                          color: _isMeaningfulJustification(
-                            _justificationCtrl.text,
-                          )
+                          color:
+                              _isMeaningfulJustification(
+                                _justificationCtrl.text,
+                              )
                               ? Colors.green
                               : Colors.red,
                           size: 18,
@@ -336,9 +337,9 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
               foregroundColor: Colors.white,
             ),
             onPressed: _overrideValid
-                ? () => Navigator.of(context).pop(
-                    CdsOverrideOutcome(overrideReason: _overridePayload),
-                  )
+                ? () => Navigator.of(
+                    context,
+                  ).pop(CdsOverrideOutcome(overrideReason: _overridePayload))
                 : null,
             child: Text(s.cdsBlockerOverrideSave),
           ),

@@ -255,7 +255,10 @@ class _LaborCard extends StatelessWidget {
               spacing: 14,
               runSpacing: 6,
               children: [
-                _stat(s.maternityStatCervix, '${labor.cervixDilation ?? "—"} cm'),
+                _stat(
+                  s.maternityStatCervix,
+                  '${labor.cervixDilation ?? "—"} cm',
+                ),
                 _stat(s.maternityStatFhr, '${labor.fetalHr ?? "—"}'),
                 _stat(s.maternityStatCtx, '${labor.contractions ?? "—"}'),
                 if (labor.reason != null)

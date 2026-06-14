@@ -2396,8 +2396,7 @@ class AppStrings {
       _t('op_nursing_dashboard.card.investigations');
   String get opNursingCardNursingNote =>
       _t('op_nursing_dashboard.card.nursing_note');
-  String get opNursingCardTimeline =>
-      _t('op_nursing_dashboard.card.timeline');
+  String get opNursingCardTimeline => _t('op_nursing_dashboard.card.timeline');
   String get opNursingCardOverdueWait =>
       _t('op_nursing_dashboard.card.overdue_wait');
   String get opNursingPatientUidMissing =>
@@ -2431,8 +2430,7 @@ class AppStrings {
       _t('partograph_entry.section.maternal_vitals');
   String get partographSectionDrugsFluids =>
       _t('partograph_entry.section.drugs_fluids');
-  String get partographCervixDilation =>
-      _t('partograph_entry.cervix_dilation');
+  String get partographCervixDilation => _t('partograph_entry.cervix_dilation');
   String get partographCervixDilationHint =>
       _t('partograph_entry.cervix_dilation_hint');
   String get partographDescent => _t('partograph_entry.descent');
@@ -2491,8 +2489,7 @@ class AppStrings {
 
   // ── Safety Center screen ───────────────────────────────────────────
   String get safetyCenterTitle => _t('safety_center.title');
-  String get safetyCenterRefreshTooltip =>
-      _t('safety_center.refresh_tooltip');
+  String get safetyCenterRefreshTooltip => _t('safety_center.refresh_tooltip');
   String get safetyCenterMetricCriticalAlerts =>
       _t('safety_center.metric.critical_alerts');
   String get safetyCenterMetricDischargeBlockers =>
@@ -2508,8 +2505,7 @@ class AppStrings {
   String get safetyCenterCriticalAlertsAction =>
       _t('safety_center.critical_alerts.action');
   String get safetyCenterAcknowledge => _t('safety_center.acknowledge');
-  String get safetyCenterDischargeTile =>
-      _t('safety_center.discharge.title');
+  String get safetyCenterDischargeTile => _t('safety_center.discharge.title');
   String get safetyCenterDischargeSubtitle =>
       _t('safety_center.discharge.subtitle');
   String get safetyCenterDischargeEmpty => _t('safety_center.discharge.empty');
@@ -2544,12 +2540,9 @@ class AppStrings {
   String get receptionCounterTabOpd => _t('reception_counter.tab.opd');
   String get receptionCounterTabIp => _t('reception_counter.tab.ip_admission');
   String get receptionCounterTabToday => _t('reception_counter.tab.today');
-  String get receptionCounterOpdTitle =>
-      _t('reception_counter.opd.title');
-  String get receptionCounterIpTitle =>
-      _t('reception_counter.ip.title');
-  String get receptionCounterTodayTitle =>
-      _t('reception_counter.today.title');
+  String get receptionCounterOpdTitle => _t('reception_counter.opd.title');
+  String get receptionCounterIpTitle => _t('reception_counter.ip.title');
+  String get receptionCounterTodayTitle => _t('reception_counter.today.title');
   String get receptionCounterPatientLookupTitle =>
       _t('reception_counter.patient_lookup.title');
   String get receptionCounterPatientLookupHint =>
@@ -2576,8 +2569,7 @@ class AppStrings {
       _t('reception_counter.ip.diagnosis');
   String get receptionCounterIpWard => _t('reception_counter.ip.ward');
   String get receptionCounterIpBed => _t('reception_counter.ip.bed');
-  String get receptionCounterIpPriority =>
-      _t('reception_counter.ip.priority');
+  String get receptionCounterIpPriority => _t('reception_counter.ip.priority');
   String get receptionCounterIpCodeStatus =>
       _t('reception_counter.ip.code_status');
   String get receptionCounterIpConsentTitle =>
@@ -2586,15 +2578,13 @@ class AppStrings {
       _t('reception_counter.ip.consent_subtitle');
   String get receptionCounterIpCreateButton =>
       _t('reception_counter.ip.create_button');
-  String get receptionCounterWardFloor =>
-      _t('reception_counter.ward.floor');
+  String get receptionCounterWardFloor => _t('reception_counter.ward.floor');
   String get receptionCounterBed => _t('reception_counter.bed');
   String get receptionCounterBedSelectWardFirst =>
       _t('reception_counter.bed.select_ward_first');
   String get receptionCounterBedUnavailable =>
       _t('reception_counter.bed.unavailable');
-  String get receptionCounterBedNoFree =>
-      _t('reception_counter.bed.no_free');
+  String get receptionCounterBedNoFree => _t('reception_counter.bed.no_free');
   String get receptionCounterOpdAppointments =>
       _t('reception_counter.today.opd_appointments');
   String get receptionCounterActiveAdmissions =>
@@ -2647,8 +2637,9 @@ class AppStrings {
       _t('reception_counter.admission_lookup.last_ip_prefix');
   String receptionCounterPriorAdmissions(int count) => count == 1
       ? _t('reception_counter.admission_lookup.prior_admission_one')
-      : _t('reception_counter.admission_lookup.prior_admission_other')
-            .replaceAll('{n}', '$count');
+      : _t(
+          'reception_counter.admission_lookup.prior_admission_other',
+        ).replaceAll('{n}', '$count');
   String get receptionCounterOpenFrontOffice =>
       _t('reception_counter.open_front_office');
   String get receptionCounterOpenAdmissions =>
@@ -4749,7 +4740,8 @@ class AppStrings {
           'Search and select a patient or enter a patient identifier.',
       'reception_counter.validate.admitting_doctor':
           'Select the admitting doctor.',
-      'reception_counter.validate.chief_complaint': 'Enter the chief complaint.',
+      'reception_counter.validate.chief_complaint':
+          'Enter the chief complaint.',
       'reception_counter.validate.patient_name':
           'Enter patient name for a new IP admission.',
       'reception_counter.opd_booked_success': 'OPD appointment booked.',

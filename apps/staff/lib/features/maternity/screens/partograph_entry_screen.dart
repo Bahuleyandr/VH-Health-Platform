@@ -241,7 +241,11 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               _enumField(
                 s.partographCtxIntensity,
                 _ctxIntensity,
-                [s.partographCtxWeak, s.partographCtxModerate, s.partographCtxStrong],
+                [
+                  s.partographCtxWeak,
+                  s.partographCtxModerate,
+                  s.partographCtxStrong,
+                ],
                 (v) => setState(() => _ctxIntensity = v),
               ),
             ]),
@@ -254,13 +258,18 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
                 s.partographDecelLate,
                 s.partographDecelVariable,
               ], (v) => setState(() => _decel = v)),
-              _enumField(s.partographAmnioticFluid, _amniotic, const [
-                'intact_membranes',
-                'clear',
-                'meconium_thin',
-                'meconium_thick',
-                'blood',
-              ], (v) => setState(() => _amniotic = v)),
+              _enumField(
+                s.partographAmnioticFluid,
+                _amniotic,
+                const [
+                  'intact_membranes',
+                  'clear',
+                  'meconium_thin',
+                  'meconium_thick',
+                  'blood',
+                ],
+                (v) => setState(() => _amniotic = v),
+              ),
               _enumField(s.partographMoulding, _moulding, const [
                 '0',
                 '1+',
@@ -272,9 +281,13 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
             _section(s.partographSectionMaternalVitals, [
               Row(
                 children: [
-                  Expanded(child: _numField(_bpSysCtrl, s.partographBpSystolic)),
+                  Expanded(
+                    child: _numField(_bpSysCtrl, s.partographBpSystolic),
+                  ),
                   const SizedBox(width: 8),
-                  Expanded(child: _numField(_bpDiaCtrl, s.partographBpDiastolic)),
+                  Expanded(
+                    child: _numField(_bpDiaCtrl, s.partographBpDiastolic),
+                  ),
                 ],
               ),
               _numField(_pulseCtrl, s.partographPulse),

@@ -120,7 +120,8 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                       leading: const Icon(Icons.warning_amber),
                       title: Text(
                         // pluralisation kept in Dart; key holds the base pattern
-                        s.partographViewActionLineCrossed(actionCount)
+                        s
+                            .partographViewActionLineCrossed(actionCount)
                             .replaceAll('{suffix}', actionSuffix),
                       ),
                       subtitle: Text(s.partographViewActionLineSubtitle),
@@ -132,7 +133,8 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.info_outline),
                       title: Text(
-                        s.partographViewAlertLineCrossed(alertCount)
+                        s
+                            .partographViewAlertLineCrossed(alertCount)
                             .replaceAll('{suffix}', alertSuffix),
                       ),
                       subtitle: Text(s.partographViewAlertLineSubtitle),
@@ -192,7 +194,10 @@ class _PointTimeline extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(s.partographViewRecentEntries, style: theme.textTheme.titleSmall),
+            Text(
+              s.partographViewRecentEntries,
+              style: theme.textTheme.titleSmall,
+            ),
             const SizedBox(height: 8),
             ...points.reversed.take(8).map((p) {
               final hours =

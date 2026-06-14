@@ -429,9 +429,7 @@ class _OverrideSectionState extends State<_OverrideSection> {
             initialValue: _category,
             hint: const Text('Select a category'),
             items: _MarOverrideCategory.values
-                .map(
-                  (c) => DropdownMenuItem(value: c, child: Text(c.label)),
-                )
+                .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
                 .toList(),
             onChanged: (v) => setState(() => _category = v),
           ),

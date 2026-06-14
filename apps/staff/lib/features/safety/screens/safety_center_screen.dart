@@ -238,7 +238,11 @@ class _SafetyCenterScreenState extends State<SafetyCenterScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-          ? _ErrorState(message: _error!, onRetry: _load, retryLabel: s.safetyCenterRetry)
+          ? _ErrorState(
+              message: _error!,
+              onRetry: _load,
+              retryLabel: s.safetyCenterRetry,
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
@@ -659,7 +663,11 @@ class _ErrorState extends StatelessWidget {
   final VoidCallback onRetry;
   final String? retryLabel;
 
-  const _ErrorState({required this.message, required this.onRetry, this.retryLabel});
+  const _ErrorState({
+    required this.message,
+    required this.onRetry,
+    this.retryLabel,
+  });
 
   @override
   Widget build(BuildContext context) {

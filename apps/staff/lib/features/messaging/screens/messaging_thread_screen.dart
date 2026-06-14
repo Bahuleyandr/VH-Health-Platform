@@ -742,7 +742,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     await Clipboard.setData(ClipboardData(text: message.body));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Message copied — clipboard clears in 60 s')),
+      const SnackBar(
+        content: Text('Message copied — clipboard clears in 60 s'),
+      ),
     );
     // Clear clipboard after 60 s regardless of widget lifecycle.
     Timer(const Duration(seconds: 60), () {

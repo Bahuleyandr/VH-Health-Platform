@@ -109,7 +109,10 @@ void main() {
     });
 
     test('returns false when overrideReason is empty string', () {
-      expect(const CdsOverrideOutcome(overrideReason: '').shouldProceed, isFalse);
+      expect(
+        const CdsOverrideOutcome(overrideReason: '').shouldProceed,
+        isFalse,
+      );
     });
 
     test('returns false when overrideReason is whitespace-only', () {
@@ -119,21 +122,27 @@ void main() {
       );
     });
 
-    test('returns false when overrideReason is shorter than 15 trimmed chars', () {
-      expect(
-        const CdsOverrideOutcome(overrideReason: 'short').shouldProceed,
-        isFalse,
-      );
-      expect(
-        const CdsOverrideOutcome(overrideReason: '14 characters!').shouldProceed,
-        isFalse,
-      );
-    });
+    test(
+      'returns false when overrideReason is shorter than 15 trimmed chars',
+      () {
+        expect(
+          const CdsOverrideOutcome(overrideReason: 'short').shouldProceed,
+          isFalse,
+        );
+        expect(
+          const CdsOverrideOutcome(
+            overrideReason: '14 characters!',
+          ).shouldProceed,
+          isFalse,
+        );
+      },
+    );
 
     test('returns true when overrideReason is a valid structured payload', () {
       expect(
         const CdsOverrideOutcome(
-          overrideReason: '[benefit-outweighs-risk] Benefit outweighs allergy risk — patient history confirmed',
+          overrideReason:
+              '[benefit-outweighs-risk] Benefit outweighs allergy risk — patient history confirmed',
         ).shouldProceed,
         isTrue,
       );
@@ -144,7 +153,9 @@ void main() {
       // calling the API. A whitespace-only override must not pass.
       const whitespaceReason = '               ';
       expect(
-        const CdsOverrideOutcome(overrideReason: whitespaceReason).shouldProceed,
+        const CdsOverrideOutcome(
+          overrideReason: whitespaceReason,
+        ).shouldProceed,
         isFalse,
         reason: 'Whitespace-padded empty override must not proceed to API call',
       );
@@ -172,11 +183,15 @@ void main() {
 
     test('accepts normal clinical override justifications', () {
       expect(
-        isMeaningfulJustification('Prior tolerance documented in patient records'),
+        isMeaningfulJustification(
+          'Prior tolerance documented in patient records',
+        ),
         isTrue,
       );
       expect(
-        isMeaningfulJustification('No alternative agent available for this indication'),
+        isMeaningfulJustification(
+          'No alternative agent available for this indication',
+        ),
         isTrue,
       );
     });
@@ -224,25 +239,31 @@ void main() {
       );
     });
 
-    test('returns true when level field is SEVERE (alternate payload shape)', () {
-      // Some CDS payloads use `level` instead of `severity`.
-      expect(
-        hasSevereAllergyBlocker([
-          {'type': 'ALLERGY_CONFLICT', 'level': 'SEVERE'},
-        ]),
-        isTrue,
-      );
-    });
+    test(
+      'returns true when level field is SEVERE (alternate payload shape)',
+      () {
+        // Some CDS payloads use `level` instead of `severity`.
+        expect(
+          hasSevereAllergyBlocker([
+            {'type': 'ALLERGY_CONFLICT', 'level': 'SEVERE'},
+          ]),
+          isTrue,
+        );
+      },
+    );
 
-    test('returns true when any one of multiple blockers is a SEVERE allergy', () {
-      expect(
-        hasSevereAllergyBlocker([
-          {'type': 'DRUG_INTERACTION', 'severity': 'HIGH'},
-          {'type': 'ALLERGY_CONFLICT', 'severity': 'SEVERE'},
-        ]),
-        isTrue,
-      );
-    });
+    test(
+      'returns true when any one of multiple blockers is a SEVERE allergy',
+      () {
+        expect(
+          hasSevereAllergyBlocker([
+            {'type': 'DRUG_INTERACTION', 'severity': 'HIGH'},
+            {'type': 'ALLERGY_CONFLICT', 'severity': 'SEVERE'},
+          ]),
+          isTrue,
+        );
+      },
+    );
   });
 
   // ── isOverrideValid ───────────────────────────────────────────────────────
@@ -273,17 +294,20 @@ void main() {
       );
     });
 
-    test('valid when category + meaningful justification, no supervisor needed', () {
-      expect(
-        isOverrideValid(
-          category: CdsOverrideCategory.priorToleranceDocumented,
-          justification: goodText,
-          requiresSupervisor: false,
-          supervisorText: '',
-        ),
-        isTrue,
-      );
-    });
+    test(
+      'valid when category + meaningful justification, no supervisor needed',
+      () {
+        expect(
+          isOverrideValid(
+            category: CdsOverrideCategory.priorToleranceDocumented,
+            justification: goodText,
+            requiresSupervisor: false,
+            supervisorText: '',
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('SEVERE allergy: supervisor field must be >= 3 chars', () {
       expect(
@@ -291,7 +315,7 @@ void main() {
           category: CdsOverrideCategory.benefitOutweighsRisk,
           justification: goodText,
           requiresSupervisor: true,
-          supervisorText: 'Dr',  // only 2 chars
+          supervisorText: 'Dr', // only 2 chars
         ),
         isFalse,
       );
@@ -338,7 +362,8 @@ void main() {
     test('SEVERE allergy override includes supervisor reference', () {
       final payload = buildCdsOverridePayload(
         category: CdsOverrideCategory.priorToleranceDocumented,
-        justification: 'Documented tolerance from prior hospitalisation records',
+        justification:
+            'Documented tolerance from prior hospitalisation records',
         supervisorRef: 'Dr. Rajan — EMP-0342',
       );
       expect(
@@ -362,15 +387,27 @@ void main() {
         justification: '  Allergy label is documented error — patient denies  ',
         supervisorRef: '  Dr. Mehta  ',
       );
-      expect(payload, contains('Allergy label is documented error — patient denies'));
+      expect(
+        payload,
+        contains('Allergy label is documented error — patient denies'),
+      );
       expect(payload, contains('supervisor: Dr. Mehta'));
     });
 
     test('category value strings are stable DB-stored constants', () {
       // Any change to these breaks the audit log parser and existing DB rows.
-      expect(CdsOverrideCategory.priorToleranceDocumented.value, 'prior-tolerance-documented');
-      expect(CdsOverrideCategory.benefitOutweighsRisk.value, 'benefit-outweighs-risk');
-      expect(CdsOverrideCategory.alternativeUnavailable.value, 'alternative-unavailable');
+      expect(
+        CdsOverrideCategory.priorToleranceDocumented.value,
+        'prior-tolerance-documented',
+      );
+      expect(
+        CdsOverrideCategory.benefitOutweighsRisk.value,
+        'benefit-outweighs-risk',
+      );
+      expect(
+        CdsOverrideCategory.alternativeUnavailable.value,
+        'alternative-unavailable',
+      );
       expect(CdsOverrideCategory.allergyDisputed.value, 'allergy-disputed');
       expect(CdsOverrideCategory.other.value, 'other');
     });
@@ -383,11 +420,14 @@ void main() {
     // path shows only "Adjust Order" — no override field.
     // Test: CdsOverrideOutcome with null reason is returned (cancelled path).
 
-    test('outcome with null reason correctly surfaces as shouldProceed=false', () {
-      // This simulates what happens when the doctor taps "Adjust Order":
-      // the modal pops with `CdsOverrideOutcome()` (no reason = cancelled).
-      expect(const CdsOverrideOutcome().shouldProceed, isFalse);
-    });
+    test(
+      'outcome with null reason correctly surfaces as shouldProceed=false',
+      () {
+        // This simulates what happens when the doctor taps "Adjust Order":
+        // the modal pops with `CdsOverrideOutcome()` (no reason = cancelled).
+        expect(const CdsOverrideOutcome().shouldProceed, isFalse);
+      },
+    );
 
     test('prescription screen must not proceed when shouldProceed is false', () {
       // Clinical contract: the screen checks `outcome.shouldProceed` before
@@ -402,7 +442,8 @@ void main() {
         expect(
           outcome.shouldProceed,
           isFalse,
-          reason: 'outcome with reason="${outcome.overrideReason}" must not proceed',
+          reason:
+              'outcome with reason="${outcome.overrideReason}" must not proceed',
         );
       }
     });

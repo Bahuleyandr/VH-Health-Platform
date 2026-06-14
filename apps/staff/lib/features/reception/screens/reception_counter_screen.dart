@@ -951,7 +951,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: _priority,
-                  decoration: InputDecoration(labelText: s.receptionCounterIpPriority),
+                  decoration: InputDecoration(
+                    labelText: s.receptionCounterIpPriority,
+                  ),
                   items: const ['Routine', 'Urgent', 'Emergency', 'Critical']
                       .map(
                         (value) =>
@@ -966,7 +968,9 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: _codeStatus,
-                  decoration: InputDecoration(labelText: s.receptionCounterIpCodeStatus),
+                  decoration: InputDecoration(
+                    labelText: s.receptionCounterIpCodeStatus,
+                  ),
                   items: const ['Full Code', 'DNR', 'DNR/DNI', 'Comfort Care']
                       .map(
                         (value) =>
@@ -1153,9 +1157,11 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
             ),
             items: const [],
             onChanged: null,
-            hint: Text(snapshot.hasError
-                ? s.receptionCounterBedUnavailable
-                : s.receptionCounterBedNoFree),
+            hint: Text(
+              snapshot.hasError
+                  ? s.receptionCounterBedUnavailable
+                  : s.receptionCounterBedNoFree,
+            ),
           );
         }
         return DropdownButtonFormField<String>(
@@ -1285,7 +1291,8 @@ class _ReceptionCounterScreenState extends State<ReceptionCounterScreen> {
                         : patientName,
                   ),
                   subtitle: Text(
-                      bed.isEmpty ? s.receptionCounterAdmissionActive : bed),
+                    bed.isEmpty ? s.receptionCounterAdmissionActive : bed,
+                  ),
                   trailing: Text(_text(admission['status']).toUpperCase()),
                 );
               }).toList(),
