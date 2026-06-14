@@ -53,13 +53,20 @@ spec:
   #
   # Migration ordering: the migration Job needs DDL privileges. It connects as
   # the bootstrap OWNER role `vhhealth` (bootstrap.initdb.owner, secret
-  # vhhealth-pg-app) via DATABASE_SUPERUSER_URL — the owner can run every
-  # migration's DDL on its own objects, and the trusted extensions in
-  # postInitApplicationSQL (pgcrypto/citext/uuid-ossp/pg_stat_statements) plus
-  # pgvector are creatable by the database owner on the CNPG image. If a future
-  # migration needs true superuser (e.g. an UNTRUSTED extension or an event
-  # trigger on system objects), re-enable a scoped superuser path for the Job
-  # ONLY — never for the backend Deployment.
+  # vhhealth-pg-app) via DATABASE_SUPERUSER_URL. The owner runs each migration's
+  # DDL on its own objects, BUT it must also carry BYPASSRLS — proven by
+  # scripts/runtime-role-cutover-drill.mjs (docs/RUNTIME_ROLE_CUTOVER_DRILL.md):
+  # 000_baseline.sql sets `SET row_security = off`, and migrations 237/272 do
+  # `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, so a NOSUPERUSER NOBYPASSRLS owner
+  # 42501s partway through a FRESH-cluster apply (e.g. mig 240 FK-add, 255 beds
+  # seed). CI never caught this because it applies as the postgres superuser. Fix:
+  # the owner role below is granted bypassrls:true (migration path ONLY) while the
+  # app's vhhealth_runtime stays NOBYPASSRLS so tenant RLS still enforces.
+  # OPERATOR VERIFY (blocker B, image-dependent): `vector` (pgvector) is an
+  # UNTRUSTED extension and is NOT in postInitApplicationSQL; confirm the CNPG
+  # image lets the owner `CREATE EXTENSION vector` (the migration Job's
+  # db:ensure-pgvector relies on it) or add a superuser-scoped init that creates
+  # it before the migration Job runs.
   #
   # OPERATOR: with enableSuperuserAccess:false the operator no longer manages a
   # `postgres` superuser password; the vhhealth-pg-superuser Secret becomes
@@ -196,6 +203,28 @@ spec:
         bypassrls: false
         passwordSecret:
           name: vhhealth-pg-readonly
+      # vhhealth — bootstrap OWNER + MIGRATION role (bootstrap.initdb.owner).
+      # Managed here ONLY to grant bypassrls:true: a fresh-cluster migration apply
+      # must bypass RLS because 000_baseline sets row_security=off and migs 237/272
+      # FORCE RLS, which 42501s a NOBYPASSRLS owner (proven by
+      # scripts/runtime-role-cutover-drill.mjs). Migration path ONLY
+      # (DATABASE_SUPERUSER_URL); the app connects as NOBYPASSRLS vhhealth_runtime,
+      # so tenant RLS still enforces. Password MUST stay the bootstrap
+      # vhhealth-pg-app secret (must match bootstrap.initdb.secret).
+      - name: vhhealth
+        ensure: present
+        comment: >-
+          Bootstrap owner + migration role; bypassrls for the migration-Job apply
+          path only (app uses the NOBYPASSRLS vhhealth_runtime role).
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: true
+        passwordSecret:
+          name: vhhealth-pg-app
 
   bootstrap:
     initdb:
