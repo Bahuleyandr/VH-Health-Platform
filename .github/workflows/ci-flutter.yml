@@ -5,6 +5,7 @@ name: Flutter CI
 # edits skip this workflow via path filters.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
