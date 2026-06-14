@@ -211,3 +211,36 @@ Admin CI went red on a NEWLY-published esbuild advisory (dev-only, transitive vi
 `tsx`) with zero code change — `npm audit --audit-level=high` is a moving target.
 `npm audit fix` (lockfile-only transitive bump, 0.28.0→0.28.1) clears it; expect
 this class of red on any repo with an audit gate.
+
+---
+
+## 2026-06-14 (parallel agents: KB-grounding + cutover-drill + CareTeam ABAC)
+
+### Rehearse the prod ROLE TOPOLOGY before go-live, not just the migrations
+A `NOSUPERUSER NOBYPASSRLS` migration owner (exactly how prod's CNPG migration Job is
+configured: `enableSuperuserAccess:false`, owner not bypassrls) **cannot apply the
+migration chain on a fresh cluster** — `000_baseline.sql` does `SET row_security = off`
+and migrations 237/272 `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, so the owner `42501`s
+partway through (e.g. mig 240 FK-add, 255 beds seed) and leaves the schema half-migrated.
+CI/QA never caught it because they apply as the postgres **superuser**, which ignores
+`row_security=off` and bypasses RLS — QA's role topology didn't mirror prod's. The
+`scripts/runtime-role-cutover-drill.mjs` dry-run (rehearses the non-superuser owner on a
+scratch DB) reproduced it immediately. Fix: grant the owner `bypassrls` for the migration
+path ONLY (`cluster.yaml` managed.roles), app stays NOBYPASSRLS. **Lesson:** a go-live
+dry-run must exercise the real prod *role privileges*, not just "do the migrations run" —
+a superuser CI path hides every non-superuser-owner blocker (and the untrusted `vector`
+extension is a sibling case: owner may not be able to `CREATE EXTENSION` it).
+
+### Verify a design/audit PREMISE against live code before implementing — especially for security controls
+Two parallel passes corrected stale premises that, if followed literally, would have caused
+harm: (1) "no CareTeam table, build ABAC" → the table + relationship engine + shadow mode
+ALREADY existed (mig 260, `accessDecisionService.js`); the real gap was enforcement
+**coverage**, not a missing model. (2) The design's "~4 routes enforce / ~50 audit-only"
+split was **wrong** — dozens of `patientAccessGuard` call sites already enforce in prod, so
+a naive global "default everything to shadow" would have silently **downgraded** live PHI
+enforcement (enforce→shadow). The fix: gate the new per-tenant mode behind an opt-in
+`careTeamModeGoverned:true` flag so pre-existing guards stay hard-`enforce` and only the
+truly-uncovered families get shadow. **Lesson:** a "gap-filling" change to a security control
+can silently weaken an existing control if the premise is stale — grep the live wiring first.
+Independent/adversarial agents surface this; a single pass that trusts the doc ships the
+regression.
