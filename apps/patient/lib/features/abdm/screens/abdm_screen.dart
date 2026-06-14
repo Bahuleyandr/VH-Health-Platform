@@ -299,7 +299,9 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
                       // clear after 30 s so PHI does not linger in the
                       // clipboard indefinitely (pastes into other apps, etc.).
                       Clipboard.setData(ClipboardData(text: _abhaNumber!));
-                      _showSnackBar('ABHA number copied — clipboard clears in 30 s');
+                      _showSnackBar(
+                        'ABHA number copied — clipboard clears in 30 s',
+                      );
                       Timer(const Duration(seconds: 30), () {
                         Clipboard.setData(const ClipboardData(text: ''));
                       });

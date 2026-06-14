@@ -79,9 +79,7 @@ class DeepLinkService {
     if (route != null && route.startsWith('/')) {
       if (_isAllowed(route)) return route;
       if (kDebugMode) {
-        debugPrint(
-          'DeepLinkService: rejected non-allowlisted route: $route',
-        );
+        debugPrint('DeepLinkService: rejected non-allowlisted route: $route');
       }
       return null;
     }
