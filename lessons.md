@@ -77,3 +77,89 @@ file disagrees with `prisma db pull` against a migrated DB.
 Wave 4 chips hand-edited the schema with aspirational columns/indexes/
 cascades, producing the 2026-05-13 morning's drift-fix commit
 `b60cdb02`.
+
+---
+
+## 2026-06-14 cycle (autonomous S-tier WS0–WS8 completion — RLS Batch 3, B1.2/B2.5/B3.2/B4.2/B5.5)
+
+### Append-only audit chain: never delete mid-chain rows in test cleanup
+
+`clinical_audit_events` is a GLOBAL per-tenant append-only hash chain
+(migration 282 trigger). Any test cleanup that `DELETE`s rows (e.g. by
+`patient_uid`) permanently breaks the chain for every later run —
+`document-integrity.deep` verifies full-chain linkage and fails
+non-deterministically once enough gaps accumulate (it bit us 3× before the
+root cause was found). Two-part fix (`5a2b676e`): (1) remove the
+`DELETE FROM clinical_audit_events` from `_journeyHarness.js` cleanup —
+orphaned-by-patient audit rows are harmless and prod never deletes audit rows
+either; (2) the verifying suite self-isolates by resetting only the
+default-tenant chain in its own `beforeAll` (it runs under
+`JEST_CI_ISOLATED_TESTS`, so this is safe). Generalises: an integrity test over
+a globally-shared append-only structure must own an isolated slice.
+
+### A coverage pass is a bug-finder, not a metric exercise — and never assert the buggy shape
+
+Raising B3.2 coverage to ≥80% surfaced two real production bugs narrower tests
+had missed for months: `adminOtpService.query()` returns `{rows, rowCount}` but
+4 callers indexed it as the rows array → `forceSendOtp` 500'd on *every* admin
+force-send (success branch unreachable); `prescriptionSafetyCheck` with an
+empty med name made `allergyName.includes('')` always true → a spurious
+severe-allergy HARD BLOCKER on any prescription for any patient with a recorded
+allergy (`8042dfa7`). Rule for coverage work: when a branch is only reachable
+via a bug, FIX the source first, then assert the correct behaviour. Never write
+an assertion that documents/accepts the buggy shape to cover the line — that
+cements the bug as "tested".
+
+### setTenantTx conversion: unit-test mocks must delegate the named export
+
+When converting a service from `prisma.$transaction` to `setTenantTx`, the
+test's `jest.unstable_mockModule('../../lib/prisma.js', ...)` must export
+`setTenantTx` (and `setTenant`/`runTenantScopedTransaction`/`pickTenantClient`)
+as NAMED exports that delegate to the per-test tx:
+`setTenantTx: async (_t, fn) => fn(txMock)` (or `=> transactionMock(fn)` when
+the test asserts on `transactionMock`). Missing it = an ESM-link failure
+(`setTenantTx is not a function`) that surfaces in a random chunk by mtime
+order. For a large conversion batch, do a ONE-TIME sweep of all prisma mocks
+first (`14f6452e` — 149-file sweep) so no wave breaks tests.
+
+### Multi-tenant RLS is three layers — all three must be wired
+
+(1) the prisma proxy auto-scopes single-statement raws + model-API calls under
+`AUTH_ENFORCE_TENANT_RLS` (`maybeRunUnderTenant`/`wrapModelDelegate`); (2)
+interactive `$transaction` callbacks BYPASS the proxy → must be converted to
+`setTenantTx(tenantId, cb)` (no lint rule — only an adversarial audit of every
+`$transaction` site finds them; Batch 3 = 47 sites); (3) policied `tenant_id`
+column DEFAULTs must be GUC-reading, not the literal default, or an INSERT that
+omits `tenant_id` 42501s under a non-default tenant (migration 310:
+`COALESCE(NULLIF(NULLIF(current_setting('app.current_tenant_id',true),''),'bypass')::uuid, <default>)`).
+Single-tenant is safe with all three gaps present; they become exploitable the
+moment a 2nd tenant onboards.
+
+### RLS membership: verify against the live DB, not migration greps
+
+Grepping migrations for `tenant_id`/policy names produced both false positives
+and false negatives during the audit. Ground truth is the live DB —
+`SELECT relname FROM pg_class WHERE relrowsecurity=true` joined with
+`information_schema.columns WHERE column_name='tenant_id'`. Use it before
+deciding whether a `$transaction` needs `setTenantTx` (the housekeeping tables
+looked policied by name but were not; several looked unpoliced but were).
+
+### req.tenantId, never req.user.tenant_id, in controllers
+
+`req.user.tenant_id` is the optional raw JWT claim (absent on older tokens,
+stale after tenant reassignment). `req.tenantId` is the authoritative
+middleware-resolved tenant. Passing `req.user.tenant_id` is a silent
+miscategorisation that passes tests and only misroutes PHI in edge cases
+(caught by adversarial verify in Batch 0a, `3b032995`).
+
+### Distinguish environmental test failures from code regressions
+
+Two signatures are infra, not code: (a) a chunk that dies with NO test output
+and a non-1 exit (e.g. exit 4) = the process was killed (OOM / external SIGKILL)
+— don't read the suite's logic. (b) 100+ failures in one chunk all reading
+`Database circuit breaker is open` = the QA DB was down at runner startup; the
+first 5 connection failures trip the breaker (`CIRCUIT_BREAKER_THRESHOLD=5`, a
+module singleton) and every later query in that process fails fast. Resolution:
+`node scripts/qa-cluster-up.mjs` + re-run — do not chase the cascade. (The
+breaker only trips on connection failures; schema errors like 42P01 are in its
+ignore-set, so a real schema regression looks different.)
