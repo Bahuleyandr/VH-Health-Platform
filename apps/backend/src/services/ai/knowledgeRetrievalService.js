@@ -124,6 +124,10 @@ export async function retrieveFromKnowledgeBases({
        JOIN knowledge_documents d ON d.id = c.document_id
        WHERE c.tenant_id = $1::uuid
          AND kb.status = 'active'
+         -- WS5 B5.5: only curation-approved documents feed an AI prompt.
+         -- Imported (formulary / antibiogram / protocol) docs land 'pending'
+         -- and stay dark until pharmacy / micro-infection-control sign-off.
+         AND d.curation_status = 'approved'
          AND ($3::int IS NULL OR c.knowledge_base_id = $3)
          AND ($4::text IS NULL OR kb.kb_type = $4)
          AND EXISTS (

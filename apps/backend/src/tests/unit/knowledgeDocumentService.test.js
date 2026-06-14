@@ -52,11 +52,14 @@ jest.unstable_mockModule('../../services/ai/documentOcrAdapter.js', () => ({
 
 const {
   createInlineDocument,
+  decideKnowledgeDocument,
   deleteKnowledgeDocument,
+  findDocumentByHash,
   getKnowledgeDocument,
   listKnowledgeDocuments,
   reindexDocument,
   uploadDocument,
+  __testing__,
 } = await import('../../services/ai/knowledgeDocumentService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -326,6 +329,34 @@ describe('knowledgeDocumentService CRUD', () => {
     expect(result.id).toBe(42);
   });
 
+  it('createInlineDocument threads curationStatus into the insert', async () => {
+    detectPromptInjectionMock.mockReturnValueOnce(injectionResult('pass'));
+    mockInsertDoc({ curation_status: 'pending' });
+    chunkTextMock.mockReturnValueOnce(['chunk one']);
+    embedTextMock.mockResolvedValueOnce(new Array(768).fill(0.1));
+    mockStatusUpdate();
+    mockStatusUpdate();
+    mockChunkInsertOk();
+    mockStatusUpdate();
+    mockGetRefreshed({ curation_status: 'pending' });
+
+    await createInlineDocument({
+      tenantId: TENANT,
+      knowledgeBaseId: 1,
+      title: 'Imported formulary entry',
+      rawText: 'Healthy clinical body of text well above the twenty character minimum.',
+      sourceType: 'imported',
+      curationStatus: 'pending',
+    });
+
+    // The INSERT is the first $queryRawUnsafe call; its last bound param is
+    // curation_status.
+    const insertArgs = queryUnsafeMock.mock.calls[0];
+    expect(insertArgs[0]).toMatch(/INSERT INTO knowledge_documents/);
+    expect(insertArgs[0]).toMatch(/curation_status/);
+    expect(insertArgs[insertArgs.length - 1]).toBe('pending');
+  });
+
   it('reindexDocument wipes chunks then re-runs the pipeline', async () => {
     // get current doc
     queryUnsafeMock.mockResolvedValueOnce([{
@@ -352,5 +383,71 @@ describe('knowledgeDocumentService CRUD', () => {
     const result = await reindexDocument({ tenantId: TENANT, documentId: 42 });
     expect(result.processed).toBe(true);
     expect(result.embedded_count).toBe(1);
+  });
+});
+
+describe('knowledgeDocumentService — curation (WS5 B5.5)', () => {
+  it('normalizeCurationStatus accepts valid + rejects invalid', () => {
+    expect(__testing__.normalizeCurationStatus('pending')).toBe('pending');
+    expect(__testing__.normalizeCurationStatus('APPROVED')).toBe('approved');
+    expect(__testing__.normalizeCurationStatus(null)).toBeNull();
+    expect(() => __testing__.normalizeCurationStatus('weird')).toThrow(/curation_status must be one of/);
+  });
+
+  it('findDocumentByHash returns the matching row scoped to KB + tenant', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, curation_status: 'pending', chunk_count: 0 }]);
+    const row = await findDocumentByHash({ tenantId: TENANT, knowledgeBaseId: 1, fileHash: 'abc123' });
+    expect(row.id).toBe(7);
+    const args = queryUnsafeMock.mock.calls[0];
+    expect(args[1]).toBe(TENANT);
+    expect(args[2]).toBe(1);
+    expect(args[3]).toBe('abc123');
+  });
+
+  it('findDocumentByHash returns null on empty hash without querying', async () => {
+    const row = await findDocumentByHash({ tenantId: TENANT, knowledgeBaseId: 1, fileHash: '' });
+    expect(row).toBeNull();
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('decideKnowledgeDocument approve stamps reviewer and flips status', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 42, knowledge_base_id: 1, tenant_id: TENANT, curation_status: 'approved',
+      reviewed_by: 'reviewer-uid', reviewed_at: new Date().toISOString(),
+    }]);
+    const doc = await decideKnowledgeDocument({
+      tenantId: TENANT, documentId: 42, decision: 'approved', reviewerUid: 'reviewer-uid', note: 'looks good',
+    });
+    expect(doc.curation_status).toBe('approved');
+    const args = queryUnsafeMock.mock.calls[0];
+    expect(args[0]).toMatch(/UPDATE knowledge_documents/);
+    expect(args[0]).toMatch(/curation_status = \$2/);
+    expect(args[1]).toBe(42);
+    expect(args[2]).toBe('approved');
+    expect(args[3]).toBe('reviewer-uid');
+    expect(args[4]).toBe('looks good');
+    expect(args[5]).toBe(TENANT);
+  });
+
+  it('decideKnowledgeDocument rejects an invalid decision', async () => {
+    await expect(
+      decideKnowledgeDocument({ tenantId: TENANT, documentId: 42, decision: 'maybe' }),
+    ).rejects.toThrow(/decision must be one of/);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('decideKnowledgeDocument 404s when the row is missing', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    await expect(
+      decideKnowledgeDocument({ tenantId: TENANT, documentId: 99, decision: 'rejected' }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('listKnowledgeDocuments threads a curation_status filter into the WHERE', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, curation_status: 'pending' }]);
+    await listKnowledgeDocuments({ tenantId: TENANT, knowledgeBaseId: 1, curationStatus: 'pending' });
+    const args = queryUnsafeMock.mock.calls[0];
+    expect(args[0]).toMatch(/curation_status = \$3/);
+    expect(args[3]).toBe('pending');
   });
 });

@@ -147,6 +147,18 @@ describe('knowledgeRetrievalService — happy path', () => {
     expect(args[0]).toMatch(/IN \('read', 'write', 'manage'\)/);
   });
 
+  it('filters retrieval to curation_status=approved (WS5 B5.5)', async () => {
+    embedTextMock.mockResolvedValueOnce(vec());
+    queryUnsafeMock.mockResolvedValueOnce([]); // retrieval
+    queryUnsafeMock.mockResolvedValueOnce([]); // zero-log
+
+    await retrieveFromKnowledgeBases({ tenantId: TENANT, queryText: 'sepsis', role: 'DOCTOR' });
+    // Imported (formulary / antibiogram / protocol) docs land curation_status
+    // 'pending' and must be excluded from retrieval until signed off.
+    const args = queryUnsafeMock.mock.calls[0];
+    expect(args[0]).toMatch(/d\.curation_status = 'approved'/);
+  });
+
   it('caps topK at MAX_TOP_K', async () => {
     embedTextMock.mockResolvedValueOnce(vec());
     queryUnsafeMock.mockResolvedValueOnce([]);

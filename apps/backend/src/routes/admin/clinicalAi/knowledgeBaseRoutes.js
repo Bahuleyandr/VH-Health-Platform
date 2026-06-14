@@ -32,6 +32,7 @@ import {
 } from '../../../services/ai/knowledgeBaseService.js';
 import {
   createInlineDocument,
+  decideKnowledgeDocument,
   deleteKnowledgeDocument,
   getKnowledgeDocument,
   listKnowledgeDocuments,
@@ -256,6 +257,9 @@ router.get('/knowledge-bases/:id/documents', async (req, res, next) => {
       tenantId: req.tenantId,
       knowledgeBaseId: req.params.id,
       status: req.query.status || null,
+      // WS5 B5.5: curation queue filter (?curation_status=pending shows the
+      // imported docs awaiting sign-off).
+      curationStatus: req.query.curation_status || null,
       limit: req.query.limit,
     });
     return success(res, result, 'Knowledge documents retrieved');
@@ -387,6 +391,39 @@ router.post('/knowledge-bases/:id/documents/:documentId/reindex', async (req, re
       },
     );
     return success(res, result, 'Knowledge document re-indexed', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// WS5 B5.5 — curation sign-off. Mirrors the decide* pattern (reviewer_decision
+// + note + clinical-AI audit). Approving an imported (formulary / antibiogram /
+// protocol) document makes it retrievable; rejecting suppresses it.
+router.patch('/knowledge-bases/:id/documents/:documentId/curation', async (req, res, next) => {
+  try {
+    const before = await getKnowledgeDocument({
+      tenantId: req.tenantId,
+      documentId: req.params.documentId,
+    });
+    const document = await decideKnowledgeDocument({
+      tenantId: req.tenantId,
+      documentId: req.params.documentId,
+      decision: req.body?.decision,
+      reviewerUid: req.user?.uid || null,
+      note: req.body?.note || null,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_KNOWLEDGE_DOCUMENT_CURATED',
+      String(document.id),
+      { curation_status: before.curation_status },
+      {
+        curation_status: document.curation_status,
+        reviewed_by: document.reviewed_by,
+        reviewed_at: document.reviewed_at,
+      },
+    );
+    return success(res, document, 'Knowledge document curation updated');
   } catch (err) {
     return next(err);
   }

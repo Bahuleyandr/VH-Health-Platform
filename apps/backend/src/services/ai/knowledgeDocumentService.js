@@ -57,8 +57,22 @@ const PROCESSING_STATUSES = [
 
 const SOURCE_TYPES = ['upload', 'url', 'inline_text', 'imported'];
 
+// WS5 B5.5 — curation gate (migration 311). 'approved' content is
+// retrievable; 'pending' is held for sign-off; 'rejected' is suppressed.
+const CURATION_STATUSES = ['pending', 'approved', 'rejected'];
+const CURATION_DECISIONS = ['approved', 'rejected'];
+
 function resolveTenantId(options = {}) {
   return options.tenantId || DEFAULT_TENANT_ID;
+}
+
+function normalizeCurationStatus(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!CURATION_STATUSES.includes(normalized)) {
+    throw AppError.badRequest(`curation_status must be one of: ${CURATION_STATUSES.join(', ')}`);
+  }
+  return normalized;
 }
 
 function isMissingSchemaError(err) {
@@ -128,6 +142,11 @@ export async function createInlineDocument({
   sourceType = 'inline_text',
   uploadedBy = null,
   metadata = {},
+  // WS5 B5.5: curation gate. Manual inline/upload paths leave this at the
+  // column default ('approved') so they stay immediately retrievable; the
+  // formulary/antibiogram/protocol importer passes 'pending' so machine-
+  // imported knowledge is dark until a human signs it off.
+  curationStatus = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const kbId = normalizeId(knowledgeBaseId, 'knowledge_base_id');
@@ -138,6 +157,7 @@ export async function createInlineDocument({
   if (!SOURCE_TYPES.includes(String(sourceType))) {
     throw AppError.badRequest(`source_type must be one of: ${SOURCE_TYPES.join(', ')}`);
   }
+  const normalizedCuration = normalizeCurationStatus(curationStatus);
   // Tenant + KB existence check.
   await getKnowledgeBase({ tenantId: tid, id: kbId });
 
@@ -160,6 +180,7 @@ export async function createInlineDocument({
     promptInjectionMetadata: buildInjectionMetadata(injection),
     uploadedBy,
     metadata,
+    curationStatus: normalizedCuration,
   });
 
   if (blocked) {
@@ -288,24 +309,28 @@ export async function reindexDocument({ tenantId = null, documentId } = {}) {
 // ---------------------------------------------------------------------------
 
 async function insertDocument(args) {
+  // curation_status falls back to the column default ('approved') when the
+  // caller passes null — preserving manual inline/upload behaviour.
+  const curationStatus = args.curationStatus || 'approved';
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO knowledge_documents
        (knowledge_base_id, tenant_id, title, source_type, source_uri,
         mime_type, file_hash, file_size_bytes, raw_text,
         processing_status, processing_error, prompt_injection_verdict,
-        prompt_injection_metadata, uploaded_by, metadata)
+        prompt_injection_metadata, uploaded_by, metadata, curation_status)
      VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9,
-             $10, $11, $12, $13::jsonb, $14::uuid, $15::jsonb)
+             $10, $11, $12, $13::jsonb, $14::uuid, $15::jsonb, $16)
      RETURNING id, knowledge_base_id, tenant_id, title, source_type,
                source_uri, mime_type, file_hash, file_size_bytes,
                raw_text, processing_status, processing_error, chunk_count,
                prompt_injection_verdict, prompt_injection_metadata,
-               uploaded_by, metadata, created_at, updated_at`,
+               uploaded_by, metadata, curation_status, reviewed_by, reviewed_at,
+               created_at, updated_at`,
     args.knowledgeBaseId, args.tenantId, args.title, args.sourceType, args.sourceUri,
     args.mimeType, args.fileHash, args.fileSizeBytes, args.rawText,
     args.processingStatus, args.processingError, args.promptInjectionVerdict,
     JSON.stringify(args.promptInjectionMetadata || {}), args.uploadedBy,
-    JSON.stringify(args.metadata || {}),
+    JSON.stringify(args.metadata || {}), curationStatus,
   );
   return rows[0];
 }
@@ -431,6 +456,7 @@ export async function listKnowledgeDocuments({
   tenantId = null,
   knowledgeBaseId,
   status = null,
+  curationStatus = null,
   limit = DEFAULT_LIST_LIMIT,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
@@ -445,12 +471,18 @@ export async function listKnowledgeDocuments({
     params.push(status);
     filters.push(`processing_status = $${params.length}`);
   }
+  const normalizedCuration = normalizeCurationStatus(curationStatus);
+  if (normalizedCuration) {
+    params.push(normalizedCuration);
+    filters.push(`curation_status = $${params.length}`);
+  }
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, knowledge_base_id, tenant_id, title, source_type, source_uri,
               mime_type, file_hash, file_size_bytes, processing_status,
               processing_error, chunk_count, prompt_injection_verdict,
               prompt_injection_metadata, uploaded_by, metadata,
+              curation_status, reviewed_by, reviewed_at,
               created_at, updated_at
        FROM knowledge_documents
        WHERE ${filters.join(' AND ')}
@@ -465,6 +497,74 @@ export async function listKnowledgeDocuments({
   }
 }
 
+/**
+ * Idempotency helper for the B5.5 importer: look up an existing document in a
+ * KB by its content file_hash (reuses idx_knowledge_documents_tenant_hash).
+ * Returns the row (id + statuses) or null. Resilient to missing schema.
+ */
+export async function findDocumentByHash({ tenantId = null, knowledgeBaseId, fileHash } = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const kbId = normalizeId(knowledgeBaseId, 'knowledge_base_id');
+  const hash = String(fileHash || '').trim();
+  if (!hash) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, knowledge_base_id, tenant_id, title, processing_status,
+              curation_status, chunk_count
+       FROM knowledge_documents
+       WHERE tenant_id = $1::uuid AND knowledge_base_id = $2 AND file_hash = $3
+       ORDER BY id ASC
+       LIMIT 1`,
+      tid, kbId, hash,
+    );
+    return rows[0] || null;
+  } catch (err) {
+    if (isMissingSchemaError(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * WS5 B5.5 — curation sign-off. Flips a document's curation_status to
+ * 'approved' or 'rejected' and stamps the reviewer. Approved documents become
+ * retrievable (knowledgeRetrievalService filters curation_status='approved');
+ * rejected documents stay suppressed. Tenant-scoped.
+ */
+export async function decideKnowledgeDocument({
+  tenantId = null,
+  documentId,
+  decision,
+  reviewerUid = null,
+  note = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const docId = normalizeId(documentId, 'document_id');
+  const normalized = String(decision || '').trim().toLowerCase();
+  if (!CURATION_DECISIONS.includes(normalized)) {
+    throw AppError.badRequest(`decision must be one of: ${CURATION_DECISIONS.join(', ')}`);
+  }
+  const cleanNote = note === null || note === undefined ? null : String(note).slice(0, 2000);
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE knowledge_documents
+     SET curation_status = $2,
+         reviewed_by = $3::uuid,
+         reviewed_at = NOW(),
+         metadata = CASE
+           WHEN $4::text IS NULL THEN metadata
+           ELSE jsonb_set(metadata, '{curation_note}', to_jsonb($4::text), true)
+         END,
+         updated_at = NOW()
+     WHERE id = $1 AND tenant_id = $5::uuid
+     RETURNING id, knowledge_base_id, tenant_id, title, source_type,
+               mime_type, file_hash, processing_status, processing_error,
+               chunk_count, curation_status, reviewed_by, reviewed_at,
+               metadata, created_at, updated_at`,
+    docId, normalized, reviewerUid, cleanNote, tid,
+  );
+  if (!rows[0]) throw AppError.notFound('Knowledge document not found');
+  return rows[0];
+}
+
 export async function getKnowledgeDocument({ tenantId = null, documentId } = {}) {
   const tid = resolveTenantId({ tenantId });
   const docId = normalizeId(documentId, 'document_id');
@@ -473,7 +573,8 @@ export async function getKnowledgeDocument({ tenantId = null, documentId } = {})
             mime_type, file_hash, file_size_bytes, raw_text,
             processing_status, processing_error, chunk_count,
             prompt_injection_verdict, prompt_injection_metadata,
-            uploaded_by, metadata, created_at, updated_at
+            uploaded_by, metadata, curation_status, reviewed_by, reviewed_at,
+            created_at, updated_at
      FROM knowledge_documents
      WHERE id = $1 AND tenant_id = $2::uuid
      LIMIT 1`,
@@ -499,12 +600,17 @@ export async function deleteKnowledgeDocument({ tenantId = null, documentId } = 
 export const __testing__ = {
   PROCESSING_STATUSES,
   SOURCE_TYPES,
+  CURATION_STATUSES,
+  CURATION_DECISIONS,
   MAX_RAW_TEXT_CHARS,
+  normalizeCurationStatus,
 };
 
 export default {
   createInlineDocument,
+  decideKnowledgeDocument,
   deleteKnowledgeDocument,
+  findDocumentByHash,
   getKnowledgeDocument,
   listKnowledgeDocuments,
   reindexDocument,

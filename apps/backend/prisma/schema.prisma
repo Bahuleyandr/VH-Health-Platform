@@ -9200,6 +9200,7 @@ model tenants {
   knowledge_bases                            knowledge_bases[]
   knowledge_chunks                           knowledge_chunks[]
   knowledge_documents                        knowledge_documents[]
+  knowledge_import_batches                   knowledge_import_batches[]
   knowledge_retrieval_logs                   knowledge_retrieval_logs[]
   lab_analyzer_qc_runs                       lab_analyzer_qc_runs[]
   lab_analyzer_status_history                lab_analyzer_status_history[]
@@ -12858,6 +12859,7 @@ model knowledge_bases {
   tenants                   tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   knowledge_chunks          knowledge_chunks[]
   knowledge_documents       knowledge_documents[]
+  knowledge_import_batches  knowledge_import_batches[]
   knowledge_retrieval_logs  knowledge_retrieval_logs[]
 
   @@unique([tenant_id, name])
@@ -12907,6 +12909,9 @@ model knowledge_documents {
   metadata                  Json               @default("{}")
   created_at                DateTime           @default(now()) @db.Timestamptz(6)
   updated_at                DateTime           @default(now()) @db.Timestamptz(6)
+  curation_status           String             @default("approved") @db.VarChar(20)
+  reviewed_by               String?            @db.Uuid
+  reviewed_at               DateTime?          @db.Timestamptz(6)
   knowledge_chunks          knowledge_chunks[]
   knowledge_bases           knowledge_bases    @relation(fields: [knowledge_base_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                   tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -12914,6 +12919,7 @@ model knowledge_documents {
   @@index([knowledge_base_id, processing_status, created_at(sort: Desc)], map: "idx_knowledge_documents_kb_status")
   @@index([tenant_id, processing_status, created_at(sort: Desc)], map: "idx_knowledge_documents_tenant_status")
   @@index([tenant_id, file_hash], map: "idx_knowledge_documents_tenant_hash", where: raw("(file_hash IS NOT NULL)"))
+  @@index([tenant_id, curation_status, created_at(sort: Desc)], map: "idx_knowledge_documents_curation")
 }
 
 model knowledge_retrieval_logs {
@@ -14305,4 +14311,32 @@ model terminology_import_batches {
 
   @@index([system_key, created_at(sort: Desc)], map: "idx_tib_system_created")
   @@index([system_key, status, created_at(sort: Desc)], map: "idx_tib_system_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model knowledge_import_batches {
+  id                BigInt           @id @default(autoincrement())
+  tenant_id         String           @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  knowledge_base_id Int?
+  source            String           @db.VarChar(40)
+  source_ref        String?
+  status            String           @default("pending") @db.VarChar(20)
+  rows_processed    Int              @default(0)
+  rows_inserted     Int              @default(0)
+  rows_skipped      Int              @default(0)
+  rows_failed       Int              @default(0)
+  dry_run           Boolean          @default(false)
+  error_detail      String?
+  started_at        DateTime?        @db.Timestamptz(6)
+  finished_at       DateTime?        @db.Timestamptz(6)
+  run_by            String?          @db.Uuid
+  metadata          Json             @default("{}")
+  created_at        DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime         @default(now()) @db.Timestamptz(6)
+  knowledge_bases   knowledge_bases? @relation(fields: [knowledge_base_id], references: [id], onUpdate: NoAction)
+  tenants           tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_kib_tenant_created")
+  @@index([tenant_id, source, status, created_at(sort: Desc)], map: "idx_kib_tenant_source_status")
 }

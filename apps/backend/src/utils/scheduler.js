@@ -423,6 +423,64 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info(`Weekly trial sync complete. Total upserts: ${total}`);
   }));
 
+  // 🗓️ Weekly Monday 03:15 — clinical-AI knowledge corpus refresh (WS5 B5.5).
+  // Re-imports the formulary / antibiogram / protocol corpus for every active
+  // tenant that has set up the matching KBs. The antibiogram especially is a
+  // rolling 90-day window, so a weekly cadence keeps the curated susceptibility
+  // summaries current. Imported docs land curation_status='pending' (dark to
+  // retrieval) until a human signs them off — the refresh never auto-approves.
+  // Idempotent: unchanged source rows dedup on file_hash and are skipped.
+  cron.schedule(
+    process.env.KNOWLEDGE_CORPUS_REFRESH_CRON || '15 3 * * 1',
+    withJobLock('knowledge-corpus-refresh', async () => {
+      logger.info('Scheduled Task: Clinical-AI knowledge corpus refresh (weekly)');
+      const { importSource } = await import('../services/ai/knowledgeCurationService.js');
+      const { runInTenantContext } = await import('../lib/tenantContext.js');
+      const tenants = await prisma.$queryRawUnsafe(
+        `SELECT id FROM tenants WHERE status = 'active'`,
+      ).catch(() => []);
+      const KB_TYPE_FOR_SOURCE = {
+        formulary: 'formulary',
+        antibiogram: 'antibiotic_policy',
+        protocols: 'clinical_guideline',
+      };
+      let tenantsRefreshed = 0;
+      let totalInserted = 0;
+      for (const tenant of tenants) {
+        try {
+          // Discover the tenant's active KB per source (skip sources with none).
+          const kbIds = {};
+          await runInTenantContext(tenant.id, async () => {
+            for (const [src, kbType] of Object.entries(KB_TYPE_FOR_SOURCE)) {
+              const rows = await prisma.$queryRawUnsafe(
+                `SELECT id FROM knowledge_bases
+                 WHERE tenant_id = $1::uuid AND kb_type = $2 AND status = 'active'
+                 ORDER BY updated_at DESC LIMIT 1`,
+                tenant.id, kbType,
+              ).catch(() => []);
+              if (rows[0]) kbIds[src] = rows[0].id;
+            }
+          });
+          if (!Object.keys(kbIds).length) continue;
+
+          let tenantInserted = 0;
+          for (const src of Object.keys(kbIds)) {
+            const result = await importSource({
+              tenantId: tenant.id, source: src, kbIds, dryRun: false,
+            });
+            tenantInserted += result[src]?.inserted || 0;
+          }
+          totalInserted += tenantInserted;
+          tenantsRefreshed += 1;
+          logger.info(`Knowledge corpus refresh for tenant ${tenant.id}: ${tenantInserted} new doc(s) (pending sign-off)`);
+        } catch (err) {
+          logger.warn(`Knowledge corpus refresh failed for tenant ${tenant.id}: ${err.message}`);
+        }
+      }
+      logger.info(`Weekly knowledge corpus refresh complete. Tenants refreshed: ${tenantsRefreshed}, new docs: ${totalInserted}`);
+    }),
+  );
+
   // 🗓️ Annual on Dec 1 at 08:00 — Annual salary review reminder
   cron.schedule('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
     logger.info('Scheduled Task: Annual salary review reminder...');
