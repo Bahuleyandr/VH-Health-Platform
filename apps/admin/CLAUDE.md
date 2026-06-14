@@ -1,7 +1,7 @@
 # CLAUDE.md — VHHealth Admin Portal
 
 ## Project Overview
-Next.js 15 admin dashboard for the VHHealth hospital management system. Used by hospital administrators and super-admins to manage patients, staff, appointments, departments, pharmacy, investigations, and system settings.
+Next.js 16 admin dashboard for the VHHealth hospital management system. Used by hospital administrators and super-admins to manage patients, staff, appointments, departments, pharmacy, investigations, and system settings.
 
 ## Deployment
 
@@ -14,7 +14,7 @@ Full runbook: [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md)
 Hardware spec: [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUIREMENTS.md).
 
 ## Tech Stack
-- **Framework**: Next.js 15 (App Router), React 19, TypeScript
+- **Framework**: Next.js 16 (App Router), React 19, TypeScript
 - **State/Data**: TanStack Query v5 + React Context
 - **Styling**: Tailwind CSS v4
 - **Auth**: JWT stored in an httpOnly cookie (`auth_token`); localStorage caches only non-sensitive profile/theme data

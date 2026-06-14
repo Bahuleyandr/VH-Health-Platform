@@ -9,7 +9,7 @@ shared Dart package they all consume.
 | Path | Stack | Role |
 |---|---|---|
 | `apps/backend` | Node.js 22 + Express 5 + PostgreSQL 17 (Prisma, CNPG) | REST API consumed by every client |
-| `apps/admin` | Next.js 15 + React 19 + TypeScript | Admin/super-admin web portal |
+| `apps/admin` | Next.js 16 + React 19 + TypeScript | Admin/super-admin web portal |
 | `apps/patient` | Flutter 3.41 + Firebase OTP | Patient mobile app |
 | `apps/staff` | Flutter 3.41 + staff JWT | Staff/clinical mobile app |
 | `packages/vhhealth_core` | Dart shared package | API client, shared types, codegen target |
