@@ -781,10 +781,16 @@ export async function validatePrescriptionSafety(patientId, medications) {
     if (allergies.length > 0) {
       for (const med of medications) {
         const medName = (med.name || med.medication_name || '').toLowerCase();
+        // Skip medication lines with no resolvable name: an empty medName makes
+        // `allergyName.includes(medName)` (empty-substring) always true, which would
+        // spuriously match EVERY recorded allergy and emit a bogus ALLERGY_CONFLICT —
+        // a false HARD BLOCKER if any allergy is severe. Mirrors the display-name
+        // guard the other safety checks (pregnancy/renal/stewardship/paediatric) use.
+        if (!medName) continue;
         for (const allergy of allergies) {
           const allergyName = (allergy.allergen || '').toLowerCase();
           // Simple substring match — production should use a proper drug-allergy database
-          if (medName.includes(allergyName) || allergyName.includes(medName)) {
+          if (allergyName && (medName.includes(allergyName) || allergyName.includes(medName))) {
             const issue = {
               type: 'ALLERGY_CONFLICT',
               medication: med.name || med.medication_name,
