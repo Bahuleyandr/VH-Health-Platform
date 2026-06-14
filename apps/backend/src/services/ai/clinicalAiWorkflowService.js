@@ -9,6 +9,7 @@ import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { retrieveRelevant } from './ragService.js';
+import { groundWithKnowledgeBases } from './knowledgeGroundingService.js';
 import {
   extractContextSignature,
   recordDecision as recordDecisionMemory,
@@ -754,6 +755,34 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
     return { retrieved, packet, retrievedCitations };
   },
 
+  kb_grounding: async (state) => {
+    // WS5 B5.5 — curated knowledge-base grounding. ADDITIVE + GATED: only
+    // modules whose registry settings.knowledgeBases declares kb_types
+    // (e.g. medication_reconciliation → formulary/clinical_guideline) pull
+    // curation-approved chunks here; every other module no-ops. Graceful:
+    // if the embedder/KB is unavailable or returns nothing, the packet +
+    // citations are unchanged and generation proceeds on the chart packet
+    // alone. NOT a hard precondition for the requiresCitations gate.
+    const groundingQuery = [
+      state.packet.admission?.chief_complaint,
+      state.packet.admission?.admitting_diagnosis,
+      (state.packet.active_diagnoses || []).map((d) => d.summary).slice(0, 3).join(' '),
+      (state.packet.medications || []).map((m) => m.summary).slice(0, 5).join(' '),
+    ].filter(Boolean).join('. ');
+    const kbGrounding = await groundWithKnowledgeBases({
+      module: state.module,
+      tenantId: state.tenantId,
+      queryText: groundingQuery,
+      role: state.requestContext?.requested_by_role || null,
+      retrievedBy: state.requestedBy,
+      moduleKey: state.moduleKey,
+    });
+    const packet = kbGrounding.used
+      ? { ...state.packet, curated_knowledge: kbGrounding.groundingChunks }
+      : state.packet;
+    return { kbGrounding, kbCitations: kbGrounding.citations, packet };
+  },
+
   memory_retrieve: async (state) => {
     // Decision memory: prior reviewer decisions on this patient + cross-
     // patient lessons that match the current context shape. Empty result
@@ -798,7 +827,14 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
   },
 
   build_safety_flags: async (state) => {
-    const citations = uniqueCitations([...state.packet.citations, ...state.retrievedCitations]);
+    // Curated-KB citations (WS5 B5.5) are UNIONed in alongside the chart-
+    // packet + RAG citations. uniqueCitations de-dupes; an empty kbCitations
+    // (gate off / KB unavailable) leaves the set exactly as before.
+    const citations = uniqueCitations([
+      ...state.packet.citations,
+      ...state.retrievedCitations,
+      ...(state.kbCitations || []),
+    ]);
     const safetyFlags = buildCommonSafetyFlags(state.context, state.module, citations);
     if (!state.retrieved?.results?.length && state.retrieved?.source === 'corpus_unavailable') {
       safetyFlags.push({
@@ -981,6 +1017,9 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
   const requestContext = {
     request_id: req?.id || null,
     tenant_region: req?.tenant?.region || null,
+    // Used by the kb_grounding node for the KB access-policy gate. Optional
+    // — the grounding helper falls back to a clinician-equivalent role.
+    requested_by_role: req?.user?.role || null,
   };
 
   const outcome = await runWorkflow({

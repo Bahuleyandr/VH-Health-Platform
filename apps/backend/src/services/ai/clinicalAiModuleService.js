@@ -134,6 +134,12 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 180,
       decisionSupportOnly: true,
       patientFacing: false,
+      // WS5 B5.5 — curated-KB grounding (additive). When approved
+      // documents of these kb_types exist for the tenant, their chunks
+      // are merged into the prompt context + citations alongside the
+      // chart packet. Graceful: empty/unavailable KB leaves generation
+      // unchanged. See knowledgeGroundingService.js.
+      knowledgeBases: ['clinical_guideline', 'sop'],
     },
   },
   {
@@ -173,6 +179,10 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 180,
       decisionSupportOnly: true,
       patientFacing: false,
+      // WS5 B5.5 — curated-KB grounding (additive, graceful). Follow-up
+      // monitoring intervals + repeat-test cadence benefit from hospital
+      // protocol / guideline material. See knowledgeGroundingService.js.
+      knowledgeBases: ['clinical_guideline', 'sop'],
     },
   },
   {
@@ -264,6 +274,11 @@ export const CLINICAL_AI_MODULES = [
       // Critical-risk drug reconciliation; deep tier gives a stronger
       // model when CLINICAL_AI_DEEP_* is set.
       model_tier: 'deep',
+      // WS5 B5.5 — curated-KB grounding (additive, graceful). Formulary +
+      // guideline chunks help reconcile home/inpatient/discharge meds
+      // against hospital-approved agents. The chart packet remains the
+      // authoritative citation source. See knowledgeGroundingService.js.
+      knowledgeBases: ['formulary', 'clinical_guideline'],
     },
   },
   {
@@ -283,6 +298,12 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 3650,
       rulesAuthoritative: true,
       decisionSupportOnly: true,
+      // WS5 B5.5 — curated-KB grounding (additive, graceful). Local
+      // antibiotic policy / antibiogram + formulary chunks ground
+      // de-escalation, IV-to-oral, and duration advisories in the
+      // hospital's own stewardship reference material. Rules stay
+      // authoritative; KB is decision-support context only.
+      knowledgeBases: ['antibiotic_policy', 'clinical_guideline', 'formulary'],
     },
   },
   {
@@ -536,6 +557,11 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 1825,
       rulesAuthoritative: true,
       decisionSupportOnly: true,
+      // WS5 B5.5 — curated-KB grounding (additive, graceful). Pathway /
+      // bundle guideline + SOP chunks ground the narrative summary in the
+      // hospital's own protocol documents. Rule-based compliance scoring
+      // stays authoritative; KB never overrides item classifications.
+      knowledgeBases: ['clinical_guideline', 'sop'],
     },
   },
   {

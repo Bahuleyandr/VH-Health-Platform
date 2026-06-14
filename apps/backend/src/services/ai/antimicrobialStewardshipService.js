@@ -17,6 +17,7 @@ import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
+import { groundWithKnowledgeBases } from './knowledgeGroundingService.js';
 
 const MODULE_KEY = 'antimicrobial_stewardship';
 const DEFAULT_PROMPT = {
@@ -742,20 +743,46 @@ export async function generateAntimicrobialStewardshipReview({
   const fallbackDraft = evaluateAntimicrobialStewardship(context);
   const packet = buildChartPacket(context, fallbackDraft);
   const prompt = await getActivePrompt(tenantId);
+
+  // WS5 B5.5 — curated knowledge-base grounding. ADDITIVE + GATED via the
+  // module's settings.knowledgeBases (antibiotic_policy / clinical_guideline
+  // / formulary). Graceful: no chunks / KB down → prompt + citations are
+  // unchanged. Rules stay authoritative; KB is decision-support context.
+  // The grounding query is built from culture + antibiotic evidence so the
+  // local antibiogram / policy chunks retrieved are relevant.
+  const groundingQuery = [
+    context.admission?.chief_complaint,
+    context.admission?.admitting_diagnosis,
+    asArray(fallbackDraft.antibiotic_summary).map((item) => item.antibiotic || item.medication).slice(0, 6).join(' '),
+    asArray(fallbackDraft.culture_summary).map((item) => item.result_summary || item.test_name).slice(0, 4).join(' '),
+  ].filter(Boolean).join('. ');
+  const kbGrounding = await groundWithKnowledgeBases({
+    module,
+    tenantId,
+    queryText: groundingQuery,
+    role: req?.user?.role || null,
+    retrievedBy: req?.user?.uid || null,
+    moduleKey: MODULE_KEY,
+  });
+
   const aiResult = await generateClinicalText({
     taskType: MODULE_KEY,
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({
       chart_packet: packet,
       rule_based_stewardship: fallbackDraft,
+      ...(kbGrounding.used ? { curated_knowledge: kbGrounding.groundingChunks } : {}),
     })}`,
     tenantRegion: req?.tenant?.region || null,
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);
-  const citations = uniqueCitations(
-    asArray(draft.source_citations).length ? draft.source_citations : fallbackDraft.source_citations
-  );
+  const citations = uniqueCitations([
+    ...(asArray(draft.source_citations).length ? draft.source_citations : fallbackDraft.source_citations),
+    // Curated-KB citations UNIONed in — never the sole citation source, so
+    // the rule-derived chart citations still satisfy the citations gate.
+    ...kbGrounding.citations,
+  ]);
   const safetyFlags = [
     ...(citations.length ? [] : [{
       severity: 'high',

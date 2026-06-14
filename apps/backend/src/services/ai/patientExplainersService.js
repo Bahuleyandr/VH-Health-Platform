@@ -43,6 +43,36 @@ import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
+import { groundWithKnowledgeBases } from './knowledgeGroundingService.js';
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+// Build a compact free-text query from an explainer payload so the curated
+// KB can be searched semantically. Pulls the high-signal string fields the
+// gated OPD modules carry (diagnosis, treatment plan, result text, clinical
+// question) without dragging the whole JSON in. Returns '' when nothing
+// useful is present — the grounding helper then no-ops.
+function groundingQueryFromPayload(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const parts = [];
+  const pushString = (value, max = 600) => {
+    if (typeof value === 'string' && value.trim()) parts.push(value.trim().slice(0, max));
+  };
+  pushString(payload.diagnosis);
+  pushString(payload.treatment_plan);
+  pushString(payload.clinical_question);
+  pushString(payload.monitoring_context);
+  pushString(payload.result_text);
+  const inv = payload.investigation;
+  if (inv && typeof inv === 'object') {
+    pushString(inv.test_name, 200);
+    pushString(inv.interpretation, 400);
+    pushString(inv.conclusion, 400);
+  }
+  return parts.join('. ').slice(0, 2000);
+}
 
 // Legacy allowlist kept for back-compat with tests that reference it via
 // `__testing__.EXPLAINER_MODULES`. The pipeline itself no longer enforces
@@ -142,9 +172,30 @@ export async function runExplainerPipeline({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
+  // WS5 B5.5 — curated knowledge-base grounding. ADDITIVE + GATED: only
+  // modules whose registry settings.knowledgeBases declares kb_types pull
+  // curation-approved chunks. Graceful: no gate / no chunks / KB down →
+  // payload + citations are unchanged and the draft proceeds exactly as
+  // before. The supplied `citations` remain authoritative for the
+  // requiresCitations fail-close; KB citations are only UNIONed in.
+  const kbGrounding = await groundWithKnowledgeBases({
+    module,
+    tenantId: tid,
+    queryText: groundingQueryFromPayload(userPromptPayload),
+    role: req?.user?.role || null,
+    retrievedBy: generatedBy || req?.user?.uid || null,
+    moduleKey,
+  });
+  const effectivePayload = kbGrounding.used
+    ? { ...userPromptPayload, curated_knowledge: kbGrounding.groundingChunks }
+    : userPromptPayload;
+  const effectiveCitations = kbGrounding.used
+    ? [...asArray(citations), ...kbGrounding.citations]
+    : citations;
+
   const aiResult = await generateClinicalText({
     systemPrompt: [systemPrompt, SHARED_OUTPUT_SCHEMA_INSTRUCTION, SAFETY_NUDGE].join('\n\n'),
-    userPrompt: JSON.stringify(userPromptPayload),
+    userPrompt: JSON.stringify(effectivePayload),
     taskType: moduleKey,
     tenantRegion: req?.tenant?.region || null,
   });
@@ -153,14 +204,14 @@ export async function runExplainerPipeline({
     key_points: [],
     next_steps: [],
     when_to_seek_help: [],
-    source_citations: citations,
+    source_citations: effectiveCitations,
     safety_flags: [],
     fallback_used: true,
   };
 
   // Always preserve / merge the supplied citations so the defense layer
   // and the patient app can trace back to the source row.
-  if (!Array.isArray(draft.source_citations)) draft.source_citations = citations;
+  if (!Array.isArray(draft.source_citations)) draft.source_citations = effectiveCitations;
   if (!Array.isArray(draft.safety_flags)) draft.safety_flags = [];
   if (!Array.isArray(draft.key_points)) draft.key_points = [];
   if (!Array.isArray(draft.next_steps)) draft.next_steps = [];
@@ -171,7 +222,7 @@ export async function runExplainerPipeline({
     draft,
     module,
     context: contextForDefenses || {},
-    citations,
+    citations: effectiveCitations,
   });
   const safetyFlags = [
     ...(Array.isArray(draft.safety_flags) ? draft.safety_flags : []),
@@ -205,7 +256,7 @@ export async function runExplainerPipeline({
       status,
       Boolean(aiResult.usedAi),
       JSON.stringify(safetyFlags),
-      JSON.stringify(citations),
+      JSON.stringify(effectiveCitations),
       JSON.stringify(draft),
       generatedBy || null,
       usage.prompt_tokens || 0,
@@ -259,7 +310,8 @@ export async function runExplainerPipeline({
     review_id: reviewId,
     draft,
     safety_flags: safetyFlags,
-    source_citations: citations,
+    source_citations: effectiveCitations,
+    kb_grounded: kbGrounding.used,
     used_ai: Boolean(aiResult.usedAi),
     provider: aiResult.provider || 'template',
     status,

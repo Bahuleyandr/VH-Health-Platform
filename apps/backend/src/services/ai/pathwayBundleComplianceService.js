@@ -25,6 +25,7 @@ import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
+import { groundWithKnowledgeBases } from './knowledgeGroundingService.js';
 
 const MODULE_KEY = 'pathway_bundle_compliance';
 
@@ -848,6 +849,23 @@ export async function evaluatePathwayBundle({
     compliancePct: evaluation.compliance_pct,
   });
 
+  // WS5 B5.5 — curated knowledge-base grounding. ADDITIVE + GATED via the
+  // module's settings.knowledgeBases (clinical_guideline / sop). Graceful:
+  // no chunks / KB down → citations + prompt unchanged. Rule-based
+  // compliance scoring stays authoritative; KB only grounds the narrative.
+  const kbGrounding = await groundWithKnowledgeBases({
+    module,
+    tenantId,
+    queryText: [
+      evaluation.pathway_display,
+      evaluation.pathway_key,
+      asArray(evaluation.item_results).map((item) => item.display || item.item_key).slice(0, 8).join(' '),
+    ].filter(Boolean).join('. '),
+    role: req?.user?.role || null,
+    retrievedBy: req?.user?.uid || null,
+    moduleKey: MODULE_KEY,
+  });
+
   const citations = uniqueCitations([
     {
       source_type: 'patient',
@@ -873,6 +891,9 @@ export async function evaluatePathwayBundle({
       label: `Action — ${cleanText(action?.item_key) || 'unknown'}`,
       timestamp: action?.occurred_at || action?.action_at || action?.timestamp || null,
     })),
+    // Curated-KB citations UNIONed in — never the sole source, so the
+    // rule-derived citations above still satisfy the citations gate.
+    ...kbGrounding.citations,
   ]);
 
   const baseFlags = buildSafetyFlagsFor({
@@ -934,6 +955,7 @@ export async function evaluatePathwayBundle({
         severity: severityRec.severity,
         recommendation: severityRec.recommendation,
         signals: severityRec.signals,
+        ...(kbGrounding.used ? { curated_knowledge: kbGrounding.groundingChunks } : {}),
       })}`,
       tenantRegion: req?.tenant?.region || null,
       tenantId,
