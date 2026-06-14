@@ -163,3 +163,51 @@ module singleton) and every later query in that process fails fast. Resolution:
 `node scripts/qa-cluster-up.mjs` + re-run — do not chase the cascade. (The
 breaker only trips on connection failures; schema errors like 42P01 are in its
 ignore-set, so a real schema regression looks different.)
+
+---
+
+## 2026-06-14 (first push to remotes — GHA CI surfaced 6 failures a green local suite hid)
+
+The full in-our-control roadmap was green on the LOCAL chunked runner, but the
+first push to `main` lit GHA red. Local-green ≠ CI-green here: GHA runs SAST
+(CodeQL + Semgrep) + `npm audit` + a CLEAN-DB test pass + per-env image BUILDS on
+top of the test suite. The six failures and their durable lessons:
+
+### A clean-DB test pass catches fixture rows a dirty local QA DB supplies
+`getPublishedAiOutputForPatient.deep` seeded a cross-tenant row against a tenant
+UUID (`2222…`) that nothing in the CI seed creates → FK `23503` (8 tests). It
+false-passed locally only because a prior sprint-fixtures run had left that row in
+the shared QA DB. Rule: a test must seed every row it depends on in its own
+`beforeAll` (idempotent upsert + guarded `afterAll`) — never assume a tenant/parent
+row "already exists". CI's clean DB is the source of truth, not the dev QA DB.
+
+### Flipping a SAST/lint gate to BLOCKING requires first proving it runs clean
+B3.4 removed `continue-on-error` from the Semgrep + CodeQL steps, but neither had
+ever actually passed: `.semgrep.yml` was malformed (8/16 rules invalid → exit 7
+before scanning anything), and CodeQL's analyze step died on a missing
+`actions: read` perm AFTER a successful scan. A gate made blocking while broken =
+guaranteed red. Pair every "make it blocking" with one green run of that exact
+command.
+
+### `semgrep scan` is NOT blocking by default — gate on severity
+`semgrep scan` exits 0 even with findings; only `--error` (or `semgrep ci`) fails
+on them. Best gate: `--error --severity ERROR` so high-signal ERROR rules block
+while advisory WARNING rules (e.g. a `Math.random` non-crypto FP, weak-hash)
+report without failing — honouring the ruleset's own severities and avoiding
+`nosemgrep` source noise. CodeQL on a PRIVATE repo also needs `actions: read` in
+the job perms (workflow-run lookup) or analyze fails post-scan (precedent:
+`release-images.yml`).
+
+### A build-time security guard must reach EVERY image builder, not just prod
+SEC-8 made the admin `next build` refuse to build in production without
+`NEXT_PUBLIC_ALLOWED_ORIGIN`. Prod's `release-images.yml` passed it, but the Admin
+Portal CI build and the dalekdefender deploy did not → both red (the CI one hid
+behind an earlier `npm audit` failure — fix-one-reveal-the-next). Adding a
+build-time/prod-only guard = audit ALL build sites (CI compile + every per-env
+deploy workflow) for the new required build-arg in the SAME change.
+
+### `npm audit` gates move under you
+Admin CI went red on a NEWLY-published esbuild advisory (dev-only, transitive via
+`tsx`) with zero code change — `npm audit --audit-level=high` is a moving target.
+`npm audit fix` (lockfile-only transitive bump, 0.28.0→0.28.1) clears it; expect
+this class of red on any repo with an audit gate.
