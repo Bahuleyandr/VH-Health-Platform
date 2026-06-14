@@ -78,4 +78,9 @@ regexes = [
   # vh-hardcoded-password-assignment rule matches the $NAME shape because
   # $ sits in its specials class.
   '''(?i)\b(?:password|passwd|pwd|secret)\b["']?\s*[:=]\s*"\$[A-Za-z_][A-Za-z0-9_]*"''',
+  # Longhorn backupTargetCredentialSecret is a Kubernetes Secret NAME reference,
+  # not a credential value. The generic-api-key heuristic trips on the resource
+  # name after the colon; the real `longhorn-s3-secret` is created out-of-band by
+  # the operator (see the comment above the field in longhorn-app.yaml).
+  '''longhorn-s3-secret''',
 ]

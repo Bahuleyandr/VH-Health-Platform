@@ -401,7 +401,7 @@ enabling production sync.
 | Task | Command |
 |---|---|
 | Validate pacs module | `kubectl kustomize infra/kubernetes/optional/pacs` |
-| Check Orthanc health | `kubectl -n vhhealth exec deploy/... -- curl -u admin:pw http://orthanc:8042/system` |
+| Check Orthanc health | `kubectl -n vhhealth exec deploy/... -- curl -u <ORTHANC_USER>:<ORTHANC_PW> http://orthanc:8042/system` |
 | View OHIF (LAN) | `https://imaging.vhhealth.hospital.local` |
 | View DICOM study | `https://imaging.vhhealth.hospital.local/viewer?StudyInstanceUIDs=<uid>` |
 | Orthanc DICOMweb (backend) | `http://orthanc.vhhealth.svc.cluster.local:8042/dicom-web/` |
