@@ -139,6 +139,31 @@ const nodeMemoryHeapUsed = new Gauge('node_memory_heap_used_bytes', 'Node.js hea
 
 const nodeUptimeSeconds = new Gauge('node_uptime_seconds', 'Node.js process uptime in seconds', []);
 
+// Postgres 42P01 (undefined_table) graceful-fallback counter (WS2 / REL-5).
+// Incremented by src/lib/prisma.js whenever a 42P01 error is caught and the
+// caller is expected to fall back gracefully (e.g. a missing-table read during
+// a migration window or a downtime mirror serving static packs). A rising
+// value is an early signal of schema drift / a partition the fallback path is
+// papering over. No labels — a single named series is enough to alert on.
+const dbUndefinedTableFallbackTotal = new Counter(
+  'db_undefined_table_fallback_total',
+  'Postgres 42P01 (undefined_table) errors that triggered a graceful fallback',
+  [],
+);
+
+/**
+ * Record a single Postgres 42P01 (undefined_table) graceful fallback.
+ *
+ * Exported as an incrementer (not the Counter instance) so consumers — chiefly
+ * src/lib/prisma.js — depend only on this function. prometheusMiddleware.js
+ * does NOT import prisma.js; keeping the surface a bare function avoids any
+ * import cycle (prisma.js must never pull the Counter class or this module's
+ * Redis import into its own load graph beyond this one symbol).
+ */
+export function recordUndefinedTableFallback() {
+  dbUndefinedTableFallbackTotal.inc({});
+}
+
 // ---------------------------------------------------------------------------
 // Middleware — records request duration and count
 // ---------------------------------------------------------------------------
@@ -217,6 +242,7 @@ export function serializeMetrics() {
     nodeMemoryHeapTotal.serialize(),
     nodeMemoryHeapUsed.serialize(),
     nodeUptimeSeconds.serialize(),
+    dbUndefinedTableFallbackTotal.serialize(),
   ];
   return sections.filter(Boolean).join('\n\n') + '\n';
 }

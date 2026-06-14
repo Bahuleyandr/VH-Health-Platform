@@ -73,6 +73,14 @@ const envSchema = Joi.object({
   // Monitoring — optional but warn if missing
   SENTRY_DSN: Joi.string().allow('').optional().label('SENTRY_DSN'),
 
+  // Static downtime mirror directory (WS2 / REL-5). OPTIONAL — has a safe
+  // default under the OS temp dir (see src/config/downtimeConfig.js), so the
+  // app NEVER crashes when unset. Warn-tier: in production an unset value means
+  // packs are written to ephemeral pod-local temp and won't survive a
+  // pod/outage or be LAN-synced; point it at a shared hostPath/Longhorn volume
+  // (see docs/DOWNTIME_PROCEDURE.md).
+  DOWNTIME_MIRROR_DIR: Joi.string().allow('').optional().label('DOWNTIME_MIRROR_DIR'),
+
   // PACS / imaging viewer (roadmap B4) — optional until the optional/pacs
   // module is enabled. When unset, /api/v1/pacs/config reports enabled=false
   // and study links carry no viewer URL.
@@ -225,6 +233,9 @@ if (envVars.FIREBASE_AUTH_ENABLED === 'true') {
 }
 if (!envVars.SENTRY_DSN) {
   optionalWarnings.push('SENTRY_DSN is not set — error monitoring is disabled');
+}
+if (!envVars.DOWNTIME_MIRROR_DIR) {
+  optionalWarnings.push('DOWNTIME_MIRROR_DIR is not set — static downtime ward-pack mirror falls back to an OS-temp directory; packs will not survive a pod restart/outage or be LAN-synced (point it at a shared hostPath/Longhorn volume — see docs/DOWNTIME_PROCEDURE.md)');
 }
 if (optionalWarnings.length > 0) {
   optionalWarnings.forEach(w => logger.warn(`⚠️  ${w}`));

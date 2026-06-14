@@ -237,6 +237,7 @@ import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
 import nursingAssessmentRoutes from './routes/clinical/nursingAssessmentRoutes.js';
 import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 import downtimeRoutes from './routes/downtime/downtimeRoutes.js';
+import staticDowntimeRoutes from './routes/downtime/staticDowntimeRoutes.js';
 import terminologyRoutes from './routes/terminology/terminologyRoutes.js';
 import problemListRoutes from './routes/clinical/problemListRoutes.js';
 import allergyRoutes from './routes/clinical/allergyRoutes.js';
@@ -509,6 +510,18 @@ app.use('/api/v1/abdm', abdmCallbackRoutes);
 app.get('/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 app.get('/api/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 app.use('/health', genericLimiter, uptimeRoutes);
+
+// ====================================
+// DB-FREE STATIC DOWNTIME MIRROR (WS2 / REL-5)
+// ====================================
+// Static, pre-rendered ward-pack HTML served straight off the mirror dir so
+// packs stay reachable when the DB/auth layer is DOWN — this is mounted BEFORE
+// validateApiKey and jwtAuth on purpose (an outage takes those down too). It
+// reads ONLY the filesystem, never prisma. Packs contain PHI, so it mirrors the
+// /metrics posture: token-gated in production via requireProductionMonitoringAccess
+// (no-op outside prod) + rate-limited. It cannot DB-audit during an outage, so
+// access is Winston-file logged inside the router instead.
+app.use('/downtime/static', genericLimiter, requireProductionMonitoringAccess, staticDowntimeRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE

@@ -13,9 +13,12 @@
 // docs/DOWNTIME_PROCEDURE.md). Generation must never take the app down —
 // every per-ward failure is logged and skipped.
 
+import fs from 'fs/promises';
+import path from 'path';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { getUnifiedActiveAllergies } from '../clinical/allergySourceService.js';
+import { getDowntimeMirrorDir } from '../../config/downtimeConfig.js';
 
 export const WARD_PACK_SCOPE = 'ward_pack';
 const MAR_WINDOW_HOURS = 12;
@@ -103,6 +106,69 @@ export function buildWardPackHtml(pack) {
   back-enter after recovery (docs/DOWNTIME_PROCEDURE.md).</p>
 ${beds || '<p>No occupied beds at generation time.</p>'}
 </body></html>`;
+}
+
+/**
+ * Render the static-mirror index: a zero-script, self-contained list of the
+ * wards whose packs were written this pass, linking to each ward-<id>.html.
+ * Served by the DB-free static route's `GET /`. Pure; exported for tests.
+ *
+ * @param {Array<{ward_id:(number|string), ward_name:string, beds:number}>} wards
+ */
+export function buildMirrorIndexHtml(wards = []) {
+  const rows = (wards || []).map((w) =>
+    `<li><a href="wards/${esc(w.ward_id)}">Ward ${esc(w.ward_id)} — ${esc(w.ward_name || '')}</a>` +
+    ` <span class="meta">(${Number(w.beds) || 0} occupied bed(s))</span></li>`).join('\n');
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Downtime ward packs — index</title>
+<style>
+  body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;margin:24px;color:#111}
+  h1{font-size:20px;margin:0 0 4px} .sub{color:#555;margin:0 0 16px}
+  ul{padding-left:20px} li{margin:4px 0} .meta{color:#555;font-size:12px}
+</style></head><body>
+<h1>DOWNTIME WARD PACKS</h1>
+<p class="sub">Static read-only mirror · refreshed ${fmtTime(new Date().toISOString())} ·
+  Record all care on paper downtime forms and back-enter after recovery
+  (docs/DOWNTIME_PROCEDURE.md).</p>
+${rows ? `<ul>\n${rows}\n</ul>` : '<p>No ward packs available in this mirror yet.</p>'}
+</body></html>`;
+}
+
+/**
+ * Best-effort: write one ward's self-contained HTML to the mirror dir as
+ * ward-<wardId>.html. A failure here (read-only FS, permissions, disk full)
+ * must NEVER break pack generation or the surrounding transaction — it is
+ * logged and swallowed. The dir is created with { recursive: true } first.
+ */
+async function writeWardPackToMirror(mirrorDir, wardId, html) {
+  try {
+    await fs.mkdir(mirrorDir, { recursive: true });
+    await fs.writeFile(path.join(mirrorDir, `ward-${wardId}.html`), html, 'utf8');
+    return true;
+  } catch (err) {
+    logger.warn('Downtime mirror: failed to write ward pack file (pack generation unaffected)', {
+      ward_id: wardId,
+      mirror_dir: mirrorDir,
+      error: err?.message,
+    });
+    return false;
+  }
+}
+
+/** Best-effort: write/refresh the mirror index.html. Never throws. */
+async function writeMirrorIndex(mirrorDir, wards) {
+  try {
+    await fs.mkdir(mirrorDir, { recursive: true });
+    await fs.writeFile(path.join(mirrorDir, 'index.html'), buildMirrorIndexHtml(wards), 'utf8');
+    return true;
+  } catch (err) {
+    logger.warn('Downtime mirror: failed to write index.html (pack generation unaffected)', {
+      mirror_dir: mirrorDir,
+      error: err?.message,
+    });
+    return false;
+  }
 }
 
 async function collectBedEntry(bed, { tenantId } = {}) {
@@ -229,6 +295,11 @@ export async function generateWardDowntimePacks({ tenantId, generatedBy = null }
     return [];
   }
 
+  // WS2 / REL-5: mirror each pack's self-contained HTML to a static dir so the
+  // DB-free downtime route can serve it (and an ops-box can LAN-sync it) when
+  // the backend/DB is down. All mirror I/O is best-effort and self-contained in
+  // its helper — a write failure logs a warning and NEVER breaks generation.
+  const mirrorDir = getDowntimeMirrorDir();
   const results = [];
   for (const ward of wards) {
     try {
@@ -262,6 +333,9 @@ export async function generateWardDowntimePacks({ tenantId, generatedBy = null }
         select: { id: true, ward_id: true, created_at: true },
       });
       results.push({ snapshot_id: row.id, ward_id: ward.id, ward_name: ward.name, beds: beds.length });
+
+      // Best-effort static-mirror write (never throws — see helper).
+      await writeWardPackToMirror(mirrorDir, ward.id, pack.html);
     } catch (err) {
       logger.error('Ward downtime pack generation failed for ward — skipped', {
         ward_id: ward.id,
@@ -269,6 +343,11 @@ export async function generateWardDowntimePacks({ tenantId, generatedBy = null }
         error: err.message,
       });
     }
+  }
+
+  // Refresh the mirror index listing every ward written this pass (best-effort).
+  if (results.length) {
+    await writeMirrorIndex(mirrorDir, results);
   }
 
   // Retention: drop expired ward packs so the table can't grow unbounded.
@@ -320,5 +399,6 @@ export default {
   listLatestWardPacks,
   getLatestWardPack,
   buildWardPackHtml,
+  buildMirrorIndexHtml,
   WARD_PACK_SCOPE,
 };

@@ -45,6 +45,8 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { isTenantRlsEnforcementEnabled } from '../config/tenantRlsConfig.js';
 import logger from '../logging/logger.js';
+import { extractSqlState } from '../services/security/schemaMissingGuard.js';
+import { recordUndefinedTableFallback } from '../middleware/prometheusMiddleware.js';
 import { getCurrentTenantContext, runInTenantContext } from './tenantContext.js';
 
 // Phase-2 RLS enforcement. When AUTH_ENFORCE_TENANT_RLS=true and an
@@ -246,6 +248,19 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
       // Without this, a brief migration window or qa-reset DROP SCHEMA can
       // latch the breaker open for 30s after the schema is already healthy.
       if (isIgnoredBreakerError(err)) {
+        // WS2 / REL-5: a Postgres 42P01 (undefined_table) specifically means a
+        // graceful fallback path is being exercised (missing-table read during a
+        // migration window, a partition the downtime mirror papers over, etc.).
+        // Scope this to EXACTLY 42P01 — NOT the whole ignored set (42703 column,
+        // 3F000 schema, … are different signals) — so the named metric + warn
+        // track only the undefined_table fallback. Reuse extractSqlState rather
+        // than re-deriving the SQLSTATE. The error is still re-thrown unchanged.
+        if (extractSqlState(err) === '42P01') {
+          recordUndefinedTableFallback();
+          logger.warn('Postgres 42P01 (undefined_table) — graceful fallback path', {
+            message: String(err?.message || '').slice(0, 200),
+          });
+        }
         throw err;
       }
       consecutiveFailures += 1;

@@ -40,6 +40,7 @@ jest.unstable_mockModule('@prisma/client', () => ({ PrismaClient: PrismaClientSt
 
 describe('src/lib/prisma.js hardening', () => {
   let prismaModule;
+  let metricsModule;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -48,9 +49,25 @@ describe('src/lib/prisma.js hardening', () => {
     delete process.env.DATABASE_READ_URL;
     process.env.DATABASE_URL = 'postgresql://test@localhost/test';
     prismaModule = await import('../../lib/prisma.js');
+    // prometheusMiddleware.js is NOT mocked — prisma.js imports the real
+    // recordUndefinedTableFallback from it. After jest.resetModules() this is a
+    // fresh module instance (counter starts at 0), and because the dynamic
+    // import below resolves through the same post-reset registry it is the SAME
+    // instance prisma.js incremented. Lets each test assert a clean delta.
+    metricsModule = await import('../../middleware/prometheusMiddleware.js');
     prismaModule.__resetCircuitBreakerForTests();
     jest.clearAllMocks();
   });
+
+  // Count occurrences of the named 42P01 fallback series in the exposition output.
+  function undefinedTableFallbackCount() {
+    const out = metricsModule.serializeMetrics();
+    const line = out
+      .split('\n')
+      .find((l) => l.startsWith('db_undefined_table_fallback_total{'));
+    if (!line) return 0;
+    return Number(line.trim().split(/\s+/).pop()) || 0;
+  }
 
   // ── Circuit breaker ───────────────────────────────────────────────────
 
@@ -200,6 +217,102 @@ describe('src/lib/prisma.js hardening', () => {
       // Only the two infra failures should count.
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(2);
       expect(prismaModule.circuitBreakerStatus().open).toBe(false);
+    });
+  });
+
+  // ── 42P01 graceful-fallback metric (WS2 / REL-5) ─────────────────────
+  //
+  // A Postgres 42P01 (undefined_table) re-thrown by the breaker must ALSO
+  // bump the named db_undefined_table_fallback_total counter and warn, so an
+  // outage/migration fallback path is observable. Other ignored SQLSTATEs
+  // (3F000 schema, 42703 column) and real infra errors must NOT bump it.
+  describe('db_undefined_table_fallback_total counter', () => {
+    it('increments on a simulated 42P01 and the metric is exposed', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const before = undefinedTableFallbackCount();
+      const schemaErr = Object.assign(new Error('relation "wards" does not exist'), {
+        meta: { code: '42P01' },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(schemaErr));
+
+      await expect(prisma.$queryRawUnsafe('SELECT 1 FROM wards')).rejects.toBe(schemaErr);
+
+      expect(undefinedTableFallbackCount()).toBe(before + 1);
+      // The named series must be present in the exposition output at all.
+      expect(metricsModule.serializeMetrics()).toContain('db_undefined_table_fallback_total');
+      // And it warns on the fallback path.
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Postgres 42P01 (undefined_table) — graceful fallback path',
+        expect.objectContaining({ message: expect.any(String) }),
+      );
+    });
+
+    it('also increments on a 42P01 surfaced via the Prisma 7 driver adapter', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const before = undefinedTableFallbackCount();
+      const schemaErr = Object.assign(new Error('relation "beds" does not exist'), {
+        meta: { driverAdapterError: { cause: { originalCode: '42P01' } } },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(schemaErr));
+
+      await expect(prisma.$queryRawUnsafe('SELECT 1 FROM beds')).rejects.toBe(schemaErr);
+
+      expect(undefinedTableFallbackCount()).toBe(before + 1);
+    });
+
+    it('does NOT increment on 3F000 (invalid_schema_name)', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const before = undefinedTableFallbackCount();
+      const schemaErr = Object.assign(new Error('schema "public" does not exist'), {
+        code: '3F000',
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(schemaErr));
+
+      await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(schemaErr);
+
+      expect(undefinedTableFallbackCount()).toBe(before);
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        'Postgres 42P01 (undefined_table) — graceful fallback path',
+        expect.anything(),
+      );
+    });
+
+    it('does NOT increment on 42703 (undefined_column)', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const before = undefinedTableFallbackCount();
+      const colErr = Object.assign(new Error('column "foo" does not exist'), {
+        meta: { code: '42703' },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(colErr));
+
+      await expect(prisma.$queryRawUnsafe('SELECT foo FROM users')).rejects.toBe(colErr);
+
+      expect(undefinedTableFallbackCount()).toBe(before);
+    });
+
+    it('does NOT increment on an infrastructure error (e.g. connection refused)', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const before = undefinedTableFallbackCount();
+      const infraErr = new Error('connection refused');
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(infraErr));
+
+      await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(infraErr);
+
+      expect(undefinedTableFallbackCount()).toBe(before);
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        'Postgres 42P01 (undefined_table) — graceful fallback path',
+        expect.anything(),
+      );
     });
   });
 
