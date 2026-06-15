@@ -13,6 +13,14 @@
 //   1. Create a UNIQUELY-NAMED scratch DB on 127.0.0.1:55432 as the postgres
 //      SUPERUSER (drop-if-exists first). NEVER touches `vhhealth_test` or the
 //      dev cluster — another agent uses vhhealth_test concurrently.
+//   1b. PROVE the pgvector go-live blocker (security-review HIGH #5): on the
+//      FRESH DB (vector absent), a NOSUPERUSER owner — even WITH bypassrls (the
+//      exact prod posture) — CANNOT `CREATE EXTENSION vector` (untrusted ext →
+//      42501; bypassrls ≠ extension-creation rights). Then provision extensions
+//      AS SUPERUSER (mirrors cluster.yaml bootstrap.initdb.postInitApplicationSQL,
+//      which CNPG runs as superuser at initdb) and assert `vector` is PRESENT
+//      before migrations apply — i.e. the migration Job's db:ensure-pgvector is a
+//      safe idempotent no-op once the cluster.yaml fix has created it.
 //   2. Apply ALL migrations (incl. 310) as the OWNER via the ci-setup path
 //      (scripts/ci-setup-db.mjs, tracker-driven) — mirrors the prod migration
 //      Job that connects with DATABASE_SUPERUSER_URL (Phase D2).
@@ -166,6 +174,96 @@ async function createScratchDbAndOwner() {
   }
 }
 
+// ── Step 1.4: PROVE the pgvector blocker (security-review HIGH #5) ─────────────
+// THE BLOCKER this drill must surface and the cluster.yaml fix must close:
+// `vector` (pgvector) is an UNTRUSTED extension, so ONLY a superuser may
+// `CREATE EXTENSION vector`. The prod migration Job's step 1 (`db:ensure-pgvector`
+// → CREATE EXTENSION IF NOT EXISTS vector) connects as the bootstrap OWNER
+// `vhhealth` via DATABASE_SUPERUSER_URL — a NOSUPERUSER role that carries
+// bypassrls:true. bypassrls is NOT extension-creation rights, so on a FRESH
+// cluster (vector not yet present) that step 42501s and the migration Job dies
+// before applying 000_baseline (which declares columns of type public.vector).
+//
+// We prove this on the fresh scratch DB BEFORE any extension is created, and we
+// do it with the owner set to BYPASSRLS — the EXACT prod posture (managed.roles
+// `vhhealth { bypassrls: true }`) — so the proof demonstrates that even a
+// bypassrls owner is denied. Empirically (PG17) the error is
+// `42501 permission denied to create extension "vector"`, and the same holds for
+// the `IF NOT EXISTS` form the Job actually runs (IF NOT EXISTS does not suppress
+// the privilege check when the extension is absent), so we assert BOTH forms 42501.
+async function proveOwnerCannotCreateVectorWhenAbsent() {
+  // Sanity: vector must be AVAILABLE in this PG (image ships the .so) — otherwise
+  // the failure would be 0A000/58P01 (missing control file), a DIFFERENT problem
+  // (the residual operator-verify caveat), not the privilege blocker we mean to
+  // prove. This mirrors ensure-pgvector-extension.mjs's pg_available_extensions
+  // probe + the cluster.yaml OPERATOR VERIFY note.
+  const admin = new pg.Client({ connectionString: ADMIN_URL });
+  await admin.connect();
+  try {
+    const av = await admin.query(
+      `SELECT 1 FROM pg_available_extensions WHERE name = 'vector'`,
+    );
+    if (av.rowCount === 0) {
+      throw new Error(
+        "pgvector is NOT available in this Postgres (image lacks the .so) — cannot " +
+        'prove the privilege blocker; this is the separate image-dependent caveat. ' +
+        'Use a pgvector-bearing image (e.g. pgvector/pgvector:pg17 or the prod CNPG image).',
+      );
+    }
+  } finally {
+    await admin.end();
+  }
+
+  // Put the owner in the EXACT prod posture: NOSUPERUSER + BYPASSRLS.
+  await setOwnerBypassRls(true);
+  try {
+    const owner = new pg.Client({ connectionString: OWNER_URL });
+    await owner.connect();
+    try {
+      // Posture assertion: the owner really is NOSUPERUSER with BYPASSRLS (so the
+      // 42501 below cannot be hand-waved as "well it wasn't bypassrls anyway").
+      const me = await owner.query(
+        `SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
+      );
+      if (me.rows[0].rolsuper) throw new Error('owner is unexpectedly SUPERUSER — cannot prove the blocker');
+      if (!me.rows[0].rolbypassrls) throw new Error('owner is not BYPASSRLS — set prod-faithful posture first');
+
+      // Bare form.
+      let code1 = null;
+      try {
+        await owner.query(`CREATE EXTENSION vector`);
+      } catch (err) {
+        code1 = err.code || 'unknown';
+      }
+      if (code1 === null) {
+        throw new Error('CREATE EXTENSION vector SUCCEEDED as the NOSUPERUSER owner — blocker not reproduced (is the owner secretly a superuser?)');
+      }
+      if (code1 !== '42501') {
+        throw new Error(`expected 42501 (insufficient_privilege) but got ${code1} — different failure mode`);
+      }
+
+      // IF NOT EXISTS form — the literal command `db:ensure-pgvector` runs. Must
+      // ALSO 42501 while the extension is absent (proves the prod Job's exact
+      // step fails on a fresh cluster, not just the bare form).
+      let code2 = null;
+      try {
+        await owner.query(`CREATE EXTENSION IF NOT EXISTS vector`);
+      } catch (err) {
+        code2 = err.code || 'unknown';
+      }
+      if (code2 !== '42501') {
+        throw new Error(`CREATE EXTENSION IF NOT EXISTS vector returned ${code2 === null ? 'success' : code2}, expected 42501 while absent`);
+      }
+      return 'NOSUPERUSER+BYPASSRLS owner denied (42501) for both `CREATE EXTENSION vector` and the `IF NOT EXISTS` form';
+    } finally {
+      await owner.end();
+    }
+  } finally {
+    // Restore NOBYPASSRLS — Step 2 re-enables it explicitly for the apply.
+    await setOwnerBypassRls(false);
+  }
+}
+
 // ── Step 1.5: provision extensions as SUPERUSER, before any migration ─────────
 // 000_baseline.sql references `public.vector` (pgvector) and other contrib
 // types WITHOUT a CREATE EXTENSION of its own — it assumes the extensions
@@ -189,6 +287,44 @@ async function createExtensionsAsSuperuser() {
     await client.end();
   }
   log(`extensions ensured as superuser: ${REQUIRED_EXTENSIONS.join(', ')} (mirrors CNPG image + postInitApplicationSQL)`);
+}
+
+// ── Step 1.5 verification: vector is PRESENT before migrations apply ───────────
+// Mirrors the cluster.yaml FIX: `CREATE EXTENSION IF NOT EXISTS vector;` in
+// bootstrap.initdb.postInitApplicationSQL runs as the SUPERUSER at initdb, so on
+// a fresh prod cluster `vector` already exists in pg_extension BEFORE the PreSync
+// migration Job runs — which is why 000_baseline (columns of type public.vector)
+// applies and the Job's `db:ensure-pgvector` is a harmless idempotent no-op. Here
+// createExtensionsAsSuperuser() played the role of postInitApplicationSQL; this
+// asserts the post-condition, on the application DB, before the migration pass.
+async function assertVectorPresentBeforeMigrations() {
+  const client = new pg.Client({ connectionString: SUPER_ON_SCRATCH_URL });
+  await client.connect();
+  try {
+    const r = await client.query(
+      `SELECT extversion FROM pg_extension WHERE extname = 'vector'`,
+    );
+    if (r.rowCount === 0) {
+      throw new Error(
+        'vector NOT present before migrations — the postInitApplicationSQL-equivalent ' +
+        'provisioning did not run; 000_baseline (columns of type public.vector) will fail',
+      );
+    }
+    // Also confirm the owner's idempotent re-run is now a true no-op (the prod
+    // Job's `db:ensure-pgvector` behaviour once initdb has created the extension).
+    // The owner is NOBYPASSRLS here (restored after the blocker proof) — exactly
+    // the pre-apply prod posture before Step 2 grants bypassrls.
+    const owner = new pg.Client({ connectionString: OWNER_URL });
+    await owner.connect();
+    try {
+      await owner.query(`CREATE EXTENSION IF NOT EXISTS vector`); // must NOT throw now
+    } finally {
+      await owner.end();
+    }
+    return `vector ${r.rows[0].extversion} present; owner CREATE EXTENSION IF NOT EXISTS vector is a no-op`;
+  } finally {
+    await client.end();
+  }
 }
 
 // ── Step 1.6: migration-role RLS posture (THE surfaced cutover risk) ──────────
@@ -611,10 +747,32 @@ async function main() {
 
   let setupOk = false;
   try {
-    log('Step 1/4: (re)create scratch DB + owner, provision extensions as superuser');
+    log('Step 1/4: (re)create scratch DB + owner, prove pgvector blocker, provision extensions as superuser');
     await dropScratchDb();
     await createScratchDbAndOwner();
+
+    // B-pgvector (security-review HIGH #5): on the FRESH scratch DB (no extensions
+    // yet), prove the blocker — a NOSUPERUSER owner (even WITH bypassrls) CANNOT
+    // CREATE EXTENSION vector → 42501. Recorded as a visible check; it must run
+    // BEFORE createExtensionsAsSuperuser (which makes vector present).
+    console.log('');
+    await check(
+      'B-pgvector blocker: NOSUPERUSER+BYPASSRLS owner CANNOT CREATE EXTENSION vector (expect 42501)',
+      () => proveOwnerCannotCreateVectorWhenAbsent(),
+    );
+
+    // The cluster.yaml FIX, mirrored: postInitApplicationSQL runs as SUPERUSER at
+    // initdb and creates vector before the migration Job. createExtensionsAsSuperuser
+    // plays that role here.
     await createExtensionsAsSuperuser();
+
+    // B-pgvector fix verification: vector is now PRESENT before migrations apply,
+    // and the owner's idempotent re-run (`db:ensure-pgvector`) is a no-op.
+    await check(
+      'B-pgvector fix: vector present before migrations (postInitApplicationSQL-equivalent) + owner CREATE EXTENSION IF NOT EXISTS is a no-op',
+      () => assertVectorPresentBeforeMigrations(),
+    );
+    console.log('');
 
     log('Step 2/4: apply ALL migrations as OWNER (incl. 310) — owner carries BYPASSRLS for the apply ONLY');
     // Mirror the CORRECTED prod migrator posture (see setOwnerBypassRls note):

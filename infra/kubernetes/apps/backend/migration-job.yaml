@@ -10,10 +10,16 @@
 #
 # The job does:
 #   1. `npm run db:ensure-pgvector` — runs `CREATE EXTENSION IF NOT EXISTS
-#      vector`. The CNPG cluster image ships the pgvector binary but the
-#      bootstrap `postInitApplicationSQL` (see base/cnpg/cluster.yaml) does
-#      not enable it, and `000_baseline.sql` declares columns of type
-#      `public.vector`, so this must run before ci-setup-db on a fresh DB.
+#      vector` (000_baseline.sql declares columns of type `public.vector`, so
+#      vector must exist before ci-setup-db on a fresh DB). On a fresh prod
+#      cluster this is now an IDEMPOTENT NO-OP: vector is UNTRUSTED and the Job
+#      connects as the NOSUPERUSER owner `vhhealth` (DATABASE_SUPERUSER_URL),
+#      which can NEVER `CREATE EXTENSION vector` (bypassrls ≠ extension-creation
+#      rights). So vector is instead created by CNPG's bootstrap
+#      `postInitApplicationSQL` (see base/cnpg/cluster.yaml), which runs as the
+#      SUPERUSER at initdb — before this Job. The step is kept as a defensive
+#      guard for non-CNPG / pre-existing DBs (e.g. the dalekdefender overlay and
+#      local QA, where it runs as a superuser DSN).
 #   2. `node scripts/ci-setup-db.mjs` — tracker-driven, idempotent. Applies
 #      every file in `src/migrations/*.sql` exactly once per DB via the
 #      `_migrations` table; auto-detects a pre-existing baseline schema
@@ -78,6 +84,125 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      # Ordering GATE (security-review HIGH #6 / fresh-cluster race).
+      #
+      # The migration below must run as the bootstrap OWNER `vhhealth` WITH
+      # bypassrls (000_baseline does `SET row_security=off` and migs 237/272
+      # `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, so a NOBYPASSRLS owner 42501s
+      # partway through a fresh apply — see base/cnpg/cluster.yaml managed.roles
+      # `vhhealth`). The owner ROLE exists from bootstrap.initdb so the Job can
+      # authenticate immediately, but `bypassrls:true` is applied by CNPG's
+      # managed.roles reconciler on the OPERATOR'S OWN loop — it is NOT an ArgoCD
+      # sync-wave participant. On a fresh cluster the PreSync migration Job
+      # (sync-wave -1) can therefore RACE ahead of that reconcile and start
+      # running while the owner is still NOBYPASSRLS → a cryptic mid-migration
+      # 42501 and a fix that "silently doesn't take" on first sync.
+      #
+      # This initContainer BLOCKS the Job until the attribute has actually landed:
+      # it polls `SELECT rolbypassrls FROM pg_roles WHERE rolname='vhhealth'` and
+      # only exits 0 once it returns `t`. On timeout it exits NON-ZERO with a
+      # clear, diagnosable message so the Job fails loudly at the gate instead of
+      # half-applying migrations. Uses the SAME image + the owner DSN
+      # (DATABASE_SUPERUSER_URL) as the migrate container — the owner can log in
+      # and read pg_roles even before bypassrls is set. node + the `pg` client are
+      # both already in the image (pg is a prod dependency used by ci-setup-db.mjs);
+      # npm/psql are not, so we invoke node directly.
+      initContainers:
+        - name: wait-owner-bypassrls
+          image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder
+          imagePullPolicy: IfNotPresent
+          command: ["node"]
+          args:
+            - -e
+            - |
+              const pg = require('pg');
+              // Poll every INTERVAL_MS up to a hard DEADLINE; the owner role
+              // exists from bootstrap.initdb, so a connect failure is itself a
+              // retryable "not ready yet" condition (DB still coming up), not a
+              // fatal error — only a clean `f` (or an exhausted deadline) means
+              // CNPG hasn't reconciled bypassrls yet.
+              const INTERVAL_MS = 5000;
+              const DEADLINE_MS = 5 * 60 * 1000; // 5 min hard cap
+              const CONNECT_TIMEOUT_MS = 10000;
+              const url = process.env.DATABASE_URL;
+              if (!url) {
+                console.error('[wait-owner-bypassrls] DATABASE_URL (owner DSN) not set — cannot gate migration');
+                process.exit(1);
+              }
+              const started = Date.now();
+              let lastSeen = 'unknown';
+              async function probe() {
+                const client = new pg.Client({
+                  connectionString: url,
+                  connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+                  statement_timeout: CONNECT_TIMEOUT_MS,
+                  application_name: 'migrate-gate',
+                });
+                try {
+                  await client.connect();
+                  const { rows } = await client.query(
+                    "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'vhhealth'",
+                  );
+                  if (rows.length === 0) { lastSeen = 'role-absent'; return false; }
+                  lastSeen = rows[0].rolbypassrls === true ? 't' : 'f';
+                  return rows[0].rolbypassrls === true;
+                } finally {
+                  await client.end().catch(() => {});
+                }
+              }
+              (async () => {
+                while (Date.now() - started < DEADLINE_MS) {
+                  let ok = false;
+                  try {
+                    ok = await probe();
+                  } catch (err) {
+                    lastSeen = 'connect-error: ' + (err && err.message ? err.message : String(err));
+                  }
+                  const waited = Math.round((Date.now() - started) / 1000);
+                  if (ok) {
+                    console.log(`[wait-owner-bypassrls] owner 'vhhealth' has bypassrls=t after ${waited}s — proceeding to migrate`);
+                    process.exit(0);
+                  }
+                  console.log(`[wait-owner-bypassrls] not ready (rolbypassrls=${lastSeen}) after ${waited}s — retrying in ${INTERVAL_MS / 1000}s`);
+                  await new Promise((r) => setTimeout(r, INTERVAL_MS));
+                }
+                console.error(
+                  "[wait-owner-bypassrls] TIMEOUT after 5m: owner 'vhhealth' bypassrls not reconciled by CNPG " +
+                  `(last observed rolbypassrls=${lastSeen}). The migration needs the owner to bypass RLS ` +
+                  '(000_baseline SET row_security=off + migs 237/272 FORCE RLS). ' +
+                  'Check managed.roles for vhhealth in base/cnpg/cluster.yaml and the CNPG operator logs; ' +
+                  "verify manually with: kubectl cnpg psql vhhealth-pg -- -c \"SELECT rolbypassrls FROM pg_roles WHERE rolname='vhhealth'\" (must be t). " +
+                  'Aborting before migrations run to avoid a partial mid-migration 42501.',
+                );
+                process.exit(1);
+              })();
+          env:
+            # Same owner DSN the migrate container uses (DATABASE_SUPERUSER_URL).
+            # The owner can log in + read pg_roles even while still NOBYPASSRLS.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-backend-env
+                  key: DATABASE_SUPERUSER_URL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: migrate
           image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder

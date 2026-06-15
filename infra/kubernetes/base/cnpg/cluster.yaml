@@ -62,11 +62,21 @@ spec:
   # seed). CI never caught this because it applies as the postgres superuser. Fix:
   # the owner role below is granted bypassrls:true (migration path ONLY) while the
   # app's vhhealth_runtime stays NOBYPASSRLS so tenant RLS still enforces.
-  # OPERATOR VERIFY (blocker B, image-dependent): `vector` (pgvector) is an
-  # UNTRUSTED extension and is NOT in postInitApplicationSQL; confirm the CNPG
-  # image lets the owner `CREATE EXTENSION vector` (the migration Job's
-  # db:ensure-pgvector relies on it) or add a superuser-scoped init that creates
-  # it before the migration Job runs.
+  # OPERATOR VERIFY (blocker B — now image-dependent ONLY): `vector` (pgvector)
+  # is an UNTRUSTED extension, so a non-superuser owner can NEVER create it
+  # (bypassrls is not extension-creation rights). It is now created in
+  # bootstrap.initdb.postInitApplicationSQL below, which CNPG runs as the
+  # SUPERUSER against the application DB at initdb — so it lands BEFORE the
+  # PreSync migration Job and that Job's `db:ensure-pgvector` becomes a safe
+  # idempotent no-op. The ONLY residual to confirm is image-level: the
+  # ghcr.io/cloudnative-pg/postgresql:17.2-1 image must actually SHIP the pgvector
+  # shared library (the .so), or `CREATE EXTENSION vector` fails for everyone —
+  # even the superuser — with "could not open extension control file". Verify on
+  # first bring-up: `kubectl cnpg psql vhhealth-pg -- -c "SELECT 1 FROM
+  # pg_available_extensions WHERE name='vector'"` must return a row (this is what
+  # ensure-pgvector-extension.mjs probes too). If it does NOT, switch imageName to
+  # a pgvector-bearing image (e.g. a custom build or ghcr.io/cloudnative-pg/
+  # postgresql:17.2-NN with pgvector) before the first sync.
   #
   # OPERATOR: with enableSuperuserAccess:false the operator no longer manages a
   # `postgres` superuser password; the vhhealth-pg-superuser Secret becomes
@@ -239,11 +249,29 @@ spec:
       dataChecksums: true
       secret:
         name: vhhealth-pg-app
+      # CNPG runs postInitApplicationSQL as the SUPERUSER (postgres) against the
+      # application database `vhhealth`, ONCE at initdb (CNPG 1.24 bootstrap docs:
+      # "Use the postInit, postInitTemplate, and postInitApplication options with
+      # extreme care, as queries are run as a superuser"). That superuser context
+      # is why `vector` belongs here and NOT only in the migration Job: pgvector is
+      # an UNTRUSTED extension, so the NOSUPERUSER owner `vhhealth` (which the
+      # migration Job connects as via DATABASE_SUPERUSER_URL) cannot CREATE it even
+      # WITH bypassrls — bypassrls is not extension-creation rights. pgcrypto /
+      # citext / uuid-ossp are TRUSTED in PG13+ and a db owner could create them,
+      # but they ride here too so every extension is provisioned in one
+      # superuser-context pass. Creating `vector` here makes the migration Job's
+      # `db:ensure-pgvector` (CREATE EXTENSION IF NOT EXISTS vector) a safe
+      # idempotent no-op on a fresh cluster instead of a 42501.
       postInitApplicationSQL:
         - "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
         - "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
         - "CREATE EXTENSION IF NOT EXISTS citext;"
         - "CREATE EXTENSION IF NOT EXISTS uuid-ossp;"
+        # pgvector (UNTRUSTED → superuser-only). 000_baseline.sql declares columns
+        # of type public.vector, so the extension MUST exist before the migration
+        # Job applies. See the comment block above + the OPERATOR VERIFY note near
+        # enableSuperuserAccess for the one remaining image-dependent caveat.
+        - "CREATE EXTENSION IF NOT EXISTS vector;"
         # Read-only role used by dashboards and exports. Created NOLOGIN and
         # with NO password here (audit finding H10 — never set credentials
         # inline at initdb). The managed.roles entry above flips it to LOGIN

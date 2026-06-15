@@ -21,21 +21,25 @@ policies actually **enforce**, while the **migration Job runs as the owner**.
 ## What it proves
 
 The drill stands up a throwaway database that mirrors the **production data +
-role topology**, then asserts eight properties. All eight must pass for the
+role topology**, then asserts ten properties. All ten must pass for the
 prod cutover to be considered de-risked.
 
 | # | Check | Proves |
 |---|---|---|
-| 1 | **D2** migration chain applies clean as the (BYPASSRLS) owner | Every `src/migrations/*.sql` (incl. 309/310/311) applies with **zero** un-applied files under an owner-run migration pass — no `42501` / partial apply. |
-| 2 | **D2** migration 310 is applied | `310_tenant_id_guc_default.sql` is recorded in `_migrations` (the GUC-reading `tenant_id` default is in place). |
-| 3 | **E2** connection-role posture | The app's connection role `vhhealth_runtime` **and** the `SET LOCAL ROLE` target `vhhealth_app` are both `rolsuper=f rolbypassrls=f`. If either bypassed RLS, every policy would be silently inert. |
-| 4 | **Ea** insert PHI under tenant A (clinical_ai_generations) | A tenant-scoped write succeeds and auto-scopes to tenant A. |
-| 5 | **Ea** insert PHI under tenant A (appointments — migration 236 table) | The same holds for a **core, non-AI PHI table**, so the proof isn't limited to the `clinical_ai_*` family. |
-| 6 | **Eb** cross-tenant read blocked | Under tenant B, tenant A's PHI row is **invisible** (RLS `USING` filters it). |
-| 7 | **Ec** WITH CHECK rejects cross-tenant write | With GUC = tenant A but an explicit `tenant_id = B`, the INSERT is **rejected** (`42501`) and **nothing persists** (verified via a bypass read). |
-| 8 | **Ed** migration 310 GUC-default | An INSERT that **omits** `tenant_id` under tenant B lands `tenant_id = B` (the GUC-reading default), **not** the literal default tenant — the bug 310 fixed. |
+| 1 | **B-pgvector blocker** NOSUPERUSER+BYPASSRLS owner CANNOT `CREATE EXTENSION vector` | On a **fresh** DB (vector absent), the bootstrap owner — in the exact prod posture (`NOSUPERUSER`, `bypassrls:true`) — is denied with `42501` for **both** `CREATE EXTENSION vector` and the `IF NOT EXISTS` form the migration Job runs. `vector` is **untrusted**; `bypassrls` is **not** extension-creation rights. This is the go-live blocker (security-review HIGH #5). |
+| 2 | **B-pgvector fix** vector present before migrations + idempotent owner re-run | After the `postInitApplicationSQL`-equivalent superuser provisioning, `vector` is in `pg_extension` **before** the migration pass (so `000_baseline`'s `public.vector` columns apply), and the owner's `CREATE EXTENSION IF NOT EXISTS vector` (`db:ensure-pgvector`) is now a harmless **no-op**. Mirrors the `cluster.yaml` fix. |
+| 3 | **D2** migration chain applies clean as the (BYPASSRLS) owner | Every `src/migrations/*.sql` (incl. 309/310/311) applies with **zero** un-applied files under an owner-run migration pass — no `42501` / partial apply. |
+| 4 | **D2** migration 310 is applied | `310_tenant_id_guc_default.sql` is recorded in `_migrations` (the GUC-reading `tenant_id` default is in place). |
+| 5 | **E2** connection-role posture | The app's connection role `vhhealth_runtime` **and** the `SET LOCAL ROLE` target `vhhealth_app` are both `rolsuper=f rolbypassrls=f`. If either bypassed RLS, every policy would be silently inert. |
+| 6 | **Ea** insert PHI under tenant A (clinical_ai_generations) | A tenant-scoped write succeeds and auto-scopes to tenant A. |
+| 7 | **Ea** insert PHI under tenant A (appointments — migration 236 table) | The same holds for a **core, non-AI PHI table**, so the proof isn't limited to the `clinical_ai_*` family. |
+| 8 | **Eb** cross-tenant read blocked | Under tenant B, tenant A's PHI row is **invisible** (RLS `USING` filters it). |
+| 9 | **Ec** WITH CHECK rejects cross-tenant write | With GUC = tenant A but an explicit `tenant_id = B`, the INSERT is **rejected** (`42501`) and **nothing persists** (verified via a bypass read). |
+| 10 | **Ed** migration 310 GUC-default | An INSERT that **omits** `tenant_id` under tenant B lands `tenant_id = B` (the GUC-reading default), **not** the literal default tenant — the bug 310 fixed. |
 
-Checks 4–8 run **as `vhhealth_runtime`**, inside a transaction that issues
+Checks 1–2 run during setup (check 1 against the fresh DB before any extension
+exists; check 2 against the application DB right after the superuser provisioning
+step). Checks 6–10 run **as `vhhealth_runtime`**, inside a transaction that issues
 `SET LOCAL ROLE vhhealth_app` then `SELECT set_config('app.current_tenant_id',
 …, true)` — exactly the shape `setTenant`/`setTenantTx` in
 `src/lib/prisma.js` use in production.
@@ -84,6 +88,8 @@ Each check prints a `[PASS]`/`[FAIL]` line with a one-line detail, then a summar
 block. A clean run:
 
 ```
+  [PASS] B-pgvector blocker: NOSUPERUSER+BYPASSRLS owner CANNOT CREATE EXTENSION vector (expect 42501) — NOSUPERUSER+BYPASSRLS owner denied (42501) for both `CREATE EXTENSION vector` and the `IF NOT EXISTS` form
+  [PASS] B-pgvector fix: vector present before migrations (postInitApplicationSQL-equivalent) + owner CREATE EXTENSION IF NOT EXISTS is a no-op — vector 0.8.0 present; owner CREATE EXTENSION IF NOT EXISTS vector is a no-op
   [PASS] D2 migration chain applies clean as the (BYPASSRLS) owner — no 42501/partial apply — all 315 migration files applied (excl. 1 known-bad skip)
   [PASS] D2 migration 310 (GUC-reading tenant_id default) is applied — 310_tenant_id_guc_default.sql present in _migrations
   [PASS] E2 connection-role posture: vhhealth_runtime + vhhealth_app are NOSUPERUSER NOBYPASSRLS — current_user=vhhealth_runtime; both roles super=f bypassrls=f
@@ -93,7 +99,7 @@ block. A clean run:
   [PASS] Ec WITH CHECK rejects cross-tenant write (GUC=A, explicit tenant_id=B) — rejected with 42501; no row persisted (verified via bypass)
   [PASS] Ed migration 310: INSERT omitting tenant_id under tenant B lands tenant_id=B (not literal default) — omitted tenant_id auto-scoped to B (00000000-0000-4000-8000-0000000000b2)
 ────────────────────────────────────────────────────────────
-  8/8 checks passed
+  10/10 checks passed
 ────────────────────────────────────────────────────────────
 
 DRILL PASSED — non-superuser runtime role + RLS enforcement proven on a real DB.
@@ -101,6 +107,19 @@ DRILL PASSED — non-superuser runtime role + RLS enforcement proven on a real D
 
 **Interpreting failures:**
 
+- **`B-pgvector blocker` fails because the owner SUCCEEDED** → the migration owner
+  in your environment is secretly a superuser (so the prod blocker would be masked
+  and `cluster.yaml`'s `enableSuperuserAccess:false` posture is not what you
+  tested). **`B-pgvector blocker` fails with a code other than `42501`** (e.g.
+  `0A000`/`58P01` "could not open extension control file") → the Postgres image
+  does **not** ship the pgvector `.so`. That is the **image-dependent residual**
+  (see the OPERATOR VERIFY note in `cluster.yaml`), a *different* problem from the
+  privilege blocker — switch to a pgvector-bearing image.
+- **`B-pgvector fix` fails (vector not present / owner re-run threw)** → the
+  `postInitApplicationSQL`-equivalent provisioning didn't create the extension. In
+  prod this means `cluster.yaml`'s `postInitApplicationSQL` is missing
+  `CREATE EXTENSION IF NOT EXISTS vector;` — `000_baseline` (columns of type
+  `public.vector`) will fail on the migration Job. Re-add the line.
 - **`Eb` fails (tenant B sees tenant A's row)** → the connection/effective role
   has `SUPERUSER`/`BYPASSRLS`, or the policy/`FORCE` is missing on that table.
   RLS is **not** enforcing — do **not** cut over. Cross-check `E2` and the boot
@@ -109,7 +128,7 @@ DRILL PASSED — non-superuser runtime role + RLS enforcement proven on a real D
   `tenant_isolation` policy isn't firing. Same root cause as `Eb`.
 - **`Ed` fails (`tenant_id` defaulted to the literal default)** → migration 310
   did not take effect on that table; the `INSERT` will `42501` for any
-  non-default tenant that omits `tenant_id`. Re-check check #2.
+  non-default tenant that omits `tenant_id`. Re-check check #4.
 - **`D2` fails (some migrations un-applied)** → the migration chain did not apply
   clean under the owner posture. This is the [surfaced cutover risk](#cutover-risk-surfaced);
   read it before retrying.
@@ -213,16 +232,47 @@ those migrations are tracked and skipped.)
   apply FORCE-RLS DDL. Higher blast radius (touches the baseline) and needs its
   own drift-check pass; the `BYPASSRLS`-migrator option is lower-risk.
 
-**Secondary finding — extension prerequisites.** `000_baseline.sql` references
-`public.vector` (pgvector) and other contrib types **without** a
-`CREATE EXTENSION` of its own; it assumes `pgcrypto`/`pg_trgm`/`citext`/
-`uuid-ossp`/`vector` already exist. In prod these come **before** the migration
-Job from the pgvector-bearing CNPG image + `bootstrap.initdb.postInitApplicationSQL`.
-`vector` is an **untrusted** extension, so only a **superuser** can create it —
-the owner-run migration Job cannot. The drill provisions these as the superuser
-before the migration pass (mirroring the operator-provisioned substrate);
-confirm the prod CNPG image actually ships pgvector and that
-`postInitApplicationSQL` (or an init step) creates `vector` before D2.
+### Second blocker — pgvector is untrusted (security-review HIGH #5)
+
+> **Also a FRESH-cluster go-live blocker. Now drill-proven (checks #1–#2) and
+> closed by a `cluster.yaml` fix.**
+
+`000_baseline.sql` declares columns of type `public.vector` (pgvector) **without**
+a `CREATE EXTENSION` of its own; it assumes `pgcrypto`/`pg_trgm`/`citext`/
+`uuid-ossp`/`vector` already exist. The migration Job's **step 1**
+(`db:ensure-pgvector` → `CREATE EXTENSION IF NOT EXISTS vector`,
+[`scripts/ensure-pgvector-extension.mjs`](../apps/backend/scripts/ensure-pgvector-extension.mjs))
+is meant to provide `vector` before `000_baseline`. **But that step runs as the
+bootstrap owner `vhhealth`** (`DATABASE_SUPERUSER_URL`), and `vector` is an
+**UNTRUSTED** extension — only a **superuser** may create it. The owner is
+`NOSUPERUSER` with `bypassrls:true`, and **`bypassrls` is not extension-creation
+rights**, so on a fresh cluster step 1 fails with `42501 permission denied to
+create extension "vector"` and the migration Job dies before `000_baseline`.
+
+Drill check **#1** reproduces this exactly: on the fresh scratch DB it puts the
+owner in the prod posture (`NOSUPERUSER` + `BYPASSRLS`) and asserts **both**
+`CREATE EXTENSION vector` and the `IF NOT EXISTS` form return `42501`.
+
+**The fix (shipped):** create `vector` in
+`bootstrap.initdb.postInitApplicationSQL` in
+[`infra/kubernetes/base/cnpg/cluster.yaml`](../infra/kubernetes/base/cnpg/cluster.yaml).
+CNPG runs `postInitApplicationSQL` **as the superuser (`postgres`) against the
+application database, once at initdb** (CNPG 1.24 bootstrap docs:
+*"Use the postInit, postInitTemplate, and postInitApplication options with extreme
+care, as queries are run as a superuser"*). So `vector` is present **before** the
+PreSync migration Job, `000_baseline` applies, and step 1's
+`CREATE EXTENSION IF NOT EXISTS vector` becomes a harmless idempotent **no-op**.
+Drill check **#2** proves the post-condition (vector present before migrations +
+owner re-run is a no-op).
+
+**Residual operator-verify (image-dependent, the ONLY remaining caveat):** the
+`postInitApplicationSQL` `CREATE EXTENSION vector` still requires the Postgres
+**image** to ship the pgvector shared library. The pinned image is
+`ghcr.io/cloudnative-pg/postgresql:17.2-1` — confirm on first bring-up that
+`SELECT 1 FROM pg_available_extensions WHERE name='vector'` returns a row
+(`kubectl cnpg psql vhhealth-pg`). If it does not, even the superuser's
+`CREATE EXTENSION vector` fails with "could not open extension control file";
+switch `imageName` to a pgvector-bearing image before the first sync.
 
 ---
 
