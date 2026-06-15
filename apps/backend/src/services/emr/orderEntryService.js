@@ -26,6 +26,7 @@ import { scheduleMedications } from '../clinical/marService.js';
 import { recordFirstDrugChartEntry } from '../clinical/drugChartSlaService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
 import { createInvestigationOrder } from '../investigation/orderService.js';
+import { populateAuthorshipCareTeam } from '../security/careTeamPopulationService.js';
 import {
   recordCanonicalClinicalEvent,
   recordMedicationSafetyReviews,
@@ -643,6 +644,17 @@ export async function createOrder(data) {
 
   await dispatchPostCreateSideEffects(order);
 
+  // CareTeam ABAC Phase 2 hook #3 (best-effort, post-commit) — materialise the
+  // ordering provider onto an active `longitudinal` care team for this patient.
+  // Idempotent + self-contained: swallows every error internally and MUST NEVER
+  // block or fail the order write.
+  await populateAuthorshipCareTeam({
+    tenantId: order.tenant_id || tenantId || DEFAULT_TENANT_ID,
+    patientUid: order.patient_uid,
+    authorUid: order.ordered_by,
+    source: 'clinical_order',
+  });
+
   logger.info(`Order created: ${orderNumber}, type=${n.order_type}, priority=${n.priority}, patient=${n.patient_uid}, by=${n.ordered_by}`);
 
   return {
@@ -756,6 +768,19 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
   // logged, never rolls back the committed orders + canonical events.
   for (let i = 0; i < createdRows.length; i += 1) {
     await dispatchPostCreateSideEffects(createdRows[i]);
+  }
+
+  // CareTeam ABAC Phase 2 hook #3 (best-effort, post-commit) — materialise the
+  // ordering provider onto an active `longitudinal` care team for the patient(s)
+  // in this batch. Idempotent (existence-checked team + ON CONFLICT member), so
+  // calling once per row is a fast no-op after the first. Never throws.
+  for (let i = 0; i < createdRows.length; i += 1) {
+    await populateAuthorshipCareTeam({
+      tenantId: createdRows[i].tenant_id || tenantId || DEFAULT_TENANT_ID,
+      patientUid: createdRows[i].patient_uid,
+      authorUid: createdRows[i].ordered_by,
+      source: 'clinical_order',
+    });
   }
 
   logger.info(`Bulk order create: ${createdRows.length} orders, encounter=${createdRows[0]?.encounter_id ?? 'none'}, by=${ordered_by}`);

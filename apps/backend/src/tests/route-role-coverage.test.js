@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const APP_JS = path.resolve(__dirname, '..', 'app.js');
 
 /**
@@ -33,6 +34,7 @@ const EXEMPT_MOUNTS = {
   '/api/v1/devices': 'FCM device registration; self-scoped to req.user phone',
   '/api/v1/feedback': 'wrapAutoRBAC(feedbackRoutes) inside the router',
   '/api/v1/sos': 'wrapAutoRBAC(sosRoutes) inside the router; emergency surface must stay broad',
+  '/api/v1/patient-access/break-glass': 'wrapAutoRBAC(patientAccessBreakGlassRoutes) inside breakGlassRoutes.js — gated to SUPER_ADMIN/ADMIN/CMO/MEDICAL_SUPERINTENDENT (break-glass eligible roles)',
   '/api/v1/search': 'staff search router applies per-route guards internally',
   '/api/v1/data-export': 'GDPR self-export; strictly self-scoped to req.user + rate-limited',
   '/api/v1/gdpr': 'GDPR self-service; strictly self-scoped to req.user',

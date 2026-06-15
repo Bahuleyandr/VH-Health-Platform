@@ -12,11 +12,33 @@
 // doctor (and any explicitly-supplied ward nurses) become active care-team
 // members of an `ip` care team for the patient/admission.
 //
-// CRITICAL: this is BEST-EFFORT / post-commit (repo Phase 1.5 pattern, see
-// apps/backend/CLAUDE.md). It must NEVER block or fail the admission. The
-// public entrypoint swallows every error and is idempotent (existence-checked
-// team + ON CONFLICT-guarded members), so re-running on the same admission is a
-// fast no-op and a failure is logged, never propagated.
+// Phase 2 adds two more hooks (design ref docs/CARETEAM_ABAC_DESIGN.md §7):
+//   #2 appointment booking → consulting/booked doctor onto an `op` care team
+//      for the patient/appointment.
+//   #3 clinical note / order authorship → the author onto a `longitudinal`
+//      care team for the patient.
+// These relationships are *already* recognised by the engine's fallback chain
+// (appointment / authorship checks), so the hooks mainly upgrade audit
+// attribution to `care_team` and make the care-team source non-empty.
+//
+// CRITICAL: every hook here is BEST-EFFORT / post-commit (repo Phase 1.5
+// pattern, see apps/backend/CLAUDE.md). It must NEVER block or fail the
+// originating workflow (admission / booking / note / order). Each public
+// entrypoint swallows every error and is idempotent (existence-checked team +
+// ON CONFLICT-guarded members), so re-running on the same row is a fast no-op
+// and a failure is logged, never propagated.
+//
+// relationship_kind values are constrained by the care_team_members CHECK in
+// migration 260 (chk: primary_consultant, attending_doctor, covering_doctor,
+// resident, nurse, pharmacist, physiotherapist, billing_counsellor,
+// care_coordinator, diagnostics, housekeeping, care_team, other). Where the
+// natural semantic label is NOT in that list we pick the closest allowed value
+// (NO migration is added):
+//   * "consulting_doctor" (appointment booking)  -> 'attending_doctor'
+//     (the booked OP doctor is the clinician attending that patient's visit).
+//   * "clinical_author"    (note / order author) -> 'care_team'
+//     (generic active membership; the author is on the patient's care team by
+//      virtue of authoring their chart).
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -73,6 +95,53 @@ async function ensureAdmissionCareTeam({
     patientUid,
     admissionId,
     'Inpatient care team',
+    cleanUuid(createdBy),
+  );
+  return inserted[0]?.id ?? null;
+}
+
+/**
+ * Generic ensure-an-active-care-team for the OP / longitudinal hooks.
+ * Idempotent: the SELECT short-circuits on a matching active/paused team
+ * (mirrors the partial unique index uq_active_care_team_context, which keys on
+ * tenant_id, patient_uid, COALESCE(admission_id,0), COALESCE(appointment_id,0),
+ * team_kind). admissionId/appointmentId are independent optional context ints.
+ *
+ * @returns {Promise<number|null>} care_team id, or null on failure.
+ */
+async function ensureCareTeam({
+  tenantId, patientUid, appointmentId = null, teamKind, displayName, createdBy,
+}) {
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM care_teams
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND COALESCE(admission_id, 0) = 0
+        AND COALESCE(appointment_id, 0) = COALESCE($3::int, 0)
+        AND team_kind = $4
+        AND status IN ('active', 'paused')
+      ORDER BY id DESC
+      LIMIT 1`,
+    tenantId,
+    patientUid,
+    appointmentId,
+    teamKind,
+  );
+  if (existing[0]?.id) return existing[0].id;
+
+  const inserted = await prisma.$queryRawUnsafe(
+    `INSERT INTO care_teams (
+       tenant_id, patient_uid, appointment_id, team_kind, status,
+       display_name, created_by, updated_by, created_at, updated_at
+     )
+     VALUES ($1::uuid, $2::uuid, $3::int, $4, 'active', $5, $6::uuid, $6::uuid, NOW(), NOW())
+     RETURNING id`,
+    tenantId,
+    patientUid,
+    appointmentId,
+    teamKind,
+    displayName,
     cleanUuid(createdBy),
   );
   return inserted[0]?.id ?? null;
@@ -231,4 +300,171 @@ export async function populateAdmissionCareTeam(admission, options = {}) {
   }
 }
 
-export default { populateAdmissionCareTeam };
+/**
+ * Phase 2 hook #2: populate the care team for a freshly-booked appointment.
+ *
+ * Best-effort & idempotent. Ensures an active `op` care team for the
+ * patient/appointment and adds the consulting (booked) doctor as a member.
+ *
+ * relationship_kind is 'attending_doctor' — the closest value allowed by the
+ * migration-260 CHECK to the natural "consulting_doctor" label (see file
+ * header). The engine matches on staff_uid OR staff_id, so supplying either is
+ * sufficient; we supply both when available.
+ *
+ * The appointment row returned by the booking service carries int ids
+ * (patient_id, doctor_id) but not the uuids the care_team tables key on, so the
+ * caller passes the resolved patientUid + doctorUid/doctorId explicitly (they
+ * are already in scope at the booking site). This never throws.
+ *
+ * @param {object} params
+ * @param {object} [params.appointment] - the created appointment row (for id + audit).
+ * @param {string} params.tenantId - tenant uuid.
+ * @param {string} params.patientUid - patient uuid (resolved by the caller).
+ * @param {string} [params.doctorUid] - consulting doctor uuid (preferred match key).
+ * @param {number} [params.doctorId] - consulting doctor int id (users.id fallback key).
+ * @param {string} [params.doctorRole] - staff_role label (default 'DOCTOR').
+ * @param {string} [params.createdBy] - actor uid for audit columns.
+ * @returns {Promise<{careTeamId:number|null, membersAttempted:number}>}
+ */
+export async function populateAppointmentCareTeam(params = {}) {
+  const result = { careTeamId: null, membersAttempted: 0 };
+  try {
+    const tenantId = params.tenantId || params.appointment?.tenant_id || DEFAULT_TENANT_ID;
+    const patientUid = cleanUuid(params.patientUid || params.appointment?.patient_uid);
+    const appointmentId = cleanInt(params.appointmentId ?? params.appointment?.id);
+    const doctorUid = cleanUuid(params.doctorUid);
+    const doctorId = cleanInt(params.doctorId);
+    const createdBy = params.createdBy ?? params.appointment?.created_by ?? doctorUid ?? null;
+
+    // Nothing to scope a team to, or no doctor to add → silently skip.
+    if (!patientUid) return result;
+    if (!doctorUid && !doctorId) return result;
+
+    const careTeamId = await ensureCareTeam({
+      tenantId,
+      patientUid,
+      appointmentId,
+      teamKind: 'op',
+      displayName: 'Outpatient care team',
+      createdBy,
+    });
+    if (!careTeamId) return result;
+    result.careTeamId = careTeamId;
+
+    try {
+      const attempted = await addCareTeamMember({
+        tenantId,
+        careTeamId,
+        patientUid,
+        staffUid: doctorUid,
+        staffId: doctorId,
+        staffRole: params.doctorRole || 'DOCTOR',
+        relationshipKind: 'attending_doctor',
+        createdBy,
+      });
+      if (attempted) result.membersAttempted += 1;
+    } catch (memberErr) {
+      logger.warn('populateAppointmentCareTeam: member insert failed', {
+        appointmentId,
+        error: memberErr?.message,
+      });
+    }
+
+    logger.info('populateAppointmentCareTeam: care team populated', {
+      appointmentId,
+      careTeamId,
+      membersAttempted: result.membersAttempted,
+    });
+    return result;
+  } catch (err) {
+    // CRITICAL: never let care-team population break a booking.
+    logger.warn('populateAppointmentCareTeam failed (booking stands)', {
+      appointmentId: params.appointmentId ?? params.appointment?.id,
+      error: err?.message,
+    });
+    return result;
+  }
+}
+
+/**
+ * Phase 2 hook #3: populate the care team for a clinical note / order author.
+ *
+ * Best-effort & idempotent. Ensures an active `longitudinal` care team for the
+ * patient and adds the author as a member. Wired into the clinical-note create
+ * and clinical-order create paths (post-commit), so the author who documents a
+ * patient's chart becomes an explicit, auditable care-team member rather than
+ * relying solely on the engine's authorship fallback.
+ *
+ * relationship_kind is 'care_team' — the closest value allowed by the
+ * migration-260 CHECK to the natural "clinical_author" label (see file header);
+ * it denotes generic active membership.
+ *
+ * @param {object} params
+ * @param {string} params.tenantId - tenant uuid.
+ * @param {string} params.patientUid - patient uuid.
+ * @param {string} params.authorUid - author uuid (note author_uid / order ordered_by).
+ * @param {string} [params.authorRole] - staff_role label.
+ * @param {string} [params.source] - originating path label for logs ('clinical_note'|'clinical_order').
+ * @returns {Promise<{careTeamId:number|null, membersAttempted:number}>}
+ */
+export async function populateAuthorshipCareTeam(params = {}) {
+  const result = { careTeamId: null, membersAttempted: 0 };
+  try {
+    const tenantId = params.tenantId || DEFAULT_TENANT_ID;
+    const patientUid = cleanUuid(params.patientUid);
+    const authorUid = cleanUuid(params.authorUid);
+
+    // No patient or no resolvable author uuid → silently skip.
+    if (!patientUid || !authorUid) return result;
+
+    const careTeamId = await ensureCareTeam({
+      tenantId,
+      patientUid,
+      appointmentId: null,
+      teamKind: 'longitudinal',
+      displayName: 'Longitudinal care team',
+      createdBy: authorUid,
+    });
+    if (!careTeamId) return result;
+    result.careTeamId = careTeamId;
+
+    try {
+      const attempted = await addCareTeamMember({
+        tenantId,
+        careTeamId,
+        patientUid,
+        staffUid: authorUid,
+        staffId: null,
+        staffRole: params.authorRole || null,
+        relationshipKind: 'care_team',
+        createdBy: authorUid,
+      });
+      if (attempted) result.membersAttempted += 1;
+    } catch (memberErr) {
+      logger.warn('populateAuthorshipCareTeam: member insert failed', {
+        source: params.source,
+        error: memberErr?.message,
+      });
+    }
+
+    logger.info('populateAuthorshipCareTeam: care team populated', {
+      source: params.source,
+      careTeamId,
+      membersAttempted: result.membersAttempted,
+    });
+    return result;
+  } catch (err) {
+    // CRITICAL: never let care-team population break a note/order write.
+    logger.warn('populateAuthorshipCareTeam failed (write stands)', {
+      source: params.source,
+      error: err?.message,
+    });
+    return result;
+  }
+}
+
+export default {
+  populateAdmissionCareTeam,
+  populateAppointmentCareTeam,
+  populateAuthorshipCareTeam,
+};

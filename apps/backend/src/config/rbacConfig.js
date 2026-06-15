@@ -142,6 +142,13 @@ export default {
   ],
   // Pharmacy formulary write access is intentionally narrower.
   pharmacyCatalogAdminRoutes: [PHARMACY_INCHARGE, ADMIN],
+
+  // PHI-access break-glass activation/revocation (CareTeam ABAC design §5).
+  // Deliberately the CURRENT break-glass-eligible set only
+  // (rolePolicyGraph.js:1389 phi.can_break_glass): SUPER_ADMIN / ADMIN / CMO /
+  // MEDICAL_SUPERINTENDENT. Widening to front-line clinicians (DOCTOR tiers,
+  // charge nurses) is a clinical-governance decision — do NOT widen here.
+  patientAccessBreakGlassRoutes: [SUPER_ADMIN, ADMIN, CMO, MEDICAL_SUPERINTENDENT],
   ePrescriptionCreateRoutes: [
     DOCTOR,
     DUTY_DOCTOR,

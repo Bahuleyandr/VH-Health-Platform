@@ -8,6 +8,7 @@ import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
 import { resolveDoctorRef } from '../doctor/doctorRefService.js';
 import { ensureAppointmentQueueForAppointment } from './appointmentQueueService.js';
+import { populateAppointmentCareTeam } from '../security/careTeamPopulationService.js';
 
 export class AppointmentService {
   async validateUser(userId, requiredRole = null, tenantId = null) {
@@ -93,12 +94,16 @@ export class AppointmentService {
     const resolvedVisitType = allowedVisitTypes.has(visitType) ? visitType : null;
     const hasDoctorId = doctor_id !== undefined && doctor_id !== null && String(doctor_id).trim() !== '';
 
+    // Captured from the booking tx for the post-commit CareTeam ABAC hook.
+    let bookedPatientUid = null;
+    let bookedDoctorUid = null;
+    let bookedDoctorId = null;
     try {
-      return await setTenantTx(tenant_id || DEFAULT_TENANT_ID, async (tx) => {
+      const bookingResult = await setTenantTx(tenant_id || DEFAULT_TENANT_ID, async (tx) => {
         // Resolve patient phone and, when specified, doctor routing metadata.
         const [pRows, resolvedDoctor] = await Promise.all([
           tx.$queryRaw`
-            SELECT id, phone, name
+            SELECT id, uid, phone, name
               FROM users
              WHERE id = ${parseInt(patient_id)}
                AND (${tenant_id}::uuid IS NULL OR tenant_id = ${tenant_id}::uuid)
@@ -115,6 +120,9 @@ export class AppointmentService {
         }
         const patientPhone = pRows[0]?.phone ?? '';
         const patientName = pRows[0]?.name ?? null;
+        bookedPatientUid = pRows[0]?.uid ?? null;
+        bookedDoctorUid = resolvedDoctor?.uid ?? null;
+        bookedDoctorId = resolvedDoctor?.id ?? null;
         if (hasDoctorId && !resolvedDoctor?.id) {
           const err = new Error('Doctor not found');
           err.statusCode = 400;
@@ -184,6 +192,28 @@ export class AppointmentService {
           appointment_queue: queue,
         };
       });
+
+      // CareTeam ABAC Phase 2 hook #2 (best-effort, post-commit) — materialise
+      // the consulting/booked doctor onto an active `op` care team for this
+      // patient/appointment so the ABAC engine's care-team relationship check
+      // and the shadow-mode audit signal are meaningful. Idempotent +
+      // self-contained: it swallows every error internally and MUST NEVER block
+      // or fail the booking. Only fires when both a patient uid and a doctor
+      // ref were resolved (department-only bookings have no doctor to add).
+      if (bookedPatientUid && (bookedDoctorUid || bookedDoctorId)) {
+        await populateAppointmentCareTeam({
+          appointment: bookingResult,
+          appointmentId: bookingResult?.id ?? null,
+          tenantId: bookingResult?.tenant_id || tenant_id || DEFAULT_TENANT_ID,
+          patientUid: bookedPatientUid,
+          doctorUid: bookedDoctorUid,
+          doctorId: bookedDoctorId,
+          doctorRole: 'DOCTOR',
+          createdBy: created_by,
+        });
+      }
+
+      return bookingResult;
     } catch (error) {
       logger.error('Error creating appointment:', error);
       throw error;

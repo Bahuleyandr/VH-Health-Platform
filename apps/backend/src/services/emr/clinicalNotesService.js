@@ -12,6 +12,7 @@ import {
   readCanonicalPatientTimeline,
   transitionEncounter,
 } from '../clinical/canonicalClinicalPlatformService.js';
+import { populateAuthorshipCareTeam } from '../security/careTeamPopulationService.js';
 
 // ===================================================================
 // Clinical Notes Service — SOAP, Progress, Procedure, Discharge, etc.
@@ -402,6 +403,19 @@ export async function createNote(data) {
       afterState: row,
     }, tx);
     return row;
+  });
+
+  // CareTeam ABAC Phase 2 hook #3 (best-effort, post-commit) — materialise the
+  // note author onto an active `longitudinal` care team for this patient so the
+  // ABAC engine's care-team relationship check and the shadow-mode audit signal
+  // are meaningful. Idempotent + self-contained: swallows every error
+  // internally and MUST NEVER block or fail the note write.
+  await populateAuthorshipCareTeam({
+    tenantId: (data.tenant_id || data.tenantId) || DEFAULT_TENANT_ID,
+    patientUid: patient_uid,
+    authorUid: author_uid,
+    authorRole: author_role,
+    source: 'clinical_note',
   });
 
   logger.info(

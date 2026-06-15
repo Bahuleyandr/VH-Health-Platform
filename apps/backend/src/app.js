@@ -175,6 +175,9 @@ import gdprRoutes from './routes/gdprRoutes.js';
 // HIPAA Consent Management
 import consentRoutes from './routes/consentRoutes.js';
 
+// CareTeam ABAC — PHI-access break-glass activation lifecycle (RBAC enforced in route file)
+import breakGlassRoutes from './routes/security/breakGlassRoutes.js';
+
 // Session Management (view/revoke active sessions)
 import sessionRoutes from './routes/sessionRoutes.js';
 
@@ -677,6 +680,10 @@ app.use('/api/v1/auth/admin/totp', totpRoutes);
 
 // HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
 app.use('/api/v1/consent', requireRole(...CONSENT_ROUTE_ROLES), consentRoutes);
+
+// CareTeam ABAC — PHI-access break-glass activation/revoke/list (RBAC gated to the
+// break-glass-eligible roles inside the router via wrapAutoRBAC).
+app.use('/api/v1/patient-access/break-glass', breakGlassRoutes);
 
 // ABDM patient-facing routes (JWT required — ABHA registration, consent management)
 app.use('/api/v1/abdm', abdmPatientRoutes);

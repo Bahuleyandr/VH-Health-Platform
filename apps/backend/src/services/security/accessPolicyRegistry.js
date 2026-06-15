@@ -17,6 +17,23 @@ export const ACCESS_POLICY_CODES = Object.freeze({
   PATIENT_CLINICAL_WORKFLOW_ACCESS: 'patient.clinical_workflow.access',
   PATIENT_CLINICAL_WORKFLOW_WRITE: 'patient.clinical_workflow.write',
   PATIENT_MEDICATION_RECONCILIATION_WRITE: 'patient.medication_reconciliation.write',
+  // CareTeam ABAC family policies (LOW-1). Each previously-shadow PHI route
+  // family resolves to a family-appropriate policy here instead of falling
+  // through to the generic patient.record.view rules. All clinical families sit
+  // at patient_relationship_required (PHI rank 3) and keep the full
+  // care_team/referral/clinical_authorship/appointment/admission relationship
+  // chain so a tenant flip to 'enforce' is judged on a real clinical link.
+  PATIENT_CLINICAL_RECORD_VIEW: 'patient.clinical_record.view',
+  PATIENT_CLINICAL_DOCUMENT_VIEW: 'patient.clinical_document.view',
+  PATIENT_INVESTIGATION_VIEW: 'patient.investigation.view',
+  PATIENT_LAB_RESULT_VIEW: 'patient.lab_result.view',
+  PATIENT_RADIOLOGY_VIEW: 'patient.radiology.view',
+  PATIENT_PHARMACY_ORDER_VIEW: 'patient.pharmacy_order.view',
+  PATIENT_MEDICATION_ADMIN_VIEW: 'patient.medication_admin.view',
+  PATIENT_CRITICAL_CARE_VIEW: 'patient.critical_care.view',
+  PATIENT_BLOOD_BANK_VIEW: 'patient.blood_bank.view',
+  PATIENT_SURGICAL_VIEW: 'patient.surgical.view',
+  PATIENT_MATERNITY_PAEDIATRIC_VIEW: 'patient.maternity_paediatric.view',
 });
 
 const RELATIONSHIP_CHECKS = Object.freeze([
@@ -177,6 +194,109 @@ export const ACCESS_POLICIES = Object.freeze({
     requiredPhiLevel: 'patient_relationship_required',
     capabilityGroups: ['ip_flow', 'pharmacy'],
   }),
+  // ---- CareTeam ABAC family policies (LOW-1) ----
+  // Generic clinical-record family: encounters, problem lists, allergies,
+  // nursing assessments, ward board. Broad clinical capability surface; the
+  // care_team/referral/appointment/admission/authorship chain is the real gate.
+  [ACCESS_POLICY_CODES.PATIENT_CLINICAL_RECORD_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CLINICAL_RECORD_VIEW,
+    title: 'Access patient clinical record',
+    resourceType: 'clinical_record',
+    action: 'ACCESS',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab'],
+  }),
+  // Clinical documents authored by the care team / referral chain: discharge
+  // summaries, referrals, death certification.
+  [ACCESS_POLICY_CODES.PATIENT_CLINICAL_DOCUMENT_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CLINICAL_DOCUMENT_VIEW,
+    title: 'Access patient clinical document',
+    resourceType: 'clinical_document',
+    action: 'ACCESS',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'op_flow', 'nursing_governance'],
+  }),
+  // Diagnostics — investigations.
+  [ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW,
+    title: 'View patient investigations',
+    resourceType: 'investigation',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['diagnostics', 'ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab'],
+  }),
+  // Diagnostics — lab results + microbiology.
+  [ACCESS_POLICY_CODES.PATIENT_LAB_RESULT_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_LAB_RESULT_VIEW,
+    title: 'View patient laboratory results',
+    resourceType: 'lab_result',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['diagnostics', 'ip_flow', 'op_flow', 'nursing_governance', 'theatre', 'cath_lab'],
+  }),
+  // Diagnostics — radiology + PACS.
+  [ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW,
+    title: 'View patient radiology',
+    resourceType: 'radiology',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['diagnostics', 'ip_flow', 'op_flow', 'nursing_governance'],
+  }),
+  // Pharmacy orders + prescriptions.
+  [ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW,
+    title: 'View patient pharmacy orders',
+    resourceType: 'pharmacy_order',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['pharmacy', 'ip_flow', 'op_flow'],
+  }),
+  // Bedside medication administration (BCMA) + medication reconciliation review.
+  [ACCESS_POLICY_CODES.PATIENT_MEDICATION_ADMIN_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_MEDICATION_ADMIN_VIEW,
+    title: 'View patient medication administration',
+    resourceType: 'medication_administration',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['pharmacy', 'ip_flow', 'nursing_governance'],
+  }),
+  // Critical care — ICU + dialysis.
+  [ACCESS_POLICY_CODES.PATIENT_CRITICAL_CARE_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_CRITICAL_CARE_VIEW,
+    title: 'Access patient critical-care record',
+    resourceType: 'critical_care_record',
+    action: 'ACCESS',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'emergency', 'nursing_governance', 'specialty_services'],
+  }),
+  // Blood bank / transfusion.
+  [ACCESS_POLICY_CODES.PATIENT_BLOOD_BANK_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_BLOOD_BANK_VIEW,
+    title: 'View patient blood bank record',
+    resourceType: 'blood_bank_record',
+    action: 'VIEW',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['diagnostics', 'ip_flow', 'theatre', 'cath_lab', 'specialty_services'],
+  }),
+  // Theatre / anaesthesia / surgical documentation.
+  [ACCESS_POLICY_CODES.PATIENT_SURGICAL_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_SURGICAL_VIEW,
+    title: 'Access patient surgical record',
+    resourceType: 'surgical_record',
+    action: 'ACCESS',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['theatre', 'cath_lab', 'ip_flow'],
+  }),
+  // Maternity + paediatric immunisation.
+  [ACCESS_POLICY_CODES.PATIENT_MATERNITY_PAEDIATRIC_VIEW]: policy({
+    code: ACCESS_POLICY_CODES.PATIENT_MATERNITY_PAEDIATRIC_VIEW,
+    title: 'Access patient maternity or paediatric record',
+    resourceType: 'maternity_paediatric_record',
+    action: 'ACCESS',
+    requiredPhiLevel: 'patient_relationship_required',
+    capabilityGroups: ['ip_flow', 'op_flow'],
+  }),
 });
 
 export function getAccessPolicy(policyCode) {
@@ -193,11 +313,50 @@ export function policyCodeForRecordType(recordType = 'PHI') {
     || normalized === 'EMR'
     || normalized === 'CLINICAL_NOTE'
     || normalized === 'CLINICAL_ORDER'
+    || normalized === 'CLINICAL_DECISION'
     || normalized === 'VITAL_SIGN'
     || normalized === 'MAR'
     || normalized === 'NURSE_HANDOVER'
     || normalized === 'DIAGNOSIS') {
     return ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS;
   }
+
+  // ---- CareTeam ABAC family record types (LOW-1) ----
+  // Diagnostics
+  if (normalized === 'INVESTIGATION') return ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW;
+  if (normalized === 'LAB_RESULT' || normalized === 'MICROBIOLOGY') return ACCESS_POLICY_CODES.PATIENT_LAB_RESULT_VIEW;
+  if (normalized === 'RADIOLOGY' || normalized === 'RADIOLOGY_PACS') return ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW;
+  // Medication
+  if (normalized === 'PHARMACY_ORDER' || normalized === 'PRESCRIPTION') return ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW;
+  if (normalized === 'BCMA' || normalized === 'MED_REC') return ACCESS_POLICY_CODES.PATIENT_MEDICATION_ADMIN_VIEW;
+  // Critical care + specialty procedures
+  if (normalized === 'ICU' || normalized === 'DIALYSIS') return ACCESS_POLICY_CODES.PATIENT_CRITICAL_CARE_VIEW;
+  if (normalized === 'BLOOD_BANK') return ACCESS_POLICY_CODES.PATIENT_BLOOD_BANK_VIEW;
+  if (normalized === 'OPERATING_THEATRE'
+    || normalized === 'ANESTHESIA_CHART'
+    || normalized === 'SURGICAL_DOCUMENTATION') {
+    return ACCESS_POLICY_CODES.PATIENT_SURGICAL_VIEW;
+  }
+  if (normalized === 'MATERNITY_RECORD' || normalized === 'PAEDIATRIC_IMMUNISATION') {
+    return ACCESS_POLICY_CODES.PATIENT_MATERNITY_PAEDIATRIC_VIEW;
+  }
+  // Clinical documents (authored by / referred through the care team)
+  if (normalized === 'DISCHARGE_SUMMARY'
+    || normalized === 'REFERRAL'
+    || normalized === 'DEATH_CERTIFICATION') {
+    return ACCESS_POLICY_CODES.PATIENT_CLINICAL_DOCUMENT_VIEW;
+  }
+  // Generic clinical records: encounters, problem lists, allergies, nursing
+  // assessments, ward board.
+  if (normalized === 'CLINICAL_ENCOUNTER'
+    || normalized === 'ENCOUNTER'
+    || normalized === 'PROBLEM_LIST'
+    || normalized === 'PROBLEM'
+    || normalized === 'ALLERGY'
+    || normalized === 'NURSING_ASSESSMENT'
+    || normalized === 'WARD_BOARD') {
+    return ACCESS_POLICY_CODES.PATIENT_CLINICAL_RECORD_VIEW;
+  }
+
   return ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW;
 }

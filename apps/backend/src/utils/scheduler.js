@@ -65,6 +65,11 @@ import { runMissingDrugChartSweep } from '../services/clinical/drugChartSlaServi
 // Bed inspection sweeper — D1. Marks stale pending inspections as expired.
 import { expireStaleInspections } from '../services/bed/bedInspectionService.js';
 
+// PHI-access break-glass expiry sweeper — CareTeam ABAC design §5. Flips
+// active overrides past their expires_at to the terminal 'expired' status for
+// audit cleanliness (the engine already treats them as inactive by time).
+import { sweepExpiredBreakGlass } from '../services/security/breakGlassService.js';
+
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
@@ -197,6 +202,15 @@ if (process.env.NODE_ENV !== 'test') {
     await expireStaleInspections();
   }));
 
+  // 🛟 Every 5 minutes — PHI-access break-glass expiry sweeper (CareTeam ABAC
+  // §5). Flips active overrides whose expires_at has passed to 'expired' and
+  // records the transition in status history. Audit-cleanliness only: the ABAC
+  // engine already ignores time-expired rows, so this never changes an access
+  // decision. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper).
+  cron.schedule('*/5 * * * *', withJobLock('expire-break-glass', async () => {
+    await sweepExpiredBreakGlass();
+  }));
+
   // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
   cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
 
@@ -321,6 +335,7 @@ export async function runAllScheduledTasksNow() {
     await purgeExpiredStaffMessages();
     await sendInvestigationNotifications();
     await runRosterDeadlineEscalation({ force: true });
+    await sweepExpiredBreakGlass();
 
     // Purge file deletion log entries older than 90 days
     const fileDeletionResult = await prisma.$queryRawUnsafe(

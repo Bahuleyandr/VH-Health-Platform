@@ -20,12 +20,18 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { populateAdmissionCareTeam } = await import('../../services/security/careTeamPopulationService.js');
+const {
+  populateAdmissionCareTeam,
+  populateAppointmentCareTeam,
+  populateAuthorshipCareTeam,
+} = await import('../../services/security/careTeamPopulationService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = '11111111-1111-4111-8111-111111111111';
 const ADMITTING = '22222222-2222-4222-8222-222222222222';
 const ATTENDING = '33333333-3333-4333-8333-333333333333';
+const DOCTOR_UID = '55555555-5555-4555-8555-555555555555';
+const AUTHOR_UID = '66666666-6666-4666-8666-666666666666';
 
 afterEach(() => {
   prismaMock.$queryRawUnsafe.mockReset();
@@ -130,5 +136,191 @@ describe('populateAdmissionCareTeam', () => {
 
     expect(result.membersAttempted).toBe(1);
     expect(prismaMock.$executeRawUnsafe.mock.calls[0][7]).toBe('primary_consultant');
+  });
+});
+
+describe('populateAppointmentCareTeam (hook #2)', () => {
+  it('creates an op care team and adds the consulting doctor (attending_doctor)', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([]) // no existing team
+      .mockResolvedValueOnce([{ id: 700 }]); // INSERT ... RETURNING id (new op team)
+    prismaMock.$executeRawUnsafe.mockResolvedValue(undefined); // member insert
+
+    const result = await populateAppointmentCareTeam({
+      appointment: { id: 12, tenant_id: TENANT },
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      doctorUid: DOCTOR_UID,
+      doctorId: 41,
+    });
+
+    expect(result.careTeamId).toBe(700);
+    expect(result.membersAttempted).toBe(1);
+
+    // Existence check then INSERT into care_teams with team_kind 'op'.
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FROM care_teams/i);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toMatch(/INSERT INTO care_teams/i);
+    // ensureCareTeam INSERT args: [sql, tenantId, patientUid, appointmentId, teamKind, displayName, createdBy]
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][4]).toBe('op'); // teamKind param
+
+    // One member insert into care_team_members, ON CONFLICT DO NOTHING.
+    expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+    const call = prismaMock.$executeRawUnsafe.mock.calls[0];
+    expect(call[0]).toMatch(/INSERT INTO care_team_members/i);
+    expect(call[0]).toMatch(/ON CONFLICT/i);
+    expect(call[0]).toMatch(/DO NOTHING/i);
+    // relationship_kind = 'attending_doctor' (closest allowed CHECK value to consulting_doctor).
+    expect(call[7]).toBe('attending_doctor');
+    // staff_uid + staff_id both carried.
+    expect(call[4]).toBe(DOCTOR_UID);
+    expect(call[5]).toBe(41);
+  });
+
+  it('reuses an existing active op team (idempotent — no second team insert)', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 701 }]); // existing team
+    prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
+
+    const result = await populateAppointmentCareTeam({
+      appointmentId: 12,
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      doctorUid: DOCTOR_UID,
+    });
+
+    expect(result.careTeamId).toBe(701);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1); // only the existence SELECT
+    expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1); // ON CONFLICT DO NOTHING re-add
+  });
+
+  it('matches by staff_id alone when no doctor uid is available', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 702 }]);
+    prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
+
+    const result = await populateAppointmentCareTeam({
+      appointmentId: 13,
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      doctorId: 41,
+    });
+
+    expect(result.membersAttempted).toBe(1);
+    const call = prismaMock.$executeRawUnsafe.mock.calls[0];
+    expect(call[4]).toBeNull(); // staff_uid
+    expect(call[5]).toBe(41); // staff_id
+  });
+
+  it('skips silently when patient uid is missing', async () => {
+    const result = await populateAppointmentCareTeam({
+      appointmentId: 14,
+      tenantId: TENANT,
+      patientUid: null,
+      doctorUid: DOCTOR_UID,
+    });
+    expect(result.careTeamId).toBeNull();
+    expect(result.membersAttempted).toBe(0);
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('skips silently when no doctor ref is supplied (department-only booking)', async () => {
+    const result = await populateAppointmentCareTeam({
+      appointmentId: 15,
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+    });
+    expect(result.careTeamId).toBeNull();
+    expect(result.membersAttempted).toBe(0);
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('NEVER throws — a DB failure is swallowed and the booking stands', async () => {
+    prismaMock.$queryRawUnsafe.mockRejectedValueOnce(new Error('db exploded'));
+    await expect(populateAppointmentCareTeam({
+      appointmentId: 16,
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      doctorUid: DOCTOR_UID,
+    })).resolves.toEqual({ careTeamId: null, membersAttempted: 0 });
+  });
+});
+
+describe('populateAuthorshipCareTeam (hook #3)', () => {
+  it('creates a longitudinal care team and adds the author (care_team)', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([]) // no existing team
+      .mockResolvedValueOnce([{ id: 800 }]); // INSERT ... RETURNING id (new longitudinal team)
+    prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
+
+    const result = await populateAuthorshipCareTeam({
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      authorUid: AUTHOR_UID,
+      authorRole: 'DOCTOR',
+      source: 'clinical_note',
+    });
+
+    expect(result.careTeamId).toBe(800);
+    expect(result.membersAttempted).toBe(1);
+
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toMatch(/FROM care_teams/i);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toMatch(/INSERT INTO care_teams/i);
+    // ensureCareTeam INSERT args: [sql, tenantId, patientUid, appointmentId, teamKind, displayName, createdBy]
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][4]).toBe('longitudinal'); // teamKind param
+
+    expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1);
+    const call = prismaMock.$executeRawUnsafe.mock.calls[0];
+    expect(call[0]).toMatch(/INSERT INTO care_team_members/i);
+    expect(call[0]).toMatch(/ON CONFLICT/i);
+    expect(call[0]).toMatch(/DO NOTHING/i);
+    // relationship_kind = 'care_team' (closest allowed CHECK value to clinical_author).
+    expect(call[7]).toBe('care_team');
+    expect(call[4]).toBe(AUTHOR_UID); // staff_uid
+    expect(call[5]).toBeNull(); // staff_id
+    expect(call[6]).toBe('DOCTOR'); // staff_role
+  });
+
+  it('reuses an existing active longitudinal team (idempotent — no second team insert)', async () => {
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([{ id: 801 }]); // existing team
+    prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
+
+    const result = await populateAuthorshipCareTeam({
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      authorUid: AUTHOR_UID,
+      source: 'clinical_order',
+    });
+
+    expect(result.careTeamId).toBe(801);
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledTimes(1); // only the existence SELECT
+    expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1); // ON CONFLICT DO NOTHING re-add
+  });
+
+  it('skips silently when patient uid or author uid is missing', async () => {
+    const noPatient = await populateAuthorshipCareTeam({
+      tenantId: TENANT,
+      patientUid: null,
+      authorUid: AUTHOR_UID,
+    });
+    expect(noPatient).toEqual({ careTeamId: null, membersAttempted: 0 });
+
+    const noAuthor = await populateAuthorshipCareTeam({
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      authorUid: null,
+    });
+    expect(noAuthor).toEqual({ careTeamId: null, membersAttempted: 0 });
+
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('NEVER throws — a DB failure is swallowed and the write stands', async () => {
+    prismaMock.$queryRawUnsafe.mockRejectedValueOnce(new Error('db exploded'));
+    await expect(populateAuthorshipCareTeam({
+      tenantId: TENANT,
+      patientUid: PATIENT_UID,
+      authorUid: AUTHOR_UID,
+      source: 'clinical_note',
+    })).resolves.toEqual({ careTeamId: null, membersAttempted: 0 });
   });
 });
