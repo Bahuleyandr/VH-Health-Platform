@@ -8938,6 +8938,7 @@ model tasks {
   workflow_runs         workflow_runs?  @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
   workflow_steps        workflow_steps? @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, related_resource_type, related_resource_id], map: "uq_task_open_per_resource", where: raw("(((status)::text = ANY ((ARRAY['open'::character varying, 'in_progress'::character varying, 'blocked'::character varying])::text[])) AND (related_resource_type IS NOT NULL) AND (related_resource_id IS NOT NULL))"))
   @@index([tenant_id, status, priority, due_at], map: "idx_tasks_tenant_status")
   @@index([tenant_id, assigned_to_uid, status], map: "idx_tasks_assigned", where: raw("(assigned_to_uid IS NOT NULL)"))
   @@index([tenant_id, due_at], map: "idx_tasks_due", where: raw("((due_at IS NOT NULL) AND ((status)::text = ANY (ARRAY[('open'::character varying)::text, ('in_progress'::character varying)::text, ('blocked'::character varying)::text])))"))
