@@ -1,0 +1,277 @@
+/**
+ * resultsInboxService — producer unit tests.
+ *
+ * Drives the deterministic critical-result → assigned ack-task producer
+ * (design §4.1) without a live DB:
+ *   - severity → priority map + task_kind='review' + related_resource link
+ *   - assignment precedence (ordering clinician, else role fallback)
+ *   - mig-269 SLA instance link in metadata.sla_instance_id
+ *   - idempotency via the uq_task_open_per_resource index (ON CONFLICT →
+ *     { created:false })
+ *   - never throws (best-effort): a DB error → { created:false, error }
+ *   - promoteTaskCandidate is an inert Wave-3 stub
+ */
+
+import { jest } from '@jest/globals';
+
+const createTaskMock = jest.fn();
+const startWorkflowSlaMock = jest.fn();
+const loggerErrorMock = jest.fn();
+// Candidate-row reader used by promoteTaskCandidate inside the tenant tx.
+const txQueryMock = jest.fn();
+
+// A fake tenant-scoped tx client. setTenantTx just runs the callback with it.
+// $queryRawUnsafe is delegated to txQueryMock so promoteTaskCandidate's candidate
+// read can be stubbed per-test.
+const fakeTx = { __isTx: true, $queryRawUnsafe: (...args) => txQueryMock(...args) };
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: {},
+  setTenantTx: async (_tenantId, fn) => fn(fakeTx),
+}));
+
+jest.unstable_mockModule('../../services/workflow/taskService.js', () => ({
+  default: { createTask: createTaskMock },
+  createTask: createTaskMock,
+}));
+
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  startWorkflowSla: startWorkflowSlaMock,
+}));
+
+jest.unstable_mockModule('../../logging/logger.js', () => ({
+  default: { error: loggerErrorMock, warn: jest.fn(), info: jest.fn() },
+}));
+
+// abnormal_result_triage module-enabled gate (dynamic-imported by the bridge).
+const getClinicalAiModuleMock = jest.fn();
+jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
+  getClinicalAiModule: getClinicalAiModuleMock,
+}));
+
+const { enqueueCriticalResultTask, promoteTaskCandidate, promoteAbnormalTriageResult } = await import(
+  '../../services/results/resultsInboxService.js'
+);
+
+const TENANT = '00000000-0000-4000-8000-000000000001';
+const PATIENT = '11111111-1111-4111-8111-111111111111';
+const CLINICIAN = '22222222-2222-4222-8222-222222222222';
+
+beforeEach(() => {
+  createTaskMock.mockReset();
+  startWorkflowSlaMock.mockReset();
+  loggerErrorMock.mockReset();
+  txQueryMock.mockReset();
+  getClinicalAiModuleMock.mockReset();
+  startWorkflowSlaMock.mockResolvedValue({ id: 'sla-instance-1' });
+});
+
+describe('enqueueCriticalResultTask', () => {
+  it('creates a review task: severity→priority, resource link, assignee, SLA link', async () => {
+    createTaskMock.mockResolvedValueOnce({ id: 77 });
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      source: 'lab_result',
+      resourceType: 'lab_result',
+      resourceId: 123,
+      severity: 'critical',
+      title: 'Critical lab: Potassium',
+      summary: 'K+ 6.9',
+      orderingClinicianUid: CLINICIAN,
+    });
+
+    expect(res).toEqual({ created: true, taskId: 77, slaInstanceId: 'sla-instance-1' });
+
+    // SLA instance created on the mig-269 critical_result_ack clock.
+    expect(startWorkflowSlaMock).toHaveBeenCalledTimes(1);
+    const slaArg = startWorkflowSlaMock.mock.calls[0][0];
+    expect(slaArg).toMatchObject({
+      tenantId: TENANT,
+      ruleCode: 'critical_result_ack',
+      patientUid: PATIENT,
+      sourceTable: 'lab_result',
+      sourceId: '123',
+    });
+    // The SLA is started on the plain singleton (NO { db: tx }) — the seeded
+    // critical_result_ack rule is a GLOBAL rule (workflow_sla_rules.tenant_id
+    // IS NULL), which the mig-075 RLS tenant_isolation policy hides once the GUC
+    // is pinned to a concrete tenant. Reading it inside setTenantTx returned no
+    // rule → no SLA instance ever got created (the safety-net clock never
+    // started). The instance is still written with the explicit tenantId, so
+    // tenant scoping is preserved. The deep test covers the real-DB pipeline.
+    expect(startWorkflowSlaMock.mock.calls[0][1]).toBeUndefined();
+
+    // Task created with the right shape + idempotency guard + tx.
+    const taskArg = createTaskMock.mock.calls[0][0];
+    expect(taskArg).toMatchObject({
+      tenantId: TENANT,
+      taskKind: 'review',
+      priority: 'critical',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '123',
+      assignedToUid: CLINICIAN,
+      onConflictResourceDoNothing: true,
+      tx: fakeTx,
+    });
+    expect(taskArg.metadata).toMatchObject({
+      source: 'lab_result',
+      sla_instance_id: 'sla-instance-1',
+      sla_key: 'critical_result_ack',
+    });
+    // Ordering clinician takes the assignee → no role fallback.
+    expect(taskArg.assignedToRole == null).toBe(true);
+  });
+
+  it('maps high severity → high priority', async () => {
+    createTaskMock.mockResolvedValueOnce({ id: 1 });
+    await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 5, severity: 'high',
+      orderingClinicianUid: CLINICIAN,
+    });
+    expect(createTaskMock.mock.calls[0][0].priority).toBe('high');
+  });
+
+  it('falls back to a role assignee when there is no ordering clinician', async () => {
+    createTaskMock.mockResolvedValueOnce({ id: 2 });
+    await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'vital_alert',
+      resourceType: 'clinical_alert', resourceId: 9, severity: 'critical',
+      // no orderingClinicianUid → falls back to DUTY role
+    });
+    const taskArg = createTaskMock.mock.calls[0][0];
+    expect(taskArg.assignedToUid == null).toBe(true);
+    // Abstract DUTY token resolves to a concrete clinical duty role code.
+    expect(taskArg.assignedToRole).toBe('DUTY_DOCTOR');
+  });
+
+  it('honours an explicit careTeamRoleHint over the DUTY default', async () => {
+    createTaskMock.mockResolvedValueOnce({ id: 3 });
+    await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 10, severity: 'critical',
+      careTeamRoleHint: 'NURSING_INCHARGE',
+    });
+    expect(createTaskMock.mock.calls[0][0].assignedToRole).toBe('NURSING_INCHARGE');
+  });
+
+  it('resolves the abstract LEADERSHIP token to a concrete leadership role', async () => {
+    createTaskMock.mockResolvedValueOnce({ id: 4 });
+    await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 11, severity: 'critical',
+      careTeamRoleHint: 'LEADERSHIP',
+    });
+    expect(createTaskMock.mock.calls[0][0].assignedToRole).toBe('CMO');
+  });
+
+  it('is idempotent: ON CONFLICT (no row) → { created:false }', async () => {
+    createTaskMock.mockResolvedValueOnce(undefined); // DO NOTHING → no row
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 123, severity: 'critical',
+      orderingClinicianUid: CLINICIAN,
+    });
+    expect(res.created).toBe(false);
+    expect(res.taskId).toBeNull();
+  });
+
+  it('never throws: a DB error returns { created:false, error } and logs', async () => {
+    createTaskMock.mockRejectedValueOnce(new Error('connection reset'));
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 1, severity: 'critical',
+      orderingClinicianUid: CLINICIAN,
+    });
+    expect(res.created).toBe(false);
+    expect(res.error).toMatch(/connection reset/);
+    expect(loggerErrorMock).toHaveBeenCalled();
+  });
+
+  it('tolerates a missing SLA instance (sla disabled) — task still created, null sla link', async () => {
+    startWorkflowSlaMock.mockResolvedValueOnce(null);
+    createTaskMock.mockResolvedValueOnce({ id: 8 });
+    const res = await enqueueCriticalResultTask({
+      tenantId: TENANT, patientUid: PATIENT, source: 'lab_result',
+      resourceType: 'lab_result', resourceId: 2, severity: 'critical',
+      orderingClinicianUid: CLINICIAN,
+    });
+    expect(res.created).toBe(true);
+    expect(res.slaInstanceId).toBeNull();
+    expect(createTaskMock.mock.calls[0][0].metadata.sla_instance_id).toBeNull();
+  });
+});
+
+describe('promoteTaskCandidate (Wave 3 dormant AI bridge)', () => {
+  it('accepted candidate → enqueues a task with resourceType task_candidate', async () => {
+    // Candidate row read inside the tenant tx.
+    txQueryMock.mockResolvedValueOnce([{
+      id: 42,
+      patient_uid: PATIENT,
+      task_title: 'Repeat potassium in 6h',
+      task_description: 'K+ trending up; recheck.',
+      priority: 'urgent',
+      owner_role: 'DOCTOR',
+      reviewer_decision: 'accepted',
+    }]);
+    createTaskMock.mockResolvedValueOnce({ id: 501 });
+
+    const res = await promoteTaskCandidate(42, { tenantId: TENANT });
+
+    expect(res.created).toBe(true);
+    expect(res.taskId).toBe(501);
+    // The producer was invoked once, mapping the candidate fields.
+    expect(createTaskMock).toHaveBeenCalledTimes(1);
+    const taskArg = createTaskMock.mock.calls[0][0];
+    expect(taskArg).toMatchObject({
+      tenantId: TENANT,
+      taskKind: 'review',
+      relatedResourceType: 'task_candidate',
+      relatedResourceId: '42',
+      patientUid: PATIENT,
+      assignedToRole: 'DOCTOR',
+      onConflictResourceDoNothing: true,
+    });
+    // urgent candidate priority is not 'critical' → high producer severity.
+    expect(taskArg.priority).toBe('high');
+    expect(taskArg.metadata).toMatchObject({ source: 'task_candidate' });
+  });
+
+  it('critical candidate → critical task priority', async () => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 7, patient_uid: PATIENT, task_title: 'Call rapid response',
+      priority: 'critical', owner_role: 'DOCTOR', reviewer_decision: 'accepted',
+    }]);
+    createTaskMock.mockResolvedValueOnce({ id: 9 });
+
+    const res = await promoteTaskCandidate(7, { tenantId: TENANT });
+    expect(res.created).toBe(true);
+    expect(createTaskMock.mock.calls[0][0].priority).toBe('critical');
+  });
+
+  it('non-accepted candidate → skipped, no task created', async () => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 8, patient_uid: PATIENT, task_title: 'Maybe later',
+      priority: 'routine', owner_role: 'NURSING_STAFF', reviewer_decision: 'pending',
+    }]);
+
+    const res = await promoteTaskCandidate(8, { tenantId: TENANT });
+    expect(res).toMatchObject({ created: false, skipped: true });
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('missing candidate → skipped, no task created', async () => {
+    txQueryMock.mockResolvedValueOnce([]);
+    const res = await promoteTaskCandidate(999, { tenantId: TENANT });
+    expect(res).toMatchObject({ created: false, skipped: true });
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('never throws: a DB error → { created:false } and logs', async () => {
+    txQueryMock.mockRejectedValueOnce(new Error('boom'));
+    const res = await promoteTaskCandidate(1, { tenantId: TENANT });
+    expect(res.created).toBe(false);
+    expect(loggerErrorMock).toHaveBeenCalled();
+  });
+});

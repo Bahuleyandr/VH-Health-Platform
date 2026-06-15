@@ -104,6 +104,11 @@ import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
 import { CLINICAL_AI_USER_ROLES_LIST } from './routes/admin/clinicalAi/shared.js';
 import adminForecastRoutes from './routes/admin/forecastRoutes.js';
+// Results-inbox (design §4.5): a DEDICATED minimal 2-endpoint router
+// (GET /tasks/inbox + POST /tasks/:id/acknowledge) mounted clinical-staff-gated
+// at /api/v1/clinical-inbox so the safety net is reachable by clinicians — WITHOUT
+// exposing the rest of the admin tasks/workflow/escalation surface to them.
+import clinicalInboxRoutes from './routes/clinicalInboxRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
 import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
@@ -785,6 +790,15 @@ function clinicalParentPatientAccessGuard(req, res, next) {
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('NURSING_ASSESSMENT', { careTeamModeGoverned: true }), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_ENCOUNTER', { careTeamModeGoverned: true }), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
+
+// Results-inbox safety net (design §4.5) — the per-clinician inbox + acknowledge
+// surface, gated to CLINICAL_STAFF so a doctor/nurse can see and acknowledge
+// their assigned critical-result tasks. This mounts a DEDICATED minimal router
+// (GET /tasks/inbox + POST /tasks/:id/acknowledge only) — NOT the full admin
+// tasks/workflow router — so clinicians cannot read arbitrary tasks by id
+// (cross-patient PHI) or mutate/disable escalation rules. The full task surface
+// stays ADMIN-only at /api/v1/admin/workflow.
+app.use('/api/v1/clinical-inbox', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalInboxRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing

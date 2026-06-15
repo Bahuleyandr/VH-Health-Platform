@@ -1,13 +1,21 @@
 /**
  * Admin routes for Tasks / Workflow / Approval (Phase B2).
  *
- * Mounted at /api/v1/admin/workflow via routes/admin/index.js.
+ * Mounted at /api/v1/admin/workflow via routes/admin/index.js (ADMIN-gated).
+ *
+ * Results-inbox (design §4.5): this ADMIN router also defines GET /tasks/inbox +
+ * POST /tasks/:id/acknowledge for admin use. The CLINICIAN-facing copy of those
+ * two endpoints lives in the dedicated minimal routes/clinicalInboxRoutes.js
+ * (mounted clinical-staff-gated at /api/v1/clinical-inbox). This full admin
+ * router is NOT exposed to clinical staff — doing so would leak cross-patient
+ * PHI via GET /tasks/:id and let clinicians disable escalation rules. See app.js.
  */
 
 import express from 'express';
 
 import { success } from '../../utils/responseHelper.js';
 import {
+  acknowledgeTask,
   createApproval,
   createTask,
   createWorkflowDefinition,
@@ -15,6 +23,7 @@ import {
   listApprovals,
   listAutomationRules,
   listEscalationRules,
+  listInboxTasks,
   listSlaDefinitions,
   listTaskComments,
   listTasks,
@@ -78,6 +87,38 @@ router.get('/tasks', async (req, res, next) => {
       limit: req.query.limit,
     });
     return success(res, result, 'Tasks retrieved');
+  } catch (err) { return next(err); }
+});
+
+// Results-inbox (design §4.5) — the per-clinician "open work for me or my role"
+// view. Thin wrapper over taskService.listInboxTasks scoped to the caller's uid
+// + roles (open / in_progress / overdue, ordered by priority then due_at).
+// Registered BEFORE `/tasks/:id` so the literal `inbox` segment is never
+// captured as a task id. Reachable by clinical staff via the /clinical-inbox
+// mount (app.js), not only admins.
+router.get('/tasks/inbox', async (req, res, next) => {
+  try {
+    const result = await listInboxTasks({
+      tenantId: req.tenantId,
+      assigneeUid: req.user?.uid || null,
+      roles: req.user?.roles || (req.user?.role ? [req.user.role] : []),
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Inbox retrieved');
+  } catch (err) { return next(err); }
+});
+
+// Acknowledge a task: open|overdue → in_progress (stops the escalation clock,
+// design §4.5). actorUid is the caller; the service stamps metadata + an audit
+// comment and is idempotent for an already-acknowledged task.
+router.post('/tasks/:id/acknowledge', async (req, res, next) => {
+  try {
+    const row = await acknowledgeTask({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      actorUid: req.user?.uid || null,
+    });
+    return success(res, row, 'Task acknowledged');
   } catch (err) { return next(err); }
 });
 

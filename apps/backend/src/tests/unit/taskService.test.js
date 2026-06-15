@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 const {
+  acknowledgeTask,
   createApproval,
   createTask,
   createWorkflowDefinition,
@@ -28,6 +29,7 @@ const {
   listApprovals,
   listAutomationRules,
   listEscalationRules,
+  listInboxTasks,
   listSlaDefinitions,
   listTasks,
   listWorkflowDefinitions,
@@ -76,6 +78,127 @@ describe('createTask', () => {
       tenantId: TENANT, title: 'follow up on labs', createdBy: USER,
     });
     expect(row.status).toBe('open');
+  });
+
+  it('uses the supplied tx client instead of the default prisma', async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: 9, status: 'open' }]);
+    const tx = { $queryRawUnsafe: txQuery };
+    const row = await createTask({
+      tenantId: TENANT, title: 'critical lab', tx,
+    });
+    expect(row.id).toBe(9);
+    // The tx client did the work; the module-level prisma mock was untouched.
+    expect(txQuery).toHaveBeenCalledTimes(1);
+    expect(queryUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('onConflictResourceDoNothing emits an ON CONFLICT DO NOTHING branch', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 2, status: 'open' }]);
+    await createTask({
+      tenantId: TENANT,
+      title: 'critical lab',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '123',
+      onConflictResourceDoNothing: true,
+    });
+    const sql = queryUnsafeMock.mock.calls[0][0];
+    expect(sql).toMatch(/ON CONFLICT/i);
+    expect(sql).toMatch(/DO NOTHING/i);
+    // Inference is on the resource triple of the partial index.
+    expect(sql).toMatch(/related_resource_type/);
+    expect(sql).toMatch(/related_resource_id/);
+  });
+
+  it('onConflictResourceDoNothing returns undefined when the row already exists (no RETURNING row)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]); // conflict → DO NOTHING → no row returned
+    const row = await createTask({
+      tenantId: TENANT,
+      title: 'critical lab',
+      relatedResourceType: 'lab_result',
+      relatedResourceId: '123',
+      onConflictResourceDoNothing: true,
+    });
+    expect(row).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// acknowledgeTask + listInboxTasks (results-inbox)
+// ---------------------------------------------------------------------------
+
+describe('acknowledgeTask', () => {
+  it('moves open -> in_progress, stamps metadata.acknowledged_at, posts a state_change comment', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'open', metadata: {} }]); // getTask
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: { acknowledged_at: 'x' } }]); // UPDATE
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, body_kind: 'state_change' }]); // comment insert
+
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+    expect(row.status).toBe('in_progress');
+
+    const updateSql = queryUnsafeMock.mock.calls[1][0];
+    expect(updateSql).toMatch(/UPDATE tasks/);
+    expect(updateSql).toMatch(/status = /);
+    expect(updateSql).toMatch(/acknowledged_at/);
+
+    const commentSql = queryUnsafeMock.mock.calls[2][0];
+    expect(commentSql).toMatch(/INSERT INTO task_comments/);
+    const commentParams = queryUnsafeMock.mock.calls[2].slice(1);
+    expect(commentParams).toContain('state_change');
+  });
+
+  it('acknowledges an overdue task (overdue -> in_progress)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'overdue', metadata: {} }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 11 }]);
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+    expect(row.status).toBe('in_progress');
+  });
+
+  it('throws invalidTransition when the task is already completed', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'completed', metadata: {} }]); // getTask
+    await expect(acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
+  });
+
+  it('is idempotent on an already-acknowledged (in_progress) task — no error', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'in_progress', metadata: { acknowledged_at: 'earlier' } }]);
+    const row = await acknowledgeTask({ tenantId: TENANT, id: 1, actorUid: USER });
+    expect(row.status).toBe('in_progress');
+    // Only the getTask read ran; no second UPDATE/comment for an already-acked task.
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('listInboxTasks', () => {
+  it('filters by assignee-OR-role and open/in_progress/overdue, ordered by priority then due_at', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
+    const result = await listInboxTasks({
+      tenantId: TENANT, assigneeUid: USER, roles: ['DOCTOR', 'DUTY_DOCTOR'],
+    });
+    expect(result.count).toBe(2);
+    const sql = queryUnsafeMock.mock.calls[0][0];
+    // me OR my role
+    expect(sql).toMatch(/assigned_to_uid = /);
+    expect(sql).toMatch(/assigned_to_role/);
+    // inbox status set
+    expect(sql).toMatch(/'open', 'in_progress', 'overdue'/);
+    // ordering
+    expect(sql).toMatch(/CASE priority WHEN 'critical' THEN 0/);
+    expect(sql).toMatch(/due_at/);
+  });
+
+  it('works with only an assignee and no roles', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 1 }]);
+    const result = await listInboxTasks({ tenantId: TENANT, assigneeUid: USER, roles: [] });
+    expect(result.count).toBe(1);
+    const sql = queryUnsafeMock.mock.calls[0][0];
+    expect(sql).toMatch(/assigned_to_uid = /);
+  });
+
+  it('degrades to empty on schema-missing', async () => {
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "tasks" does not exist'));
+    const result = await listInboxTasks({ tenantId: TENANT, assigneeUid: USER, roles: ['DOCTOR'] });
+    expect(result).toEqual({ tasks: [], count: 0 });
   });
 });
 

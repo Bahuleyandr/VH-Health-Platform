@@ -764,6 +764,29 @@ export async function decideClinicalTaskCandidate({
     tid
   );
   if (!rows[0]) throw AppError.notFound('Clinical AI task candidate not found');
+
+  // Results-inbox dormant AI bridge (design §4.7). When a reviewer ACCEPTS a
+  // candidate, promote it into the deterministic results-inbox / escalation
+  // safety net via the same producer (resourceType='task_candidate'). This is
+  // post-decision, best-effort (Phase-1.5): promoteTaskCandidate never throws,
+  // and we still swallow defensively so a promotion failure can never undo the
+  // reviewer's decision. INERT in practice today — the clinical_task_extractor
+  // module is disabled, so this path only fires once that module is enabled and
+  // a candidate is accepted. Idempotent via the mig-312 open-task index.
+  if (normalized === 'accepted') {
+    try {
+      // Lazy import keeps this dormant bridge out of the module's static import
+      // graph (resultsInboxService → taskService), avoiding any import cycle and
+      // any load cost on the hot extraction path.
+      const { promoteTaskCandidate } = await import('../results/resultsInboxService.js');
+      await promoteTaskCandidate(rows[0].id, { tenantId: tid });
+    } catch (err) {
+      logger.warn('decideClinicalTaskCandidate: results-inbox promotion failed', {
+        candidateId: rows[0].id,
+        err: err?.message,
+      });
+    }
+  }
   return rows[0];
 }
 
