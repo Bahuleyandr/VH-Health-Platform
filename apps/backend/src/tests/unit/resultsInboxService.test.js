@@ -17,9 +17,13 @@ import { jest } from '@jest/globals';
 const createTaskMock = jest.fn();
 const startWorkflowSlaMock = jest.fn();
 const loggerErrorMock = jest.fn();
+// Candidate-row reader used by promoteTaskCandidate inside the tenant tx.
+const txQueryMock = jest.fn();
 
 // A fake tenant-scoped tx client. setTenantTx just runs the callback with it.
-const fakeTx = { __isTx: true };
+// $queryRawUnsafe is delegated to txQueryMock so promoteTaskCandidate's candidate
+// read can be stubbed per-test.
+const fakeTx = { __isTx: true, $queryRawUnsafe: (...args) => txQueryMock(...args) };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {},
@@ -39,7 +43,13 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { error: loggerErrorMock, warn: jest.fn(), info: jest.fn() },
 }));
 
-const { enqueueCriticalResultTask, promoteTaskCandidate } = await import(
+// abnormal_result_triage module-enabled gate (dynamic-imported by the bridge).
+const getClinicalAiModuleMock = jest.fn();
+jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({
+  getClinicalAiModule: getClinicalAiModuleMock,
+}));
+
+const { enqueueCriticalResultTask, promoteTaskCandidate, promoteAbnormalTriageResult } = await import(
   '../../services/results/resultsInboxService.js'
 );
 
@@ -51,6 +61,8 @@ beforeEach(() => {
   createTaskMock.mockReset();
   startWorkflowSlaMock.mockReset();
   loggerErrorMock.mockReset();
+  txQueryMock.mockReset();
+  getClinicalAiModuleMock.mockReset();
   startWorkflowSlaMock.mockResolvedValue({ id: 'sla-instance-1' });
 });
 
@@ -191,10 +203,75 @@ describe('enqueueCriticalResultTask', () => {
   });
 });
 
-describe('promoteTaskCandidate (Wave 3 stub)', () => {
-  it('is inert: returns a not-created result and creates no task', async () => {
-    const res = await promoteTaskCandidate('candidate-1', { tenantId: TENANT });
-    expect(res.created).toBe(false);
+describe('promoteTaskCandidate (Wave 3 dormant AI bridge)', () => {
+  it('accepted candidate → enqueues a task with resourceType task_candidate', async () => {
+    // Candidate row read inside the tenant tx.
+    txQueryMock.mockResolvedValueOnce([{
+      id: 42,
+      patient_uid: PATIENT,
+      task_title: 'Repeat potassium in 6h',
+      task_description: 'K+ trending up; recheck.',
+      priority: 'urgent',
+      owner_role: 'DOCTOR',
+      reviewer_decision: 'accepted',
+    }]);
+    createTaskMock.mockResolvedValueOnce({ id: 501 });
+
+    const res = await promoteTaskCandidate(42, { tenantId: TENANT });
+
+    expect(res.created).toBe(true);
+    expect(res.taskId).toBe(501);
+    // The producer was invoked once, mapping the candidate fields.
+    expect(createTaskMock).toHaveBeenCalledTimes(1);
+    const taskArg = createTaskMock.mock.calls[0][0];
+    expect(taskArg).toMatchObject({
+      tenantId: TENANT,
+      taskKind: 'review',
+      relatedResourceType: 'task_candidate',
+      relatedResourceId: '42',
+      patientUid: PATIENT,
+      assignedToRole: 'DOCTOR',
+      onConflictResourceDoNothing: true,
+    });
+    // urgent candidate priority is not 'critical' → high producer severity.
+    expect(taskArg.priority).toBe('high');
+    expect(taskArg.metadata).toMatchObject({ source: 'task_candidate' });
+  });
+
+  it('critical candidate → critical task priority', async () => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 7, patient_uid: PATIENT, task_title: 'Call rapid response',
+      priority: 'critical', owner_role: 'DOCTOR', reviewer_decision: 'accepted',
+    }]);
+    createTaskMock.mockResolvedValueOnce({ id: 9 });
+
+    const res = await promoteTaskCandidate(7, { tenantId: TENANT });
+    expect(res.created).toBe(true);
+    expect(createTaskMock.mock.calls[0][0].priority).toBe('critical');
+  });
+
+  it('non-accepted candidate → skipped, no task created', async () => {
+    txQueryMock.mockResolvedValueOnce([{
+      id: 8, patient_uid: PATIENT, task_title: 'Maybe later',
+      priority: 'routine', owner_role: 'NURSING_STAFF', reviewer_decision: 'pending',
+    }]);
+
+    const res = await promoteTaskCandidate(8, { tenantId: TENANT });
+    expect(res).toMatchObject({ created: false, skipped: true });
     expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('missing candidate → skipped, no task created', async () => {
+    txQueryMock.mockResolvedValueOnce([]);
+    const res = await promoteTaskCandidate(999, { tenantId: TENANT });
+    expect(res).toMatchObject({ created: false, skipped: true });
+    expect(createTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('never throws: a DB error → { created:false } and logs', async () => {
+    txQueryMock.mockRejectedValueOnce(new Error('boom'));
+    const res = await promoteTaskCandidate(1, { tenantId: TENANT });
+    expect(res.created).toBe(false);
+    expect(loggerErrorMock).toHaveBeenCalled();
   });
 });

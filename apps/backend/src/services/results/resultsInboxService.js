@@ -175,26 +175,148 @@ export async function enqueueCriticalResultTask({
   }
 }
 
+// Candidate priority vocabulary (mig-036: routine|soon|urgent|critical|unknown)
+// → producer severity. Only an explicit 'critical' candidate maps to a critical
+// task; everything else that reaches promotion is at least 'high' (an accepted,
+// human-reviewed candidate is actionable work). The producer then maps severity
+// → task priority via SEVERITY_PRIORITY.
+const CANDIDATE_SEVERITY = Object.freeze({
+  critical: 'critical',
+  urgent: 'high',
+  soon: 'high',
+  routine: 'moderate',
+  unknown: 'high',
+});
+
 /**
- * DORMANT AI-producer bridge (Wave 3). Promotes an accepted
- * clinical_ai_task_candidates row (mig 036) into a tracked task via the same
- * producer. Inert until the clinical_task_extractor module is enabled (no
- * candidates exist today), so this is a documented no-op for now and is filled
- * in Wave 3.
+ * DORMANT AI-producer bridge (Wave 3, design §4.7). Promotes an ACCEPTED
+ * clinical_ai_task_candidates row (mig-036) into a tracked, assigned task via
+ * the same deterministic producer, so a clinician-accepted AI task suggestion
+ * joins the results-inbox / escalation safety net.
  *
- * @returns {Promise<{created:boolean, skipped:boolean}>}
+ * This is inert in practice today: the clinical_task_extractor module is
+ * disabled, so no candidates exist — the call sites (clinicalTaskExtractorService
+ * decision path) only fire it once that module is enabled and a reviewer accepts
+ * a candidate. It is NOT load-bearing for the deterministic lab/vital safety net.
+ *
+ * Behavior:
+ *   - tenant-scoped (setTenantTx) — the candidate table is RLS-forced + tenant-keyed.
+ *   - reads the candidate; if reviewer_decision !== 'accepted' (or the row is
+ *     absent) → { created:false, skipped:true } (no task).
+ *   - else → enqueueCriticalResultTask(resourceType='task_candidate',
+ *     resourceId=candidate id, severity from the candidate priority,
+ *     title/summary/owner_role/patient from the candidate). Idempotent via the
+ *     mig-312 open-task index (one open task per candidate).
+ *   - NEVER throws (best-effort): a DB error → { created:false, error }, logged.
+ *
+ * @param {number|string} candidateId  clinical_ai_task_candidates.id
+ * @param {object} [opts]
+ * @param {string} [opts.tenantId]     tenant uuid for scoping.
+ * @returns {Promise<{created:boolean, skipped?:boolean, taskId?:(number|null), error?:string}>}
  */
-// eslint-disable-next-line no-unused-vars
 export async function promoteTaskCandidate(candidateId, { tenantId } = {}) {
-  // Wave 3 fills this: read the candidate; if reviewer_decision='accepted',
-  // call enqueueCriticalResultTask with resourceType='task_candidate' and the
-  // candidate's title/priority/owner_role/patient. Until then it is inert.
-  return { created: false, skipped: true };
+  const idStr = candidateId == null ? null : String(candidateId);
+  let candidate = null;
+  try {
+    candidate = await setTenantTx(tenantId, async (tx) => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid, task_title, task_description, priority,
+                owner_role, reviewer_decision
+           FROM clinical_ai_task_candidates
+          WHERE id = $1::int AND tenant_id = $2::uuid
+          LIMIT 1`,
+        Number(candidateId),
+        tenantId,
+      );
+      return rows[0] || null;
+    });
+  } catch (err) {
+    logger.error('promoteTaskCandidate: candidate read failed', {
+      err: err?.message,
+      candidateId: idStr,
+    });
+    return { created: false, error: err?.message };
+  }
+
+  // Only an accepted candidate is promoted; anything else is a clean no-op.
+  if (!candidate || candidate.reviewer_decision !== 'accepted') {
+    return { created: false, skipped: true };
+  }
+
+  // Reuse the deterministic producer (idempotent + tenant-scoped + never-throws).
+  return enqueueCriticalResultTask({
+    tenantId,
+    patientUid: candidate.patient_uid || null,
+    source: 'task_candidate',
+    resourceType: 'task_candidate',
+    resourceId: candidate.id,
+    severity: CANDIDATE_SEVERITY[String(candidate.priority || '').toLowerCase()] || 'high',
+    title: candidate.task_title || 'Accepted AI task candidate: review required',
+    summary: candidate.task_description || null,
+    careTeamRoleHint: candidate.owner_role || null,
+  });
+}
+
+const ABNORMAL_TRIAGE_MODULE_KEY = 'abnormal_result_triage';
+
+/**
+ * DORMANT AI-producer bridge (Wave 3, design §4.7) for the abnormal_result_triage
+ * module. Promotes an accepted abnormal-result-triage draft into the
+ * results-inbox safety net via the same producer (resourceType='abnormal_triage').
+ *
+ * GUARDED + INERT: it first checks that the abnormal_result_triage clinical-AI
+ * module is ENABLED for the tenant; it is disabled platform-wide today, so this
+ * is a no-op ({ created:false, skipped:true }) until the module is turned on and
+ * an abnormal-triage output is accepted. This is the wiring point spec §4.7 calls
+ * for — a call this bridge can be invoked from the abnormal-triage review-accept
+ * path once that module produces accepted outputs. Tenant-scoped, never-throws.
+ *
+ * @param {object} draft  an accepted abnormal-triage draft.
+ * @param {string} draft.generationId   clinical_ai_generations.id (the resource).
+ * @param {string} [draft.patientUid]
+ * @param {string} [draft.urgencyBand]  'critical'|'urgent'|'watch'|'routine'.
+ * @param {string} [draft.title]
+ * @param {string} [draft.summary]
+ * @param {object} [opts]
+ * @param {string} [opts.tenantId]
+ * @returns {Promise<{created:boolean, skipped?:boolean, taskId?:(number|null), error?:string}>}
+ */
+export async function promoteAbnormalTriageResult(draft = {}, { tenantId } = {}) {
+  try {
+    // Module-enabled gate — the dormant guard. Lazy import avoids pulling the
+    // large clinicalAiModuleService into this module's static graph.
+    const { getClinicalAiModule } = await import('../ai/clinicalAiModuleService.js');
+    const module = await getClinicalAiModule(ABNORMAL_TRIAGE_MODULE_KEY, { tenantId });
+    if (!module?.enabled) {
+      // Inert: the module is off (the platform default), so the abnormal-triage
+      // producer bridge does nothing.
+      return { created: false, skipped: true };
+    }
+    if (draft.generationId == null) return { created: false, skipped: true };
+
+    return await enqueueCriticalResultTask({
+      tenantId,
+      patientUid: draft.patientUid || null,
+      source: 'abnormal_triage',
+      resourceType: 'abnormal_triage',
+      resourceId: draft.generationId,
+      severity: draft.urgencyBand === 'critical' ? 'critical' : 'high',
+      title: draft.title || 'Abnormal result triage: review required',
+      summary: draft.summary || null,
+    });
+  } catch (err) {
+    logger.error('promoteAbnormalTriageResult failed', {
+      err: err?.message,
+      generationId: draft?.generationId ?? null,
+    });
+    return { created: false, error: err?.message };
+  }
 }
 
 export default {
   enqueueCriticalResultTask,
   promoteTaskCandidate,
+  promoteAbnormalTriageResult,
   resolveRoleCode,
   ABSTRACT_ROLE_CODES,
 };
