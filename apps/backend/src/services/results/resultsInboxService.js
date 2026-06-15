@@ -43,7 +43,13 @@ const SEVERITY_PRIORITY = Object.freeze({
 // tokens; resolve them to real codes here so assigned_to_role is a value the
 // RBAC / inbox-by-role query can match. A value already a concrete role passes
 // through unchanged.
-const ABSTRACT_ROLE_CODES = Object.freeze({
+//
+// EXPORTED so the escalation engine (escalationEngineService.js) reuses the
+// EXACT same mapping when resolving an escalation rule's
+// action_payload.notify_role token — the mig-312 seed tokens (DUTY/LEADERSHIP)
+// MUST resolve to the identical concrete role on both the producer (assignment)
+// and the engine (notification) sides. Do NOT duplicate this map.
+export const ABSTRACT_ROLE_CODES = Object.freeze({
   // Ward/unit duty/charge clinician — the first human accountable when there is
   // no ordering clinician on the result.
   DUTY: ROLES.DUTY_DOCTOR,
@@ -57,8 +63,12 @@ const ABSTRACT_ROLE_CODES = Object.freeze({
  * Resolve a role hint to a concrete role code. Abstract tokens (DUTY,
  * LEADERSHIP) map via ABSTRACT_ROLE_CODES; anything else is treated as an
  * already-concrete role code and returned as-is. Defaults to the DUTY role.
+ *
+ * EXPORTED + reused by escalationEngineService so a rule's notify_role token
+ * resolves identically to the producer's assignment fallback (single source of
+ * truth for the DUTY/LEADERSHIP → concrete-role mapping).
  */
-function resolveRoleCode(hint) {
+export function resolveRoleCode(hint) {
   const token = hint == null ? '' : String(hint).trim();
   if (!token) return ABSTRACT_ROLE_CODES.DUTY;
   return ABSTRACT_ROLE_CODES[token] || token;
@@ -174,4 +184,6 @@ export async function promoteTaskCandidate(candidateId, { tenantId } = {}) {
 export default {
   enqueueCriticalResultTask,
   promoteTaskCandidate,
+  resolveRoleCode,
+  ABSTRACT_ROLE_CODES,
 };

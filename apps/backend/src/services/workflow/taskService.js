@@ -312,10 +312,16 @@ export async function listTasks({
   }
 }
 
-export async function getTask({ tenantId = null, id } = {}) {
+// Optional `tx` (a setTenantTx tx client) threads these through the SAME
+// tenant-scoped transaction as the caller; defaults to the singleton. Used by
+// the escalation engine so an auto_resolve / reassign action and its
+// metadata-escalation marker commit atomically. Backward-compatible: existing
+// callers pass no tx and run on the singleton exactly as before.
+export async function getTask({ tenantId = null, id, tx = null } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
-  const rows = await prisma.$queryRawUnsafe(
+  const db = tx || prisma;
+  const rows = await db.$queryRawUnsafe(
     `SELECT ${TASK_RETURNING} FROM tasks
      WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
     taskId, tid,
@@ -327,12 +333,14 @@ export async function getTask({ tenantId = null, id } = {}) {
 export async function transitionTask({
   tenantId = null, id, nextStatus,
   cancellationReason = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
   const cleanNext = normalizeEnum(nextStatus, TASK_STATUSES, 'next_status', { required: true });
+  const db = tx || prisma;
 
-  const current = await getTask({ tenantId: tid, id: taskId });
+  const current = await getTask({ tenantId: tid, id: taskId, tx });
   const allowed = TASK_TRANSITIONS[current.status] || [];
   if (!allowed.includes(cleanNext)) {
     throw AppError.invalidTransition(current.status, cleanNext, allowed);
@@ -355,7 +363,7 @@ export async function transitionTask({
   params.push(taskId);
   params.push(tid);
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `UPDATE tasks SET ${updates.join(', ')}
      WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
      RETURNING ${TASK_RETURNING}`,
@@ -493,9 +501,11 @@ export async function listInboxTasks({
 
 export async function reassignTask({
   tenantId = null, id, assignedToUid = null, assignedToRole = null,
+  tx = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const taskId = normalizeId(id, 'task id');
+  const db = tx || prisma;
   const updates = ['updated_at = NOW()'];
   const params = [];
   if (assignedToUid !== undefined) {
@@ -507,11 +517,11 @@ export async function reassignTask({
     updates.push(`assigned_to_role = $${params.length}`);
   }
   if (params.length === 0) {
-    return getTask({ tenantId: tid, id: taskId });
+    return getTask({ tenantId: tid, id: taskId, tx });
   }
   params.push(taskId);
   params.push(tid);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `UPDATE tasks SET ${updates.join(', ')}
      WHERE id = $${params.length - 1} AND tenant_id = $${params.length}::uuid
      RETURNING ${TASK_RETURNING}`,
