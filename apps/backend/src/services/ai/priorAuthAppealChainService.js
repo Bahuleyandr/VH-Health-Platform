@@ -37,12 +37,6 @@ import {
 
 export const WORKFLOW_KEY = 'prior_auth_appeal_chain';
 
-// Multi-tenant helper — mirrors clinicalAiWorkflowService pattern.
-function resolveTenantId(options = {}) {
-  if (options.tenantId === null) return null;
-  return options.tenantId || DEFAULT_TENANT_ID;
-}
-
 // ---------- Shared gate predicates ------------------------------------
 // Single source of truth used by BOTH the resume-aware pause nodes
 // and the scheduler gate functions (gateSubmitted / gateResolved).
@@ -277,7 +271,7 @@ registerPauseReasonHandler('await_appeal_payer_response', gateResolved);
  *
  * Tenant resolution mirrors composeDischargePackage: reads `req.tenantId`
  * first (set by jwtMiddleware for tenant-scoped staff tokens), falls back
- * to DEFAULT_TENANT_ID via resolveTenantId.
+ * to DEFAULT_TENANT_ID.
  *
  * Returns:
  *   { status: 'paused', run_id, pause_reason }  — normal first-call outcome

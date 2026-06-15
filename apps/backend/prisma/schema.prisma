@@ -1535,7 +1535,7 @@ model clinical_ai_antimicrobial_reviews {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// migration 312: claim_id is now nullable; prior_auth_id added. Exactly one must be non-NULL
+/// migration 313: claim_id is now nullable; prior_auth_id added. Exactly one must be non-NULL
 /// per row (enforced by chk_appeal_single_source CHECK constraint in DB).
 model clinical_ai_appeal_letters {
   id                               Int                               @id @default(autoincrement())
@@ -3088,7 +3088,7 @@ model clinical_ai_polypharmacy_reviews {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// clinical_ai_appeal_letters back-references this table via prior_auth_id (migration 312).
+/// clinical_ai_appeal_letters back-references this table via prior_auth_id (migration 313).
 model clinical_ai_prior_auth_requests {
   id                     Int       @id @default(autoincrement())
   tenant_id              String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid

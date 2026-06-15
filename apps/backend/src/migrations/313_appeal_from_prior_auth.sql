@@ -11,6 +11,7 @@
 --
 -- Changes:
 --   1. Add prior_auth_id INTEGER (nullable FK → clinical_ai_prior_auth_requests).
+--      ON DELETE CASCADE: deleting a prior-auth cleans up its orphaned appeal; consistent with claim_id's CASCADE.
 --   2. Make claim_id nullable (existing rows are unaffected; all have claim_id
 --      set, so no data migration is needed).
 --   3. Add CHECK constraint chk_appeal_single_source: exactly one of

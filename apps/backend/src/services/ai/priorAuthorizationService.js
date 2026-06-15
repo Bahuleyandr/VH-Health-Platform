@@ -107,12 +107,13 @@ export async function generatePriorAuthorization({
   const admission = admissionRows[0];
   if (!admission) throw AppError.notFound('Admission not found');
 
-  const context = await collectAdmissionClinicalContext(admission.id);
-  const evidence = buildEvidenceBundle(context);
-  const module = await getClinicalAiModule(MODULE_KEY);
+  const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
   if (!module.enabled) {
     throw AppError.forbidden('prior_authorization_generator module is disabled', 'PRIOR_AUTH_MODULE_DISABLED');
   }
+
+  const context = await collectAdmissionClinicalContext(admission.id);
+  const evidence = buildEvidenceBundle(context);
 
   const systemPrompt = [
     'You are a hospital revenue-cycle assistant drafting a prior-authorization packet for a payer.',
