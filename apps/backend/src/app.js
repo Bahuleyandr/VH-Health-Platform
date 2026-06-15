@@ -104,6 +104,11 @@ import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
 import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
 import { CLINICAL_AI_USER_ROLES_LIST } from './routes/admin/clinicalAi/shared.js';
 import adminForecastRoutes from './routes/admin/forecastRoutes.js';
+// Results-inbox (design §4.5): the same tasks/workflow router that backs the
+// admin surface at /api/v1/admin/workflow is ALSO mounted clinical-staff-gated
+// at /api/v1/clinical-inbox so clinicians can reach GET /tasks/inbox +
+// POST /tasks/:id/acknowledge — the safety net must not be admin-only.
+import tasksWorkflowRoutes from './routes/admin/tasksWorkflowRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
 import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
@@ -785,6 +790,14 @@ function clinicalParentPatientAccessGuard(req, res, next) {
 app.use('/api/v1/clinical', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, clinicalParentPatientAccessGuard, phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole(...NURSING_ASSESSMENT_ROUTE_ROLES), sanitizeAllBodyStrings, patientAccessGuard('NURSING_ASSESSMENT', { careTeamModeGoverned: true }), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 app.use('/api/v1/encounters', requireRole(...CLINICAL_STAFF_ROLES), sanitizeAllBodyStrings, patientAccessGuard('CLINICAL_ENCOUNTER', { careTeamModeGoverned: true }), phiAccessLogger('CLINICAL_ENCOUNTER'), encounterRoutes);
+
+// Results-inbox safety net (design §4.5) — the per-clinician inbox + acknowledge
+// surface. Reuses the tasks/workflow router (same handlers as the ADMIN-gated
+// /api/v1/admin/workflow mount) but gated to CLINICAL_STAFF so a doctor/nurse
+// can see and acknowledge their assigned critical-result tasks. Every handler is
+// tenant-scoped and self/role-scoped, so exposing the broader task surface here
+// is safe; the intended endpoints are GET /tasks/inbox + POST /tasks/:id/acknowledge.
+app.use('/api/v1/clinical-inbox', requireRole(...CLINICAL_STAFF_ROLES), phiAccessLogger('CLINICAL_WORKFLOW'), tasksWorkflowRoutes);
 
 // MAR discoverability aliases — the canonical handlers live at
 // /api/v1/clinical/mar/* but ward nurses and the swarm keep probing

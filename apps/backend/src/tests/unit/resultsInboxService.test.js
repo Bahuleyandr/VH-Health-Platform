@@ -81,8 +81,14 @@ describe('enqueueCriticalResultTask', () => {
       sourceTable: 'lab_result',
       sourceId: '123',
     });
-    // Runs inside the tenant-scoped tx.
-    expect(startWorkflowSlaMock.mock.calls[0][1]).toMatchObject({ db: fakeTx });
+    // The SLA is started on the plain singleton (NO { db: tx }) — the seeded
+    // critical_result_ack rule is a GLOBAL rule (workflow_sla_rules.tenant_id
+    // IS NULL), which the mig-075 RLS tenant_isolation policy hides once the GUC
+    // is pinned to a concrete tenant. Reading it inside setTenantTx returned no
+    // rule → no SLA instance ever got created (the safety-net clock never
+    // started). The instance is still written with the explicit tenantId, so
+    // tenant scoping is preserved. The deep test covers the real-DB pipeline.
+    expect(startWorkflowSlaMock.mock.calls[0][1]).toBeUndefined();
 
     // Task created with the right shape + idempotency guard + tx.
     const taskArg = createTaskMock.mock.calls[0][0];

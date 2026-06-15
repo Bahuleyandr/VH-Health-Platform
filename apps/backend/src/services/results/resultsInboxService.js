@@ -111,25 +111,36 @@ export async function enqueueCriticalResultTask({
 } = {}) {
   const resourceIdStr = resourceId == null ? null : String(resourceId);
   try {
-    return await setTenantTx(tenantId, async (tx) => {
-      // 1. (Re)use the mig-269 critical_result_ack SLA instance as the clock.
-      //    Best-effort: a null instance (SLA rule disabled / schema absent)
-      //    must not stop the task from being created.
-      const sla = await startWorkflowSla(
-        {
-          tenantId,
-          ruleCode: slaKey,
-          patientUid,
-          sourceTable: resourceType,
-          sourceId: resourceIdStr,
-          priority: SEVERITY_PRIORITY[severity] || 'high',
-          metadata: { source },
-        },
-        { db: tx },
-      );
-      const slaInstanceId = sla?.id || null;
+    // 1. (Re)use the mig-269 critical_result_ack SLA instance as the clock.
+    //    Best-effort: a null instance (SLA rule disabled / schema absent) must
+    //    not stop the task from being created.
+    //
+    //    IMPORTANT (RLS): the seeded critical_result_ack rule is a GLOBAL rule
+    //    (workflow_sla_rules.tenant_id IS NULL). The mig-075 tenant_isolation
+    //    policy makes a NULL-tenant row INVISIBLE once the GUC is pinned to a
+    //    concrete tenant (NULL = <tenant> is not true) — so reading the rule
+    //    INSIDE setTenantTx(tenantId) silently returns no rule and the SLA
+    //    instance never gets created (the safety-net clock never starts). We
+    //    therefore start the SLA on the plain singleton (GUC unset → the global
+    //    rule is visible); startWorkflowSla still writes the instance with the
+    //    EXPLICIT tenant_id we pass, so tenant scoping is preserved and it stays
+    //    single-tenant-safe. The instance is then visible to the tenant-scoped
+    //    engine sweep because its tenant_id matches. Running it outside the task
+    //    tx is fine: the producer is best-effort, and an instance with no task
+    //    is reconciled by the engine's backfill backstop.
+    const sla = await startWorkflowSla({
+      tenantId,
+      ruleCode: slaKey,
+      patientUid,
+      sourceTable: resourceType,
+      sourceId: resourceIdStr,
+      priority: SEVERITY_PRIORITY[severity] || 'high',
+      metadata: { source },
+    });
+    const slaInstanceId = sla?.id || null;
 
-      // 2. Create the assigned, idempotent ack-task in the same tx.
+    return await setTenantTx(tenantId, async (tx) => {
+      // 2. Create the assigned, idempotent ack-task, linking the SLA instance.
       const created = await taskService.createTask({
         tenantId,
         tx,
