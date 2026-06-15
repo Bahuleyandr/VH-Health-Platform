@@ -163,11 +163,14 @@ describe('runEscalationSweep', () => {
     const res = await runEscalationSweep({ now: NOW });
 
     expect(res.markedOverdue).toBe(1);
-    // The overdue-marking UPDATE flips open/in_progress/blocked tasks past due_at.
+    // The overdue-marking UPDATE flips open/blocked tasks past due_at — but NOT
+    // in_progress (the acked state): flipping an acked task to the escalatable
+    // 'overdue' status would re-expose it to escalation (§4.5 ack stops clock).
     const updateSql = queryRawMock.mock.calls[1][0];
     expect(updateSql).toMatch(/UPDATE\s+tasks/i);
     expect(updateSql).toMatch(/'overdue'/);
     expect(updateSql).toMatch(/due_at/i);
+    expect(updateSql).not.toMatch(/'in_progress'/);
   });
 
   it('sla_breach tier-1 → escalate_priority + re-notify assignee + records escalations[tier:1]', async () => {

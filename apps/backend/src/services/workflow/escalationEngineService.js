@@ -180,8 +180,15 @@ async function fireAction({ tx, tenantId, taskRow, ruleRow, now }) {
     tenantId,
   );
 
-  // Notifications (best-effort — a failed notify must not undo the recorded
-  // escalation; it is logged by the outbox/webhook helpers themselves).
+  // Notifications (best-effort, RECORD-INTENT). NOTE: notificationOutbox.queue
+  // persists push intent, but the outbox push channel is not currently drained
+  // platform-wide (a separate, pre-existing gap — the retry cron reads
+  // failed_notifications, not notification_outbox), and we set no integer
+  // recipientId here, so these rows record escalation intent rather than
+  // guaranteeing a delivered push. The GUARANTEED escalation signals are the
+  // priority bump (surfaced in GET /tasks/inbox) and the tier-3
+  // sendSecurityWebhook (synchronous). A failed notify must never undo the
+  // already-recorded escalation marker.
   if (action === 'escalate_priority' && payload.also_notify === 'assignee') {
     await notificationOutbox.queue({
       type: 'push',
@@ -267,15 +274,18 @@ export async function runEscalationSweep({ now = undefined, limit = DEFAULT_LIMI
     if (!tenantId) continue;
     try {
       await setTenantTx(tenantId, async (tx) => {
-        // (a) Mark open/in_progress/blocked tasks past due_at as overdue. This is
-        // a pure state-hygiene step (an acked in_progress task that blows its
-        // due_at is still "overdue" for reporting; escalation separately skips
-        // in_progress). RETURNING ids → count.
+        // (a) Mark open/blocked tasks past due_at as 'overdue' (state hygiene).
+        // in_progress is the ACKED state (§4.5: acknowledge STOPS the clock) and
+        // is deliberately NOT flipped — flipping it would re-expose an
+        // acknowledged task to escalation, since 'overdue' is escalatable.
+        // (Producer tasks currently carry due_at=NULL — the mig-269 instance is
+        // the clock — so this is belt-and-suspenders for any task that does set
+        // due_at.) RETURNING ids → count.
         const overdue = await tx.$queryRawUnsafe(
           `UPDATE tasks
               SET status = 'overdue', updated_at = NOW()
             WHERE tenant_id = $1::uuid
-              AND status IN ('open', 'in_progress', 'blocked')
+              AND status IN ('open', 'blocked')
               AND due_at IS NOT NULL
               AND due_at < $2::timestamptz
             RETURNING id`,
