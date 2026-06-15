@@ -827,15 +827,22 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
   },
 
   build_safety_flags: async (state) => {
-    // Curated-KB citations (WS5 B5.5) are UNIONed in alongside the chart-
-    // packet + RAG citations. uniqueCitations de-dupes; an empty kbCitations
-    // (gate off / KB unavailable) leaves the set exactly as before.
-    const citations = uniqueCitations([
+    // baseCitations = chart-packet + RAG citations ONLY (NO curated KB). The
+    // requiresCitations fail-close in buildCommonSafetyFlags is evaluated on
+    // these alone, so a curated-KB citation (WS5 B5.5) can NEVER satisfy a
+    // gate that must require chart/RAG grounding.
+    const baseCitations = uniqueCitations([
       ...state.packet.citations,
       ...state.retrievedCitations,
+    ]);
+    // Full citation set (base + KB) that is persisted, returned, and shown.
+    // Curated-KB citations stay visible for traceability; uniqueCitations
+    // de-dupes; an empty kbCitations leaves the set equal to baseCitations.
+    const citations = uniqueCitations([
+      ...baseCitations,
       ...(state.kbCitations || []),
     ]);
-    const safetyFlags = buildCommonSafetyFlags(state.context, state.module, citations);
+    const safetyFlags = buildCommonSafetyFlags(state.context, state.module, baseCitations);
     if (!state.retrieved?.results?.length && state.retrieved?.source === 'corpus_unavailable') {
       safetyFlags.push({
         severity: 'low',

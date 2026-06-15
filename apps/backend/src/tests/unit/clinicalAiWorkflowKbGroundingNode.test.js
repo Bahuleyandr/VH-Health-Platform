@@ -34,6 +34,10 @@ function kbNode() {
   return getAdmissionAiDraftGraph().nodes.kb_grounding;
 }
 
+function safetyFlagsNode() {
+  return getAdmissionAiDraftGraph().nodes.build_safety_flags;
+}
+
 function baseState({ knowledgeBases } = {}) {
   return {
     moduleKey: 'medication_reconciliation',
@@ -115,5 +119,76 @@ describe('admission_ai_draft kb_grounding node', () => {
     expect(delta.kbGrounding.used).toBe(false);
     expect(delta.kbCitations).toEqual([]);
     expect(delta.packet.curated_knowledge).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX 1 (security review of f8cd10a7): build_safety_flags must evaluate the
+// requiresCitations fail-close on chart-packet + RAG citations ONLY. A
+// curated-KB citation must NEVER satisfy the gate, even though it is still
+// UNIONed into the returned citation set for traceability.
+// ---------------------------------------------------------------------------
+
+function kbCitation() {
+  return {
+    source_type: 'knowledge_chunk',
+    source_id: '501',
+    label: 'Beta-lactam formulary (sim 0.82)',
+  };
+}
+
+function safetyState({ packetCitations = [], retrievedCitations = [], kbCitations = [], requiresCitations = true }) {
+  return {
+    moduleKey: 'medication_reconciliation',
+    module: {
+      module_key: 'medication_reconciliation',
+      settings: requiresCitations ? { requiresCitations: true } : {},
+    },
+    context: { notes: [], investigations: [], medications: [], allergies: [] },
+    draft: { summary: 'Reconciliation complete; continue current plan.' },
+    packet: { citations: packetCitations },
+    retrieved: { results: retrievedCitations, source: retrievedCitations.length ? 'pgvector' : 'corpus_unavailable' },
+    retrievedCitations,
+    kbCitations,
+  };
+}
+
+describe('admission_ai_draft build_safety_flags node — citation fail-close', () => {
+  it('raises MISSING_CITATIONS when the ONLY citation is a curated-KB chunk', async () => {
+    const delta = await safetyFlagsNode()(safetyState({
+      packetCitations: [],
+      retrievedCitations: [],
+      kbCitations: [kbCitation()],
+      requiresCitations: true,
+    }));
+
+    // KB citation kept for traceability in the returned set ...
+    expect(delta.citations.some((c) => c.source_type === 'knowledge_chunk')).toBe(true);
+    // ... but it did NOT satisfy the requiresCitations fail-close.
+    expect(delta.safetyFlags.some((f) => f.code === 'MISSING_CITATIONS' && f.severity === 'critical')).toBe(true);
+  });
+
+  it('does NOT raise MISSING_CITATIONS when a chart-packet citation is present (KB additive)', async () => {
+    const delta = await safetyFlagsNode()(safetyState({
+      packetCitations: [{ source_type: 'admission', source_id: '7', label: 'Admission' }],
+      retrievedCitations: [],
+      kbCitations: [kbCitation()],
+      requiresCitations: true,
+    }));
+
+    // Base citation satisfies the gate; both base + KB citations are returned.
+    expect(delta.safetyFlags.some((f) => f.code === 'MISSING_CITATIONS')).toBe(false);
+    expect(delta.citations.some((c) => c.source_type === 'admission')).toBe(true);
+    expect(delta.citations.some((c) => c.source_type === 'knowledge_chunk')).toBe(true);
+  });
+
+  it('a RAG citation alone satisfies the gate (KB still additive, no flag)', async () => {
+    const delta = await safetyFlagsNode()(safetyState({
+      packetCitations: [],
+      retrievedCitations: [{ source_type: 'discharge_summary', source_id: '3', label: 'Similar prior case' }],
+      kbCitations: [kbCitation()],
+      requiresCitations: true,
+    }));
+    expect(delta.safetyFlags.some((f) => f.code === 'MISSING_CITATIONS')).toBe(false);
   });
 });

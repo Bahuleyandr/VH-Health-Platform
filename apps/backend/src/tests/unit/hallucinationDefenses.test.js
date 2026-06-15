@@ -36,6 +36,64 @@ describe('hallucinationDefenses', () => {
       });
       expect(flags.some((flag) => flag.code === 'CITATIONS_EMPTY')).toBe(true);
     });
+
+    // FIX 2 (security review of f8cd10a7): a curated-KB citation label must
+    // NOT widen the PHI allowlist. A PHI-shaped token (phone/MRN) that only
+    // appears in an APPROVED KB title must still trip PHI_LEAK_SUSPECTED when
+    // it shows up in the draft — KB titles are not chart-anchored PHI.
+    it('does NOT let a phone-shaped token in a KB citation label suppress a PHI_LEAK flag', () => {
+      const phone = '9876543210';
+      const draft = { note: `Call the patient on ${phone} to confirm.` };
+      // Same phone appears ONLY in a knowledge_chunk citation label.
+      const citations = [{
+        source_type: 'knowledge_chunk',
+        source_id: '501',
+        label: `Discharge protocol ${phone}`,
+      }];
+      const flags = detectPhiLeaks({ draft, citations, context: {} });
+      expect(flags.some((flag) => flag.code === 'PHI_LEAK_SUSPECTED' && flag.metadata?.kind === 'phone')).toBe(true);
+    });
+
+    it('does NOT let an MRN-shaped token in a KB citation label suppress a PHI_LEAK flag', () => {
+      const draft = { note: 'Reference MRN AB12345 in the chart.' };
+      const citations = [{
+        source_type: 'knowledge_chunk',
+        source_id: '777',
+        label: 'Formulary doc MRN AB12345',
+      }];
+      const flags = detectPhiLeaks({ draft, citations, context: {} });
+      expect(flags.some((flag) => flag.code === 'PHI_LEAK_SUSPECTED' && flag.metadata?.kind === 'mrn')).toBe(true);
+    });
+
+    it('STILL allows a non-KB (chart) citation label to anchor an identifier', () => {
+      // Control: the same token in a real chart citation IS a legitimate
+      // anchor and must NOT be flagged — proving the filter is KB-specific.
+      const phone = '9876543210';
+      const draft = { note: `Call the patient on ${phone} to confirm.` };
+      const citations = [{
+        source_type: 'clinical_note',
+        source_id: '12',
+        label: `Contact note ${phone}`,
+      }];
+      const flags = detectPhiLeaks({ draft, citations, context: {} });
+      expect(flags.some((flag) => flag.code === 'PHI_LEAK_SUSPECTED' && flag.metadata?.kind === 'phone')).toBe(false);
+    });
+
+    it('keeps KB citations in the list for traceability (no crash, only allowlist excluded)', () => {
+      // A KB citation whose label has NO PHI-shaped token must not produce
+      // any PHI flag, and a clean draft must stay clean — the filter only
+      // removes KB labels from the allowlist, it does not drop citations.
+      const draft = { note: 'Stable, continue current plan.' };
+      const citations = [{
+        source_type: 'knowledge_chunk',
+        source_id: '9',
+        label: 'Beta-lactam formulary (sim 0.82)',
+      }];
+      const flags = detectPhiLeaks({ draft, citations, context: {} });
+      expect(flags.some((flag) => flag.code === 'PHI_LEAK_SUSPECTED')).toBe(false);
+      // citationsBody is non-empty, so CITATIONS_EMPTY must NOT fire.
+      expect(flags.some((flag) => flag.code === 'CITATIONS_EMPTY')).toBe(false);
+    });
   });
 
   describe('extractNumericMismatches', () => {

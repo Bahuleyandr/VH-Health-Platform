@@ -176,6 +176,46 @@ describe('generateAntimicrobialStewardshipReview — curated KB grounding', () =
       admissionId: 7,
     })).resolves.toMatchObject({ module_key: 'antimicrobial_stewardship' });
   });
+
+  // FIX 1 (security review of f8cd10a7): a curated-KB citation must NEVER
+  // satisfy the NO_STEWARDSHIP_CITATIONS fail-close. With an empty chart
+  // packet (zero rule-derived citations) but a KB chunk returned, the
+  // gate must STILL fire because it is evaluated on base citations only.
+  it('STILL raises NO_STEWARDSHIP_CITATIONS when the ONLY citation is a curated-KB chunk', async () => {
+    getModuleMock.mockResolvedValue(moduleConfig('antimicrobial_stewardship', ['antibiotic_policy']));
+    // Empty chart packet → rule engine yields no base citations.
+    collectAdmissionContextMock.mockResolvedValue({
+      patient: { uid: PATIENT, name: 'Test Patient' },
+      admission: { id: 7, patient_uid: PATIENT, status: 'admitted', chief_complaint: 'pneumonia' },
+      medications: [],
+      orders: [],
+      notes: [],
+      investigations: [],
+      vitals: [],
+      allergies: [],
+      citations: [],
+    });
+    // AI returns no citations of its own.
+    generateClinicalTextMock.mockResolvedValue({
+      text: JSON.stringify({ summary: 'AI narrative.', source_citations: [], safety_flags: [] }),
+      usedAi: true,
+      provider: 'ollama',
+      model: 'qwen2.5:14b',
+      usage: {},
+    });
+    // But the KB DOES return an approved chunk.
+    retrieveFromKnowledgeBasesMock.mockResolvedValue({ results: [kbChunkRow()], source: 'pgvector' });
+
+    const result = await generateAntimicrobialStewardshipReview({
+      req: { tenantId: TENANT, user: { uid: 'user-uid', role: 'PHARMACY_STAFF' } },
+      admissionId: 7,
+    });
+
+    // The KB citation is present (traceability) ...
+    expect(result.source_citations.some((c) => c.source_type === 'knowledge_chunk')).toBe(true);
+    // ... but it did NOT satisfy the fail-close: the gate still fired.
+    expect(result.safety_flags.some((f) => f.code === 'NO_STEWARDSHIP_CITATIONS')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -234,5 +274,27 @@ describe('evaluatePathwayBundle — curated KB grounding', () => {
     getModuleMock.mockResolvedValue(moduleConfig('pathway_bundle_compliance')); // no gate
     await callPathway();
     expect(retrieveFromKnowledgeBasesMock).not.toHaveBeenCalled();
+  });
+
+  // FIX 1 (security review of f8cd10a7): the NO_CITATIONS fail-close is
+  // evaluated on the rule-derived (base) citations ONLY. The pathway path
+  // always produces base citations (patient / pathway_preset / rules), so
+  // NO_CITATIONS must NOT appear, and unioning a curated-KB chunk in must
+  // not perturb that — KB is additive traceability, never a gate input.
+  it('does NOT raise NO_CITATIONS and keeps KB citations additive (gate sees base only)', async () => {
+    getModuleMock.mockResolvedValue(moduleConfig('pathway_bundle_compliance', ['clinical_guideline']));
+    retrieveFromKnowledgeBasesMock.mockResolvedValue({
+      results: [kbChunkRow({ chunk_id: 402, kb_type: 'clinical_guideline', document_title: 'ACS pathway' })],
+      source: 'pgvector',
+    });
+
+    const result = await callPathway();
+
+    // KB citation present for traceability ...
+    expect(result.source_citations.some((c) => c.source_type === 'knowledge_chunk')).toBe(true);
+    // ... base rule citations present ...
+    expect(result.source_citations.some((c) => c.source_type === 'pathway_bundle_rules')).toBe(true);
+    // ... and the citation fail-close did not fire (base citations exist).
+    expect(result.safety_flags.some((f) => f.code === 'NO_CITATIONS')).toBe(false);
   });
 });

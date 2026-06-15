@@ -866,7 +866,11 @@ export async function evaluatePathwayBundle({
     moduleKey: MODULE_KEY,
   });
 
-  const citations = uniqueCitations([
+  // baseCitations = rule-derived citations ONLY (NO curated KB). The
+  // NO_CITATIONS fail-close in buildSafetyFlagsFor is evaluated on these
+  // alone, so a curated-KB citation can NEVER satisfy a gate that must
+  // require chart/rule grounding.
+  const baseCitations = uniqueCitations([
     {
       source_type: 'patient',
       source_id: String(patientUid),
@@ -891,14 +895,17 @@ export async function evaluatePathwayBundle({
       label: `Action — ${cleanText(action?.item_key) || 'unknown'}`,
       timestamp: action?.occurred_at || action?.action_at || action?.timestamp || null,
     })),
-    // Curated-KB citations UNIONed in — never the sole source, so the
-    // rule-derived citations above still satisfy the citations gate.
+  ]);
+  // Full citation set (base + KB) that is persisted, returned, and displayed.
+  // KB chunks stay visible for traceability but never gate fail-close.
+  const citations = uniqueCitations([
+    ...baseCitations,
     ...kbGrounding.citations,
   ]);
 
   const baseFlags = buildSafetyFlagsFor({
     recommendation: severityRec.recommendation,
-    citations,
+    citations: baseCitations,
   });
 
   const recommendedActions = buildPathwayActions({

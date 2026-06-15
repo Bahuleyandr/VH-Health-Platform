@@ -189,8 +189,14 @@ export async function runExplainerPipeline({
   const effectivePayload = kbGrounding.used
     ? { ...userPromptPayload, curated_knowledge: kbGrounding.groundingChunks }
     : userPromptPayload;
+  // baseCitations = the caller-supplied chart citations ONLY (NO curated KB).
+  // Any citation-presence / allowlist decision in the defense layer is made
+  // on these, so a curated-KB citation can NEVER satisfy a fail-close that
+  // must require chart grounding. effectiveCitations is the full union
+  // (base + KB) that is persisted, returned, and displayed for traceability.
+  const baseCitations = asArray(citations);
   const effectiveCitations = kbGrounding.used
-    ? [...asArray(citations), ...kbGrounding.citations]
+    ? [...baseCitations, ...kbGrounding.citations]
     : citations;
 
   const aiResult = await generateClinicalText({
@@ -222,7 +228,11 @@ export async function runExplainerPipeline({
     draft,
     module,
     context: contextForDefenses || {},
-    citations: effectiveCitations,
+    // Defense layer sees base (non-KB) citations only for any citation
+    // anchoring / presence check; KB labels never widen the allowlist or
+    // satisfy a citation gate. (detectPhiLeaks also self-filters KB by
+    // source_type as a second guard.)
+    citations: baseCitations,
   });
   const safetyFlags = [
     ...(Array.isArray(draft.safety_flags) ? draft.safety_flags : []),

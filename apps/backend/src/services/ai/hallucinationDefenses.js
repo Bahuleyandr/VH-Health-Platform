@@ -29,6 +29,14 @@ const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const MRN_RE = /\bMRN[\s:-]*([A-Z0-9-]{4,20})\b/gi;
 const NUMERIC_RE = /\b(\d+(?:\.\d+)?)\s*(mg|mcg|µg|ug|g|kg|ml|mL|l|L|mmHg|bpm|°C|°F|kg|lbs|hours?|days?|weeks?|months?|years?|%)\b/gi;
 
+// Curated-KB citations (WS5 B5.5) are tagged with this source_type by
+// knowledgeGroundingService.chunkCitation. Their labels are document/KB
+// titles, not chart-anchored identifiers, so they must NOT seed the PHI
+// allowlist in detectPhiLeaks — an identifier-shaped token in an approved
+// KB title could otherwise suppress a genuine PHI_LEAK flag for the same
+// token in the draft. They stay in the citation list for traceability.
+const KB_CITATION_SOURCE_TYPE = 'knowledge_chunk';
+
 // Unit-normalization tables (AI-4a). Each known unit maps to a canonical
 // dimension + a multiplier into that dimension's base unit. Two numeric
 // claims are "the same" only when they share a dimension AND their
@@ -131,9 +139,17 @@ export function detectPhiLeaks({ draft, citations = [], context = {} } = {}) {
   const flags = [];
   const body = draftText(draft);
   const citationsBody = citationText(citations);
+  // Only chart/context + non-KB citations may seed allowed identifiers.
+  // Curated-KB citation labels are document/KB titles, not chart-anchored
+  // PHI; treating an identifier-shaped token in an approved KB title as
+  // "allowed" would suppress a real PHI_LEAK flag for that token. KB
+  // citations stay in `citations` (traceability) but are excluded here.
+  const allowlistCitations = (Array.isArray(citations) ? citations : []).filter(
+    (citation) => !(citation && citation.source_type === KB_CITATION_SOURCE_TYPE)
+  );
   const allowedIdentifiers = new Set(
     flatten(context)
-      .concat(flatten(citations))
+      .concat(flatten(allowlistCitations))
       .flatMap((text) => (
         [
           ...matchesInText(text, UID_RE),

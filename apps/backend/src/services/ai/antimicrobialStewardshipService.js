@@ -777,14 +777,20 @@ export async function generateAntimicrobialStewardshipReview({
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);
+  // baseCitations = chart/rule-derived citations ONLY (NO curated KB). The
+  // NO_STEWARDSHIP_CITATIONS fail-close is evaluated on these alone, so a
+  // curated-KB citation can NEVER satisfy a gate that must require chart
+  // grounding. `citations` is the full union (base + KB) that is persisted,
+  // returned, and displayed — KB chunks stay visible for traceability.
+  const baseCitations = uniqueCitations(
+    asArray(draft.source_citations).length ? draft.source_citations : fallbackDraft.source_citations
+  );
   const citations = uniqueCitations([
-    ...(asArray(draft.source_citations).length ? draft.source_citations : fallbackDraft.source_citations),
-    // Curated-KB citations UNIONed in — never the sole citation source, so
-    // the rule-derived chart citations still satisfy the citations gate.
+    ...baseCitations,
     ...kbGrounding.citations,
   ]);
   const safetyFlags = [
-    ...(citations.length ? [] : [{
+    ...(baseCitations.length ? [] : [{
       severity: 'high',
       code: 'NO_STEWARDSHIP_CITATIONS',
       message: 'Antimicrobial stewardship output has no source citations.',
