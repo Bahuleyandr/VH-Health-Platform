@@ -38,13 +38,13 @@ SELECT '00000000-0000-4000-8000-000000000001'::uuid, v.display_name, v.descripti
        'task', v.match_filter::jsonb, 'sla_breach', v.win, v.action_kind, v.action_payload::jsonb, true
 FROM (VALUES
   ('Critical result T1 re-notify', 'Re-notify assignee + bump priority at SLA breach',
-     '{"task_kind":"review","priority":"critical","sla_key":"critical_result_ack"}', 0,
+     '{"task_kind":"review","sla_key":"critical_result_ack"}', 0,
      'escalate_priority', '{"tier":1,"also_notify":"assignee"}'),
   ('Critical result T2 duty role', 'Notify ward/unit duty/charge role',
-     '{"task_kind":"review","priority":"critical","sla_key":"critical_result_ack"}', 10,
+     '{"task_kind":"review","sla_key":"critical_result_ack"}', 10,
      'notify', '{"tier":2,"notify_role":"DUTY"}'),
   ('Critical result T3 leadership', 'Notify clinical leadership + security webhook',
-     '{"task_kind":"review","priority":"critical","sla_key":"critical_result_ack"}', 30,
+     '{"task_kind":"review","sla_key":"critical_result_ack"}', 30,
      'notify', '{"tier":3,"notify_role":"LEADERSHIP","security_webhook":true}')
 ) AS v(display_name, description, match_filter, win, action_kind, action_payload)
 WHERE NOT EXISTS (

@@ -21,6 +21,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
@@ -380,15 +381,19 @@ export async function acknowledgeTask({ tenantId = null, id, actorUid = null } =
   const taskId = normalizeId(id, 'task id');
   const ackUid = maybeUuid(actorUid, 'actor_uid');
 
+  // Pre-read for a clean, intention-revealing error before attempting the write.
   const current = await getTask({ tenantId: tid, id: taskId });
   // Already acknowledged → idempotent no-op (do not re-stamp / re-comment).
   if (current.status === 'in_progress') return current;
-
-  const allowed = TASK_TRANSITIONS[current.status] || [];
-  if (!allowed.includes('in_progress')) {
-    throw AppError.invalidTransition(current.status, 'in_progress', allowed);
+  // Terminal states can never be acknowledged.
+  if (current.status === 'completed' || current.status === 'cancelled') {
+    throw AppError.invalidTransition(current.status, 'in_progress', TASK_TRANSITIONS[current.status] || []);
   }
 
+  // Atomic state change: guard the acknowledgeable statuses IN the UPDATE so a
+  // concurrent completion/cancel (or a racing acker) cannot be flipped back to
+  // in_progress between the pre-read and the write (TOCTOU). RETURNING yields no
+  // row when the guard excludes the current status.
   const ackedAt = new Date().toISOString();
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE tasks
@@ -397,13 +402,22 @@ export async function acknowledgeTask({ tenantId = null, id, actorUid = null } =
               || jsonb_build_object('acknowledged_at', $1::text, 'acknowledged_by', $2::text),
             updated_at = NOW()
       WHERE id = $3 AND tenant_id = $4::uuid
+        AND status IN ('open', 'overdue')
       RETURNING ${TASK_RETURNING}`,
     ackedAt,
     ackUid,
     taskId,
     tid,
   );
-  if (!rows[0]) throw AppError.notFound('Task not found');
+  if (!rows[0]) {
+    // The guarded UPDATE matched nothing: either the task vanished or its status
+    // moved out of ('open','overdue') concurrently. Re-read to disambiguate.
+    const after = await getTask({ tenantId: tid, id: taskId });
+    // A concurrent acker already moved it to in_progress → idempotent success.
+    if (after.status === 'in_progress') return after;
+    // Otherwise it was completed/cancelled out from under us → not acknowledgeable.
+    throw AppError.invalidTransition(after.status, 'in_progress', TASK_TRANSITIONS[after.status] || []);
+  }
 
   // Append a state_change audit comment (best-effort: an acknowledged task must
   // not be un-acknowledged just because the comment insert failed).
@@ -416,8 +430,9 @@ export async function acknowledgeTask({ tenantId = null, id, actorUid = null } =
       bodyKind: 'state_change',
       metadata: { from: current.status, to: 'in_progress', acknowledged_at: ackedAt },
     });
-  } catch {
-    // Comment is an audit nicety, not load-bearing — swallow.
+  } catch (err) {
+    // Comment is an audit nicety, not load-bearing — log with context, do not rethrow.
+    logger.warn('acknowledgeTask: state_change comment failed', { taskId, err: err?.message });
   }
   return rows[0];
 }
