@@ -175,13 +175,36 @@ export async function createTask({
   dueAt = null,
   slaDefinitionId = null,
   metadata = null,
+  // Optional transaction client (e.g. a setTenantTx tx) — defaults to the
+  // singleton. Lets the results-inbox producer create a task inside the same
+  // tenant-scoped transaction as its SLA-instance link.
+  tx = null,
+  // When true, append `ON CONFLICT … DO NOTHING` inferring the partial unique
+  // index `uq_task_open_per_resource` (migration 312). Makes the producer's
+  // "one open task per result resource" insert race-safe: a concurrent insert
+  // for the same (tenant, related_resource_type, related_resource_id) while an
+  // open/in_progress/blocked task already exists is a no-op (RETURNING yields
+  // no row → this returns undefined).
+  onConflictResourceDoNothing = false,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanTitle = safeText(title, 500);
   if (!cleanTitle) throw AppError.badRequest('title is required');
+  const db = tx || prisma;
+
+  // Infer the partial unique index by its column list + predicate (Postgres
+  // resolves a partial unique index from a matching ON CONFLICT predicate; the
+  // index is not a named constraint so it cannot be targeted by name).
+  const conflictClause = onConflictResourceDoNothing
+    ? `ON CONFLICT (tenant_id, related_resource_type, related_resource_id)
+         WHERE status IN ('open', 'in_progress', 'blocked')
+           AND related_resource_type IS NOT NULL
+           AND related_resource_id IS NOT NULL
+       DO NOTHING`
+    : '';
 
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `INSERT INTO tasks
          (tenant_id, workflow_run_id, workflow_step_id, parent_task_id,
           task_kind, title, description,
@@ -195,6 +218,7 @@ export async function createTask({
          $12, 'open',
          $13::uuid, $14, $15::uuid,
          $16::timestamptz, $17, $18::jsonb)
+       ${conflictClause}
        RETURNING ${TASK_RETURNING}`,
       tid,
       workflowRunId ? normalizeId(workflowRunId, 'workflow_run_id') : null,
@@ -338,6 +362,118 @@ export async function transitionTask({
   );
   if (!rows[0]) throw AppError.notFound('Task not found');
   return rows[0];
+}
+
+/**
+ * Acknowledge a task: open|overdue → in_progress, stamping
+ * `metadata.acknowledged_at` and appending a `state_change` task_comment.
+ *
+ * This is the results-inbox "assignee saw it / stopped the escalation clock"
+ * action (design §4.5). It is a thin, intention-revealing wrapper over the
+ * existing state machine: the engine treats an in_progress task as acked, so
+ * no new status is introduced. Already-acknowledged (in_progress) tasks are a
+ * fast idempotent no-op (returns the task unchanged). A completed/cancelled
+ * task cannot be acknowledged → AppError.invalidTransition (409).
+ */
+export async function acknowledgeTask({ tenantId = null, id, actorUid = null } = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const taskId = normalizeId(id, 'task id');
+  const ackUid = maybeUuid(actorUid, 'actor_uid');
+
+  const current = await getTask({ tenantId: tid, id: taskId });
+  // Already acknowledged → idempotent no-op (do not re-stamp / re-comment).
+  if (current.status === 'in_progress') return current;
+
+  const allowed = TASK_TRANSITIONS[current.status] || [];
+  if (!allowed.includes('in_progress')) {
+    throw AppError.invalidTransition(current.status, 'in_progress', allowed);
+  }
+
+  const ackedAt = new Date().toISOString();
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE tasks
+        SET status = 'in_progress',
+            metadata = COALESCE(metadata, '{}'::jsonb)
+              || jsonb_build_object('acknowledged_at', $1::text, 'acknowledged_by', $2::text),
+            updated_at = NOW()
+      WHERE id = $3 AND tenant_id = $4::uuid
+      RETURNING ${TASK_RETURNING}`,
+    ackedAt,
+    ackUid,
+    taskId,
+    tid,
+  );
+  if (!rows[0]) throw AppError.notFound('Task not found');
+
+  // Append a state_change audit comment (best-effort: an acknowledged task must
+  // not be un-acknowledged just because the comment insert failed).
+  try {
+    await postTaskComment({
+      tenantId: tid,
+      taskId,
+      authorUid: ackUid,
+      body: `Task acknowledged (${current.status} → in_progress)`,
+      bodyKind: 'state_change',
+      metadata: { from: current.status, to: 'in_progress', acknowledged_at: ackedAt },
+    });
+  } catch {
+    // Comment is an audit nicety, not load-bearing — swallow.
+  }
+  return rows[0];
+}
+
+/**
+ * Results-inbox query: the open work for "me or my role".
+ *
+ * Returns tasks in the active inbox statuses (open / in_progress / overdue)
+ * assigned to `assigneeUid` OR to any of `roles`, ordered by clinical urgency
+ * (priority, then due_at). Thin wrapper over the same raw SELECT `listTasks`
+ * uses; degrades to empty when the schema is absent (mirrors listTasks).
+ */
+export async function listInboxTasks({
+  tenantId = null, assigneeUid = null, roles = [], limit = DEFAULT_LIST_LIMIT,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const uid = maybeUuid(assigneeUid, 'assignee_uid');
+  const roleList = (Array.isArray(roles) ? roles : [roles])
+    .map((r) => safeText(r, 80))
+    .filter(Boolean);
+
+  const params = [tid];
+  // me OR my role(s)
+  const ownership = [];
+  if (uid) {
+    params.push(uid);
+    ownership.push(`assigned_to_uid = $${params.length}::uuid`);
+  }
+  if (roleList.length > 0) {
+    params.push(roleList);
+    ownership.push(`assigned_to_role = ANY($${params.length}::text[])`);
+  }
+  // No assignee and no roles → nothing is "mine".
+  if (ownership.length === 0) {
+    return { tasks: [], count: 0 };
+  }
+
+  const safeLimit = normalizeLimit(limit);
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT ${TASK_RETURNING} FROM tasks
+       WHERE tenant_id = $1::uuid
+         AND status IN ('open', 'in_progress', 'overdue')
+         AND (${ownership.join(' OR ')})
+       ORDER BY
+         CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+         due_at NULLS LAST,
+         created_at DESC
+       LIMIT $${params.length + 1}`,
+      ...params, safeLimit,
+    );
+    return { tasks: rows, count: rows.length };
+  } catch (err) {
+    if (isMissingSchemaError(err)) return { tasks: [], count: 0 };
+    throw err;
+  }
 }
 
 export async function reassignTask({
@@ -1104,8 +1240,10 @@ export const __testing__ = {
 export default {
   createTask,
   listTasks,
+  listInboxTasks,
   getTask,
   transitionTask,
+  acknowledgeTask,
   reassignTask,
   postTaskComment,
   listTaskComments,
