@@ -3,14 +3,12 @@
  *
  * Mounted at /api/v1/admin/workflow via routes/admin/index.js (ADMIN-gated).
  *
- * Results-inbox (design §4.5): the per-clinician inbox + acknowledge endpoints
- * (`GET /tasks/inbox`, `POST /tasks/:id/acknowledge`) live in THIS router so the
- * task handlers are not duplicated, but the safety-net inbox must be reachable
- * by clinical staff — NOT only admins. The same router is therefore ALSO mounted
- * at /api/v1/clinical-inbox under requireRole(...CLINICAL_STAFF_ROUTE_ROLES) in
- * app.js; only the two inbox endpoints are meant to be used there (the rest of
- * the admin surface is a no-op for clinicians who can still reach it, since
- * every handler is tenant-scoped + self/role-scoped). See app.js for the mount.
+ * Results-inbox (design §4.5): this ADMIN router also defines GET /tasks/inbox +
+ * POST /tasks/:id/acknowledge for admin use. The CLINICIAN-facing copy of those
+ * two endpoints lives in the dedicated minimal routes/clinicalInboxRoutes.js
+ * (mounted clinical-staff-gated at /api/v1/clinical-inbox). This full admin
+ * router is NOT exposed to clinical staff — doing so would leak cross-patient
+ * PHI via GET /tasks/:id and let clinicians disable escalation rules. See app.js.
  */
 
 import express from 'express';
