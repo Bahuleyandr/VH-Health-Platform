@@ -47,6 +47,10 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 // Clinical-AI workflow resume scheduler — Phase 5 of the rollout.
 import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.js';
 
+// Prior-auth → appeal chain starter sweep — Task 6. Auto-starts the chain
+// for denied prior-auth requests that have no appeal letter / run yet.
+import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChainService.js';
+
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
 import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliveryService.js';
 
@@ -306,6 +310,11 @@ if (process.env.NODE_ENV !== 'test') {
   cron.schedule('*/30 * * * * *', withJobLock('clinical-ai-workflow-resume', async () => {
     await runPausedWorkflowSweep({ maxResumes: 25 });
   }));
+
+  // Every 60 seconds — prior-auth → appeal chain starter sweep (Task 6).
+  // Finds denied prior-auth requests with no appeal letter / workflow run
+  // and auto-starts the appeal chain for each. Bounded at 25 per tick.
+  cron.schedule('*/60 * * * * *', withJobLock('clinical-ai-prior-auth-appeal-start', () => startPendingPriorAuthAppeals({ maxStarts: 25 })));
 
   // Every 30 seconds — webhook delivery dispatcher. Claims pending /
   // retryable-failed rows from webhook_deliveries via FOR UPDATE SKIP

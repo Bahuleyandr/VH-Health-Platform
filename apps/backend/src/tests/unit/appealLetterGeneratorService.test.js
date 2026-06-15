@@ -2,6 +2,7 @@ import {
   buildAppealLetterSections,
   classifyDenialReason,
   extractClinicalEvidence,
+  __testing__,
 } from '../../services/ai/appealLetterGeneratorService.js';
 
 function note(overrides = {}) {
@@ -38,6 +39,50 @@ function procedureOrder(overrides = {}) {
     },
   };
 }
+
+const { mapPriorAuthToAppealSubject } = __testing__ || {};
+
+describe('mapPriorAuthToAppealSubject', () => {
+  const pa = {
+    id: 42,
+    tenant_id: 't1',
+    patient_uid: 'p1',
+    admission_id: 7,
+    payer_name: 'Acme Health',
+    policy_number: 'POL-9',
+    procedure_code: '0SR90JZ',
+    procedure_description: 'Hip replacement',
+    payer_reference_id: 'PA-REF-1',
+    payer_decision_reason: 'Prior authorization not on file',
+    medical_necessity: 'Severe OA, failed conservative care',
+    clinical_evidence: { diagnoses: ['M16.11'], procedures: ['0SR90JZ'] },
+    citations: [{ source: 'note', ref: 'n1' }],
+  };
+
+  it('maps a denied prior-auth row into the claim-shaped appeal subject', () => {
+    const s = mapPriorAuthToAppealSubject(pa);
+    expect(s.source_type).toBe('prior_auth');
+    expect(s.prior_auth_id).toBe(42);
+    expect(s.claim_id).toBeNull();
+    expect(s.insurance_provider).toBe('Acme Health');
+    expect(s.policy_number).toBe('POL-9');
+    expect(s.rejection_reason).toBe('Prior authorization not on file');
+    expect(s.claim_number).toBe('PA-REF-1');
+    expect(s.patient_uid).toBe('p1');
+  });
+
+  it('falls back to PA-{id} when payer_reference_id is absent', () => {
+    const s = mapPriorAuthToAppealSubject({ ...pa, payer_reference_id: null });
+    expect(s.claim_number).toBe('PA-42');
+  });
+
+  it('passes through patient_name, submitted_at, and id for citation building', () => {
+    const s = mapPriorAuthToAppealSubject({ ...pa, patient_name: 'Jane Doe', submitted_at: '2026-01-01' });
+    expect(s.id).toBe(42);
+    expect(s.patient_name).toBe('Jane Doe');
+    expect(s.submitted_at).toBe('2026-01-01');
+  });
+});
 
 describe('appeal letter helpers', () => {
   describe('classifyDenialReason', () => {

@@ -411,6 +411,40 @@ async function getActivePrompt(tenantId) {
   }
 }
 
+/**
+ * Maps a `clinical_ai_prior_auth_requests` row into the same shape that
+ * `loadClaim` returns so that `buildAppealLetterSections` and all downstream
+ * code can work without modification.
+ */
+function mapPriorAuthToAppealSubject(pa) {
+  return {
+    // Identity / routing tags consumed by generateAppealLetter INSERT logic
+    source_type: 'prior_auth',
+    prior_auth_id: pa.id,
+    claim_id: null,
+
+    // Core fields matched to loadClaim's insurance_claims shape
+    id: pa.id,
+    claim_number: pa.payer_reference_id || `PA-${pa.id}`,
+    patient_uid: pa.patient_uid,
+    invoice_id: null,
+    insurance_provider: pa.payer_name,
+    policy_number: pa.policy_number,
+    claim_amount: null,
+    approved_amount: null,
+    status: 'denied',
+    documents: null,
+    submitted_at: pa.submitted_at || null,
+    reviewed_at: pa.decided_at || null,
+    rejection_reason: pa.payer_decision_reason || null,
+    patient_name: pa.patient_name || null,
+
+    // Extra fields useful for cover-letter / evidence building
+    admission_id: pa.admission_id || null,
+    medical_necessity: pa.medical_necessity || null,
+  };
+}
+
 async function loadClaim(tenantId, claimId) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.claim_number, c.patient_uid, c.invoice_id,
@@ -426,7 +460,41 @@ async function loadClaim(tenantId, claimId) {
   );
   const claim = rows[0];
   if (!claim) throw AppError.notFound('Insurance claim not found');
-  return claim;
+  return { ...claim, source_type: 'claim', claim_id: claim.id, prior_auth_id: null };
+}
+
+/**
+ * Loads either a denied insurance claim or a denied prior-auth request and
+ * returns a unified claim-shaped object that `buildAppealLetterSections` and
+ * `generateAppealLetter` can consume without modification.
+ *
+ * @param {{ tenantId: string, claimId?: number|null, priorAuthId?: number|null }} opts
+ */
+async function loadAppealSubject({ tenantId, claimId = null, priorAuthId = null }) {
+  if (priorAuthId) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT par.id, par.tenant_id, par.patient_uid, par.admission_id,
+              par.payer_name, par.policy_number, par.procedure_code,
+              par.procedure_description, par.payer_reference_id,
+              par.payer_decision_reason, par.medical_necessity,
+              par.status, par.submitted_at, par.payer_decided_at AS decided_at,
+              u.name AS patient_name
+       FROM clinical_ai_prior_auth_requests par
+       LEFT JOIN users u ON u.uid = par.patient_uid
+       WHERE par.id = $1
+         AND par.tenant_id = $2::uuid
+       LIMIT 1`,
+      priorAuthId,
+      tenantId
+    );
+    const pa = rows[0];
+    if (!pa) throw AppError.notFound('Prior authorization request not found');
+    if (pa.status !== 'denied') {
+      throw AppError.badRequest(`Prior authorization request is not denied (status: ${pa.status})`);
+    }
+    return mapPriorAuthToAppealSubject(pa);
+  }
+  return loadClaim(tenantId, claimId);
 }
 
 async function insertGeneration({
@@ -512,13 +580,23 @@ async function createReviewPlaceholder({ tenantId, generationId, patientUid, mod
 export async function generateAppealLetter({
   req = null,
   claimId,
+  priorAuthId = null,
   denialReason = null,
   denialCode = null,
   appealType = 'first_level',
   admissionId = null,
 } = {}) {
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
-  const safeClaimId = optionalInt(claimId, 'claim_id');
+  const safeClaimId = priorAuthId ? null : optionalInt(claimId, 'claim_id');
+  const safePriorAuthId = optionalIntOrNull(priorAuthId);
+
+  // Require exactly one of claimId / priorAuthId
+  const hasClaimId = safeClaimId !== null;
+  const hasPriorAuthId = safePriorAuthId !== null;
+  if (hasClaimId === hasPriorAuthId) {
+    throw AppError.badRequest('Exactly one of claim_id or prior_auth_id must be provided');
+  }
+
   const safeAdmissionId = optionalIntOrNull(admissionId);
   const resolvedAppealType = normalizeAppealType(appealType);
   const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
@@ -526,7 +604,7 @@ export async function generateAppealLetter({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const claim = await loadClaim(tenantId, safeClaimId);
+  const claim = await loadAppealSubject({ tenantId, claimId: safeClaimId, priorAuthId: safePriorAuthId });
   const classification = classifyDenialReason({
     denialReason: denialReason || claim.rejection_reason || '',
     denialCode: denialCode || '',
@@ -592,6 +670,7 @@ export async function generateAppealLetter({
     prompt,
     sourceHashValue: sourceHash({
       claim_id: safeClaimId,
+      prior_auth_id: safePriorAuthId,
       denial: { reason: denialReason, code: denialCode },
       classification: classification.classification,
       appeal_type: resolvedAppealType,
@@ -603,6 +682,7 @@ export async function generateAppealLetter({
     aiResult,
     metadata: {
       claim_id: safeClaimId,
+      prior_auth_id: safePriorAuthId,
       admission_id: safeAdmissionId,
       denial_classification: classification.classification,
       appeal_type: resolvedAppealType,
@@ -615,14 +695,14 @@ export async function generateAppealLetter({
   try {
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO clinical_ai_appeal_letters
-         (tenant_id, claim_id, patient_uid, admission_id, generation_id,
+         (tenant_id, claim_id, prior_auth_id, patient_uid, admission_id, generation_id,
           denial_reason, denial_code, denial_classification, appeal_type,
           letter_draft, clinical_evidence, source_citations, safety_flags,
           appeal_status, reviewer_decision, metadata, created_at, updated_at)
-       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9,
-               $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb,
-               'draft', 'pending', $14::jsonb, NOW(), NOW())
-       RETURNING id, tenant_id, claim_id, patient_uid, admission_id, generation_id,
+       VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, $7, $8::text, $9::text, $10::text,
+               $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb,
+               'draft', 'pending', $15::jsonb, NOW(), NOW())
+       RETURNING id, tenant_id, claim_id, prior_auth_id, patient_uid, admission_id, generation_id,
                  denial_reason, denial_code, denial_classification, appeal_type,
                  letter_draft, clinical_evidence, source_citations, safety_flags,
                  appeal_status, reviewer_decision, reviewed_by, reviewed_at,
@@ -631,6 +711,7 @@ export async function generateAppealLetter({
                  created_at, updated_at`,
       tenantId,
       safeClaimId,
+      safePriorAuthId,
       claim.patient_uid,
       safeAdmissionId,
       generation?.id || null,
@@ -681,11 +762,12 @@ export async function generateAppealLetter({
   await publishEvent({
     eventType: 'clinical_ai.appeal_letter_generated',
     aggregateType: 'clinical_ai_appeal_letter',
-    aggregateId: appealRow?.id || generation?.id || safeClaimId,
+    aggregateId: appealRow?.id || generation?.id || safeClaimId || safePriorAuthId,
     patientUid: claim.patient_uid,
     payload: {
       tenant_id: tenantId,
       claim_id: safeClaimId,
+      prior_auth_id: safePriorAuthId,
       appeal_id: appealRow?.id || null,
       generation_id: generation?.id || null,
       classification: classification.classification,
@@ -916,4 +998,10 @@ export default {
   listAppealLetters,
   recordAppealPayerResponse,
   submitAppealLetter,
+};
+
+// Exported for unit testing only — not part of the public API surface.
+export const __testing__ = {
+  mapPriorAuthToAppealSubject,
+  loadAppealSubject,
 };

@@ -1534,44 +1534,51 @@ model clinical_ai_antimicrobial_reviews {
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_antimicrobial_reviews_tenant_created")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// migration 313: claim_id is now nullable; prior_auth_id added. Exactly one must be non-NULL
+/// per row (enforced by chk_appeal_single_source CHECK constraint in DB).
 model clinical_ai_appeal_letters {
-  id                      Int                      @id @default(autoincrement())
-  tenant_id               String                   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  claim_id                Int
-  patient_uid             String                   @db.Uuid
-  admission_id            Int?
-  generation_id           Int?
-  denial_reason           String?
-  denial_code             String?                  @db.VarChar(80)
-  denial_classification   String                   @default("other") @db.VarChar(60)
-  appeal_type             String                   @default("first_level") @db.VarChar(40)
-  letter_draft            Json                     @default("{}")
-  clinical_evidence       Json                     @default("{}")
-  source_citations        Json                     @default("[]")
-  safety_flags            Json                     @default("[]")
-  appeal_status           String                   @default("draft") @db.VarChar(30)
-  reviewer_decision       String                   @default("pending") @db.VarChar(30)
-  reviewed_by             String?                  @db.Uuid
-  reviewed_at             DateTime?                @db.Timestamptz(6)
-  reviewer_note           String?
-  submitted_at            DateTime?                @db.Timestamptz(6)
-  submitted_by            String?                  @db.Uuid
-  payer_reference_id      String?                  @db.VarChar(120)
-  payer_response          Json?
-  payer_response_at       DateTime?                @db.Timestamptz(6)
-  metadata                Json                     @default("{}")
-  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime                 @default(now()) @db.Timestamptz(6)
-  retention_until         DateTime                 @default(dbgenerated("(CURRENT_DATE + '2555 days'::interval)")) @db.Date
-  insurance_claims        insurance_claims         @relation(fields: [claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  clinical_ai_generations clinical_ai_generations? @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
-  tenants                 tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                               Int                               @id @default(autoincrement())
+  tenant_id                        String                            @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  claim_id                         Int?
+  prior_auth_id                    Int?
+  patient_uid                      String                            @db.Uuid
+  admission_id                     Int?
+  generation_id                    Int?
+  denial_reason                    String?
+  denial_code                      String?                           @db.VarChar(80)
+  denial_classification            String                            @default("other") @db.VarChar(60)
+  appeal_type                      String                            @default("first_level") @db.VarChar(40)
+  letter_draft                     Json                              @default("{}")
+  clinical_evidence                Json                              @default("{}")
+  source_citations                 Json                              @default("[]")
+  safety_flags                     Json                              @default("[]")
+  appeal_status                    String                            @default("draft") @db.VarChar(30)
+  reviewer_decision                String                            @default("pending") @db.VarChar(30)
+  reviewed_by                      String?                           @db.Uuid
+  reviewed_at                      DateTime?                         @db.Timestamptz(6)
+  reviewer_note                    String?
+  submitted_at                     DateTime?                         @db.Timestamptz(6)
+  submitted_by                     String?                           @db.Uuid
+  payer_reference_id               String?                           @db.VarChar(120)
+  payer_response                   Json?
+  payer_response_at                DateTime?                         @db.Timestamptz(6)
+  metadata                         Json                              @default("{}")
+  created_at                       DateTime                          @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                          @default(now()) @db.Timestamptz(6)
+  retention_until                  DateTime                          @default(dbgenerated("(CURRENT_DATE + '2555 days'::interval)")) @db.Date
+  insurance_claims                 insurance_claims?                 @relation(fields: [claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  clinical_ai_prior_auth_requests  clinical_ai_prior_auth_requests?  @relation(fields: [prior_auth_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  clinical_ai_generations          clinical_ai_generations?          @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
+  tenants                          tenants                           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tenant_id, claim_id, created_at(sort: Desc)], map: "idx_appeal_letters_claim")
+  @@index([tenant_id, prior_auth_id, created_at(sort: Desc)], map: "idx_appeal_letters_prior_auth")
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_appeal_letters_patient")
   @@index([tenant_id, appeal_status, reviewer_decision, created_at(sort: Desc)], map: "idx_appeal_letters_status_review")
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_appeal_letters_tenant_created")
   @@index([tenant_id, submitted_at(sort: Desc)], map: "idx_appeal_letters_submitted", where: raw("((appeal_status)::text = 'submitted'::text)"))
+  @@unique([prior_auth_id], map: "uq_appeal_prior_auth", where: raw("prior_auth_id IS NOT NULL"))
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -3081,6 +3088,7 @@ model clinical_ai_polypharmacy_reviews {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// clinical_ai_appeal_letters back-references this table via prior_auth_id (migration 313).
 model clinical_ai_prior_auth_requests {
   id                     Int       @id @default(autoincrement())
   tenant_id              String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
@@ -3108,8 +3116,9 @@ model clinical_ai_prior_auth_requests {
   metadata               Json      @default("{}")
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
-  retention_until        DateTime  @default(dbgenerated("(CURRENT_DATE + '2555 days'::interval)")) @db.Date
-  tenants                tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  retention_until            DateTime                     @default(dbgenerated("(CURRENT_DATE + '2555 days'::interval)")) @db.Date
+  tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  clinical_ai_appeal_letters clinical_ai_appeal_letters[]
 
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_clinical_ai_prior_auth_tenant_patient")
   @@index([tenant_id], map: "idx_clinical_ai_prior_auth_pending_review", where: raw("((reviewer_decision)::text = 'pending'::text)"))
