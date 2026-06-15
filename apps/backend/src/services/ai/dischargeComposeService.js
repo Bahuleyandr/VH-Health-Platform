@@ -95,6 +95,47 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+// ---------- Governance approval predicate -------------------------------
+
+/**
+ * Returns true when a clinical_ai_approvals row exists for the given
+ * compose_generation_id whose status is 'approved'.
+ *
+ * Used by the await_governance_approval graph node (resume-aware check)
+ * to detect whether approval has already been granted before deciding to
+ * pause. Returns false on any error or when composeGenerationId is null
+ * so first-run calls always pause safely.
+ *
+ * NOTE: This is intentionally inlined here rather than imported from
+ * workflowResumeScheduler.js (isGovernanceApproved). The scheduler
+ * imports getComposeGraph from this file at module load, so importing
+ * back from the scheduler would create a circular dependency. The query
+ * body is kept in sync by comment reference.
+ */
+async function isComposeGovernanceApproved({ tenantId, composeGenerationId }) {
+  if (!composeGenerationId) return false;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, status, decided_at
+       FROM clinical_ai_approvals
+       WHERE tenant_id = $1::uuid
+         AND status = 'approved'
+         AND payload @> jsonb_build_object('compose_generation_id', $2::int)
+       ORDER BY decided_at DESC NULLS LAST
+       LIMIT 1`,
+      tenantId,
+      Number.parseInt(composeGenerationId, 10)
+    );
+    return Boolean(rows[0]);
+  } catch (err) {
+    logger.warn('dischargeComposeService: governance approval lookup failed', {
+      composeGenerationId,
+      error: err.message,
+    });
+    return false;
+  }
+}
+
 // ---------- Graph nodes -------------------------------------------------
 
 const COMPOSE_GRAPH_NODES = {
@@ -238,18 +279,32 @@ const COMPOSE_GRAPH_NODES = {
 
   /**
    * Optional governance pause. Gated by the module's
-   * settings.requireGovernanceApproval. When set, parks the run; an
-   * external scheduler (not built in this PR) detects the matching
-   * clinical_ai_approvals row transitioning to 'approved' and resumes
-   * via resumeWorkflow().
+   * settings.requireGovernanceApproval. When set, parks the run; the
+   * workflowResumeScheduler detects the matching clinical_ai_approvals
+   * row transitioning to 'approved' and resumes via resumeWorkflow().
+   *
+   * Resume-aware: on re-entry (after the scheduler resumes the run) the
+   * node checks whether approval already exists and proceeds immediately
+   * if so. Without this check the node would unconditionally re-pause on
+   * every resume, causing an infinite loop (the scheduler resumes → node
+   * pauses again → scheduler resumes → ...).
+   *
+   * Predicate mirrors workflowResumeScheduler.isGovernanceApproved() but
+   * is inlined here to avoid a circular import: workflowResumeScheduler
+   * imports getComposeGraph from this file at module load, so importing
+   * back from the scheduler would create a cycle.
    */
   await_governance_approval: async (state) => {
     if (!state.composeModule?.settings?.requireGovernanceApproval) {
       return {}; // pass through; no pause
     }
+    const generationId = state.composeGeneration?.id || null;
+    if (generationId && await isComposeGovernanceApproved({ tenantId: state.tenantId, composeGenerationId: generationId })) {
+      return {}; // already approved → proceed
+    }
     return pauseRun('await_governance', {
       pendingApproval: {
-        compose_generation_id: state.composeGeneration?.id || null,
+        compose_generation_id: generationId,
         admission_id: state.admissionId,
       },
     });
@@ -459,6 +514,7 @@ export const __testing__ = {
   DEFAULT_COMPOSE_CHILDREN,
   bandFromSafetyFlags,
   highestBand,
+  isComposeGovernanceApproved,
 };
 
 export default {
