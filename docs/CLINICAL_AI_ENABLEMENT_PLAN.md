@@ -117,6 +117,23 @@ two-person + eval + canary and go live **silently emitting template drafts**. Be
 `ai_metadata.used_ai=true` (and `ollama list` confirming the model is pulled), recorded in the
 enablement audit. Treat silent `template_fallback` as a blocking failure.
 
+> **Substrate landed (deep-tier readiness gate).** The code-side of C3 now exists in
+> `apps/backend/src/services/ai/localLlmClient.js`:
+> - `checkDeepModuleReadiness(moduleKey, { tenantId, tenantRegion, smoke })` → structured
+>   verdict `{ deepTier, modelPulled, smokeRan, smokeUsedAi, ready, reason }`. For Ollama it
+>   parses `GET /api/tags` to confirm `CLINICAL_AI_DEEP_MODEL` is actually **pulled** (not just
+>   that the endpoint answers), then runs a smoke gen requiring `used_ai=true`. Non-deep modules
+>   short-circuit `ready:true` (the gate never blocks the quick tier).
+> - `assertDeepModuleLive(moduleKey, opts)` → throws `CLINICAL_AI_DEEP_MODULE_NOT_LIVE` (with the
+>   verdict attached) when not live. **Wire this into the enablement path** that flips a deep
+>   module ON, and record the returned verdict in the enablement audit.
+> - `getClinicalAiRuntimeStatus({ live:true })` now surfaces a `deepTier.deepModelPulled`
+>   boolean (admin `/status` surface), and silent deep/critical template fallbacks at runtime
+>   increment `clinical_ai_deep_template_fallback_total{module,tier}` on `/metrics` + emit a
+>   WARN — so the degradation C3 warns about is observable even outside the enablement gate.
+> When `scripts/check-clinical-ai-tenant-preflight.ps1` is built, call `assertDeepModuleLive`
+> for each enabled deep-tagged module and FAIL `-RequireNoWarnings` on a not-live verdict.
+
 ---
 
 ## New internal uses (forward roadmap — net-new value, not just toggles)

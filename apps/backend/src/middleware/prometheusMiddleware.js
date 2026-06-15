@@ -164,6 +164,37 @@ export function recordUndefinedTableFallback() {
   dbUndefinedTableFallbackTotal.inc({});
 }
 
+// Clinical-AI deep/critical silent-template-fallback counter (deep-tier
+// readiness gate). A module declared `model_tier:'deep'` — or any
+// critical-risk / clinician-signoff module — that drops to the deterministic
+// TEMPLATE draft (ai_metadata.used_ai=false) when the deep model isn't
+// pulled/reachable is a SAFETY signal: clinicians receive template drafts
+// believing they are AI-assisted. This degradation used to be silent (no
+// startup assertion, no metric). Labelled by module + tier so ops can alert
+// per-module (e.g. medication_reconciliation must never trend up once live).
+const clinicalAiDeepTemplateFallbackTotal = new Counter(
+  'clinical_ai_deep_template_fallback_total',
+  'Deep-tier or critical/signoff clinical AI generations that silently fell back to a template draft',
+  ['module', 'tier'],
+);
+
+/**
+ * Record a single deep-tier / critical clinical-AI template fallback.
+ *
+ * Exported as a bare incrementer (not the Counter instance) for the exact
+ * reason recordUndefinedTableFallback is: the caller (src/services/ai/
+ * localLlmClient.js) must depend only on this function symbol, never on the
+ * Counter class or this module's other imports — that keeps the AI client's
+ * load graph free of any import cycle through the metrics layer.
+ *
+ * `module` / `tier` are bounded, low-cardinality labels (a fixed module
+ * register + {quick,deep}); empty/unknown values collapse to '' which the
+ * Counter renders harmlessly.
+ */
+export function recordDeepTemplateFallback({ module = '', tier = '' } = {}) {
+  clinicalAiDeepTemplateFallbackTotal.inc({ module: String(module || ''), tier: String(tier || '') });
+}
+
 // ---------------------------------------------------------------------------
 // Middleware — records request duration and count
 // ---------------------------------------------------------------------------
@@ -243,6 +274,7 @@ export function serializeMetrics() {
     nodeMemoryHeapUsed.serialize(),
     nodeUptimeSeconds.serialize(),
     dbUndefinedTableFallbackTotal.serialize(),
+    clinicalAiDeepTemplateFallbackTotal.serialize(),
   ];
   return sections.filter(Boolean).join('\n\n') + '\n';
 }

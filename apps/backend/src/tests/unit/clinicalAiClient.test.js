@@ -49,7 +49,38 @@ jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => (
   listClinicalAiModules: jest.fn(async () => [mockModule]),
 }));
 
-const { generateClinicalText, getClinicalAiConfig, getClinicalAiRuntimeStatus } = await import('../../services/ai/localLlmClient.js');
+const {
+  generateClinicalText,
+  getClinicalAiConfig,
+  getClinicalAiRuntimeStatus,
+  checkDeepModuleReadiness,
+  assertDeepModuleLive,
+} = await import('../../services/ai/localLlmClient.js');
+// Real (un-mocked) metrics + logger-mock handles so the deep-tier safety tests
+// can assert the named counter increments and the WARN fires. logger.js is
+// mocked above; prometheusMiddleware.js is NOT — localLlmClient imports the
+// real recordDeepTemplateFallback, so this is the same Counter instance.
+const { serializeMetrics } = await import('../../middleware/prometheusMiddleware.js');
+const { default: mockLogger } = await import('../../logging/logger.js');
+
+// Read the current value of the deep template-fallback counter for a given
+// module+tier label pair from the Prometheus exposition output.
+function deepFallbackCount(moduleLabel, tierLabel) {
+  const needle = `clinical_ai_deep_template_fallback_total{module="${moduleLabel}",tier="${tierLabel}"}`;
+  const line = serializeMetrics()
+    .split('\n')
+    .find((l) => l.startsWith(needle));
+  if (!line) return 0;
+  return Number(line.trim().split(/\s+/).pop()) || 0;
+}
+
+function okJsonTags(modelNames) {
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({ models: modelNames.map((name) => ({ name })) }),
+  });
+}
 
 const ORIGINAL_ENV = { ...process.env };
 const SECRET_NAMED_ENV_KEYS = [
@@ -165,6 +196,13 @@ describe('clinical AI provider client', () => {
       cost_budget: { used: 0, limit: null, remaining: null, percent_used: null, tripped: false },
     };
     global.fetch = jest.fn();
+    // logger.js is a module-scoped mock; clear call history each test so the
+    // deep-fallback WARN assertions (and the "does NOT warn" negative) see a
+    // clean slate rather than calls accumulated by earlier tests in this file.
+    mockLogger.info.mockClear();
+    mockLogger.warn.mockClear();
+    mockLogger.error.mockClear();
+    mockLogger.debug.mockClear();
   });
 
   afterAll(() => {
@@ -639,5 +677,301 @@ describe('clinical AI provider client', () => {
     expect(result.generation_mode).toBe('template_fallback');
     expect(result.provider_status).toBe('error');
     expect(result.fallback_reason).toMatch(/connection refused/i);
+  });
+
+  // ── Deep-tier readiness gate (silent-template-fallback safety fix) ────────
+  describe('deep-tier model-pulled readiness', () => {
+    function configureDeepOllama(model = 'llama3.1:70b-instruct-q4_K_M') {
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+      process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+      process.env.CLINICAL_AI_DEEP_MODEL = model;
+    }
+
+    it('reports deepModelPulled=true when the configured deep model is present in /api/tags', async () => {
+      configureDeepOllama('llama3.1:70b-instruct-q4_K_M');
+      global.fetch.mockReturnValue(
+        okJsonTags(['llama3.1:8b', 'llama3.1:70b-instruct-q4_K_M', 'nomic-embed-text:latest'])
+      );
+
+      const status = await getClinicalAiRuntimeStatus({ live: true });
+
+      expect(status.deepTier).toMatchObject({
+        configured: true,
+        provider: 'ollama',
+        model: 'llama3.1:70b-instruct-q4_K_M',
+        deepModelPulled: true,
+        modelPulledChecked: true,
+      });
+      expect(status.deepTier.available_models).toEqual(
+        expect.arrayContaining(['llama3.1:70b-instruct-q4_K_M'])
+      );
+    });
+
+    it('reports deepModelPulled=false when the configured deep model is NOT pulled', async () => {
+      configureDeepOllama('llama3.1:70b-instruct-q4_K_M');
+      // Daemon is healthy and answers, but the deep model was never pulled.
+      global.fetch.mockReturnValue(okJsonTags(['llama3.1:8b', 'phi3:mini']));
+
+      const status = await getClinicalAiRuntimeStatus({ live: true });
+
+      expect(status.deepTier).toMatchObject({
+        configured: true,
+        deepModelPulled: false,
+        modelPulledChecked: true,
+      });
+      expect(status.deepTier.modelPulledReason).toMatch(/model_not_pulled/);
+    });
+
+    it('matches a deep model configured without an explicit tag against :latest', async () => {
+      configureDeepOllama('meditron');
+      global.fetch.mockReturnValue(okJsonTags(['meditron:latest', 'llama3.1:8b']));
+
+      const status = await getClinicalAiRuntimeStatus({ live: true });
+      expect(status.deepTier.deepModelPulled).toBe(true);
+    });
+
+    it('does not assert deepModelPulled=true on a non-live status (no network call)', async () => {
+      configureDeepOllama();
+
+      const status = await getClinicalAiRuntimeStatus(); // live:false
+
+      expect(status.deepTier.configured).toBe(true);
+      expect(status.deepTier.deepModelPulled).toBeNull();
+      expect(status.deepTier.modelPulledChecked).toBe(false);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('reports deepModelPulled=null (unknown) when /api/tags is unreachable', async () => {
+      configureDeepOllama();
+      global.fetch.mockRejectedValue(new Error('connection refused'));
+
+      const status = await getClinicalAiRuntimeStatus({ live: true });
+
+      expect(status.deepTier.configured).toBe(true);
+      expect(status.deepTier.deepModelPulled).toBeNull();
+      expect(status.deepTier.modelPulledChecked).toBe(false);
+    });
+  });
+
+  describe('loud deep template-fallback signal', () => {
+    it('increments the named counter + WARNs when a deep/critical module falls back to template', async () => {
+      // Deep, critical module; deep provider is Ollama but generation fails →
+      // silent template fallback. This is the exact hazard the gate guards.
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+      process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+      process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      global.fetch.mockRejectedValue(new Error('model runner timed out'));
+
+      const before = deepFallbackCount('medication_reconciliation', 'deep');
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'medication_reconciliation',
+        tenantRegion: 'IN',
+      });
+
+      expect(result.usedAi).toBe(false);
+      expect(result.generation_mode).toBe('template_fallback');
+      expect(deepFallbackCount('medication_reconciliation', 'deep')).toBe(before + 1);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/fell back to template/i),
+        expect.objectContaining({ module: 'medication_reconciliation', tier: 'deep' })
+      );
+    });
+
+    it('increments the counter when the deep provider is template (never configured) for a critical module', async () => {
+      // No deep provider configured at all → readiness resolves to the template
+      // fallback. A critical module landing here is still silent degradation.
+      mockModule = {
+        ...mockModule,
+        module_key: 'op_differential_red_flags',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+
+      const before = deepFallbackCount('op_differential_red_flags', 'deep');
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'op_differential_red_flags',
+      });
+
+      expect(result.usedAi).toBe(false);
+      expect(result.generation_mode).toBe('template_fallback');
+      expect(deepFallbackCount('op_differential_red_flags', 'deep')).toBe(before + 1);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('does NOT increment or warn on a normal quick-tier template fallback', async () => {
+      // Quick-tier, non-critical, no signoff module → routine degradation must
+      // stay quiet (no metric noise, no targeted WARN).
+      mockModule = {
+        module_key: 'handover_summary',
+        display_name: 'Nursing Handover Drafts',
+        enabled: true,
+        external_allowed: false,
+        provider_override: null,
+        model_override: null,
+        max_tokens: null,
+        temperature: null,
+        settings: { risk: 'low' },
+      };
+
+      const before = deepFallbackCount('handover_summary', 'quick');
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'handover_summary',
+      });
+
+      expect(result.usedAi).toBe(false);
+      expect(result.generation_mode).toBe('template_fallback');
+      expect(deepFallbackCount('handover_summary', 'quick')).toBe(before);
+      expect(mockLogger.warn).not.toHaveBeenCalledWith(
+        expect.stringMatching(/fell back to template/i),
+        expect.anything()
+      );
+    });
+
+    it('does NOT increment when a deep-tier generation SUCCEEDS (non-breaking happy path)', async () => {
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+      process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+      process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      global.fetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ response: 'Deep AI draft', prompt_eval_count: 5, eval_count: 3 }),
+      });
+
+      const before = deepFallbackCount('medication_reconciliation', 'deep');
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'medication_reconciliation',
+        tenantRegion: 'IN',
+      });
+
+      expect(result.usedAi).toBe(true);
+      expect(result.generation_mode).toBe('ai');
+      expect(deepFallbackCount('medication_reconciliation', 'deep')).toBe(before);
+    });
+  });
+
+  describe('checkDeepModuleReadiness / assertDeepModuleLive (enablement gate)', () => {
+    it('returns ready when the deep model is pulled and a smoke gen returns used_ai=true', async () => {
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+      process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+      process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      // First fetch = /api/tags (model present); second = /api/generate (success).
+      global.fetch
+        .mockReturnValueOnce(okJsonTags(['llama3.1:70b-instruct-q4_K_M']))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ response: 'Smoke OK', prompt_eval_count: 2, eval_count: 2 }),
+        });
+
+      const verdict = await checkDeepModuleReadiness('medication_reconciliation', { tenantRegion: 'IN' });
+
+      expect(verdict).toMatchObject({
+        deepTier: true,
+        provider: 'ollama',
+        modelPulled: true,
+        smokeRan: true,
+        smokeUsedAi: true,
+        ready: true,
+        reason: null,
+      });
+    });
+
+    it('is not ready when the deep model is not pulled (and skips the smoke gen)', async () => {
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+      process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+      process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      global.fetch.mockReturnValue(okJsonTags(['llama3.1:8b'])); // deep model absent
+
+      const verdict = await checkDeepModuleReadiness('medication_reconciliation', { tenantRegion: 'IN' });
+
+      expect(verdict.ready).toBe(false);
+      expect(verdict.modelPulled).toBe(false);
+      expect(verdict.smokeRan).toBe(false);
+      expect(verdict.reason).toMatch(/model_not_pulled/);
+      // Only the /api/tags probe ran — no wasted /api/generate call.
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not ready when the smoke gen silently falls back to template', async () => {
+      process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+      process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+      process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      // tags say pulled, but the generate call fails → template fallback.
+      global.fetch
+        .mockReturnValueOnce(okJsonTags(['llama3.1:70b-instruct-q4_K_M']))
+        .mockRejectedValueOnce(new Error('model runner crashed'));
+
+      const verdict = await checkDeepModuleReadiness('medication_reconciliation', { tenantRegion: 'IN' });
+
+      expect(verdict.ready).toBe(false);
+      expect(verdict.smokeRan).toBe(true);
+      expect(verdict.smokeUsedAi).toBe(false);
+    });
+
+    it('treats a non-deep (quick-tier) module as ready and does not block it', async () => {
+      mockModule = {
+        ...mockModule,
+        module_key: 'handover_summary',
+        settings: { risk: 'low' },
+      };
+
+      const verdict = await checkDeepModuleReadiness('handover_summary');
+
+      expect(verdict.deepTier).toBe(false);
+      expect(verdict.ready).toBe(true);
+      expect(verdict.reason).toBe('not_deep_tier');
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('assertDeepModuleLive throws a coded error with the readiness payload when not live', async () => {
+      mockModule = {
+        ...mockModule,
+        module_key: 'medication_reconciliation',
+        settings: { risk: 'critical', model_tier: 'deep', requiresClinicianSignoff: true },
+      };
+      // No deep provider configured → provider resolves to template.
+      await expect(
+        assertDeepModuleLive('medication_reconciliation', { smoke: false })
+      ).rejects.toMatchObject({
+        code: 'CLINICAL_AI_DEEP_MODULE_NOT_LIVE',
+        readiness: expect.objectContaining({ ready: false }),
+      });
+    });
   });
 });

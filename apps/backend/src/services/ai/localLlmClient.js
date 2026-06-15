@@ -1,4 +1,10 @@
 import logger from '../../logging/logger.js';
+// Cycle-safe metric incrementer. localLlmClient.js depends ONLY on this one
+// function symbol from the metrics layer — never the Counter class or the
+// rest of prometheusMiddleware's load graph — exactly like src/lib/prisma.js
+// depends only on recordUndefinedTableFallback. That keeps the AI client free
+// of any prisma↔metrics-style import cycle (mirrors the B2.5 pattern).
+import { recordDeepTemplateFallback } from '../../middleware/prometheusMiddleware.js';
 import {
   getClinicalAiBudgetStatus,
   getClinicalAiGuardrails,
@@ -103,6 +109,27 @@ const VALID_TIERS = new Set(['quick', 'deep']);
 function normalizeTier(value) {
   const raw = String(value || '').toLowerCase().trim();
   return VALID_TIERS.has(raw) ? raw : 'quick';
+}
+
+/**
+ * A module is "high-assurance" — i.e. a silent template fallback is a SAFETY
+ * hazard worth a named metric + WARN — when it is deep-tier OR critical-risk OR
+ * requires clinician sign-off. These are the modules whose drafts a clinician
+ * trusts as AI-assisted; if they quietly degrade to a deterministic template
+ * the clinician is misled. Tier/risk/signoff all live under module.settings
+ * (model_tier|modelTier, risk, requiresClinicianSignoff) — read defensively so
+ * an unregistered/typo'd module (which defaults to signoff-required) is still
+ * treated as high-assurance. Quick-tier, non-critical, no-signoff modules
+ * (e.g. routine summaries) are intentionally excluded so normal degradation
+ * stays quiet.
+ */
+function isHighAssuranceModule(module, tier) {
+  if (normalizeTier(tier) === 'deep') return true;
+  const settings = module?.settings || {};
+  const risk = String(settings.risk || '').toLowerCase().trim();
+  if (risk === 'critical') return true;
+  if (settings.requiresClinicianSignoff === true) return true;
+  return false;
 }
 
 function boolEnv(value) {
@@ -638,6 +665,44 @@ function fallbackModeForReadiness(config, reason) {
   return 'blocked';
 }
 
+/**
+ * Loud signal for the silent-template-fallback hazard. When a HIGH-ASSURANCE
+ * module (deep-tier OR critical OR clinician-signoff) drops to the
+ * deterministic TEMPLATE draft (used_ai=false), increment the named
+ * clinical_ai_deep_template_fallback_total counter (module + tier labels) and
+ * emit a WARN — so what used to be a silent degradation becomes observable on
+ * /metrics and in the logs.
+ *
+ * Scoped to generation_mode === 'template_fallback' ONLY. Deliberate policy
+ * denials ('blocked' — external-not-allowed, region-blocked, budget tripped,
+ * module disabled) are NOT silent degradation and are intentionally excluded.
+ * Normal quick-tier / non-critical / no-signoff fallbacks are also excluded so
+ * routine degradation stays quiet (no metric noise, no alert fatigue).
+ *
+ * Never throws — metric/log emission is best-effort and must never break the
+ * generation hot path (the caller is already returning a safe template draft).
+ */
+function signalDeepTemplateFallback({ module, config, taskType, reason }) {
+  try {
+    if (!isHighAssuranceModule(module, config.tier)) return;
+    const moduleLabel = config.moduleKey || taskType || 'unknown';
+    const tierLabel = normalizeTier(config.tier);
+    recordDeepTemplateFallback({ module: moduleLabel, tier: tierLabel });
+    logger.warn('Clinical AI deep/critical module fell back to template draft (used_ai=false)', {
+      module: moduleLabel,
+      tier: tierLabel,
+      provider: config.provider,
+      model: config.model,
+      risk: module?.settings?.risk || null,
+      requiresClinicianSignoff: module?.settings?.requiresClinicianSignoff === true,
+      reason: String(reason || '').slice(0, 200),
+    });
+  } catch (err) {
+    // Defensive: never let observability break the safe-fallback return.
+    logger.warn('Failed to record deep template fallback signal', { error: err?.message });
+  }
+}
+
 function nonAiResult({
   config,
   taskType,
@@ -719,6 +784,9 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
 
   if (!readiness.ready) {
     const generationMode = fallbackModeForReadiness(config, readiness.reason);
+    if (generationMode === 'template_fallback') {
+      signalDeepTemplateFallback({ module, config, taskType, reason: readiness.reason });
+    }
     return nonAiResult({
       config,
       taskType,
@@ -811,6 +879,15 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
     transient_last_error: isTransientProviderError(lastError),
     error: lastError?.message,
   });
+  // This is the canonical silent-degradation path the readiness gate guards:
+  // a deep model that isn't pulled/reachable fails generation and lands here.
+  // Raise the named metric + targeted WARN for high-assurance modules.
+  signalDeepTemplateFallback({
+    module,
+    config,
+    taskType,
+    reason: lastError?.message || 'clinical_ai_generation_failed',
+  });
   return nonAiResult({
     config: { ...config, provider: looksLikeOllama(config) ? 'ollama' : config.provider },
     taskType,
@@ -864,6 +941,115 @@ async function probeProvider(config) {
   }
 }
 
+/**
+ * Match a configured model name against a provider's reported model list.
+ *
+ * Ollama tags are fully-qualified (`llama3.1:70b-instruct-q4_K_M`) and the
+ * `:latest` tag is implicit when omitted — so `llama3.1` matches a pulled
+ * `llama3.1:latest`. We accept an exact match OR a tag-prefix match in either
+ * direction (configured `name` vs reported `name:tag`) so the common
+ * "configured without an explicit tag" case resolves correctly without
+ * over-matching unrelated families.
+ */
+function modelNameMatches(configuredModel, reportedName) {
+  const want = String(configuredModel || '').trim().toLowerCase();
+  const have = String(reportedName || '').trim().toLowerCase();
+  if (!want || !have) return false;
+  if (want === have) return true;
+  const wantBase = want.split(':')[0];
+  const haveBase = have.split(':')[0];
+  if (wantBase !== haveBase) return false;
+  // Same family/base. Match when either side omitted the tag (implicit
+  // :latest) — i.e. one of them is exactly the base name.
+  return want === wantBase || have === haveBase;
+}
+
+function extractOllamaTagNames(payload) {
+  const models = Array.isArray(payload?.models) ? payload.models : [];
+  return models
+    .map((m) => m?.name || m?.model || '')
+    .filter(Boolean);
+}
+
+/**
+ * Deep-tier model-pulled readiness (the silent-template-fallback safety fix).
+ *
+ * The existing probeProvider() only confirms the endpoint ANSWERS — for Ollama
+ * a healthy daemon returns 200 on /api/tags even when the configured deep
+ * model has never been pulled. Generation against an un-pulled model then
+ * fails (or a cold pull blows the timeout) and drops to a silent template
+ * draft. This probe closes that gap: it confirms the configured model NAME is
+ * actually present in the provider's model list.
+ *
+ * Returns `{ checked, pulled, model, models, reason, latencyMs }`:
+ *   - `checked:false` → we couldn't enumerate models (provider doesn't expose
+ *     a list we parse, or the call itself was blocked/errored). `pulled` is
+ *     null — "unknown", never asserted true.
+ *   - `checked:true, pulled:true|false` → authoritative presence answer.
+ *
+ * Ollama is the parsed path (GET /api/tags). External providers (openai,
+ * anthropic, openai-compatible) are intentionally `checked:false` here — their
+ * model availability is an account/endpoint concern already covered by
+ * probeProvider's per-model GET, and enumerating a remote catalogue is out of
+ * scope for this local-GPU readiness gate. Never throws.
+ */
+async function probeModelPulled(config) {
+  const readiness = getReadiness(config);
+  if (!readiness.ready) {
+    return { checked: false, pulled: null, model: config.model, models: [], reason: readiness.reason, latencyMs: null };
+  }
+  if (!looksLikeOllama(config)) {
+    return {
+      checked: false,
+      pulled: null,
+      model: config.model,
+      models: [],
+      reason: 'model_list_not_enumerated_for_provider',
+      latencyMs: null,
+    };
+  }
+
+  const startedAt = Date.now();
+  const url = joinEndpoint(config.baseUrl, '/api/tags');
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {},
+      signal: AbortSignal.timeout(Math.min(config.timeoutMs, 8_000)),
+    });
+    if (!response.ok) {
+      return {
+        checked: false,
+        pulled: null,
+        model: config.model,
+        models: [],
+        reason: `HTTP ${response.status}`,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+    const payload = await response.json();
+    const models = extractOllamaTagNames(payload);
+    const pulled = models.some((name) => modelNameMatches(config.model, name));
+    return {
+      checked: true,
+      pulled,
+      model: config.model,
+      models,
+      reason: pulled ? null : `model_not_pulled:${config.model}`,
+      latencyMs: Date.now() - startedAt,
+    };
+  } catch (err) {
+    return {
+      checked: false,
+      pulled: null,
+      model: config.model,
+      models: [],
+      reason: err.message,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+}
+
 export async function getClinicalAiRuntimeStatus({
   live = false,
   days = 7,
@@ -891,9 +1077,44 @@ export async function getClinicalAiRuntimeStatus({
       latencyMs: null,
     };
 
+  // Deep-tier model-pulled readiness (silent-template-fallback safety gate).
+  // The top-level `config` above is quick-tier (module=null), so it can't tell
+  // us whether the DEEP model (CLINICAL_AI_DEEP_*) is actually pulled. Resolve a
+  // synthetic deep-tier config and, when a live probe is requested AND a deep
+  // tier is actually configured (provider !== template), confirm the model is
+  // present in the provider's list — surfacing a DISTINCT `deepModelPulled`
+  // boolean. When not live, or when no deep tier is configured, we report the
+  // configured-shape without a network call (deepModelPulled:null = unknown).
+  // Synthetic deep-tier module: `enabled:true` so getReadiness() resolves the
+  // PROVIDER readiness (not the module-disabled gate) — this probe is about the
+  // deep model/endpoint, not whether any specific governed module is on.
+  const deepConfig = getProviderConfig({ enabled: true, settings: { model_tier: 'deep' } }, guardrails);
+  const deepTierConfigured = deepConfig.provider !== 'template';
+  const deepReadiness = getReadiness(deepConfig, budget);
+  const deepRegionBlockReason = deepConfig.externalProvider
+    ? externalRegionBlockReason(tenantRegion)
+    : null;
+  const deepModelProbe = (live && deepTierConfigured && !deepRegionBlockReason)
+    ? await probeModelPulled(deepConfig)
+    : { checked: false, pulled: null, model: deepConfig.model, models: [], reason: null, latencyMs: null };
+  const deepTier = {
+    configured: deepTierConfigured,
+    provider: deepConfig.provider,
+    model: deepConfig.model,
+    ready: deepRegionBlockReason ? false : deepReadiness.ready,
+    readiness_reason: deepRegionBlockReason || deepReadiness.reason,
+    // The headline safety boolean: true ONLY when we positively confirmed the
+    // model is pulled. null = not checked / unknown (never asserted true).
+    deepModelPulled: deepModelProbe.checked ? deepModelProbe.pulled : null,
+    modelPulledChecked: deepModelProbe.checked,
+    modelPulledReason: deepModelProbe.reason,
+    available_models: deepModelProbe.models,
+  };
+
   return {
     config: serializeClinicalAiConfig(config, effectiveReadiness),
     providerHealth,
+    deepTier,
     guardrails,
     budget,
     modules,
@@ -902,8 +1123,147 @@ export async function getClinicalAiRuntimeStatus({
   };
 }
 
+/**
+ * Enablement-gate readiness check for a deep-tier clinical-AI module
+ * (Enablement-plan gate C3: "deep-tier producing real AI").
+ *
+ * Before an operator flips `enabled=true` on a deep/critical module, this
+ * answers: is the configured model actually PULLED, and (optionally) does a
+ * smoke generation return `used_ai=true` rather than a silent template draft?
+ *
+ * Resolves the module's REAL effective config (tenant override aware), so it
+ * reflects exactly what generation would use. For non-deep modules it returns
+ * `{ deepTier:false, ready:true }` — this gate only governs the deep tier and
+ * must never block quick-tier enablement.
+ *
+ * Options:
+ *   - `tenantId`      — resolve tenant-effective module config.
+ *   - `tenantRegion`  — applied to the smoke gen's region egress check.
+ *   - `smoke` (default true) — run a tiny generation and require used_ai=true.
+ *                     Set false for a model-pulled-only check (no token spend).
+ *
+ * Returns a structured verdict; NEVER throws (callers gate on `.ready`):
+ *   {
+ *     module, deepTier, provider, model,
+ *     modelPulled,        // true | false | null(unknown — not enumerable)
+ *     modelPulledChecked,
+ *     smokeRan, smokeUsedAi,
+ *     ready,              // overall: safe to enable as a real-AI deep module
+ *     reason,             // null when ready; else why not
+ *   }
+ */
+export async function checkDeepModuleReadiness(moduleKey, {
+  tenantId = null,
+  tenantRegion = null,
+  smoke = true,
+} = {}) {
+  const verdict = {
+    module: moduleKey || null,
+    deepTier: false,
+    provider: null,
+    model: null,
+    modelPulled: null,
+    modelPulledChecked: false,
+    smokeRan: false,
+    smokeUsedAi: null,
+    ready: false,
+    reason: null,
+  };
+
+  let module;
+  try {
+    module = await getClinicalAiModule(moduleKey, { tenantId });
+  } catch (err) {
+    verdict.reason = `module_lookup_failed:${err?.message || 'unknown'}`;
+    return verdict;
+  }
+
+  const config = getProviderConfig(module, await getClinicalAiGuardrails().catch(() => null));
+  verdict.provider = config.provider;
+  verdict.model = config.model;
+  verdict.deepTier = normalizeTier(config.tier) === 'deep';
+
+  // Non-deep modules are out of scope for this gate — do not block them.
+  if (!verdict.deepTier) {
+    verdict.ready = true;
+    verdict.reason = 'not_deep_tier';
+    return verdict;
+  }
+
+  // Provider config must resolve to a real (non-template) provider.
+  if (config.provider === 'template') {
+    verdict.reason = 'deep_tier_provider_is_template';
+    return verdict;
+  }
+
+  // Model-pulled probe (Ollama enumerated; external providers report unknown).
+  const probe = await probeModelPulled(config);
+  verdict.modelPulled = probe.checked ? probe.pulled : null;
+  verdict.modelPulledChecked = probe.checked;
+  if (probe.checked && probe.pulled === false) {
+    verdict.reason = probe.reason || `model_not_pulled:${config.model}`;
+    return verdict;
+  }
+
+  // Optional smoke generation — the authoritative "producing real AI" proof.
+  if (smoke) {
+    let result;
+    try {
+      result = await generateClinicalText({
+        systemPrompt: 'Readiness smoke check. Reply with a short clinical-style acknowledgement.',
+        userPrompt: 'Deep-tier model liveness probe. Respond briefly to confirm generation.',
+        taskType: moduleKey,
+        tenantRegion,
+        tenantId,
+      });
+    } catch (err) {
+      verdict.reason = `smoke_generation_threw:${err?.message || 'unknown'}`;
+      return verdict;
+    }
+    verdict.smokeRan = true;
+    verdict.smokeUsedAi = Boolean(result?.usedAi);
+    if (!result?.usedAi) {
+      verdict.reason = result?.fallback_reason
+        || result?.readiness_reason
+        || result?.reason
+        || 'smoke_generation_used_template_fallback';
+      return verdict;
+    }
+  } else if (!probe.checked) {
+    // No smoke and we couldn't confirm the model is pulled → "unknown", not ready.
+    verdict.reason = probe.reason || 'model_pulled_unknown_and_smoke_skipped';
+    return verdict;
+  }
+
+  verdict.ready = true;
+  return verdict;
+}
+
+/**
+ * Thin assertion wrapper around checkDeepModuleReadiness for callers that want
+ * a throw-on-not-ready gate (e.g. an enablement endpoint that should refuse to
+ * flip a deep module ON until it provably produces real AI). Non-deep modules
+ * pass through (the gate doesn't apply). Throws AppError-shaped via the caller;
+ * here it throws a plain Error with a `.readiness` payload attached so the
+ * enablement path can surface the exact blocking reason.
+ */
+export async function assertDeepModuleLive(moduleKey, options = {}) {
+  const readiness = await checkDeepModuleReadiness(moduleKey, options);
+  if (!readiness.ready) {
+    const err = new Error(
+      `Deep-tier module "${moduleKey}" is not producing real AI: ${readiness.reason}`
+    );
+    err.code = 'CLINICAL_AI_DEEP_MODULE_NOT_LIVE';
+    err.readiness = readiness;
+    throw err;
+  }
+  return readiness;
+}
+
 export default {
   generateClinicalText,
   getClinicalAiConfig,
   getClinicalAiRuntimeStatus,
+  checkDeepModuleReadiness,
+  assertDeepModuleLive,
 };
