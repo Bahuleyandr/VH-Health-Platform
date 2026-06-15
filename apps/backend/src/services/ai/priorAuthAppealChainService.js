@@ -284,27 +284,27 @@ registerPauseReasonHandler('await_appeal_payer_response', gateResolved);
  *   outcome.result                                — if chain completes synchronously (unlikely)
  * Throws AppError on validation failure or unrecoverable workflow failure.
  */
-export async function composePriorAuthAppeal(priorAuthId, { startedBy = null, req = null } = {}) {
+export async function composePriorAuthAppeal(priorAuthId, { startedBy = null, req = null, tenantId = undefined } = {}) {
   if (!Number.isFinite(Number(priorAuthId))) {
     throw AppError.badRequest('Invalid prior_auth_id', 'INVALID_PRIOR_AUTH_ID');
   }
 
-  // Mirror composeDischargePackage: resolve tenantId from req (set by jwtMiddleware)
-  // then fall back to DEFAULT_TENANT_ID.
-  const tenantId = resolveTenantId({ tenantId: req?.tenantId });
+  // Explicit tenantId wins, then req.tenantId, then DEFAULT_TENANT_ID.
+  // This lets the scheduler sweep pass each PA's own tenant without a req.
+  const resolvedTenantId = tenantId ?? req?.tenantId ?? DEFAULT_TENANT_ID;
 
   const outcome = await runWorkflow({
     graph: getPriorAuthAppealGraph(),
     initialState: {
       priorAuthId: Number(priorAuthId),
-      tenantId,
+      tenantId: resolvedTenantId,
     },
     ctx: { req },
     store: getDefaultCheckpointStore(),
-    tenantId,
+    tenantId: resolvedTenantId,
     startedBy,
     workflowMetadata: {
-      prior_auth_id: priorAuthId,
+      prior_auth_id: Number(priorAuthId),
     },
   });
 
@@ -324,6 +324,58 @@ export async function composePriorAuthAppeal(priorAuthId, { startedBy = null, re
   }
 
   return outcome.result;
+}
+
+// ---------- Scheduler sweep ---------------------------------------------------
+
+/**
+ * Cross-tenant sweep that finds denied prior-auth requests which have no
+ * appeal letter and no workflow run yet, and auto-starts the appeal chain
+ * for each.  Intended to be called from the scheduler (no HTTP request
+ * context); each PA's own tenant is resolved and passed explicitly so
+ * composePriorAuthAppeal can apply the correct RLS / module gate.
+ *
+ * Idempotent: the NOT EXISTS guards avoid redundant starts; the hard
+ * backstop is the partial-unique index `uq_appeal_prior_auth` on the
+ * appeal table (a duplicate draft INSERT fails).
+ *
+ * @param {{ maxStarts?: number }} opts
+ * @returns {Promise<{ scanned: number, started: number, skipped_disabled: number, failed: number }>}
+ */
+export async function startPendingPriorAuthAppeals({ maxStarts = 25 } = {}) {
+  const summary = { scanned: 0, started: 0, skipped_disabled: 0, failed: 0 };
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT pa.id, pa.tenant_id
+         FROM clinical_ai_prior_auth_requests pa
+        WHERE pa.status = 'denied'
+          AND NOT EXISTS (SELECT 1 FROM clinical_ai_appeal_letters a WHERE a.prior_auth_id = pa.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM clinical_ai_workflow_runs r
+             WHERE r.workflow_key = 'prior_auth_appeal_chain'
+               AND r.metadata->>'prior_auth_id' = pa.id::text)
+        ORDER BY pa.payer_decided_at ASC NULLS LAST
+        LIMIT $1::int`,
+      Number(maxStarts));
+  } catch (err) {
+    logger.warn('startPendingPriorAuthAppeals scan failed', { error: err.message });
+    return summary; // missing table / DB down → no-op
+  }
+  for (const pa of rows || []) {
+    summary.scanned += 1;
+    try {
+      // Only start when the appeal module is enabled for THIS PA's tenant.
+      const module = await getClinicalAiModule('appeal_letter_generator', { tenantId: pa.tenant_id });
+      if (!module.enabled) { summary.skipped_disabled += 1; continue; }
+      await composePriorAuthAppeal(pa.id, { startedBy: null, tenantId: pa.tenant_id });
+      summary.started += 1;
+    } catch (err) {
+      summary.failed += 1;
+      logger.warn('startPendingPriorAuthAppeals: failed to start chain for PA', { priorAuthId: pa.id, error: err.message });
+    }
+  }
+  return summary;
 }
 
 // Test-only exports. The runtime exports above are the documented public API.
