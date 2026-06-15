@@ -13,6 +13,11 @@ import { canSignOffLabResults } from '../../utils/roleHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { emitCriticalLabAlertAcknowledged } from '../clinical/canonicalOperationalBridgeService.js';
+// Results-inbox safety net (design docs/RESULTS_INBOX_ESCALATION_DESIGN.md §4.2):
+// a finalized CRITICAL lab result becomes an assigned, acknowledgement-tracked
+// task so it cannot fall through the cracks. The call is POST-COMMIT + best-effort
+// (Phase 1.5, apps/backend/CLAUDE.md) — it must NEVER block or fail the lab write.
+import { enqueueCriticalResultTask } from '../results/resultsInboxService.js';
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -353,6 +358,49 @@ export async function detectCriticalsForResults({ tenantId, results }) {
       });
     } catch (e) {
       logger.error(`Critical lab alert recipient fan-out failed for result ${r.id}: ${e?.message}`);
+    }
+
+    // Results-inbox producer hook (design §4.2 — deterministic core). The
+    // critical alert row above is already committed (no enclosing tx here —
+    // each $executeRaw/$queryRaw auto-commits), so this is a post-commit,
+    // Phase-1.5 best-effort enqueue: it turns the panic value into an
+    // assigned, acknowledgement-tracked task that the escalation engine will
+    // chase if it goes unacked. CRITICAL: it must never throw or slow the lab
+    // write — enqueueCriticalResultTask is itself never-throws, and we still
+    // wrap + swallow defensively. Idempotent via the mig-312 open-task index,
+    // so a re-ingest of the same ORU does not create a duplicate task.
+    try {
+      // Map the ordering clinician from the result's order when available
+      // (investigations.requested_by). Single best-effort lookup; a null
+      // simply falls the producer back to the DUTY role.
+      let orderingClinicianUid = null;
+      try {
+        const ord = await prisma.$queryRawUnsafe(
+          `SELECT requested_by
+             FROM investigations
+            WHERE id = $1::int AND tenant_id = $2::uuid
+            LIMIT 1`,
+          r.investigation_id ? Number(r.investigation_id) : -1,
+          tenantId,
+        );
+        orderingClinicianUid = ord[0]?.requested_by || null;
+      } catch (lookupErr) {
+        logger.warn(`[lab] ordering-clinician lookup for results-inbox task failed (result ${r.id}): ${lookupErr?.message}`);
+      }
+
+      await enqueueCriticalResultTask({
+        tenantId,
+        patientUid: r.patient_uid,
+        source: 'lab_result',
+        resourceType: 'lab_result',
+        resourceId: r.id,
+        severity: 'critical',
+        title: `Critical lab: ${r.test_name}`,
+        summary: `${r.test_name} = ${r.value_text}${r.unit ? ` ${r.unit}` : ''} (threshold ${breachedSide} ${breachedValue}).`,
+        orderingClinicianUid,
+      });
+    } catch (e) {
+      logger.error(`[lab] results-inbox enqueue failed for critical result ${r.id}: ${e?.message}`);
     }
   }
   return alerts;

@@ -2,6 +2,14 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { dispatch } from '../notifications/notificationDispatcher.js';
 import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js';
+// Results-inbox safety net (design docs/RESULTS_INBOX_ESCALATION_DESIGN.md §4.2):
+// a CRITICAL vital-sign clinical_alert becomes an assigned, acknowledgement-tracked
+// task. POST-COMMIT + best-effort (Phase 1.5) — must NEVER block the alert persist.
+// Tenant import is needed because this util operates on the int patient_id, not a
+// tenant-scoped request; the alerts table itself is not tenant-keyed, so the task
+// is created under the default tenant (single-tenant deployment — see design §4.6).
+import { enqueueCriticalResultTask } from '../../services/results/resultsInboxService.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 
 /**
  * Adult clinical reference ranges (default).
@@ -247,12 +255,36 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         logger.warn(`vitalSignMonitor: patient uid lookup failed for cds_alerts mirror: ${err.message}`);
       }
     }
+
+    // Resolve the patient UUID once for the results-inbox producer hook below.
+    // clinical_alerts is keyed by the int patient_id, but the results-inbox
+    // task (and its mig-269 SLA instance) is keyed by patient_uid. Only needed
+    // when at least one CRITICAL alert fired; a null uid still lets the task be
+    // created (patientUid is optional on the producer).
+    let criticalPatientUid = null;
+    if (alerts.some((a) => a.severity === 'CRITICAL')) {
+      // Reuse the pregnancy lookup if it already resolved the same patient.
+      criticalPatientUid = pregnancyCdsPatientUid;
+      if (!criticalPatientUid) {
+        try {
+          const r = await prisma.$queryRawUnsafe(
+            `SELECT uid FROM users WHERE id = $1::int LIMIT 1`,
+            patientId,
+          );
+          criticalPatientUid = r[0]?.uid ?? null;
+        } catch (err) {
+          logger.warn(`vitalSignMonitor: patient uid lookup failed for results-inbox task: ${err.message}`);
+        }
+      }
+    }
     for (const alert of alerts) {
-      await prisma.$queryRawUnsafe(
+      const alertRows = await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
-         VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())`,
+         VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())
+         RETURNING id`,
         alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by
       );
+      const clinicalAlertId = alertRows[0]?.id ?? null;
 
       // D26 — Mirror pregnancy-hypertension and pre-eclampsia screen
       // alerts to cds_alerts so they surface on the doctor's CDS
@@ -317,6 +349,35 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         } catch (notifyErr) {
           // Notification failure must not block alert persistence — log and continue
           logger.error(`Failed to dispatch CRITICAL alert notification for patient ${alert.patient_id}:`, notifyErr.message);
+        }
+
+        // Results-inbox producer hook (design §4.2 — deterministic core). The
+        // clinical_alerts row above is already committed (no enclosing tx —
+        // each $queryRaw auto-commits), so this is a post-commit, Phase-1.5
+        // best-effort enqueue: the CRITICAL vital becomes an assigned,
+        // acknowledgement-tracked task the escalation engine will chase if it
+        // goes unacked. CRITICAL: must never throw or slow the alert persist —
+        // enqueueCriticalResultTask is never-throws, and we still swallow
+        // defensively here. Idempotent via the mig-312 open-task index (keyed
+        // on the clinical_alert id), so a re-run never duplicates the task.
+        if (clinicalAlertId != null) {
+          try {
+            await enqueueCriticalResultTask({
+              tenantId: DEFAULT_TENANT_ID,
+              patientUid: criticalPatientUid,
+              source: 'vital_alert',
+              resourceType: 'clinical_alert',
+              resourceId: clinicalAlertId,
+              severity: 'critical',
+              title: `Critical vital: ${alert.vital_name.replace(/_/g, ' ')}`,
+              summary: alert.message,
+              // The recording clinician is the natural first owner; null falls
+              // the producer back to the DUTY role.
+              orderingClinicianUid: null,
+            });
+          } catch (enqueueErr) {
+            logger.error(`vitalSignMonitor: results-inbox enqueue failed for critical alert (patient_id=${alert.patient_id}): ${enqueueErr?.message}`);
+          }
         }
       }
     }
