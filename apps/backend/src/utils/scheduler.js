@@ -74,6 +74,12 @@ import { expireStaleInspections } from '../services/bed/bedInspectionService.js'
 // audit cleanliness (the engine already treats them as inactive by time).
 import { sweepExpiredBreakGlass } from '../services/security/breakGlassService.js';
 
+// Results-inbox escalation engine — RESULTS_INBOX_ESCALATION_DESIGN §4.3/§4.4.
+// Evaluates active escalation_rules against overdue tasks / breached mig-269
+// SLA instances and fires tiered actions (re-notify → duty role → leadership),
+// plus a backfill backstop, so no critical result falls through the cracks.
+import { runEscalationSweep } from '../services/workflow/escalationEngineService.js';
+
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
@@ -215,6 +221,17 @@ if (process.env.NODE_ENV !== 'test') {
     await sweepExpiredBreakGlass();
   }));
 
+  // 🚑 Every 2 minutes — results-inbox escalation engine
+  // (RESULTS_INBOX_ESCALATION_DESIGN §4.4). Marks tasks overdue, evaluates
+  // active escalation_rules against breached critical-result SLA instances and
+  // fires tiered actions once each (re-notify → duty role → leadership +
+  // security webhook), and backfills any breached SLA instance that lost its
+  // task. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper); each
+  // tenant's writes re-scope via setTenantTx.
+  cron.schedule('*/2 * * * *', withJobLock('results-inbox-escalation', async () => {
+    await runEscalationSweep({});
+  }));
+
   // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
   cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
 
@@ -345,6 +362,7 @@ export async function runAllScheduledTasksNow() {
     await sendInvestigationNotifications();
     await runRosterDeadlineEscalation({ force: true });
     await sweepExpiredBreakGlass();
+    await runEscalationSweep({});
 
     // Purge file deletion log entries older than 90 days
     const fileDeletionResult = await prisma.$queryRawUnsafe(

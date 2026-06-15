@@ -1,0 +1,159 @@
+// FU1 — deep (enforced-RLS) regression for the results-inbox producer's
+// "read the SLA rule on the plain singleton" fix.
+//
+// ROOT CAUSE this test demonstrates:
+//   The seeded `critical_result_ack` SLA rule is a GLOBAL rule
+//   (workflow_sla_rules.tenant_id IS NULL). workflow_sla_rules has the mig-075
+//   `tenant_isolation` RLS policy AND is FORCE ROW LEVEL SECURITY, so once the
+//   GUC `app.current_tenant_id` is pinned to a concrete tenant, the policy's
+//   `tenant_id = app_current_tenant_id_uuid()` clause is false for a NULL-tenant
+//   row → the global rule becomes INVISIBLE. That is exactly why
+//   resultsInboxService.enqueueCriticalResultTask calls startWorkflowSla on the
+//   plain `prisma` singleton (GUC unset → the global rule is visible) instead of
+//   inside setTenantTx(tenantId) — reading it tenant-scoped would silently
+//   return no rule and the safety-net SLA clock would never start.
+//
+// The MECHANISM (producer reads on the singleton, no { db: tx }) is unit-guarded
+// in src/tests/unit/resultsInboxService.test.js. This test exercises the
+// ENFORCED-RLS behaviour end-to-end against the real DB, reusing the non-owner
+// rls_test_app harness from tenant-rls.deep.test.js:
+//
+//   * as rls_test_app WITH a concrete-tenant GUC  -> 0 rows (global rule hidden)
+//   * as rls_test_app WITHOUT the GUC             -> the rule is visible
+//   * owner / GUC-unset (the producer's singleton read path) -> visible
+//
+// Why a non-owner role: Postgres exempts table OWNERS from RLS UNLESS the table
+// is FORCE-RLS. workflow_sla_rules IS force-RLS, so even the owner is subject to
+// the policy; we still pipe through the dedicated rls_test_app role to mirror
+// production (the app connects as a non-owner, non-BYPASSRLS role) and to match
+// the existing deep-RLS harness exactly.
+
+import prisma from '../lib/prisma.js';
+
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
+const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
+
+const RULE_CODE = 'critical_result_ack';
+const TENANT_A = '00000000-0000-4000-8000-000000000001'; // DEFAULT_TENANT_ID
+const APP_ROLE = 'rls_test_app';
+
+// Owner-path helper (mirrors tenant-rls.deep.test.js). The owner read runs with
+// the GUC unset, so the tenant_isolation policy is permissive and the global
+// NULL-tenant rule is visible — the same condition the producer's singleton
+// read relies on.
+async function ownerQuery(text, params = []) {
+  if (/^\s*(SELECT|WITH)\b/i.test(text) || /\bRETURNING\b/i.test(text)) {
+    const rows = await prisma.$queryRawUnsafe(text, ...params);
+    const arr = Array.isArray(rows) ? rows : [];
+    return { rows: arr, rowCount: arr.length };
+  }
+  const rowCount = await prisma.$executeRawUnsafe(text, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+}
+
+// Run a query as the non-owner APP_ROLE with a concrete-tenant GUC, scoped to a
+// single transaction (SET LOCAL ROLE + set_config(..., true) auto-clear at
+// COMMIT). Mirrors asAppRole in tenant-rls.deep.test.js.
+async function asAppRole(text, params, tenantId) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+    await tx.$executeRawUnsafe(
+      "SELECT set_config('app.current_tenant_id', $1, true)",
+      tenantId,
+    );
+    const rows = await tx.$queryRawUnsafe(text, ...params);
+    return Array.isArray(rows) ? rows : [];
+  });
+}
+
+// Same role, GUC unset — the permissive path.
+async function asAppRoleNoGuc(text, params) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+    const rows = await tx.$queryRawUnsafe(text, ...params);
+    return Array.isArray(rows) ? rows : [];
+  });
+}
+
+describeIfDb('Results-inbox SLA rule RLS (FU1 — global critical_result_ack hidden under tenant GUC)', () => {
+  let rlsForced = false;
+  let globalRulePresent = false;
+
+  beforeAll(async () => {
+    // Create the non-owner application role + grant the minimum needed to read
+    // the table. Idempotent (mirrors tenant-rls.deep.test.js).
+    await ownerQuery(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
+          CREATE ROLE ${APP_ROLE} NOLOGIN;
+        END IF;
+      END $$;
+    `);
+    await ownerQuery(`GRANT USAGE ON SCHEMA public TO ${APP_ROLE}`);
+    await ownerQuery(`GRANT SELECT ON workflow_sla_rules TO ${APP_ROLE}`);
+
+    // Precondition probes — the root-cause demo is only valid if the table is
+    // force-RLS and the global rule actually exists.
+    const forced = await ownerQuery(
+      `SELECT relforcerowsecurity FROM pg_class WHERE relname = 'workflow_sla_rules'`,
+    );
+    rlsForced = forced.rows[0]?.relforcerowsecurity === true;
+
+    const rule = await ownerQuery(
+      `SELECT id, tenant_id FROM workflow_sla_rules WHERE rule_code = $1 AND tenant_id IS NULL`,
+      [RULE_CODE],
+    );
+    globalRulePresent = rule.rowCount >= 1;
+  });
+
+  it('precondition: workflow_sla_rules is force-RLS and the global critical_result_ack rule exists', () => {
+    // If either precondition fails, the hiding demo below is meaningless — fail
+    // loudly rather than asserting a vacuous truth.
+    expect(rlsForced).toBe(true);
+    expect(globalRulePresent).toBe(true);
+  });
+
+  it('hides the global rule from a non-owner role once a concrete-tenant GUC is set', async () => {
+    const rows = await asAppRole(
+      `SELECT id, tenant_id FROM workflow_sla_rules WHERE rule_code = $1`,
+      [RULE_CODE],
+      TENANT_A,
+    );
+    // The NULL-tenant global rule is invisible under the concrete-tenant GUC —
+    // this is precisely the failure the producer's singleton read avoids.
+    expect(rows.length).toBe(0);
+  });
+
+  it('shows the global rule to the same role when the GUC is unset (permissive)', async () => {
+    const rows = await asAppRoleNoGuc(
+      `SELECT id, tenant_id FROM workflow_sla_rules WHERE rule_code = $1`,
+      [RULE_CODE],
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    // It is genuinely the GLOBAL (NULL-tenant) row.
+    expect(rows.some((r) => r.tenant_id == null)).toBe(true);
+  });
+
+  it('shows the global rule on the plain singleton / GUC-unset path the producer uses', async () => {
+    // enqueueCriticalResultTask reads the rule via startWorkflowSla on the plain
+    // `prisma` singleton (no setTenantTx, GUC unset) — modelled here by the
+    // owner/GUC-unset read. The rule must be visible so the SLA clock can start.
+    const result = await ownerQuery(
+      `SELECT id, tenant_id FROM workflow_sla_rules WHERE rule_code = $1`,
+      [RULE_CODE],
+    );
+    expect(result.rowCount).toBeGreaterThanOrEqual(1);
+    expect(result.rows.some((r) => r.tenant_id == null)).toBe(true);
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect().catch(() => {});
+  });
+});
+
+if (!hasDatabaseUrl) {
+  console.warn(
+    'resultsInboxSlaRuleRls.deep.test.js skipped: neither DATABASE_URL nor TEST_DATABASE_URL is set.',
+  );
+}
