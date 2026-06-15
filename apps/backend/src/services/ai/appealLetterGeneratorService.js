@@ -477,7 +477,7 @@ async function loadAppealSubject({ tenantId, claimId = null, priorAuthId = null 
               par.payer_name, par.policy_number, par.procedure_code,
               par.procedure_description, par.payer_reference_id,
               par.payer_decision_reason, par.medical_necessity,
-              par.status, par.submitted_at, par.decided_at,
+              par.status, par.submitted_at, par.payer_decided_at AS decided_at,
               u.name AS patient_name
        FROM clinical_ai_prior_auth_requests par
        LEFT JOIN users u ON u.uid = par.patient_uid
