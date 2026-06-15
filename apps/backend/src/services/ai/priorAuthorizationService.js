@@ -19,6 +19,7 @@ import { generateClinicalText } from './localLlmClient.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { submitPriorAuthToPayer } from './priorAuthorizationPayerAdapterService.js';
+import { publishEvent } from '../events/eventOutboxService.js';
 
 const MODULE_KEY = 'prior_authorization_generator';
 
@@ -109,6 +110,9 @@ export async function generatePriorAuthorization({
   const context = await collectAdmissionClinicalContext(admission.id);
   const evidence = buildEvidenceBundle(context);
   const module = await getClinicalAiModule(MODULE_KEY);
+  if (!module.enabled) {
+    throw AppError.forbidden('prior_authorization_generator module is disabled', 'PRIOR_AUTH_MODULE_DISABLED');
+  }
 
   const systemPrompt = [
     'You are a hospital revenue-cycle assistant drafting a prior-authorization packet for a payer.',
@@ -294,14 +298,31 @@ export async function recordPayerDecision({ priorAuthId, decision, reason = null
          updated_at = NOW()
      WHERE id = $1
        AND tenant_id = $4::uuid
-     RETURNING id, status, payer_decided_at, payer_decision_reason`,
+     RETURNING id, status, payer_decided_at, payer_decision_reason, patient_uid`,
     Number.parseInt(priorAuthId, 10),
     normalized,
     reason,
     tid
   );
   if (!rows[0]) throw AppError.notFound('Prior auth not found');
-  return rows[0];
+  const updated = rows[0];
+
+  // Phase 1.5 — post-commit best-effort event (never throws).
+  if (normalized === 'denied') {
+    try {
+      await publishEvent({
+        eventType: 'clinical_ai.prior_auth_denied',
+        aggregateType: 'prior_auth',
+        aggregateId: String(priorAuthId),
+        patientUid: updated.patient_uid || null,
+        payload: { tenant_id: tid || null, payer_decision_reason: reason || null },
+      });
+    } catch (err) {
+      logger.warn('Failed to publish prior_auth_denied event', { priorAuthId, error: err.message });
+    }
+  }
+
+  return updated;
 }
 
 export async function listPriorAuthorizations({ tenantId = null, status = null, reviewerDecision = null, limit = 50 } = {}) {
