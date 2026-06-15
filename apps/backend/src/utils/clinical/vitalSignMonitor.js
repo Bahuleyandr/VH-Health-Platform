@@ -5,9 +5,10 @@ import { emitVitalAnomaly, emitCodeBlue } from '../websocket/realtimeEmitter.js'
 // Results-inbox safety net (design docs/RESULTS_INBOX_ESCALATION_DESIGN.md §4.2):
 // a CRITICAL vital-sign clinical_alert becomes an assigned, acknowledgement-tracked
 // task. POST-COMMIT + best-effort (Phase 1.5) — must NEVER block the alert persist.
-// Tenant import is needed because this util operates on the int patient_id, not a
-// tenant-scoped request; the alerts table itself is not tenant-keyed, so the task
-// is created under the default tenant (single-tenant deployment — see design §4.6).
+// This util operates on the int patient_id, not a tenant-scoped request, and
+// clinical_alerts itself is not tenant-keyed. We therefore resolve the patient's
+// tenant from users.tenant_id and create the task under THAT tenant (design
+// §4.6), falling back to DEFAULT_TENANT_ID only when it can't be resolved.
 import { enqueueCriticalResultTask } from '../../services/results/resultsInboxService.js';
 import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 
@@ -256,25 +257,34 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       }
     }
 
-    // Resolve the patient UUID once for the results-inbox producer hook below.
-    // clinical_alerts is keyed by the int patient_id, but the results-inbox
-    // task (and its mig-269 SLA instance) is keyed by patient_uid. Only needed
-    // when at least one CRITICAL alert fired; a null uid still lets the task be
-    // created (patientUid is optional on the producer).
+    // Resolve the patient UUID + tenant once for the results-inbox producer
+    // hook below. clinical_alerts is keyed by the int patient_id and is NOT
+    // tenant-keyed, but the results-inbox task (and its mig-269 SLA instance)
+    // must land under the PATIENT's tenant — `users` carries tenant_id, so we
+    // read it here rather than hardcoding the default. Only needed when at
+    // least one CRITICAL alert fired; a null uid still lets the task be created
+    // (patientUid is optional on the producer), and a null tenant falls back to
+    // DEFAULT_TENANT_ID at the enqueue call. We run this lookup whenever a
+    // CRITICAL alert fired — even if the pregnancy mirror already resolved the
+    // uid — because we still need the tenant_id (the pregnancy lookup above
+    // selects uid only).
     let criticalPatientUid = null;
+    let criticalPatientTenantId = null;
     if (alerts.some((a) => a.severity === 'CRITICAL')) {
-      // Reuse the pregnancy lookup if it already resolved the same patient.
-      criticalPatientUid = pregnancyCdsPatientUid;
-      if (!criticalPatientUid) {
-        try {
-          const r = await prisma.$queryRawUnsafe(
-            `SELECT uid FROM users WHERE id = $1::int LIMIT 1`,
-            patientId,
-          );
-          criticalPatientUid = r[0]?.uid ?? null;
-        } catch (err) {
-          logger.warn(`vitalSignMonitor: patient uid lookup failed for results-inbox task: ${err.message}`);
-        }
+      try {
+        const r = await prisma.$queryRawUnsafe(
+          `SELECT uid, tenant_id FROM users WHERE id = $1::int LIMIT 1`,
+          patientId,
+        );
+        // Prefer the freshly-resolved uid; fall back to the pregnancy lookup
+        // (same patient) so behaviour is unchanged when the row is missing.
+        criticalPatientUid = r[0]?.uid ?? pregnancyCdsPatientUid;
+        criticalPatientTenantId = r[0]?.tenant_id ?? null;
+      } catch (err) {
+        logger.warn(`vitalSignMonitor: patient uid/tenant lookup failed for results-inbox task: ${err.message}`);
+        // Still allow the task to be created against the pregnancy-resolved uid
+        // (if any) under the default tenant.
+        criticalPatientUid = pregnancyCdsPatientUid;
       }
     }
     for (const alert of alerts) {
@@ -363,7 +373,10 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         if (clinicalAlertId != null) {
           try {
             await enqueueCriticalResultTask({
-              tenantId: DEFAULT_TENANT_ID,
+              // Land the task under the PATIENT's tenant (resolved from
+              // users.tenant_id above); fall back to the default tenant only
+              // when the lookup failed / the user row had no tenant.
+              tenantId: criticalPatientTenantId || DEFAULT_TENANT_ID,
               patientUid: criticalPatientUid,
               source: 'vital_alert',
               resourceType: 'clinical_alert',
