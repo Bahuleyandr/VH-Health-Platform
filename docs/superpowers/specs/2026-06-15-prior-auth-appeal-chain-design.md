@@ -63,7 +63,7 @@ Both pauses are resumed by the **existing** 30s `workflowResumeScheduler` once w
 
 ## 5. Data model
 
-**One migration** `312_appeal_from_prior_auth.sql` on `clinical_ai_appeal_letters` (defined in `040_appeal_letter_generator.sql`):
+**One migration** `313_appeal_from_prior_auth.sql` on `clinical_ai_appeal_letters` (defined in `040_appeal_letter_generator.sql`):
 - `ADD COLUMN prior_auth_id INTEGER REFERENCES clinical_ai_prior_auth_requests(id)` (nullable).
 - `ALTER COLUMN claim_id DROP NOT NULL`.
 - `CHECK` exactly one source: `(claim_id IS NOT NULL AND prior_auth_id IS NULL) OR (claim_id IS NULL AND prior_auth_id IS NOT NULL)` (mirrors the `insurance_claim_caps` dual-nullable-FK+CHECK pattern).
@@ -80,7 +80,7 @@ Both pauses are resumed by the **existing** 30s `workflowResumeScheduler` once w
 - `apps/backend/src/services/ai/priorAuthAppealChainService.js` — `NODES`, singleton `getPriorAuthAppealGraph()`, `composePriorAuthAppeal(priorAuthId, {startedBy, req})` → `runWorkflow({ graph, store: getDefaultCheckpointStore(), tenantId, ... })`, gate predicates `gateSubmitted`/`gateResolved`, module-load `registerWorkflowGraph(...)` + two `registerPauseReasonHandler(...)`, and `__testing__` export (mirror `dischargeComposeService.js:455`).
 - `apps/backend/src/schedulers/priorAuthAppealStarterScheduler.js` (or fold into existing scheduler) — sweep denied PAs (module enabled, no run/appeal) → `composePriorAuthAppeal`; `withJobLock`.
 - `apps/backend/src/routes/admin/clinicalAi/priorAuthAppealRoutes.js` — `POST /prior-auth/:id/appeal` (start), `POST /prior-auth-appeal/:runId/resume`, `POST /prior-auth-appeal/:runId/fail`, `GET /prior-auth-appeal/:runId` (mirror `dischargeComposeRoutes.js`).
-- `apps/backend/src/migrations/312_appeal_from_prior_auth.sql`.
+- `apps/backend/src/migrations/313_appeal_from_prior_auth.sql`.
 
 **Changed:**
 - `appealLetterGeneratorService.js` — `loadClaim`→`loadAppealSubject`; `generateAppealLetter` accepts `priorAuthId`.

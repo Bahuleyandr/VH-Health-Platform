@@ -1,4 +1,4 @@
--- 312_appeal_from_prior_auth.sql
+-- 313_appeal_from_prior_auth.sql
 --
 -- Allow an appeal to originate from a denied prior-auth
 -- (clinical_ai_prior_auth_requests) in addition to a denied billing claim
@@ -75,7 +75,7 @@ SELECT
   'clinical_ai_appeal_letters',
   'clinical_ai_appeal_letters',
   jsonb_build_object(
-    'migration', '312_appeal_from_prior_auth.sql',
+    'migration', '313_appeal_from_prior_auth.sql',
     'feature', 'prior-auth-appeal-chain',
     'reason', 'Allow appeal to originate from a denied prior-auth (clinical_ai_prior_auth_requests) in addition to a denied billing claim (insurance_claims). Exactly one source per appeal row enforced by chk_appeal_single_source.',
     'changes', jsonb_build_array(

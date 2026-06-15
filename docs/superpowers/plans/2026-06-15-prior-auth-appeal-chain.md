@@ -21,7 +21,7 @@
 ## File Structure
 
 **Create:**
-- `apps/backend/src/migrations/312_appeal_from_prior_auth.sql` — schema link (prior_auth_id, relax claim_id, CHECK, partial-unique).
+- `apps/backend/src/migrations/313_appeal_from_prior_auth.sql` — schema link (prior_auth_id, relax claim_id, CHECK, partial-unique).
 - `apps/backend/src/services/ai/priorAuthAppealChainService.js` — the graph, nodes, `composePriorAuthAppeal`, gate predicates, scheduler registration, `__testing__`.
 - `apps/backend/src/routes/admin/clinicalAi/priorAuthAppealRoutes.js` — start/resume/fail/get endpoints.
 - Tests: `apps/backend/src/tests/unit/priorAuthAppealChainService.test.js`, `priorAuthAppealChainGates.test.js`, `priorAuthAppealRoutes.test.js`, and `apps/backend/src/tests/integration/priorAuthAppealChain.integration.test.js`.
@@ -37,14 +37,14 @@
 ## Task 1: Migration — link appeals to prior-auths
 
 **Files:**
-- Create: `apps/backend/src/migrations/312_appeal_from_prior_auth.sql`
+- Create: `apps/backend/src/migrations/313_appeal_from_prior_auth.sql`
 
 - [ ] **Step 1: Read the template + target.** Read an existing recent migration (e.g. `apps/backend/src/migrations/311_knowledge_curation.sql`) for the house style (idempotent guards, comments) and `040_appeal_letter_generator.sql` for the current `clinical_ai_appeal_letters` definition (esp. the `claim_id INT NOT NULL REFERENCES insurance_claims(id)` line and any RLS at the bottom).
 
 - [ ] **Step 2: Write the migration.**
 
 ```sql
--- 312_appeal_from_prior_auth.sql
+-- 313_appeal_from_prior_auth.sql
 -- Allow an appeal to originate from a denied prior-auth (clinical_ai_prior_auth_requests)
 -- in addition to a denied billing claim (insurance_claims). Exactly one source per appeal.
 
@@ -86,9 +86,9 @@ Expected: constraint rejects 0-source and 2-source rows; accepts 1-source rows.
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add apps/backend/src/migrations/312_appeal_from_prior_auth.sql
+git add apps/backend/src/migrations/313_appeal_from_prior_auth.sql
 # + regenerated schema files if changed
-git commit -m "feat(appeal): migration linking appeals to denied prior-auths (312)"
+git commit -m "feat(appeal): migration linking appeals to denied prior-auths (313)"
 ```
 
 ---
@@ -326,7 +326,7 @@ git commit -m "feat(appeal): control-plane routes for the prior-auth appeal chai
 **Files:**
 - Create: `apps/backend/src/tests/integration/priorAuthAppealChain.integration.test.js`
 
-- [ ] **Step 1:** Ensure the test DB is up (`npm run test:db:setup`; if it needs Docker PG see the WSL-postgres notes). Migration 312 must be applied.
+- [ ] **Step 1:** Ensure the test DB is up (`npm run test:db:setup`; if it needs Docker PG see the WSL-postgres notes). Migration 313 must be applied.
 
 - [ ] **Step 2: Write the integration test** (uses real prisma, seeds a tenant + a denied PA):
   - Constraint: inserting an appeal with both `claim_id` and `prior_auth_id` → rejected (`chk_appeal_single_source`); neither → rejected; only `prior_auth_id` → ok.
