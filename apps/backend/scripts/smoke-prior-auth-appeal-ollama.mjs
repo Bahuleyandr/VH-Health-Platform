@@ -62,7 +62,22 @@ async function ownerQuery(prisma, text, params = []) {
   return { rows: [], rowCount: Number(rowCount) || 0 };
 }
 
+/**
+ * Enable the appeal_letter_generator module for this smoke run.
+ * Returns { hadTenantOverride, priorGlobalEnabled } so cleanup can
+ * restore the DB to exactly the state it found.
+ */
 async function enableAppealModule(prisma) {
+  // Capture whether a tenant override row already exists (so cleanup can
+  // delete ours only if we created it).
+  const { rows: existingOverride } = await ownerQuery(
+    prisma,
+    `SELECT enabled FROM clinical_ai_tenant_modules
+     WHERE tenant_id = $1::uuid AND module_key = 'appeal_letter_generator'`,
+    [TENANT_ID],
+  );
+  const hadTenantOverride = existingOverride.length > 0;
+
   // Enable at the tenant-override level (for the composePriorAuthAppeal module gate)
   await ownerQuery(
     prisma,
@@ -73,6 +88,15 @@ async function enableAppealModule(prisma) {
      DO UPDATE SET enabled = true, updated_at = NOW()`,
     [TENANT_ID],
   );
+
+  // Capture the prior global enabled value so cleanup can restore it exactly.
+  const { rows: globalRows } = await ownerQuery(
+    prisma,
+    `SELECT enabled FROM clinical_ai_modules WHERE module_key = 'appeal_letter_generator'`,
+    [],
+  );
+  const priorGlobalEnabled = globalRows.length > 0 ? Boolean(globalRows[0].enabled) : false;
+
   // Also enable at the global module level so generateClinicalText (which calls
   // getClinicalAiModule without tenantId inside generateAppealLetter) sees
   // enabled=true and routes to Ollama rather than the template fallback.
@@ -81,6 +105,8 @@ async function enableAppealModule(prisma) {
     `UPDATE clinical_ai_modules SET enabled = true, updated_at = NOW() WHERE module_key = 'appeal_letter_generator'`,
     [],
   );
+
+  return { hadTenantOverride, priorGlobalEnabled };
 }
 
 async function seedPriorAuth(prisma) {
@@ -99,7 +125,7 @@ async function seedPriorAuth(prisma) {
   return rows[0].id;
 }
 
-async function cleanup(prisma, priorAuthIds = []) {
+async function cleanup(prisma, priorAuthIds = [], { hadTenantOverride = false, priorGlobalEnabled = false } = {}) {
   await ownerQuery(prisma, `DELETE FROM clinical_ai_appeal_letters WHERE patient_uid = $1::uuid`, [PATIENT_UID]).catch(() => {});
 
   if (priorAuthIds.length) {
@@ -119,17 +145,24 @@ async function cleanup(prisma, priorAuthIds = []) {
     await ownerQuery(prisma, `DELETE FROM clinical_ai_prior_auth_requests WHERE id = ANY($1::int[])`, [priorAuthIds]).catch(() => {});
   }
 
-  await ownerQuery(
-    prisma,
-    `UPDATE clinical_ai_tenant_modules SET enabled = false, updated_at = NOW() WHERE tenant_id = $1::uuid AND module_key = 'appeal_letter_generator'`,
-    [TENANT_ID],
-  ).catch(() => {});
+  // Restore tenant override to its pre-test state:
+  //   - If we created the row (hadTenantOverride=false), DELETE it — restores the
+  //     no-row baseline so 3-layer resolution falls through to global default.
+  //   - If the row already existed before us, leave it alone (we only set enabled=true,
+  //     which was its pre-existing state given we did ON CONFLICT DO UPDATE).
+  if (!hadTenantOverride) {
+    await ownerQuery(
+      prisma,
+      `DELETE FROM clinical_ai_tenant_modules WHERE tenant_id = $1::uuid AND module_key = 'appeal_letter_generator'`,
+      [TENANT_ID],
+    ).catch(() => {});
+  }
 
-  // Restore global module to disabled (production default)
+  // Restore the global module enabled flag to whatever it was before setup.
   await ownerQuery(
     prisma,
-    `UPDATE clinical_ai_modules SET enabled = false, updated_at = NOW() WHERE module_key = 'appeal_letter_generator'`,
-    [],
+    `UPDATE clinical_ai_modules SET enabled = $1, updated_at = NOW() WHERE module_key = 'appeal_letter_generator'`,
+    [priorGlobalEnabled],
   ).catch(() => {});
 }
 
@@ -148,11 +181,12 @@ async function main() {
 
   let paId;
   let exitCode = 1;
+  let moduleState = { hadTenantOverride: false, priorGlobalEnabled: false };
 
   try {
     // ─── Step 4: Seed ─────────────────────────────────────────────────────
     console.log('[smoke] Enabling appeal_letter_generator module …');
-    await enableAppealModule(prisma);
+    moduleState = await enableAppealModule(prisma);
 
     console.log('[smoke] Seeding denied prior-auth request …');
     paId = await seedPriorAuth(prisma);
@@ -249,7 +283,7 @@ async function main() {
     // ─── Step 8: Cleanup ──────────────────────────────────────────────────
     if (paId !== undefined) {
       console.log('[smoke] Cleaning up seeded rows …');
-      await cleanup(prisma, [paId]);
+      await cleanup(prisma, [paId], moduleState);
     }
     _resetDefaultCheckpointStore();
     await prisma.$disconnect().catch(() => {});

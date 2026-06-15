@@ -131,10 +131,11 @@ async function cleanup({ priorAuthIds = [] } = {}) {
     ).catch(() => {});
   }
 
-  // Restore module override to disabled
+  // Delete the tenant override row we inserted — restores the pre-test no-row state.
+  // (UPDATE-to-false would leave a false-override that beats the global enabled=true,
+  // silently disabling the module for other tests in the shared QA DB.)
   await ownerQuery(
-    `UPDATE clinical_ai_tenant_modules
-     SET enabled = false, updated_at = NOW()
+    `DELETE FROM clinical_ai_tenant_modules
      WHERE tenant_id = $1::uuid AND module_key = 'appeal_letter_generator'`,
     [TENANT_ID]
   ).catch(() => {});
