@@ -226,7 +226,9 @@ test('gateSubmitted resumes only when appeal_status=submitted', async () => {
 
 - [ ] **Step 3: Run to confirm fail.** `npm run test:suite -- priorAuthAppealChainGates.test` — Expected: FAIL.
 
-- [ ] **Step 4: Implement gates + registration.** Add:
+- [ ] **Step 4: Implement resume-aware pause nodes + gates + registration.**
+
+  **CRITICAL (resume semantics):** the runner re-runs the paused node on resume (`nextNodeAfter(last-completed)` = the pause node, since pause does not advance `current_node`). An unconditional `pauseRun` therefore loops forever. Make both pause nodes resume-aware via shared predicates `isAppealSubmitted`/`isAppealResolved` (query `clinical_ai_appeal_letters.appeal_status`; return `false` on error/no-row): `await_human_disposition` → `if (await isAppealSubmitted({ appealId: state.appealId, tenantId: state.tenantId })) return {}; return pauseRun(...)`; `await_payer_response` → same with `isAppealResolved` (status ∈ approved/denied/withdrawn). The gates reuse the SAME predicates. The first-run unit test still pauses (no row → false). Then add:
   - `gateSubmitted(run)` — read `run.state?.pendingDisposition?.appeal_id` (fallback `run.metadata`); `SELECT appeal_status FROM clinical_ai_appeal_letters WHERE id=$1 AND tenant_id=$2`; return `row?.appeal_status === 'submitted'`.
   - `gateResolved(run)` — same lookup on `pendingPayerResponse.appeal_id`; return `['approved','denied','withdrawn'].includes(row?.appeal_status)`.
   At module load: `registerWorkflowGraph(WORKFLOW_KEY, getPriorAuthAppealGraph); registerPauseReasonHandler('await_appeal_human_disposition', gateSubmitted); registerPauseReasonHandler('await_appeal_payer_response', gateResolved);`. Add `gateSubmitted`/`gateResolved` to `__testing__`. (Gates must never throw to the scheduler — wrap lookups; on error return false.)
