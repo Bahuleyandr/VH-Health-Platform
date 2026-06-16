@@ -83,9 +83,13 @@ export function calculateNEWS2(vitals) {
   scores.consciousness = level === 'A' ? 0 : 3;
 
   const totalScore = Object.values(scores).reduce((sum, v) => sum + v, 0);
-  const { clinicalRisk, escalationAction } = getClinicalRisk(totalScore);
+  // RCP NEWS2: a score of 3 in ANY single parameter mandates urgent review even
+  // when the aggregate is low. Surfaced here so getClinicalRisk + the CDS
+  // surfacing layer can honor that rule.
+  const anyParamThree = Object.values(scores).some((v) => v === 3);
+  const { clinicalRisk, escalationAction } = getClinicalRisk(totalScore, { anyParamThree });
 
-  return { scores, totalScore, clinicalRisk, escalationAction };
+  return { scores, totalScore, anyParamThree, clinicalRisk, escalationAction };
 }
 
 /**
@@ -93,7 +97,7 @@ export function calculateNEWS2(vitals) {
  * @param {number} score
  * @returns {{ clinicalRisk: string, escalationAction: string }}
  */
-export function getClinicalRisk(score) {
+export function getClinicalRisk(score, { anyParamThree = false } = {}) {
   if (score >= 7) {
     return {
       clinicalRisk: 'high',
@@ -109,7 +113,11 @@ export function getClinicalRisk(score) {
   if (score >= 1) {
     return {
       clinicalRisk: 'low_to_medium',
-      escalationAction: 'Ward-based response — inform registered nurse. Increase monitoring frequency to minimum 1-hourly.',
+      // RCP NEWS2 single-parameter rule: a 3 in any one parameter requires
+      // urgent ward-doctor review even at a low aggregate.
+      escalationAction: anyParamThree
+        ? 'Urgent review by the ward doctor — a single NEWS2 parameter scored 3. Determine the cause and decide on escalation/monitoring frequency.'
+        : 'Ward-based response — inform registered nurse. Increase monitoring frequency to minimum 1-hourly.',
     };
   }
   return {
@@ -126,7 +134,7 @@ export function getClinicalRisk(score) {
  * @returns {Object} Saved NEWS2 record
  */
 export async function recordNEWS2(patientUid, vitals, recordedBy) {
-  const { totalScore, clinicalRisk, escalationAction } = calculateNEWS2(vitals);
+  const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = calculateNEWS2(vitals);
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO news2_scores
@@ -174,6 +182,15 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
       // Fire-and-forget — notification failure must not block clinical recording
       logger.error('Failed to queue NEWS2 alert notification:', err);
     }
+  }
+
+  // Surface NEWS2 deterioration onto the CDS card pipeline (gated/adult-only
+  // inside the service). Best-effort — must never break the news2_scores write.
+  try {
+    const { surfaceNews2Cds } = await import('../cds/deteriorationEarlyWarningService.js');
+    await surfaceNews2Cds({ patientUid, news2: { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } });
+  } catch (err) {
+    logger.warn(`NEWS2 CDS surfacing failed for patient ${patientUid}: ${err.message}`);
   }
 
   logger.info(`NEWS2 recorded for patient ${patientUid}: score=${totalScore}, risk=${clinicalRisk}`);

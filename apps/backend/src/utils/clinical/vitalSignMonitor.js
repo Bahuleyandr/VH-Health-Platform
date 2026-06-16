@@ -65,7 +65,7 @@ const PREGNANCY_BP_OVERRIDES = {
  * range table. Best-effort — if the lookup fails we fall back to adult
  * ranges (caller is unaffected, no exception escapes).
  */
-async function resolvePatientContext(patientId) {
+export async function resolvePatientContext(patientId) {
   if (!patientId) return { isPaediatric: false, isPregnant: false };
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -412,4 +412,4 @@ function isCodeBlueVital(name) {
 // source of truth.
 const VITAL_REFERENCE_RANGES = ADULT_RANGES;
 export { VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
-export default { checkVitalAnomalies, normalizeTemperatureC, VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
+export default { checkVitalAnomalies, resolvePatientContext, normalizeTemperatureC, VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
