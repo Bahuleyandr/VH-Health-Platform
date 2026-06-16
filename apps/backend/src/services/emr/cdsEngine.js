@@ -86,7 +86,7 @@ async function resolveUserIdFromUid(patientUid) {
   return user?.id ?? null;
 }
 
-async function persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData }) {
+export async function persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData }) {
   try {
     // Resolve the owning tenant from the patient. cds_alerts carries a
     // tenant_id with a DB DEFAULT of the global default tenant, so a bare
