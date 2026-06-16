@@ -165,6 +165,33 @@ export async function reviewPolypharmacy({ patientId, patientUid, medications, a
     }
   }
 
+  // Surface a CDS dashboard alert for dashboard-worthy severities so a serious
+  // interaction reaches the clinician's patient-view/encounter-start cards — not
+  // just the polypharmacy review table + this API response. Best-effort; the
+  // review row remains the authoritative record.
+  if (patientUid && (combinedSeverity === 'critical' || combinedSeverity === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const top = [...ruleFindings, ...aiFindings].find((f) => String(f.severity).toLowerCase() === combinedSeverity);
+      await raiseCdsAlert({
+        patientUid,
+        encounterId: admissionId ? Number.parseInt(admissionId, 10) : null,
+        alertType: 'POLYPHARMACY_RISK',
+        severity: combinedSeverity === 'critical' ? 'critical' : 'warning',
+        title: `Polypharmacy risk — ${combinedSeverity}`,
+        description: top?.message || 'Significant drug-drug interaction risk detected across the medication list.',
+        sourceData: {
+          combined_severity: combinedSeverity,
+          finding_count: ruleFindings.length + aiFindings.length,
+          review_id: reviewId,
+          source: 'polypharmacyAiService.reviewPolypharmacy',
+        },
+      });
+    } catch (err) {
+      logger.warn(`Polypharmacy CDS surfacing failed: ${err.message}`);
+    }
+  }
+
   return {
     review_id: reviewId,
     tenant_id: tenantId,

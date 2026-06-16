@@ -912,6 +912,36 @@ export async function generateAntimicrobialStewardshipReview({
     },
   });
 
+  // Surface to the CDS dashboard when the stewardship risk is high/critical, so a
+  // serious antimicrobial gap reaches the clinician's patient-view/encounter-start
+  // cards — not just the antimicrobial review queue. Best-effort; the review row
+  // remains the authoritative record.
+  const stewardshipPatientUid = context.admission?.patient_uid || null;
+  if (stewardshipPatientUid && (draft.risk_band === 'critical' || draft.risk_band === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const topFlag = Array.isArray(draft.flags) ? draft.flags[0] : null;
+      await raiseCdsAlert({
+        patientUid: stewardshipPatientUid,
+        encounterId: safeAdmissionId,
+        alertType: 'ANTIMICROBIAL_STEWARDSHIP',
+        severity: draft.risk_band === 'critical' ? 'critical' : 'warning',
+        title: `Antimicrobial stewardship — ${draft.risk_band} risk`,
+        description: topFlag?.message || topFlag?.label
+          || 'Antimicrobial stewardship review flagged significant gaps (review de-escalation / duration / duplicate spectrum).',
+        sourceData: {
+          risk_band: draft.risk_band,
+          stewardship_score: draft.stewardship_score,
+          flag_codes: Array.isArray(draft.flags) ? draft.flags.map((f) => f.code) : [],
+          review_id: reviewRow?.id || null,
+          source: 'antimicrobialStewardshipService.generateAntimicrobialStewardshipReview',
+        },
+      });
+    } catch (err) {
+      logger.warn(`Antimicrobial stewardship CDS surfacing failed: ${err.message}`);
+    }
+  }
+
   return {
     review_id: reviewRow?.id || null,
     generation_id: generation?.id || null,
