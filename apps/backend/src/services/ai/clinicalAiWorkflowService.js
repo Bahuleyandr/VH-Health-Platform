@@ -16,7 +16,10 @@ import {
   retrieveRelevantDecisions,
 } from './decisionMemoryService.js';
 import { runDifferentialDebate } from './clinicalDebateService.js';
-import { annotateCodingDraft } from './codingValidationService.js';
+// NOTE: annotateCodingDraft (codingValidationService) is imported LAZILY inside the
+// build_safety_flags node so codingValidationService -> terminologyService
+// (-> prismaReadOnly) is NOT pulled into this module's eager import graph — a static
+// import breaks every test that mocks ../../lib/prisma.js without prismaReadOnly.
 import { WorkflowGraph, runWorkflow } from './workflowGraphRunner.js';
 import { getDefaultCheckpointStore } from './workflowCheckpointStore.js';
 
@@ -871,6 +874,7 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
     }
     // Validate ICD-10 codes in the draft and merge any UNVALIDATED_CODE flags.
     if (state.moduleKey === 'clinical_coding_assist' && state.draft && Array.isArray(state.draft.suggested_codes)) {
+      const { annotateCodingDraft } = await import('./codingValidationService.js');
       const { suggested_codes, safety_flags: codeFlags } = await annotateCodingDraft(state.draft, { tenantId: state.tenantId });
       state.draft.suggested_codes = suggested_codes;   // replace with validated/annotated codes
       safetyFlags.push(...codeFlags);                  // merge UNVALIDATED_CODE flag(s)
