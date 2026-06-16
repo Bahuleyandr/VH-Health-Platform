@@ -112,7 +112,13 @@ function deidentifyText(text, { knownIdentifiers = [], mode = 'redact', salt = n
       .sort((a, b) => b.value.length - a.value.length);
 
     for (const k of known) {
-      work = work.replace(new RegExp(escapeRegExp(k.value), 'gi'), () => {
+      // Add an alphanumeric boundary ONLY on an edge that is itself alphanumeric,
+      // so a short name ("Ann") can't redact inside a larger word ("announcement")
+      // — while a value with a non-word edge ("+91 98765-43210") keeps no boundary
+      // there and is never under-redacted (a leak being worse than over-redaction).
+      const lead = /^[A-Za-z0-9]/.test(k.value) ? '(?<![A-Za-z0-9])' : '';
+      const trail = /[A-Za-z0-9]$/.test(k.value) ? '(?![A-Za-z0-9])' : '';
+      work = work.replace(new RegExp(lead + escapeRegExp(k.value) + trail, 'gi'), () => {
         bump(k.category);
         return placeholder(k.category, k.value, mode, salt);
       });

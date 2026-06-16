@@ -30,6 +30,23 @@ test('redacts longest known value first so a surname does not leak as a partial'
   expect(out.text).toBe('[REDACTED:NAME]; full name [REDACTED:NAME].');
 });
 
+test('does not over-redact a known name embedded inside a larger word', () => {
+  const out = deidentifyText('Ann reviewed the announcement and Ann signed.', {
+    knownIdentifiers: [{ value: 'Ann', category: 'NAME' }],
+  });
+  // standalone "Ann" redacted twice; "announcement" left intact (no substring leak-of-utility).
+  expect(out.text).toBe('[REDACTED:NAME] reviewed the announcement and [REDACTED:NAME] signed.');
+  expect(out.redactions).toEqual([{ category: 'NAME', count: 2 }]);
+});
+
+test('still redacts a known value whose edges are non-word chars (no under-redaction regression)', () => {
+  const out = deidentifyText('Call +91 98765-43210 now.', {
+    knownIdentifiers: [{ value: '+91 98765-43210', category: 'PHONE' }],
+  });
+  expect(out.text).toContain('[REDACTED:PHONE]');
+  expect(out.text).not.toContain('98765');
+});
+
 test('regex-sweeps structured identifiers of anyone (email, Aadhaar, UID)', () => {
   const out = deidentifyText('contact kin@example.com, aadhaar 1234 5678 9012, id 9f8e7d6c-1234-4abc-89ab-0123456789ab', {});
   expect(out.text).toContain('[REDACTED:EMAIL]');
