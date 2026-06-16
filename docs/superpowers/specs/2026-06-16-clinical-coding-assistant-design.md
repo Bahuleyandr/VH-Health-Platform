@@ -31,7 +31,7 @@ A `clinical_coding_assist` module already exists (`clinicalAiModuleService.js:10
 
 ## 3. Locked decisions
 1. **v1 = validated suggestions + review, no write-back.**
-2. **ICD-10 only, fully validated.** CPT deferred.
+2. **ICD-10 and ICD-11, fully validated** (system-aware — both validate via `terminologyService.validateCode(system, code)`). The offline rules fallback emits ICD-10 (the chart carries only ICD-10); ICD-11 suggestions come from the LLM path (prompt-driven, when the model is wired) and are validated against the seeded ICD-11 master. **CPT deferred** (no CPT master — unsupported systems are kept but left `validated:false`).
 3. **Reuse** the `clinical_coding_assist` module + admission-AI-draft generation; **add** an on-demand trigger and a terminology-validation step.
 4. **Inpatient/admission** unit only.
 
