@@ -1076,7 +1076,13 @@ export const CLINICAL_AI_MODULES = [
       requiresCitations: true,
       reviewRoles: ['BILLING_STAFF', 'MEDICAL_RECORDS', 'ADMIN'],
       approvalPolicy: 'coder_approval',
-      outputSchema: { type: 'object', required: ['suggested_codes', 'evidence', 'coder_notes'] },
+      outputSchema: {
+        type: 'object',
+        required: ['suggested_codes', 'evidence', 'coder_notes'],
+        properties: {
+          suggested_codes: { type: 'array', items: { type: 'object', required: ['system', 'code', 'validated'] } },
+        },
+      },
       retentionDays: 365,
     },
   },

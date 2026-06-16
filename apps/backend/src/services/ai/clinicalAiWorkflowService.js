@@ -16,6 +16,10 @@ import {
   retrieveRelevantDecisions,
 } from './decisionMemoryService.js';
 import { runDifferentialDebate } from './clinicalDebateService.js';
+// NOTE: annotateCodingDraft (codingValidationService) is imported LAZILY inside the
+// build_safety_flags node so codingValidationService -> terminologyService
+// (-> prismaReadOnly) is NOT pulled into this module's eager import graph — a static
+// import breaks every test that mocks ../../lib/prisma.js without prismaReadOnly.
 import { WorkflowGraph, runWorkflow } from './workflowGraphRunner.js';
 import { getDefaultCheckpointStore } from './workflowCheckpointStore.js';
 
@@ -428,6 +432,7 @@ function codingAssist(context) {
     signed_documentation_only: true,
     suggested_codes: signedNotes.length
       ? diagnoses.map((diagnosis) => ({
+        system: 'ICD10',
         code: diagnosis.icd10_code || diagnosis.icd10_description || 'UNSPECIFIED',
         description: diagnosis.description || diagnosis.icd10_description || 'Diagnosis requires coder review',
         confidence: diagnosis.icd10_code ? 'medium' : 'low',
@@ -867,6 +872,13 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
         code: 'NO_SIGNED_DOCUMENTATION',
         message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
       });
+    }
+    // Validate ICD-10 codes in the draft and merge any UNVALIDATED_CODE flags.
+    if (state.moduleKey === 'clinical_coding_assist' && state.draft && Array.isArray(state.draft.suggested_codes)) {
+      const { annotateCodingDraft } = await import('./codingValidationService.js');
+      const { suggested_codes, safety_flags: codeFlags } = await annotateCodingDraft(state.draft, { tenantId: state.tenantId });
+      state.draft.suggested_codes = suggested_codes;   // replace with validated/annotated codes
+      safetyFlags.push(...codeFlags);                  // merge UNVALIDATED_CODE flag(s)
     }
     return { citations, safetyFlags, outputDefenseFlags };
   },

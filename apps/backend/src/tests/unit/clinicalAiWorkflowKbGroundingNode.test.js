@@ -15,8 +15,12 @@ const queryUnsafeMock = jest.fn();
 const retrieveFromKnowledgeBasesMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
+// prismaReadOnly must be exported because terminologyService.js (transitively
+// required by codingValidationService.js, which clinicalAiWorkflowService.js
+// now imports) destructures it at module load.
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
+  prismaReadOnly: __prismaDefaultMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
