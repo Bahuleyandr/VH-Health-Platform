@@ -35,15 +35,52 @@ const PRIOR_HISTORY_HEADER = '[PRIOR HISTORY]';
 
 /**
  * Format a single timeline event as one context line:
- *   `- [<timestamp>] <type>: <summary>`
+ *   `- [<ref>] [<timestamp>] <type>: <summary>`  (when a provenance ref is given)
+ *   `- [<timestamp>] <type>: <summary>`          (when no ref — citation-less event)
+ * The optional `ref` is a verifiable provenance marker (`C1`, `H2`, …) that lets
+ * the clinician counter-check a recalled finding against the exact source row.
  * Tolerant of both the real event shape (`event_type`) and the lighter test
  * shape (`type`).
  */
-function formatEventLine(event) {
+function formatEventLine(event, ref) {
   const timestamp = event?.timestamp ?? '';
   const type = event?.type ?? event?.event_type ?? '';
   const summary = event?.summary ?? '';
-  return `- [${timestamp}] ${type}: ${summary}`;
+  const marker = ref ? `[${ref}] ` : '';
+  return `- ${marker}[${timestamp}] ${type}: ${summary}`;
+}
+
+/**
+ * Render one section's events into text lines + enriched citations.
+ *
+ * For every event that carries a `.citation`, assigns a stable 1-based marker
+ * (`<prefix><n>`, e.g. `C1` / `H2`), prefixes its rendered line with that marker,
+ * and pushes a citation enriched with `{ section, ref }` (spreading the original
+ * citation so its existing fields survive). Events WITHOUT a `.citation` render
+ * without a marker and contribute no citation — keeping refs 1:1 with citations.
+ *
+ * @param {Array<object>} events
+ * @param {string} section - `'current_admission'` | `'prior_history'`.
+ * @param {string} prefix  - marker prefix (`'C'` | `'H'`).
+ * @returns {{ lines: string[], citations: Array<object> }}
+ */
+function renderSection(events, section, prefix) {
+  const lines = [];
+  const citations = [];
+  let n = 0;
+  for (const event of events) {
+    if (event?.citation) {
+      n += 1;
+      const ref = `${prefix}${n}`;
+      lines.push(formatEventLine(event, ref));
+      citations.push({ ...event.citation, section, ref });
+    } else {
+      // Citation-less event (should not happen in the real flow): no marker, no
+      // citation — refs stay 1:1 with the returned citation list.
+      lines.push(formatEventLine(event));
+    }
+  }
+  return { lines, citations };
 }
 
 /**
@@ -69,22 +106,21 @@ function serializeEhrContext({ currentAdmission, history, scope = 'both' } = {})
   const historyEvents = Array.isArray(history) ? history : [];
 
   // CURRENT ADMISSION — emitted unless scope is history-only, and only when an
-  // active admission packet is actually present (outpatients have none).
+  // active admission packet is actually present (outpatients have none). Each
+  // cited event is tagged C1, C2, … so the answer can cite verifiable markers.
   if (scope !== 'history' && currentAdmission) {
-    const lines = admissionEvents.map(formatEventLine);
+    const { lines, citations: sectionCites } = renderSection(admissionEvents, 'current_admission', 'C');
     sections.push([CURRENT_ADMISSION_HEADER, ...lines].join('\n'));
-    for (const event of admissionEvents) {
-      if (event?.citation) citations.push(event.citation);
-    }
+    citations.push(...sectionCites);
   }
 
-  // PRIOR HISTORY — emitted unless scope is current-admission-only.
+  // PRIOR HISTORY — emitted unless scope is current-admission-only. Each cited
+  // event is tagged H1, H2, … — these are the markers the model MUST attach to
+  // any recalled prior-history fact for the clinician to counter-check.
   if (scope !== 'current_admission') {
-    const lines = historyEvents.map(formatEventLine);
+    const { lines, citations: sectionCites } = renderSection(historyEvents, 'prior_history', 'H');
     sections.push([PRIOR_HISTORY_HEADER, ...lines].join('\n'));
-    for (const event of historyEvents) {
-      if (event?.citation) citations.push(event.citation);
-    }
+    citations.push(...sectionCites);
   }
 
   return { text: sections.join('\n\n'), citations };
@@ -126,6 +162,7 @@ const SYSTEM_PROMPT = [
   'You are answering a clinician\'s question using ONLY the provided patient record.',
   'Clearly attribute every finding to THIS ADMISSION vs PRIOR HISTORY.',
   'Cite the supporting events.',
+  'Each event in the record is tagged with a bracketed marker (e.g. [C1] for a current-admission event, [H1] for a prior-history event); after every finding you state, append the bracketed marker(s) of the supporting event(s), and for ANY fact you recall from prior history you MUST cite its [H#] marker so the clinician can verify it against the source.',
   'If the record does not contain the answer, say so plainly — do not speculate.',
 ].join(' ');
 

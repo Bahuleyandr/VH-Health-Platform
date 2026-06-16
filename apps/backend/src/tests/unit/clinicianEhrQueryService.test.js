@@ -74,6 +74,45 @@ test('serializeEhrContext labels both sections and flattens citations', () => {
   expect(out.citations.map((c) => c.id)).toEqual(['c1', 'c2']);
 });
 
+test('serializeEhrContext section-tags + numbers citations and marks the lines (provenance)', () => {
+  const current = { id: 'c1' };
+  const history = { id: 'c2' };
+  const out = serializeEhrContext({
+    currentAdmission: { admission: { id: 7 }, timeline: [{ timestamp: '2026-06-10T00:00:00Z', type: 'lab', summary: 'Creatinine 2.1', citation: current }] },
+    history: [{ timestamp: '2024-03-01T00:00:00Z', type: 'lab', summary: 'Creatinine 0.9', citation: history }],
+    scope: 'both',
+  });
+  // Enriched citations carry section + ref, and the original fields survive.
+  expect(out.citations).toEqual([
+    { ...current, section: 'current_admission', ref: 'C1' },
+    { ...history, section: 'prior_history', ref: 'H1' },
+  ]);
+  expect(out.citations[0].id).toBe('c1');
+  expect(out.citations[1].id).toBe('c2');
+  // The rendered lines carry the bracketed marker prefix.
+  const lines = out.text.split('\n');
+  const currentLine = lines.find((l) => l.includes('Creatinine 2.1'));
+  const historyLine = lines.find((l) => l.includes('Creatinine 0.9'));
+  expect(currentLine).toContain('[C1]');
+  expect(historyLine).toContain('[H1]');
+});
+
+test('serializeEhrContext numbers multiple history events sequentially (H1, H2)', () => {
+  const out = serializeEhrContext({
+    currentAdmission: null,
+    history: [
+      { timestamp: '2024-01-01T00:00:00Z', type: 'lab', summary: 'old A', citation: { id: 'h1' } },
+      { timestamp: '2024-02-01T00:00:00Z', type: 'lab', summary: 'old B', citation: { id: 'h2' } },
+    ],
+    scope: 'both',
+  });
+  expect(out.citations.map((c) => c.ref)).toEqual(['H1', 'H2']);
+  expect(out.citations.every((c) => c.section === 'prior_history')).toBe(true);
+  const lines = out.text.split('\n');
+  expect(lines.find((l) => l.includes('old A'))).toContain('[H1]');
+  expect(lines.find((l) => l.includes('old B'))).toContain('[H2]');
+});
+
 test('serializeEhrContext with scope=current_admission omits history', () => {
   const out = serializeEhrContext({ currentAdmission: { admission: { id: 7 }, timeline: [{ timestamp: 't', type: 'note', summary: 'x' }] }, history: [{ timestamp: 't2', type: 'note', summary: 'y' }], scope: 'current_admission' });
   expect(out.text).toContain('[CURRENT ADMISSION]');
@@ -156,6 +195,17 @@ test('answerEhrQuery happy path (scope=both) returns chart-grounded answer with 
   const ids = res.citations.map((c) => c.source_id);
   expect(ids).toContain('11');
   expect(ids).toContain('5');
+
+  // Provenance: each returned citation is section-tagged with a verifiable ref,
+  // and there is at least one from each section, each carrying a source_id.
+  const currentCite = res.citations.find((c) => c.section === 'current_admission');
+  const historyCite = res.citations.find((c) => c.section === 'prior_history');
+  expect(currentCite).toBeDefined();
+  expect(currentCite.ref).toBeTruthy();
+  expect(currentCite.source_id).toBe('11');
+  expect(historyCite).toBeDefined();
+  expect(historyCite.ref).toBeTruthy();
+  expect(historyCite.source_id).toBe('5');
 
   // generateClinicalText called with the right taskType + tenant context.
   const genArgs = llmMod.generateClinicalText.mock.calls[0][0];
