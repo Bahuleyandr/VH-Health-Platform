@@ -29,13 +29,7 @@
  */
 
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js'; // imported for later tasks; keeps module shape stable
-import { AppError } from '../../utils/AppError.js'; // imported for later tasks; keeps module shape stable
-
-// Reference the imports so lint/tree-shake tooling sees them as used. They are
-// load-bearing for the module's eventual (later-task) shape, not this engine.
-void prisma;
-void AppError;
+import prisma from '../../lib/prisma.js';
 
 // Identifier catalog — mirrored from src/services/ai/hallucinationDefenses.js
 // (this service owns its own copy by design; do NOT import them) and extended
@@ -180,5 +174,82 @@ function deidentifyText(text, { knownIdentifiers = [], mode = 'redact', salt = n
   }
 }
 
-export { deidentifyText };
-export const __testing__ = { placeholder, escapeRegExp };
+/**
+ * Render a birthday Date into the common free-text date forms a clinician might
+ * type, so they can be redacted as chart-anchored DOB identifiers. Uses UTC
+ * getters so a midnight-UTC fixture renders deterministically across host
+ * timezones. Returns the DISTINCT, non-blank renderings (no category attached).
+ *
+ * @param {Date} d
+ * @returns {string[]} e.g. ['1990-06-12', '12/06/1990', '12-06-1990', '12 Jun 1990']
+ */
+function dobRenderings(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return [];
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const y = d.getUTCFullYear();
+  const mIdx = d.getUTCMonth(); // 0-based
+  const day = d.getUTCDate();
+  const mm = String(mIdx + 1).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  const forms = [
+    `${y}-${mm}-${dd}`, // ISO yyyy-mm-dd
+    `${dd}/${mm}/${y}`, // dd/mm/yyyy
+    `${dd}-${mm}-${y}`, // dd-mm-yyyy
+    `${day} ${MONTHS[mIdx]} ${y}`, // d Mon yyyy
+  ];
+  return [...new Set(forms.filter((s) => s && s.trim()))];
+}
+
+/**
+ * Assemble the chart-anchored identifier list for a patient from their `users`
+ * row — the exact-value redaction targets that `deidentifyText` consumes via
+ * `knownIdentifiers`. Pulls the patient's own name/phone/email/address, their
+ * next-of-kin (emergency_contact) name+phone, and expands their birthday into
+ * common date renderings. Blank/missing fields are skipped.
+ *
+ * @param {string} patientUid - the patient `users.uid`.
+ * @param {object} [opts]
+ * @param {string} [opts.tenantId] - reserved for tenant-scoped reads.
+ * @returns {Promise<Array<{value: string, category: string}>>} known identifiers,
+ *          or `[]` when the patient is not found.
+ */
+async function collectKnownIdentifiers(patientUid, { tenantId } = {}) {
+  void tenantId; // reserved for tenant-scoped reads; the row is uid-keyed today.
+  const u = await prisma.users.findUnique({
+    where: { uid: patientUid },
+    select: {
+      name: true,
+      phone: true,
+      email: true,
+      birthday: true,
+      address: true,
+      emergency_contact: true,
+    },
+  });
+  if (!u) return [];
+
+  const out = [];
+  const push = (value, category) => {
+    if (value && String(value).trim()) out.push({ value: String(value).trim(), category });
+  };
+
+  push(u.name, 'NAME');
+  push(u.phone, 'PHONE');
+  push(u.email, 'EMAIL');
+  push(u.address, 'ADDRESS');
+
+  // Next-of-kin (emergency_contact is Json? — typically { name, phone, relationship }).
+  const ec = u.emergency_contact && typeof u.emergency_contact === 'object' ? u.emergency_contact : {};
+  push(ec.name, 'NAME');
+  push(ec.phone, 'PHONE');
+
+  // DOB expanded into common string renderings so it can be matched in free text.
+  if (u.birthday) {
+    for (const form of dobRenderings(new Date(u.birthday))) push(form, 'DOB');
+  }
+
+  return out;
+}
+
+export { deidentifyText, collectKnownIdentifiers };
+export const __testing__ = { placeholder, escapeRegExp, dobRenderings };

@@ -4,7 +4,8 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { users: { findUnique: jest.fn() } },
   prismaReadOnly: { users: { findUnique: jest.fn() } },
 }));
-const { deidentifyText } = await import('../../services/ai/deidentificationService.js');
+const { deidentifyText, collectKnownIdentifiers } = await import('../../services/ai/deidentificationService.js');
+const prismaMod = await import('../../lib/prisma.js');
 
 test('redacts chart-anchored known identifiers by exact value (NAME, PHONE)', () => {
   const out = deidentifyText('Ramesh Kumar (98765 43210) seen in clinic.', {
@@ -90,4 +91,25 @@ test('fail-closed: an internal error returns empty text + DEID_FAILED, never the
   expect(out.text).toBe('');
   expect(out.text).not.toContain('secret PHI here');
   expect(out.residualFlags.some((f) => f.code === 'DEID_FAILED' && f.severity === 'critical')).toBe(true);
+});
+
+test('collectKnownIdentifiers assembles patient + next-of-kin identifiers, skipping blanks', async () => {
+  prismaMod.default.users.findUnique.mockResolvedValueOnce({
+    name: 'Ramesh Kumar', phone: '9876543210', email: 'ramesh@example.com',
+    birthday: new Date('1990-06-12T00:00:00Z'), address: '12 MG Road, Chennai',
+    emergency_contact: { name: 'Sita Kumar', phone: '9000000000' },
+  });
+  const ids = await collectKnownIdentifiers('pat-uuid', { tenantId: 't1' });
+  const byCat = (c) => ids.filter((i) => i.category === c).map((i) => i.value);
+  expect(byCat('NAME')).toEqual(expect.arrayContaining(['Ramesh Kumar', 'Sita Kumar']));
+  expect(byCat('PHONE')).toEqual(expect.arrayContaining(['9876543210', '9000000000']));
+  expect(byCat('EMAIL')).toEqual(['ramesh@example.com']);
+  expect(byCat('ADDRESS')).toEqual(['12 MG Road, Chennai']);
+  // DOB expanded into common string renderings so it can be matched in free text.
+  expect(byCat('DOB').some((v) => v.includes('1990'))).toBe(true);
+});
+
+test('collectKnownIdentifiers returns [] when the patient is not found', async () => {
+  prismaMod.default.users.findUnique.mockResolvedValueOnce(null);
+  await expect(collectKnownIdentifiers('missing', { tenantId: 't1' })).resolves.toEqual([]);
 });
