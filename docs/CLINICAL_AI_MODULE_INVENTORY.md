@@ -1,6 +1,6 @@
 # Clinical AI Module Inventory — VH Health Platform
 
-> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `869ef826`
+> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `26341945`
 > Machine-generated (registry metadata + a `git grep` wiring scan). Refresh with `node apps/backend/scripts/gen-ai-module-inventory.mjs`. Do not hand-edit the tables.
 
 ## Summary
@@ -17,8 +17,8 @@
 | **Key-referenced by a route** | 14 |
 | **Key-referenced by a test** | 81 |
 | **Flagged — no service/route ref by key (verify)** | 0 |
-| **Reaches the CDS dashboard (cds_alerts)** | 7 |
-| **CDS-surfacing gaps (serious bedside, not on dashboard)** | 36 |
+| **Reaches the CDS dashboard (cds_alerts)** | 11 |
+| **CDS-surfacing gaps (serious bedside, not on dashboard)** | 32 |
 
 ## Wiring verification (code-grounded)
 
@@ -28,9 +28,9 @@ _Every module_key is referenced by at least one service or route in the source._
 
 ## CDS dashboard surfacing
 
-Only **7/99** modules write to `cds_alerts` (the clinician's patient-view / encounter-start cards). The rest persist to a review queue / their own table — fine for back-office review, but a *serious bedside risk* that never reaches the dashboard is a safety gap (the NEWS2 / D26 pregnancy-BP class).
+Only **11/99** modules write to `cds_alerts` (the clinician's patient-view / encounter-start cards). The rest persist to a review queue / their own table — fine for back-office review, but a *serious bedside risk* that never reaches the dashboard is a safety gap (the NEWS2 / D26 pregnancy-BP class).
 
-**36 high/critical-risk bedside module(s) have a producing service but do NOT reach the CDS dashboard** — surfacing candidates (wire `raiseCdsAlert` for the serious-severity path, as done for polypharmacy / antimicrobial stewardship). Verify each (the key-grep can't see a differently-named surfacing service):
+**32 high/critical-risk bedside module(s) have a producing service but do NOT reach the CDS dashboard** — surfacing candidates (wire `raiseCdsAlert` for the serious-severity path, as done for polypharmacy / antimicrobial stewardship). Verify each (the key-grep can't see a differently-named surfacing service):
 
 | Module | key | Surface | Risk |
 |---|---|---|---|
@@ -42,8 +42,6 @@ Only **7/99** modules write to `cds_alerts` (the clinician's patient-view / enco
 | Clinical Task Extractor | `clinical_task_extractor` | clinical_operations | high |
 | Daily Ward Round Brief | `daily_ward_round_brief` | ward | high |
 | Blood Bank Demand and Compatibility Forecast | `blood_bank_demand_forecast` | blood_bank | high |
-| Pregnancy / Obstetric Risk Assistant | `obstetric_risk_assistant` | obstetrics | critical |
-| ICU Ventilator / Sedation Bundle Reviewer | `icu_ventilator_sedation_bundle` | icu | critical |
 | Cybersecurity / Medical Device Anomaly Detector | `cybersecurity_anomaly_detector` | security | high |
 | Pharmacogenomics / PGx Support | `pharmacogenomics_support` | pharmacy | high |
 | Generalized Pathway Bundle Compliance | `pathway_bundle_compliance` | clinical | high |
@@ -59,8 +57,6 @@ Only **7/99** modules write to `cds_alerts` (the clinician's patient-view / enco
 | Radiology AI Interpretation | `radiology_ai_interpretation` | radiology | critical |
 | Document Intelligence / OCR | `document_intelligence_ocr` | medical_records | high |
 | Chart Completion Auditor | `chart_completion_auditor` | medical_records | high |
-| Infection Control Sentinel | `infection_control_sentinel` | infection_control | high |
-| Sepsis Bundle Sentinel | `sepsis_bundle_sentinel` | clinical_safety | critical |
 | Ambient Visit Documentation | `ambient_visit_documentation` | clinical | high |
 | Pre-Op Checklist Review | `preop_checklist_review` | theatre | critical |
 | Surgical Consent Draft | `surgical_consent_draft` | theatre | high |
@@ -154,7 +150,7 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 13 | Nursing Ambient Documentation | `nursing_ambient_documentation` | clinical | — | high | ✅ | — | ✅ | — | — | — | — |
 | 14 | SOAP from Dictation | `soap_from_dictation` | clinical | — | high | ✅ | — | ✅ | — | — | — | — |
 | 15 | Clinical Task Extractor | `clinical_task_extractor` | clinical_operations | — | high | ✅ | — | ✅ | — | — | — | — |
-| 16 | Sepsis Bundle Sentinel | `sepsis_bundle_sentinel` | clinical_safety | — | critical | ✅ | — | ✅ | — | — | — | — |
+| 16 | Sepsis Bundle Sentinel | `sepsis_bundle_sentinel` | clinical_safety | — | critical | ✅ | — | ✅ | ✅ | — | — | — |
 | 17 | Training and Simulation Coach | `training_simulation_coach` | education | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 18 | ED Triage and Boarding Predictor | `ed_triage_boarding_predictor` | emergency | — | high | ✅ | — | ✅ | — | — | — | — |
 | 19 | ABDM Longitudinal Risk Score | `abdm_longitudinal_risk` | emr | — | medium | ✅ | — | ✅ | — | — | — | — |
@@ -173,12 +169,12 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 32 | Federated Learning / Privacy-Preserving Training Layer | `federated_learning_coordinator` | governance | — | high | ✅ | — | ✅ | — | — | — | — |
 | 33 | Model Registry and Evaluation Workbench | `model_registry_workbench` | governance | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 34 | Policy Diff / Regulation Watcher | `policy_regulation_watcher` | governance | — | medium | ✅ | — | ✅ | — | — | — | — |
-| 35 | ICU Ventilator / Sedation Bundle Reviewer | `icu_ventilator_sedation_bundle` | icu | — | critical | ✅ | — | ✅ | — | — | — | — |
-| 36 | Infection Control Sentinel | `infection_control_sentinel` | infection_control | — | high | ✅ | — | — | — | — | — | — |
+| 35 | ICU Ventilator / Sedation Bundle Reviewer | `icu_ventilator_sedation_bundle` | icu | — | critical | ✅ | — | ✅ | ✅ | — | — | — |
+| 36 | Infection Control Sentinel | `infection_control_sentinel` | infection_control | — | high | ✅ | — | — | ✅ | — | — | — |
 | 37 | Lab Autoverification / Delta Check Assistant | `lab_autoverification_delta` | lab | — | high | ✅ | — | ✅ | — | — | — | — |
 | 38 | Chart Completion Auditor | `chart_completion_auditor` | medical_records | — | high | ✅ | — | — | — | — | — | — |
 | 39 | Document Intelligence / OCR | `document_intelligence_ocr` | medical_records | — | high | ✅ | — | ✅ | — | — | — | — |
-| 40 | Pregnancy / Obstetric Risk Assistant | `obstetric_risk_assistant` | obstetrics | — | critical | ✅ | — | ✅ | — | ✅ | — | — |
+| 40 | Pregnancy / Obstetric Risk Assistant | `obstetric_risk_assistant` | obstetrics | — | critical | ✅ | — | ✅ | ✅ | ✅ | — | — |
 | 41 | OP Differential and Red Flag Aid | `op_differential_red_flags` | opd | — | critical | ✅ | — | ✅ | — | ✅ | — | — |
 | 42 | OP Follow-Up Plan Draft | `op_follow_up_plan` | opd | — | medium | ✅ | — | ✅ | — | — | — | ✅ |
 | 43 | OP Investigation Review Aid | `op_investigation_review` | opd | — | high | ✅ | — | ✅ | — | — | — | ✅ |
