@@ -1149,6 +1149,34 @@ export async function evaluateObstetricRisk({
     },
   });
 
+  // Surface to the CDS dashboard on high/critical obstetric risk (pre-eclampsia /
+  // eclampsia / PPH red flags) so it reaches the clinician's cards, not just the
+  // obstetric-risk queue. Best-effort; the assessment row stays authoritative.
+  if (patientUid && (safeBand === 'critical' || safeBand === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const topFlag = Array.isArray(draft.red_flag_signals) ? draft.red_flag_signals[0] : null;
+      await raiseCdsAlert({
+        patientUid,
+        encounterId: safeAdmissionId,
+        alertType: 'OBSTETRIC_RISK',
+        severity: safeBand === 'critical' ? 'critical' : 'warning',
+        title: `Obstetric risk — ${safeBand}`,
+        description: topFlag?.title || topFlag?.label || topFlag?.signal
+          || 'Obstetric risk assessment flagged high/critical risk — review red-flag signals (pre-eclampsia / eclampsia / PPH).',
+        sourceData: {
+          risk_band: safeBand,
+          risk_score: draft.risk_score,
+          assessment_stage: safeStage,
+          assessment_id: assessmentRow?.id || null,
+          source: 'obstetricRiskService.evaluateObstetricRisk',
+        },
+      });
+    } catch (err) {
+      logger.warn(`Obstetric risk CDS surfacing failed: ${err.message}`);
+    }
+  }
+
   return {
     assessment_id: assessmentRow?.id || null,
     generation_id: generation?.id || null,
