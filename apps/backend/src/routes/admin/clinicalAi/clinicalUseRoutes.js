@@ -45,6 +45,7 @@ import express from 'express';
 import { success, error } from '../../../utils/responseHelper.js';
 import prisma from '../../../lib/prisma.js';
 import { AppError } from '../../../utils/AppError.js';
+import { phiAccessLogger } from '../../../middleware/phiAccessMiddleware.js';
 import { logClinicalAiAudit } from './audit.js';
 import { requireClinicalAiUse, normalizeRole } from './shared.js';
 import { generateAdmissionAiDraft, listReviews, updateReview } from '../../../services/ai/clinicalAiWorkflowService.js';
@@ -170,6 +171,70 @@ router.post('/admission-ai-draft', async (req, res, next) => {
       }
     );
     return success(res, result, 'Admission AI draft generated', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /ehr-query — answer a clinician free-text question over a patient record
+//
+// Grounded + cited, differentiating the CURRENT ADMISSION from PRIOR HISTORY.
+// The asking clinician is the human-in-the-loop, so there is NO review queue:
+// the service returns a live answer and writes one audit row. Module-gated
+// (clinician_ehr_query) — a disabled module surfaces as a 403
+// (EHR_QUERY_MODULE_DISABLED) from the service layer. PHI access is logged
+// twice over: the mount-level phiAccessLogger('CLINICAL_AI') and the
+// route-level phiAccessLogger('EHR_QUERY') (which reads patient_uid from the
+// body) record the patient the clinician queried.
+// ---------------------------------------------------------------------------
+router.post('/ehr-query', phiAccessLogger('EHR_QUERY'), async (req, res, next) => {
+  try {
+    const patientUid = req.body?.patient_uid;
+    const question = req.body?.question;
+    if (!patientUid) {
+      return error(res, 'patient_uid is required', 400, { code: 'EHR_QUERY_PATIENT_REQUIRED' });
+    }
+    if (!question) {
+      return error(res, 'question is required', 400, { code: 'EHR_QUERY_QUESTION_REQUIRED' });
+    }
+
+    // Lazy import: clinicianEhrQueryService transitively pulls `prismaReadOnly`
+    // (and the EMR timeline / local-LLM clients) into the module graph. Importing
+    // it at file top forces every app-boot / route-load test that mocks
+    // `../../lib/prisma.js` to also export `prismaReadOnly`, breaking suites that
+    // don't (e.g. clinicalUseExplainerRoutes.test.js). Deferring the import to
+    // call time keeps the router's static module graph free of that dependency.
+    const { answerEhrQuery } = await import('../../../services/ai/clinicianEhrQueryService.js');
+    const result = await answerEhrQuery({
+      patientUid,
+      question,
+      scope: req.body?.scope || 'both',
+      admissionId: req.body?.admission_id ?? null,
+      dateFrom: req.body?.date_from ?? null,
+      dateTo: req.body?.date_to ?? null,
+      req,
+    });
+
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_EHR_QUERY_ANSWERED',
+      String(result.window?.current_admission_id || patientUid),
+      null,
+      {
+        module_key: 'clinician_ehr_query',
+        scope: result.scope,
+        current_admission_id: result.window?.current_admission_id || null,
+        event_count: result.window?.event_count || 0,
+        citation_count: Array.isArray(result.citations) ? result.citations.length : 0,
+        safety_flag_count: Array.isArray(result.safety_flags) ? result.safety_flags.length : 0,
+        used_ai: result.used_ai,
+        route_family: 'clinical',
+        patient_facing: false,
+        decision_support_only: true,
+      }
+    );
+    return success(res, result, 'EHR query answered');
   } catch (err) {
     return next(err);
   }

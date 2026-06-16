@@ -101,7 +101,7 @@ function oldestFirst(a, b) {
   return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
 }
 
-function makeCitation(event) {
+export function makeCitation(event) {
   return {
     source_type: event.event_type,
     source_id: event.id ? String(event.id) : null,
@@ -906,6 +906,7 @@ export async function collectAdmissionClinicalContext(admissionId) {
     handovers: byType('handover'),
     radiology_orders,
     chronic_medications,
+    context_window_from: dateFrom,
     citations: timeline.map(makeCitation),
   };
 }
@@ -948,4 +949,5 @@ export default {
   getPatientTimeline,
   collectAdmissionClinicalContext,
   createDowntimeSnapshot,
+  makeCitation,
 };

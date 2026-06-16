@@ -1,0 +1,412 @@
+import { jest } from '@jest/globals';
+
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  default: { $queryRawUnsafe: jest.fn() },
+  prismaReadOnly: { $queryRawUnsafe: jest.fn() },
+}));
+
+jest.unstable_mockModule('../../services/emr/clinicalTimelineService.js', () => {
+  const collectAdmissionClinicalContext = jest.fn();
+  const getPatientTimeline = jest.fn();
+  // Real makeCitation is a pure builder; mirror its real shape so the test
+  // exercises the same wiring the orchestrator relies on.
+  const makeCitation = jest.fn((event) => ({
+    source_type: event.event_type,
+    source_id: event.id ? String(event.id) : null,
+    timestamp: event.timestamp,
+    label: event.summary,
+  }));
+  return {
+    collectAdmissionClinicalContext,
+    getPatientTimeline,
+    makeCitation,
+    default: { collectAdmissionClinicalContext, getPatientTimeline, makeCitation },
+  };
+});
+
+jest.unstable_mockModule('../../services/ai/localLlmClient.js', () => {
+  const generateClinicalText = jest.fn();
+  return { generateClinicalText, default: { generateClinicalText } };
+});
+
+jest.unstable_mockModule('../../services/ai/hallucinationDefenses.js', () => {
+  const runOutputDefenses = jest.fn();
+  return { runOutputDefenses, default: { runOutputDefenses } };
+});
+
+jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => {
+  const getClinicalAiModule = jest.fn();
+  return { getClinicalAiModule, default: { getClinicalAiModule } };
+});
+
+const prismaMod = await import('../../lib/prisma.js');
+const timelineMod = await import('../../services/emr/clinicalTimelineService.js');
+const llmMod = await import('../../services/ai/localLlmClient.js');
+const defensesMod = await import('../../services/ai/hallucinationDefenses.js');
+const moduleMod = await import('../../services/ai/clinicalAiModuleService.js');
+
+const svc = await import('../../services/ai/clinicianEhrQueryService.js');
+const { serializeEhrContext, resolveCurrentAdmission, detectUncitedFindings } = svc.__testing__;
+const { answerEhrQuery } = svc;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Default: module enabled.
+  moduleMod.getClinicalAiModule.mockResolvedValue({ enabled: true, display_name: 'Clinician EHR Query' });
+  // Default: no safety flags.
+  defensesMod.runOutputDefenses.mockReturnValue([]);
+  // Default: INSERT returns a row.
+  prismaMod.default.$queryRawUnsafe.mockResolvedValue([{ id: 1, status: 'completed', created_at: 'now' }]);
+});
+
+// ── Helper tests (Task 1 — kept green) ──────────────────────────────────────
+
+test('serializeEhrContext labels both sections and flattens citations', () => {
+  const out = serializeEhrContext({
+    currentAdmission: { admission: { id: 7 }, timeline: [{ timestamp: '2026-06-10T00:00:00Z', type: 'lab', summary: 'Creatinine 2.1', citation: { id: 'c1' } }] },
+    history: [{ timestamp: '2024-03-01T00:00:00Z', type: 'lab', summary: 'Creatinine 0.9', citation: { id: 'c2' } }],
+    scope: 'both',
+  });
+  expect(out.text).toContain('[CURRENT ADMISSION]');
+  expect(out.text).toContain('Creatinine 2.1');
+  expect(out.text).toContain('[PRIOR HISTORY]');
+  expect(out.text).toContain('Creatinine 0.9');
+  expect(out.citations.map((c) => c.id)).toEqual(['c1', 'c2']);
+});
+
+test('serializeEhrContext section-tags + numbers citations and marks the lines (provenance)', () => {
+  const current = { id: 'c1' };
+  const history = { id: 'c2' };
+  const out = serializeEhrContext({
+    currentAdmission: { admission: { id: 7 }, timeline: [{ timestamp: '2026-06-10T00:00:00Z', type: 'lab', summary: 'Creatinine 2.1', citation: current }] },
+    history: [{ timestamp: '2024-03-01T00:00:00Z', type: 'lab', summary: 'Creatinine 0.9', citation: history }],
+    scope: 'both',
+  });
+  // Enriched citations carry section + ref, and the original fields survive.
+  expect(out.citations).toEqual([
+    { ...current, section: 'current_admission', ref: 'C1' },
+    { ...history, section: 'prior_history', ref: 'H1' },
+  ]);
+  expect(out.citations[0].id).toBe('c1');
+  expect(out.citations[1].id).toBe('c2');
+  // The rendered lines carry the bracketed marker prefix.
+  const lines = out.text.split('\n');
+  const currentLine = lines.find((l) => l.includes('Creatinine 2.1'));
+  const historyLine = lines.find((l) => l.includes('Creatinine 0.9'));
+  expect(currentLine).toContain('[C1]');
+  expect(historyLine).toContain('[H1]');
+});
+
+test('serializeEhrContext numbers multiple history events sequentially (H1, H2)', () => {
+  const out = serializeEhrContext({
+    currentAdmission: null,
+    history: [
+      { timestamp: '2024-01-01T00:00:00Z', type: 'lab', summary: 'old A', citation: { id: 'h1' } },
+      { timestamp: '2024-02-01T00:00:00Z', type: 'lab', summary: 'old B', citation: { id: 'h2' } },
+    ],
+    scope: 'both',
+  });
+  expect(out.citations.map((c) => c.ref)).toEqual(['H1', 'H2']);
+  expect(out.citations.every((c) => c.section === 'prior_history')).toBe(true);
+  const lines = out.text.split('\n');
+  expect(lines.find((l) => l.includes('old A'))).toContain('[H1]');
+  expect(lines.find((l) => l.includes('old B'))).toContain('[H2]');
+});
+
+test('serializeEhrContext with scope=current_admission omits history', () => {
+  const out = serializeEhrContext({ currentAdmission: { admission: { id: 7 }, timeline: [{ timestamp: 't', type: 'note', summary: 'x' }] }, history: [{ timestamp: 't2', type: 'note', summary: 'y' }], scope: 'current_admission' });
+  expect(out.text).toContain('[CURRENT ADMISSION]');
+  expect(out.text).not.toContain('[PRIOR HISTORY]');
+  expect(out.text).not.toContain('y');
+});
+
+test('serializeEhrContext with scope=history omits the current-admission section', () => {
+  const out = serializeEhrContext({ currentAdmission: { admission: { id: 7 }, timeline: [{ timestamp: 't', type: 'note', summary: 'admitnote' }] }, history: [{ timestamp: 't2', type: 'note', summary: 'historynote' }], scope: 'history' });
+  expect(out.text).not.toContain('[CURRENT ADMISSION]');
+  expect(out.text).not.toContain('admitnote');
+  expect(out.text).toContain('[PRIOR HISTORY]');
+  expect(out.text).toContain('historynote');
+});
+
+test('serializeEhrContext handles a null currentAdmission (outpatient) gracefully', () => {
+  const out = serializeEhrContext({ currentAdmission: null, history: [{ timestamp: 't2', type: 'note', summary: 'historynote', citation: { id: 'c9' } }], scope: 'both' });
+  expect(out.text).not.toContain('[CURRENT ADMISSION]');
+  expect(out.text).toContain('[PRIOR HISTORY]');
+  expect(out.citations.map((c) => c.id)).toEqual(['c9']);
+});
+
+test('serializeEhrContext with everything empty emits only the history header and no citations', () => {
+  const out = serializeEhrContext({ currentAdmission: null, history: [], scope: 'both' });
+  expect(out.citations).toEqual([]);
+  expect(out.text).toContain('[PRIOR HISTORY]');
+  expect(out.text).not.toContain('[CURRENT ADMISSION]');
+});
+
+test('resolveCurrentAdmission returns the active admission id or null', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 42 }]);
+  await expect(resolveCurrentAdmission('p1', 't1')).resolves.toBe(42);
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([]);
+  await expect(resolveCurrentAdmission('p1', 't1')).resolves.toBeNull();
+});
+
+// ── answerEhrQuery orchestration tests (Task 2) ─────────────────────────────
+
+const baseReq = { tenantId: 'tenant-uuid', tenant_region: 'in', user: { uid: 'doc-uuid' } };
+
+function makePacket() {
+  return {
+    admission: { id: 99, admitted_at: '2026-06-01T00:00:00Z' },
+    // Non-ER admission: the resolved context window starts at admitted_at.
+    context_window_from: '2026-06-01T00:00:00Z',
+    timeline: [
+      { id: 11, event_type: 'lab', summary: 'Creatinine 2.1 this admission', timestamp: '2026-06-10T00:00:00Z' },
+    ],
+    citations: [
+      { source_type: 'lab', source_id: '11', timestamp: '2026-06-10T00:00:00Z', label: 'Creatinine 2.1 this admission' },
+    ],
+  };
+}
+
+test('answerEhrQuery happy path (scope=both) returns chart-grounded answer with both-section citations', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 99 }]); // resolveCurrentAdmission
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce(makePacket());
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { id: 5, event_type: 'diagnosis', summary: 'CKD stage 3 prior', timestamp: '2024-03-01T00:00:00Z' },
+  ]);
+  llmMod.generateClinicalText.mockResolvedValueOnce({
+    text: 'THIS ADMISSION: creatinine 2.1 [C1]. PRIOR HISTORY: CKD stage 3 [H1].',
+    usedAi: true,
+    provider: 'ollama',
+    model: 'llama3.1',
+    tier: 'quick',
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  });
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'How is the kidney function trending?', scope: 'both', req: baseReq });
+
+  expect(res.answer).toBe('THIS ADMISSION: creatinine 2.1 [C1]. PRIOR HISTORY: CKD stage 3 [H1].');
+  expect(res.scope).toBe('both');
+  expect(res.used_ai).toBe(true);
+  expect(res.window.current_admission_id).toBe(99);
+  expect(res.window.event_count).toBe(2);
+
+  // A well-formed, fully-cited answer raises NO provenance warning.
+  expect(res.safety_flags.some((f) => f.code === 'UNCITED_CLAIM' || f.code === 'INVALID_CITATION_REF')).toBe(false);
+
+  // Citations must include BOTH a current-admission citation (source_id 11) and
+  // a history citation (source_id 5) — proves the zip + makeCitation wiring.
+  const ids = res.citations.map((c) => c.source_id);
+  expect(ids).toContain('11');
+  expect(ids).toContain('5');
+
+  // Provenance: each returned citation is section-tagged with a verifiable ref,
+  // and there is at least one from each section, each carrying a source_id.
+  const currentCite = res.citations.find((c) => c.section === 'current_admission');
+  const historyCite = res.citations.find((c) => c.section === 'prior_history');
+  expect(currentCite).toBeDefined();
+  expect(currentCite.ref).toBeTruthy();
+  expect(currentCite.source_id).toBe('11');
+  expect(historyCite).toBeDefined();
+  expect(historyCite.ref).toBeTruthy();
+  expect(historyCite.source_id).toBe('5');
+
+  // generateClinicalText called with the right taskType + tenant context.
+  const genArgs = llmMod.generateClinicalText.mock.calls[0][0];
+  expect(genArgs.taskType).toBe('clinician_ehr_query');
+  expect(genArgs.tenantId).toBe('tenant-uuid');
+  expect(genArgs.tenantRegion).toBe('in');
+  expect(genArgs.userPrompt).toContain('CLINICIAN QUESTION: How is the kidney function trending?');
+
+  // Audit INSERT happened.
+  const insertCall = prismaMod.default.$queryRawUnsafe.mock.calls.find((c) => /INSERT INTO clinical_ai_generations/i.test(c[0]));
+  expect(insertCall).toBeDefined();
+});
+
+test('answerEhrQuery suppresses the answer when a critical PHI-leak flag fires', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 99 }]);
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce(makePacket());
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { id: 5, event_type: 'diagnosis', summary: 'CKD stage 3 prior', timestamp: '2024-03-01T00:00:00Z' },
+  ]);
+  llmMod.generateClinicalText.mockResolvedValueOnce({ text: 'leaked 9f8e7d6c-1234-4abc-89ab-0123456789ab', usedAi: true, provider: 'ollama', model: 'm', usage: {} });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([
+    { severity: 'critical', code: 'PHI_LEAK_SUSPECTED', message: 'Draft contains 1 UID not found in source citations', metadata: { kind: 'uid', count: 1 } },
+  ]);
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  expect(res.answer).toBeNull();
+  expect(res.safety_flags.some((f) => f.severity === 'critical' && f.code === 'PHI_LEAK_SUSPECTED')).toBe(true);
+
+  // Audit INSERT still happened, and draft.answer was null.
+  const insertCall = prismaMod.default.$queryRawUnsafe.mock.calls.find((c) => /INSERT INTO clinical_ai_generations/i.test(c[0]));
+  expect(insertCall).toBeDefined();
+  // draft is the jsonb param — find the JSON.stringify'd draft arg with answer:null.
+  const draftArg = insertCall.slice(1).find((a) => typeof a === 'string' && a.includes('"answer"'));
+  expect(draftArg).toBeDefined();
+  expect(JSON.parse(draftArg).answer).toBeNull();
+});
+
+test('answerEhrQuery rejects with 403 when the module is disabled', async () => {
+  moduleMod.getClinicalAiModule.mockResolvedValueOnce({ enabled: false, display_name: 'Clinician EHR Query' });
+  await expect(answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq }))
+    .rejects.toMatchObject({ statusCode: 403, code: 'EHR_QUERY_MODULE_DISABLED' });
+});
+
+test('answerEhrQuery rejects with 400 when patientUid or question is missing', async () => {
+  await expect(answerEhrQuery({ patientUid: '', question: 'q', req: baseReq })).rejects.toMatchObject({ statusCode: 400 });
+  await expect(answerEhrQuery({ patientUid: 'pat-uuid', question: '  ', req: baseReq })).rejects.toMatchObject({ statusCode: 400 });
+});
+
+test('answerEhrQuery scope=current_admission omits history and counts only admission events', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 99 }]);
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce(makePacket());
+  llmMod.generateClinicalText.mockResolvedValueOnce({ text: 'admission-only answer', usedAi: true, provider: 'ollama', model: 'm', usage: {} });
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'current_admission', req: baseReq });
+
+  expect(timelineMod.getPatientTimeline).not.toHaveBeenCalled();
+  expect(res.scope).toBe('current_admission');
+  expect(res.window.event_count).toBe(1); // only the single admission event
+  // Only the current-admission citation is present.
+  expect(res.citations.map((c) => c.source_id)).toEqual(['11']);
+});
+
+test('answerEhrQuery excludes events inside the current ER-origin window from prior history (no double-count)', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]); // resolveCurrentAdmission
+  // ER-origin admission: context window STARTS at er_arrival_at (earlier than admitted_at).
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce({
+    admission: { id: 7, admitted_at: '2026-06-03T00:00:00Z', from_er_visit_id: 99, er_arrival_at: '2026-06-01T00:00:00Z' },
+    context_window_from: '2026-06-01T00:00:00Z',
+    timeline: [
+      { event_type: 'vitals', timestamp: '2026-06-02T00:00:00Z', summary: 'ER vitals', id: 11 },
+    ],
+    citations: [
+      { source_type: 'vitals', source_id: '11', timestamp: '2026-06-02T00:00:00Z', label: 'ER vitals' },
+    ],
+  });
+  // getPatientTimeline returns an in-window event (must be dropped from history)
+  // and a true-history event (must be kept). The inclusive lte boundary can leak
+  // the in-window event in; the orchestrator's strict-before filter must catch it.
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { event_type: 'note', timestamp: '2026-06-02T12:00:00Z', summary: 'should-be-current-only', id: 12 },
+    { event_type: 'lab', timestamp: '2024-01-01T00:00:00Z', summary: 'old lab', id: 5 },
+  ]);
+  llmMod.generateClinicalText.mockResolvedValueOnce({ text: 'ok', usedAi: true, provider: 'ollama', model: 'x', usage: {} });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([]);
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  const ids = res.citations.map((c) => c.source_id);
+  expect(ids).toContain('11'); // current-admission ER vitals
+  expect(ids).toContain('5'); // true prior history
+  expect(ids).not.toContain('12'); // in-window event filtered OUT of history (no double-count)
+  // 1 current-admission event + 1 true-history event; the in-window event is not double-counted.
+  expect(res.window.event_count).toBe(2);
+});
+
+test('answerEhrQuery outpatient (no active admission) at scope=both skips the admission packet', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([]); // resolveCurrentAdmission → none
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { event_type: 'lab', timestamp: '2024-01-01T00:00:00Z', summary: 'old lab', id: 5 },
+  ]);
+  llmMod.generateClinicalText.mockResolvedValueOnce({ text: 'ok', usedAi: true, provider: 'ollama', model: 'x', usage: {} });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([]);
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  // No active admission ⇒ collectAdmissionClinicalContext must NOT be called.
+  expect(timelineMod.collectAdmissionClinicalContext).not.toHaveBeenCalled();
+  expect(res.answer).toBe('ok');
+  expect(res.scope).toBe('both');
+  expect(res.window.current_admission_id).toBeNull();
+  expect(res.window.event_count).toBe(1); // only the single history event
+});
+
+// ── detectUncitedFindings — verifiable-provenance guard (flag, don't block) ──
+//
+// The system prompt REQUIRES the model to attach a [C#]/[H#] marker to every
+// finding (and any recalled prior-history fact). Nothing else verifies it did:
+// a hallucinated qualitative finding has no number and no identifier, so the
+// PHI/numeric defenses sail past it. This guard FLAGS (never blocks) two clear
+// failure modes — a finding stated with no source marker, and a marker that
+// points at a citation that does not exist.
+
+test('detectUncitedFindings flags an answer that asserts findings with no markers (UNCITED_CLAIM, medium)', () => {
+  const flags = detectUncitedFindings({
+    answer: 'The patient has worsening renal function and a rising potassium level.',
+    citations: [{ ref: 'C1' }, { ref: 'H1' }],
+    usedAi: true,
+  });
+  const uncited = flags.find((f) => f.code === 'UNCITED_CLAIM');
+  expect(uncited).toBeDefined();
+  expect(uncited.severity).toBe('medium');
+});
+
+test('detectUncitedFindings passes a fully-cited answer clean', () => {
+  const flags = detectUncitedFindings({
+    answer: 'THIS ADMISSION: creatinine is 2.1 and rising [C1]. PRIOR HISTORY: known CKD stage 3 [H1].',
+    citations: [{ ref: 'C1' }, { ref: 'H1' }],
+    usedAi: true,
+  });
+  expect(flags).toEqual([]);
+});
+
+test('detectUncitedFindings treats a finding whose marker sits in the next sentence as cited', () => {
+  const flags = detectUncitedFindings({
+    answer: 'Creatinine has risen sharply across the last three days. This indicates acute kidney injury [C1].',
+    citations: [{ ref: 'C1' }],
+    usedAi: true,
+  });
+  expect(flags.filter((f) => f.code === 'UNCITED_CLAIM')).toEqual([]);
+});
+
+test('detectUncitedFindings flags a marker that references a non-existent citation (INVALID_CITATION_REF, high)', () => {
+  const flags = detectUncitedFindings({
+    answer: 'PRIOR HISTORY: the patient had a prior myocardial infarction [H7].',
+    citations: [{ ref: 'H1' }, { ref: 'H2' }],
+    usedAi: true,
+  });
+  const invalid = flags.find((f) => f.code === 'INVALID_CITATION_REF');
+  expect(invalid).toBeDefined();
+  expect(invalid.severity).toBe('high');
+  expect(invalid.metadata.invalid).toContain('H7');
+});
+
+test('detectUncitedFindings does not flag a legitimate "not in record" refusal', () => {
+  const flags = detectUncitedFindings({
+    answer: 'The record does not contain any information about the patient\'s smoking history.',
+    citations: [],
+    usedAi: true,
+  });
+  expect(flags).toEqual([]);
+});
+
+test('detectUncitedFindings returns nothing for the template fallback (usedAi=false)', () => {
+  const flags = detectUncitedFindings({
+    answer: 'AI is not enabled for this module, so no answer was generated.',
+    citations: [],
+    usedAi: false,
+  });
+  expect(flags).toEqual([]);
+});
+
+test('answerEhrQuery merges an UNCITED_CLAIM flag into safety_flags WITHOUT suppressing the answer', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 99 }]);
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce(makePacket());
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { id: 5, event_type: 'diagnosis', summary: 'CKD stage 3 prior', timestamp: '2024-03-01T00:00:00Z' },
+  ]);
+  // A real-AI answer that asserts findings but attaches NO source markers.
+  llmMod.generateClinicalText.mockResolvedValueOnce({
+    text: 'The patient has acute kidney injury and significant hyperkalemia requiring urgent attention.',
+    usedAi: true, provider: 'ollama', model: 'llama3.1', usage: {},
+  });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([]); // no PHI/numeric flags
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  // Medium flag ⇒ the answer is STILL returned (flag, don't block).
+  expect(res.answer).toBe('The patient has acute kidney injury and significant hyperkalemia requiring urgent attention.');
+  expect(res.safety_flags.some((f) => f.code === 'UNCITED_CLAIM')).toBe(true);
+});
