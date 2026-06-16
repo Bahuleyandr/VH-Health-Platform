@@ -117,6 +117,8 @@ const baseReq = { tenantId: 'tenant-uuid', tenant_region: 'in', user: { uid: 'do
 function makePacket() {
   return {
     admission: { id: 99, admitted_at: '2026-06-01T00:00:00Z' },
+    // Non-ER admission: the resolved context window starts at admitted_at.
+    context_window_from: '2026-06-01T00:00:00Z',
     timeline: [
       { id: 11, event_type: 'lab', summary: 'Creatinine 2.1 this admission', timestamp: '2026-06-10T00:00:00Z' },
     ],
@@ -215,4 +217,55 @@ test('answerEhrQuery scope=current_admission omits history and counts only admis
   expect(res.window.event_count).toBe(1); // only the single admission event
   // Only the current-admission citation is present.
   expect(res.citations.map((c) => c.source_id)).toEqual(['11']);
+});
+
+test('answerEhrQuery excludes events inside the current ER-origin window from prior history (no double-count)', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 7 }]); // resolveCurrentAdmission
+  // ER-origin admission: context window STARTS at er_arrival_at (earlier than admitted_at).
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce({
+    admission: { id: 7, admitted_at: '2026-06-03T00:00:00Z', from_er_visit_id: 99, er_arrival_at: '2026-06-01T00:00:00Z' },
+    context_window_from: '2026-06-01T00:00:00Z',
+    timeline: [
+      { event_type: 'vitals', timestamp: '2026-06-02T00:00:00Z', summary: 'ER vitals', id: 11 },
+    ],
+    citations: [
+      { source_type: 'vitals', source_id: '11', timestamp: '2026-06-02T00:00:00Z', label: 'ER vitals' },
+    ],
+  });
+  // getPatientTimeline returns an in-window event (must be dropped from history)
+  // and a true-history event (must be kept). The inclusive lte boundary can leak
+  // the in-window event in; the orchestrator's strict-before filter must catch it.
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { event_type: 'note', timestamp: '2026-06-02T12:00:00Z', summary: 'should-be-current-only', id: 12 },
+    { event_type: 'lab', timestamp: '2024-01-01T00:00:00Z', summary: 'old lab', id: 5 },
+  ]);
+  llmMod.generateClinicalText.mockResolvedValueOnce({ text: 'ok', usedAi: true, provider: 'ollama', model: 'x', usage: {} });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([]);
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  const ids = res.citations.map((c) => c.source_id);
+  expect(ids).toContain('11'); // current-admission ER vitals
+  expect(ids).toContain('5'); // true prior history
+  expect(ids).not.toContain('12'); // in-window event filtered OUT of history (no double-count)
+  // 1 current-admission event + 1 true-history event; the in-window event is not double-counted.
+  expect(res.window.event_count).toBe(2);
+});
+
+test('answerEhrQuery outpatient (no active admission) at scope=both skips the admission packet', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([]); // resolveCurrentAdmission → none
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { event_type: 'lab', timestamp: '2024-01-01T00:00:00Z', summary: 'old lab', id: 5 },
+  ]);
+  llmMod.generateClinicalText.mockResolvedValueOnce({ text: 'ok', usedAi: true, provider: 'ollama', model: 'x', usage: {} });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([]);
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  // No active admission ⇒ collectAdmissionClinicalContext must NOT be called.
+  expect(timelineMod.collectAdmissionClinicalContext).not.toHaveBeenCalled();
+  expect(res.answer).toBe('ok');
+  expect(res.scope).toBe('both');
+  expect(res.window.current_admission_id).toBeNull();
+  expect(res.window.event_count).toBe(1); // only the single history event
 });

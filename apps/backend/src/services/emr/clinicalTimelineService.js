@@ -906,6 +906,7 @@ export async function collectAdmissionClinicalContext(admissionId) {
     handovers: byType('handover'),
     radiology_orders,
     chronic_medications,
+    context_window_from: dateFrom,
     citations: timeline.map(makeCitation),
   };
 }

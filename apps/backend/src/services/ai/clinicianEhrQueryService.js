@@ -196,10 +196,12 @@ async function answerEhrQuery({
     }
     : null;
 
-  // PRIOR HISTORY window. Bound the upper edge to the current admission's
-  // admit time so we don't double-count events the current section already shows.
+  // PRIOR HISTORY window. Bound the upper edge to the current packet's RESOLVED
+  // context-window start (collectAdmissionClinicalContext.context_window_from),
+  // which is er_arrival_at for ER-origin admissions and admitted_at otherwise —
+  // so we don't double-count events the current section already shows.
   const histFrom = dateFrom || new Date(Date.now() - HISTORY_LOOKBACK_MS).toISOString();
-  const histTo = dateTo || (cur?.admission?.admitted_at ?? null);
+  const histTo = cur?.context_window_from ?? (dateTo || null);
 
   const rawHistory = (scope !== 'current_admission')
     ? await getPatientTimeline(patientUid, { dateFrom: histFrom, dateTo: histTo, limit: HISTORY_LIMIT })
@@ -207,10 +209,14 @@ async function answerEhrQuery({
 
   // History events carry no citation of their own; derive via the canonical
   // builder so provenance is consistent with the current-admission section.
-  const history = (Array.isArray(rawHistory) ? rawHistory : []).map((e) => ({
-    ...e,
-    citation: makeCitation(e),
-  }));
+  // The timeline date filter is INCLUSIVE on both ends (gte/lte), so an event
+  // dated exactly at — or, for ER admissions, anywhere inside — the current
+  // window would otherwise appear in BOTH sections. Filter strictly before the
+  // current window start (belt-and-suspenders against the inclusive lte edge)
+  // BEFORE attaching citations, so event_count and citations stay de-duplicated.
+  const history = (Array.isArray(rawHistory) ? rawHistory : [])
+    .filter((e) => !cur?.context_window_from || new Date(e.timestamp) < new Date(cur.context_window_from))
+    .map((e) => ({ ...e, citation: makeCitation(e) }));
 
   // Serialize into the labelled prompt block + flat ordered citation list.
   const { text, citations } = serializeEhrContext({ currentAdmission, history, scope });
