@@ -46,7 +46,7 @@ const defensesMod = await import('../../services/ai/hallucinationDefenses.js');
 const moduleMod = await import('../../services/ai/clinicalAiModuleService.js');
 
 const svc = await import('../../services/ai/clinicianEhrQueryService.js');
-const { serializeEhrContext, resolveCurrentAdmission } = svc.__testing__;
+const { serializeEhrContext, resolveCurrentAdmission, detectUncitedFindings } = svc.__testing__;
 const { answerEhrQuery } = svc;
 
 beforeEach(() => {
@@ -174,7 +174,7 @@ test('answerEhrQuery happy path (scope=both) returns chart-grounded answer with 
     { id: 5, event_type: 'diagnosis', summary: 'CKD stage 3 prior', timestamp: '2024-03-01T00:00:00Z' },
   ]);
   llmMod.generateClinicalText.mockResolvedValueOnce({
-    text: 'THIS ADMISSION: creatinine 2.1. PRIOR HISTORY: CKD stage 3.',
+    text: 'THIS ADMISSION: creatinine 2.1 [C1]. PRIOR HISTORY: CKD stage 3 [H1].',
     usedAi: true,
     provider: 'ollama',
     model: 'llama3.1',
@@ -184,11 +184,14 @@ test('answerEhrQuery happy path (scope=both) returns chart-grounded answer with 
 
   const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'How is the kidney function trending?', scope: 'both', req: baseReq });
 
-  expect(res.answer).toBe('THIS ADMISSION: creatinine 2.1. PRIOR HISTORY: CKD stage 3.');
+  expect(res.answer).toBe('THIS ADMISSION: creatinine 2.1 [C1]. PRIOR HISTORY: CKD stage 3 [H1].');
   expect(res.scope).toBe('both');
   expect(res.used_ai).toBe(true);
   expect(res.window.current_admission_id).toBe(99);
   expect(res.window.event_count).toBe(2);
+
+  // A well-formed, fully-cited answer raises NO provenance warning.
+  expect(res.safety_flags.some((f) => f.code === 'UNCITED_CLAIM' || f.code === 'INVALID_CITATION_REF')).toBe(false);
 
   // Citations must include BOTH a current-admission citation (source_id 11) and
   // a history citation (source_id 5) — proves the zip + makeCitation wiring.
@@ -318,4 +321,92 @@ test('answerEhrQuery outpatient (no active admission) at scope=both skips the ad
   expect(res.scope).toBe('both');
   expect(res.window.current_admission_id).toBeNull();
   expect(res.window.event_count).toBe(1); // only the single history event
+});
+
+// ── detectUncitedFindings — verifiable-provenance guard (flag, don't block) ──
+//
+// The system prompt REQUIRES the model to attach a [C#]/[H#] marker to every
+// finding (and any recalled prior-history fact). Nothing else verifies it did:
+// a hallucinated qualitative finding has no number and no identifier, so the
+// PHI/numeric defenses sail past it. This guard FLAGS (never blocks) two clear
+// failure modes — a finding stated with no source marker, and a marker that
+// points at a citation that does not exist.
+
+test('detectUncitedFindings flags an answer that asserts findings with no markers (UNCITED_CLAIM, medium)', () => {
+  const flags = detectUncitedFindings({
+    answer: 'The patient has worsening renal function and a rising potassium level.',
+    citations: [{ ref: 'C1' }, { ref: 'H1' }],
+    usedAi: true,
+  });
+  const uncited = flags.find((f) => f.code === 'UNCITED_CLAIM');
+  expect(uncited).toBeDefined();
+  expect(uncited.severity).toBe('medium');
+});
+
+test('detectUncitedFindings passes a fully-cited answer clean', () => {
+  const flags = detectUncitedFindings({
+    answer: 'THIS ADMISSION: creatinine is 2.1 and rising [C1]. PRIOR HISTORY: known CKD stage 3 [H1].',
+    citations: [{ ref: 'C1' }, { ref: 'H1' }],
+    usedAi: true,
+  });
+  expect(flags).toEqual([]);
+});
+
+test('detectUncitedFindings treats a finding whose marker sits in the next sentence as cited', () => {
+  const flags = detectUncitedFindings({
+    answer: 'Creatinine has risen sharply across the last three days. This indicates acute kidney injury [C1].',
+    citations: [{ ref: 'C1' }],
+    usedAi: true,
+  });
+  expect(flags.filter((f) => f.code === 'UNCITED_CLAIM')).toEqual([]);
+});
+
+test('detectUncitedFindings flags a marker that references a non-existent citation (INVALID_CITATION_REF, high)', () => {
+  const flags = detectUncitedFindings({
+    answer: 'PRIOR HISTORY: the patient had a prior myocardial infarction [H7].',
+    citations: [{ ref: 'H1' }, { ref: 'H2' }],
+    usedAi: true,
+  });
+  const invalid = flags.find((f) => f.code === 'INVALID_CITATION_REF');
+  expect(invalid).toBeDefined();
+  expect(invalid.severity).toBe('high');
+  expect(invalid.metadata.invalid).toContain('H7');
+});
+
+test('detectUncitedFindings does not flag a legitimate "not in record" refusal', () => {
+  const flags = detectUncitedFindings({
+    answer: 'The record does not contain any information about the patient\'s smoking history.',
+    citations: [],
+    usedAi: true,
+  });
+  expect(flags).toEqual([]);
+});
+
+test('detectUncitedFindings returns nothing for the template fallback (usedAi=false)', () => {
+  const flags = detectUncitedFindings({
+    answer: 'AI is not enabled for this module, so no answer was generated.',
+    citations: [],
+    usedAi: false,
+  });
+  expect(flags).toEqual([]);
+});
+
+test('answerEhrQuery merges an UNCITED_CLAIM flag into safety_flags WITHOUT suppressing the answer', async () => {
+  prismaMod.prismaReadOnly.$queryRawUnsafe.mockResolvedValueOnce([{ id: 99 }]);
+  timelineMod.collectAdmissionClinicalContext.mockResolvedValueOnce(makePacket());
+  timelineMod.getPatientTimeline.mockResolvedValueOnce([
+    { id: 5, event_type: 'diagnosis', summary: 'CKD stage 3 prior', timestamp: '2024-03-01T00:00:00Z' },
+  ]);
+  // A real-AI answer that asserts findings but attaches NO source markers.
+  llmMod.generateClinicalText.mockResolvedValueOnce({
+    text: 'The patient has acute kidney injury and significant hyperkalemia requiring urgent attention.',
+    usedAi: true, provider: 'ollama', model: 'llama3.1', usage: {},
+  });
+  defensesMod.runOutputDefenses.mockReturnValueOnce([]); // no PHI/numeric flags
+
+  const res = await answerEhrQuery({ patientUid: 'pat-uuid', question: 'q', scope: 'both', req: baseReq });
+
+  // Medium flag ⇒ the answer is STILL returned (flag, don't block).
+  expect(res.answer).toBe('The patient has acute kidney injury and significant hyperkalemia requiring urgent attention.');
+  expect(res.safety_flags.some((f) => f.code === 'UNCITED_CLAIM')).toBe(true);
 });

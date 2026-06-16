@@ -83,6 +83,17 @@ POST /clinical/ehr-query { patientUid, question, scope?, admissionId?, dateFrom?
 - Shadow-mode care-team check via the existing `accessDecisionService` (logs would-be-denials, does not block — consistent with the platform's current posture; flipping to enforce is a platform-wide decision, out of scope here).
 - `phiAccessLogger('EHR_QUERY')` logs the access; tenant-scoped (RLS) reads. Committed `CLINICAL_AI_PROVIDER=template`.
 
+## 6b. Verifiable provenance & hallucination guard (implemented)
+
+The clinically valuable safety property: a clinician must be able to **counter-check any recalled finding against its source row**, and the automated layer must surface a finding the model couldn't ground.
+
+- **Numbered, section-tagged, inline markers.** Every cited event is rendered with a bracketed marker — `C1, C2…` for the CURRENT ADMISSION, `H1, H2…` for PRIOR HISTORY — and each returned citation carries `{ source_type, source_id, timestamp, label, section, ref }`. `source_type + source_id` uniquely identify the source row, so the client renders a deep-link to that exact record; `section` distinguishes a prior-history finding from a this-admission one.
+- **The prompt forces inline citation.** The system prompt requires the model to append the supporting `[C#]/[H#]` marker after every finding, and *"for ANY fact you recall from prior history you MUST cite its [H#] marker so the clinician can verify it against the source."*
+- **`detectUncitedFindings` — flag, never block** (chosen posture; the asking clinician is the human-in-the-loop). The PHI/numeric defenses cannot see a hallucinated *qualitative* finding (no number, no identifier), so this guard adds two non-suppressing flags merged into `safety_flags`:
+  - `UNCITED_CLAIM` (medium) — a substantive finding stated with no source marker. A finding is "covered" if it (or the next sentence, for findings split across two sentences) carries a marker; refusals and short connective sentences are not findings.
+  - `INVALID_CITATION_REF` (high) — a marker pointing at a citation that does not exist (a fabricated source pointer).
+  - The template fallback (`used_ai=false`) is exempt — it's a deterministic non-answer, not a findings answer.
+
 ## 7. Error handling & grounding
 - PHI-leak `critical` → suppress the answer, return the safety flags (the answer must not surface identifiers/data absent from the packet).
 - No active admission (outpatient) + `scope` includes current → gracefully fall to history-only, note it in the response.

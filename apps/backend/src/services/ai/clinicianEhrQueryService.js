@@ -126,6 +126,90 @@ function serializeEhrContext({ currentAdmission, history, scope = 'both' } = {})
   return { text: sections.join('\n\n'), citations };
 }
 
+// A grounded answer marks each finding with a bracketed provenance ref (C1/H2…).
+const CITATION_MARKER_RE = /\[([CH]\d+)\]/g;
+// Sentences that decline to answer are legitimately uncited — they assert no
+// finding. Keep this list tight so it can't mask a real hallucinated finding.
+const REFUSAL_RE = /does not contain|not (?:in|found in) the record|no (?:information|data|mention|relevant|record)|unable to (?:determine|find|answer)|cannot answer|not documented|not recorded/i;
+const MIN_FINDING_WORDS = 5;
+
+/**
+ * Verifiable-provenance guard (flag, never block). The system prompt REQUIRES
+ * the model to attach a [C#]/[H#] marker to every finding (and to any recalled
+ * prior-history fact). Nothing else verifies it did: a hallucinated *qualitative*
+ * finding carries no number and no identifier, so the PHI/numeric defenses miss
+ * it. This surfaces — without suppressing — two clear failure modes:
+ *   - UNCITED_CLAIM (medium): a substantive finding stated with no source marker.
+ *     A finding is "covered" if it, or the next sentence (findings split across
+ *     two sentences), carries a marker. Refusals and short connective sentences
+ *     are not findings.
+ *   - INVALID_CITATION_REF (high): a marker that points at a citation that does
+ *     not exist — a fabricated source pointer.
+ * Both are non-critical, so the asking clinician still sees the answer with the
+ * warning attached and remains the human-in-the-loop.
+ *
+ * @param {object} params
+ * @param {string} params.answer - the generated answer text.
+ * @param {Array<object>} [params.citations] - enriched citations carrying `ref`.
+ * @param {boolean} params.usedAi - false ⇒ template fallback (not a findings answer).
+ * @returns {Array<{severity,code,message,metadata}>}
+ */
+function detectUncitedFindings({ answer, citations = [], usedAi } = {}) {
+  // The template fallback is a deterministic non-answer; nothing to verify.
+  if (!usedAi) return [];
+  const text = typeof answer === 'string' ? answer.trim() : '';
+  if (!text) return [];
+
+  const flags = [];
+  const validRefs = new Set(
+    (Array.isArray(citations) ? citations : []).map((c) => c?.ref).filter(Boolean),
+  );
+
+  // Markers actually present in the answer.
+  const present = [...text.matchAll(CITATION_MARKER_RE)].map((m) => m[1]);
+
+  // INVALID_CITATION_REF — fabricated source pointer.
+  const invalid = [...new Set(present.filter((ref) => !validRefs.has(ref)))];
+  if (invalid.length) {
+    flags.push({
+      severity: 'high',
+      code: 'INVALID_CITATION_REF',
+      message: `Answer cites ${invalid.length} source marker${invalid.length === 1 ? '' : 's'} that do not exist in the record`,
+      metadata: { invalid, valid_refs: [...validRefs] },
+    });
+  }
+
+  // UNCITED_CLAIM — substantive findings stated with no source marker.
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const hasMarker = (s) => /\[[CH]\d+\]/.test(s);
+  const isFinding = (s) => s.split(/\s+/).length >= MIN_FINDING_WORDS && !REFUSAL_RE.test(s);
+
+  let uncited = 0;
+  const sample = [];
+  for (let i = 0; i < sentences.length; i += 1) {
+    const s = sentences[i];
+    if (!isFinding(s)) continue;
+    const covered = hasMarker(s) || (i + 1 < sentences.length && hasMarker(sentences[i + 1]));
+    if (!covered) {
+      uncited += 1;
+      if (sample.length < 3) sample.push(s.slice(0, 120));
+    }
+  }
+  if (uncited) {
+    flags.push({
+      severity: 'medium',
+      code: 'UNCITED_CLAIM',
+      message: `${uncited} finding${uncited === 1 ? '' : 's'} stated without a verifiable source marker`,
+      metadata: { uncited_count: uncited, sample },
+    });
+  }
+
+  return flags;
+}
+
 /**
  * Resolve the patient's currently-active admission id within a tenant, or null
  * when the patient is not currently admitted (outpatient / discharged).
@@ -270,14 +354,18 @@ async function answerEhrQuery({
   // Heuristic output defenses (PHI-leak / numeric / schema). A CRITICAL flag
   // (e.g. PHI_LEAK_SUSPECTED) suppresses the rendered answer; the row is still
   // audited with a null draft answer for traceability.
-  const safetyFlags = runOutputDefenses({
+  const baseFlags = runOutputDefenses({
     draft: { answer: aiResult.text },
     module,
     context: { text },
     citations,
   });
-  const critical = Array.isArray(safetyFlags)
-    && safetyFlags.some((flag) => flag?.severity === 'critical');
+  const safetyFlags = Array.isArray(baseFlags) ? [...baseFlags] : [];
+  // Verifiable-provenance guard (flag, never block) — catches the qualitative
+  // hallucination the PHI/numeric defenses can't see: a finding with no source
+  // marker, or a marker pointing at a non-existent citation.
+  safetyFlags.push(...detectUncitedFindings({ answer: aiResult.text, citations, usedAi: aiResult.usedAi }));
+  const critical = safetyFlags.some((flag) => flag?.severity === 'critical');
 
   const answer = critical ? null : aiResult.text;
   const window = {
@@ -355,4 +443,4 @@ async function answerEhrQuery({
 
 export { serializeEhrContext, resolveCurrentAdmission, answerEhrQuery };
 
-export const __testing__ = { serializeEhrContext, resolveCurrentAdmission };
+export const __testing__ = { serializeEhrContext, resolveCurrentAdmission, detectUncitedFindings };
