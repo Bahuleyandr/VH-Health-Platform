@@ -68,6 +68,22 @@ test('flags residual identifier-shaped tokens and absolute dates without auto-re
   expect(out.text).toContain('[REDACTED:PHONE]');
 });
 
+test('pseudonymize mode emits a STABLE per-value token (same value+salt -> same token)', () => {
+  const ids = [{ value: 'Ramesh Kumar', category: 'NAME' }];
+  const a = deidentifyText('Ramesh Kumar today; Ramesh Kumar again.', { knownIdentifiers: ids, mode: 'pseudonymize', salt: 's1' });
+  const tokens = a.text.match(/\[NAME-[0-9a-f]{8}\]/g);
+  expect(tokens).toHaveLength(2);
+  expect(tokens[0]).toBe(tokens[1]); // co-reference preserved
+  expect(a.text).not.toContain('[REDACTED:NAME]');
+});
+
+test('pseudonymize is salt-dependent: a different salt yields a different token', () => {
+  const ids = [{ value: 'Ramesh Kumar', category: 'NAME' }];
+  const a = deidentifyText('Ramesh Kumar', { knownIdentifiers: ids, mode: 'pseudonymize', salt: 's1' });
+  const b = deidentifyText('Ramesh Kumar', { knownIdentifiers: ids, mode: 'pseudonymize', salt: 's2' });
+  expect(a.text).not.toBe(b.text);
+});
+
 test('fail-closed: an internal error returns empty text + DEID_FAILED, never the original', () => {
   const evil = { category: 'NAME', get value() { throw new Error('boom'); } };
   const out = deidentifyText('secret PHI here', { knownIdentifiers: [evil] });
