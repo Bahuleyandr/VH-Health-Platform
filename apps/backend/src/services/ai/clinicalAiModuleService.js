@@ -1502,6 +1502,23 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'clinical_text_deidentifier',
+    display_name: 'Clinical Text De-identifier',
+    description: 'Deterministically removes PHI from clinical free text (chart-anchored identifiers + structured-identifier regex), producing best-effort de-identified text plus a residual-risk report. Not a Safe-Harbor certification.',
+    enabled: false,
+    settings: {
+      surface: 'governance',
+      risk: 'critical',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: false,
+      reviewRoles: ['ADMIN', 'SUPER_ADMIN', 'COMPLIANCE_OFFICER'],
+      approvalPolicy: 'privacy_governance_review',
+      outputSchema: { type: 'object', required: ['text', 'redactions'] },
+      retentionDays: 3650,
+    },
+  },
+  {
     module_key: 'infection_control_sentinel',
     display_name: 'Infection Control Sentinel',
     description: 'Flags possible HAI, isolation, culture, and antimicrobial-stewardship risks from cited inpatient chart evidence for infection-control review.',
