@@ -1,128 +1,112 @@
-# NEWS2 Deterioration Early Warning (v1) — Design
+# NEWS2 Deterioration → CDS Surfacing (v1) — Design
 
 - **Date:** 2026-06-16
 - **Status:** Approved (design); implementation pending
 - **Branch:** `feat/news2-early-warning` (off `main`)
-- **Module:** `deterioration_early_warning` (EXISTS, `enabled:false` — currently an empty shell)
-- **Surface:** Clinical decision support (clinician-facing). Deterministic — **no LLM** in v1.
+- **Module:** `deterioration_early_warning` (EXISTS, `enabled:false`)
+- **Surface:** Clinical decision support (clinician-facing). Deterministic — **no LLM**.
 
-## 1. Context
+> **Scope correction (grounded 2026-06-16):** an initial exploration claimed NEWS2 was unimplemented. Reading the code disproved that — **NEWS2 already exists and is wired.** `services/clinical/news2Service.js` has the full `calculateNEWS2(vitals)` (Scale 1 + Scale 2, all six params + ACVPU + supplemental O₂), `getClinicalRisk(score)`, and `recordNEWS2(patientUid, vitals, recordedBy)` which persists a `news2_scores` row + queues a `NEWS2_ALERT` notification for score ≥ 5, **already called** from `vitalsChartService.js:624` on every qualifying vitals set. This spec therefore does **NOT** rebuild NEWS2; it adds the two genuinely-missing pieces below.
 
-The HL7 **CDS-Hooks pipeline is already fully built** (`cdsHooksRoutes.js`, `cdsHooksAdapter.js`, `services/emr/cdsEngine.js`, `services/cds/encounterCdsHelper.js`): a `GET /cds-services` discovery, 6 wired hooks (patient-view, medication-prescribe, order-select/-sign, encounter-start/-discharge), a CDS-Hooks-v1.0 card shape, the `cds_alerts` table (persist/acknowledge/retrieve, tenant-scoped via `persistCdsAlert`), and live rules (drug interactions, allergies, duplicate orders, critical labs, protocol reminders). **What's missing:** the dormant AI decision-support modules aren't wired into it, and the `deterioration_early_warning` module is registered but has **no actual NEWS2 implementation**.
+## 1. Context & the real gap
 
-v1 fills that gap with the standard, published **NEWS2** score, computed deterministically and surfaced through the existing card pipeline. NEWS2 is a fixed algorithm → no model needed; the module's described AI "trend + recent-lab composite" augmentation is layered **last** (v2).
+The HL7 **CDS-Hooks pipeline is fully built** (`cdsEngine.js`, `cdsHooksAdapter.js`, `encounterCdsHelper.js`): `cds_alerts` (persist/acknowledge/retrieve, tenant-scoped via `persistCdsAlert`), surfaced on `patient-view` (`getActiveAlerts`) and `encounter-start` (`buildEncounterStartAlerts`).
 
-Existing substrate to reuse:
-- `vitalSignMonitor.checkVitalAnomalies(patientId, vitals, ctx)` (`:159`) runs on every vitals recording (called from `vitalsChartService.js:661`); `resolvePatientContext` (private — **export it**) classifies adult/paediatric/pregnant.
-- `cdsEngine.persistCdsAlert({ patientUid, encounterId, alertType, severity, title, description, sourceData })` (`:89`, private — **export it**) — resolves the patient's tenant + stamps `tenant_id` (fail-safe skip on null). The canonical tenant-correct `cds_alerts` writer.
-- `cdsEngine.getActiveAlerts(patientUid)` (`:1002`) feeds `patient-view`; `encounterCdsHelper.buildEncounterStartAlerts` feeds `encounter-start`.
+**Two gaps:**
+1. **NEWS2 is invisible on the CDS dashboard.** `recordNEWS2` writes to `news2_scores` + a notification, but **never calls `persistCdsAlert`** — so a high NEWS2 score never appears on the clinician's `patient-view`/`encounter-start` cards. This is the same class of defect as the **D26 pregnancy-BP finding** (`vitalSignMonitor.js:299-335`), where gestational-HTN alerts landed only in `clinical_alerts` and the doctor's CDS screen showed nothing until a `cds_alerts` mirror was added.
+2. **`getClinicalRisk` ignores the NEWS2 "single parameter = 3" rule.** Per RCP NEWS2, a score of 3 in *any single* parameter mandates urgent clinician review even when the aggregate is low — `getClinicalRisk(score)` keys on the aggregate only.
 
 ## 2. Goals / non-goals
 
 **Goals (v1):**
-- A pure `computeNews2(obs, { scale2 })` implementing the published NEWS2 table → `{ score, band, params, anyParamThree, monitoring, response }`.
-- Compute NEWS2 on each adult inpatient vitals recording; when the band warrants, persist a `cds_alert` (via `persistCdsAlert`) so it surfaces on `patient-view` / `encounter-start` — acknowledgeable + audited, **reusing the existing pipeline** (no new hook, no new card shape, no new table).
-- **Escalation-only de-dup** so repeated observations don't spam alerts.
-- **Adult-only** (NEWS2 isn't validated for pregnancy/paediatrics).
-- Gate on the `deterioration_early_warning` module being enabled (tenant 3-layer); **disabled by default**.
+- **Reuse** `calculateNEWS2` unchanged for the math; **add** `anyParamThree` (did any single parameter score 3?) to its return.
+- **Fix** `getClinicalRisk` to honor the single-parameter-=3 escalation (urgent ward-doctor review) — backward-compatible.
+- **Surface** NEWS2 deterioration to `cds_alerts` via `persistCdsAlert` so it appears on `patient-view`/`encounter-start`, **gated** on the `deterioration_early_warning` module (tenant 3-layer), **adult-only**, with **escalation-only de-dup**.
+- Disabled by default; deterministic (no model).
 
 **Non-goals (v1):**
-- AI "trend + recent-lab composite" augmentation (the module's eventual richer score) — v2; deterministic NEWS2 only here.
-- NEWS2 Scale 2 default-on (supported via an explicit `scale2` flag, default Scale 1 — Scale 2 needs a hypercapnic-risk clinical flag not in the vitals payload).
-- A new CDS hook, card schema, route, or migration (all reused).
-- Paediatric (PEWS) / obstetric (MEOWS) early-warning scores.
-- Patient-facing surface.
+- Rebuilding NEWS2 scoring / persistence / the notification (all exist).
+- Adding `tenant_id` to the `news2_scores` insert (separate correctness concern — deferred).
+- AI "trend + recent-lab composite" augmentation (the module's eventual vision) — v2.
+- New hook / card schema / route / migration (all reused).
+- Paediatric (PEWS) / obstetric (MEOWS) scores; patient-facing surface.
 
 ## 3. Locked decisions
-1. **Deterministic NEWS2** (published algorithm); AI composite is v2.
-2. **Compute-on-vitals**, persist via `persistCdsAlert`, surface through the existing `getActiveAlerts`/`encounter-start` pipeline.
-3. **Escalation-only de-dup** (raise on first crossing or band increase; not every obs).
-4. **Adult-only**; skip paediatric/pregnant (no NEWS2 alert).
-5. Reuse `persistCdsAlert` + `resolvePatientContext` (export both); no bare inserts.
+1. **Reuse existing `calculateNEWS2`**; only add `anyParamThree`.
+2. **Surface to `cds_alerts`** via `persistCdsAlert` (tenant-correct), called best-effort from `recordNEWS2`.
+3. Raise threshold = **score ≥ 5 OR `anyParamThree`** (the clinically-escalating set); **escalation-only de-dup**.
+4. **Adult-only** (skip paediatric/pregnant — NEWS2 not validated for them).
+5. Fix the single-parameter-=3 rule in `getClinicalRisk` (backward-compatible).
 
-## 4. NEWS2 scoring (the deterministic core)
-
-`computeNews2({ respiratory_rate, oxygen_saturation, on_oxygen, temperature, systolic_bp, heart_rate, consciousness }, { scale2 = false })`. Missing params are scored as not-contributing (and listed in `params` as `null`); `consciousness` defaults to `Alert`, `on_oxygen` to `false` (room air) when absent.
-
-**Scale 1 table (points):**
-- **Respiration rate** /min: ≤8 → 3; 9–11 → 1; 12–20 → 0; 21–24 → 2; ≥25 → 3
-- **SpO2 (Scale 1)** %: ≥96 → 0; 94–95 → 1; 92–93 → 2; ≤91 → 3
-- **Air or oxygen**: room air → 0; on supplemental O2 → 2
-- **Temperature** °C: ≤35.0 → 3; 35.1–36.0 → 1; 36.1–38.0 → 0; 38.1–39.0 → 1; ≥39.1 → 2
-- **Systolic BP** mmHg: ≤90 → 3; 91–100 → 2; 101–110 → 1; 111–219 → 0; ≥220 → 3
-- **Heart rate** /min: ≤40 → 3; 41–50 → 1; 51–90 → 0; 91–110 → 1; 111–130 → 2; ≥131 → 3
-- **Consciousness (ACVPU)**: Alert → 0; new Confusion / Voice / Pain / Unresponsive → 3
-
-(Temperature normalized to °C first, reusing `normalizeTemperatureC` honoring `temperature_unit`. Scale 2 table — for documented hypercapnic patients — implemented behind the `scale2` flag per the published Scale-2 values.)
-
-**Aggregate → band + clinical response:**
-- `0` → **low** (routine; min 12-hourly)
-- `1–4` → **low** (4–6-hourly; ward-nurse assessment)
-- any single parameter = 3 → **low-medium** (urgent review by the ward doctor) — `anyParamThree`
-- `5–6` → **medium** (urgent; registered nurse escalates to medical team; hourly)
-- `≥7` → **high** (emergency; continuous monitoring; critical-care escalation)
-
-Indicator mapping for the card: `low` → `info`, `low-medium`/`medium` → `warning`, `high` → `critical`.
-
-## 5. Architecture & flow
+## 4. Architecture & flow
 
 ```
-vitals recorded (vitalsChartService.js ~:661, after checkVitalAnomalies)
-  → deteriorationEarlyWarningService.evaluateNews2OnVitals({ patientId, encounterId, vitals, recordedBy })
- 1. module-enabled gate (deterioration_early_warning, tenant 3-layer) → if disabled, return (no-op)
- 2. resolvePatientContext(patientId) → if paediatric OR pregnant → return (NEWS2 not applicable)
- 3. map the vitals payload → computeNews2 inputs (RR, SpO2, on_oxygen, temp(+unit), SBP, HR, consciousness)
- 4. const news2 = computeNews2(obs)
- 5. if band is 'low' (score 0–4 AND not anyParamThree) → do NOT raise (routine); still return the score
- 6. de-dup: read the latest unacknowledged NEWS2 cds_alert for this encounter; raise ONLY if none exists
-    or the new band is HIGHER than the standing one (escalation). Equal/lower band → skip (no spam).
- 7. persistCdsAlert({ patientUid, encounterId, alertType:'NEWS2_DETERIORATION', severity:<mapped>,
-      title:`NEWS2 ${score} — ${band}`, description:<response text>, sourceData:{ score, band, params, monitoring } })
-  → surfaces automatically via getActiveAlerts (patient-view) + buildEncounterStartAlerts (encounter-start)
+recordNEWS2(patientUid, vitals, recordedBy)                       [EXISTING — extended]
+  ... existing: calculateNEWS2 → INSERT news2_scores → notify if score≥5 ...
+  + best-effort: surfaceNews2Cds({ patientUid, news2 })           [NEW call, in try/catch — never blocks]
+
+surfaceNews2Cds({ patientUid, encounterId = null, news2 })        [NEW]
+   news2 = { totalScore, clinicalRisk, scores, anyParamThree }    (from calculateNEWS2)
+ 1. module-enabled gate (deterioration_early_warning, tenant 3-layer via the patient's tenant) → disabled ⇒ no-op
+ 2. adult-only: resolvePatientContext(patientId) → paediatric OR pregnant ⇒ no-op
+ 3. raise threshold: totalScore ≥ 5 OR anyParamThree → else no-op (routine; no card)
+ 4. band for the card: totalScore≥7 → critical; (5–6 OR anyParamThree) → warning   (never 'info' — we don't raise low)
+ 5. de-dup: latest UNACKNOWLEDGED NEWS2_DETERIORATION cds_alert for this patient → raise ONLY if none, or the
+    new severity rank is HIGHER than the standing one (escalation). Equal/lower ⇒ skip (no spam).
+ 6. persistCdsAlert({ patientUid, encounterId, alertType:'NEWS2_DETERIORATION', severity,
+      title:`NEWS2 ${totalScore} — ${clinicalRisk}`, description:<escalationAction>,
+      sourceData:{ total_score, clinical_risk, scores, any_param_three:anyParamThree, source:'news2Service.recordNEWS2' } })
+   → surfaces via getActiveAlerts (patient-view) + buildEncounterStartAlerts (encounter-start)
 ```
 
-`evaluateNews2OnVitals` is **best-effort** at the call site (its own try/catch in the caller; a NEWS2 failure must never block the vitals write — same posture as the existing cds_alerts mirror).
+`encounterId` is `null` in v1 (the vitals path doesn't thread an admission id, and `getActiveAlerts(patientUid)` returns alerts regardless of encounter, so patient-view still shows it). De-dup keys on `patient_uid + alert_type + acknowledged=false`.
 
-## 6. Components (files)
+## 5. Components (files)
 
 **New:**
-- `apps/backend/src/services/cds/news2Service.js` — pure `computeNews2(obs, opts)` + helpers (`scoreRespRate`, `scoreSpo2`, …, `bandForScore`). No I/O. `__testing__` exports the per-param scorers.
-- `apps/backend/src/services/cds/deteriorationEarlyWarningService.js` — `evaluateNews2OnVitals({ patientId, encounterId, vitals, recordedBy })`: module gate, adult-only check, vitals→obs mapping, `computeNews2`, escalation-only de-dup, `persistCdsAlert`. Returns `{ score, band, raised:boolean, skippedReason? }`.
-- Tests: `news2Service.test.js` (unit — the table), `deteriorationEarlyWarning.deep.test.js` (real-PG — gate + persist + de-dup + surface via getActiveAlerts).
+- `apps/backend/src/services/cds/deteriorationEarlyWarningService.js` — `surfaceNews2Cds({ patientUid, encounterId, news2 })`: module gate, adult-only check, threshold, escalation-only de-dup, `persistCdsAlert`. Returns `{ raised: boolean, reason? }`. **Lazy-imports** `persistCdsAlert` to avoid an eager import-graph change.
+- Tests: `deteriorationEarlyWarningService.test.js` (unit — gate/threshold/de-dup/adult-only, mocked), `news2CdsSurfacing.deep.test.js` (real-PG — vitals → cds_alert via getActiveAlerts).
 
 **Changed:**
+- `services/clinical/news2Service.js`:
+  - `calculateNEWS2` → also return `anyParamThree` (`Object.values(scores).some((v) => v === 3)`).
+  - `getClinicalRisk(score, { anyParamThree = false } = {})` → when `anyParamThree` and `score < 5`, escalationAction becomes the urgent-single-parameter review text; `clinicalRisk` stays `low_to_medium` (already is for 1–4). Backward-compatible (default false ⇒ unchanged).
+  - `recordNEWS2` → after the existing persistence/notification, call `surfaceNews2Cds(...)` in its own try/catch (best-effort).
 - `services/emr/cdsEngine.js` — `export` `persistCdsAlert` (was private).
-- `utils/clinical/vitalSignMonitor.js` — `export` `resolvePatientContext` (was private) + add to the default export.
-- `services/emr/vitalsChartService.js` (~:661) — after `checkVitalAnomalies`, call `evaluateNews2OnVitals(...)` in a best-effort try/catch (lazy `await import(...)` to avoid an eager import-graph change — same gotcha that bit prior features).
-- `services/ai/clinicalAiModuleService.js` — extend the `deterioration_early_warning` `settings.outputSchema` if needed so `{ score, band, contributors }` matches what we emit (keep `enabled:false`).
+- `utils/clinical/vitalSignMonitor.js` — `export` `resolvePatientContext` (was private) + add to default export.
+- `services/ai/clinicalAiModuleService.js` — confirm/adjust `deterioration_early_warning` `settings.outputSchema` matches `{ score, band, contributors }` framing (keep `enabled:false`).
 
-**No new migration** — reuses `cds_alerts` + the vitals tables.
+**No new migration** — reuses `cds_alerts`, `news2_scores`, vitals.
+
+## 6. Single-parameter-=3 fix specifics
+- `calculateNEWS2` adds `anyParamThree = Object.values(scores).some((v) => v === 3)` to its return object (additive; existing fields unchanged).
+- `getClinicalRisk(score, { anyParamThree })`: existing aggregate branches unchanged; when `anyParamThree === true` AND `1 ≤ score < 5`, override `escalationAction` to: *"Urgent review by the ward doctor — a single NEWS2 parameter scored 3. Determine the cause and decide on escalation/monitoring frequency."* (`clinicalRisk` remains `low_to_medium`). A param=3 always implies `score ≥ 3`, so this only affects 3–4 aggregates; 5+ already escalates.
 
 ## 7. Gating, scope, honesty
-- `deterioration_early_warning` stays `enabled:false`; runs only when enabled for the tenant. Tenant-correct writes via `persistCdsAlert` (resolves + stamps `tenant_id`).
-- **Adult-only**: paediatric/pregnant patients get no NEWS2 alert (NEWS2 isn't validated for them; PEWS/MEOWS are separate, out of scope).
-- **Honesty:** NEWS2 is a **screening/escalation aid, not a diagnosis**; the card shows the per-parameter contributors for transparency. Deterministic — committed config unaffected (no model).
+- `deterioration_early_warning` stays `enabled:false`; surfacing runs only when enabled for the patient's tenant. `persistCdsAlert` resolves + stamps `tenant_id` (fail-safe skip on null).
+- **Adult-only** via `resolvePatientContext`.
+- **Honesty:** NEWS2 is a screening/escalation aid, not a diagnosis; the card's `sourceData` carries the per-parameter `scores` for transparency. The existing `news2_scores` row + notification are unchanged (this only adds the CDS card).
 
 ## 8. Error handling
-- `evaluateNews2OnVitals` never throws to the vitals-recording caller (best-effort try/catch at the call site; internal errors logged, vitals write unaffected).
-- Missing/partial vitals → `computeNews2` scores only present params (a partial NEWS2 is still clinically used); `sourceData.params` records which were absent.
-- `persistCdsAlert` already fail-safes on an unresolved tenant (skips the write) — inherited.
-- Module-disabled or non-adult → clean no-op return (not an error).
+- `surfaceNews2Cds` is called best-effort from `recordNEWS2` (try/catch); a failure must never break the NEWS2 record or the vitals write.
+- Module-disabled / non-adult / below-threshold → clean `{ raised:false, reason }` no-op (not an error).
+- `persistCdsAlert` already fail-safes on unresolved tenant.
 
 ## 9. Test plan (TDD)
-- **Unit (`computeNews2`):** each parameter's points at every boundary (e.g. RR 8/9/12/20/21/24/25; SpO2 91/92/94/96; HR 40/41/50/51/90/91/110/111/130/131; SBP 90/91/100/110/111/219/220; temp 35/35.1/36/36.1/38/38.1/39/39.1; on_oxygen; consciousness non-Alert=3); aggregate; band thresholds (0/4/5/6/7); `anyParamThree` → low-medium even at low aggregate; temperature unit normalization; missing-param handling; Scale 2 behind the flag.
-- **Integration (real PG):** enable the module for a tenant; seed an adult patient + admission; call `evaluateNews2OnVitals` with a deteriorating set (e.g. RR 26, SpO2 90 on O2, HR 130) → a `cds_alert` (`NEWS2_DETERIORATION`) persists at band ≥ medium, tenant-stamped, and appears in `getActiveAlerts`; a normal set → no alert; a second equal-band obs → **no** second alert (de-dup), a higher-band obs → escalation alert; a paediatric/pregnant patient → no alert; module disabled → no alert.
-- **Gates:** `npm run test:ci` (all chunks), `npm run lint`, local gitleaks/semgrep. No Ollama smoke (deterministic, no model).
+- **Unit (`news2Service`):** `calculateNEWS2` now returns `anyParamThree` (true when e.g. RR 25 scores 3 at aggregate 3; false for an all-1s aggregate of 3); `getClinicalRisk(3, { anyParamThree:true })` → low_to_medium with the urgent-single-parameter action; `getClinicalRisk(3)` (default) → unchanged; aggregate bands unchanged.
+- **Unit (`surfaceNews2Cds`, mocked):** module disabled → no `persistCdsAlert`; paediatric/pregnant → none; score 2 / anyParamThree=false → none; score 6 → persist `warning`; score 8 → persist `critical`; single-param-3 at aggregate 3 → persist `warning`; de-dup — a standing unacked equal-band alert ⇒ no second persist, a higher-band ⇒ persist (escalation). (Mock `clinicalAiModuleService.getClinicalAiModule`, `vitalSignMonitor.resolvePatientContext`, `cdsEngine.persistCdsAlert`, and the prisma read for the standing alert.)
+- **Integration (real PG):** enable the module for a tenant; seed an adult patient + admission; `recordNEWS2(patientUid, deterioratingVitals, recordedBy)` (RR 26, SpO2 90 on O2, HR 130 → score ≥ 7) → a `cds_alerts` row (`NEWS2_DETERIORATION`, `critical`, tenant-stamped) exists and is returned by `getActiveAlerts(patientUid)`; a normal set → none; a second equal-band record → no duplicate (de-dup); a paediatric patient → none; module disabled → none. The existing `news2_scores` insert + return are unaffected.
+- **Gates:** `npm run test:ci` (all chunks), `npm run lint`. No Ollama smoke (deterministic).
 
 ## 10. Code-grounded anchors
-- Trigger + vitals shape: `vitalsChartService.js:661` (`checkVitalAnomalies(patientUser.id, vitalsForCheck, …)`); vitals keys (`systolic_bp`, `temperature`(+`temperature_unit`), `oxygen_saturation`, `respiratory_rate`, `heart_rate`) per `vitalSignMonitor.js` ranges — confirm `consciousness`/`on_oxygen` columns at implementation (read-first; default Alert/room-air if absent).
-- Persistence: `cdsEngine.js:89` `persistCdsAlert` (export it), `:1002` `getActiveAlerts`; existing cds_alerts mirror precedent `vitalSignMonitor.js:308-331`.
-- Patient context: `vitalSignMonitor.js` `resolvePatientContext` (export it) + `normalizeTemperatureC`.
-- Surfacing: `services/cds/encounterCdsHelper.js` `buildEncounterStartAlerts`.
-- Module: `clinicalAiModuleService.js` `deterioration_early_warning` (`outputSchema.required: ['score','band','contributors']`).
+- Existing NEWS2: `services/clinical/news2Service.js` — `calculateNEWS2` (`:16`), `getClinicalRisk` (`:96`), `recordNEWS2` (`:128`, persists `news2_scores` + notification). Called at `vitalsChartService.js:624`.
+- CDS write/read: `cdsEngine.js:89` `persistCdsAlert` (export it), `:1002` `getActiveAlerts`; cds_alerts mirror precedent `vitalSignMonitor.js:308-331` (D26).
+- Patient context: `vitalSignMonitor.js` `resolvePatientContext` (export it).
+- Surfacing consumer: `services/cds/encounterCdsHelper.js` `buildEncounterStartAlerts`.
+- Module: `clinicalAiModuleService.js` `deterioration_early_warning`.
 
 ## 11. Future (v2+)
-- AI "trend + recent-lab composite" augmentation (the module's full vision): vitals-trend slope + recent abnormal labs layered on top of the deterministic NEWS2, only ever *raising* concern — wired behind the model, enabled last.
-- Recompute-on-patient-view (fresh score in the hook) in addition to compute-on-vitals.
-- Acknowledgement-aware re-raise policy (re-alert if a high score persists past a monitoring interval).
-- PEWS (paediatric) / MEOWS (obstetric) sibling scores.
+- AI "trend + recent-lab composite" augmentation layered on the deterministic NEWS2 (the module's full vision), enabled last.
+- Thread `encounter_id` into the NEWS2 CDS alert (needs the admission id at the vitals path).
+- `tenant_id` on the `news2_scores` insert (multi-tenant correctness sweep).
+- Acknowledgement-aware re-raise if a high score persists past a monitoring interval.
