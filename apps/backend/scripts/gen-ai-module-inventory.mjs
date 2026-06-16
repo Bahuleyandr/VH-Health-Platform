@@ -175,7 +175,7 @@ if (flaggedRows.length) {
 }
 
 md += '## CDS dashboard surfacing\n\n';
-md += `Only **${cdsSurfaceRows.length}/${total}** modules write to \`cds_alerts\` (the clinician\'s patient-view / encounter-start cards). The rest persist to a review queue / their own table — fine for back-office review, but a *serious bedside risk* that never reaches the dashboard is a safety gap (the NEWS2 / D26 pregnancy-BP class).\n\n`;
+md += `Only **${cdsSurfaceRows.length}/${total}** modules write to \`cds_alerts\` (the clinician's patient-view / encounter-start cards). The rest persist to a review queue / their own table — fine for back-office review, but a *serious bedside risk* that never reaches the dashboard is a safety gap (the NEWS2 / D26 pregnancy-BP class).\n\n`;
 if (cdsGapRows.length) {
   md += `**${cdsGapRows.length} high/critical-risk bedside module(s) have a producing service but do NOT reach the CDS dashboard** — surfacing candidates (wire \`raiseCdsAlert\` for the serious-severity path, as done for polypharmacy / antimicrobial stewardship). Verify each (the key-grep can't see a differently-named surfacing service):\n\n`;
   md += '| Module | key | Surface | Risk |\n|---|---|---|---|\n';
