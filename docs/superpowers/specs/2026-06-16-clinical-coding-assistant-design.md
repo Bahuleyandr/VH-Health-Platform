@@ -38,8 +38,10 @@ A `clinical_coding_assist` module already exists (`clinicalAiModuleService.js:10
 ## 4. Architecture & flow
 
 ```
-TRIGGER (coder, on demand):
-  POST /…/admissions/:admissionId/coding-assist   (control plane; BILLING_STAFF/MEDICAL_RECORDS/ADMIN-ish roles)
+TRIGGER (on demand) — REUSES the existing generic route (no new route needed):
+  POST /admission-ai-draft  { admissionId, moduleKey:'clinical_coding_assist' }
+        (clinicalUseRoutes.js:140 → generateAdmissionAiDraft; clinical-AI-use roles)
+  (Also auto-runs as the discharge-compose child. The validation step below applies to BOTH paths.)
         │
         ▼
 RUN clinical_coding_assist for the admission (REUSES the admission-AI-draft generation):
@@ -61,15 +63,14 @@ The **validation step is the core new logic** and lives in the shared coding pat
 ## 5. Components (files)
 
 **New:**
-- `apps/backend/src/services/ai/codingValidationService.js` — pure-ish `validateAndAnnotateCodes(suggestedCodes, { tenantId })`: per-code `validateCode('ICD10', code)`, returns annotated array + `{ unvalidated_count }`; never throws (a terminology lookup failure → `validated:false` for that code, not an error).
-- `apps/backend/src/services/ai/clinicalCodingAssistService.js` (thin) — `runCodingAssist(admissionId, { tenantId, startedBy, req })`: reuse the admission-AI-draft generation for `clinical_coding_assist`, apply `validateAndAnnotateCodes`, persist + queue. (If `clinicalAiWorkflowService` already exposes a per-module admission-draft entry, call that and inject validation rather than duplicating chart assembly — determine at plan time.)
-- `apps/backend/src/routes/admin/clinicalAi/codingAssistRoutes.js` — `POST /admissions/:admissionId/coding-assist` (start → 201/202) + `GET …/:generationId` (fetch draft) if not already covered by the generic generations route. Mount under the control plane next to the other clinical-AI routes.
-- Tests: `codingValidationService.test.js`, `clinicalCodingAssistService.test.js`, `codingAssistRoutes.test.js`, `clinicalCodingAssist.deep.test.js`.
+- `apps/backend/src/services/ai/codingValidationService.js` — `annotateCodingDraft(draft, { tenantId })`: validates each suggested ICD-10 code via `terminologyService.validateCode('ICD10', code)` and returns `{ suggested_codes: annotated[], safety_flags: [...] }`. Each code → `{ system:'ICD10', code, display, validated, confidence }`; ≥1 invalid → one `UNVALIDATED_CODE` flag (severity `medium`). **Never throws** — a terminology lookup failure → `validated:false` for that code (fail-closed), not an error.
+- Tests: `codingValidationService.test.js` (unit), `clinicalCodingAssist.deep.test.js` (integration).
+
+**No new orchestration service or route:** the on-demand trigger already exists — `POST /admission-ai-draft` (`clinicalUseRoutes.js:140`) → `generateAdmissionAiDraft(admissionId, moduleKey, …)`, and `clinical_coding_assist` is already in `ADMISSION_MODULES` (`clinicalAiWorkflowService.js:43`). The discharge-compose child also runs it. Both inherit the validation below.
 
 **Changed:**
 - `clinicalAiModuleService.js` — extend `clinical_coding_assist` `settings.outputSchema` so each code carries a `system` field (explicit ICD10; future-proofs ICD-11/CPT). Keep `enabled:false`.
-- `clinicalAiWorkflowService.js` — invoke `validateAndAnnotateCodes` for the `clinical_coding_assist` module in the post-generation step (so the discharge-compose child path is validated too), keyed on `moduleKey === 'clinical_coding_assist'`.
-- Route index — mount the new routes.
+- `clinicalAiWorkflowService.js` — invoke `annotateCodingDraft` for the `clinical_coding_assist` module in the post-generation step (the `build_safety_flags` node, keyed on `moduleKey === 'clinical_coding_assist'`), replacing `draft.suggested_codes` with the annotated array and merging the returned `safety_flags`. This validates BOTH the `/admission-ai-draft` path and the discharge-compose child.
 
 ## 6. Validation specifics
 - `validateCode('ICD10', code)` is positional (`terminologyService.js:293`). Treat a thrown/unknown result as **not validated** (fail-closed to "flag it", never crash the draft).
