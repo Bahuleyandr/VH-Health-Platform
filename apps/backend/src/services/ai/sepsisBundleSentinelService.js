@@ -504,7 +504,7 @@ async function createReviewPlaceholder({ tenantId, generationId, admissionId, pa
 export async function generateSepsisBundleAudit({ req = null, admissionId } = {}) {
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
   const safeAdmissionId = optionalInt(admissionId, 'admission_id');
-  const module = await getClinicalAiModule(MODULE_KEY);
+  const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
   if (!module.enabled) {
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
@@ -521,6 +521,7 @@ export async function generateSepsisBundleAudit({ req = null, admissionId } = {}
       rule_based_audit: fallbackDraft,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const normalizedDraft = {

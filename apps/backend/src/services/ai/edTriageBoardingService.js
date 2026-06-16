@@ -1012,6 +1012,7 @@ export async function evaluateEdTriage({
         },
       })}`,
       tenantRegion: req?.tenant?.region || null,
+      tenantId,
     });
     const parsed = safeJsonParse(aiResult?.text, {});
     if (parsed && typeof parsed === 'object') {

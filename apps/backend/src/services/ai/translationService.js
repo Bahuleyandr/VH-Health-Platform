@@ -133,7 +133,7 @@ function safeJsonParse(text, fallback) {
   }
 }
 
-async function translateViaLlm({ source, targetLanguage, tenantRegion }) {
+async function translateViaLlm({ source, targetLanguage, tenantRegion, tenantId }) {
   const langName = LANG_DISPLAY[targetLanguage] || targetLanguage;
   const systemPrompt = [
     'You translate hospital patient communications from English into the target language.',
@@ -153,6 +153,7 @@ async function translateViaLlm({ source, targetLanguage, tenantRegion }) {
     userPrompt,
     taskType: MODULE_KEY,
     tenantRegion,
+    tenantId,
   });
   return result;
 }
@@ -230,6 +231,7 @@ export async function translateGeneration({
     source: generation.draft,
     targetLanguage: lang,
     tenantRegion,
+    tenantId,
   });
 
   const translatedDraft = safeJsonParse(aiResult.text, generation.draft);

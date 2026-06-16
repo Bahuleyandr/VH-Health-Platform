@@ -901,6 +901,7 @@ export async function generateTeachBackSession({
       coverage: built.coverage,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);

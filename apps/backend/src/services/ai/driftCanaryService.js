@@ -173,11 +173,11 @@ export function computeBiasSignals(sliceMetrics, overallPassRatePct) {
   return signals;
 }
 
-async function evaluateCase(testCase) {
+async function evaluateCase(testCase, tenantId) {
   const module = await getClinicalAiModule(testCase.module_key);
   const systemPrompt = 'You are a hospital clinical AI drafting assistant. Use only the supplied chart context. Return JSON only.';
   const userPrompt = `Canary case: ${testCase.label}\n\n${JSON.stringify(testCase.input_packet)}`;
-  const aiResult = await generateClinicalText({ systemPrompt, userPrompt, taskType: testCase.module_key });
+  const aiResult = await generateClinicalText({ systemPrompt, userPrompt, taskType: testCase.module_key, tenantId });
   const draft = safeJsonParse(aiResult.text, { synthetic: true });
 
   const defenseFlags = runOutputDefenses({
@@ -232,7 +232,7 @@ export async function runCanary({ tenantId = null, scope = 'routine' } = {}) {
   const findings = [];
   for (const testCase of cases) {
     try {
-      const result = await evaluateCase(testCase);
+      const result = await evaluateCase(testCase, tid);
       findings.push(result);
     } catch (err) {
       logger.warn('Canary case evaluation failed', { label: testCase.label, error: err.message });

@@ -461,6 +461,7 @@ export async function ingestClinicalDocument({
       userPrompt,
       taskType: MODULE_KEY,
       tenantRegion: req?.tenant?.region || null,
+      tenantId,
     });
   const aiDraft = blockedForInjection ? null : safeJsonParse(aiResult.text, null);
   const draft = mergeAiExtraction(aiDraft, fallbackDraft);

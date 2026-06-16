@@ -1048,6 +1048,7 @@ export async function generateDischargeSummary(admissionId, requestedBy, req) {
   const aiResult = await generateClinicalText({
     ...prompt,
     taskType: 'discharge_summary',
+    tenantId: req?.tenantId,
   });
   const hospitalCourse = aiResult.usedAi ? aiResult.text : buildTemplateHospitalCourse(context);
   const summary = buildStructuredSummary(context, hospitalCourse, aiResult);

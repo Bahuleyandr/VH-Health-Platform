@@ -133,6 +133,7 @@ ${JSON.stringify({ admission: context.admission, allergies: context.allergies, e
     userPrompt,
     taskType: MODULE_KEY,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const fallback = fallbackPacket({
     payerName,

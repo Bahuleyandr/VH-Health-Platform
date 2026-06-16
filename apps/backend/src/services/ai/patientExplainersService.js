@@ -204,6 +204,7 @@ export async function runExplainerPipeline({
     userPrompt: JSON.stringify(effectivePayload),
     taskType: moduleKey,
     tenantRegion: req?.tenant?.region || null,
+    tenantId: tid,
   });
   const draft = safeJsonParse(aiResult.text, null) || {
     explanation_summary: '',

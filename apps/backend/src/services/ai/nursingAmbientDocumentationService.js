@@ -588,6 +588,7 @@ export async function generateNursingAmbientSession({
       rule_based_observations: fallbackDraft,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);
