@@ -47,7 +47,7 @@ const PHONE_RE = /\b(?:\+?\d{1,3}[-\s]?)?(?:\d{10}|\d{5}[-\s]?\d{5})\b/g;
 const MRN_RE = /\bMRN[\s:-]*([A-Z0-9-]{4,20})\b/gi;
 const URL_RE = /\bhttps?:\/\/\S+/gi;
 const AGE_RE = /\b(\d{2,3})\s*(?:years?|yrs?|y\/?o|yo)\b/gi; // redact only when captured number >= 90
-const DATE_RE = /\b(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})\b/gi;
+const DATE_RE = /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})\b/gi;
 
 // AADHAAR is checked BEFORE PHONE so a 12-digit run isn't eaten as phones.
 const STRUCTURED = [
