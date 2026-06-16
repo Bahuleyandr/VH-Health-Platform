@@ -703,6 +703,34 @@ export async function generateInfectionControlAudit({
     },
   });
 
+  // Surface to the CDS dashboard on high/critical infection-control risk so an
+  // outbreak / isolation / device-infection signal reaches the clinician's cards,
+  // not just the infection-control queue. Best-effort; the audit row stays authoritative.
+  const icPatientUid = context.admission?.patient_uid || null;
+  if (icPatientUid && (normalizedDraft.risk_band === 'critical' || normalizedDraft.risk_band === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const topSignal = Array.isArray(normalizedDraft.signals) ? normalizedDraft.signals[0] : null;
+      await raiseCdsAlert({
+        patientUid: icPatientUid,
+        encounterId: safeAdmissionId,
+        alertType: 'INFECTION_CONTROL_RISK',
+        severity: normalizedDraft.risk_band === 'critical' ? 'critical' : 'warning',
+        title: `Infection control — ${normalizedDraft.risk_band} risk`,
+        description: topSignal?.title || topSignal?.message || topSignal?.label
+          || 'Infection control sentinel flagged high/critical risk — review isolation / device / stewardship signals.',
+        sourceData: {
+          risk_band: normalizedDraft.risk_band,
+          risk_score: normalizedDraft.risk_score,
+          audit_id: audit?.id || null,
+          source: 'infectionControlSentinelService.generateInfectionControlAudit',
+        },
+      });
+    } catch (err) {
+      logger.warn(`Infection control CDS surfacing failed: ${err.message}`);
+    }
+  }
+
   return {
     audit_id: audit?.id || null,
     generation_id: generation?.id || null,

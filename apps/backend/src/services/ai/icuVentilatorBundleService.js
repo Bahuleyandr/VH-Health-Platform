@@ -1006,6 +1006,34 @@ export async function generateVentilatorBundleAudit({ req = null, admissionId } 
     logger.warn('ICU ventilator bundle event publish failed', { error: err?.message });
   }
 
+  // Surface to the CDS dashboard on high/critical ventilator/sedation bundle risk
+  // so an ICU bundle gap reaches the clinician's cards, not just the audit queue.
+  // Best-effort; the audit row stays authoritative.
+  const ventPatientUid = context.admission?.patient_uid || null;
+  if (ventPatientUid && (draft.risk_band === 'critical' || draft.risk_band === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const topGap = Array.isArray(draft.bundle_gaps) ? draft.bundle_gaps[0] : null;
+      await raiseCdsAlert({
+        patientUid: ventPatientUid,
+        encounterId: safeAdmissionId,
+        alertType: 'VENTILATOR_BUNDLE_RISK',
+        severity: draft.risk_band === 'critical' ? 'critical' : 'warning',
+        title: `Ventilator/sedation bundle — ${draft.risk_band} risk`,
+        description: topGap?.title || topGap?.recommendation
+          || 'Ventilator/sedation bundle audit flagged high/critical risk — review VAP bundle / sedation / SBT readiness gaps.',
+        sourceData: {
+          risk_band: draft.risk_band,
+          compliance_score: draft.compliance_score,
+          audit_id: auditRow?.id || null,
+          source: 'icuVentilatorBundleService.generateVentilatorBundleAudit',
+        },
+      });
+    } catch (err) {
+      logger.warn(`ICU ventilator bundle CDS surfacing failed: ${err.message}`);
+    }
+  }
+
   return {
     audit_id: auditRow?.id || null,
     generation_id: generation?.id || null,
