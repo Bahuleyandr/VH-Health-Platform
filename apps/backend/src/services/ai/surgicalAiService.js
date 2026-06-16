@@ -606,7 +606,7 @@ export async function detectPostOpComplications({
     })),
   ];
 
-  return runSurgicalPipeline({
+  const result = await runSurgicalPipeline({
     moduleKey: 'post_op_complication_alert',
     tenantId, caseContext, patientUid: caseContext.patient_uid,
     systemPrompt: [
@@ -625,6 +625,43 @@ export async function detectPostOpComplications({
     metadata: { ot_schedule_id: scheduleId, note_count: postopNotes.length },
     generatedBy, req,
   });
+
+  // Surface to the CDS dashboard when the AI flags a high/critical post-op
+  // complication, so a surgery-specific deterioration reaches the clinician's
+  // patient-view/encounter-start cards — not just the post-op review queue.
+  // `severity` is AI-emitted (the prompt's structured output), so this is a
+  // graceful no-op under the committed `template` provider and fires once a
+  // model is wired. Best-effort; the review draft stays authoritative.
+  const sev = result?.draft?.severity;
+  const postOpPatientUid = caseContext.patient_uid || null;
+  if (postOpPatientUid && (sev === 'critical' || sev === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const signals = Array.isArray(result.draft.complication_signals) ? result.draft.complication_signals : [];
+      const topType = signals[0]?.type ? String(signals[0].type).replace(/_/g, ' ') : null;
+      await raiseCdsAlert({
+        patientUid: postOpPatientUid,
+        encounterId: caseContext.admission_id || null,
+        alertType: 'POST_OP_COMPLICATION',
+        severity: sev === 'critical' ? 'critical' : 'warning',
+        title: `Post-op complication risk — ${sev}`,
+        description: topType
+          ? `Possible ${topType} — review post-op surveillance.`
+          : 'Post-op complication signals detected — review post-op surveillance.',
+        sourceData: {
+          severity: sev,
+          complication_types: signals.map((s) => s?.type).filter(Boolean),
+          generation_id: result.generation_id,
+          ot_schedule_id: caseContext.id,
+          source: 'surgicalAiService.detectPostOpComplications',
+        },
+      });
+    } catch (err) {
+      logger.warn(`Post-op complication CDS surfacing failed: ${err.message}`);
+    }
+  }
+
+  return result;
 }
 
 export const __testing__ = {

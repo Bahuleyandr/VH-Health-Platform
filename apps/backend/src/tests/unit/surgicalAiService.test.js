@@ -13,6 +13,7 @@ const queryUnsafeMock = jest.fn();
 const getModuleMock = jest.fn();
 const generateClinicalTextMock = jest.fn();
 const runOutputDefensesMock = jest.fn(() => []);
+const raiseCdsAlertMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryUnsafeMock };
 
@@ -31,6 +32,10 @@ jest.unstable_mockModule('../../services/ai/localLlmClient.js', () => ({
 }));
 jest.unstable_mockModule('../../services/ai/hallucinationDefenses.js', () => ({
   runOutputDefenses: runOutputDefensesMock,
+}));
+jest.unstable_mockModule('../../services/cds/cdsAlertSurfacing.js', () => ({
+  raiseCdsAlert: raiseCdsAlertMock,
+  default: { raiseCdsAlert: raiseCdsAlertMock },
 }));
 
 const {
@@ -63,6 +68,7 @@ beforeEach(() => {
   getModuleMock.mockReset();
   generateClinicalTextMock.mockReset();
   runOutputDefensesMock.mockReset().mockReturnValue([]);
+  raiseCdsAlertMock.mockReset().mockResolvedValue({ raised: true });
 
   getModuleMock.mockResolvedValue({
     module_key: 'preop_checklist_review',
@@ -286,6 +292,43 @@ describe('detectPostOpComplications', () => {
     const llmCall = generateClinicalTextMock.mock.calls[0][0];
     expect(llmCall.userPrompt).toContain('sepsis');
     expect(llmCall.userPrompt).toContain('99');
+  });
+
+  it('surfaces a critical post-op complication to the CDS dashboard', async () => {
+    mockRow(CASE);
+    mockRows([{ id: 1, pod_number: 3, recovery_phase: 'ward', vitals: { hr: 130 } }]);
+    mockRows([]); // no existing alerts
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 8003 }]); // generation insert
+    queryUnsafeMock.mockResolvedValueOnce([]); // review insert
+    generateClinicalTextMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        complication_signals: [{ type: 'anastomotic_leak', evidence: ['POD3 tachycardia'], confidence: 0.8 }],
+        severity: 'critical',
+        recommended_action: ['Urgent surgical review'],
+        source_citations: [], safety_flags: [],
+      }),
+      usedAi: true, provider: 'ollama', model: 'x', usage: {},
+    });
+    await detectPostOpComplications({ tenantId: TENANT, otScheduleId: 42 });
+    expect(raiseCdsAlertMock).toHaveBeenCalledWith(expect.objectContaining({
+      alertType: 'POST_OP_COMPLICATION',
+      severity: 'critical',
+      patientUid: PATIENT,
+    }));
+  });
+
+  it('does NOT surface a low-severity post-op draft (no dashboard noise)', async () => {
+    mockRow(CASE);
+    mockRows([{ id: 1, pod_number: 3, recovery_phase: 'ward', vitals: {} }]);
+    mockRows([]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 8004 }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    generateClinicalTextMock.mockResolvedValueOnce({
+      text: JSON.stringify({ complication_signals: [], severity: 'low', recommended_action: [], source_citations: [], safety_flags: [] }),
+      usedAi: true, provider: 'ollama', model: 'x', usage: {},
+    });
+    await detectPostOpComplications({ tenantId: TENANT, otScheduleId: 42 });
+    expect(raiseCdsAlertMock).not.toHaveBeenCalled();
   });
 });
 
