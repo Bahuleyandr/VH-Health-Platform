@@ -23,6 +23,24 @@ import {
   exportRegistry,
 } from '../services/research/researchRegistryService.js';
 import { collectKnownIdentifiers } from '../services/ai/deidentificationService.js';
+import { listClinicalAiModules } from '../services/ai/clinicalAiModuleService.js';
+
+const DEID_MODULE_KEY = 'clinical_text_deidentifier';
+
+// Enable/disable the de-id module for the default tenant via a RAW tenant-override
+// insert. We bypass updateClinicalAiTenantModule on purpose: it enforces a
+// governance gate (critical-risk modules need an accepted eval run) that's
+// irrelevant to this wiring test. listClinicalAiModules({refresh:true}) first
+// ensures the module's registry row exists (FK target of the override).
+async function setDeidModuleEnabled(enabled) {
+  await listClinicalAiModules({ refresh: true });
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO clinical_ai_tenant_modules (tenant_id, module_key, enabled, settings, created_at, updated_at)
+     VALUES ($1::uuid, $2, $3, '{}'::jsonb, NOW(), NOW())
+     ON CONFLICT (tenant_id, module_key) DO UPDATE SET enabled = $3, updated_at = NOW()`,
+    DEFAULT_TENANT_ID, DEID_MODULE_KEY, enabled,
+  );
+}
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -73,6 +91,11 @@ async function cleanup() {
   }
   await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE phone = $1`, SEED_PHONE,
+  ).catch(() => {});
+  // Remove the per-tenant de-id module override so the suite leaves zero residue.
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM clinical_ai_tenant_modules WHERE tenant_id = $1::uuid AND module_key = $2`,
+    DEFAULT_TENANT_ID, DEID_MODULE_KEY,
   ).catch(() => {});
 }
 
@@ -133,6 +156,10 @@ d('Clinical text de-id — research export free-text scrubbing (deep)', () => {
     responseId = response.id;
     // Guard the seed: the note must have survived validation as a string cell.
     expect(response.data.note).toBe(`${PATIENT_NAME}, ph ${PATIENT_PHONE}, febrile`);
+
+    // De-id export is gated on the module being enabled for the tenant — turn it
+    // on for the default tenant (the override is removed again in cleanup).
+    await setDeidModuleEnabled(true);
   });
 
   afterAll(async () => {
@@ -168,5 +195,19 @@ d('Clinical text de-id — research export free-text scrubbing (deep)', () => {
     const csv = res.buffer.toString('utf8');
     expect(csv).toContain(PATIENT_NAME);
     expect(res.deidResidual).toBe(0);
+  });
+
+  test('de-id export is REFUSED when the module is disabled (fail-safe, no un-de-identified export)', async () => {
+    // Disable the module for this tenant, then a de-id-requested export must throw
+    // rather than silently emit the raw PHI.
+    await setDeidModuleEnabled(false);
+    try {
+      await expect(
+        exportRegistry(registryId, { deidentify: true, salt: 's', tenantId: DEFAULT_TENANT_ID }),
+      ).rejects.toMatchObject({ statusCode: 403, code: 'DEID_MODULE_DISABLED' });
+    } finally {
+      // Restore for any later run; cleanup also removes the override.
+      await setDeidModuleEnabled(true);
+    }
   });
 });
