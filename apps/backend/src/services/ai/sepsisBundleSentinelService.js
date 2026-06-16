@@ -653,6 +653,35 @@ export async function generateSepsisBundleAudit({ req = null, admissionId } = {}
     },
   });
 
+  // Surface to the CDS dashboard when sepsis risk is high/critical. Sepsis is
+  // time-critical — a serious risk must reach the clinician's patient-view /
+  // encounter-start cards, not just the sepsis-audit queue. Best-effort; the
+  // audit row remains the authoritative record.
+  const sepsisPatientUid = context.admission?.patient_uid || null;
+  if (sepsisPatientUid && (normalizedDraft.risk_band === 'critical' || normalizedDraft.risk_band === 'high')) {
+    try {
+      const { raiseCdsAlert } = await import('../cds/cdsAlertSurfacing.js');
+      const topGap = Array.isArray(normalizedDraft.bundle_gaps) ? normalizedDraft.bundle_gaps[0] : null;
+      await raiseCdsAlert({
+        patientUid: sepsisPatientUid,
+        encounterId: safeAdmissionId,
+        alertType: 'SEPSIS_RISK',
+        severity: normalizedDraft.risk_band === 'critical' ? 'critical' : 'warning',
+        title: `Sepsis risk — ${normalizedDraft.risk_band} (score ${normalizedDraft.risk_score})`,
+        description: topGap?.title || topGap?.recommendation
+          || 'Sepsis bundle review flagged a high/critical sepsis risk — review the Sepsis-6 / bundle gaps.',
+        sourceData: {
+          risk_band: normalizedDraft.risk_band,
+          risk_score: normalizedDraft.risk_score,
+          audit_id: audit?.id || null,
+          source: 'sepsisBundleSentinelService.generateSepsisBundleAudit',
+        },
+      });
+    } catch (err) {
+      logger.warn(`Sepsis bundle CDS surfacing failed: ${err.message}`);
+    }
+  }
+
   return {
     audit_id: audit?.id || null,
     generation_id: generation?.id || null,
