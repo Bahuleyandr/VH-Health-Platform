@@ -124,6 +124,7 @@ async function runTeleconsultPipeline({
     userPrompt: JSON.stringify(userPromptPayload),
     taskType: moduleKey,
     tenantRegion: req?.tenant?.region || null,
+    tenantId: tid,
   });
 
   const draft = safeJsonParse(aiResult.text, null) || {

@@ -587,6 +587,7 @@ export async function generateFamilyUpdate({
     systemPrompt: prompt.system_prompt,
     userPrompt: `${prompt.user_prompt_template}\n\nLanguage: ${resolvedLanguage}\nCaregiver relationship: ${resolvedRelationship}\nConsent scope: ${JSON.stringify(scopeEvaluation.scope)}\n${JSON.stringify({ rule_based_update: fallbackDraft })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);

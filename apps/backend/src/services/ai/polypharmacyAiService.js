@@ -97,6 +97,7 @@ export async function reviewPolypharmacy({ patientId, patientUid, medications, a
     userPrompt,
     taskType: 'polypharmacy_ai_review',
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, { findings: [] });
   const aiFindings = Array.isArray(parsed.findings) ? parsed.findings.map((f) => ({

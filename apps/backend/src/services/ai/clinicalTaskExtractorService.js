@@ -541,6 +541,7 @@ export async function generateClinicalTaskExtraction({ req = null, admissionId }
       rule_based_tasks: fallbackTasks,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, { tasks: [] });
   const packetCitations = uniqueCitations(context.citations || []);

@@ -291,6 +291,7 @@ export async function generateSoapDraftFromVoiceNote({ req, voiceNoteId }) {
     userPrompt,
     taskType: MODULE_KEY,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
 
   const fallback = buildSoapFallback(voiceNote.transcript);

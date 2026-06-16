@@ -865,6 +865,7 @@ export async function evaluateBedTurnover({
         },
       })}`,
       tenantRegion: req?.tenant?.region || null,
+      tenantId,
     });
     const parsed = safeJsonParse(aiResult?.text, {});
     if (parsed && typeof parsed === 'object') {

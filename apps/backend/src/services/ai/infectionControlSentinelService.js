@@ -569,6 +569,7 @@ export async function generateInfectionControlAudit({
       rule_based_audit: fallbackDraft,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const draft = safeJsonParse(aiResult.text, fallbackDraft);
   const normalizedDraft = {

@@ -857,6 +857,7 @@ export async function generateVentilatorBundleAudit({ req = null, admissionId } 
       rule_based_bundle_audit: fallbackDraft,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
 
   const parsed = safeJsonParse(aiResult?.text, {});

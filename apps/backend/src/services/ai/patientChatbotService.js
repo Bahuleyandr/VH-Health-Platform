@@ -145,6 +145,7 @@ export async function sendMessage({ req, conversationId, message } = {}) {
     userPrompt,
     taskType: 'patient_record_chatbot',
     tenantRegion: req.tenant?.region || null,
+    tenantId,
   });
 
   const replyText = aiResult.text && String(aiResult.text).trim()

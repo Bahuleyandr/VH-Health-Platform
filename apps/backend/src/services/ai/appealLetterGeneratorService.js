@@ -641,6 +641,7 @@ export async function generateAppealLetter({
       rule_based_appeal: fallbackDraft,
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);

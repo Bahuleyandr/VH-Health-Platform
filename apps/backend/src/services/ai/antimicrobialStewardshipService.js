@@ -774,6 +774,7 @@ export async function generateAntimicrobialStewardshipReview({
       ...(kbGrounding.used ? { curated_knowledge: kbGrounding.groundingChunks } : {}),
     })}`,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
   const parsed = safeJsonParse(aiResult.text, {});
   const draft = normalizeAiSummary(parsed, fallbackDraft);

@@ -141,6 +141,7 @@ export async function generateHandoverDraft(patientUid, requestedBy, tenantId = 
     systemPrompt,
     userPrompt,
     taskType: 'handover_summary',
+    tenantId,
   });
 
   let parsed = null;

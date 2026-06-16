@@ -80,7 +80,7 @@ export async function generateRcaDraft({ req, admissionId, caseType = 'mortality
   if (!admission) throw AppError.notFound('Admission not found');
 
   const context = await collectAdmissionClinicalContext(admission.id);
-  const module = await getClinicalAiModule(MODULE_KEY);
+  const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
 
   const systemPrompt = [
     'You are a hospital quality committee drafting assistant.',
@@ -104,6 +104,7 @@ export async function generateRcaDraft({ req, admissionId, caseType = 'mortality
     userPrompt,
     taskType: MODULE_KEY,
     tenantRegion: req?.tenant?.region || null,
+    tenantId,
   });
 
   const fallback = fallbackDraft(context, normalisedType);
