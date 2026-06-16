@@ -1087,6 +1087,30 @@ export const CLINICAL_AI_MODULES = [
     },
   },
   {
+    module_key: 'clinician_ehr_query',
+    display_name: 'Clinician EHR Query',
+    description: 'Answers a clinician free-text question over a patient record (current admission + prior history), grounded + cited. Live answer, audit-logged, no review queue.',
+    enabled: false,
+    settings: {
+      surface: 'clinical',
+      risk: 'medium',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: true,
+      reviewRoles: [],
+      approvalPolicy: 'none',
+      outputSchema: {
+        type: 'object',
+        required: ['answer', 'citations'],
+        properties: {
+          answer: { type: 'string' },
+          citations: { type: 'array' },
+        },
+      },
+      retentionDays: 365,
+    },
+  },
+  {
     module_key: 'ai_safety_reviewer',
     display_name: 'AI Safety Reviewer',
     description: 'Reviews AI outputs for unsupported claims, missing citations, medication/allergy risks, PHI leakage risk, and signoff status.',
