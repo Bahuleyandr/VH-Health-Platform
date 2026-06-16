@@ -26,7 +26,11 @@ import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as taskService from '../workflow/taskService.js';
 // Reuse the mig-269 canonical SLA layer (do NOT add a new SLA system).
-import { startWorkflowSla } from '../clinical/canonicalClinicalPlatformService.js';
+// NOTE: startWorkflowSla is imported LAZILY at its call site below (not as a
+// static top-level import) to avoid an ESM circular-import link-time failure
+// ("does not provide an export named 'startWorkflowSla'") that surfaces under
+// certain module load orders (canonicalClinicalPlatformService is mid-eval when
+// this module is linked). Resolving at call time defers it past full eval.
 import { ROLES } from '../../utils/roleHelpers.js';
 
 // severity → task priority. Unknown/absent severity defaults to 'high' (a
@@ -128,6 +132,7 @@ export async function enqueueCriticalResultTask({
     //    engine sweep because its tenant_id matches. Running it outside the task
     //    tx is fine: the producer is best-effort, and an instance with no task
     //    is reconciled by the engine's backfill backstop.
+    const { startWorkflowSla } = await import('../clinical/canonicalClinicalPlatformService.js');
     const sla = await startWorkflowSla({
       tenantId,
       ruleCode: slaKey,
