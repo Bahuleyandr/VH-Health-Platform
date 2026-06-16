@@ -23,6 +23,7 @@
 
 import prisma from '../lib/prisma.js';
 import { generateAdmissionAiDraft } from '../services/ai/clinicalAiWorkflowService.js';
+import { annotateCodingDraft } from '../services/ai/codingValidationService.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ async function seedAdmission() {
  * is_signed = true is required for the coding-assist fallback to produce
  * suggested_codes and avoid the NO_SIGNED_DOCUMENTATION safety flag.
  */
-async function seedSignedNote(admissionId) {
+async function seedSignedNote(_admissionId) {
   const { rows } = await ownerQuery(
     `INSERT INTO clinical_notes
        (patient_uid, tenant_id, note_type, title, content, is_addendum, is_signed, signed_at,
@@ -140,8 +141,6 @@ async function seedSignedNote(admissionId) {
     [PATIENT_UID, TENANT_ID]
   );
   return rows[0].id;
-  // admissionId is seeded for context; notes are looked up by patient_uid in the timeline
-  void admissionId;
 }
 
 /**
@@ -454,5 +453,37 @@ describeIfDb('C – Disabled gate: forbidden when clinical_coding_assist is off'
     }
     expect(caught).toBeDefined();
     expect(caught.statusCode).toBe(403);
+  });
+});
+
+// ─── Suite D: ICD-11 validation against the real terminology master ────────────
+
+describeIfDb('D – ICD-11 validation directly against the terminology master', () => {
+  afterAll(async () => {
+    await prisma.$disconnect().catch(() => {});
+  });
+
+  it('D1 – seeded ICD-11 code 5A11 validates as true with display containing "diabetes"', async () => {
+    const out = await annotateCodingDraft(
+      { suggested_codes: [{ system: 'ICD11', code: '5A11', description: 'T2DM' }] },
+      { tenantId: TENANT_ID }
+    );
+    const entry = out.suggested_codes[0];
+    expect(entry).toMatchObject({ system: 'ICD11', code: '5A11', validated: true });
+    expect(entry.display).toMatch(/diabetes/i);
+    expect(out.safety_flags).toEqual([]);
+  });
+
+  it('D2 – bogus ICD-11 code ZZZZ9 is validated:false and UNVALIDATED_CODE flag is present', async () => {
+    const out = await annotateCodingDraft(
+      { suggested_codes: [{ system: 'ICD11', code: 'ZZZZ9', description: 'bogus' }] },
+      { tenantId: TENANT_ID }
+    );
+    const entry = out.suggested_codes[0];
+    expect(entry.validated).toBe(false);
+    const codeFlag = out.safety_flags.find(
+      (f) => f.type === 'UNVALIDATED_CODE' || f.code === 'UNVALIDATED_CODE'
+    );
+    expect(codeFlag).toBeDefined();
   });
 });

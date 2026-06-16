@@ -2,7 +2,10 @@
  * codingValidationService.js
  *
  * Annotates a clinical_coding_assist draft by validating each suggested
- * ICD-10 code against the terminology master (via terminologyService.validateCode).
+ * code against the terminology master (via terminologyService.validateCode).
+ * Supports ICD-10 and ICD-11; codes with no system field default to ICD10.
+ * Systems outside the supported set (e.g. CPT) are left unvalidated without
+ * calling the terminology service (no master for them).
  *
  * Design: fail-closed — a lookup error treats the code as unvalidated rather
  * than surfacing an exception to the caller.  Unvalidated codes are KEPT in
@@ -16,6 +19,9 @@
  */
 
 import * as terminologyService from '../terminology/terminologyService.js';
+
+/** Coding systems that have a terminology master and can be validated. */
+const SUPPORTED_SYSTEMS = new Set(['ICD10', 'ICD11']);
 
 /**
  * Checks whether a validateCode() result represents a genuinely valid,
@@ -39,19 +45,20 @@ function isValidResult(result) {
  * @param {string|null} [context.tenantId]
  * @returns {Promise<{ suggested_codes: Array<object>, safety_flags: Array<object> }>}
  */
-export async function annotateCodingDraft(draft, { tenantId = null } = {}) {
+export async function annotateCodingDraft(draft, { tenantId: _tenantId = null } = {}) {
   const input = Array.isArray(draft?.suggested_codes) ? draft.suggested_codes : [];
   const annotated = [];
   let unvalidated = 0;
 
   for (const item of input) {
     const code = String(item?.code || '').trim();
+    const system = String(item?.system || 'ICD10').toUpperCase();
     let validated = false;
     let display = item?.display || item?.description || null;
 
-    if (code && code.toUpperCase() !== 'UNSPECIFIED') {
+    if (code && code.toUpperCase() !== 'UNSPECIFIED' && SUPPORTED_SYSTEMS.has(system)) {
       try {
-        const result = await terminologyService.validateCode('ICD10', code);
+        const result = await terminologyService.validateCode(system, code);
         validated = isValidResult(result);
         if (validated && result.concept?.display) {
           display = result.concept.display;
@@ -64,7 +71,7 @@ export async function annotateCodingDraft(draft, { tenantId = null } = {}) {
     if (!validated) unvalidated += 1;
 
     annotated.push({
-      system: 'ICD10',
+      system,
       code: code || null,
       display,
       validated,
@@ -78,7 +85,7 @@ export async function annotateCodingDraft(draft, { tenantId = null } = {}) {
           {
             type: 'UNVALIDATED_CODE',
             severity: 'medium',
-            detail: `${unvalidated} suggested ICD-10 code(s) not found in the terminology master`,
+            detail: `${unvalidated} suggested code(s) not found in the terminology master`,
           },
         ]
       : [];

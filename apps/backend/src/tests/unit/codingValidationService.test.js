@@ -69,3 +69,48 @@ test('empty / missing suggested_codes → empty result, no flags, no throw', asy
   const out = await annotateCodingDraft({}, { tenantId: 't1' });
   expect(out).toEqual({ suggested_codes: [], safety_flags: [] });
 });
+
+test('ICD-11 code → validated:true with canonical display, system:ICD11, no flag', async () => {
+  terminology.validateCode.mockResolvedValue({
+    valid: true,
+    mode: 'catalog',
+    reason: null,
+    concept: { code: '5A11', display: 'Type 2 diabetes mellitus', status: 'active' },
+  });
+  const out = await annotateCodingDraft(
+    { suggested_codes: [{ system: 'ICD11', code: '5A11', description: 'T2DM' }] },
+    { tenantId: 't1' },
+  );
+  expect(out.suggested_codes[0]).toMatchObject({
+    system: 'ICD11',
+    code: '5A11',
+    validated: true,
+    display: 'Type 2 diabetes mellitus',
+  });
+  expect(out.safety_flags).toEqual([]);
+  expect(terminology.validateCode).toHaveBeenCalledWith('ICD11', '5A11');
+});
+
+test('code with no system field (legacy) → treated as ICD10, validateCode called with ICD10', async () => {
+  terminology.validateCode.mockResolvedValue({
+    valid: true,
+    mode: 'catalog',
+    reason: null,
+    concept: { code: 'I10', display: 'Essential (primary) hypertension', status: 'active' },
+  });
+  const out = await annotateCodingDraft(
+    { suggested_codes: [{ code: 'I10', description: 'Hypertension' }] },
+    { tenantId: 't1' },
+  );
+  expect(out.suggested_codes[0]).toMatchObject({ system: 'ICD10', code: 'I10', validated: true });
+  expect(terminology.validateCode).toHaveBeenCalledWith('ICD10', 'I10');
+});
+
+test('unsupported system (CPT) → validated:false, confidence:low, validateCode NOT called', async () => {
+  const out = await annotateCodingDraft(
+    { suggested_codes: [{ system: 'CPT', code: '99213', description: 'Office visit' }] },
+    { tenantId: 't1' },
+  );
+  expect(out.suggested_codes[0]).toMatchObject({ validated: false, confidence: 'low' });
+  expect(terminology.validateCode).not.toHaveBeenCalled();
+});

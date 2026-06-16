@@ -432,6 +432,7 @@ function codingAssist(context) {
     signed_documentation_only: true,
     suggested_codes: signedNotes.length
       ? diagnoses.map((diagnosis) => ({
+        system: 'ICD10',
         code: diagnosis.icd10_code || diagnosis.icd10_description || 'UNSPECIFIED',
         description: diagnosis.description || diagnosis.icd10_description || 'Diagnosis requires coder review',
         confidence: diagnosis.icd10_code ? 'medium' : 'low',
