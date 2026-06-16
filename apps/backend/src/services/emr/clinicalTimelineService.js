@@ -101,7 +101,7 @@ function oldestFirst(a, b) {
   return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
 }
 
-function makeCitation(event) {
+export function makeCitation(event) {
   return {
     source_type: event.event_type,
     source_id: event.id ? String(event.id) : null,
@@ -948,4 +948,5 @@ export default {
   getPatientTimeline,
   collectAdmissionClinicalContext,
   createDowntimeSnapshot,
+  makeCitation,
 };
