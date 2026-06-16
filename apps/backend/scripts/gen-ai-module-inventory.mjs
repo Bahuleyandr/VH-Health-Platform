@@ -65,7 +65,27 @@ function scanRefs(key) {
   const svc = nonRegistry.some((f) => f.includes('/services/') && !isTest(f));
   const route = nonRegistry.some((f) => f.includes('/routes/') && !isTest(f));
   const test = nonRegistry.some(isTest);
-  return { svc, route, test, refCount: nonRegistry.length };
+  // Does any non-test source file referencing this module reach the CDS DASHBOARD
+  // (cds_alerts via persistCdsAlert/raiseCdsAlert)? A module can be fully built +
+  // governed yet only persist to a review queue / its own table, so its findings
+  // never appear on the clinician's patient-view/encounter-start cards. We grep
+  // the exact files that reference the key (multiple -e literals to avoid shell
+  // pipe-quoting issues). Same key-grep caveat as above (a differently-named
+  // surfacing service won't be attributed here).
+  const sourceFiles = nonRegistry.filter((f) => !isTest(f));
+  let cdsSurface = false;
+  if (sourceFiles.length) {
+    try {
+      const out = execSync(
+        `git grep -l -e persistCdsAlert -e raiseCdsAlert -e cds_alerts -- ${sourceFiles.map((f) => `"${f}"`).join(' ')}`,
+        { cwd: REPO_ROOT },
+      ).toString().trim();
+      cdsSurface = out.length > 0;
+    } catch {
+      cdsSurface = false; // git grep exits 1 when there are no matches
+    }
+  }
+  return { svc, route, test, refCount: nonRegistry.length, cdsSurface };
 }
 
 const rows = CLINICAL_AI_MODULES.map((m) => {
@@ -88,6 +108,7 @@ const rows = CLINICAL_AI_MODULES.map((m) => {
     route: wiring.route,
     test: wiring.test,
     refCount: wiring.refCount,
+    cdsSurface: wiring.cdsSurface,
   };
 });
 
@@ -104,6 +125,17 @@ const testRows = rows.filter((r) => r.test);
 // Either a true shell, or (more often) wired via a differently-named service —
 // MANUAL verification required for each of these.
 const flaggedRows = rows.filter((r) => !r.svc && !r.route);
+
+// CDS-dashboard surfacing. `cdsSurface` = a source file referencing the module
+// also writes to cds_alerts. The GAP set = serious (high/critical-risk) bedside
+// clinical modules that have a producing service but never reach the dashboard —
+// their findings sit in a review queue / own table, invisible on patient-view.
+const cdsSurfaceRows = rows.filter((r) => r.cdsSurface);
+const NON_BEDSIDE_SURFACES = new Set(['governance', 'operations']);
+const CDS_GAP_RISKS = new Set(['high', 'critical']);
+const cdsGapRows = rows.filter(
+  (r) => r.svc && !r.cdsSurface && CDS_GAP_RISKS.has(r.risk) && !r.patient && !NON_BEDSIDE_SURFACES.has(r.surface),
+);
 
 const sorted = [...rows].sort((a, b) => {
   if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
@@ -127,7 +159,9 @@ md += `| Declare curated-KB grounding | ${kbRows.length} |\n`;
 md += `| **Key-referenced by a service** | ${svcRows.length} |\n`;
 md += `| **Key-referenced by a route** | ${routeRows.length} |\n`;
 md += `| **Key-referenced by a test** | ${testRows.length} |\n`;
-md += `| **Flagged — no service/route ref by key (verify)** | ${flaggedRows.length} |\n\n`;
+md += `| **Flagged — no service/route ref by key (verify)** | ${flaggedRows.length} |\n`;
+md += `| **Reaches the CDS dashboard (cds_alerts)** | ${cdsSurfaceRows.length} |\n`;
+md += `| **CDS-surfacing gaps (serious bedside, not on dashboard)** | ${cdsGapRows.length} |\n\n`;
 
 md += '## Wiring verification (code-grounded)\n\n';
 md += `A \`git grep\` of each \`module_key\` over \`apps/backend/src\`: **${svcRows.length}/${total}** are referenced by a service and **${routeRows.length}/${total}** by a route. This replaces the old hand-asserted "everything is wired" claim with a machine-checked signal.\n\n`;
@@ -138,6 +172,17 @@ if (flaggedRows.length) {
   md += '\n';
 } else {
   md += '_Every module_key is referenced by at least one service or route in the source._\n\n';
+}
+
+md += '## CDS dashboard surfacing\n\n';
+md += `Only **${cdsSurfaceRows.length}/${total}** modules write to \`cds_alerts\` (the clinician\'s patient-view / encounter-start cards). The rest persist to a review queue / their own table — fine for back-office review, but a *serious bedside risk* that never reaches the dashboard is a safety gap (the NEWS2 / D26 pregnancy-BP class).\n\n`;
+if (cdsGapRows.length) {
+  md += `**${cdsGapRows.length} high/critical-risk bedside module(s) have a producing service but do NOT reach the CDS dashboard** — surfacing candidates (wire \`raiseCdsAlert\` for the serious-severity path, as done for polypharmacy / antimicrobial stewardship). Verify each (the key-grep can't see a differently-named surfacing service):\n\n`;
+  md += '| Module | key | Surface | Risk |\n|---|---|---|---|\n';
+  for (const r of cdsGapRows) md += `| ${esc(r.name)} | \`${r.key}\` | ${esc(r.surface)} | ${esc(r.risk)} |\n`;
+  md += '\n';
+} else {
+  md += '_No high/critical-risk bedside module is missing CDS surfacing._\n\n';
 }
 
 md += '### Enabled by default (seed)\n\n';
@@ -170,11 +215,11 @@ for (const r of patientRows) md += `| ${esc(r.name)} | \`${r.key}\` | ${esc(r.su
 md += '\n';
 
 md += `## Full module register (${total})\n\n`;
-md += 'Sorted: enabled first, then by surface. **Default** = seed default (per-tenant override wins at runtime). **Svc/Route/Test** = the module_key is referenced by a service / route / test file (code-grounded `git grep`; a `—` may still be wired via a differently-named service). **Deep** = needs GPU tier. **Pt** = patient-facing. **KB** = declares curated-KB grounding.\n\n';
-md += '| # | Module | key | Surface | Default | Risk | Svc | Route | Test | Deep | Pt | KB |\n';
-md += '|---:|---|---|---|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|\n';
+md += 'Sorted: enabled first, then by surface. **Default** = seed default (per-tenant override wins at runtime). **Svc/Route/Test** = the module_key is referenced by a service / route / test file (code-grounded `git grep`; a `—` may still be wired via a differently-named service). **CDS** = a source file referencing the module writes to `cds_alerts` (reaches the clinician dashboard). **Deep** = needs GPU tier. **Pt** = patient-facing. **KB** = declares curated-KB grounding.\n\n';
+md += '| # | Module | key | Surface | Default | Risk | Svc | Route | Test | CDS | Deep | Pt | KB |\n';
+md += '|---:|---|---|---|:---:|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n';
 sorted.forEach((r, i) => {
-  md += `| ${i + 1} | ${esc(r.name)} | \`${r.key}\` | ${esc(r.surface)} | ${yn(r.enabled)} | ${esc(r.risk)} | ${yn(r.svc)} | ${yn(r.route)} | ${yn(r.test)} | ${yn(r.deep)} | ${yn(r.patient)} | ${yn(r.kb)} |\n`;
+  md += `| ${i + 1} | ${esc(r.name)} | \`${r.key}\` | ${esc(r.surface)} | ${yn(r.enabled)} | ${esc(r.risk)} | ${yn(r.svc)} | ${yn(r.route)} | ${yn(r.test)} | ${yn(r.cdsSurface)} | ${yn(r.deep)} | ${yn(r.patient)} | ${yn(r.kb)} |\n`;
 });
 md += '\n';
 
@@ -198,5 +243,5 @@ md += '_Provenance: registry attributes are read directly from the registry arra
 const outPath = path.join(REPO_ROOT, 'docs', 'CLINICAL_AI_MODULE_INVENTORY.md');
 fs.writeFileSync(outPath, md, 'utf8');
 console.log(`WROTE ${outPath}`);
-console.log(`total=${total} enabled=${enabledRows.length} svc=${svcRows.length} route=${routeRows.length} test=${testRows.length} flagged=${flaggedRows.length} deep=${deepRows.length} patient=${patientRows.length} kb=${kbRows.length}`);
+console.log(`total=${total} enabled=${enabledRows.length} svc=${svcRows.length} route=${routeRows.length} test=${testRows.length} flagged=${flaggedRows.length} cdsSurface=${cdsSurfaceRows.length} cdsGaps=${cdsGapRows.length} deep=${deepRows.length} patient=${patientRows.length} kb=${kbRows.length}`);
 process.exit(0);
