@@ -134,7 +134,7 @@ export function getClinicalRisk(score, { anyParamThree = false } = {}) {
  * @returns {Object} Saved NEWS2 record
  */
 export async function recordNEWS2(patientUid, vitals, recordedBy) {
-  const { totalScore, clinicalRisk, escalationAction } = calculateNEWS2(vitals);
+  const { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } = calculateNEWS2(vitals);
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO news2_scores
@@ -182,6 +182,15 @@ export async function recordNEWS2(patientUid, vitals, recordedBy) {
       // Fire-and-forget — notification failure must not block clinical recording
       logger.error('Failed to queue NEWS2 alert notification:', err);
     }
+  }
+
+  // Surface NEWS2 deterioration onto the CDS card pipeline (gated/adult-only
+  // inside the service). Best-effort — must never break the news2_scores write.
+  try {
+    const { surfaceNews2Cds } = await import('../cds/deteriorationEarlyWarningService.js');
+    await surfaceNews2Cds({ patientUid, news2: { totalScore, clinicalRisk, escalationAction, scores, anyParamThree } });
+  } catch (err) {
+    logger.warn(`NEWS2 CDS surfacing failed for patient ${patientUid}: ${err.message}`);
   }
 
   logger.info(`NEWS2 recorded for patient ${patientUid}: score=${totalScore}, risk=${clinicalRisk}`);
