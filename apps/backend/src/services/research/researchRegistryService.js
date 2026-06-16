@@ -669,12 +669,28 @@ function csvEscape(value) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export async function exportRegistry(registryId, { format = 'csv', includePhi = false, tenantId = DEFAULT_TENANT_ID } = {}) {
+export async function exportRegistry(registryId, { format = 'csv', includePhi = false, deidentify = false, salt = null, tenantId = DEFAULT_TENANT_ID } = {}) {
   const scopedTenantId = normalizeTenantId(tenantId);
   const registry = await getRegistry(registryId, scopedTenantId);
   if (!['csv', 'xlsx'].includes(format)) {
     throw AppError.badRequest('format must be csv or xlsx', 'RESEARCH_EXPORT_FORMAT_INVALID');
   }
+
+  // De-identification is fail-closed: it must NEVER also emit the raw patient_uid
+  // column, so it forces includePhi off. The de-id service is lazy-imported here
+  // (not at module top) so this module's eager import graph stays unchanged —
+  // several suites mock ../../lib/prisma.js and a new eager import could break them.
+  if (deidentify) includePhi = false;
+  const deidMod = deidentify ? await import('../ai/deidentificationService.js') : null;
+  // Fetch each patient's chart-anchored identifiers at most once per export.
+  const idCache = new Map();
+  const idsFor = async (uid) => {
+    if (!idCache.has(uid)) {
+      idCache.set(uid, await deidMod.collectKnownIdentifiers(uid, { tenantId: scopedTenantId }));
+    }
+    return idCache.get(uid);
+  };
+  let deidResidual = 0;
 
   const rows = await prisma.$queryRawUnsafe(
     `SELECT e.subject_code, e.status AS enrollment_status, e.enrolled_at, e.patient_uid,
@@ -702,7 +718,8 @@ export async function exportRegistry(registryId, { format = 'csv', includePhi = 
   if (includePhi) baseHeaders.splice(1, 0, 'patient_uid');
   const headers = [...baseHeaders, ...fieldKeys, 'autofilled_fields'];
 
-  const grid = rows.map((row) => {
+  const grid = [];
+  for (const row of rows) {
     const dataObj = typeof row.data === 'object' && row.data !== null ? row.data : JSON.parse(row.data || '{}');
     const autoObj = typeof row.autofilled === 'object' && row.autofilled !== null ? row.autofilled : JSON.parse(row.autofilled || '{}');
     const record = {
@@ -716,9 +733,22 @@ export async function exportRegistry(registryId, { format = 'csv', includePhi = 
       autofilled_fields: Object.keys(autoObj).join(';'),
     };
     if (includePhi) record.patient_uid = row.patient_uid;
-    for (const key of fieldKeys) record[key] = dataObj[key] !== undefined ? dataObj[key] : '';
-    return record;
-  });
+    for (const key of fieldKeys) {
+      const value = dataObj[key] !== undefined ? dataObj[key] : '';
+      if (deidentify && typeof value === 'string' && value !== '') {
+        const result = deidMod.deidentifyText(value, {
+          knownIdentifiers: await idsFor(row.patient_uid),
+          mode: 'pseudonymize',
+          salt,
+        });
+        if (result.residualFlags.length > 0) deidResidual += 1;
+        record[key] = result.text;
+      } else {
+        record[key] = value;
+      }
+    }
+    grid.push(record);
+  }
 
   const stamp = new Date().toISOString().slice(0, 10);
   if (format === 'csv') {
@@ -729,6 +759,7 @@ export async function exportRegistry(registryId, { format = 'csv', includePhi = 
       contentType: 'text/csv; charset=utf-8',
       buffer: Buffer.from(lines.join('\r\n'), 'utf8'),
       rowCount: grid.length,
+      deidResidual,
     };
   }
 
@@ -743,6 +774,7 @@ export async function exportRegistry(registryId, { format = 'csv', includePhi = 
     contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     buffer,
     rowCount: grid.length,
+    deidResidual,
   };
 }
 
