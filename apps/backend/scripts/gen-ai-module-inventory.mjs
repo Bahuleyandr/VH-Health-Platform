@@ -50,6 +50,47 @@ const PATIENT_SURFACES = ['patient', 'patient_communication', 'virtual_ward'];
 // the registry + this generator), and classify them. Uses `git grep` so only
 // tracked files are scanned (fast, deterministic).
 const REGISTRY_FILE = 'clinicalAiModuleService.js';
+
+// CDS-surfacing detection. A module "reaches the dashboard" when a source file
+// referencing it writes to cds_alerts. The naive "any referencing file contains
+// the sink" check FALSE-POSITIVES shared-service files: e.g. surgicalAiService.js
+// implements 8 modules, so once ONE of them wires raiseCdsAlert, all 8 would
+// wrongly show as surfacing (hiding 7 real gaps). Fix — a file surfaces a module
+// iff it writes a cds_alert AND one of:
+//   (a) it is a single-module file (references only this module_key), or
+//   (b) it defines `const MODULE_KEY = '<key>'` (its primary module), or
+//   (c) the literal key appears within KEY_WINDOW lines of a sink line.
+// (a)+(b) handle the common one-module-per-service case (where MODULE_KEY is a
+// top-of-file const, far from the call, so proximity alone would false-NEGATIVE);
+// (c) disambiguates a genuine multiplexer like surgicalAiService.
+const ALL_MODULE_KEYS = CLINICAL_AI_MODULES.map((m) => m.module_key);
+const CDS_SINK_RE = /persistCdsAlert|raiseCdsAlert|cds_alerts/;
+const KEY_WINDOW = 40;
+const fileCache = new Map();
+function readSource(f) {
+  if (!fileCache.has(f)) {
+    try { fileCache.set(f, fs.readFileSync(path.join(REPO_ROOT, f), 'utf8')); }
+    catch { fileCache.set(f, ''); }
+  }
+  return fileCache.get(f);
+}
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function fileSurfacesModule(f, key) {
+  const content = readSource(f);
+  if (!CDS_SINK_RE.test(content)) return false;
+  if (new RegExp(`MODULE_KEY\\s*=\\s*['"]${escapeRe(key)}['"]`).test(content)) return true; // (b)
+  const distinctModuleKeys = ALL_MODULE_KEYS.filter((k) => content.includes(k)).length;
+  if (distinctModuleKeys <= 1) return true; // (a)
+  const lines = content.split('\n');
+  const sinkLines = [];
+  const keyLines = [];
+  lines.forEach((ln, i) => {
+    if (CDS_SINK_RE.test(ln)) sinkLines.push(i);
+    if (ln.includes(key)) keyLines.push(i);
+  });
+  return keyLines.some((kl) => sinkLines.some((sl) => Math.abs(kl - sl) <= KEY_WINDOW)); // (c)
+}
+
 function scanRefs(key) {
   let files = [];
   try {
@@ -65,26 +106,13 @@ function scanRefs(key) {
   const svc = nonRegistry.some((f) => f.includes('/services/') && !isTest(f));
   const route = nonRegistry.some((f) => f.includes('/routes/') && !isTest(f));
   const test = nonRegistry.some(isTest);
-  // Does any non-test source file referencing this module reach the CDS DASHBOARD
-  // (cds_alerts via persistCdsAlert/raiseCdsAlert)? A module can be fully built +
-  // governed yet only persist to a review queue / its own table, so its findings
-  // never appear on the clinician's patient-view/encounter-start cards. We grep
-  // the exact files that reference the key (multiple -e literals to avoid shell
-  // pipe-quoting issues). Same key-grep caveat as above (a differently-named
-  // surfacing service won't be attributed here).
+  // Does any non-test source file referencing this module reach the CDS DASHBOARD?
+  // Precise per the fileSurfacesModule rules above (single-module / MODULE_KEY
+  // const / key-near-sink) so a shared multiplexer doesn't false-positive its
+  // siblings. (Caveat unchanged: a differently-named surfacing service that never
+  // references the key still can't be attributed by a key scan.)
   const sourceFiles = nonRegistry.filter((f) => !isTest(f));
-  let cdsSurface = false;
-  if (sourceFiles.length) {
-    try {
-      const out = execSync(
-        `git grep -l -e persistCdsAlert -e raiseCdsAlert -e cds_alerts -- ${sourceFiles.map((f) => `"${f}"`).join(' ')}`,
-        { cwd: REPO_ROOT },
-      ).toString().trim();
-      cdsSurface = out.length > 0;
-    } catch {
-      cdsSurface = false; // git grep exits 1 when there are no matches
-    }
-  }
+  const cdsSurface = sourceFiles.some((f) => fileSurfacesModule(f, key));
   return { svc, route, test, refCount: nonRegistry.length, cdsSurface };
 }
 

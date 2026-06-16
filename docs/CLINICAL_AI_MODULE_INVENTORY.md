@@ -1,6 +1,6 @@
 # Clinical AI Module Inventory — VH Health Platform
 
-> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `26341945`
+> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `5659a93b`
 > Machine-generated (registry metadata + a `git grep` wiring scan). Refresh with `node apps/backend/scripts/gen-ai-module-inventory.mjs`. Do not hand-edit the tables.
 
 ## Summary
@@ -18,7 +18,7 @@
 | **Key-referenced by a test** | 81 |
 | **Flagged — no service/route ref by key (verify)** | 0 |
 | **Reaches the CDS dashboard (cds_alerts)** | 11 |
-| **CDS-surfacing gaps (serious bedside, not on dashboard)** | 32 |
+| **CDS-surfacing gaps (serious bedside, not on dashboard)** | 31 |
 
 ## Wiring verification (code-grounded)
 
@@ -30,7 +30,7 @@ _Every module_key is referenced by at least one service or route in the source._
 
 Only **11/99** modules write to `cds_alerts` (the clinician's patient-view / encounter-start cards). The rest persist to a review queue / their own table — fine for back-office review, but a *serious bedside risk* that never reaches the dashboard is a safety gap (the NEWS2 / D26 pregnancy-BP class).
 
-**32 high/critical-risk bedside module(s) have a producing service but do NOT reach the CDS dashboard** — surfacing candidates (wire `raiseCdsAlert` for the serious-severity path, as done for polypharmacy / antimicrobial stewardship). Verify each (the key-grep can't see a differently-named surfacing service):
+**31 high/critical-risk bedside module(s) have a producing service but do NOT reach the CDS dashboard** — surfacing candidates (wire `raiseCdsAlert` for the serious-severity path, as done for polypharmacy / antimicrobial stewardship). Verify each (the key-grep can't see a differently-named surfacing service):
 
 | Module | key | Surface | Risk |
 |---|---|---|---|
@@ -64,7 +64,6 @@ Only **11/99** modules write to `cds_alerts` (the clinician's patient-view / enc
 | Surgical Risk Summary | `surgical_risk_summary` | theatre | critical |
 | Anesthesia Pre-Check Assistant | `anesthesia_precheck_assistant` | theatre | critical |
 | Implant + Consumable Tracker | `implant_consumable_tracker` | theatre | high |
-| Post-Op Complication Alert | `post_op_complication_alert` | theatre | critical |
 | Teleconsult Note Draft | `teleconsult_note_draft` | telemedicine | high |
 
 ### Enabled by default (seed)
@@ -218,7 +217,7 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 81 | Referral Letter | `referral_letter` | referral | — | medium | ✅ | ✅ | ✅ | — | — | — | — |
 | 82 | Clinical Trial Matcher | `clinical_trial_matcher` | research | — | medium | ✅ | — | — | — | — | — | — |
 | 83 | Appeal Letter Generator for Denied Claims | `appeal_letter_generator` | revenue_cycle | — | medium | ✅ | ✅ | ✅ | — | — | — | — |
-| 84 | Charge Capture Audit | `charge_capture_audit` | revenue_cycle | — | medium | ✅ | — | — | ✅ | — | — | — |
+| 84 | Charge Capture Audit | `charge_capture_audit` | revenue_cycle | — | medium | ✅ | — | — | — | — | — | — |
 | 85 | Clinical Coding Assistant | `clinical_coding_assist` | revenue_cycle | — | medium | ✅ | ✅ | ✅ | — | — | — | — |
 | 86 | Payer Contract Variance / Underpayment AI | `payer_contract_variance` | revenue_cycle | — | medium | ✅ | — | ✅ | — | — | — | — |
 | 87 | Prior Authorization Generator | `prior_authorization_generator` | revenue_cycle | — | medium | ✅ | — | — | — | — | — | — |
@@ -228,7 +227,7 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 91 | Anesthesia Pre-Check Assistant | `anesthesia_precheck_assistant` | theatre | — | critical | ✅ | — | ✅ | — | ✅ | — | — |
 | 92 | Implant + Consumable Tracker | `implant_consumable_tracker` | theatre | — | high | ✅ | — | ✅ | — | — | — | — |
 | 93 | Operative Note Draft | `ot_note_draft` | theatre | — | high | ✅ | — | ✅ | — | ✅ | — | — |
-| 94 | Post-Op Complication Alert | `post_op_complication_alert` | theatre | — | critical | ✅ | — | ✅ | — | ✅ | — | — |
+| 94 | Post-Op Complication Alert | `post_op_complication_alert` | theatre | — | critical | ✅ | — | ✅ | ✅ | ✅ | — | — |
 | 95 | Pre-Op Checklist Review | `preop_checklist_review` | theatre | — | critical | ✅ | — | ✅ | — | ✅ | — | — |
 | 96 | Surgical Consent Draft | `surgical_consent_draft` | theatre | — | high | ✅ | — | ✅ | — | ✅ | — | — |
 | 97 | Surgical Risk Summary | `surgical_risk_summary` | theatre | — | critical | ✅ | — | ✅ | — | ✅ | — | — |
