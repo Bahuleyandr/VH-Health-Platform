@@ -1,6 +1,6 @@
 # Clinical AI Module Inventory — VH Health Platform
 
-> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `fefb519f`
+> **Generated:** 2026-06-16 · **Source of truth:** `apps/backend/src/services/ai/clinicalAiModuleService.js` (`CLINICAL_AI_MODULES`) · **Repo commit:** `39becfd8`
 > Machine-generated (registry metadata + a `git grep` wiring scan). Refresh with `node apps/backend/scripts/gen-ai-module-inventory.mjs`. Do not hand-edit the tables.
 
 ## Summary
@@ -13,20 +13,16 @@
 | Deep-tier (need GPU+Ollama for full quality) | 12 |
 | Patient-facing (OFF by policy) | 13 |
 | Declare curated-KB grounding | 5 |
-| **Key-referenced by a service** | 98 |
+| **Key-referenced by a service** | 99 |
 | **Key-referenced by a route** | 14 |
 | **Key-referenced by a test** | 81 |
-| **Flagged — no service/route ref by key (verify)** | 1 |
+| **Flagged — no service/route ref by key (verify)** | 0 |
 
 ## Wiring verification (code-grounded)
 
-A `git grep` of each `module_key` over `apps/backend/src`: **98/99** are referenced by a service and **14/99** by a route. This replaces the old hand-asserted "everything is wired" claim with a machine-checked signal.
+A `git grep` of each `module_key` over `apps/backend/src`: **99/99** are referenced by a service and **14/99** by a route. This replaces the old hand-asserted "everything is wired" claim with a machine-checked signal.
 
-**1 module(s) are not referenced by their literal key in any service or route** — these need MANUAL verification. A flag does NOT mean "shell": a module is often implemented by a differently-named service that never contains the key string (e.g. `deterioration_early_warning` → `news2Service.js`). Confirm each before treating it as unimplemented:
-
-| Module | key | Surface | Refs (non-registry) |
-|---|---|---|---:|
-| Clinical Text De-identifier | `clinical_text_deidentifier` | governance | 1 |
+_Every module_key is referenced by at least one service or route in the source._
 
 ### Enabled by default (seed)
 
@@ -125,7 +121,7 @@ Sorted: enabled first, then by surface. **Default** = seed default (per-tenant o
 | 27 | AI Agent Lifecycle Manager | `ai_agent_lifecycle_manager` | governance | — | medium | ✅ | — | ✅ | — | — | — |
 | 28 | AI Explainability Dashboard | `ai_explainability_dashboard` | governance | — | medium | ✅ | — | ✅ | — | — | — |
 | 29 | Clinical Knowledge Graph | `clinical_knowledge_graph` | governance | — | low | ✅ | — | ✅ | — | — | — |
-| 30 | Clinical Text De-identifier | `clinical_text_deidentifier` | governance | — | critical | — | — | ✅ | — | — | — |
+| 30 | Clinical Text De-identifier | `clinical_text_deidentifier` | governance | — | critical | ✅ | — | ✅ | — | — | — |
 | 31 | Consent & PHI Policy Sentinel | `consent_phi_policy_sentinel` | governance | — | critical | ✅ | — | — | — | — | — |
 | 32 | Federated Learning / Privacy-Preserving Training Layer | `federated_learning_coordinator` | governance | — | high | ✅ | — | ✅ | — | — | — |
 | 33 | Model Registry and Evaluation Workbench | `model_registry_workbench` | governance | — | medium | ✅ | — | ✅ | — | — | — |

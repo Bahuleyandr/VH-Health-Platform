@@ -5,6 +5,7 @@ const validatePrescriptionSafetyMock = jest.fn();
 const getClinicalAiModuleMock = jest.fn();
 const generateClinicalTextMock = jest.fn();
 const runOutputDefensesMock = jest.fn();
+const raiseCdsAlertMock = jest.fn();
 
 const __prismaDefaultMock = { $queryRawUnsafe: queryRawUnsafeMock };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -31,6 +32,11 @@ jest.unstable_mockModule('../../services/ai/hallucinationDefenses.js', () => ({
   runOutputDefenses: runOutputDefensesMock,
 }));
 
+jest.unstable_mockModule('../../services/cds/cdsAlertSurfacing.js', () => ({
+  raiseCdsAlert: raiseCdsAlertMock,
+  default: { raiseCdsAlert: raiseCdsAlertMock },
+}));
+
 const {
   reviewPolypharmacy,
 } = await import('../../services/ai/polypharmacyAiService.js');
@@ -53,6 +59,8 @@ beforeEach(() => {
   getClinicalAiModuleMock.mockReset();
   generateClinicalTextMock.mockReset();
   runOutputDefensesMock.mockReset();
+  raiseCdsAlertMock.mockReset();
+  raiseCdsAlertMock.mockResolvedValue({ raised: true });
 
   getClinicalAiModuleMock.mockResolvedValue(moduleRow());
   validatePrescriptionSafetyMock.mockResolvedValue({ blockers: [], warnings: [] });
@@ -105,5 +113,44 @@ describe('reviewPolypharmacy module governance', () => {
       module_key: 'polypharmacy_ai_review',
       used_ai: true,
     }));
+  });
+});
+
+describe('reviewPolypharmacy CDS surfacing', () => {
+  it('raises a critical POLYPHARMACY_RISK cds alert when a rule blocker fires', async () => {
+    validatePrescriptionSafetyMock.mockResolvedValueOnce({ blockers: [{ code: 'DUP', message: 'Duplicate anticoagulant' }], warnings: [] });
+    await reviewPolypharmacy({
+      patientId: 55,
+      patientUid: '22222222-2222-4222-8222-222222222222',
+      admissionId: 7,
+      medications: [{ name: 'Warfarin' }, { name: 'Apixaban' }],
+      req: { tenantId: TENANT_ID },
+    });
+    expect(raiseCdsAlertMock).toHaveBeenCalledWith(expect.objectContaining({
+      alertType: 'POLYPHARMACY_RISK',
+      severity: 'critical',
+      patientUid: '22222222-2222-4222-8222-222222222222',
+      encounterId: 7,
+    }));
+  });
+
+  it('does NOT raise a cds alert for a low-severity review (no dashboard noise)', async () => {
+    await reviewPolypharmacy({
+      patientId: 55,
+      patientUid: '22222222-2222-4222-8222-222222222222',
+      medications: [{ name: 'Paracetamol' }],
+      req: { tenantId: TENANT_ID },
+    });
+    expect(raiseCdsAlertMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT raise when there is no patientUid to key the alert on', async () => {
+    validatePrescriptionSafetyMock.mockResolvedValueOnce({ blockers: [{ code: 'X', message: 'bad' }], warnings: [] });
+    await reviewPolypharmacy({
+      patientId: 55,
+      medications: [{ name: 'Warfarin' }],
+      req: { tenantId: TENANT_ID },
+    });
+    expect(raiseCdsAlertMock).not.toHaveBeenCalled();
   });
 });

@@ -677,11 +677,26 @@ export async function exportRegistry(registryId, { format = 'csv', includePhi = 
   }
 
   // De-identification is fail-closed: it must NEVER also emit the raw patient_uid
-  // column, so it forces includePhi off. The de-id service is lazy-imported here
-  // (not at module top) so this module's eager import graph stays unchanged —
-  // several suites mock ../../lib/prisma.js and a new eager import could break them.
-  if (deidentify) includePhi = false;
-  const deidMod = deidentify ? await import('../ai/deidentificationService.js') : null;
+  // column, so it forces includePhi off. It is also GATED on the
+  // clinical_text_deidentifier module being enabled for the tenant — if de-id was
+  // requested but the module is off, we throw rather than silently export
+  // un-de-identified data. Both the gate-check and the de-id service are
+  // lazy-imported here (not at module top) so this module's eager import graph
+  // stays unchanged — several suites mock ../../lib/prisma.js and a new eager
+  // import could break them.
+  let deidMod = null;
+  if (deidentify) {
+    includePhi = false;
+    const { getClinicalAiModule } = await import('../ai/clinicalAiModuleService.js');
+    const deidModule = await getClinicalAiModule('clinical_text_deidentifier', { tenantId: scopedTenantId });
+    if (!deidModule?.enabled) {
+      throw AppError.forbidden(
+        'de-identification requested but the clinical_text_deidentifier module is not enabled for this tenant',
+        'DEID_MODULE_DISABLED',
+      );
+    }
+    deidMod = await import('../ai/deidentificationService.js');
+  }
   // Fetch each patient's chart-anchored identifiers at most once per export.
   const idCache = new Map();
   const idsFor = async (uid) => {
