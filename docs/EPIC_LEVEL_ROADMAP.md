@@ -13,7 +13,7 @@ bedside and verified), **(2) boring reliability** (a hospital can run on it at
 analytics, certification), and **(4) AI clinicians actually use under
 governance** (ambient documentation, in-workflow decision support — not a
 demo). The feature breadth is largely already here — 478 tables, ~80 route
-domains, 100+ staff screens, and a 92-module governed AI substrate. The gaps
+domains, 100+ staff screens, and a 99-module governed AI substrate. The gaps
 are depth, closure of loops, operational trust, and taking the AI from
 `enabled=false` to measured production use.
 
@@ -25,15 +25,17 @@ are depth, closure of loops, operational trust, and taking the AI from
 |---|---|
 | Core EHR (ADT, appointments, eRx, MAR, labs, radiology orders, OT, billing) | Broad and deep — competitive |
 | India-market revenue cycle (TPA, PMJAY, preauth, packages, cash drawer) | A genuine differentiator; Epic does not do this out of the box |
-| Multi-tenancy, RBAC (44 roles), audit/HIPAA logging | Strong schema + middleware; **RLS enforcement not yet ON in prod** |
-| Clinical AI substrate (Tiers A–H, governance, review queues) | Far ahead of mid-market peers — 92 governed modules, deep/quick tiers, Ollama manifests, evidence-pack gates — but all `enabled=false`: zero production clinical use yet. The gap is delivery, not capability (Pillar G) |
+| Multi-tenancy, RBAC (44 roles), audit/HIPAA logging | Strong schema + middleware; **full tenant RLS (reads + writes) is code-complete** — remaining work is operator runtime verification (`docs/GO_LIVE_ACTIVATION_CHECKLIST.md` Phase E) |
+| Clinical AI substrate (Tiers A–H, governance, review queues) | Far ahead of mid-market peers — 99 governed modules, deep/quick tiers, Ollama manifests, evidence-pack gates — but all `enabled=false`: zero production clinical use yet. The gap is delivery, not capability (Pillar G) |
 | Interoperability (FHIR R4 export, HL7v2 parse, SMART OAuth, ABDM tables) | Frameworks exist; **no live bidirectional device/system interfaces** |
-| Stability | 11 swarm journeys not yet green; residual high-severity findings from 2026-05-23 triage |
+| Stability | 11 journeys now green via the deterministic in-CI journey gate (S-Tier WS3); code-fixable high-severity findings from the 2026-05-23 triage closed, operator-gated items tracked in GO_LIVE |
 | Front-end depth | Backend capability outruns UI surfacing (e.g. structured CPOE exists server-side; staff app still prescription-text-centric) |
 
-Sequencing principle: **Phase 0 below is the existing 2026-06-16 goal — nothing
-else on this list matters until journeys hold green.** Epic's real moat is that
-it never falls over mid-shift.
+Sequencing principle: **Phase 0 below is stabilization — nothing else on this
+list matters until the 11 journeys hold green.** That milestone is now met via
+the deterministic in-CI journey gate (S-Tier WS3); the live track is
+`docs/S_TIER_ROADMAP.md` + `docs/GO_LIVE_ACTIVATION_CHECKLIST.md`. Epic's real
+moat is that it never falls over mid-shift.
 
 ---
 
@@ -126,7 +128,7 @@ Ordered by likelihood a pilot-class Indian hospital needs them.
 
 ## 8. Pillar G — AI integration (productionize the substrate)
 
-Position check: the AI build-out is **done** — 92 governed modules (Tiers A–H),
+Position check: the AI build-out is **done** — 99 governed modules (Tiers A–H),
 graph runner with checkpoint/resume, decision memory, deep/quick model tiers,
 in-cluster Ollama manifests, LAN-only clinical ingress, voice-to-SOAP, review
 queues on all three surfaces, two-person approval + eval gates, pilot evidence
@@ -154,7 +156,7 @@ exists to production and wires it into the Pillar B/C/D loops.
 - Don't rebuild billing/TPA/PMJAY to look like Epic Resolute — the India-specific flow is the moat.
 - Don't chase ONC/US certification unless targeting US customers; DPDP + ABDM + NABH is the relevant stack.
 - Don't add new feature surface before Phase 0 holds green (existing rule in `GOAL_2026-06-16.md` — keep it).
-- Don't build **new** AI modules — the rollout plan's own rule. 92 exist; the work is delivery, evidence, and loop-pairing (Pillar G).
+- Don't build **new** AI modules — the rollout plan's own rule. 99 exist; the work is delivery, evidence, and loop-pairing (Pillar G).
 - Don't enable AI modules ahead of their deterministic foundation: B2 drug KB before drug-safety AI surfaces broadly; clinicians will judge the whole platform by one bad interaction miss.
 - Don't skip the playbook gates (preflight, evidence pack, signoff) to demo faster — they exist to make the first pilot survivable.
 
@@ -164,7 +166,7 @@ exists to production and wires it into the Pillar B/C/D loops.
 
 | Phase | Window | Contents | AI track (Pillar G) | Exit criteria |
 |---|---|---|---|---|
-| **0 — Stabilize** | now → 2026-06-16 (existing goal) | A1, A2, A7, A9, A10 | None — feature freeze applies to AI too | 11 journeys green × 3 ticks; 0 critical/high in-flight; RLS ON |
+| **0 — Stabilize** | now (S-Tier WS0–WS3; see `docs/S_TIER_ROADMAP.md`) | A1, A2, A7, A9, A10 | None — feature freeze applies to AI too | 11 journeys green × 3 ticks (in-CI journey gate); 0 critical/high in-flight; RLS runtime-verified (GO_LIVE Phase E) |
 | **1 — Pilot-hard** | +0–3 months | A3 downtime mode, A4 DR drill, A5 load test, A6 observability, A8 pen test, B1 BCMA, B2 drug KB, B6 med-rec, E1 CPOE UI, E2 staff i18n | G1 GPU + deep tier live; G2 stage-1 ward pilot (med-rec + aftercare, rides on B6); G3 outcome scoreboard; G5 formulary/protocol corpus for pilot hospital | Pilot ward runs a full med-pass via barcode; restore drill < RTO; pen-test highs closed; stage-1 evidence pack signed with G3 metrics attached |
 | **2 — Close the loops** | +3–9 months | B3 lab interfaces, B4 PACS+viewer, B5 transfusion, B7 problem list, B8 terminology, C1 ABDM cert, C4 e-sign, D2 scheduling, D4 NABH pack, E5/E6 | G4 loop-paired enables: lab autoverification + abnormal-result triage (with B3), radiology prioritization + report QA (with B4), drug-safety modules (after B2), no-show→overbooking (with D2); G6 ambient/voice in OPD; G7 lifecycle cadence | ABDM certified; analyzer results flow hands-free; NABH pack exports; ≥5 AI modules in production with acceptance >70% and zero unreviewed-output incidents |
 | **3 — Ecosystem** | +9–18 months | C2 interface engine, C3 FHIR server, D1 oncology, D3 credentialing, D5 infection control, F1–F2 analytics | G4 Tier-H ops forecasting + revenue-cycle AI on the F1 warehouse; G8 multilingual patient-facing AI; CDS Hooks cards exposed via C3 to third-party apps | Third-party SMART app consumes the FHIR API; warehouse powers exec dashboards; AI scoreboard reviewed quarterly as a standing governance artifact |

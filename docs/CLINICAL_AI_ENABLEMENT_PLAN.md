@@ -5,7 +5,7 @@ pass over the clinical-AI subsystem, then corrected against the code. Companion 
 [`CLINICAL_AI_ROLLOUT_PLAN.md`](CLINICAL_AI_ROLLOUT_PLAN.md) (substrate/delivery) and
 [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) (long-tail gaps).
 
-**Premise (verified):** VH Health has **92 clinical-AI modules** but only **4 enabled by
+**Premise (verified):** VH Health has **99 clinical-AI modules** but only **4 enabled by
 default** (`discharge_summary`, `handover_summary`, `ai_roi_dashboard`, `ai_safety_reviewer`).
 The substrate (engine, governance, RAG, surfaces) is at/above spec — **the value is
 activation, not building more.** This plan sequences the **internal / clinical-staff +

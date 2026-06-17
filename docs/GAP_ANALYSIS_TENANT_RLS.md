@@ -6,8 +6,9 @@ set explicitly. Remaining work is operational: run the backend with a
 non-superuser / non-BYPASSRLS database role and keep `/health/metrics`
 `tenant_rls.ok=true`.
 
-**Severity in swarm:** medium (does not gate the [`GOAL_2026-06-16`](GOAL_2026-06-16.md)
-milestone, which targets 0 critical/high in-flight only).
+**Severity:** medium. Superseded — the RLS gap is now code-closed (see header);
+remaining work is operator runtime verification, tracked under the S-Tier roadmap
+([`S_TIER_ROADMAP.md`](S_TIER_ROADMAP.md)) and GO_LIVE Phase E.
 
 **Source finding:** `2026-05-17-cross-tenant-rls-receptionist-e1904f2e` — the
 cross-tenant-rls swarm journey.
@@ -15,6 +16,11 @@ cross-tenant-rls swarm journey.
 ---
 
 ## TL;DR
+
+> **Resolved (see header):** RLS is now code-complete (reads + writes); the
+> "half-built" framing below is the original 2026-05-18 analysis, kept for the
+> historical record. Remaining work is operator runtime verification (GO_LIVE
+> Phase E), not code.
 
 Multi-tenant infrastructure is half-built. The `tenant_id` column exists on
 ~250 tables and `tenantContextMiddleware` resolves a tenant context per
@@ -28,7 +34,9 @@ The first pilot site brought up against this build will share a single
 with every other pilot site. There is no enforcement boundary to test RLS
 against, because the column doesn't exist.
 
-This is a structural gap that must be resolved before pilot #2.
+This was a structural gap that has since been code-closed (RLS reads + writes
+shipped; see header); only operator runtime verification (GO_LIVE Phase E)
+remains before pilot #2.
 
 ---
 

@@ -1,7 +1,7 @@
 # AI Feature Gap Backlog
 
 **Scope:** This doc audits a **user-facing AI feature catalogue** (~250 features
-labelled `AI_*`) against the **92 registered modules** in
+labelled `AI_*`) against the **99 registered modules** in
 `clinical_ai_modules` and the AI service files under
 `apps/backend/src/services/ai/`. It complements — but does not overlap —
 `HEALTHCARE_AI_SPEC_AUDIT.md` (which audits the broader 38-section entity /
@@ -10,7 +10,7 @@ substrate / multi-agent rollout).
 
 **Audited:** 2026-04-30 against `main`.
 **Reconciled:** 2026-05-25 against `fix/clinical-ai-governance-hardening`
-for the current 92-module registry and governance hardening status.
+for the current 99-module registry and governance hardening status.
 **Method:** enumerated `CLINICAL_AI_MODULES` in
 `apps/backend/src/services/ai/clinicalAiModuleService.js`, walked
 `apps/backend/src/services/ai/`, the 13 route files in
@@ -28,7 +28,7 @@ every output logged + reviewable + explainable + human-approved, WHO-style
 governance* — **is already built and shipped on `main`**. As of
 2026-05-01, **all 8 prioritised tiers (A–H) are shipped end-to-end**;
 as of the 2026-05-25 governance pass, the registry has grown to
-**92 modules**, all still decision-support-only and review-gated.
+**99 modules**, all still decision-support-only and review-gated.
 Headline numbers:
 
 | Status | Count (out of ~250 catalogue items) |

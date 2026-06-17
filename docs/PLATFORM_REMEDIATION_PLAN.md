@@ -4,6 +4,14 @@ Created: 2026-04-29
 
 This tracker is the canonical platform-level remediation list. It focuses on release trust first: deploy health, CI, secret scanning, mobile release, formatting, and runtime safety before larger refactors or product polish.
 
+> **Status note (2026-06-17):** The P0–P3 code remediation is complete. The
+> residual unchecked items here are operator/runtime tasks (e.g. Phase-0 runtime
+> verification, H3 make `tenant_id` explicit, secret rotation, DR drill). These
+> are now owned by the active successor docs —
+> [`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIVATION_CHECKLIST.md) and
+> [`S_TIER_ROADMAP.md`](S_TIER_ROADMAP.md). This tracker is kept as the
+> historical record; track live status there.
+
 ## Current Baseline
 
 - Local branch: `main`

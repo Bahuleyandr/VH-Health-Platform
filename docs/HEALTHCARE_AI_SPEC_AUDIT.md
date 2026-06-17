@@ -720,7 +720,7 @@ items unblock spec sections that were marked partial above.
 | H | 8 | 139 | §16 tariff/package/feedback, §24 operational forecasting tail |
 
 The Tier A-H build produced 79 modules; the current registry has
-**92 modules** as of the 2026-05-25 governance-hardening branch. Every
+**99 modules** (governed-module inventory regenerated 2026-06-16). Every
 tier module wraps existing entities with an explainer-pipeline + module
 config + admin route, and the current hardening pass adds strict review
 roles, two-person risky-change approvals, eval evidence gates, and

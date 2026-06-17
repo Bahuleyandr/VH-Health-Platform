@@ -8,17 +8,18 @@ and Forgejo state as authoritative; this note is only a map.
 
 ## Active Goal
 
-**S-Tier Roadmap (WS1–WS8) — target 2026-06-30.**
+**S-Tier Roadmap (WS0–WS8, in-our-control) — complete (2026-06-14, merged `25ec5b87`).**
 
 See `docs/S_TIER_ROADMAP.md` for the full plan, batch sequencing, and per-batch
 status. The platform scored B− in the 2026-06-13 full-stack audit
-(`docs/PLATFORM_AUDIT_2026-06-13.md`). The S-tier roadmap drives it to A+/S
-(internal) by 2026-06-30.
+(`docs/PLATFORM_AUDIT_2026-06-13.md`); the S-tier roadmap drove the
+in-our-control workstreams (WS0–WS8) to done. WS3 stood up the deterministic
+in-CI journey tests that replaced the agent swarm.
 
-WS0 criticals are complete. WS1 (security/multi-tenancy) and WS2 (reliability)
-are partially complete. Next: finish WS2, execute WS3 (deterministic in-CI
-journey tests — the new quality gate replacing the agent swarm), then WS4–WS8
-in parallel tracks per the roadmap schedule.
+Next work is **operator activation** of the live cluster, tracked in
+`docs/GO_LIVE_ACTIVATION_CHECKLIST.md` (seal non-superuser DB role, runtime RLS
+verification, Kyverno Enforce, DR drill, monitoring) plus the flagged external
+dependencies — not further roadmap coding.
 
 **Note on the agent swarm:** The headless Claude-agent swarm (previously running
 on Dalekdefender as `tmux attach -t vh-swarm`) is **retired**. It has been

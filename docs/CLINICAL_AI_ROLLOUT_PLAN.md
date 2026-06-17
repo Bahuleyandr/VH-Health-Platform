@@ -31,7 +31,7 @@ between 2026-04-30 evening and 2026-05-01:
 | H | Operational forecasting | 8 | 139 |
 
 The Tier A-H build produced 79 modules; the current registry has
-**92 modules total** as of the 2026-05-25 governance-hardening branch,
+**99 modules total** (governed-module inventory regenerated 2026-06-16),
 all governed via `clinical_ai_modules` / `clinical_ai_generations` /
 `clinical_ai_reviews`, all decision-support-only, all enabled=false by
 default. See `AI_FEATURE_GAP_BACKLOG.md` for the per-module ledger and
@@ -84,7 +84,7 @@ features.
   build spec; verdict matrix per section + Phase A–F remediation
   roadmap (~16 weeks). **Entity / infra layer.**
 - [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) —
-  audit of a ~250-feature user-facing AI catalogue against the 92
+  audit of a ~250-feature user-facing AI catalogue against the 99
   registered modules; tier-A/B/C/… build order + 5 substrate-level
   safety holes (S1–S5) to fix first. **Module / feature layer.**
 
