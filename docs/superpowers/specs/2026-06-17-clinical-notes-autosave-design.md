@@ -1,6 +1,9 @@
 # Clinical Notes Autosave — Design
 
-**Status: APPROVED (design) 2026-06-17.** Next: writing-plans → implementation.
+**Status: IMPLEMENTED 2026-06-17.** Backend (`note_drafts` migration 314 + draft
+routes + finalize-clear + expiry janitor; deep test asserts zero canonical
+events) and Flutter (OP Doctor Workspace + nursing autosave with restore +
+status indicator) shipped on `feat/clinical-notes-autosave`.
 
 **Goal:** Autosave in-progress OP/IP clinical notes in the Flutter staff app so a
 clinician never loses work and never has to press *Save* just to avoid losing a
