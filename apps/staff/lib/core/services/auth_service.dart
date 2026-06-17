@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/auth_service.dart' as core_auth;
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
 import '../config/api_config.dart';
@@ -145,6 +146,14 @@ class AuthService {
       // on a shared workstation doesn't see the previous user's recent
       // patients (privacy concern on ward kiosks).
       await RecentPatientsService.clear();
+      // Clear the offline write-queue too — on a shared ward tablet the
+      // queue holds the previous user's pending clinical writes (vitals,
+      // nursing notes); leaving it would let the next user drain them.
+      try {
+        await ConnectivitySyncService.instance.clearQueue();
+      } catch (e) {
+        debugPrint('AuthService.logout: offline queue clear failed: $e');
+      }
       await ApiConfig.clearAll();
       await Telemetry.event('auth.logout');
       await CrashReporter.instance.setUserId(null);

@@ -8,6 +8,7 @@ import type { User } from "@/lib/types";
 import { useSelection } from "@/hooks/useSelection";
 import { BulkActions } from "@/components/BulkActions";
 import { fetchAdminAPI } from "@/lib/api";
+import { exportToCsv, type CsvColumn } from "@/lib/exportToCsv";
 import toast from "react-hot-toast";
 import {
   ArrowDown,
@@ -239,8 +240,11 @@ export function UsersTable({
 
   const handleBulkExport = () => {
     const selectedUsers = users.filter((user) => selectedIds.includes(user.id));
-    const csv = convertToCSV(selectedUsers);
-    downloadCSV(csv, "users-export.csv");
+    exportToCsv({
+      filename: "users-export.csv",
+      columns: USER_EXPORT_COLUMNS,
+      rows: selectedUsers,
+    });
     toast.success(`Exported ${selectedCount} users`);
   };
 
@@ -623,39 +627,22 @@ function SortableHeader({
   );
 }
 
-function convertToCSV(users: UserRecord[]): string {
-  const headers = [
-    "ID",
-    "Name",
-    "Email",
-    "Phone",
-    "Role",
-    "Department",
-    "Status",
-    "Created At",
-  ];
-  const rows = users.map((user) => [
-    user.id,
-    user.name,
-    user.email,
-    user.phone,
-    user.role,
-    user.department,
-    user.is_active ? "Active" : "Inactive",
-    new Date(user.created_at).toLocaleDateString(),
-  ]);
-
-  return [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
-}
-
-function downloadCSV(csv: string, filename: string) {
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
-}
+// Columns for the bulk CSV export. Order + set are load-bearing — keep in sync
+// with what users expect in the downloaded file. escapeCsvField in
+// @/lib/exportToCsv handles quoting + formula-injection guarding.
+const USER_EXPORT_COLUMNS: CsvColumn<UserRecord>[] = [
+  { header: "ID", accessor: (user) => user.id },
+  { header: "Name", accessor: (user) => user.name },
+  { header: "Email", accessor: (user) => user.email },
+  { header: "Phone", accessor: (user) => user.phone },
+  { header: "Role", accessor: (user) => user.role },
+  { header: "Department", accessor: (user) => user.department },
+  {
+    header: "Status",
+    accessor: (user) => (user.is_active ? "Active" : "Inactive"),
+  },
+  {
+    header: "Created At",
+    accessor: (user) => new Date(user.created_at).toLocaleDateString(),
+  },
+];

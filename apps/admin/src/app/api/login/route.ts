@@ -152,11 +152,39 @@ async function proxyLogin(
   }
 }
 
+/**
+ * Remove JWT material (`token`, `accessToken`, `refreshToken`) from a backend
+ * response envelope before it is returned to the browser. The token is carried
+ * exclusively by the httpOnly `auth_token` cookie; echoing it in the JSON body
+ * is dead weight the client ignores and undercuts the cookie design. Strips
+ * both the top level and the nested `data` object (the standard envelope shape).
+ */
+function stripTokens(responseBody: unknown): unknown {
+  if (!responseBody || typeof responseBody !== "object") return responseBody;
+
+  const omit = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const { token, accessToken, refreshToken, ...rest } = obj;
+    void token;
+    void accessToken;
+    void refreshToken;
+    return rest;
+  };
+
+  const top = omit(responseBody as Record<string, unknown>);
+  if (top.data && typeof top.data === "object") {
+    top.data = omit(top.data as Record<string, unknown>);
+  }
+  return top;
+}
+
 function setTokenCookie(
   token: string,
   responseBody: unknown,
 ): NextResponse {
-  const response = NextResponse.json(responseBody);
+  // The token is the credential and it now lives only in the httpOnly cookie
+  // set below. Strip it from the JSON body so the browser never receives it
+  // (the client reads only requiresTwoFactor/requiresMfaSetup/admin).
+  const response = NextResponse.json(stripTokens(responseBody));
 
   response.cookies.set("auth_token", token, {
     httpOnly: true,

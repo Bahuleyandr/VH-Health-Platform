@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import '../config/api_config.dart';
 import '../platform_info.dart';
 import '../services/recent_patients_service.dart';
@@ -94,6 +95,14 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   static Future<void> _defaultTimeoutCleanup() async {
     await RecentPatientsService.clear();
+    // Drop the offline write-queue on idle-timeout too, so a walked-away
+    // ward tablet doesn't leave the previous user's queued clinical writes
+    // (vitals, nursing notes) for whoever logs in next.
+    try {
+      await ConnectivitySyncService.instance.clearQueue();
+    } catch (e) {
+      debugPrint('SessionTimeout: offline queue clear failed: $e');
+    }
     await ApiConfig.clearAll();
   }
 

@@ -175,6 +175,20 @@ class CycleTrackerStore {
     await prefs.setInt('${storageKey}_period_length', snapshot.periodLength);
   }
 
+  /// Remove all cycle/period/fertility data for every owner (self +
+  /// dependents). Called on logout so this sensitive plaintext data does not
+  /// survive for the next user on a shared device.
+  static Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs
+        .getKeys()
+        .where((k) => k.startsWith('period_tracker_'))
+        .toList();
+    for (final key in keys) {
+      await prefs.remove(key);
+    }
+  }
+
   static String _dateKey(DateTime value) {
     final local = CycleTrackerSnapshot.dateOnly(value);
     final year = local.year.toString().padLeft(4, '0');

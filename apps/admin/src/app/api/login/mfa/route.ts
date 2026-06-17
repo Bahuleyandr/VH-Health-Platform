@@ -34,6 +34,30 @@ function validateOrigin(request: Request): NextResponse | null {
   return null;
 }
 
+/**
+ * Remove JWT material (`token`, `accessToken`, `refreshToken`) from a backend
+ * response envelope before it is returned to the browser. The token is carried
+ * exclusively by the httpOnly `auth_token` cookie. Strips both the top level
+ * and the nested `data` object (the standard envelope shape).
+ */
+function stripTokens(responseBody: unknown): unknown {
+  if (!responseBody || typeof responseBody !== "object") return responseBody;
+
+  const omit = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const { token, accessToken, refreshToken, ...rest } = obj;
+    void token;
+    void accessToken;
+    void refreshToken;
+    return rest;
+  };
+
+  const top = omit(responseBody as Record<string, unknown>);
+  if (top.data && typeof top.data === "object") {
+    top.data = omit(top.data as Record<string, unknown>);
+  }
+  return top;
+}
+
 export async function POST(request: Request) {
   const csrfError = validateOrigin(request);
   if (csrfError) return csrfError;
@@ -81,7 +105,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = NextResponse.json(data);
+    // The token is the credential and now lives only in the httpOnly cookie set
+    // below — strip it from the JSON body so the browser never receives it.
+    const response = NextResponse.json(stripTokens(data));
     response.cookies.set("auth_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

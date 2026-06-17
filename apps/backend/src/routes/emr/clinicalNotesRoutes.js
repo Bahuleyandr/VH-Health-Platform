@@ -123,6 +123,7 @@ router.post('/notes', rejectMobileClinicalWrite, guardClinicalNoteWrite, async (
     }
 
     const note = await clinicalNotesService.createNote({
+      tenant_id: req.tenantId,
       encounter_id: encounter_id || null,
       appointment_id: appointment_id ?? null,
       patient_uid,

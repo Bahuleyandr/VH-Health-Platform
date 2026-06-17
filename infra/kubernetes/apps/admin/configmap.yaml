@@ -47,7 +47,8 @@ data:
   ADMIN_IP_ALLOWLIST: ""
 
   # Backend URL used server-side by /api/proxy, /api/login, /api/refresh
+  # (read by getServerBackendUrl() in src/lib/api-config.ts as BACKEND_URL).
   # Points at the in-cluster backend Service to skip the public ingress.
   # This is the cluster-internal companion of NEXT_PUBLIC_API_URL (which is
   # only used by client-side code that can't reach the cluster service).
-  BACKEND_INTERNAL_URL: "http://vhhealth-backend.vhhealth.svc.cluster.local"
+  BACKEND_URL: "http://vhhealth-backend.vhhealth.svc.cluster.local"

@@ -45,7 +45,10 @@ jobs:
 
       - name: Build debug APKs
         working-directory: apps/staff
-        run: flutter build apk --debug --split-per-abi
+        run: >
+          flutter build apk --debug --split-per-abi
+          --dart-define=VH_BASE_URL=https://api.staging.vhhealth.app/api/v1
+          --dart-define=VH_API_KEY=${{ secrets.VH_API_KEY }}
 
       - name: Upload staging APK artifacts
         uses: https://data.forgejo.org/actions/upload-artifact@v3
