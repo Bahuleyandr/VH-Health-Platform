@@ -112,7 +112,7 @@ export async function generatePriorAuthorization({
     throw AppError.forbidden('prior_authorization_generator module is disabled', 'PRIOR_AUTH_MODULE_DISABLED');
   }
 
-  const context = await collectAdmissionClinicalContext(admission.id);
+  const context = await collectAdmissionClinicalContext(admission.id, tenantId);
   const evidence = buildEvidenceBundle(context);
 
   const systemPrompt = [

@@ -2,6 +2,7 @@
 import express from 'express';
 import * as healthStatsController from '../../controllers/health/healthStatsController.js';
 import * as patientHealthController from '../../controllers/health/patientHealthController.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import {
   activeOnlyValidator,
   patientIdValidator,
@@ -55,7 +56,12 @@ router.post('/patient/vitals',
 // Legacy staff-app vitals endpoint. The staff app historically posted
 // structured vitals to /health/records; keep that URL backed by the current
 // patient_vitals schema.
+//
+// This is the staff offline-queue's vitals drain target — a lost-2xx retry or
+// redrain would otherwise create a duplicate vitals row. The client now always
+// sends a stable Idempotency-Key; consume it so replays collapse (finding #15).
 router.post('/records',
+  requireIdempotencyKey({ required: false, scope: 'staff_vitals_record' }),
   patientHealthController.recordStaffVitals
 );
 

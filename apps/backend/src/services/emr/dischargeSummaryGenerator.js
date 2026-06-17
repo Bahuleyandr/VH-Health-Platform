@@ -927,8 +927,8 @@ async function saveAiGeneration(context, summary, requestedBy, sourceHash, tenan
   });
 }
 
-export async function collectClinicalData(admissionId) {
-  return collectAdmissionClinicalContext(admissionId);
+export async function collectClinicalData(admissionId, tenantId = null) {
+  return collectAdmissionClinicalContext(admissionId, tenantId);
 }
 
 async function resolveSignerDetails(uid) {
@@ -1043,7 +1043,7 @@ export async function getLatestDischargeSummary(admissionId) {
 export async function generateDischargeSummary(admissionId, requestedBy, req) {
   if (!requestedBy) throw AppError.badRequest('requestedBy is required');
 
-  const context = await collectAdmissionClinicalContext(admissionId);
+  const context = await collectAdmissionClinicalContext(admissionId, req?.tenantId || null);
   const prompt = buildPrompt(context);
   const aiResult = await generateClinicalText({
     ...prompt,

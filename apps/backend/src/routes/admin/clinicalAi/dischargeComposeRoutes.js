@@ -20,6 +20,8 @@ import express from 'express';
 import { success, error } from '../../../utils/responseHelper.js';
 import prisma from '../../../lib/prisma.js';
 import { AppError } from '../../../utils/AppError.js';
+import { patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../../services/security/accessDecisionService.js';
 import { logClinicalAiAudit } from './audit.js';
 import {
   composeDischargePackage,
@@ -33,6 +35,21 @@ import { resumeWorkflow } from '../../../services/ai/workflowGraphRunner.js';
 
 const router = express.Router();
 
+// Intra-tenant IDOR guard for the compose entrypoint — resolve the patient
+// owning the admission (tenant-scoped) and enforce the actor's care
+// relationship before composeDischargePackage reads PHI. Care-team-mode-
+// governed (per-tenant, default 'shadow') to match the platform's ABAC
+// rollout posture; a tenant flipped to 'enforce' returns a real 403 for an
+// out-of-relationship admission id. The hard cross-tenant guarantee is the
+// tenant_id predicate added to resolvePatientUid in dischargeComposeService.js.
+const guardComposeAdmission = patientAccessGuardForResource('ADMISSION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
+  resourceType: 'admission',
+  idSelector: (req) => req.body?.admission_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+
 function clampInt(value, { min = 1, max = 100, fallback = 25 } = {}) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -42,7 +59,7 @@ function clampInt(value, { min = 1, max = 100, fallback = 25 } = {}) {
 // ---------------------------------------------------------------------------
 // POST /discharge-compose — start a fresh compose run for an admission
 // ---------------------------------------------------------------------------
-router.post('/discharge-compose', async (req, res, next) => {
+router.post('/discharge-compose', guardComposeAdmission, async (req, res, next) => {
   try {
     const admissionId = req.body?.admission_id;
     if (!admissionId) {

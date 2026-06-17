@@ -45,7 +45,8 @@ import express from 'express';
 import { success, error } from '../../../utils/responseHelper.js';
 import prisma from '../../../lib/prisma.js';
 import { AppError } from '../../../utils/AppError.js';
-import { phiAccessLogger } from '../../../middleware/phiAccessMiddleware.js';
+import { phiAccessLogger, patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../../services/security/accessDecisionService.js';
 import { logClinicalAiAudit } from './audit.js';
 import { requireClinicalAiUse, normalizeRole } from './shared.js';
 import { generateAdmissionAiDraft, listReviews, updateReview } from '../../../services/ai/clinicalAiWorkflowService.js';
@@ -79,6 +80,51 @@ const router = express.Router();
 // Defense-in-depth: outer guard is requireRole(...CLINICAL_AI_USER_ROLES)
 // at the app.js mount; this is the inner guard. Both must pass.
 router.use(requireClinicalAiUse);
+
+// Intra-tenant IDOR guards for the patient-explainer + discharge-compose
+// entrypoints. Each resolves the patient owning the cited source row
+// (tenant-scoped) and enforces the actor's care relationship before any PHI
+// is read/generated. Run care-team-mode-governed (per-tenant, default
+// 'shadow') to mirror exactly how the underlying PHI families are guarded in
+// app.js — a tenant flipped to 'enforce' returns a real 403 for an
+// out-of-relationship id; shadow logs the would-be denial. The hard
+// cross-tenant guarantee is the tenant_id predicate added to each source
+// SELECT (patientExplainersService.js / dischargeComposeService.js).
+const guardComposeAdmission = patientAccessGuardForResource('ADMISSION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
+  resourceType: 'admission',
+  idSelector: (req) => req.body?.admission_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardLabExplainer = patientAccessGuardForResource('INVESTIGATION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW,
+  resourceType: 'investigation',
+  idSelector: (req) => req.body?.investigation_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardRadiologyExplainer = patientAccessGuardForResource('RADIOLOGY', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW,
+  resourceType: 'radiology_order',
+  idSelector: (req) => req.body?.radiology_order_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardPrescriptionExplainer = patientAccessGuardForResource('PRESCRIPTION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW,
+  resourceType: 'prescription',
+  idSelector: (req) => req.body?.prescription_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardInvoiceExplainer = patientAccessGuardForResource('PRESCRIPTION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW,
+  resourceType: 'invoice',
+  idSelector: (req) => req.body?.invoice_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
 
 function clampInt(value, { min = 1, max = 100, fallback = 25 } = {}) {
   const parsed = Number.parseInt(value, 10);
@@ -243,7 +289,7 @@ router.post('/ehr-query', phiAccessLogger('EHR_QUERY'), async (req, res, next) =
 // ---------------------------------------------------------------------------
 // POST /discharge-compose — start a fresh compose (clinician)
 // ---------------------------------------------------------------------------
-router.post('/discharge-compose', async (req, res, next) => {
+router.post('/discharge-compose', guardComposeAdmission, async (req, res, next) => {
   try {
     const admissionId = req.body?.admission_id;
     if (!admissionId) {
@@ -559,7 +605,7 @@ function auditAndReturnExplainer(req, res, eventType, result, message) {
   ).then(() => success(res, result, message, 201));
 }
 
-router.post('/lab-patient-explanations', async (req, res, next) => {
+router.post('/lab-patient-explanations', guardLabExplainer, async (req, res, next) => {
   try {
     const result = await generateLabPatientExplanation({
       tenantId: req.tenantId,
@@ -572,7 +618,7 @@ router.post('/lab-patient-explanations', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.post('/radiology-patient-explanations', async (req, res, next) => {
+router.post('/radiology-patient-explanations', guardRadiologyExplainer, async (req, res, next) => {
   try {
     const result = await generateRadiologyPatientExplanation({
       tenantId: req.tenantId,
@@ -601,7 +647,7 @@ router.post('/patient-report-explanations', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.post('/prescription-patient-explanations', async (req, res, next) => {
+router.post('/prescription-patient-explanations', guardPrescriptionExplainer, async (req, res, next) => {
   try {
     const result = await generatePrescriptionPatientExplanation({
       tenantId: req.tenantId,
@@ -614,7 +660,7 @@ router.post('/prescription-patient-explanations', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
-router.post('/invoice-patient-explanations', async (req, res, next) => {
+router.post('/invoice-patient-explanations', guardInvoiceExplainer, async (req, res, next) => {
   try {
     const result = await generateInvoicePatientExplanation({
       tenantId: req.tenantId,

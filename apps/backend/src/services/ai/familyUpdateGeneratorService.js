@@ -570,7 +570,7 @@ export async function generateFamilyUpdate({
 
   let context = { diagnoses: [], notes: [], orders: [], investigations: [], admission: null, patient: null };
   if (safeAdmissionId) {
-    context = await collectAdmissionClinicalContext(safeAdmissionId);
+    context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   }
 
   const fallbackDraft = buildFallbackDraft({

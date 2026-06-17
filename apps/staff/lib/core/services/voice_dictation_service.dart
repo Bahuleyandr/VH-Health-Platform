@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
-import 'package:vhhealth_core/config/api_config.dart' as core;
+import 'package:vhhealth_core/services/http_client.dart';
 
 /// Records audio from the microphone and uploads it to the backend's
 /// `/clinical/voice-note/transcribe` endpoint, returning the transcript
@@ -67,20 +66,19 @@ class VoiceDictationService {
   }
 
   static Future<void> _assertCaptureAllowed() async {
-    final headers = await core.ApiConfig.authenticatedAuthHeaders();
-    final uri = Uri.parse(
-      '${core.ApiConfig.baseUrl}/clinical/voice-note/config',
-    );
-    final response = await http.get(uri, headers: headers);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
+    // Routed through the shared, cert-pinned VHHttpClient (audit finding #14):
+    // this is a policy check about an identified patient's clinical dictation,
+    // so it must inherit the SPKI pin / shared auth rather than using a bare
+    // http.get over a non-pinned client.
+    final response = await VHHttpClient.get('/clinical/voice-note/config');
+    if (!response.isSuccess) {
       throw Exception('Voice dictation policy check failed.');
     }
 
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
+    if (response.raw is! Map<String, dynamic>) {
       throw Exception('Unexpected voice dictation policy response.');
     }
-    final data = decoded['data'];
+    final data = response.data;
     if (data is! Map<String, dynamic>) {
       throw Exception('Voice dictation policy response missing data.');
     }
@@ -175,33 +173,33 @@ class VoiceDictationService {
     int? admissionId,
     String? language,
   }) async {
-    final headers = await core.ApiConfig.authenticatedAuthHeaders();
-    final uri = Uri.parse(
-      '${core.ApiConfig.baseUrl}/clinical/voice-note/transcribe',
+    // Routed through the shared, cert-pinned VHHttpClient (audit finding #14):
+    // clinical dictation audio about an identified patient must inherit the
+    // SPKI pin + shared auth rather than uploading over a bare, non-pinned
+    // multipart client. VHHttpClient injects the auth headers itself, so we no
+    // longer build/attach them here. A fileBuilder (rather than a pre-built
+    // file) is used so the shared client can re-read the audio on a 401-retry —
+    // a MultipartFile stream is single-use.
+    final fields = <String, String>{
+      if (patientUid != null && patientUid.isNotEmpty) 'patient_uid': patientUid,
+      if (admissionId != null) 'admission_id': admissionId.toString(),
+      if (language != null && language.isNotEmpty) 'language': language,
+    };
+    final response = await VHHttpClient.multipart(
+      '/clinical/voice-note/transcribe',
+      fields: fields,
+      fileBuilder: () async => [
+        await http.MultipartFile.fromPath('audio', file.path),
+      ],
     );
-    final request = http.MultipartRequest('POST', uri)..headers.addAll(headers);
-    if (patientUid != null && patientUid.isNotEmpty) {
-      request.fields['patient_uid'] = patientUid;
-    }
-    if (admissionId != null) {
-      request.fields['admission_id'] = admissionId.toString();
-    }
-    if (language != null && language.isNotEmpty) {
-      request.fields['language'] = language;
-    }
-    request.files.add(await http.MultipartFile.fromPath('audio', file.path));
-
-    final streamed = await request.send();
-    final body = await streamed.stream.bytesToString();
-    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      throw Exception('Transcription failed (HTTP ${streamed.statusCode})');
+    if (!response.isSuccess) {
+      throw Exception('Transcription failed (HTTP ${response.statusCode})');
     }
 
-    final decoded = jsonDecode(body);
-    if (decoded is! Map<String, dynamic>) {
+    if (response.raw is! Map<String, dynamic>) {
       throw Exception('Unexpected transcription response shape.');
     }
-    final data = decoded['data'];
+    final data = response.data;
     if (data is! Map) {
       throw Exception('Transcription response missing data.');
     }

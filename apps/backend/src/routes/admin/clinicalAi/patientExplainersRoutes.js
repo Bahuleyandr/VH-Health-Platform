@@ -15,9 +15,51 @@ import {
   generatePrescriptionPatientExplanation,
   generateRadiologyPatientExplanation,
 } from '../../../services/ai/patientExplainersService.js';
+import { patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../../services/security/accessDecisionService.js';
 import { logClinicalAiAudit } from './audit.js';
 
 const router = express.Router();
+
+// Intra-tenant IDOR guards — resolve the patient owning the cited source
+// row (tenant-scoped) and enforce the actor's care relationship before the
+// explainer reads PHI. Run care-team-mode-governed (per-tenant, default
+// 'shadow') so they match exactly how the underlying PHI families are
+// guarded in app.js (/investigations, /prescriptions both
+// careTeamModeGoverned) — a tenant flipped to 'enforce' returns a real 403
+// for an out-of-relationship id; shadow logs the would-be denial to
+// patient_access_audit_log. allowNoPatientResource lets a not-found id fall
+// through to the service's existing 404. The hard cross-tenant guarantee is
+// the tenant_id predicate added to each source SELECT in
+// patientExplainersService.js.
+const guardLabExplainer = patientAccessGuardForResource('INVESTIGATION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW,
+  resourceType: 'investigation',
+  idSelector: (req) => req.body?.investigation_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardRadiologyExplainer = patientAccessGuardForResource('RADIOLOGY', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_RADIOLOGY_VIEW,
+  resourceType: 'radiology_order',
+  idSelector: (req) => req.body?.radiology_order_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardPrescriptionExplainer = patientAccessGuardForResource('PRESCRIPTION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW,
+  resourceType: 'prescription',
+  idSelector: (req) => req.body?.prescription_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+const guardInvoiceExplainer = patientAccessGuardForResource('PRESCRIPTION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_PHARMACY_ORDER_VIEW,
+  resourceType: 'invoice',
+  idSelector: (req) => req.body?.invoice_id ?? null,
+  allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
 
 function auditAndReturn(req, res, eventType, result, message) {
   return Promise.resolve(
@@ -38,7 +80,7 @@ function auditAndReturn(req, res, eventType, result, message) {
   ).then(() => success(res, result, message, 201));
 }
 
-router.post('/lab-patient-explanations', async (req, res, next) => {
+router.post('/lab-patient-explanations', guardLabExplainer, async (req, res, next) => {
   try {
     const result = await generateLabPatientExplanation({
       tenantId: req.tenantId,
@@ -53,7 +95,7 @@ router.post('/lab-patient-explanations', async (req, res, next) => {
   }
 });
 
-router.post('/radiology-patient-explanations', async (req, res, next) => {
+router.post('/radiology-patient-explanations', guardRadiologyExplainer, async (req, res, next) => {
   try {
     const result = await generateRadiologyPatientExplanation({
       tenantId: req.tenantId,
@@ -87,7 +129,7 @@ router.post('/patient-report-explanations', async (req, res, next) => {
   }
 });
 
-router.post('/prescription-patient-explanations', async (req, res, next) => {
+router.post('/prescription-patient-explanations', guardPrescriptionExplainer, async (req, res, next) => {
   try {
     const result = await generatePrescriptionPatientExplanation({
       tenantId: req.tenantId,
@@ -102,7 +144,7 @@ router.post('/prescription-patient-explanations', async (req, res, next) => {
   }
 });
 
-router.post('/invoice-patient-explanations', async (req, res, next) => {
+router.post('/invoice-patient-explanations', guardInvoiceExplainer, async (req, res, next) => {
   try {
     const result = await generateInvoicePatientExplanation({
       tenantId: req.tenantId,

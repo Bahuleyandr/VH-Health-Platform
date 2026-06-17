@@ -283,4 +283,72 @@ describe('accessDecisionService', () => {
     expect(prismaMock.$queryRawUnsafe.mock.calls[2][0]).toContain('FROM patient_encounters');
     expect(prismaMock.$queryRawUnsafe.mock.calls[3][0]).toContain('FROM radiology_orders');
   });
+
+  // Explainer-source resolvers added for the clinical-AI patient-explainer
+  // IDOR guards (#7). Each must tenant-scope the lookup and join the
+  // explainer's source table back to the owning patient.
+  it('resolves investigation / prescription / invoice source ids through tenant-scoped patient joins', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce(patientLookup())
+      .mockResolvedValueOnce(patientLookup());
+
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'investigation',
+      resourceId: '42',
+    });
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'prescription',
+      resourceId: '7',
+    });
+    await resolvePatientForResourceAccess(reqFor('DOCTOR'), {
+      resourceType: 'invoice',
+      resourceId: '11',
+    });
+
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('FROM investigations');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('i.tenant_id = $1::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][1]).toBe('00000000-0000-4000-8000-000000000001');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toContain('FROM prescriptions');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[1][0]).toContain('rx.tenant_id = $1::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[2][0]).toContain('FROM invoices');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[2][0]).toContain('inv.tenant_id = $1::uuid');
+  });
+
+  // The intra-tenant IDOR property: even when the explainer's source row
+  // resolves to a real same-tenant patient, an actor with NO care
+  // relationship to that patient is denied. This is exactly what the
+  // route-level patientAccessGuardForResource('INVESTIGATION', ...) enforces
+  // when a tenant is flipped to 'enforce'.
+  it('denies an out-of-relationship clinician composing an explainer for a resolved patient', async () => {
+    prismaMock.$queryRawUnsafe
+      // resolvePatientForResourceAccess: investigation → patient row
+      .mockResolvedValueOnce(patientLookup())
+      // resolvePatientForAccess re-resolution inside authorize → patient row
+      .mockResolvedValueOnce(patientLookup())
+      // care_team / referral / appointment / admission relationship probes → none
+      .mockResolvedValue([]);
+    prismaMock.$executeRawUnsafe.mockResolvedValueOnce(undefined);
+
+    const patient = await resolvePatientForResourceAccess(
+      reqFor('DOCTOR', { body: { investigation_id: 42 } }),
+      { resourceType: 'investigation', resourceId: '42' },
+    );
+    expect(patient).toEqual({ id: 15, uid: PATIENT_UID });
+
+    const decision = await authorizePatientAccessRequest(
+      reqFor('DOCTOR', { body: { investigation_id: 42 } }),
+      {
+        policyCode: ACCESS_POLICY_CODES.PATIENT_INVESTIGATION_VIEW,
+        recordType: 'INVESTIGATION',
+        patient,
+        resourceContext: { resourceType: 'investigation', resourceId: '42' },
+        requireResolvedPatient: true,
+      },
+    );
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.accessDecision).toBe('deny');
+    expect(decision.reason).toMatch(/relationship/i);
+  });
 });

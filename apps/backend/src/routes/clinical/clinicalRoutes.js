@@ -13,6 +13,7 @@ import { reviewPolypharmacy } from '../../services/ai/polypharmacyAiService.js';
 import { scoreDeterioration } from '../../services/ai/deteriorationEarlyWarningService.js';
 import { createAmbientEncounter, listAmbientEncounters } from '../../services/ai/ambientDocumentationService.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
@@ -105,7 +106,7 @@ function requireMedicationAdministrationRole(req, res, next) {
  * POST /clinical/news2/record
  * Record a NEWS2 assessment for a patient.
  */
-router.post('/news2/record', requiredUUID('patient_uid'), validate, guardClinicalPatientWrite, async (req, res, next) => {
+router.post('/news2/record', requiredUUID('patient_uid'), validate, requireIdempotencyKey({ required: false, scope: 'news2_record' }), guardClinicalPatientWrite, async (req, res, next) => {
   try {
     const { patient_uid, vitals } = req.body;
 
@@ -219,7 +220,7 @@ function buildProgressNoteContent(rawContent, summaryHint) {
   };
 }
 
-router.post('/progress-notes', guardClinicalAppointmentWrite, async (req, res, next) => {
+router.post('/progress-notes', requireIdempotencyKey({ required: false, scope: 'progress_note' }), guardClinicalAppointmentWrite, async (req, res, next) => {
   try {
     const { default: clinicalNotesService } = await import('../../services/emr/clinicalNotesService.js');
     const rawType = req.body.note_type || req.body.type;

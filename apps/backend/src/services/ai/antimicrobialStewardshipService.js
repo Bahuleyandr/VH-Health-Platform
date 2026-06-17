@@ -739,7 +739,7 @@ export async function generateAntimicrobialStewardshipReview({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const context = await collectAdmissionClinicalContext(safeAdmissionId);
+  const context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   const fallbackDraft = evaluateAntimicrobialStewardship(context);
   const packet = buildChartPacket(context, fallbackDraft);
   const prompt = await getActivePrompt(tenantId);
