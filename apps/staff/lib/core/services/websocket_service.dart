@@ -70,14 +70,17 @@ class WebSocketService {
       final wsUrl = baseUrl
           .replaceFirst('https://', 'wss://')
           .replaceFirst('http://', 'ws://');
-      // Remove trailing /api/v1 or similar path segments to get the host
+      // Remove trailing /api/v1 or similar path segments to get the host. The
+      // JWT is sent as the first `auth` message frame, NOT in the URL query — a
+      // bearer token in `?token=` leaks into reverse-proxy / ingress access
+      // logs. The backend awaits an `auth` frame when no URL token is present
+      // (wsServer.js).
       final uri = Uri.parse(wsUrl);
       final wsUri = Uri(
         scheme: uri.scheme,
         host: uri.host,
         port: uri.port,
         path: '/ws',
-        queryParameters: {'token': jwt},
       );
 
       _channel = WebSocketChannel.connect(wsUri);
@@ -86,6 +89,9 @@ class WebSocketService {
       _isConnected = true;
       _retryCount = 0;
       debugPrint('WebSocket: Connected to ${_safeUriForLog(wsUri)}');
+
+      // Authenticate as the FIRST frame, before any subscribe.
+      _channel!.sink.add(json.encode({'action': 'auth', 'token': jwt}));
 
       // Subscribe to channels
       for (final channel in _subscribedChannels) {

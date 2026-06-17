@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
@@ -18,11 +19,20 @@ class LogoutService {
 
   /// Full logout: clears credentials, disconnects services, wipes caches.
   static Future<void> logout() async {
-    // 1. Disconnect real-time services
+    // 1. Disconnect real-time services. Both the legacy WebSocketService AND
+    //    the shared RealtimeClient (vhhealth_core) must be torn down — the
+    //    RealtimeClient singleton otherwise stays authenticated and keeps
+    //    receiving PHI events (queue-position, broadcasts) for the prior user
+    //    after logout, a real exposure on shared/family devices.
     try {
       WebSocketService.instance.disconnect();
     } catch (e) {
       debugPrint('LogoutService: WebSocket disconnect failed: $e');
+    }
+    try {
+      await RealtimeClient.instance.disconnect();
+    } catch (e) {
+      debugPrint('LogoutService: RealtimeClient disconnect failed: $e');
     }
 
     // 2. Cancel all local notifications

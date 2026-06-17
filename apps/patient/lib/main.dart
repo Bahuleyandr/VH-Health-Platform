@@ -34,6 +34,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/connectivity_service.dart';
 import 'package:vhhealth/core/services/firebase_crash_reporter.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
+import 'package:vhhealth/core/services/logout_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
@@ -138,7 +139,11 @@ Future<void> main() async {
         if (UserProvider.instance?.isGuest ?? false) {
           return;
         }
-        UserProvider.instance?.clear();
+        // Full teardown on definitive session death (fired only after a refresh
+        // attempt fails): disconnect the realtime + WebSocket PHI channels and
+        // wipe caches, then redirect. Previously only UserProvider was cleared,
+        // leaving the realtime channels live for the prior user.
+        unawaited(LogoutService.logout());
         AppRouter.router.go('/login');
       };
 
