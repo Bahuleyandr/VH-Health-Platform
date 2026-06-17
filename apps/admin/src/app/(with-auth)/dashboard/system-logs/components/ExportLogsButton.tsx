@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import { buildCsv, type CsvColumn } from "@/lib/exportToCsv";
 import toast from "react-hot-toast";
 import { CloudDownload } from "lucide-react";
 
@@ -94,7 +95,14 @@ export function ExportLogsButton({
     }
   };
 
-  // Convert array of unknowns to CSV by best-effort flattening of keys
+  // Convert an array of unknowns to CSV by best-effort flattening of keys,
+  // routed through the shared buildCsv helper so every field gets the
+  // formula-injection guard (a leading =,+,-,@,tab,CR is prefixed with a quote)
+  // plus RFC-4180 quoting. Audit/system-log rows carry attacker-influenceable
+  // fields (ip_address, user_agent, action/detail strings), so a crafted value
+  // like `=WEBSERVICE(...)` must not execute when the CSV is opened in a
+  // spreadsheet. (The local builder this replaced quote-wrapped but never
+  // formula-escaped — same class as the report-builder / UsersTable fixes.)
   const convertToCSV = (rows: unknown[]) => {
     if (!Array.isArray(rows) || rows.length === 0) return "";
 
@@ -106,21 +114,20 @@ export function ExportLogsButton({
     const headerSet = new Set<string>();
     objects.forEach((o) => Object.keys(o).forEach((k) => headerSet.add(k)));
     const headers = Array.from(headerSet);
-    const headerLine = headers.join(",");
 
-    const csvRows = objects.map((o) =>
-      headers
-        .map((h) => {
-          const v = o[h];
-          const s = typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
-          return s.includes(",") || s.includes('"') || s.includes("\n")
-            ? `"${s.replace(/"/g, '""')}"`
-            : s;
-        })
-        .join(","),
-    );
+    // Dynamically-keyed rows → derive columns from the union of keys. Cell
+    // value logic mirrors the previous behaviour exactly (objects are
+    // JSON-stringified, null/undefined collapse to ""); only the escaping moves
+    // to escapeCsvField (via buildCsv).
+    const columns: CsvColumn<Record<string, unknown>>[] = headers.map((key) => ({
+      header: key,
+      accessor: (row) => {
+        const v = row[key];
+        return typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
+      },
+    }));
 
-    return [headerLine, ...csvRows].join("\n");
+    return buildCsv(columns, objects);
   };
 
   return (
