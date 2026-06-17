@@ -718,7 +718,7 @@ function standardDraftResponse({ module, prompt, draft, citations, safetyFlags, 
 
 const ADMISSION_AI_DRAFT_GRAPH_NODES = {
   gather_chart_context: async (state) => {
-    const context = await collectAdmissionClinicalContext(state.admissionId);
+    const context = await collectAdmissionClinicalContext(state.admissionId, state.tenantId || null);
     return { context, packet: buildChartPacket(context) };
   },
 
@@ -1096,15 +1096,17 @@ export async function generateWardRoundBrief({ ward = null, limit = 20, requeste
     `SELECT id
      FROM admissions
      WHERE status = 'admitted'
-       AND ($1::text IS NULL OR ward = $1)
+       AND tenant_id = $1::uuid
+       AND ($2::text IS NULL OR ward = $2)
      ORDER BY admitted_at DESC NULLS LAST, created_at DESC
-     LIMIT $2`,
+     LIMIT $3`,
+    tenantId,
     ward || null,
     safeLimit
   );
   const contexts = [];
   for (const admission of admissions) {
-    contexts.push(await collectAdmissionClinicalContext(admission.id));
+    contexts.push(await collectAdmissionClinicalContext(admission.id, tenantId));
   }
 
   const prompt = await getActivePrompt('daily_ward_round_brief', { tenantId });

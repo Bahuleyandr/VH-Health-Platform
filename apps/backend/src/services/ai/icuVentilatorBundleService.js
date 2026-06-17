@@ -845,7 +845,7 @@ export async function generateVentilatorBundleAudit({ req = null, admissionId } 
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const context = await collectAdmissionClinicalContext(safeAdmissionId);
+  const context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   const fallbackDraft = buildFallbackDraft(context);
   const packet = buildChartPacket(context, fallbackDraft);
   const prompt = await getActivePrompt(tenantId);

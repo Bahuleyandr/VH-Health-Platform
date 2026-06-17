@@ -557,7 +557,7 @@ export async function generateInfectionControlAudit({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const context = await collectAdmissionClinicalContext(safeAdmissionId);
+  const context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   const packet = buildChartPacket(context);
   const fallbackDraft = evaluateInfectionControlRisk(context);
   const prompt = await getActivePrompt(tenantId);

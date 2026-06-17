@@ -471,7 +471,7 @@ export async function composeDischargePackage(admissionId, requestedBy, req = nu
     tenant_region: req?.tenant?.region || null,
   };
 
-  const patientUid = await resolvePatientUid(admissionId);
+  const patientUid = await resolvePatientUid(admissionId, tenantId);
 
   const outcome = await runWorkflow({
     graph: getComposeGraph(),
@@ -515,12 +515,21 @@ export async function composeDischargePackage(admissionId, requestedBy, req = nu
   return outcome.result;
 }
 
-async function resolvePatientUid(admissionId) {
+async function resolvePatientUid(admissionId, tenantId = null) {
   try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT patient_uid FROM admissions WHERE id = $1 LIMIT 1`,
-      Number.parseInt(admissionId, 10)
-    );
+    // Tenant-scope the lookup so a compose can never resolve an admission
+    // outside the caller's tenant (intra-/cross-tenant IDOR hardening). When
+    // tenantId is unknown (legacy callers), fall back to the unscoped lookup.
+    const rows = tenantId
+      ? await prisma.$queryRawUnsafe(
+          `SELECT patient_uid FROM admissions WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+          Number.parseInt(admissionId, 10),
+          tenantId,
+        )
+      : await prisma.$queryRawUnsafe(
+          `SELECT patient_uid FROM admissions WHERE id = $1 LIMIT 1`,
+          Number.parseInt(admissionId, 10),
+        );
     return rows[0]?.patient_uid || null;
   } catch (err) {
     logger.warn('Failed to resolve patient_uid for compose', { admissionId, error: err.message });

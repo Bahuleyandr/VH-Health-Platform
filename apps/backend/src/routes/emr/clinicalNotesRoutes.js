@@ -2,6 +2,7 @@
 import express from 'express';
 import prisma from '../../lib/prisma.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import * as clinicalNoteDraftService from '../../services/emr/clinicalNoteDraftService.js';
@@ -112,7 +113,7 @@ function normalizeNotePayload(body) {
 // POST /emr/notes — Create clinical note
 // ===================================================================
 
-router.post('/notes', rejectMobileClinicalWrite, guardClinicalNoteWrite, async (req, res, next) => {
+router.post('/notes', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_note' }), guardClinicalNoteWrite, async (req, res, next) => {
   try {
     const { encounter_id, appointment_id, author_role, title } = req.body;
     const patient_uid = await resolvePatientUidFromBody(req.body);

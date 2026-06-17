@@ -514,7 +514,7 @@ export async function generateChartCompletionAudit({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const context = await collectAdmissionClinicalContext(safeAdmissionId);
+  const context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   const packet = buildChartPacket(context);
   const fallbackDraft = evaluateChartCompletion(context);
   const prompt = await getActivePrompt(tenantId);

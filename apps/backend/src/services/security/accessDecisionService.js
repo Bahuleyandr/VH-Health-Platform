@@ -418,6 +418,45 @@ export async function resolvePatientForResourceAccess(req, {
           LIMIT 1`,
         resourceId,
       );
+    case 'investigation':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM investigations i
+           JOIN users p ON p.uid = i.uid
+          WHERE i.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND i.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'prescription':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM prescriptions rx
+           JOIN users p ON p.uid = rx.patient_uid
+          WHERE rx.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND rx.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
+    case 'invoice':
+      return patientFromResourceQuery(
+        req,
+        `SELECT p.id, p.uid
+           FROM invoices inv
+           JOIN users p ON p.uid = inv.patient_uid
+          WHERE inv.tenant_id = $1::uuid
+            AND p.tenant_id = $1::uuid
+            AND inv.id = $2::int
+            AND p.role = 'PATIENT'
+          LIMIT 1`,
+        resourceId,
+      );
     case 'cds_alert':
       return patientFromResourceQuery(
         req,

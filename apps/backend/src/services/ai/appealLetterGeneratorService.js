@@ -613,7 +613,7 @@ export async function generateAppealLetter({
 
   let context = { diagnoses: [], notes: [], orders: [], investigations: [], medications: [], allergies: [] };
   if (safeAdmissionId) {
-    context = await collectAdmissionClinicalContext(safeAdmissionId);
+    context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   }
   const evidence = extractClinicalEvidence(context);
   const fallbackDraft = buildFallbackDraft({ claim, classification, evidence, appealType: resolvedAppealType });

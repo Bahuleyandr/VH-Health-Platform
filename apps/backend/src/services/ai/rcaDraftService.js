@@ -79,7 +79,7 @@ export async function generateRcaDraft({ req, admissionId, caseType = 'mortality
   const admission = admissionRows[0];
   if (!admission) throw AppError.notFound('Admission not found');
 
-  const context = await collectAdmissionClinicalContext(admission.id);
+  const context = await collectAdmissionClinicalContext(admission.id, tenantId);
   const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
 
   const systemPrompt = [

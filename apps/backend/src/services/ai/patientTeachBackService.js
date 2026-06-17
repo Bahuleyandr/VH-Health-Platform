@@ -867,7 +867,7 @@ export async function generateTeachBackSession({
   let context = { aftercare: null };
   let resolvedPatientUid = patientUid || null;
   if (safeAdmissionId) {
-    context = await collectAdmissionClinicalContext(safeAdmissionId);
+    context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
     resolvedPatientUid = resolvedPatientUid || context.admission?.patient_uid || null;
   }
 

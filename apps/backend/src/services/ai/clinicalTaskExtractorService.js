@@ -529,7 +529,7 @@ export async function generateClinicalTaskExtraction({ req = null, admissionId }
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const context = await collectAdmissionClinicalContext(safeAdmissionId);
+  const context = await collectAdmissionClinicalContext(safeAdmissionId, tenantId);
   const packet = buildTaskPacket(context);
   const fallbackTasks = extractRuleBasedTasksFromEvents(context.timeline);
   const prompt = await getActivePrompt(tenantId);

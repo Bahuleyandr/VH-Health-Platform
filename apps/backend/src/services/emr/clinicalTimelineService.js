@@ -35,6 +35,16 @@ async function optionalFindMany(label, fn) {
   }
 }
 
+// Defense-in-depth tenant scoping for the timeline loaders. When a tenantId
+// is threaded down from collectAdmissionClinicalContext, add it to the
+// loader's where so a tenant-blind patient_uid can never surface another
+// tenant's rows at the AI-context chokepoint. Each of these tables carries a
+// tenant_id column. Omitting tenantId (legacy callers) keeps the prior
+// patient_uid-only filter.
+function withTenantScope(where, tenantId) {
+  return tenantId ? { ...where, tenant_id: tenantId } : where;
+}
+
 // Translate a {dateFrom, dateTo} pair (ISO strings or Date instances) into
 // a Prisma timestamp filter. Both bounds optional.
 function buildDateFilter(dateFrom, dateTo) {
@@ -130,9 +140,13 @@ async function getPatient(patientUid) {
   });
 }
 
-async function getAdmission(admissionId) {
-  return prisma.admissions.findUnique({
-    where: { id: admissionId },
+async function getAdmission(admissionId, tenantId = null) {
+  // Defense-in-depth tenant scoping at the chokepoint. When tenantId is
+  // supplied, require the admission to belong to it (findFirst with a
+  // composite where), so a tenant-blind id can never resolve another tenant's
+  // admission. Legacy callers that omit tenantId keep the unscoped lookup.
+  return prisma.admissions.findFirst({
+    where: tenantId ? { id: admissionId, tenant_id: tenantId } : { id: admissionId },
     select: {
       id: true,
       tenant_id: true,
@@ -164,8 +178,8 @@ async function getAdmission(admissionId) {
   });
 }
 
-async function getTimelineAdmissions(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineAdmissions(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.admitted_at = dateFilter;
 
@@ -217,8 +231,8 @@ async function getTimelineAdmissions(patientUid, dateFrom, dateTo) {
   });
 }
 
-async function getTimelineNotes(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineNotes(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -253,8 +267,8 @@ async function getTimelineNotes(patientUid, dateFrom, dateTo) {
   }));
 }
 
-async function getTimelineDiagnoses(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineDiagnoses(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -288,8 +302,8 @@ async function getTimelineDiagnoses(patientUid, dateFrom, dateTo) {
   }));
 }
 
-async function getTimelineNews2(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineNews2(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.recorded_at = dateFilter;
 
@@ -322,8 +336,8 @@ async function getTimelineNews2(patientUid, dateFrom, dateTo) {
   }));
 }
 
-async function getTimelineVitals(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineVitals(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.recorded_at = dateFilter;
 
@@ -359,7 +373,7 @@ async function getTimelineVitals(patientUid, dateFrom, dateTo) {
   }));
 }
 
-async function getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo) {
+async function getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo, tenantId = null) {
   // Pre-ORM SQL filtered + ordered on COALESCE(administered_at,
   // scheduled_time, created_at). Prisma can't express that aggregate in
   // a where-clause, so fetch the row's three timestamps and apply the
@@ -367,7 +381,7 @@ async function getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo
   // (caller-supplied) so the post-filter still scales fine for an
   // individual patient's medication history.
   const rows = await optionalFindMany('medication_administrations', () => prisma.medication_administrations.findMany({
-    where: { patient_uid: patientUid },
+    where: withTenantScope({ patient_uid: patientUid }, tenantId),
     select: {
       id: true,
       prescription_id: true,
@@ -411,8 +425,8 @@ async function getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo
     }));
 }
 
-async function getTimelinePrescriptions(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelinePrescriptions(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -458,13 +472,13 @@ async function getTimelinePrescriptions(patientUid, dateFrom, dateTo) {
   });
 }
 
-async function getTimelineInvestigations(patientUid, dateFrom, dateTo) {
+async function getTimelineInvestigations(patientUid, dateFrom, dateTo, tenantId = null) {
   // Pre-ORM SQL: WHERE (patient_uid = $1::uuid OR uid = $1::uuid) — both
   // columns hold the patient uuid in different row-vintages. Mirror with
-  // Prisma `OR`.
-  const where = {
+  // Prisma `OR`. tenant_id (when supplied) ANDs with the OR.
+  const where = withTenantScope({
     OR: [{ patient_uid: patientUid }, { uid: patientUid }],
-  };
+  }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -509,8 +523,8 @@ async function getTimelineInvestigations(patientUid, dateFrom, dateTo) {
     }));
 }
 
-async function getTimelineOrders(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineOrders(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -548,8 +562,8 @@ async function getTimelineOrders(patientUid, dateFrom, dateTo) {
   }));
 }
 
-async function getTimelineHandovers(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineHandovers(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -584,8 +598,8 @@ async function getTimelineHandovers(patientUid, dateFrom, dateTo) {
   }));
 }
 
-async function getTimelineReferrals(patientUid, dateFrom, dateTo) {
-  const where = { patient_uid: patientUid };
+async function getTimelineReferrals(patientUid, dateFrom, dateTo, tenantId = null) {
+  const where = withTenantScope({ patient_uid: patientUid }, tenantId);
   const dateFilter = buildDateFilter(dateFrom, dateTo);
   if (dateFilter) where.created_at = dateFilter;
 
@@ -780,6 +794,7 @@ export async function getPatientTimeline(patientUid, {
   dateTo = null,
   limit = DEFAULT_LIMIT,
   sort = 'desc',
+  tenantId = null,
 } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
 
@@ -796,17 +811,17 @@ export async function getPatientTimeline(patientUid, {
     handovers,
     referrals,
   ] = await Promise.all([
-    getTimelineAdmissions(patientUid, dateFrom, dateTo),
-    getTimelineNotes(patientUid, dateFrom, dateTo),
-    getTimelineDiagnoses(patientUid, dateFrom, dateTo),
-    getTimelineNews2(patientUid, dateFrom, dateTo),
-    getTimelineVitals(patientUid, dateFrom, dateTo),
-    getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo),
-    getTimelinePrescriptions(patientUid, dateFrom, dateTo),
-    getTimelineInvestigations(patientUid, dateFrom, dateTo),
-    getTimelineOrders(patientUid, dateFrom, dateTo),
-    getTimelineHandovers(patientUid, dateFrom, dateTo),
-    getTimelineReferrals(patientUid, dateFrom, dateTo),
+    getTimelineAdmissions(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineNotes(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineDiagnoses(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineNews2(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineVitals(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineMedicationAdministrations(patientUid, dateFrom, dateTo, tenantId),
+    getTimelinePrescriptions(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineInvestigations(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineOrders(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineHandovers(patientUid, dateFrom, dateTo, tenantId),
+    getTimelineReferrals(patientUid, dateFrom, dateTo, tenantId),
   ]);
 
   const sorter = sort === 'asc' ? oldestFirst : newestFirst;
@@ -828,9 +843,18 @@ export async function getPatientTimeline(patientUid, {
     .slice(0, clampLimit(limit));
 }
 
-export async function collectAdmissionClinicalContext(admissionId) {
-  const admission = await getAdmission(admissionId);
+export async function collectAdmissionClinicalContext(admissionId, tenantId = null) {
+  // Defense-in-depth tenant scoping at the AI-context chokepoint (~15 AI
+  // services consume this). When the caller threads its tenantId, the
+  // admission lookup is tenant-scoped (a foreign-tenant id → 404) and the
+  // same tenantId flows into every downstream timeline loader + the
+  // radiology pull. We then prefer the explicit param but fall back to the
+  // resolved admission's own tenant_id so the timeline loaders stay scoped
+  // even for legacy callers that only pass the admissionId.
+  const admission = await getAdmission(admissionId, tenantId);
   if (!admission) throw AppError.notFound('Admission not found');
+
+  const scopeTenantId = tenantId || admission.tenant_id || null;
 
   const patient = await getPatient(admission.patient_uid);
   if (patient?.uid) {
@@ -853,6 +877,7 @@ export async function collectAdmissionClinicalContext(admissionId) {
     dateTo,
     sort: 'asc',
     limit: MAX_LIMIT,
+    tenantId: scopeTenantId,
   });
 
   const byType = (type) => timeline.filter((event) => event.event_type === type);
@@ -866,10 +891,10 @@ export async function collectAdmissionClinicalContext(admissionId) {
   //   2026-05-10-inpatient-admission-discharge-drug-reconciliation-drops-chronic-meds
   const radiology_orders = await optionalFindMany('radiology_orders', () =>
     prisma.radiology_orders.findMany({
-      where: {
+      where: withTenantScope({
         patient_uid: admission.patient_uid,
         created_at: dateFrom ? { gte: dateFrom } : undefined,
-      },
+      }, scopeTenantId),
       select: {
         id: true, modality: true, body_part: true, status: true,
         ordered_by: true, created_at: true, report_completed_at: true,

@@ -202,7 +202,7 @@ router.post('/orders', rejectMobileClinicalWrite, requireIdempotencyKey({ requir
 // POST /emr/orders/apply-set — Apply an order set
 // ===================================================================
 
-router.post('/orders/apply-set', rejectMobileClinicalWrite, guardClinicalOrderWrite, async (req, res, next) => {
+router.post('/orders/apply-set', rejectMobileClinicalWrite, requireIdempotencyKey({ required: false, scope: 'clinical_order_apply_set' }), guardClinicalOrderWrite, async (req, res, next) => {
   try {
     const { patient_uid, encounter_id, order_set_id } = req.body;
 

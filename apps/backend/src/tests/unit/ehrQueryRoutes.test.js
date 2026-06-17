@@ -77,8 +77,13 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 // phiAccessLogger is a passive after-finish audit logger; stub it to a no-op
 // pass-through so the test doesn't depend on the HIPAA audit pipeline.
+// patientAccessGuardForResource is the intra-tenant IDOR guard the router now
+// applies to the explainer + discharge-compose routes; stub it as a no-op
+// pass-through too (this suite only exercises the EHR-query route, which is
+// not guarded).
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
   phiAccessLogger: () => (_req, _res, next) => next(),
+  patientAccessGuardForResource: () => (_req, _res, next) => next(),
 }));
 
 // Use the REAL requireClinicalAiUse gate (we want a genuine 403 for PATIENT),

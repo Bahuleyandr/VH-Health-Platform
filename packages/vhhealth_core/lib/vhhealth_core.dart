@@ -15,6 +15,7 @@ export 'services/crash_reporter.dart';
 export 'services/device_integrity_service.dart';
 export 'services/device_trust_service.dart';
 export 'services/http_client.dart';
+export 'services/idempotency_key.dart';
 // NOTE (audit finding M12, 2026-06-10): services/message_crypto.dart
 // (X25519+HKDF+AES-GCM "E2E" helper) was DELETED — it was never wired into
 // the patient↔hospital messaging path, so it only created a false assurance

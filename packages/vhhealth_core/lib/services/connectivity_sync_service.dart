@@ -160,6 +160,12 @@ class ConnectivitySyncService extends ChangeNotifier {
         final body =
             jsonDecode(write['body'] as String) as Map<String, dynamic>;
         final retryCount = write['retry_count'] as int? ?? 0;
+        // Stable per-write key persisted at enqueue time. Reusing it on every
+        // redrain lets the backend de-duplicate a lost-2xx replay rather than
+        // create a duplicate order / vital / note (finding #15). Older rows
+        // queued before the v3 schema migration have a null key — they fall
+        // back to no header (best-effort, pre-existing behaviour).
+        final idempotencyKey = write['idempotency_key'] as String?;
 
         if (retryCount > 5) {
           if (kDebugMode) {
@@ -170,9 +176,21 @@ class ConnectivitySyncService extends ChangeNotifier {
 
         try {
           final resp = switch (method) {
-            'POST' => await VHHttpClient.post(endpoint, body: body),
-            'PUT' => await VHHttpClient.put(endpoint, body: body),
-            'PATCH' => await VHHttpClient.patch(endpoint, body: body),
+            'POST' => await VHHttpClient.post(
+              endpoint,
+              body: body,
+              idempotencyKey: idempotencyKey,
+            ),
+            'PUT' => await VHHttpClient.put(
+              endpoint,
+              body: body,
+              idempotencyKey: idempotencyKey,
+            ),
+            'PATCH' => await VHHttpClient.patch(
+              endpoint,
+              body: body,
+              idempotencyKey: idempotencyKey,
+            ),
             _ => null,
           };
 

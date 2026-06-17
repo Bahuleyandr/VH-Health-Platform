@@ -140,15 +140,25 @@ class VHHttpClient {
 
   /// Authenticated POST request with JSON body. Automatically retries once
   /// on 401 after refreshing the JWT token.
+  ///
+  /// Pass [idempotencyKey] to send an `Idempotency-Key` header so the backend
+  /// de-duplicates replays of this mutation. The retry/refresh paths reuse the
+  /// SAME key across every attempt (it is fixed once by the caller, not
+  /// regenerated per attempt), which is what makes a lost-2xx retry safe.
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
-    final headers = await _headers(auth: auth, json: true);
+    final headers = await _headers(
+      auth: auth,
+      json: true,
+      idempotencyKey: idempotencyKey,
+    );
     final response = await _sendWithRetry(
       () => _client
           .post(uri, headers: headers, body: encoded)
@@ -157,7 +167,11 @@ class VHHttpClient {
     final parsed = ApiResponse.fromHttp(response);
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
-      final retryHeaders = await _headers(auth: true, json: true);
+      final retryHeaders = await _headers(
+        auth: true,
+        json: true,
+        idempotencyKey: idempotencyKey,
+      );
       final retry = await _sendWithRetry(
         () => _client
             .post(uri, headers: retryHeaders, body: encoded)
@@ -171,15 +185,23 @@ class VHHttpClient {
   }
 
   /// Authenticated PUT request with JSON body.
+  ///
+  /// Pass [idempotencyKey] to send an `Idempotency-Key` header (reused across
+  /// retries) so the backend de-duplicates replays of this mutation.
   static Future<ApiResponse> put(
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
-    final headers = await _headers(auth: auth, json: true);
+    final headers = await _headers(
+      auth: auth,
+      json: true,
+      idempotencyKey: idempotencyKey,
+    );
     final response = await _sendWithRetry(
       () => _client
           .put(uri, headers: headers, body: encoded)
@@ -188,7 +210,11 @@ class VHHttpClient {
     final parsed = ApiResponse.fromHttp(response);
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
-      final retryHeaders = await _headers(auth: true, json: true);
+      final retryHeaders = await _headers(
+        auth: true,
+        json: true,
+        idempotencyKey: idempotencyKey,
+      );
       final retry = await _sendWithRetry(
         () => _client
             .put(uri, headers: retryHeaders, body: encoded)
@@ -202,15 +228,23 @@ class VHHttpClient {
   }
 
   /// Authenticated PATCH request with optional JSON body.
+  ///
+  /// Pass [idempotencyKey] to send an `Idempotency-Key` header (reused across
+  /// retries) so the backend de-duplicates replays of this mutation.
   static Future<ApiResponse> patch(
     String path, {
     Map<String, dynamic>? body,
     bool auth = true,
     Duration? timeout,
+    String? idempotencyKey,
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
-    final headers = await _headers(auth: auth, json: true);
+    final headers = await _headers(
+      auth: auth,
+      json: true,
+      idempotencyKey: idempotencyKey,
+    );
     final response = await _sendWithRetry(
       () => _client
           .patch(uri, headers: headers, body: encoded)
@@ -219,7 +253,11 @@ class VHHttpClient {
     final parsed = ApiResponse.fromHttp(response);
 
     if (auth && parsed.isUnauthorized && await _handleUnauthorized(parsed)) {
-      final retryHeaders = await _headers(auth: true, json: true);
+      final retryHeaders = await _headers(
+        auth: true,
+        json: true,
+        idempotencyKey: idempotencyKey,
+      );
       final retry = await _sendWithRetry(
         () => _client
             .patch(uri, headers: retryHeaders, body: encoded)
@@ -360,6 +398,7 @@ class VHHttpClient {
   static Future<Map<String, String>> _headers({
     bool auth = true,
     bool json = false,
+    String? idempotencyKey,
   }) async {
     final Map<String, String> base;
     if (auth && json) {
@@ -370,6 +409,14 @@ class VHHttpClient {
       base = Map<String, String>.from(ApiConfig.jsonHeaders);
     } else {
       base = Map<String, String>.from(ApiConfig.authHeaders);
+    }
+
+    // Idempotency-Key — attached on mutating requests (POST/PUT/PATCH) so the
+    // backend collapses a retried lost-2xx into the original response instead
+    // of duplicating the write. The SAME key is reused across in-process
+    // retries and offline-queue redrains (finding #15).
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      base['Idempotency-Key'] = idempotencyKey;
     }
 
     // Acting-as delegation header — only attached on authenticated calls.

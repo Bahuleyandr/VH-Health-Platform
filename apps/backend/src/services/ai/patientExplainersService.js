@@ -344,13 +344,16 @@ export async function generateLabPatientExplanation({
   req = null,
 } = {}) {
   const investigationIdInt = normalizeId(investigationId, 'investigation_id');
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, uid, patient_id, test_name, status, requested_at, completed_at,
             result_value, result_unit, reference_range, abnormal_flag, notes
      FROM investigations
      WHERE id = $1
+       AND tenant_id = $2::uuid
      LIMIT 1`,
     investigationIdInt,
+    tid,
   );
   const row = rows[0];
   if (!row) throw AppError.notFound('Investigation not found');
@@ -412,13 +415,16 @@ export async function generateRadiologyPatientExplanation({
   req = null,
 } = {}) {
   const orderId = normalizeId(radiologyOrderId, 'radiology_order_id');
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, modality, body_part, indication, ordered_date,
             status, urgency, performed_at, finalized_at, findings, impression
      FROM radiology_orders
      WHERE id = $1
+       AND tenant_id = $2::uuid
      LIMIT 1`,
     orderId,
+    tid,
   );
   const row = rows[0];
   if (!row) throw AppError.notFound('Radiology order not found');
@@ -532,13 +538,16 @@ export async function generatePrescriptionPatientExplanation({
   req = null,
 } = {}) {
   const rxId = normalizeId(prescriptionId, 'prescription_id');
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, medication_name, dosage, frequency, duration,
             instructions, status, prescribed_at
      FROM prescriptions
      WHERE id = $1
+       AND tenant_id = $2::uuid
      LIMIT 1`,
     rxId,
+    tid,
   );
   const row = rows[0];
   if (!row) throw AppError.notFound('Prescription not found');
@@ -600,14 +609,17 @@ export async function generateInvoicePatientExplanation({
   req = null,
 } = {}) {
   const invId = normalizeId(invoiceId, 'invoice_id');
+  const tid = resolveTenantId({ tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, total_amount, paid_amount, balance_amount,
             insurance_covered_amount, status, line_items, billing_period_start,
             billing_period_end, created_at
      FROM invoices
      WHERE id = $1
+       AND tenant_id = $2::uuid
      LIMIT 1`,
     invId,
+    tid,
   );
   const row = rows[0];
   if (!row) throw AppError.notFound('Invoice not found');

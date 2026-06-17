@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
+import 'idempotency_key.dart';
+
 /// SQLite-based queue for pending API writes when offline.
 class OfflineQueue {
   OfflineQueue._();
@@ -16,7 +18,7 @@ class OfflineQueue {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'offline_queue.db'),
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE pending_writes (
@@ -28,7 +30,8 @@ class OfflineQueue {
             retry_count INTEGER DEFAULT 0,
             context_label TEXT,
             status TEXT DEFAULT 'pending',
-            conflict_reason TEXT
+            conflict_reason TEXT,
+            idempotency_key TEXT
           )
         ''');
       },
@@ -41,11 +44,23 @@ class OfflineQueue {
             'ALTER TABLE pending_writes ADD COLUMN conflict_reason TEXT',
           );
         }
+        if (oldVersion < 3) {
+          // Stable Idempotency-Key per queued write so a redrain reuses the
+          // SAME key and the backend de-duplicates replays (finding #15).
+          await db.execute(
+            'ALTER TABLE pending_writes ADD COLUMN idempotency_key TEXT',
+          );
+        }
       },
     );
   }
 
   /// Enqueue a write (POST/PUT/PATCH).
+  ///
+  /// A stable [IdempotencyKey] is minted once at enqueue time and persisted
+  /// with the row. Every drain (including a redrain after a lost-2xx retry)
+  /// sends the SAME `Idempotency-Key` header, so the backend collapses the
+  /// replay into the original response instead of duplicating the write.
   static Future<int> enqueue({
     required String endpoint,
     required String method,
@@ -60,6 +75,7 @@ class OfflineQueue {
       'created_at': DateTime.now().millisecondsSinceEpoch,
       'retry_count': 0,
       'context_label': contextLabel,
+      'idempotency_key': IdempotencyKey.generate(),
     });
   }
 
