@@ -27,8 +27,21 @@ artifacts:
   - qa-runs/2026-05-15-35991538/admin/stdout.txt
   - qa-runs/2026-05-15-35991538/admin/stderr.txt
 confidence: high
-status: open
+status: fixed
 ---
+
+> **Re-observed + RESOLVED 2026-06-17.** This same cross-origin 403 surfaced
+> again in run `2026-06-17-8232feba` and was independently re-investigated
+> (Agent A) with the identical root cause: the admin proxy's
+> `validateMutationOrigin` Origin allowlist is correct, but the smoke's `:3201`
+> Origin was not allowed because the admin ran on the hardcoded `:3001`. Fixed on
+> branch `qa-fix/qa-harness-bring-up-blockers` via a variant of Option 2 below: a
+> new `apps/admin` npm script `dev:qa` (`next dev --turbopack -p 3201`) — this
+> avoids touching the plain `dev` script so the team's `:3001` dev + Playwright
+> e2e + existing `.env.local` allowlist keep working. `docs/qa/README.md` now
+> starts the QA admin with `NEXT_PUBLIC_ALLOWED_ORIGIN=http://127.0.0.1:3201`.
+> Verified green: admin **19/19** in run `2026-06-17-dbe2e998`. Full write-up:
+> [`2026-06-17-qa-harness-bring-up-blockers.md`](2026-06-17-qa-harness-bring-up-blockers.md).
 
 ## Symptom
 

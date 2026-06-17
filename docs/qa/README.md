@@ -23,14 +23,31 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO qa_writer;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO qa_writer;
 SQL
 
-# Per-run env
-export NODE_ENV=qa
+# Per-run env (shared shell exports)
+export NODE_ENV=test         # validateEnv rejects "qa"; the reset guardrail accepts qa|test, so "test" satisfies both
 export DATABASE_URL='postgresql://qa_writer:qa_writer_local@127.0.0.1:55432/vhhealth_test'
 export VH_QA_RESET_CONFIRM=vhhealth_test
 
-# Start backend (smoke port) and admin (smoke port) in two separate shells:
+# The smoke scripts sign JWTs with a fixed secret and send a fixed API key.
+# The backend (and the admin proxy) MUST be started with these same values or
+# every call 401s (TOKEN_INVALID / Invalid API Key):
+export JWT_SECRET=vhhealth-local-admin-smoke-secret-123456789
+export API_KEY=vhhealth-local-api-key   # shared fallback key satisfies the patient/staff/admin clients
+
+# Start backend (smoke port) and admin (smoke port) in two separate shells.
+#
+# Backend — inherits the exports above, plus the smoke port:
 #   apps/backend>  PORT=5206 npm run dev
-#   apps/admin>    PORT=3201 npm run dev
+#
+# Admin — the proxy must target the local backend (BACKEND_URL), inject the same
+# API key (BACKEND_API_KEY), allow the smoke's :3201 Origin (the proxy's CSRF
+# mutation guard rejects any other Origin), and verify the smoke cookie JWT
+# (JWT_SECRET). Use the dev:qa script — the plain `dev` script hardcodes :3001:
+#   apps/admin>  BACKEND_URL=http://127.0.0.1:5206 \
+#                BACKEND_API_KEY=vhhealth-local-api-key \
+#                NEXT_PUBLIC_ALLOWED_ORIGIN=http://127.0.0.1:3201 \
+#                JWT_SECRET=vhhealth-local-admin-smoke-secret-123456789 \
+#                npm run dev:qa
 
 # Then drive a full QA pass:
 node scripts/qa-orchestrator.mjs
