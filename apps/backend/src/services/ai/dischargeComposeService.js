@@ -160,13 +160,39 @@ const COMPOSE_GRAPH_NODES = {
     // clinical_ai_modules. Either way the rest of the graph reads
     // state.childModules.
     let modules = state.childModules || null;
+    const skippedChildren = [];
     if (!modules) {
       modules = {};
       for (const key of requested) {
-        modules[key] = await requireEnabledModule(key, { tenantId: state.tenantId });
+        try {
+          modules[key] = await requireEnabledModule(key, { tenantId: state.tenantId });
+        } catch (err) {
+          // A child module disabled for this tenant (e.g. the patient-facing
+          // aftercare-instructions module, OFF by policy) must NOT fail the
+          // whole discharge package. Degrade gracefully: skip the disabled
+          // child and compose the rest. requireEnabledModule throws
+          // AppError.forbidden (403) for a disabled module; rethrow anything
+          // else (not-found, schema) so genuine errors still surface.
+          if (err?.statusCode === 403) {
+            skippedChildren.push(key);
+            logger.info('dischargeCompose: skipping disabled child module', {
+              module: key,
+              tenantId: state.tenantId,
+            });
+          } else {
+            throw err;
+          }
+        }
       }
     }
-    return { activeChildren: requested, childModules: modules };
+    const activeChildren = requested.filter((key) => modules[key]);
+    if (activeChildren.length === 0) {
+      throw AppError.badRequest(
+        'No enabled compose child modules for this tenant',
+        'COMPOSE_NO_ENABLED_CHILDREN'
+      );
+    }
+    return { activeChildren, childModules: modules, skippedChildren };
   },
 
   spawn_med_rec: async (state, ctx) => spawnIfRequested(state, ctx, 'medication_reconciliation'),
@@ -211,6 +237,9 @@ const COMPOSE_GRAPH_NODES = {
       overall_safety_band: overall,
       child_generation_ids: childGenerationIds,
       compose_children: state.activeChildren,
+      // Children requested but skipped because they are disabled for this
+      // tenant (degrade-and-skip; the package composes what IS enabled).
+      skipped_children: asArray(state.skippedChildren),
       // Bubble up critical flags so reviewers see them at the parent
       // level too — they're the single thing that should block release
       // of the package.

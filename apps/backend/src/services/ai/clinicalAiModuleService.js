@@ -2842,7 +2842,40 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
     throw schemaUnavailableError(err, 'tenant_module_update');
   }
 
-  return getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
+  const result = await getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
+
+  // C3 (Enablement-plan deep-tier gate): when a deep-tagged module is left in
+  // an ENABLED state, surface — non-blocking — whether it will actually produce
+  // real AI or silently fall back to a template (no live deep model). This makes
+  // the "deep enabled but template-falling-back" hazard observable at enable
+  // time instead of only at generation. Best-effort: never block enablement.
+  // Dynamic import avoids a load-time cycle (localLlmClient imports from here).
+  if (nextEffective.enabled === true) {
+    try {
+      const { checkDeepModuleReadiness } = await import('./localLlmClient.js');
+      const readiness = await checkDeepModuleReadiness(key, { tenantId: tid, smoke: false });
+      if (readiness.deepTier && !readiness.ready) {
+        result.deep_tier_warning = {
+          message: `Deep-tier module enabled but not producing real AI — generations will fall back to a template until the deep model is live: ${readiness.reason}`,
+          reason: readiness.reason,
+          readiness,
+        };
+        logger.warn('clinicalAiModuleService: deep-tier module enabled while not live (will template-fallback)', {
+          moduleKey: key,
+          tenantId: tid,
+          reason: readiness.reason,
+        });
+      }
+    } catch (err) {
+      logger.warn('clinicalAiModuleService: deep-tier readiness check failed during enable (non-blocking)', {
+        moduleKey: key,
+        tenantId: tid,
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function deleteClinicalAiTenantModule(moduleKey, { tenantId = null } = {}) {

@@ -230,23 +230,41 @@ if ([string]::IsNullOrWhiteSpace($guardrailsRow)) {
   }
 }
 
-$reviewerCount = [int](Invoke-Psql @"
-SELECT COUNT(*)
-FROM users
-WHERE tenant_id = '$tenantSql'::uuid
-  AND COALESCE(is_active, true) = true
-  AND COALESCE(status, 'active') = 'active'
-  AND role = ANY(ARRAY['DOCTOR','NURSE_MANAGER','CLINICAL_LEAD','PHARMACY_STAFF','NURSING_STAFF']::text[]);
-"@)
-if ($reviewerCount -ge 1) {
-  Add-Check "reviewer_staffed" "PASS" "Found $reviewerCount active reviewer-capable user(s) on the tenant."
+# Per-module reviewer staffing + deep-tier liveness (Enablement-plan C2 + C3).
+# Delegates to the service-accurate node checker, which reads each ENABLED
+# module's OWN reviewRoles (replacing the old fixed tenant-wide allowlist that
+# missed RADIOLOGIST/MEDICAL_RECORDS/coder roles — C2) and asserts deep-tagged
+# modules produce real AI rather than silently template-falling-back
+# (assertDeepModuleLive — C3). Its failures/warnings fold into this gate.
+$moduleCheckScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'apps/backend/scripts/check-clinical-ai-tenant-preflight.mjs'
+if (Test-Path $moduleCheckScript) {
+  $prevDbUrl = $env:DATABASE_URL
+  if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
+    $env:DATABASE_URL = "postgresql://$($PgUser):$($PgPassword)@$($PgHost):$($PgPort)/$($PgDatabase)"
+  }
+  try {
+    $moduleCheckRaw = & node $moduleCheckScript --tenant $TenantId --json 2>$null | Out-String
+    $moduleCheck = $moduleCheckRaw | ConvertFrom-Json
+    Add-Check "modules_enabled" "PASS" "$($moduleCheck.modules_enabled) of $($moduleCheck.modules_total) module(s) enabled for tenant."
+    $reviewerFailures = @($moduleCheck.failures | Where-Object { $_.issue -eq 'no_reviewers_staffed' })
+    if ($reviewerFailures.Count -eq 0) {
+      Add-Check "per_module_reviewer_staffing" "PASS" "Every enabled module has at least one staffed reviewer role (per-module reviewRoles)."
+    } else {
+      foreach ($f in $reviewerFailures) {
+        Add-Check "reviewers_$($f.module)" "FAIL" "Enabled module '$($f.module)' has zero staffed reviewers." "Assign an active user with one of: $($f.reviewRoles -join ', ')."
+      }
+    }
+    foreach ($w in @($moduleCheck.warnings)) {
+      $wReason = if (($w.PSObject.Properties.Name -contains 'reason') -and $w.reason) { " ($($w.reason))" } else { "" }
+      Add-Check "module_$($w.module)_$($w.issue)" "WARN" "Module '$($w.module)': $($w.issue)$wReason." "Review before -RequireNoWarnings rollout."
+    }
+  } catch {
+    Add-Check "per_module_reviewer_staffing" "WARN" "Per-module reviewer/deep-tier check could not run: $($_.Exception.Message)" "Run apps/backend/scripts/check-clinical-ai-tenant-preflight.mjs --tenant $TenantId manually."
+  } finally {
+    $env:DATABASE_URL = $prevDbUrl
+  }
 } else {
-  Add-Check "reviewer_staffed" "FAIL" "No active reviewer-capable users found for tenant." "Assign a DOCTOR, NURSE_MANAGER, CLINICAL_LEAD, PHARMACY_STAFF, or NURSING_STAFF reviewer."
-}
-if ($reviewerCount -ge 2) {
-  Add-Check "second_reviewer_available" "PASS" "At least two reviewer-capable users are available."
-} else {
-  Add-Check "second_reviewer_available" "WARN" "Only $reviewerCount reviewer-capable user(s) found." "Identify second reviewer coverage before high-stakes Tier C/D rollout."
+  Add-Check "per_module_reviewer_staffing" "WARN" "Per-module reviewer/deep checker not found at $moduleCheckScript." "Restore apps/backend/scripts/check-clinical-ai-tenant-preflight.mjs."
 }
 
 $recentGenerationRow = Invoke-Psql @"
