@@ -42,11 +42,13 @@ afterEach(() => {
 });
 
 describe("adminLogin", () => {
-  it("POSTs credentials to /api/login and returns {token, admin}", async () => {
+  it("resolves with {admin} on a cookie-only login (token is in the httpOnly cookie, not the body)", async () => {
+    // The real /api/login route strips token/accessToken/refreshToken from the
+    // body — the credential lives ONLY in the httpOnly auth_token cookie — so
+    // the client must NOT depend on a body token. Mock the stripped shape.
     mockFetch(async () =>
       jsonResponse(200, {
         data: {
-          token: "jwt-abc",
           admin: { uid: "a1", name: "Admin One", username: TEST_ADMIN_USERNAME, role: "ADMIN" },
         },
       }),
@@ -56,7 +58,6 @@ describe("adminLogin", () => {
     expect(result.success).toBe(true);
     expect(result.requiresTwoFactor).toBe(false);
     if (!result.requiresTwoFactor && !result.requiresMfaSetup) {
-      expect(result.token).toBe("jwt-abc");
       expect(result.admin?.username).toBe(TEST_ADMIN_USERNAME);
     }
 
@@ -107,11 +108,21 @@ describe("adminLogin", () => {
     await expect(adminLogin(TEST_ADMIN_USERNAME, "pw")).rejects.toThrow(/Login failed/);
   });
 
-  it("throws when response omits a token", async () => {
-    mockFetch(async () => jsonResponse(200, { data: {} }));
-    await expect(adminLogin(TEST_ADMIN_USERNAME, "pw")).rejects.toThrow(
-      /No token received/,
+  it("does NOT throw on a cookie-only response with no body token (stripTokens regression guard)", async () => {
+    // Regression guard: /api/login no longer returns the token in the body
+    // (cookie-only). The client must treat 200 + admin as success, never throw
+    // "No token received". A prior version of this test asserted the throw and
+    // thereby masked a login-breaking regression.
+    mockFetch(async () =>
+      jsonResponse(200, {
+        data: { admin: { uid: "a1", username: TEST_ADMIN_USERNAME, role: "ADMIN" } },
+      }),
     );
+    const result = await adminLogin(TEST_ADMIN_USERNAME, "pw");
+    expect(result.success).toBe(true);
+    if (!result.requiresTwoFactor && !result.requiresMfaSetup) {
+      expect(result.admin?.username).toBe(TEST_ADMIN_USERNAME);
+    }
   });
 });
 
@@ -120,7 +131,7 @@ describe("staffLogin", () => {
     mockFetch(async () =>
       jsonResponse(200, {
         data: {
-          accessToken: "staff-jwt",
+          // Cookie-only: the route strips accessToken/token from the body.
           staff: {
             id: 1005,
             uid: "staff-uid",
@@ -135,7 +146,6 @@ describe("staffLogin", () => {
 
     const result = await staffLogin("EMP-1005", TEST_LOGIN_SECRET);
     expect(result.success).toBe(true);
-    expect(result.token).toBe("staff-jwt");
     expect(result.user?.role).toBe("HR_STAFF");
 
     expect(fetchCalls).toHaveLength(1);

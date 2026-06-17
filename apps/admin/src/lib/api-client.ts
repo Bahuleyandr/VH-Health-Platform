@@ -104,7 +104,6 @@ export async function staffLogin(
   employeeId: string,
   password: string,
 ): Promise<{
-  token: string;
   user?: AdminUser;
   success: boolean;
 }> {
@@ -119,18 +118,18 @@ export async function staffLogin(
     throw new Error(err.message ?? "Staff login failed");
   }
 
+  // Cookie-only contract: the /api/login route sets the credential as an
+  // httpOnly cookie and STRIPS token/accessToken from the body. Success is a
+  // 200 + the (non-sensitive) staff profile — never a body token.
   const raw = (await res.json()) as { data?: LoginResponse } & LoginResponse;
   const payload: LoginResponse = raw.data ?? raw;
-  const token = payload.accessToken ?? payload.token;
-
-  if (!token) throw new Error("No token received from server");
 
   const staffUser = payload.staff ?? (payload.admin as AdminUser | undefined);
 
   // Cache user profile (non-sensitive) with timestamp for UI
   if (staffUser) cacheAdminUser(staffUser);
 
-  return { token, user: staffUser, success: true };
+  return { user: staffUser, success: true };
 }
 
 export type AdminLoginResult =
@@ -138,7 +137,6 @@ export type AdminLoginResult =
       success: true;
       requiresTwoFactor: false;
       requiresMfaSetup: false;
-      token: string;
       admin?: AdminUser;
     }
   | {
@@ -205,12 +203,10 @@ export async function adminLogin(
     };
   }
 
-  const token = (payload?.token ?? payload?.accessToken) as string | undefined;
+  // Cookie-only contract: /api/login sets the httpOnly auth_token cookie and
+  // strips the token from the body. A 200 here IS success — gate on the
+  // (non-sensitive) admin profile, never on a body token.
   const admin = payload?.admin as AdminUser | undefined;
-
-  if (!token) {
-    throw new Error("No token received from server");
-  }
 
   if (admin) cacheAdminUser(admin);
 
@@ -218,7 +214,6 @@ export async function adminLogin(
     success: true,
     requiresTwoFactor: false,
     requiresMfaSetup: false,
-    token,
     admin,
   };
 }
@@ -263,7 +258,7 @@ export async function adminMfaSetupConfirm(params: {
   code: string;
   encryptedSecret: string;
   backupCodes: string[];
-}): Promise<{ token: string; admin?: AdminUser; success: true }> {
+}): Promise<{ admin?: AdminUser; success: true }> {
   const response = await fetch("/api/login/mfa/setup-confirm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -273,12 +268,12 @@ export async function adminMfaSetupConfirm(params: {
   if (!response.ok) {
     throw new Error(json?.message ?? "Failed to complete MFA setup");
   }
+  // Cookie-only: setup-confirm sets the httpOnly cookie and strips the body
+  // token. Success = 200 + the admin profile.
   const payload = (json?.data ?? json) as Record<string, unknown>;
-  const token = (payload?.token ?? payload?.accessToken) as string | undefined;
   const admin = payload?.admin as AdminUser | undefined;
-  if (!token) throw new Error("No token received after MFA setup");
   if (admin) cacheAdminUser(admin);
-  return { success: true, token, admin };
+  return { success: true, admin };
 }
 
 /**
@@ -289,7 +284,7 @@ export async function verifyAdminMfa(params: {
   challengeToken: string;
   code: string;
   useBackupCode?: boolean;
-}): Promise<{ token: string; admin?: AdminUser; success: true }> {
+}): Promise<{ admin?: AdminUser; success: true }> {
   const response = await fetch("/api/login/mfa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -301,12 +296,12 @@ export async function verifyAdminMfa(params: {
     throw new Error(json?.message ?? "MFA verification failed");
   }
 
+  // Cookie-only: the /api/login/mfa route sets the httpOnly cookie and strips
+  // the body token. Success = 200 + the admin profile.
   const payload = (json?.data ?? json) as Record<string, unknown>;
-  const token = (payload?.token ?? payload?.accessToken) as string | undefined;
   const admin = payload?.admin as AdminUser | undefined;
-  if (!token) throw new Error("No token received after MFA");
   if (admin) cacheAdminUser(admin);
-  return { success: true, token, admin };
+  return { success: true, admin };
 }
 
 export async function getAdminProfile(): Promise<AdminUser> {
