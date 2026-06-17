@@ -16,15 +16,20 @@ metadata:
     # enforcement untouched.
     nginx.ingress.kubernetes.io/enable-cors: "false"
     # Security headers — stricter than the backend because this serves HTML.
-    # CSP matches what admin's middleware.ts builds inline; keeping them at
-    # ingress guards the very first byte even during rollouts.
+    # NOTE: Content-Security-Policy is deliberately NOT set here. admin's
+    # src/middleware.ts emits a per-request nonce CSP ('strict-dynamic', no
+    # 'unsafe-inline') on every response (matcher covers every route incl.
+    # /login). `more_set_headers` REPLACES the upstream header, so setting a
+    # CSP at this ingress would clobber the nonce and force the browser onto a
+    # weaker 'unsafe-inline' policy — defeating the M9 XSS backstop. We keep
+    # only the static, non-nonce security headers here (they guard the first
+    # byte during rollouts); the nonce CSP flows through from the pod.
     nginx.ingress.kubernetes.io/configuration-snippet: |
       more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
       more_set_headers "X-Content-Type-Options: nosniff";
       more_set_headers "X-Frame-Options: DENY";
       more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
       more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
-      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.vhhealth.app https://*.sentry.io https://*.ingest.sentry.io; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     nginx.ingress.kubernetes.io/limit-connections: "30"
     nginx.ingress.kubernetes.io/limit-rpm: "300"
   labels:
