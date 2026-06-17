@@ -6,6 +6,7 @@ import '../config/api_config.dart';
 import '../models/api_response.dart';
 import 'auth_service.dart';
 import 'pinned_http_client.dart';
+import 'idempotency_key.dart';
 
 /// Production-grade HTTP client for all VHHealth backend API calls.
 ///
@@ -154,10 +155,14 @@ class VHHttpClient {
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
+    // Auto-mint a stable Idempotency-Key when the caller passed none, so a
+    // _sendWithRetry / 401 replay reuses it and the backend dedups the write
+    // instead of double-creating. Covered routes dedup; others ignore it.
+    final effectiveKey = idempotencyKey ?? IdempotencyKey.generate();
     final headers = await _headers(
       auth: auth,
       json: true,
-      idempotencyKey: idempotencyKey,
+      idempotencyKey: effectiveKey,
     );
     final response = await _sendWithRetry(
       () => _client
@@ -170,7 +175,7 @@ class VHHttpClient {
       final retryHeaders = await _headers(
         auth: true,
         json: true,
-        idempotencyKey: idempotencyKey,
+        idempotencyKey: effectiveKey,
       );
       final retry = await _sendWithRetry(
         () => _client
@@ -197,10 +202,11 @@ class VHHttpClient {
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
+    final effectiveKey = idempotencyKey ?? IdempotencyKey.generate();
     final headers = await _headers(
       auth: auth,
       json: true,
-      idempotencyKey: idempotencyKey,
+      idempotencyKey: effectiveKey,
     );
     final response = await _sendWithRetry(
       () => _client
@@ -213,7 +219,7 @@ class VHHttpClient {
       final retryHeaders = await _headers(
         auth: true,
         json: true,
-        idempotencyKey: idempotencyKey,
+        idempotencyKey: effectiveKey,
       );
       final retry = await _sendWithRetry(
         () => _client
@@ -240,10 +246,11 @@ class VHHttpClient {
   }) async {
     final uri = _buildUri(path);
     final encoded = body != null ? jsonEncode(body) : null;
+    final effectiveKey = idempotencyKey ?? IdempotencyKey.generate();
     final headers = await _headers(
       auth: auth,
       json: true,
-      idempotencyKey: idempotencyKey,
+      idempotencyKey: effectiveKey,
     );
     final response = await _sendWithRetry(
       () => _client
@@ -256,7 +263,7 @@ class VHHttpClient {
       final retryHeaders = await _headers(
         auth: true,
         json: true,
-        idempotencyKey: idempotencyKey,
+        idempotencyKey: effectiveKey,
       );
       final retry = await _sendWithRetry(
         () => _client

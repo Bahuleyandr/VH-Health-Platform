@@ -43,19 +43,37 @@ class ApiClient {
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) => VHHttpClient.post(path, body: body, timeout: timeout);
+    String? idempotencyKey,
+  }) => VHHttpClient.post(
+    path,
+    body: body,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> put(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) => VHHttpClient.put(path, body: body, timeout: timeout);
+    String? idempotencyKey,
+  }) => VHHttpClient.put(
+    path,
+    body: body,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> patch(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) => VHHttpClient.patch(path, body: body, timeout: timeout);
+    String? idempotencyKey,
+  }) => VHHttpClient.patch(
+    path,
+    body: body,
+    timeout: timeout,
+    idempotencyKey: idempotencyKey,
+  );
 
   static Future<ApiResponse> delete(String path, {Duration? timeout}) =>
       VHHttpClient.delete(path, timeout: timeout);
