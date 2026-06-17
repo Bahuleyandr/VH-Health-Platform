@@ -100,4 +100,24 @@ describe('rejectMobileClinicalWrite', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toBeNull();
   });
+
+  it('exempts non-staff (patient) actors from the staff device gate', () => {
+    // A PATIENT booking from the mobile patient app is not a staff clinical
+    // write. RBAC governs who may reach each route; this guard only constrains
+    // the Staff app's device posture, so it must let patients through
+    // regardless of deviceType (mobile or a stale token with none).
+    for (const deviceType of ['mobile', undefined]) {
+      const req = createRequest(deviceType);
+      req.user.role = 'PATIENT';
+      if (deviceType === undefined) delete req.user.deviceType;
+      const res = createResponse();
+      const next = jest.fn();
+
+      rejectMobileClinicalWrite(req, res, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toBeNull();
+    }
+  });
 });

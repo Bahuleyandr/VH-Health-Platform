@@ -19,11 +19,15 @@ export function generateTestToken(role = 'ADMIN', overrides = {}) {
       id: 1,
       phone: '9876543210',
       role,
-      // Every real auth realm stamps deviceType at login; clinical-write
-      // routes 403 (DEVICE_TYPE_MISSING) without it since the phone-mode
-      // gate (rejectMobileClinicalWrite). Desktop = full clinical access;
-      // pass { deviceType: 'mobile' } to exercise the phone-mode denial.
-      deviceType: 'desktop',
+      // Every real auth realm stamps deviceType at login. Staff clinical-write
+      // routes are desktop/tablet-only (rejectMobileClinicalWrite), so staff
+      // tokens default to 'desktop'. The PATIENT app is mobile and is NOT a
+      // staff clinical write, so patient tokens default to 'mobile' — this makes
+      // the journey gate exercise the REAL patient contract instead of masking a
+      // device-gated patient route (see finding
+      // 2026-06-17-patient-investigation-booking-mobile-blocked). Override
+      // deviceType per test as needed.
+      deviceType: role === 'PATIENT' ? 'mobile' : 'desktop',
       ...overrides
     },
     secret,
