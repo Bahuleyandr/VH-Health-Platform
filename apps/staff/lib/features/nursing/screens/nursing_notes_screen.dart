@@ -126,11 +126,14 @@ class _AddNoteTabState extends State<_AddNoteTab> {
   final _noteCtrl = TextEditingController();
 
   // Autosave the in-progress nursing note to the server-side draft scratchpad
-  // (no canonical timeline/audit events). The draft is keyed by
-  // (patient, note_type) — we (re)build the controller whenever the note-type
-  // picker changes, restoring any saved draft for the newly-selected type.
-  // Requires a patient context (drafts are keyed by patient_uid); when the
-  // screen is opened without one, autosave stays inert.
+  // (no canonical timeline/audit events). The finalized nursing note is always
+  // stored as 'nursing_assessment' (the backend's normalizeNotePayload folds the
+  // picker code into content.note_category), so the draft is keyed by that
+  // canonical type — one in-progress draft per patient, the picked category
+  // carried in the content. This keeps the draft consistent with the stored note
+  // AND lets the server-side finalize-clear (which fires on 'nursing_assessment')
+  // match it. Requires a patient context (drafts are keyed by patient_uid);
+  // without one, autosave stays inert.
   NoteDraftAutosave? _autosave;
   bool _restoringDraft = false;
 
@@ -143,6 +146,11 @@ class _AddNoteTabState extends State<_AddNoteTab> {
       _phoneCtrl.text = widget.prefillPhone!;
     }
     _noteCtrl.addListener(_onNoteChanged);
+    // Bind autosave once after the first frame (restore() may show a snackbar,
+    // which needs a mounted Scaffold). The note-type picker does NOT rebind.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _initNursingAutosave();
+    });
   }
 
   void _onNoteChanged() {
@@ -150,20 +158,23 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     _autosave?.onContentChanged();
   }
 
-  /// Rebuild the autosave controller for the active (patient, note_type) and
-  /// restore any saved draft into `_noteCtrl`. Called when the note-type
-  /// picker changes. Clearing the type tears autosave down.
-  Future<void> _rebindAutosave(String? noteType) async {
-    _autosave?.dispose();
-    _autosave = null;
-    if (!_hasPatientContext || noteType == null || noteType.isEmpty) {
-      if (mounted) setState(() {});
-      return;
-    }
+  // The finalized nursing note is always note_type 'nursing_assessment'; the
+  // draft is keyed by it so the server-side finalize-clear matches.
+  static const _nursingDraftNoteType = 'nursing_assessment';
+
+  /// Bind the autosave once for this patient and restore any saved draft.
+  /// One in-progress nursing draft per patient; the picked category lives in
+  /// the content (note_category), so the picker change feeds the snapshot
+  /// rather than rebinding.
+  Future<void> _initNursingAutosave() async {
+    if (!_hasPatientContext || _autosave != null) return;
     final autosave = NoteDraftAutosave(
       patientUid: widget.prefillPatientUid!,
-      noteType: noteType,
-      snapshot: () => {'body': _noteCtrl.text.trim()},
+      noteType: _nursingDraftNoteType,
+      snapshot: () => {
+        'free_text': _noteCtrl.text.trim(),
+        if (_noteType != null) 'note_category': _noteType,
+      },
     );
     _autosave = autosave;
     if (mounted) setState(() {});
@@ -172,11 +183,16 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     if (!mounted || !identical(_autosave, autosave)) return;
     if (draft != null) {
       final content = (draft['content'] as Map?)?.cast<String, dynamic>() ?? {};
-      final body = content['body']?.toString() ?? '';
-      if (body.trim().isNotEmpty) {
+      final text = content['free_text']?.toString() ?? '';
+      final category = content['note_category']?.toString();
+      final hasText = text.trim().isNotEmpty;
+      final hasCategory = category != null && _noteTypeCodes.contains(category);
+      if (hasText || hasCategory) {
         _restoringDraft = true;
-        _noteCtrl.text = body;
+        if (hasText) _noteCtrl.text = text;
+        if (hasCategory) _noteType = category;
         _restoringDraft = false;
+        if (mounted) setState(() {});
         _showDraftRestoredBanner(draft['updatedAt'] as DateTime?);
       }
     }
@@ -285,7 +301,9 @@ class _AddNoteTabState extends State<_AddNoteTab> {
           'patient_uid': widget.prefillPatientUid,
         'phone': _phoneCtrl.text.trim(),
         'note_type': _noteType!,
-        'content': _noteCtrl.text.trim(),
+        // Structured content (the backend normalizeNotePayload reads free_text);
+        // mirrors the draft's content shape. Stored note is unchanged.
+        'content': {'free_text': _noteCtrl.text.trim()},
         'priority': _priority,
       };
 
@@ -315,11 +333,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
       }
 
       // The note is committed (or queued for commit) — drop the draft
-      // scratchpad for this (patient, note_type) and tear autosave down so the
-      // freshly-reset form doesn't immediately re-save. Best-effort.
+      // scratchpad. Keep the autosave bound for the next note; the form reset
+      // below runs under the _restoringDraft guard so clearing the fields
+      // doesn't immediately re-save an empty draft. Best-effort.
       await _autosave?.clear();
-      _autosave?.dispose();
-      _autosave = null;
 
       if (mounted) {
         _restoringDraft = true;
@@ -426,7 +443,9 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                       .toList(),
                   onChanged: (v) {
                     setState(() => _noteType = v);
-                    _rebindAutosave(v);
+                    // The picked category is part of the same draft — autosave
+                    // it (the snapshot reads _noteType as note_category).
+                    _autosave?.onContentChanged();
                   },
                   validator: (v) =>
                       v == null ? s.nursingNotesTypeRequired : null,
