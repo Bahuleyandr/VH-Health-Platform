@@ -15,7 +15,7 @@ import {
   generatePrescriptionPatientExplanation,
   generateRadiologyPatientExplanation,
 } from '../../../services/ai/patientExplainersService.js';
-import { patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
+import { patientAccessGuard, patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../../services/security/accessDecisionService.js';
 import { logClinicalAiAudit } from './audit.js';
 
@@ -58,6 +58,16 @@ const guardInvoiceExplainer = patientAccessGuardForResource('PRESCRIPTION', {
   resourceType: 'invoice',
   idSelector: (req) => req.body?.invoice_id ?? null,
   allowNoPatientResource: true,
+  careTeamModeGoverned: true,
+});
+
+// The free-text report explainer takes a caller-asserted patient_uid (there is
+// no source row to scope from), so it uses the DIRECT patient guard rather than
+// patientAccessGuardForResource. Care-team-mode-governed (shadow today, 403 at
+// GO_LIVE). The load-bearing existence + tenant check for the asserted
+// patient_uid / admission_id lives in generatePatientReportExplanation.
+const guardReportExplainer = patientAccessGuard('PATIENT_RECORD', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
   careTeamModeGoverned: true,
 });
 
@@ -111,7 +121,7 @@ router.post('/radiology-patient-explanations', guardRadiologyExplainer, async (r
   }
 });
 
-router.post('/patient-report-explanations', async (req, res, next) => {
+router.post('/patient-report-explanations', guardReportExplainer, async (req, res, next) => {
   try {
     const result = await generatePatientReportExplanation({
       tenantId: req.tenantId,

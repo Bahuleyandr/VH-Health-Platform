@@ -44,6 +44,7 @@ import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { groundWithKnowledgeBases } from './knowledgeGroundingService.js';
+import { resolvePatientForAccess } from '../security/accessDecisionService.js';
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -496,6 +497,42 @@ export async function generatePatientReportExplanation({
   const normalizedUid = patientUid ? maybeUuid(patientUid, 'patient_uid') : null;
   const normalizedAdm = admissionId ? normalizeId(admissionId, 'admission_id') : null;
 
+  // #7a — the patient/admission binding is caller-asserted on this free-text
+  // route (unlike the row-backed explainers there is no source row to scope
+  // from). Verify it resolves to a REAL, in-tenant patient before persisting so
+  // a generation + review row can't be mislabeled onto — and later published to
+  // — an arbitrary, cross-tenant, or non-existent patient. The route's
+  // patientAccessGuard adds the care-relationship check (shadow-mode pre-
+  // GO_LIVE); this existence + consistency check is load-bearing today, and the
+  // SERVER-resolved uid (never the raw caller value) is what gets persisted.
+  const scopeTenant = tenantId || DEFAULT_TENANT_ID;
+  let resolvedUid = normalizedUid;
+  if (normalizedAdm != null) {
+    const admRows = await prisma.$queryRawUnsafe(
+      `SELECT patient_uid FROM admissions WHERE id = $1::int AND tenant_id = $2::uuid LIMIT 1`,
+      normalizedAdm,
+      scopeTenant,
+    );
+    const admPatientUid = admRows[0]?.patient_uid ? String(admRows[0].patient_uid) : null;
+    if (!admPatientUid) {
+      throw AppError.notFound('admission_id not found in this tenant', 'EXPLAINER_ADMISSION_NOT_FOUND');
+    }
+    if (normalizedUid && String(normalizedUid) !== admPatientUid) {
+      throw AppError.badRequest(
+        'patient_uid does not match the admission patient',
+        'EXPLAINER_PATIENT_ADMISSION_MISMATCH',
+      );
+    }
+    resolvedUid = admPatientUid;
+  }
+  if (resolvedUid != null) {
+    const patient = await resolvePatientForAccess(req, { uid: resolvedUid });
+    if (!patient?.uid) {
+      throw AppError.notFound('patient_uid not found in this tenant', 'EXPLAINER_PATIENT_NOT_FOUND');
+    }
+    resolvedUid = String(patient.uid);
+  }
+
   const citations = [{
     source_type: 'free_text_report',
     source_id: sourceHash(cleanText).slice(0, 12),
@@ -506,7 +543,7 @@ export async function generatePatientReportExplanation({
   return runExplainerPipeline({
     moduleKey: 'patient_report_explainer',
     tenantId,
-    patientUid: normalizedUid,
+    patientUid: resolvedUid,
     admissionId: normalizedAdm,
     systemPrompt: [
       'You are a hospital patient-education writer. Explain a clinical document to the patient in plain language.',
