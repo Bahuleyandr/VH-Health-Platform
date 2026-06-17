@@ -533,7 +533,7 @@ decision service/care-team/appointment/admission/referral/break-glass context.
 ## 9. Clinical-AI subsystem
 
 The "40 future-proofing AI features" are all shipped at v1, and the
-current Clinical AI registry contains 92 governed modules. See
+current Clinical AI registry contains 99 governed modules. See
 [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md)
 for the per-module status matrix — every row is `Implemented v1` as of
 batch 15 (2026-04-23), with a live admin panel under

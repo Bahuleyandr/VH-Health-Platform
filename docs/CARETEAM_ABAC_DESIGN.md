@@ -1,6 +1,6 @@
 # CareTeam ABAC — Design (PHI access scoping for clinicians)
 
-Status: **Phases 0–2 IMPLEMENTED in SHADOW mode (2026-06-14).** Per-tenant
+Status: **Phases 0–2 IMPLEMENTED (2026-06-14); enforce-readiness shipped 2026-06-16 (`fd6d7642`). Default remains SHADOW; flipping any tenant to enforce is operator-deferred (below).** Per-tenant
 `care_team_enforcement_mode` flag (`tenants.settings`, default `shadow`, fail-safe);
 the existing `patientAccessGuard`/`patientAccessGuardForResource` extended via an opt-in
 `careTeamModeGoverned` flag over the genuinely-uncovered PHI families + EMR paths;

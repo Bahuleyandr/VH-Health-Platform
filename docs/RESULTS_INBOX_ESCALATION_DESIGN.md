@@ -7,7 +7,7 @@ engine** + **producer wiring**, delivering a clinical-safety **results-inbox**
 [`CANONICAL_CLINICAL_TIMELINE.md`](CANONICAL_CLINICAL_TIMELINE.md) (SLA layer) and
 the AI enablement plan (the deferred AI producers).
 
-> **Status: DESIGN — approved 2026-06-15; not yet implemented.** Next: writing-plans → implementation.
+> **Status: IMPLEMENTED 2026-06-15** — shipped as the clinical results-inbox + escalation engine (`clinicalInboxRoutes.js`, merged `2c286c35`). This document is the durable design of record.
 
 ---
 
