@@ -11,6 +11,8 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../emr/note_draft_autosave.dart';
+import '../../emr/widgets/note_draft_status_indicator.dart';
 
 class OpDoctorWorkspaceScreen extends StatefulWidget {
   final String patientUid;
@@ -65,18 +67,48 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
   final _diagnosisCtrl = TextEditingController();
   final _planCtrl = TextEditingController();
 
+  // Autosave the in-progress consultation note to the server-side draft
+  // scratchpad (no canonical timeline/audit events). Finalize (Save/Sign)
+  // commits the real note via the unchanged flow and clears the draft.
+  late final NoteDraftAutosave _autosave;
+  bool _draftRestoreChecked = false;
+
   @override
   void initState() {
     super.initState();
     _status = _clean(widget.status).isEmpty
         ? 'CONFIRMED'
         : _clean(widget.status).toUpperCase();
+    _autosave = NoteDraftAutosave(
+      patientUid: widget.patientUid,
+      appointmentId: widget.appointmentId,
+      noteType: 'op_consultation',
+      snapshot: _currentOpContent,
+    );
+    for (final ctrl in [
+      _chiefCtrl,
+      _historyCtrl,
+      _examCtrl,
+      _diagnosisCtrl,
+      _planCtrl,
+    ]) {
+      ctrl.addListener(_onNoteFieldChanged);
+    }
     _loadTimeline();
     RecentPatientsService.add(widget.patientUid, widget.patientName);
   }
 
+  void _onNoteFieldChanged() {
+    // Don't autosave a signed/closed note or before the restore check has run
+    // (restore itself populates the controllers, which would otherwise fire
+    // this listener and immediately re-PUT the just-restored content).
+    if (!_draftRestoreChecked || _opNoteSigned || _opSessionClosed) return;
+    _autosave.onContentChanged();
+  }
+
   @override
   void dispose() {
+    _autosave.dispose();
     _chiefCtrl.dispose();
     _historyCtrl.dispose();
     _examCtrl.dispose();
@@ -121,6 +153,7 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         _events = _dedupeAndSortEvents(events);
         _loading = false;
       });
+      await _maybeRestoreDraft();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -128,6 +161,83 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         _loading = false;
       });
     }
+  }
+
+  /// After the timeline + any committed OP note have loaded, restore an
+  /// unsaved autosave draft into the empty composer. Runs once. Per the spec's
+  /// stale-draft rule, a committed note wins: if `_hydrateLatestOpNote` already
+  /// populated a saved note (`_opNoteId != null`) we skip restore. Enables
+  /// autosave afterwards via `_draftRestoreChecked`.
+  Future<void> _maybeRestoreDraft() async {
+    if (_draftRestoreChecked) return;
+    if (_opNoteId != null || _opNoteSigned || _opSessionClosed) {
+      _draftRestoreChecked = true;
+      return;
+    }
+    final draft = await _autosave.restore();
+    if (!mounted) {
+      _draftRestoreChecked = true;
+      return;
+    }
+    if (draft != null) {
+      final content = (draft['content'] as Map?)?.cast<String, dynamic>() ?? {};
+      final hasText = [
+        'chief_complaint',
+        'history',
+        'examination',
+        'diagnosis',
+        'plan',
+      ].any((k) => _clean(content[k]).isNotEmpty);
+      if (hasText) {
+        _chiefCtrl.text = _firstContentText(content, const [
+          'chief_complaint',
+          'chief_complaints',
+          'subjective',
+        ]);
+        _historyCtrl.text = _firstContentText(content, const ['history']);
+        _examCtrl.text = _firstContentText(content, const [
+          'examination',
+          'objective',
+        ]);
+        _diagnosisCtrl.text = _firstContentText(content, const [
+          'diagnosis',
+          'assessment',
+        ]);
+        _diagnosisCoding = _firstCoding(
+          content['diagnosis_codings'] ?? content['codings'],
+        );
+        _planCtrl.text = _firstContentText(content, const ['plan']);
+        final updatedAt = draft['updatedAt'] as DateTime?;
+        if (mounted) setState(() {});
+        _showDraftRestoredBanner(updatedAt);
+      }
+    }
+    _draftRestoreChecked = true;
+  }
+
+  void _showDraftRestoredBanner(DateTime? updatedAt) {
+    if (!mounted) return;
+    final when = updatedAt != null
+        ? DateFormat('h:mm a').format(updatedAt.toLocal())
+        : null;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          when != null
+              ? 'Restored unsaved draft from $when'
+              : 'Restored unsaved draft',
+        ),
+        backgroundColor: AppTheme.primaryBlue,
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Dismiss',
+          textColor: Colors.white,
+          onPressed: messenger.hideCurrentSnackBar,
+        ),
+      ),
+    );
   }
 
   void _mergeClinicalNotesIntoTimeline(
@@ -519,6 +629,9 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
         await MedicalApiService.signNote(_opNoteId!);
         _opNoteSigned = true;
       }
+      // The content is now committed to the canonical note — drop the draft
+      // scratchpad and stop autosave for this context (best-effort).
+      await _autosave.clear();
       if (!mounted) return;
       setState(() => _savingNote = false);
       SuccessToast.show(
@@ -708,6 +821,10 @@ class _OpDoctorWorkspaceScreenState extends State<OpDoctorWorkspaceScreen> {
               enabled: noteFieldsEnabled,
             ),
             const SizedBox(height: 14),
+            if (noteFieldsEnabled) ...[
+              NoteDraftStatusIndicator(status: _autosave.status),
+              const SizedBox(height: 10),
+            ],
             Wrap(
               spacing: 10,
               runSpacing: 10,

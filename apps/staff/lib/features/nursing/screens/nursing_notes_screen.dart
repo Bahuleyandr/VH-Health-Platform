@@ -8,6 +8,8 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
+import '../../emr/note_draft_autosave.dart';
+import '../../emr/widgets/note_draft_status_indicator.dart';
 
 /// Nursing Notes screen — for Nursing Staff to add clinical notes per patient.
 /// Notes are saved to /emr/notes as append-only nursing assessments.
@@ -123,12 +125,86 @@ class _AddNoteTabState extends State<_AddNoteTab> {
   final _phoneCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
 
+  // Autosave the in-progress nursing note to the server-side draft scratchpad
+  // (no canonical timeline/audit events). The draft is keyed by
+  // (patient, note_type) — we (re)build the controller whenever the note-type
+  // picker changes, restoring any saved draft for the newly-selected type.
+  // Requires a patient context (drafts are keyed by patient_uid); when the
+  // screen is opened without one, autosave stays inert.
+  NoteDraftAutosave? _autosave;
+  bool _restoringDraft = false;
+
+  bool get _hasPatientContext => (widget.prefillPatientUid ?? '').isNotEmpty;
+
   @override
   void initState() {
     super.initState();
     if ((widget.prefillPhone ?? '').isNotEmpty) {
       _phoneCtrl.text = widget.prefillPhone!;
     }
+    _noteCtrl.addListener(_onNoteChanged);
+  }
+
+  void _onNoteChanged() {
+    if (_restoringDraft) return;
+    _autosave?.onContentChanged();
+  }
+
+  /// Rebuild the autosave controller for the active (patient, note_type) and
+  /// restore any saved draft into `_noteCtrl`. Called when the note-type
+  /// picker changes. Clearing the type tears autosave down.
+  Future<void> _rebindAutosave(String? noteType) async {
+    _autosave?.dispose();
+    _autosave = null;
+    if (!_hasPatientContext || noteType == null || noteType.isEmpty) {
+      if (mounted) setState(() {});
+      return;
+    }
+    final autosave = NoteDraftAutosave(
+      patientUid: widget.prefillPatientUid!,
+      noteType: noteType,
+      snapshot: () => {'body': _noteCtrl.text.trim()},
+    );
+    _autosave = autosave;
+    if (mounted) setState(() {});
+
+    final draft = await autosave.restore();
+    if (!mounted || !identical(_autosave, autosave)) return;
+    if (draft != null) {
+      final content = (draft['content'] as Map?)?.cast<String, dynamic>() ?? {};
+      final body = content['body']?.toString() ?? '';
+      if (body.trim().isNotEmpty) {
+        _restoringDraft = true;
+        _noteCtrl.text = body;
+        _restoringDraft = false;
+        _showDraftRestoredBanner(draft['updatedAt'] as DateTime?);
+      }
+    }
+  }
+
+  void _showDraftRestoredBanner(DateTime? updatedAt) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final when = updatedAt != null
+        ? TimeOfDay.fromDateTime(updatedAt.toLocal()).format(context)
+        : null;
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          when != null
+              ? 'Restored unsaved draft from $when'
+              : 'Restored unsaved draft',
+        ),
+        backgroundColor: const Color(0xFF00695C),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Dismiss',
+          textColor: Colors.white,
+          onPressed: messenger.hideCurrentSnackBar,
+        ),
+      ),
+    );
   }
 
   String? _noteType;
@@ -194,6 +270,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
 
   @override
   void dispose() {
+    _autosave?.dispose();
     _phoneCtrl.dispose();
     _noteCtrl.dispose();
     super.dispose();
@@ -237,8 +314,18 @@ class _AddNoteTabState extends State<_AddNoteTab> {
         }
       }
 
+      // The note is committed (or queued for commit) — drop the draft
+      // scratchpad for this (patient, note_type) and tear autosave down so the
+      // freshly-reset form doesn't immediately re-save. Best-effort.
+      await _autosave?.clear();
+      _autosave?.dispose();
+      _autosave = null;
+
       if (mounted) {
+        _restoringDraft = true;
         _formKey.currentState!.reset();
+        _noteCtrl.clear();
+        _restoringDraft = false;
         setState(() {
           _noteType = null;
           _priority = 'normal';
@@ -337,7 +424,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                         ),
                       )
                       .toList(),
-                  onChanged: (v) => setState(() => _noteType = v),
+                  onChanged: (v) {
+                    setState(() => _noteType = v);
+                    _rebindAutosave(v);
+                  },
                   validator: (v) =>
                       v == null ? s.nursingNotesTypeRequired : null,
                 ),
@@ -423,6 +513,13 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                     return null;
                   },
                 ),
+                if (_autosave != null) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: NoteDraftStatusIndicator(status: _autosave!.status),
+                  ),
+                ],
                 const SizedBox(height: 24),
 
                 ElevatedButton.icon(

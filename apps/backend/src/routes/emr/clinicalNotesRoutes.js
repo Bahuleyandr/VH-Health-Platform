@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
+import * as clinicalNoteDraftService from '../../services/emr/clinicalNoteDraftService.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
@@ -185,6 +186,82 @@ router.post('/notes/:id/addendum', rejectMobileClinicalWrite, guardClinicalNoteR
     });
 
     return success(res, addendum, 'Addendum added', 201);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================================================================
+// Clinical note DRAFTS — autosave (note_drafts). MUST be declared BEFORE the
+// /notes/:id routes so the literal "draft" segment isn't captured by :id.
+// Drafts are the author's private scratchpad and emit NO canonical timeline/
+// audit events (clinicalNoteDraftService); the real note + its events are
+// written only on finalize (POST /notes), which clears the matching draft.
+// Gated like a note write (rejectMobileClinicalWrite + guardClinicalNoteWrite)
+// so autosave is permitted exactly when saving the note would be. No
+// phiAccessLogger here — opening the chart/encounter already logged PHI access;
+// the draft is the author's own composition (design spec §4).
+// ===================================================================
+
+// PUT /emr/notes/draft — autosave-upsert the author's draft for a context.
+router.put('/notes/draft', rejectMobileClinicalWrite, guardClinicalNoteWrite, async (req, res, next) => {
+  try {
+    const patient_uid = await resolvePatientUidFromBody(req.body);
+    const { note_type, appointment_id, content } = req.body;
+    if (!patient_uid || !note_type) {
+      return error(res, 'patient_uid (or patient phone) and note_type are required', 400);
+    }
+    const draft = await clinicalNoteDraftService.upsertNoteDraft({
+      tenantId: req.tenantId,
+      authorUid: req.user.uid,
+      patientUid: patient_uid,
+      appointmentId: appointment_id ?? null,
+      noteType: note_type,
+      content: content ?? {},
+    });
+    return success(res, draft, 'Draft saved');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /emr/notes/draft — load the author's OWN draft for a context (or null).
+router.get('/notes/draft', guardClinicalNoteView, async (req, res, next) => {
+  try {
+    const patient_uid = req.query.patient_uid;
+    const note_type = req.query.note_type;
+    if (!patient_uid || !note_type) {
+      return error(res, 'patient_uid and note_type query params are required', 400);
+    }
+    const draft = await clinicalNoteDraftService.getNoteDraft({
+      tenantId: req.tenantId,
+      authorUid: req.user.uid,
+      patientUid: patient_uid,
+      appointmentId: req.query.appointment_id ?? null,
+      noteType: note_type,
+    });
+    return success(res, draft, draft ? 'Draft loaded' : 'No draft');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /emr/notes/draft — discard the author's draft for a context.
+router.delete('/notes/draft', guardClinicalNoteWrite, async (req, res, next) => {
+  try {
+    const patient_uid = req.query.patient_uid || req.body?.patient_uid;
+    const note_type = req.query.note_type || req.body?.note_type;
+    if (!patient_uid || !note_type) {
+      return error(res, 'patient_uid and note_type are required', 400);
+    }
+    const removed = await clinicalNoteDraftService.deleteNoteDraft({
+      tenantId: req.tenantId,
+      authorUid: req.user.uid,
+      patientUid: patient_uid,
+      appointmentId: req.query.appointment_id ?? req.body?.appointment_id ?? null,
+      noteType: note_type,
+    });
+    return success(res, { removed }, 'Draft discarded');
   } catch (err) {
     next(err);
   }
