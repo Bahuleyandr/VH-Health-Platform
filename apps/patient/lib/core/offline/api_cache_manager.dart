@@ -6,6 +6,7 @@ import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 
 /// Generic JSON response cache for API endpoints.
 ///
@@ -83,13 +84,22 @@ class ApiCacheManager {
     return _cacheDir!;
   }
 
-  /// Convert an API path like `/appointments/patient/123` to a safe filename.
+  /// Convert an API path like `/appointments/patient/123` to a safe filename,
+  /// NAMESPACED by the active acting-as profile (#12b) so a guardian's cache and
+  /// a dependent's cache for the same path can never collide — and a dependent's
+  /// PHI is never served back under the guardian's profile on a shared device.
+  /// A null acting-as uid (guardian on their own profile) keeps the legacy
+  /// un-prefixed key, so existing cache files stay valid.
   static String _keyForPath(String path) {
-    return path
+    final base = path
         .replaceAll('/', '_')
         .replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '')
         .replaceAll(RegExp(r'_+'), '_')
         .replaceFirst(RegExp(r'^_'), '');
+    final actingAs = VHHttpClient.actingAsUidProvider?.call();
+    if (actingAs == null || actingAs.isEmpty) return base;
+    final safeUid = actingAs.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
+    return 'as_${safeUid}__$base';
   }
 
   /// Save JSON data to cache for a given API path.
