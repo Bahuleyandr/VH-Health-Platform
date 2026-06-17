@@ -281,6 +281,8 @@ DELETE FROM medication_administrations WHERE patient_uid = '$PatientUid'::uuid;
 DELETE FROM allergies WHERE patient_uid = '$PatientUid'::uuid;
 DELETE FROM patient_allergies WHERE patient_uid = '$PatientUid'::uuid;
 DELETE FROM prescriptions WHERE patient_uid = '$PatientUid'::uuid;
+DELETE FROM care_team_members WHERE patient_uid = '$PatientUid'::uuid;
+DELETE FROM care_teams WHERE patient_uid = '$PatientUid'::uuid;
 
 INSERT INTO users (uid, phone, name, email, role, is_active, status, updated_at)
 VALUES
@@ -294,6 +296,28 @@ ON CONFLICT (uid) DO UPDATE SET
   is_active = true,
   status = 'active',
   updated_at = NOW();
+
+-- Establish the nurse<->patient care-team relationship the clinical ABAC guard
+-- requires. The /api/v1/clinical mount is a legacy enforce site (it is NOT
+-- careTeamModeGoverned), so without an accepted relationship every MAR call
+-- correctly 403s "no active care-team...". tenant_id MUST equal the value
+-- deriveTenantIdFromRequest() resolves for the smoke JWT (DEFAULT_TENANT_ID),
+-- since the relationship query filters care_teams/care_team_members on it.
+WITH seeded_team AS (
+  INSERT INTO care_teams (tenant_id, patient_uid, team_kind, status, display_name)
+  VALUES (
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    '$PatientUid'::uuid, 'ip', 'active', 'Clinical Safety Smoke Team $stamp'
+  )
+  RETURNING id
+)
+INSERT INTO care_team_members (
+  tenant_id, care_team_id, patient_uid, staff_uid, staff_role, relationship_kind, status, active_from
+)
+SELECT
+  '00000000-0000-4000-8000-000000000001'::uuid, seeded_team.id, '$PatientUid'::uuid,
+  '$StaffUid'::uuid, 'NURSING_STAFF', 'nurse', 'active', NOW()
+FROM seeded_team;
 
 INSERT INTO allergies (patient_uid, allergen, name, severity, reaction, status)
 VALUES ('$PatientUid'::uuid, 'amoxicillin', 'Amoxicillin', 'severe', 'anaphylaxis', 'active');

@@ -222,7 +222,7 @@ async function main() {
     probes.push({ target: BACKEND_HEALTH, ok });
     if (!ok) {
       log(`FAIL: backend not reachable at ${BACKEND_HEALTH}`);
-      log('start it with: VH_LOCAL_SMOKE_PORT=5206 npm --prefix apps/backend run dev');
+      log('start it with (full env in docs/qa/README.md): NODE_ENV=test PORT=5206 JWT_SECRET=vhhealth-local-admin-smoke-secret-123456789 API_KEY=vhhealth-local-api-key npm --prefix apps/backend run dev');
     }
   }
   if (needsAdmin) {
@@ -230,7 +230,7 @@ async function main() {
     probes.push({ target: ADMIN_PROBE, ok });
     if (!ok) {
       log(`FAIL: admin proxy not reachable at ${ADMIN_PROBE}`);
-      log('start it with: PORT=3201 npm --prefix apps/admin run dev');
+      log('start it with (full env in docs/qa/README.md): BACKEND_URL=http://127.0.0.1:5206 BACKEND_API_KEY=vhhealth-local-api-key NEXT_PUBLIC_ALLOWED_ORIGIN=http://127.0.0.1:3201 JWT_SECRET=vhhealth-local-admin-smoke-secret-123456789 npm --prefix apps/admin run dev:qa');
     }
   }
 
