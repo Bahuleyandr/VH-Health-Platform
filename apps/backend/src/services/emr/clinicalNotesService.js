@@ -293,6 +293,7 @@ export async function createNote(data) {
       where: { id: appointmentIdNum },
       select: {
         id: true,
+        patient_id: true,
         doctor_id: true,
         status: true,
         appointment_date: true
@@ -300,6 +301,28 @@ export async function createNote(data) {
     });
     if (!appt) {
       throw AppError.notFound('Appointment not found');
+    }
+
+    // Patient-consistency guard (#3c): a note bound to an appointment MUST
+    // belong to that appointment's patient. Without this, a clinician authorized
+    // to write on appointment X (patient A) could pass patient_uid = B and have
+    // the note + its canonical timeline/audit events persisted onto patient B's
+    // chart while cross-linked to A's visit — a cross-patient integrity /
+    // medico-legal defect. Resolve the appointment's patient uid and require a
+    // match. (An unassigned-patient appointment — patient_id NULL — has nothing
+    // to compare against; patient assignment is enforced by the booking flow.)
+    if (appt.patient_id !== null && appt.patient_id !== undefined) {
+      const apptPatient = await prisma.users.findUnique({
+        where: { id: appt.patient_id },
+        select: { uid: true }
+      });
+      if (apptPatient?.uid && String(apptPatient.uid) !== String(patient_uid)) {
+        throw AppError.badRequest(
+          'Note patient does not match the appointment patient',
+          'NOTE_APPOINTMENT_PATIENT_MISMATCH',
+          { appointment_id: appointmentIdNum }
+        );
+      }
     }
 
     // H2 RBAC — a note bound to a specific OPD appointment may only be
