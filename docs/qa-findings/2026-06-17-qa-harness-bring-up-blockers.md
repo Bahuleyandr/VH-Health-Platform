@@ -35,10 +35,11 @@ actual: |
 
 ## Symptom
 
-The QA harness cannot be brought up by following `docs/qa/README.md`. This is
-the concrete, code-grounded explanation for why the 2026-06-16 milestone
-("11 journeys green + 0 critical/high") went "unmeasurable" — the measurement
-apparatus itself does not start as documented.
+The `vh-health-qa` **live-HTTP smoke harness** cannot be brought up by following
+`docs/qa/README.md`. NOTE: this harness is a *complement* to the deterministic
+in-CI **journey gate** (the 11 journeys became blocking CI tests per WS3 B3.1 —
+that gate is green); it is NOT itself the milestone measurement. So this is a
+QA-tooling drift finding, not evidence the milestone is unmet.
 
 ## Reproduction
 
@@ -89,10 +90,11 @@ returned 200; staff is fully green and patient nearly so. The remaining red is
 (Hypothesis, not yet confirmed) The harness env contract drifted: `validateEnv`
 dropped/never-had `qa`, the admin dev script gained a hardcoded `-p 3001`, and
 the README's env block was never updated with the smoke `JWT_SECRET` + per-client
-API keys. The milestone became "unmeasurable" because nobody could boot the
-harness from the docs. The fix is small (README env block + either accept `qa`
-in validateEnv or standardise on `test`, + un-hardcode the admin port) and would
-restore measurability.
+API keys. The fix is small (README env block + either accept `qa` in validateEnv
+or standardise on `test`, + un-hardcode the admin port / make it `-p ${PORT:-3001}`)
+and would restore the live-HTTP smoke as a usable complement to the CI journey
+gate. The partial run that DID complete (staff 13/13, patient 31/32, all reads
+200) is consistent with the green CI gate — no contradicting signal.
 
 ## Artifacts
 
