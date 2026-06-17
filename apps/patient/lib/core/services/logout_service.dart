@@ -4,6 +4,8 @@ import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/utils/cache_file_utils.dart';
+import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 
 /// Centralized logout that clears ALL local state.
 ///
@@ -44,7 +46,24 @@ class LogoutService {
       debugPrint('LogoutService: cache clear failed: $e');
     }
 
-    // 5. Clear in-memory user identity. UserProvider is the single source
+    // 5. Clear downloaded-file cache (vhhealth_cache) — this holds raw
+    //    PHI bytes (reports, documents) separate from the API cache above.
+    try {
+      await CacheFileUtils.clearCache();
+    } catch (e) {
+      debugPrint('LogoutService: file cache clear failed: $e');
+    }
+
+    // 6. Clear cycle/period/fertility data — stored as plaintext in
+    //    SharedPreferences, must not survive for the next user on a
+    //    shared device.
+    try {
+      await CycleTrackerStore.clearAll();
+    } catch (e) {
+      debugPrint('LogoutService: cycle data clear failed: $e');
+    }
+
+    // 7. Clear in-memory user identity. UserProvider is the single source
     //    of truth; its backing storage keys were wiped in step 3 above.
     UserProvider.instance?.clear();
   }

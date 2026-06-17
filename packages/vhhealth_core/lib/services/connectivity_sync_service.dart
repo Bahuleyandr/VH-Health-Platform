@@ -107,6 +107,17 @@ class ConnectivitySyncService extends ChangeNotifier {
     await refreshCounts();
   }
 
+  /// Clear the entire offline write queue and reset observable state.
+  ///
+  /// Call on logout so the next user on a shared device cannot drain the
+  /// previous user's queued clinical writes (vitals, nursing notes). Prefer
+  /// this over [OfflineQueue.clearAll] directly so the sync badge/counts
+  /// stay consistent.
+  Future<void> clearQueue() async {
+    await OfflineQueue.clearAll();
+    await refreshCounts();
+  }
+
   /// User asked to retry a conflicted write — flip it back to pending and
   /// trigger a sync pass if online.
   Future<void> retryConflict(int id) async {

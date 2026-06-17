@@ -4,6 +4,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
+import { exportToCsv, type CsvColumn } from "@/lib/exportToCsv";
 import { Spinner } from "@/components/ui/spinner";
 import {
   DownloadIcon,
@@ -164,37 +165,6 @@ function cellValue(row: Record<string, unknown>, key: string): string {
   return String(v);
 }
 
-/** Convert an array of rows + selected columns to a CSV string */
-function toCsv(rows: Record<string, unknown>[], columns: ColumnDef[]): string {
-  const header = columns
-    .map((c) => `"${c.label.replace(/"/g, '""')}"`)
-    .join(",");
-  const body = rows
-    .map((row) =>
-      columns
-        .map((c) => {
-          const val = cellValue(row, c.key);
-          return `"${val.replace(/"/g, '""')}"`;
-        })
-        .join(","),
-    )
-    .join("\n");
-  return `${header}\n${body}`;
-}
-
-/** Trigger a browser download of a string as a file */
-function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 /* ========================================================================
  * Page Component
  * ======================================================================== */
@@ -302,9 +272,14 @@ export default function ReportBuilderPage() {
     const visibleCols = config.columns.filter((c) =>
       selectedColumns.has(c.key),
     );
-    const csv = toCsv(reportData, visibleCols);
+    const csvColumns: CsvColumn<Record<string, unknown>>[] = visibleCols.map(
+      (c) => ({
+        header: c.label,
+        accessor: (row) => cellValue(row, c.key),
+      }),
+    );
     const filename = `${reportType}-report-${dateFrom}-to-${dateTo}.csv`;
-    downloadFile(csv, filename, "text/csv;charset=utf-8;");
+    exportToCsv({ filename, columns: csvColumns, rows: reportData });
     toast.success(`Exported ${reportData.length} rows to ${filename}`);
   };
 

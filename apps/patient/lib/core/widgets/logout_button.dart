@@ -8,6 +8,8 @@ import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
+import 'package:vhhealth/core/utils/cache_file_utils.dart';
+import 'package:vhhealth/features/period_tracker/models/cycle_tracker.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 enum LogoutButtonStyle {
@@ -87,6 +89,19 @@ class LogoutButton extends StatelessWidget {
       }
       await storage.deleteAll();
       await ApiCacheManager.clearAll();
+      // Wipe downloaded-file cache (raw PHI bytes) and plaintext
+      // cycle/period/fertility data so neither survives for the next user
+      // on a shared device. The API cache above lives in a different dir.
+      try {
+        await CacheFileUtils.clearCache();
+      } catch (e) {
+        debugPrint('Logout: file cache clear failed: $e');
+      }
+      try {
+        await CycleTrackerStore.clearAll();
+      } catch (e) {
+        debugPrint('Logout: cycle data clear failed: $e');
+      }
       await FirebaseAuth.instance.signOut();
 
       if (context.mounted) {
