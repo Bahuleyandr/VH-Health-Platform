@@ -13,6 +13,7 @@ import {
   transitionEncounter,
 } from '../clinical/canonicalClinicalPlatformService.js';
 import { populateAuthorshipCareTeam } from '../security/careTeamPopulationService.js';
+import { clearDraftForFinalizedNote } from './clinicalNoteDraftService.js';
 
 // ===================================================================
 // Clinical Notes Service — SOAP, Progress, Procedure, Discharge, etc.
@@ -416,6 +417,19 @@ export async function createNote(data) {
     authorUid: author_uid,
     authorRole: author_role,
     source: 'clinical_note',
+  });
+
+  // Autosave cleanup (best-effort, post-commit) — the note is now in the
+  // canonical record, so drop the matching in-progress draft. Never blocks the
+  // note write: clearDraftForFinalizedNote swallows its own errors, and a
+  // leftover draft is harmless (the expiry janitor reaps it; the client prefers
+  // the committed note on next open).
+  await clearDraftForFinalizedNote({
+    tenantId: (data.tenant_id || data.tenantId) || DEFAULT_TENANT_ID,
+    authorUid: author_uid,
+    patientUid: patient_uid,
+    appointmentId: appointment_id ?? null,
+    noteType: note_type,
   });
 
   logger.info(

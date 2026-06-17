@@ -61,6 +61,7 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 // before the configured cutoff, otherwise HR gets an in-app alert.
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
+import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
 
 // Inpatient drug-chart SLA — once a patient has reached a ward/ICU bed,
 // doctors and that ward's nurses must not silently miss first medication charting.
@@ -259,6 +260,15 @@ if (process.env.NODE_ENV !== 'test') {
   // window. Default is 30 days.
   cron.schedule('32 3 * * *', withJobLock('purge-staff-messages', async () => {
     await purgeExpiredStaffMessages();
+  }));
+
+  // 🗓️ Daily at 03:38 - Purge expired clinical note drafts (autosave scratch
+  // past its 14-day TTL). Drafts carry no canonical-record meaning, so this is a
+  // pure cleanup. Cross-tenant under runWithSuperAdmin (withJobLock wrapper).
+  cron.schedule('38 3 * * *', withJobLock('purge-expired-note-drafts', async () => {
+    logger.info('Scheduled Task: Purging expired clinical note drafts...');
+    const removed = await purgeExpiredNoteDrafts();
+    logger.info(`Note-drafts cleanup: ${removed} expired draft(s) deleted`);
   }));
 
   // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
