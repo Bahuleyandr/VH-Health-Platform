@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth_core/config/api_config.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,8 +13,6 @@ import 'package:vhhealth/generated/app_localizations.dart';
 
 class DocumentOpener {
   DocumentOpener._();
-
-  static final _storage = VHSecureStorage.instance;
 
   /// Download a file from a URL and open it with the system viewer.
   /// Shows a loading dialog while downloading.
@@ -49,17 +48,23 @@ class DocumentOpener {
     );
 
     try {
-      // Build headers — add auth for backend URLs
-      final headers = <String, String>{};
-      if (_isBackendUrl(url)) {
-        final jwt = await _storage.read(key: 'jwt');
-        if (jwt != null) {
-          headers['Authorization'] = 'Bearer $jwt';
-        }
+      // Download the file. Backend PHI URLs go through the SPKI-pinned client
+      // (auth + 401-refresh handled there) — never a raw http.get with a
+      // hand-attached bearer, which bypasses cert pinning AND the refresh flow.
+      // Genuinely off-host URLs (e.g. pre-signed R2 links on a different host)
+      // can't be pinned to the API host, so they keep a plain GET.
+      final http.Response response;
+      if (url.startsWith(ApiConfig.baseUrl)) {
+        final rest = url.substring(ApiConfig.baseUrl.length);
+        final qIndex = rest.indexOf('?');
+        final path = qIndex == -1 ? rest : rest.substring(0, qIndex);
+        final query = qIndex == -1
+            ? null
+            : Uri.splitQueryString(rest.substring(qIndex + 1));
+        response = await VHHttpClient.getBytes(path, queryParameters: query);
+      } else {
+        response = await http.get(Uri.parse(url));
       }
-
-      // Download the file
-      final response = await http.get(Uri.parse(url), headers: headers);
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}');
       }
@@ -106,10 +111,6 @@ class DocumentOpener {
         }
       }
     }
-  }
-
-  static bool _isBackendUrl(String url) {
-    return url.contains('api.vhhealth.app');
   }
 
   static String _detectExtension(String url, String? contentType) {

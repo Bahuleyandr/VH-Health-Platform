@@ -5,6 +5,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:flutter/foundation.dart'; // needed for debugPrint
+import 'package:vhhealth_core/config/api_config.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 
 class CacheFileUtils {
   static Future<String> _getCacheDirPath() async {
@@ -29,7 +31,21 @@ class CacheFileUtils {
   static Future<File?> downloadAndCacheFile(String fileKey, String url) async {
     try {
       final file = await _getLocalFile(fileKey);
-      final response = await http.get(Uri.parse(url));
+      // Backend PHI URLs go through the SPKI-pinned client (auth + 401-refresh);
+      // off-host URLs (e.g. pre-signed R2) keep a plain GET since pinning to the
+      // API host would be wrong for them.
+      final http.Response response;
+      if (url.startsWith(ApiConfig.baseUrl)) {
+        final rest = url.substring(ApiConfig.baseUrl.length);
+        final qIndex = rest.indexOf('?');
+        final path = qIndex == -1 ? rest : rest.substring(0, qIndex);
+        final query = qIndex == -1
+            ? null
+            : Uri.splitQueryString(rest.substring(qIndex + 1));
+        response = await VHHttpClient.getBytes(path, queryParameters: query);
+      } else {
+        response = await http.get(Uri.parse(url));
+      }
       if (response.statusCode == 200) {
         // Only persist on success — never leave a partial file in the cache.
         await file.writeAsBytes(response.bodyBytes);
