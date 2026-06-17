@@ -1115,6 +1115,80 @@ class MedicalApiService {
     return _put('/emr/notes/$id', {'content': content});
   }
 
+  // ─── EMR: Clinical Note Drafts (autosave scratchpad) ──────────────────────
+  //
+  // Drafts are an author-private, server-side scratchpad for in-progress
+  // OP/nursing notes. They emit NO canonical timeline/audit events — only the
+  // existing finalize path (`createClinicalNote`/`signNote`) does. See
+  // docs/superpowers/specs/2026-06-17-clinical-notes-autosave-design.md.
+
+  /// PUT /emr/notes/draft — upsert the author's in-progress note draft for a
+  /// (patient, encounter, note_type) context. [content] is a free-form field
+  /// map (OP: `{chief_complaint,history,examination,diagnosis,plan,...}`;
+  /// nursing: `{body}`). Returns `{ id, updated_at }`.
+  static Future<Map<String, dynamic>> putNoteDraft({
+    required String patientUid,
+    int? appointmentId,
+    required String noteType,
+    required Map<String, dynamic> content,
+  }) async {
+    return _put('/emr/notes/draft', {
+      'patient_uid': patientUid,
+      'appointment_id': ?appointmentId,
+      'note_type': noteType,
+      'content': content,
+    });
+  }
+
+  /// GET /emr/notes/draft — fetch the author's own draft for the context.
+  /// Returns the draft map `{ id, content, updated_at, expires_at }`, or
+  /// `null` when there is no saved draft (`{ data: null }` envelope).
+  static Future<Map<String, dynamic>?> getNoteDraft({
+    required String patientUid,
+    int? appointmentId,
+    required String noteType,
+  }) async {
+    final resp = await ApiClient.get(
+      '/emr/notes/draft',
+      queryParameters: {
+        'patient_uid': patientUid,
+        if (appointmentId != null) 'appointment_id': appointmentId.toString(),
+        'note_type': noteType,
+      },
+    );
+    if (!resp.isSuccess || resp.raw is! Map) {
+      throw Exception(
+        resp.message ?? 'Failed to load note draft (${resp.statusCode})',
+      );
+    }
+    final raw = resp.raw as Map<String, dynamic>;
+    if (raw['success'] != true) {
+      throw Exception(raw['message']?.toString() ?? 'Failed to load note draft');
+    }
+    final data = raw['data'];
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return data.cast<String, dynamic>();
+    return null; // { data: null } — no draft for this context.
+  }
+
+  /// DELETE /emr/notes/draft — remove the author's draft for the context.
+  /// Called on finalize as a backstop to the server-side post-commit delete.
+  /// Returns `{ removed }`.
+  static Future<Map<String, dynamic>> deleteNoteDraft({
+    required String patientUid,
+    int? appointmentId,
+    required String noteType,
+  }) async {
+    final query = <String, String>{
+      'patient_uid': patientUid,
+      if (appointmentId != null) 'appointment_id': appointmentId.toString(),
+      'note_type': noteType,
+    };
+    final uri = Uri(path: '/emr/notes/draft', queryParameters: query);
+    final resp = await ApiClient.delete(uri.toString());
+    return _handle(resp);
+  }
+
   // ─── EMR: Orders ──────────────────────────────────────────────────────────
 
   /// POST /emr/orders — create an order (medication, investigation, nursing)
