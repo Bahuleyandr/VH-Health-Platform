@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth_core/services/idempotency_key.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth_core/services/connectivity_service.dart';
 
@@ -28,17 +29,21 @@ class MutationQueue {
     required String path,
     Map<String, dynamic>? body,
   }) async {
+    // One stable key for this logical mutation, reused across the online
+    // attempt AND any subsequent enqueue/replay — so a lost-2xx that falls back
+    // to the queue (or a queued item replayed more than once) can't double-write.
+    final idempotencyKey = IdempotencyKey.generate();
     if (ConnectivityService.isOnline) {
       try {
-        final response = await _execute(method, path, body);
+        final response = await _execute(method, path, body, idempotencyKey);
         return response.isSuccess;
       } catch (_) {
         // Network failed despite appearing online — queue it
-        await _enqueue(method, path, body);
+        await _enqueue(method, path, body, idempotencyKey);
         return false;
       }
     }
-    await _enqueue(method, path, body);
+    await _enqueue(method, path, body, idempotencyKey);
     return false;
   }
 
@@ -47,12 +52,14 @@ class MutationQueue {
     String method,
     String path,
     Map<String, dynamic>? body,
+    String idempotencyKey,
   ) async {
     final queue = await _loadQueue();
     queue.add({
       'method': method,
       'path': path,
       'body': body,
+      'idempotencyKey': idempotencyKey,
       'queuedAt': DateTime.now().toIso8601String(),
     });
     await _saveQueue(queue);
@@ -81,6 +88,7 @@ class MutationQueue {
             item['method'] as String,
             item['path'] as String,
             item['body'] as Map<String, dynamic>?,
+            item['idempotencyKey'] as String?,
           );
           if (response.isSuccess) {
             replayed++;
@@ -114,18 +122,19 @@ class MutationQueue {
     String method,
     String path,
     Map<String, dynamic>? body,
+    String? idempotencyKey,
   ) {
     switch (method.toUpperCase()) {
       case 'POST':
-        return ApiClient.post(path, body: body);
+        return ApiClient.post(path, body: body, idempotencyKey: idempotencyKey);
       case 'PUT':
-        return ApiClient.put(path, body: body);
+        return ApiClient.put(path, body: body, idempotencyKey: idempotencyKey);
       case 'PATCH':
-        return ApiClient.patch(path, body: body);
+        return ApiClient.patch(path, body: body, idempotencyKey: idempotencyKey);
       case 'DELETE':
         return ApiClient.delete(path);
       default:
-        return ApiClient.post(path, body: body);
+        return ApiClient.post(path, body: body, idempotencyKey: idempotencyKey);
     }
   }
 
