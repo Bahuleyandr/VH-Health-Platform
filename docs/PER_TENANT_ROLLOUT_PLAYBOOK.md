@@ -93,6 +93,16 @@ accepted as rollout-ready by accident.
 - [ ] `LLM provider is reachable` — call `POST /api/v1/admin/clinical-
       ai/lab-patient-explanations` with an investigation_id you own,
       verify a 201 with `used_ai: true` and a non-zero `prompt_tokens`.
+- [ ] **Per-module model-wiring confirmed** — for each module you intend to
+      enable, run the readiness CLI:
+      `CLINICAL_AI_PROVIDER=… CLINICAL_AI_BASE_URL=… CLINICAL_AI_MODEL=… CLINICAL_AI_TIMEOUT_MS=120000
+      node apps/backend/scripts/check-clinical-ai-readiness.mjs --module <key> --tenant <id>`
+      → expect `READY … used_ai=true`. A `NOT READY` with reason
+      `*template_fallback*` / `fetch failed` means the model is **not** actually
+      being used (disabled module, wrong provider, or — commonly — a too-short
+      `CLINICAL_AI_TIMEOUT_MS` that aborts the cold-LLM first inference and
+      SILENTLY falls back to the deterministic template). Catch this BEFORE
+      trusting the module.
 
 ### 1.2 Reviewer queue is staffed
 
