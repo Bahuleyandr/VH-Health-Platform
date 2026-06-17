@@ -89,7 +89,7 @@ function acceptedEvalRow(overrides = {}) {
   }];
 }
 
-function installModuleGovernanceMock({ evalRows = acceptedEvalRow(), approval = null, schemaMissing = false } = {}) {
+function installModuleGovernanceMock({ evalRows = acceptedEvalRow(), approval = null, schemaMissing = false, module = moduleRow } = {}) {
   let pendingApprovalPayload = null;
   let tenantUpdated = false;
   queryUnsafeMock.mockImplementation(async (sql, ...params) => {
@@ -98,7 +98,7 @@ function installModuleGovernanceMock({ evalRows = acceptedEvalRow(), approval = 
       throw new Error('relation "clinical_ai_modules" does not exist');
     }
     if (/INSERT INTO clinical_ai_modules/i.test(text) && !/RETURNING module_key/i.test(text)) return [];
-    if (/SELECT module_key, display_name, description, enabled/i.test(text)) return [moduleRow];
+    if (/SELECT module_key, display_name, description, enabled/i.test(text)) return [module];
     if (/INSERT INTO clinical_ai_guardrails/i.test(text)) return [];
     if (/SELECT id, enabled, external_ai_enabled/i.test(text)) return [guardrailRow];
     if (/FROM clinical_ai_model_eval_runs/i.test(text)) return evalRows;
@@ -217,6 +217,40 @@ describe('Clinical AI module governance hardening', () => {
 
     expect(result.approval_required).toBeUndefined();
     expect(result.enabled).toBe(true);
+  });
+
+  it('attaches a non-blocking deep_tier_warning when a deep module is enabled without a live model (C3)', async () => {
+    // A deep-tagged module under the default `template` provider will silently
+    // template-fall-back at generation. Enabling it must SUCCEED (non-blocking)
+    // but surface a deep_tier_warning so the operator sees the degradation.
+    const deepModule = {
+      ...moduleRow,
+      settings: { ...moduleRow.settings, model_tier: 'deep' },
+    };
+    const firstMock = installModuleGovernanceMock({ module: deepModule });
+    const pending = await updateClinicalAiTenantModule(
+      'medication_reconciliation',
+      { enabled: true },
+      ACTOR,
+      { tenantId: TENANT },
+    );
+
+    queryUnsafeMock.mockReset();
+    installModuleGovernanceMock({
+      module: deepModule,
+      approval: { id: pending.approval.id, payload: firstMock.getPendingApprovalPayload() },
+    });
+
+    const result = await updateClinicalAiTenantModule(
+      'medication_reconciliation',
+      { enabled: true, approval_id: pending.approval.id },
+      ACTOR,
+      { tenantId: TENANT },
+    );
+
+    expect(result.enabled).toBe(true);
+    expect(result.deep_tier_warning).toBeDefined();
+    expect(result.deep_tier_warning.reason).toMatch(/template/i);
   });
 
   it('rejects mismatched or stale approval payloads', async () => {

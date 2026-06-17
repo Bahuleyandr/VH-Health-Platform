@@ -102,6 +102,12 @@ calls `requireEnabledModule()` on every child → throws `forbidden` for any dis
 the whole compose run fails at precheck. **Before enabling compose, set a tenant
 `composeChildren` override omitting aftercare** (e.g. `['medication_reconciliation',
 'discharge_readiness','clinical_coding_assist']`) and verify a run completes.
+>
+> ✅ **DONE (2026-06-17).** The compose precheck now **degrade-skips disabled
+> children** rather than failing the whole package: it composes the enabled
+> children and records the skipped ones in `composeDraft.skipped_children` (see
+> `dischargeComposeService.precheck_children`). The per-tenant `composeChildren`
+> override is no longer required (it still works as an explicit narrowing).
 
 **C2 — Make the reviewer-staffing pre-flight per-module.** `check-clinical-ai-tenant-preflight.ps1`
 only counts a fixed clinical allowlist tenant-wide; it misses `RADIOLOGIST`, `MEDICAL_RECORDS`,
@@ -109,6 +115,12 @@ only counts a fixed clinical allowlist tenant-wide; it misses `RADIOLOGIST`, `ME
 zero eligible reviewers**. Extend the script to read each enabled module's `reviewRoles` and
 **FAIL** if any maps to zero active users. Until then, gate Waves 4 & 8 on a manual
 reviewer-staffed sign-off.
+
+> ✅ **DONE (2026-06-17).** `scripts/check-clinical-ai-tenant-preflight.ps1` now
+> delegates reviewer staffing to `apps/backend/scripts/check-clinical-ai-tenant-preflight.mjs`,
+> which reads **each enabled module's own `reviewRoles`** and **FAILs** any
+> enabled module with zero staffed reviewers (partial coverage → warning, which
+> fails under `-RequireNoWarnings`). The old fixed tenant-wide allowlist is gone.
 
 **C3 — Add a deep-tier "producing real AI" gate.** No assertion confirms a deep/critical
 module returns `used_ai:true` — a CRITICAL module (e.g. `medication_reconciliation`) can clear
@@ -131,8 +143,13 @@ enablement audit. Treat silent `template_fallback` as a blocking failure.
 >   boolean (admin `/status` surface), and silent deep/critical template fallbacks at runtime
 >   increment `clinical_ai_deep_template_fallback_total{module,tier}` on `/metrics` + emit a
 >   WARN — so the degradation C3 warns about is observable even outside the enablement gate.
-> When `scripts/check-clinical-ai-tenant-preflight.ps1` is built, call `assertDeepModuleLive`
-> for each enabled deep-tagged module and FAIL `-RequireNoWarnings` on a not-live verdict.
+> ✅ **DONE (2026-06-17).** `scripts/check-clinical-ai-tenant-preflight.ps1`
+> (via the `.mjs`) now calls the deep-tier liveness gate (`assertDeepModuleLive`)
+> for **each enabled deep-tagged module** and folds a not-live verdict in as a
+> warning, which FAILs under `-RequireNoWarnings`. Separately,
+> `updateClinicalAiTenantModule` attaches a non-blocking `deep_tier_warning` when
+> a deep module is enabled while not live, so the hazard is observable at enable
+> time too — not only in the pre-flight.
 
 ---
 
