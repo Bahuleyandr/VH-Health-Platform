@@ -34,7 +34,9 @@ class RealtimeEvent {
 /// ```
 ///
 /// The client:
-///  - Authenticates via JWT pulled from [AuthService.getJwt] (sent as `?token=`).
+///  - Authenticates via JWT pulled from [AuthService.getJwt], sent as the first
+///    `auth` message frame (NEVER in the URL query — that would leak the bearer
+///    token into reverse-proxy / ingress access logs).
 ///  - Auto-subscribes tracked channels on every (re)connect.
 ///  - Auto-reconnects with exponential backoff (1s → 2s → 4s → … cap 30s) unless
 ///    the server closes with 4001 (auth failure), in which case [onSessionExpired]
@@ -103,11 +105,19 @@ class RealtimeClient {
         return;
       }
 
-      final url =
-          '${buildWsUrl(ApiConfig.baseUrl)}?token=${Uri.encodeComponent(jwt)}';
-      final channel = WebSocketChannel.connect(Uri.parse(url));
+      // Auth is sent as the FIRST message frame, NOT in the URL query string.
+      // A bearer JWT in `?token=` leaks into reverse-proxy / ingress access
+      // logs (which record full request URIs); the backend's message-frame
+      // handshake (wsServer.js: no URL token -> await an `auth` first frame)
+      // keeps the token off the URL. Connect to the bare /ws endpoint, then
+      // send `{action:'auth', token}` before any subscribe frame.
+      final channel = WebSocketChannel.connect(
+        Uri.parse(buildWsUrl(ApiConfig.baseUrl)),
+      );
       _channel = channel;
       await channel.ready;
+
+      channel.sink.add(jsonEncode({'action': 'auth', 'token': jwt}));
 
       _backoffMs = 1000;
       _serverSubscribed.clear();
@@ -120,7 +130,7 @@ class RealtimeClient {
         cancelOnError: true,
       );
 
-      // Re-subscribe every desired channel.
+      // Re-subscribe every desired channel (after the auth frame).
       for (final c in _desiredChannels) {
         _sendSubscribe(c);
       }

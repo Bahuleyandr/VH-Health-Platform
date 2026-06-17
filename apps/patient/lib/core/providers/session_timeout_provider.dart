@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:vhhealth_core/services/secure_storage.dart';
+import 'package:vhhealth/core/services/logout_service.dart';
 
 /// Tracks user activity and enforces an idle session timeout.
 ///
@@ -14,7 +14,6 @@ class SessionTimeoutProvider extends ChangeNotifier {
 
   Timer? _timer;
   bool _expired = false;
-  static final _storage = VHSecureStorage.instance;
 
   bool get isSessionExpired => _expired;
 
@@ -58,10 +57,14 @@ class SessionTimeoutProvider extends ChangeNotifier {
   Future<void> _onTimeout() async {
     _expired = true;
     _timer = null;
+    // Full teardown on idle timeout: credentials + caches + realtime channels.
+    // Previously this only wiped secure storage, leaving the RealtimeClient /
+    // WebSocket PHI channels live after timeout. LogoutService centralises the
+    // complete teardown (and disconnects both realtime clients).
     try {
-      await _storage.deleteAll();
+      await LogoutService.logout();
     } catch (e) {
-      debugPrint('SessionTimeout: failed to clear credentials: $e');
+      debugPrint('SessionTimeout: logout teardown failed: $e');
     }
     notifyListeners();
   }
