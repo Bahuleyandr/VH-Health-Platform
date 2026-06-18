@@ -438,7 +438,7 @@ describe('markPaymentLinkPaid', () => {
       mode: 'CARD',
       reference: 'REF-9',
       collected_by: PATIENT_B,
-    }));
+    }), expect.anything()); // 2nd arg: { tx } — collectPayment now runs in the caller's setTenantTx
     // status flip persisted with linked_payment_id
     const upd = executeRawUnsafeMock.mock.calls[0];
     expect(upd[0]).toContain("status = 'paid'");
@@ -467,7 +467,7 @@ describe('markPaymentLinkPaid', () => {
       mode: 'UPI', // default paid_via 'upi' -> UPI
       reference: 'VH-AD-y', // falls back to upi_transaction_ref
       collected_by: undefined,
-    }));
+    }), expect.anything()); // 2nd arg: { tx }
     const upd = executeRawUnsafeMock.mock.calls[0];
     expect(upd[1]).toBe('upi'); // default paid_via
     expect(upd[2]).toBeNull(); // no paid_reference
@@ -493,7 +493,7 @@ describe('markPaymentLinkPaid', () => {
       collectPaymentMock.mockResolvedValueOnce({ id: 1 });
 
       await markPaymentLinkPaid({ tenantId: TENANT, link_token: 't', paid_via });
-      expect(collectPaymentMock).toHaveBeenCalledWith(expect.objectContaining({ mode: expected }));
+      expect(collectPaymentMock).toHaveBeenCalledWith(expect.objectContaining({ mode: expected }), expect.anything());
     }
   });
 });

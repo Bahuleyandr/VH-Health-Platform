@@ -87,6 +87,12 @@ const MEDIUM_CONFIDENCE_PATTERNS = [
     code: 'INSTRUCTION_BLOCK_INJECTION',
     severity: 'high',
     weight: 50,
+    // Structural, NEWLINE-ANCHORED rule (markdown/bracket instruction headers).
+    // Must scan the RAW text: normalizeForMatching collapses runs of whitespace
+    // (incl. newlines) to single spaces, which strips the (^|\n) anchor and made
+    // this rule silently stop matching after the NFKC/zero-width normalization
+    // was added. rawText keeps the line structure this rule depends on.
+    rawText: true,
     pattern:
       /(^|\n)\s*(###\s*(instruction|system|rules?|directives?)|---\s*(instruction|system)|\[(instruction|system|rules?)\])/i,
     reason: 'Content includes markdown / bracket-style instruction headers commonly used in prompt-injection payloads.',
