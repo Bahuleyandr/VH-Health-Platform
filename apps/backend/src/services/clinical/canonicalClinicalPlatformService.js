@@ -494,19 +494,45 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
   const action = cleanText(input.action);
   if (!action) return null;
 
+  // Append-only safe (migration 324): the audit tables carry a BEFORE UPDATE/DELETE
+  // guard that aborts the transaction for the non-superuser app role. So this
+  // idempotent recorder must NOT use ON CONFLICT DO UPDATE — even the prior no-op
+  // `SET idempotency_key = EXCLUDED.idempotency_key` fires the guard and aborts the
+  // enclosing clinical-write tx under the sealed prod role. Use DO NOTHING, and on
+  // an idempotency-key conflict read the existing row back so callers that consume
+  // the returned audit row keep working.
+  const idempotencyKey = cleanText(input.idempotencyKey || input.idempotency_key)
+    || sourceKey({
+      action,
+      sourceTable: input.resourceTable || input.resource_table,
+      sourceId: input.resourceId || input.resource_id,
+      patientUid: input.patientUid || input.patient_uid,
+    });
   try {
+    // Single statement: INSERT (append-only safe — DO NOTHING never fires the
+    // BEFORE UPDATE guard), then UNION-read the existing row on an idempotency
+    // conflict so callers that consume the returned audit row (e.g.
+    // documentIntegrityService links sig.audit_event_id = events.audit.id) keep
+    // working. One query → mock-sequenced unit tests see the same call count as
+    // the prior ON CONFLICT DO UPDATE form.
     const rows = await db.$queryRawUnsafe(
-      `INSERT INTO clinical_audit_events
-         (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
-          resource_type, resource_table, resource_id, request_id, ip_address, user_agent,
-          before_state, after_state, metadata, idempotency_key, occurred_at)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
-               $8, $9, $10, $11, NULLIF($12, '')::inet, $13,
-               $14::jsonb, $15::jsonb, $16::jsonb, $17, COALESCE($18::timestamptz, NOW()))
-       ON CONFLICT (idempotency_key)
-       WHERE idempotency_key IS NOT NULL
-       DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
-       RETURNING *`,
+      `WITH ins AS (
+         INSERT INTO clinical_audit_events
+           (tenant_id, patient_uid, encounter_id, action, action_status, actor_uid, actor_role,
+            resource_type, resource_table, resource_id, request_id, ip_address, user_agent,
+            before_state, after_state, metadata, idempotency_key, occurred_at)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7,
+                 $8, $9, $10, $11, NULLIF($12, '')::inet, $13,
+                 $14::jsonb, $15::jsonb, $16::jsonb, $17, COALESCE($18::timestamptz, NOW()))
+         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
+         DO NOTHING
+         RETURNING *
+       )
+       SELECT * FROM ins
+       UNION ALL
+       SELECT * FROM clinical_audit_events
+        WHERE idempotency_key = $17 AND NOT EXISTS (SELECT 1 FROM ins)
+       LIMIT 1`,
       tenantId,
       cleanUuid(input.patientUid || input.patient_uid),
       cleanUuid(input.encounterId || input.encounter_id),
@@ -523,13 +549,7 @@ export async function recordClinicalAuditEvent(input = {}, options = {}) {
       stringifyJson(input.beforeState || input.before_state, null),
       stringifyJson(input.afterState || input.after_state, null),
       stringifyJson(input.metadata),
-      cleanText(input.idempotencyKey || input.idempotency_key)
-        || sourceKey({
-          action,
-          sourceTable: input.resourceTable || input.resource_table,
-          sourceId: input.resourceId || input.resource_id,
-          patientUid: input.patientUid || input.patient_uid,
-        }),
+      idempotencyKey,
       input.occurredAt || input.occurred_at || null,
     );
     return rows[0] || null;
