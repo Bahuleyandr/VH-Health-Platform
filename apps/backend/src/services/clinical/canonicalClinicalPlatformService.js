@@ -182,7 +182,10 @@ const CANONICAL_TABLE_NAMES = [
 // timeline+audit row. Those now PROPAGATE so the in-tx writers
 // (recordCanonicalOrderEvent / recordCanonicalVitalsEvent) abort their
 // transaction and the failure surfaces / alarms.
-function isSchemaMissing(err) {
+// Exported so the operational bridge (canonicalOperationalBridgeService) reuses
+// the EXACT same canonical-table-absent predicate instead of keeping a second,
+// drifting copy of the table list + SQLSTATE handling.
+export function isSchemaMissing(err) {
   const code = err?.meta?.code
     || err?.meta?.driverAdapterError?.cause?.originalCode
     || err?.code;
