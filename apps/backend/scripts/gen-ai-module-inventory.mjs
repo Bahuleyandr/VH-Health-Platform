@@ -17,7 +17,10 @@
 // which validates (but never opens) a connection string at import time. We set
 // throwaway env defaults so the script runs standalone with no DB and no .env.
 // Nothing here connects to a database.
-process.env.DATABASE_URL ||= 'postgresql://gen:gen@127.0.0.1:5432/gen';
+// gitleaks:allow — throwaway localhost placeholder; the registry import only
+// VALIDATES (never opens) a connection string, so this never connects and is
+// not a real credential. See the header note above.
+process.env.DATABASE_URL ||= 'postgresql://gen:gen@127.0.0.1:5432/gen'; // gitleaks:allow
 process.env.JWT_SECRET ||= 'gen-only-not-a-secret';
 process.env.API_KEY ||= 'gen-only';
 
