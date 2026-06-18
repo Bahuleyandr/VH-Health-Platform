@@ -41,6 +41,9 @@ async function evaluateNoShow({ tenantId, now }) {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const ymd = tomorrow.toISOString().slice(0, 10);
 
+  // NOTE: `appointments` has no tenant_id column (platform-wide today), so this
+  // aggregates hospital-wide — correct for the single-tenant deployment. Add a
+  // tenant predicate here before any multi-tenant cutover. Counts only, no PHI.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id FROM appointments
       WHERE appointment_date = $1::date AND status IN ('SCHEDULED','CONFIRMED')`,
@@ -145,6 +148,9 @@ async function evaluateOtOverrun({ tenantId, now }) {
 
   let schedules;
   try {
+    // NOTE: `ot_schedules` has no tenant_id column (platform-wide today), so
+    // this aggregates hospital-wide — correct for single-tenant. Add a tenant
+    // predicate before any multi-tenant cutover.
     schedules = await prisma.$queryRawUnsafe(
       `SELECT id, ot_room, estimated_duration
        FROM ot_schedules
@@ -787,8 +793,9 @@ async function _evaluateAcuityLive({ tenantId, now }) {
       tenantId,
       sinceIso
     );
-  } catch {
-    return [];
+  } catch (err) {
+    if (/does not exist|relation/i.test(String(err?.message || ''))) return [];
+    throw err;
   }
   if (!rows || !rows.length) return [];
 

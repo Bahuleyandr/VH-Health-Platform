@@ -40,6 +40,8 @@ d('operational alerts sweep (deep)', () => {
     const active = alerts.filter((a) => a.scope_key === 'SKU-DEEP-1' && a.system_status === 'active');
     expect(active).toHaveLength(1);
     expect(active[0].notified_at).not.toBeNull(); // critical → notified once
+    // Advisory guarantee: every persisted alert carries the decision-support flag.
+    expect(JSON.stringify(active[0].safety_flags)).toContain('OPERATIONAL_ALERT_DECISION_SUPPORT_ONLY');
 
     const firstEval = active[0].last_evaluated_at;
     await new Promise((r) => setTimeout(r, 25));

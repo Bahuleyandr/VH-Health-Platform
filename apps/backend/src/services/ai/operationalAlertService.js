@@ -101,12 +101,19 @@ async function resolveAlert(tenantId, id, reason = 'forecast_cleared') {
 async function notifyAndStamp(tenantId, c, alertId) {
   try {
     if (c.owner_role) {
+      // Role-addressed intent row using the REAL notificationOutbox contract
+      // (recipientId/title/body/data). recipient_id is null — a role-fanout
+      // notifier resolves `data.notify_role`, the same pattern
+      // escalationEngineService uses for role notifications. The durable
+      // surfacing is the event below + the admin alert list.
       await notificationOutbox.queue({
-        type: 'push', recipient: `role:${c.owner_role}`,
-        payload: {
-          kind: 'operational_alert', module_key: c.module_key, domain: c.domain,
-          severity: c.severity, scope_label: c.scope_label || c.scope_key,
-          horizon: c.horizon || null, summary: c.summary || null,
+        type: 'push',
+        title: `Operational alert (${c.severity}): ${c.domain}`,
+        body: c.summary || `${c.scope_label || c.scope_key} — ${c.alert_category}`,
+        data: {
+          kind: 'operational_alert', notify_role: c.owner_role, module_key: c.module_key,
+          domain: c.domain, severity: c.severity, scope_label: c.scope_label || c.scope_key,
+          horizon: c.horizon || null,
         },
       });
     }
