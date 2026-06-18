@@ -22,13 +22,14 @@ const TENANT = DEFAULT_TENANT_ID; // '00000000-0000-4000-8000-000000000001'
 async function seedPriorAuth(overrides = {}) {
   const [row] = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_ai_prior_auth_requests
-       (tenant_id, patient_uid, procedure_code, payer_name, status, created_at, updated_at)
-     VALUES ($1::uuid, $2::uuid, $3, $4, $5, NOW(), NOW())
+       (tenant_id, patient_uid, procedure_code, payer_name, medical_necessity, packet_draft, status, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3, $4, $5, '{}'::jsonb, $6, NOW(), NOW())
      RETURNING id`,
     TENANT,
     overrides.patient_uid ?? '11111111-1111-4000-8000-000000000001',
     overrides.procedure_code ?? 'CPT-99213',
     overrides.payer_name ?? 'TestPayer',
+    overrides.medical_necessity ?? 'Test medical necessity for deep test fixture',
     overrides.status ?? 'denied',
   );
   return Number(row.id);
