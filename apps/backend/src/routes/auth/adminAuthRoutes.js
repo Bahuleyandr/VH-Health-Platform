@@ -7,6 +7,7 @@ import { validationResult, body, oneOf, param } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation, wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as adminAuthController from '../../controllers/auth/adminAuthController.js';
+import { logout as authLogout } from '../../controllers/auth/authController.js';
 import jwtAuth, { requireSetupScope, enforceFullScope } from '../../middleware/jwtMiddleware.js';
 import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 
@@ -129,6 +130,13 @@ wrapRoutesWithValidation(
   [],
   {
     post: [
+      // Logout — blacklist the presented admin JWT's jti so a captured token is
+      // actually revoked, not merely cookie-cleared (#2). The admin app already
+      // POSTs here (/api/v1/auth/admin/logout), which previously 404'd. Reuses
+      // the role-agnostic auth logout (bearer header -> AuthService.logout ->
+      // blacklistToken); runs after jwtAuth above so the token is verified.
+      ['/logout', authLogout],
+
       // Change password (self)
       ['/change-password', ...changeAdminPasswordValidator, handleValidation, passwordComplexityMiddleware, adminAuthController.changePassword],
 
