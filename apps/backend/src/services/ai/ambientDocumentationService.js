@@ -420,8 +420,43 @@ export async function listAmbientEncounters({ tenantId = null, patientUid = null
   }
 }
 
+/**
+ * Janitor: hard-delete clinical_ambient_encounters rows past their retention
+ * window (default 30 days from recording).  Also purges sibling audio tables
+ * that carry the same `retention_until DATE` column:
+ *   - clinical_voice_notes        (migration 016, 30-day default)
+ *   - clinical_nursing_ambient_sessions (migration 042, 365-day default)
+ *
+ * Runs cross-tenant under runWithSuperAdmin (via withJobLock in the scheduler).
+ * The GUC is unset when called outside a per-tenant setTenantTx scope, so the
+ * tenant_isolation RLS policy's `current_setting(...) IS NULL` branch is
+ * permissive — all tenants' expired rows are purged in one pass, consistent
+ * with the purge-expired-note-drafts and purge-audit-logs patterns.
+ *
+ * Returns { ambientEncounters, voiceNotes, nursingAmbientSessions } counts.
+ */
+export async function purgeExpiredAmbientAudio() {
+  const [ae, vn, na] = await Promise.all([
+    prisma.$queryRawUnsafe(
+      `DELETE FROM clinical_ambient_encounters WHERE retention_until < CURRENT_DATE RETURNING id`,
+    ),
+    prisma.$queryRawUnsafe(
+      `DELETE FROM clinical_voice_notes WHERE retention_until < CURRENT_DATE RETURNING id`,
+    ),
+    prisma.$queryRawUnsafe(
+      `DELETE FROM clinical_nursing_ambient_sessions WHERE retention_until < CURRENT_DATE RETURNING id`,
+    ),
+  ]);
+  return {
+    ambientEncounters: ae.length,
+    voiceNotes: vn.length,
+    nursingAmbientSessions: na.length,
+  };
+}
+
 export default {
   createAmbientEncounter,
   listAmbientEncounters,
   normalizeTranscriptSegments,
+  purgeExpiredAmbientAudio,
 };
