@@ -8,6 +8,7 @@ import 'package:vhhealth_core/services/http_client.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vhhealth/core/utils/safe_filename.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
@@ -69,9 +70,12 @@ class DocumentOpener {
         throw HttpException('HTTP ${response.statusCode}');
       }
 
-      // Determine file extension
+      // Determine file extension. `filename` is caller/server-supplied, so
+      // sanitise it to a single safe segment before joining onto tempDir —
+      // otherwise a `../`-laden name writes raw PHI bytes outside the temp
+      // sandbox. Audit #6.
       final ext = _detectExtension(url, response.headers['content-type']);
-      final resolvedFilename = filename ?? 'document';
+      final resolvedFilename = safeFileName(filename, fallback: 'document');
       final safeName = resolvedFilename.contains('.')
           ? resolvedFilename
           : '$resolvedFilename$ext';

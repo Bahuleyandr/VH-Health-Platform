@@ -7,6 +7,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:flutter/foundation.dart'; // needed for debugPrint
 import 'package:vhhealth_core/config/api_config.dart';
 import 'package:vhhealth_core/services/http_client.dart';
+import 'package:vhhealth/core/utils/safe_filename.dart';
 
 class CacheFileUtils {
   static Future<String> _getCacheDirPath() async {
@@ -20,7 +21,11 @@ class CacheFileUtils {
 
   static Future<File> _getLocalFile(String fileKey) async {
     final path = await _getCacheDirPath();
-    return File('$path/$fileKey');
+    // fileKey is often a server-supplied file_key / storage key — sanitise it
+    // to a single safe segment so a `../`-laden key can't write raw PHI bytes
+    // outside vhhealth_cache or redirect a later read. All four public methods
+    // funnel through here, so read/write paths stay consistent. Audit #6.
+    return File('$path/${safeFileName(fileKey)}');
   }
 
   static Future<bool> isFileCached(String fileKey) async {
