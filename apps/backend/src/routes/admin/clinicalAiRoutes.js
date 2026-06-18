@@ -19,6 +19,7 @@ import tierEPatientEngagementRoutes from './clinicalAi/tierEPatientEngagementRou
 import tierFInteropRoutes from './clinicalAi/tierFInteropRoutes.js';
 import tierGPublicHealthRoutes from './clinicalAi/tierGPublicHealthRoutes.js';
 import tierHOperationalRoutes from './clinicalAi/tierHOperationalRoutes.js';
+import operationalAlertRoutes from './clinicalAi/operationalAlertRoutes.js';
 import surgicalAiRoutes from './clinicalAi/surgicalAiRoutes.js';
 import teleconsultAiRoutes from './clinicalAi/teleconsultAiRoutes.js';
 import trialSafetyOperationsRoutes from './clinicalAi/trialSafetyOperationsRoutes.js';
@@ -49,6 +50,7 @@ router.use('/', tierEPatientEngagementRoutes);
 router.use('/', tierFInteropRoutes);
 router.use('/', tierGPublicHealthRoutes);
 router.use('/', tierHOperationalRoutes);
+router.use('/', operationalAlertRoutes);
 router.use('/', surgicalAiRoutes);
 router.use('/', teleconsultAiRoutes);
 router.use('/', trialSafetyOperationsRoutes);

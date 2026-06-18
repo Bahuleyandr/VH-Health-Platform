@@ -47,6 +47,9 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 // Clinical-AI workflow resume scheduler — Phase 5 of the rollout.
 import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.js';
 
+// Operational forecast alert sweep — Task 4. Advisory; flag-gated.
+import { runSweep } from '../services/ai/operationalAlertService.js';
+
 // Prior-auth → appeal chain starter sweep — Task 6. Auto-starts the chain
 // for denied prior-auth requests that have no appeal letter / run yet.
 import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChainService.js';
@@ -169,6 +172,16 @@ if (process.env.NODE_ENV !== 'test') {
 
   // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
   cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
+
+  // Operational forecast alert sweep — advisory, flag-gated. Mirrors the
+  // every-30-min cadence of escalate-stuck-orders. Default tenant today; wrap
+  // in runWithSuperAdmin for cross-tenant fan-out when multi-tenant.
+  if (String(process.env.CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED || '').toLowerCase() === 'true') {
+    cron.schedule('*/30 * * * *', withJobLock('operational-alert-sweep', async () => {
+      const r = await runSweep({});
+      logger.info('operational-alert-sweep complete', r);
+    }));
+  }
 
   // 🖨️ Every 15 minutes - regenerate per-ward downtime packs (roadmap A3).
   // The packs must already exist when an outage starts — never generated

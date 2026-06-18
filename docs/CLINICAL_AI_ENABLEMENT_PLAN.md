@@ -168,6 +168,23 @@ enablement audit. Treat silent `template_fallback` as a blocking failure.
    generic Tasks/Workflow/EscalationRule system (docs §26).
 5. **Ops forecasts → live alerts** *(~1–2 wk)* — promote Wave 7 forecasts into
    `hospital_command_center` alerts (no auto-action).
+   > ✅ **DONE (2026-06-18).** Built a unified, advisory-only forward-risk alert
+   > stream: new `clinical_ai_operational_alerts` table (migration 315, partial
+   > unique dedup index + RLS) fed by a flag-gated 30-min sweep
+   > (`CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED`, off by default, `withJobLock`)
+   > over a registry of per-module evaluator adapters
+   > (`operationalAlertEvaluators.js`). `operationalAlertService.runSweep`
+   > reconciles candidates → upsert / auto-resolve-on-clear / notify-once for
+   > high+critical (notification outbox intent row + `clinical_ai.operational_alert_raised`
+   > event). Admin control-plane API: `GET/POST /clinical-ai/control/operational-alerts*`
+   > (list / decision / run-sweep). Rules-authoritative, every alert carries a
+   > decision-support disclaimer, per-source-module enable gate. **12 of 13
+   > evaluators wired** to real producers/tables (no-show, OT overrun,
+   > acuity-staffing, inventory + 8 `clinical_ai_*` forecast bridges);
+   > `staff_roster_optimizer` deferred (no roster-forecast table — needs a
+   > dedicated uncovered-shift source). Tests: 32 green (reconcile unit,
+   > evaluator units, deep spine raise/dedup/auto-resolve/notify-once, real
+   > inventory-bridge end-to-end). Design + plan: `docs/superpowers/specs/2026-06-18-operational-alerts-design.md`.
 6. **Quality/RCA committee workflow** *(~2 wk)* — `quality_case_review` + `rca_draft_generator`
    as a standing M&M/RCA queue triggered from incidents/readmissions.
 
