@@ -52,3 +52,12 @@ Kyverno Audit→Enforce; seal `vhhealth-pg-runtime` non-superuser role; timed DR
 
 ## Already fixed (since audit / by drift)
 - revenue-cycle `parseTenantId` query-fallback removed (commits e7265c75, 5f8c5303).
+
+## Progress log
+- **W0 DONE** — `62e8c59c` (ArgoCD manual sync + cosign attestor). kustomize green.
+- **W1a DONE** — `d7fd0211` (money idempotency/FOR UPDATE/state-guards mig 317; reliability advisory-lock/outbox-drain mig 320/readiness/logger; auth refresh-type/2FA/totpRoutes; interop ABDM+HL7 tenant-binding/consent-verify/replay mig 321). 11 suites/258 tests green.
+- **C-9 patient-refresh companion DONE** (background tasks) — `79a22493` + firebaseAuthService returns refresh token, authController reads body.refreshToken, vhhealth_core http_client sends it. Admin refresh = pre-existing non-critical limitation (admin not in `users`).
+- **bed validator** — `1605d37c` (admitValidation requires resolvable patient ref).
+- **W1b DONE** — `67920133` (escalation/SLA delivery+ack-stops-clock+lab-key-unify+investigation-task; med-rec change-detection mig 318; theatre canonical+locks+OR-exclusion mig 319+sign-out/consent gates; bed legacy-bypass retired + atomic vitals criticals; billingV2 unit tests realigned; schema.prisma regen +interop_replay_guard). 16 suites/355 tests green; lint green; schema-drift clean.
+- **W1 full chunked test:ci gate** — RUNNING (then merge W1 → main, start W2).
+- Migrations 317–321 applied to QA DB + recorded.
