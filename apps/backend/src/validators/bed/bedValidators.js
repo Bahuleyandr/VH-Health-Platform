@@ -62,9 +62,27 @@ export const deleteBedValidation = [
 
 export const admitValidation = [
   param('id').isInt({ min: 1 }).withMessage('Bed ID must be a positive integer'),
-  body('patient_name').trim().notEmpty().withMessage('Patient name is required'),
+  // C-2 (audit 2026-06-18): bedService.admitPatient now creates a REAL admission
+  // (admissions.patient_uid + bed_transfers.patient_uid are NOT NULL), so a bed can
+  // no longer be occupied by name alone. patient_name is optional — the service
+  // falls back to users.name — but a resolvable patient reference is mandatory.
+  body('patient_name').optional().trim(),
   body('patient_id').optional().isInt({ min: 1 }),
+  body('patient_uid').optional().isUUID().withMessage('patient_uid must be a valid UUID'),
   body('notes').optional().trim(),
+  // Require at least one resolvable patient reference (patient_id or patient_uid).
+  // Rejects a name-only body at the edge (400) instead of letting it fail deeper
+  // in bedService.admitPatient (AppError ADMIT_PATIENT_REQUIRED).
+  body().custom((_value, { req }) => {
+    const rawId = req.body?.patient_id;
+    const hasId = rawId !== undefined && rawId !== null && String(rawId).trim() !== '';
+    const rawUid = req.body?.patient_uid;
+    const hasUid = typeof rawUid === 'string' && rawUid.trim() !== '';
+    if (!hasId && !hasUid) {
+      throw new Error('patient_uid or patient_id is required');
+    }
+    return true;
+  }),
   validate
 ];
 
