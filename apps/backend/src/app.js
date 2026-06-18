@@ -1046,11 +1046,16 @@ app.use('/api/v1/admin/surgical', (req, res) => {
 app.use('/api/v1/admin', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 app.use('/api/v1/admin/gamification', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 
-// System settings + status
-app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, systemRoutes);
+// System settings + status — admin-portal surface, so IP-allowlisted like
+// /api/v1/admin (fails closed in production until ADMIN_IP_ALLOWLIST is set;
+// transparent in dev/test). Audit finding #5.
+app.use('/api/v1/system', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, systemRoutes);
 
-// Audit + system logs
-app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminRateLimiter, logRoutes);
+// Audit + system logs — same admin-portal IP allowlist as /api/v1/admin.
+// Previously role-gated + rate-limited but reachable from any IP in
+// production; the audit/system log surface must match admin-dashboard
+// network exposure. Audit finding #5.
+app.use('/api/v1/logs', requireRole(...ADMIN_ROUTE_ROLES), adminIpAllowlist, adminRateLimiter, logRoutes);
 
 // Radiology
 app.use('/api/v1/radiology', requireRole(...RADIOLOGY_ROUTE_ROLES), patientAccessGuard('RADIOLOGY', { careTeamModeGoverned: true }), phiAccessLogger('RADIOLOGY'), radiologyRoutes);
