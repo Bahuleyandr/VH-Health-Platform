@@ -33,6 +33,7 @@ import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.
 import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
 import fhirPatientContext from './middleware/fhirPatientContext.js';
+import cdsPatientContext from './middleware/cdsPatientContext.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
   patientRateLimiter,
@@ -781,10 +782,29 @@ app.use(
 
 // CDS Hooks (https://cds-hooks.org/) — standards-compliant decision-support
 // endpoints consumed by external EHR systems. Same RBAC as FHIR since the
-// invoke handlers may surface PHI in card detail.
-app.use('/api/v1/cds-services', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('CDS_HOOKS'), cdsHooksRoutes);
+// invoke handlers may surface PHI in card detail. cdsPatientContext bridges the
+// CDS Hooks body-context patient addressing (context.patientId / context.patient)
+// into req.phiContext so the governed patientAccessGuard (careTeamModeGoverned →
+// shadow) resolves the patient and runs the care-team ABAC decision (+ shadow
+// audit) — parity with the FHIR / nursing-assessments / encounters mounts. The
+// guard supersedes cdsHooksRoutes' former in-route enforce check, which
+// hard-blocked regardless of the per-tenant rollout mode. Audit finding #5.
+app.use(
+  '/api/v1/cds-services',
+  requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES),
+  cdsPatientContext,
+  patientAccessGuard('CDS_HOOKS', { careTeamModeGoverned: true }),
+  phiAccessLogger('CDS_HOOKS'),
+  cdsHooksRoutes,
+);
 
-// Clinical Document Export & Import
+// Clinical Document Export & Import. The per-export-route patient-access guards
+// inside documentRoutes (ccd / fhir-bundle by :patientUid, discharge-summary by
+// admission, lab-report by investigation) are care-team-governed
+// (careTeamModeGoverned → shadow by default), so this mount joins the same
+// per-tenant care-team ABAC rollout as FHIR / nursing-assessments / encounters
+// without a mount-level guard duplicating their per-resource patient resolution.
+// Audit finding #5.
 app.use('/api/v1/documents', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
