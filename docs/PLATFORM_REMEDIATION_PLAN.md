@@ -325,8 +325,25 @@ shipped in the auditor's priority order:
   `fhirPatientContext` to bridge those into `req.phiContext` + the standard guard
   in `careTeamModeGoverned` (shadow — no behaviour change today, GO_LIVE enforce
   flip now covers FHIR). Unit 16 + deep 3 (shadow audit row = non-cosmetic proof).
-  Merge `ee6c0232`. *(Siblings `/cds-services` + `/documents` share the
-  role+logger-only shape with different addressing — spawned as a follow-up.)*
+  Merge `ee6c0232`. *(Siblings `/cds-services` + `/documents`: a follow-up first
+  mirrored this shadow guard (`d05c196a`) but then reverted it (`ef40d373`) to
+  keep their ORIGINAL in-route hard-enforce. A mount-level guard flipped to
+  enforce on the PUBLIC CDS hook-discovery endpoint would return 200-empty for a
+  present-but-unresolvable patient ref while 403-ing the no-relationship case —
+  a patient-existence enumeration oracle; the original in-route checks 403 both.
+  Restored byte-for-byte + added a hard-enforce lock-in deep test
+  `cdsAndDocumentCareTeamGuard.deep`.)*
+
+  > **GO_LIVE caveat (enumeration oracle).** The same risk applies to THIS FHIR
+  > mount guard — and every `careTeamModeGoverned` mount (investigations,
+  > pharmacy-orders, radiology, …) — when the shadow→enforce flip lands. At
+  > enforce, a present-but-unresolvable patient reference must **403**, not
+  > 200/pass-through, or it becomes distinguishable from the no-relationship
+  > denial (an existence oracle for authenticated staff). Audit each mount guard
+  > for this before flipping; the CDS/documents **in-route 403-both** pattern is
+  > the template, and a guard that can't tell "no patient context" (e.g. FHIR
+  > `/metadata`, CDS discovery — must stay open) from "patient ref present but
+  > unresolvable" (must 403) should resolve in-route instead.
 - [x] **#5 — /logs + /system missed the admin IP allowlist.** Both admin-portal
   surfaces were role-gated + rate-limited but, unlike `/admin`, lacked
   `adminIpAllowlist` → reachable from any IP with an admin token in production.
