@@ -244,6 +244,16 @@ describe('future-proof clinical AI and privacy foundations', () => {
     );
     consentReference = String(consentRows[0].id);
 
+    // Audit 2026-06-18 §3 finding #3: the FHIR $everything export (exercised
+    // below) now requires an active data_sharing consent (requireConsent gate in
+    // fhirRoutes.js). Grant it alongside the treatment consent.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_consents
+         (patient_uid, consent_type, granted, status, granted_at, granted_by)
+       VALUES ($1::uuid, 'data_sharing', true, 'active', NOW(), 'patient')`,
+      PATIENT_UID
+    );
+
     const admissions = await prisma.$queryRawUnsafe(
       `INSERT INTO admissions
          (patient_uid, encounter_id, admitting_doctor, attending_doctor, status,

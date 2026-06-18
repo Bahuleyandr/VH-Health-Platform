@@ -253,6 +253,74 @@ import { notificationOutbox } from './notifications/notificationOutbox.js';
 import { sendPushNotification } from './notifications/sendPushNotification.js';
 import { sendSMS } from '../services/smsService.js';
 
+// Audit hash-chain scheduled verifier (platform audit 2026-06-18 §3). The
+// tamper-evident chain on clinical_audit_events (migration 282) was only ever
+// recomputed on a manual admin endpoint, so a tampered chain could sit
+// undetected indefinitely. The cron below runs verifyAuditChain on a schedule
+// and raises a LOUD alert (error log + security webhook) on any mismatch.
+import { verifyAuditChain } from '../services/clinical/documentIntegrityService.js';
+import { sendSecurityWebhook } from './securityWebhook.js';
+import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+
+/**
+ * Verify the per-tenant audit hash chain for every active tenant (plus the
+ * platform default) and alert loudly on any tamper. Exported for tests.
+ *
+ * One tenant's verification failure (or a thrown DB error) never aborts the
+ * sweep — each tenant is wrapped in its own try/catch so a single bad chain or
+ * transient error can't suppress checks for the others, and the cron tick
+ * itself can't crash the scheduler.
+ *
+ * @returns {{ tenantsChecked:number, breaks:number, alerts:number }}
+ */
+export async function runAuditChainVerification() {
+  // Discover active tenants; always include the default-tenant floor even if
+  // the tenants table is empty/unavailable (single-tenant prod today).
+  let tenantIds = [DEFAULT_TENANT_ID];
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id FROM tenants WHERE status = 'active'`,
+    );
+    const ids = (Array.isArray(rows) ? rows : []).map((r) => r.id).filter(Boolean);
+    tenantIds = [...new Set([DEFAULT_TENANT_ID, ...ids])];
+  } catch (err) {
+    logger.warn(`audit-chain-verify: tenant discovery failed, defaulting to platform tenant: ${err.message}`);
+  }
+
+  let tenantsChecked = 0;
+  let totalBreaks = 0;
+  let alerts = 0;
+  for (const tenantId of tenantIds) {
+    try {
+      const verdict = await verifyAuditChain({ tenantId });
+      tenantsChecked += 1;
+      if (!verdict.intact) {
+        totalBreaks += verdict.breaks;
+        alerts += 1;
+        // LOUD alert: structured error log + security webhook (PagerDuty/Slack).
+        logger.error('AUDIT CHAIN TAMPER DETECTED', {
+          tenant_id: tenantId,
+          breaks: verdict.breaks,
+          checked: verdict.checked,
+          first_break_seq: verdict.first_break_seq,
+          first_break_id: verdict.first_break_id,
+        });
+        sendSecurityWebhook('AUDIT_CHAIN_TAMPERED', {
+          reason: `Audit hash chain tamper detected for tenant ${tenantId}: ${verdict.breaks} broken link(s); first break at seq ${verdict.first_break_seq} (id ${verdict.first_break_id})`,
+          tenantId,
+        });
+      } else {
+        logger.info(`audit-chain-verify: tenant ${tenantId} intact (${verdict.checked} link(s))`);
+      }
+    } catch (err) {
+      // A verifier exception for one tenant must not abort the whole sweep or
+      // crash the scheduler. Surface it loudly but keep going.
+      logger.error(`audit-chain-verify: verification FAILED for tenant ${tenantId}: ${err.message}`, err);
+    }
+  }
+  return { tenantsChecked, breaks: totalBreaks, alerts };
+}
+
 /**
  * Resolve a recipient_id (stored as text — may be an integer users.id or a
  * uuid uid) to its known FCM/device tokens across the three device homes:
@@ -519,6 +587,19 @@ if (process.env.NODE_ENV !== 'test') {
     await sweepExpiredBreakGlass();
   }));
 
+  // 🔐 Hourly — verify the tamper-evident audit hash chain (platform audit
+  // 2026-06-18 §3). Recomputes clinical_audit_events' per-tenant chain
+  // (migration 282) for every active tenant and fires a LOUD alert (error log +
+  // sendSecurityWebhook) on any broken link. Cross-process-safe via withJobLock
+  // (advisory lock) + runs under runWithSuperAdmin so RLS lets it read every
+  // tenant. Append-only triggers (migration 324) make undetected tampering by
+  // the app role impossible in the first place; this is the detection backstop
+  // for any out-of-band (e.g. superuser/DBA) tamper.
+  registerCron('0 * * * *', withJobLock('audit-chain-verify', async () => {
+    const r = await runAuditChainVerification();
+    logger.info('audit-chain-verify sweep complete', r);
+  }));
+
   // 🚑 Every 2 minutes — results-inbox escalation engine
   // (RESULTS_INBOX_ESCALATION_DESIGN §4.4). Marks tasks overdue, evaluates
   // active escalation_rules against breached critical-result SLA instances and
@@ -545,12 +626,24 @@ if (process.env.NODE_ENV !== 'test') {
   );
 
   // 🗓️ Daily at 03:30 - Purge audit logs older than 90 days
+  //
+  // audit_log is append-only at the DB layer (migration 324: a BEFORE
+  // UPDATE OR DELETE trigger blocks the app role). This retention purge is the
+  // ONE authorized deleter, so it opts into the bypass EXPLICITLY by setting the
+  // transaction-local `app.audit_bypass` GUC before the DELETE. A bare
+  // prisma.$queryRawUnsafe DELETE would be rejected by the trigger once the prod
+  // app role is sealed NOSUPERUSER. The GUC is transaction-scoped (set_config
+  // …, true) so it never leaks to other pooled queries.
   registerCron('30 3 * * *', withJobLock('purge-audit-logs', async () => {
     logger.info('Scheduled Task: Purging audit logs older than 90 days...');
-    const result = await prisma.$queryRawUnsafe(
-      `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
-    );
-    logger.info(`Audit log cleanup: ${Number(result) || 0} rows deleted`);
+    let deleted = 0;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+      deleted = await tx.$executeRawUnsafe(
+        `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
+      );
+    });
+    logger.info(`Audit log cleanup: ${Number(deleted) || 0} rows deleted`);
   }));
 
   // Daily at 03:32 - Purge staff messages older than the configured retention

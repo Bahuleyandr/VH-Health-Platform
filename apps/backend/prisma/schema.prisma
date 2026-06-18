@@ -808,6 +808,7 @@ model appointments {
   investigation_bookings               investigation_bookings[]
   teleconsultations                    teleconsultations[]
 
+  @@unique([tenant_id, doctor_id, appointment_date, appointment_time], map: "uniq_appointments_active_doctor_slot", where: raw("((doctor_id IS NOT NULL) AND (appointment_time IS NOT NULL) AND (btrim((appointment_time)::text) <> ''::text) AND (lower(btrim((appointment_time)::text)) <> 'walk-in'::text) AND ((status)::text <> ALL ((ARRAY['CANCELLED'::character varying, 'NO_SHOW'::character varying, 'RESCHEDULED'::character varying])::text[])))"))
   @@index([appointment_date])
   @@index([doctor_id])
   @@index([patient_id])
@@ -5734,13 +5735,13 @@ model investigation_files {
 }
 
 model investigation_template_tests {
-  id           Int     @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   template_id  Int?
-  test_name    String  @db.VarChar(255)
-  test_code    String? @db.VarChar(50)
-  normal_range String? @db.VarChar(100)
-  unit         String? @db.VarChar(50)
-  cost         Float?
+  test_name    String   @db.VarChar(255)
+  test_code    String?  @db.VarChar(50)
+  normal_range String?  @db.VarChar(100)
+  unit         String?  @db.VarChar(50)
+  cost         Decimal? @db.Decimal(12, 2)
 
   @@index([template_id])
 }
@@ -6188,7 +6189,7 @@ model medications {
   category              String?   @db.VarChar(100)
   dosage                String?   @db.VarChar(100)
   form                  String?   @db.VarChar(50)
-  price                 Float?
+  price                 Decimal?  @db.Decimal(12, 2)
   stock_quantity        Int?
   expiry_date           DateTime? @db.Date
   manufacturer          String?   @db.VarChar(255)
