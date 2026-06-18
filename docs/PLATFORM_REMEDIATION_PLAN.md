@@ -291,3 +291,52 @@ staff-only by hard RBAC (no patient-IDOR); care-team ABAC shadow mode, admin/ops
 tenant isolation, HL7 global secret, FHIR per-patient, and the admin
 x-forwarded-for allowlist remain latent multi-tenant or GO_LIVE-gated by design.
 The eight prior fixes were all confirmed present.
+
+### Fourth re-scan (2026-06-18) — 6 findings, all verified + fixed
+
+A fourth read of `main` (@ `3cec15e1`) confirmed the five prior fixes present
+and the targeted tests green, then raised 6 more. Each verified before fixing;
+shipped in the auditor's priority order:
+
+- [x] **#1 — RBAC privilege escalation (CRITICAL).** `canUserManageRole`
+  returned `true` for ADMIN on ANY target and `validateRoleTransition` blocked
+  only PATIENT→ADMIN, so an ADMIN calling `POST /rbac/assign-role` could promote
+  any user (incl. a PATIENT, or self) straight to SUPER_ADMIN. Now only a
+  SUPER_ADMIN may assign SUPER_ADMIN; `getManageableRoles('ADMIN')` excludes it.
+  Unit test 6/6. Merge `3ff94cfb`. *(The same route's pre-tenant mount order +
+  global-by-phone user update is a LATENT cross-tenant concern, deferred to the
+  multi-tenant cutover — phone is unique single-tenant today.)*
+- [x] **#2 — admin logout did not revoke the JWT.** The admin app POSTs
+  `/auth/admin/logout`, but no such backend route existed → 404, only the UI
+  cookie cleared; a captured admin JWT stayed valid ~4h. Wired the admin
+  `/logout` (reusing the role-agnostic `authController.logout` →
+  `blacklistToken`). Deep test: logout 200, jti lands in `invalidated_tokens`,
+  reuse → 401 `TOKEN_REVOKED`. Merge `184b5a81`.
+- [x] **#3 — npm audit high-severity deps.** `npm audit --audit-level=high
+  --omit=dev` failed on both apps. Cleared every high via plain `npm audit fix`
+  (package-lock-only, no major bumps): backend multer/protobufjs/tmp/form-data/
+  hono (5→0 high; 17 moderate jest/dev-tree remain, below the gate); admin
+  form-data/ws/dompurify (3→0, prod clean). App boots + admin build verified.
+  Merge `ba443723`.
+- [x] **#4 — FHIR bypassed care-team ABAC.** The `/fhir` mount was
+  tenant-filtered but carried no `patientAccessGuard` (unlike nursing-assessments
+  / encounters). A naive guard would be cosmetic (FHIR addresses the patient by
+  path/query/body refs the generic resolver can't see), so added
+  `fhirPatientContext` to bridge those into `req.phiContext` + the standard guard
+  in `careTeamModeGoverned` (shadow — no behaviour change today, GO_LIVE enforce
+  flip now covers FHIR). Unit 16 + deep 3 (shadow audit row = non-cosmetic proof).
+  Merge `ee6c0232`. *(Siblings `/cds-services` + `/documents` share the
+  role+logger-only shape with different addressing — spawned as a follow-up.)*
+- [x] **#5 — /logs + /system missed the admin IP allowlist.** Both admin-portal
+  surfaces were role-gated + rate-limited but, unlike `/admin`, lacked
+  `adminIpAllowlist` → reachable from any IP with an admin token in production.
+  Added it to both (transparent in dev/test, fails closed in prod). Deep test
+  3/3. Merge `4bd9b87e`.
+- [x] **#6 — patient mobile cache trusted server filenames.**
+  `CacheFileUtils._getLocalFile` and `DocumentOpener.openFromUrl` joined a
+  server-supplied `fileKey`/`filename` straight onto the cache/temp dir — a
+  `../`-laden name wrote raw PHI bytes outside the sandbox. Added `safeFileName`
+  (separators replaced, control chars dropped, `.`/`..` neutralized, bounded;
+  collision-safe) at both sites. Unit 12/12, `dart analyze` clean. Merge
+  `7050fc87`. *(Staff app already sanitizes via `_safeLocalFileName` — not
+  vulnerable.)*
