@@ -170,11 +170,34 @@ enablement audit. Treat silent `template_fallback` as a blocking failure.
    > value still pending the Ollama embedder (`CLINICAL_AI_EMBED_URL`) + approved KB data (ops).
 2. **Ambient scribe** *(~2–3 wk)* — whole-consultation audio → structured note (diarization/
    STT/consent substrate already exists; net-new = capture UX + audio-retention governance).
+   > 🟡 **BACKEND SLICE DONE (2026-06-18).** The ambient backend was already substantially
+   > built (`ambientDocumentationService`, `sttService`, diarization adapter,
+   > `clinical_ambient_encounters`, routes). Shipped the two real backend unblocks:
+   > `recording_consent` added to the consent allowlist (`consentRoutes.js`) so it can be
+   > issued (it gates ambient-encounter creation), + `purgeExpiredAmbientAudio` retention
+   > janitor covering all 3 audio tables (daily cron). 4/4 deep tests. **DEFERRED (design-gated,
+   > not autonomously buildable):** the staff-Flutter ambient capture UX — recording screen,
+   > diarization-review UI, inline bedside consent capture (~3–5 days Flutter + UX design).
 3. **Revenue-cycle automation loop** *(~2 wk after payer master)* — coding → denial → appeal →
    prior-auth as a standing queue; needs Payer/TPA/Tariff master (docs §16).
+   > 🟡 **CORE DONE (2026-06-18).** Payer/TPA/tariff master + the PA→appeal chain (auto-swept)
+   > already existed; the gap was a unified tracker. Shipped `revenue_cycle_runs` (migration 316
+   > + RLS) — a deterministic projection/standing-queue, keyed per case, that a flag-gated sweep
+   > (`REVENUE_CYCLE_TRACKER_ENABLED`, off by default) builds + advances from the existing
+   > PA/appeal artifacts (`current_stage`: prior_auth→appeal→resolved), exposed at
+   > `GET /billing/revenue-cycle/runs`. 3/3 deep tests, drift clean. **DEFERRED (decision-support /
+   > human-in-loop design):** per-stage auto-generation triggers (coding→denial→PA), event-driven
+   > (vs polled) appeal start, and the appeal-outcome re-submission loop.
 4. **Results/inbox safety net** *(~3 wk)* — `abnormal_result_triage` + `lab_autoverification_delta`
    + `clinical_task_extractor` → per-clinician ack-tracked results inbox + escalation; needs the
    generic Tasks/Workflow/EscalationRule system (docs §26).
+   > ✅ **DONE (2026-06-18).** The inbox substrate (tasks/workflow/escalation mig 118,
+   > `resultsInboxService`, escalation cron, ack API) was already live and `clinical_task_extractor`
+   > already wired. Wired the remaining two: accepting an `abnormal_result_triage` draft now
+   > enqueues an `abnormal_triage` ack-tracked task; accepting a `lab_autoverification_delta`
+   > enqueues a `lab_autoverification` task (priority critical) — both gated on the module being
+   > enabled, both inheriting the existing SLA-breach escalation tiers. 39/39 resultsInbox suite
+   > green incl. enable-gate negatives.
 5. **Ops forecasts → live alerts** *(~1–2 wk)* — promote Wave 7 forecasts into
    `hospital_command_center` alerts (no auto-action).
    > ✅ **DONE (2026-06-18).** Built a unified, advisory-only forward-risk alert
@@ -196,6 +219,15 @@ enablement audit. Treat silent `template_fallback` as a blocking failure.
    > inventory-bridge end-to-end). Design + plan: `docs/superpowers/specs/2026-06-18-operational-alerts-design.md`.
 6. **Quality/RCA committee workflow** *(~2 wk)* — `quality_case_review` + `rca_draft_generator`
    as a standing M&M/RCA queue triggered from incidents/readmissions.
+   > ✅ **DONE (2026-06-18).** Built on the operational-alerts substrate (reuses
+   > `clinical_ai_operational_alerts` + sweep/reconcile). Two new evaluators emit `domain='quality'`
+   > cases: `quality_case_review` from HIGH/CRITICAL open `quality_incidents`
+   > (`scope_key=quality_incident:<id>`), `rca_draft_generator` from 7-day readmissions
+   > (`admissions.prior_admission_id`, `scope_key=readmission:<id>`). Admin queue:
+   > `GET /clinical-ai/control/quality/cases` + `POST .../:alertId/generate-packet` (readmission →
+   > `rcaDraftService.generateRcaDraft`; incident → structured 422, no admission FK — honest
+   > boundary). 9 unit + 5 deep tests; per-module enable-gated. Generic summaries (no PHI in the
+   > alert/notification; the RCA draft with PHI lives in `clinical_ai_rca_drafts`).
 
 ---
 
