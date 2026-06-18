@@ -32,6 +32,7 @@ import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js
 import { billingPhiAccessLogger } from './middleware/billingPhiAccessMiddleware.js';
 import { patientAccessGuardForPaths, phiAccessLoggerForPaths } from './middleware/conditionalPhiAccessMiddleware.js';
 import { patientAccessGuard, phiAccessLogger } from './middleware/phiAccessMiddleware.js';
+import fhirPatientContext from './middleware/fhirPatientContext.js';
 import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import {
   patientRateLimiter,
@@ -761,8 +762,22 @@ app.use(
   ipdSupportRoutes,
 );
 
-// FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
-app.use('/api/v1/fhir', requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
+// FHIR R4 interoperability — restricted to clinical staff (exposes PHI).
+// patientAccessGuard (careTeamModeGoverned → shadow) brings FHIR to parity with
+// the other PHI families (nursing-assessments / encounters): today it audits
+// care-team ABAC would-be-denials WITHOUT blocking, and the GO_LIVE enforce
+// flip then covers FHIR too. fhirPatientContext bridges FHIR's path/query/body
+// patient addressing (/Patient/<id>, ?patient=, subject.reference) into
+// req.phiContext so the guard can resolve the patient — the generic resolver
+// does not recognise FHIR addressing. Audit finding #4.
+app.use(
+  '/api/v1/fhir',
+  requireRole(...FHIR_CLINICAL_DOCUMENT_ROUTE_ROLES),
+  fhirPatientContext,
+  patientAccessGuard('FHIR_RESOURCE', { careTeamModeGoverned: true }),
+  phiAccessLogger('FHIR_RESOURCE'),
+  fhirRoutes,
+);
 
 // CDS Hooks (https://cds-hooks.org/) — standards-compliant decision-support
 // endpoints consumed by external EHR systems. Same RBAC as FHIR since the
