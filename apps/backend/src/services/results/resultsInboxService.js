@@ -318,10 +318,75 @@ export async function promoteAbnormalTriageResult(draft = {}, { tenantId } = {})
   }
 }
 
+const LAB_AUTOVERIFICATION_MODULE_KEY = 'lab_autoverification_delta';
+
+/**
+ * AI-producer bridge (Wave 3, design §4.7) for the lab_autoverification_delta
+ * module.  Promotes an accepted lab-autoverification row into the results-inbox
+ * safety net via the same deterministic producer.
+ *
+ * GUARDED: gates on the lab_autoverification_delta module being ENABLED for the
+ * tenant.  Disabled = { created:false, skipped:true }.  Tenant-scoped,
+ * never-throws (best-effort).
+ *
+ * When the reviewer decision is 'accepted' the autoverification row is treated
+ * as a confirmed actionable result and enqueued.  For 'critical' rule-decisions
+ * (the rules-engine decision, not the reviewer decision) the task priority is
+ * 'critical'; everything else maps to 'high'.
+ *
+ * @param {object} autoverification  row from clinical_ai_lab_autoverifications.
+ * @param {number|string} autoverification.id           row id (the resource id).
+ * @param {string}  [autoverification.patient_uid]
+ * @param {string}  [autoverification.decision]         rules decision ('critical'|…).
+ * @param {string}  [autoverification.critical_band]    'critical_low'|'critical_high'|…
+ * @param {string}  [autoverification.test_name]        used in the task title.
+ * @param {string}  [autoverification.decision_reason]  used as summary.
+ * @param {object}  [opts]
+ * @param {string}  [opts.tenantId]
+ * @returns {Promise<{created:boolean, skipped?:boolean, taskId?:(number|null), error?:string}>}
+ */
+export async function promoteLabAutoverification(autoverification = {}, { tenantId } = {}) {
+  try {
+    const { getClinicalAiModule } = await import('../ai/clinicalAiModuleService.js');
+    const module = await getClinicalAiModule(LAB_AUTOVERIFICATION_MODULE_KEY, { tenantId });
+    if (!module?.enabled) {
+      return { created: false, skipped: true };
+    }
+    if (autoverification.id == null) return { created: false, skipped: true };
+
+    const isCritical =
+      autoverification.decision === 'critical' ||
+      autoverification.critical_band === 'critical_low' ||
+      autoverification.critical_band === 'critical_high';
+
+    const testName = autoverification.test_name
+      ? String(autoverification.test_name).trim()
+      : 'Lab result';
+
+    return await enqueueCriticalResultTask({
+      tenantId,
+      patientUid: autoverification.patient_uid || null,
+      source: 'lab_autoverification',
+      resourceType: 'lab_autoverification',
+      resourceId: autoverification.id,
+      severity: isCritical ? 'critical' : 'high',
+      title: `Lab autoverification accepted: ${testName} – review required`,
+      summary: autoverification.decision_reason || null,
+    });
+  } catch (err) {
+    logger.error('promoteLabAutoverification failed', {
+      err: err?.message,
+      autoverificationId: autoverification?.id ?? null,
+    });
+    return { created: false, error: err?.message };
+  }
+}
+
 export default {
   enqueueCriticalResultTask,
   promoteTaskCandidate,
   promoteAbnormalTriageResult,
+  promoteLabAutoverification,
   resolveRoleCode,
   ABSTRACT_ROLE_CODES,
 };
