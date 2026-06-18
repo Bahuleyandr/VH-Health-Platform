@@ -16,6 +16,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
+import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import * as orderService from '../../services/investigation/orderService.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessDecisionService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -140,7 +141,7 @@ router.get('/prescriptions/my', requireStaffMedical, async (req, res) => {
   }
 });
 
-router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'), guardPrescriptionAppointmentUpload, async (req, res) => {
+router.post('/prescriptions/upload', requireStaffMedical, upload.single('file'), validateFileContent, guardPrescriptionAppointmentUpload, async (req, res) => {
   try {
     const tenantId = tenantIdOf(req);
     const appointmentId = parsePositiveInt(req.body?.appointment_id);
@@ -258,7 +259,7 @@ router.post('/medical/consultations', requireStaffMedical, guardStaffConsultatio
   }
 });
 
-router.post('/medical/investigations', requireStaffMedical, upload.single('file'), guardStaffInvestigationWrite, async (req, res) => {
+router.post('/medical/investigations', requireStaffMedical, upload.single('file'), validateFileContent, guardStaffInvestigationWrite, async (req, res) => {
   try {
     const tenantId = tenantIdOf(req);
     const phone = normalizePhone(req.body?.phone);

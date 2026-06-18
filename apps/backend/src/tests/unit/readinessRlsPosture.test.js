@@ -27,8 +27,14 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   tenantRlsRolePosture: tenantRlsRolePostureMock,
 }));
 
-// Monitoring access middleware is a no-op outside production (NODE_ENV=test),
-// so we don't need to mock it — but import the router AFTER the mock is set.
+// The monitoring-access gate now fails CLOSED in every env (audit 2026-06-18
+// §4): /health/ready + /health/metrics require a valid monitoring token even
+// off-prod. Set a test token and send the matching x-monitoring-token header
+// (the same pattern the k8s readiness probe uses — see
+// infra/kubernetes/apps/backend/deployment.yaml). Import the router AFTER the
+// mock is set.
+const MONITORING_TOKEN = 'test-monitoring-token';
+process.env.MONITORING_TOKEN = MONITORING_TOKEN;
 const { default: uptimeRouter } = await import('../../routes/health/uptimeRoutes.js');
 
 function makeApp() {
@@ -36,6 +42,8 @@ function makeApp() {
   app.use('/health', uptimeRouter);
   return app;
 }
+
+const withToken = (req) => req.set('x-monitoring-token', MONITORING_TOKEN);
 
 beforeEach(() => {
   queryRawMock.mockReset();
@@ -55,7 +63,7 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
       effectiveRole: 'postgres',
     });
 
-    const res = await request(makeApp()).get('/health/ready');
+    const res = await withToken(request(makeApp()).get('/health/ready'));
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
@@ -67,7 +75,7 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
   it('still returns 503 when the DB probe fails (reachability IS gated)', async () => {
     queryRawMock.mockRejectedValueOnce(new Error('connection refused'));
 
-    const res = await request(makeApp()).get('/health/ready');
+    const res = await withToken(request(makeApp()).get('/health/ready'));
 
     expect(res.status).toBe(503);
     expect(res.body.status).toBe('degraded');
@@ -77,7 +85,7 @@ describe('GET /health/ready — RLS posture must NOT gate readiness (C-7)', () =
   it('does not even call tenantRlsRolePosture from the readiness path', async () => {
     tenantRlsRolePostureMock.mockResolvedValue({ enforced: false, ok: true });
 
-    await request(makeApp()).get('/health/ready');
+    await withToken(request(makeApp()).get('/health/ready'));
 
     // Readiness no longer probes RLS posture at all.
     expect(tenantRlsRolePostureMock).not.toHaveBeenCalled();
@@ -92,7 +100,7 @@ describe('GET /health/metrics — RLS posture signal is retained (not lost)', ()
       reason: 'effective_role_bypasses_rls',
     });
 
-    const res = await request(makeApp()).get('/health/metrics');
+    const res = await withToken(request(makeApp()).get('/health/metrics'));
 
     expect(res.status).toBe(200);
     expect(res.body.tenant_rls).toEqual(

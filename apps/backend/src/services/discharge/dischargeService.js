@@ -6,9 +6,11 @@
 // when set, then the doctor edits + signs. Status walk:
 //   draft → ready_for_signoff → signed → delivered
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 // Section keys we recognise as "discharge medications" for the
 // materialise-to-e_prescriptions handoff. Templates use slightly
@@ -221,8 +223,9 @@ async function appendDischargeAudit({
   action,
   actorUid = null,
   metadata = {},
+  db = prisma,
 }) {
-  await prisma.$executeRawUnsafe(
+  await db.$executeRawUnsafe(
     `INSERT INTO audit_logs
        (uid, action, resource, resource_id, metadata, ip_address)
      VALUES ($1::uuid, $2, 'discharge_summary', $3, $4::jsonb, NULL)`,
@@ -231,6 +234,49 @@ async function appendDischargeAudit({
     String(id),
     JSON.stringify({ tenant_id: tenantId, ...metadata }),
   );
+}
+
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// a discharge summary is a medico-legal, patient-facing clinical artifact, so
+// each lifecycle transition (ready_for_signoff / signed / delivered) must emit
+// one clinical_timeline_events row + one clinical_audit_events row in the SAME
+// transaction as the status flip — previously these wrote only the legacy
+// audit_logs row, leaving the canonical patient timeline blind to the document.
+// Runs on the transaction client (`db`) and is NOT swallowed: a failure aborts
+// the transaction so the status change rolls back rather than leaving the
+// timeline/audit layer out of sync. recordCanonicalClinicalEvent still tolerates
+// a genuinely-absent canonical table (SQLSTATE 42P01) internally.
+async function emitDischargeCanonicalEvent({
+  db, tenantId, id, patientUid, admissionId = null,
+  eventType, eventStatus, actorUid = null, summary, payload = {},
+  previousStatus = null,
+}) {
+  if (!patientUid) return null;
+  return recordCanonicalClinicalEvent({
+    tenantId: tenantId || DEFAULT_TENANT_ID,
+    patientUid,
+    eventType,
+    eventStatus,
+    sourceTable: 'discharge_summaries',
+    sourceId: String(id),
+    resourceType: 'discharge_summary',
+    resourceId: String(id),
+    actorUid,
+    actorRole: 'DISCHARGE',
+    summary,
+    payload: {
+      discharge_summary_id: Number(id),
+      admission_id: admissionId,
+      status: eventStatus,
+      previous_status: previousStatus,
+      ...payload,
+    },
+    beforeState: previousStatus ? { status: previousStatus } : null,
+    afterState: { status: eventStatus },
+    tags: ['discharge_summary'],
+    timelineIdempotencyKey: `discharge_summaries:${id}:${eventType}:${eventStatus}`,
+    auditIdempotencyKey: `discharge_summaries:${id}:audit:${eventType}:${eventStatus}`,
+  }, { db });
 }
 
 /**
@@ -738,24 +784,36 @@ export async function markReadyForSignoff({ tenantId, id, marked_by = null }) {
   );
   assertSignable(gateSections);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE discharge_summaries
-        SET status = 'ready_for_signoff', updated_at = NOW()
-      WHERE id = $1::int AND tenant_id = $2::uuid AND status = 'draft'
-      RETURNING id`,
-    Number(id), tenantId,
-  );
-  if (!rows.length) {
-    throw AppError.badRequest(
-      'Discharge summary not in draft state (cannot mark ready)',
+  // Atomic: status flip + legacy audit + canonical timeline/audit events commit
+  // together (canonical timeline invariant). setTenantTx also scopes the writes
+  // under the discharge_summaries RLS policy (migration 304).
+  await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE discharge_summaries
+          SET status = 'ready_for_signoff', updated_at = NOW()
+        WHERE id = $1::int AND tenant_id = $2::uuid AND status = 'draft'
+        RETURNING id, admission_id, patient_uid`,
+      Number(id), tenantId,
     );
-  }
-  await appendDischargeAudit({
-    tenantId,
-    id,
-    action: 'DISCHARGE_SUMMARY_READY_FOR_SIGNOFF',
-    actorUid: marked_by,
-    metadata: { status: 'ready_for_signoff' },
+    if (!rows.length) {
+      throw AppError.badRequest(
+        'Discharge summary not in draft state (cannot mark ready)',
+      );
+    }
+    const summary = rows[0];
+    await appendDischargeAudit({
+      tenantId, id, db: tx,
+      action: 'DISCHARGE_SUMMARY_READY_FOR_SIGNOFF',
+      actorUid: marked_by,
+      metadata: { status: 'ready_for_signoff' },
+    });
+    await emitDischargeCanonicalEvent({
+      db: tx, tenantId, id, patientUid: summary.patient_uid,
+      admissionId: summary.admission_id,
+      eventType: 'discharge_summary.ready', eventStatus: 'ready_for_signoff',
+      previousStatus: 'draft', actorUid: marked_by,
+      summary: 'Discharge summary marked ready for sign-off',
+    });
   });
   return getOne({ tenantId, id });
 }
@@ -787,62 +845,70 @@ export async function sign({
   );
   assertSignable(gateSections);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE discharge_summaries
-        SET status = 'signed', signed_by = $1::uuid,
-            signed_by_name = $2, signed_by_reg = $3, signed_at = NOW(),
-            updated_at = NOW()
-      WHERE id = $4::int AND tenant_id = $5::uuid
-        AND status IN ('draft', 'ready_for_signoff')
-      RETURNING id, admission_id, patient_uid, signed_at`,
-    signed_by ? String(signed_by) : null,
-    String(signed_by_name),
-    signed_by_reg || null,
-    Number(id), tenantId,
-  );
-  if (!rows.length) {
-    throw AppError.badRequest(
-      'Discharge summary already signed or in an invalid state for signing',
+  // Atomic sign (canonical timeline invariant + audit 2026-06-18 §4): the status
+  // flip, the legacy audit row, the canonical timeline/audit events, AND the
+  // admission summary_signed_at stamp all commit together (previously the flip,
+  // the stamp, and the med materialisation ran as separate non-transactional
+  // statements). setTenantTx scopes the writes under the discharge_summaries +
+  // admissions RLS policies. The e_prescriptions med materialisation stays
+  // POST-COMMIT best-effort (idempotent, patient-app convenience) — an
+  // e_prescriptions hiccup must not roll back a legally-signed discharge.
+  const signed = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `UPDATE discharge_summaries
+          SET status = 'signed', signed_by = $1::uuid,
+              signed_by_name = $2, signed_by_reg = $3, signed_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $4::int AND tenant_id = $5::uuid
+          AND status IN ('draft', 'ready_for_signoff')
+        RETURNING id, admission_id, patient_uid, signed_at, status`,
+      signed_by ? String(signed_by) : null,
+      String(signed_by_name),
+      signed_by_reg || null,
+      Number(id), tenantId,
     );
-  }
+    if (!rows.length) {
+      throw AppError.badRequest(
+        'Discharge summary already signed or in an invalid state for signing',
+      );
+    }
+    const row = rows[0];
+    await appendDischargeAudit({
+      tenantId, id, db: tx,
+      action: 'DISCHARGE_SUMMARY_SIGNED',
+      actorUid: signed_by,
+      metadata: {
+        admission_id: row.admission_id || null,
+        patient_uid: row.patient_uid || null,
+        signed_by_name: signed_by_name || null,
+        signed_by_reg: signed_by_reg || null,
+        signed_at: row.signed_at || null,
+      },
+    });
+    await emitDischargeCanonicalEvent({
+      db: tx, tenantId, id, patientUid: row.patient_uid,
+      admissionId: row.admission_id,
+      eventType: 'discharge_summary.signed', eventStatus: 'signed',
+      actorUid: signed_by,
+      summary: `Discharge summary signed by ${signed_by_name}`,
+      payload: { signed_by_name: signed_by_name || null, signed_by_reg: signed_by_reg || null },
+    });
 
-  const signed = rows[0];
-  await appendDischargeAudit({
-    tenantId,
-    id,
-    action: 'DISCHARGE_SUMMARY_SIGNED',
-    actorUid: signed_by,
-    metadata: {
-      admission_id: signed.admission_id || null,
-      patient_uid: signed.patient_uid || null,
-      signed_by_name: signed_by_name || null,
-      signed_by_reg: signed_by_reg || null,
-      signed_at: signed.signed_at || null,
-    },
-  });
-
-  // Denormalise summary_signed_at onto the admission row so the
-  // patient-side discharge-PDF gate (clinicalPdfGenerator
-  // .getOrGenerateDischargePdfUrl) and the cascade-readiness check
-  // can both read it without re-joining discharge_summaries. The
-  // dischargeSummaryGenerator (clinical_notes path) does the same;
-  // until this point the discharge_summaries path silently skipped
-  // it and the patient PDF endpoint returned 409 forever. Finding:
-  // 2026-05-09-tpa-insurance-claim-patient-discharge-pdf-blocked.
-  if (signed.admission_id) {
-    try {
-      await prisma.$executeRawUnsafe(
+    // Denormalise summary_signed_at onto the admission row so the patient-side
+    // discharge-PDF gate (clinicalPdfGenerator.getOrGenerateDischargePdfUrl)
+    // and the cascade-readiness check can both read it without re-joining
+    // discharge_summaries. Now in-tx with the sign (was best-effort + outside).
+    // Finding: 2026-05-09-tpa-insurance-claim-patient-discharge-pdf-blocked.
+    if (row.admission_id) {
+      await tx.$executeRawUnsafe(
         `UPDATE admissions
             SET summary_signed_at = $1, updated_at = NOW()
           WHERE id = $2::int`,
-        signed.signed_at, Number(signed.admission_id),
-      );
-    } catch (e) {
-      logger.warn(
-        `dischargeService.sign: failed to stamp summary_signed_at on admission ${signed.admission_id}: ${e.message}`,
+        row.signed_at, Number(row.admission_id),
       );
     }
-  }
+    return row;
+  });
 
   // Materialise discharge medications as an e_prescriptions row so the
   // patient app's Rx tab surfaces them. Best-effort: signing must not
@@ -1030,29 +1096,43 @@ export async function markDelivered({
       `delivery_method must be one of: ${allowed.join(', ')}`,
     );
   }
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE discharge_summaries
-        SET status = 'delivered', delivered_at = NOW(),
-            delivery_method = $1, updated_at = NOW()
-      WHERE id = $2::int AND tenant_id = $3::uuid AND status = 'signed'
-      RETURNING id, admission_id, patient_uid, primary_diagnosis`,
-    delivery_method, Number(id), tenantId,
-  );
-  if (!rows.length) {
-    throw AppError.badRequest(
-      'Discharge summary must be signed before it can be marked delivered',
+  // Atomic: status flip + legacy audit + canonical timeline/audit events commit
+  // together (canonical timeline invariant), scoped under the discharge_summaries
+  // RLS policy. The SMS-intent queue stays POST-COMMIT best-effort below.
+  const rows = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const updated = await tx.$queryRawUnsafe(
+      `UPDATE discharge_summaries
+          SET status = 'delivered', delivered_at = NOW(),
+              delivery_method = $1, updated_at = NOW()
+        WHERE id = $2::int AND tenant_id = $3::uuid AND status = 'signed'
+        RETURNING id, admission_id, patient_uid, primary_diagnosis`,
+      delivery_method, Number(id), tenantId,
     );
-  }
-  await appendDischargeAudit({
-    tenantId,
-    id,
-    action: 'DISCHARGE_SUMMARY_DELIVERED',
-    actorUid: delivered_by,
-    metadata: {
-      admission_id: rows[0].admission_id || null,
-      patient_uid: rows[0].patient_uid || null,
-      delivery_method,
-    },
+    if (!updated.length) {
+      throw AppError.badRequest(
+        'Discharge summary must be signed before it can be marked delivered',
+      );
+    }
+    const summary = updated[0];
+    await appendDischargeAudit({
+      tenantId, id, db: tx,
+      action: 'DISCHARGE_SUMMARY_DELIVERED',
+      actorUid: delivered_by,
+      metadata: {
+        admission_id: summary.admission_id || null,
+        patient_uid: summary.patient_uid || null,
+        delivery_method,
+      },
+    });
+    await emitDischargeCanonicalEvent({
+      db: tx, tenantId, id, patientUid: summary.patient_uid,
+      admissionId: summary.admission_id,
+      eventType: 'discharge_summary.delivered', eventStatus: 'delivered',
+      previousStatus: 'signed', actorUid: delivered_by,
+      summary: `Discharge summary delivered (${delivery_method})`,
+      payload: { delivery_method },
+    });
+    return updated;
   });
 
   // SMS delivery: persist the intent to the notification outbox. No SMS

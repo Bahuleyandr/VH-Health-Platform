@@ -18,6 +18,7 @@
 import express from 'express';
 import multer from 'multer';
 
+import { validateFileContent } from '../../../middleware/uploadMiddleware.js';
 import { success } from '../../../utils/responseHelper.js';
 import {
   archiveKnowledgeBase,
@@ -78,6 +79,26 @@ const knowledgeUpload = multer({
     cb(null, true);
   },
 });
+
+// Declared MIME types the shared magic-byte validator (validateFileContent)
+// cannot positively recognise but the KB document pipeline legitimately
+// supports. These are text-based formats with no fixed binary signature; they
+// are still prompt-injection scanned downstream in knowledgeDocumentService.
+// `text/*` and `application/fhir+json` already pass the shared validator's
+// relaxed allowance, so only bare `application/json` needs the skip here.
+const KB_MAGIC_BYTE_EXEMPT_MIME_TYPES = new Set(['application/json']);
+
+// Magic-byte content validation for KB document uploads. Delegates to the
+// shared validateFileContent so a spoofed binary (e.g. an executable renamed
+// .pdf with an application/pdf Content-Type) is rejected before the text/OCR
+// pipeline runs. The shared validator only knows binary signatures + a relaxed
+// text family, so we exempt the JSON type it cannot fingerprint to avoid
+// rejecting a documented, supported upload format.
+function validateKnowledgeUploadContent(req, res, next) {
+  const declaredMime = String(req.file?.mimetype || '').toLowerCase().split(';')[0].trim();
+  if (KB_MAGIC_BYTE_EXEMPT_MIME_TYPES.has(declaredMime)) return next();
+  return validateFileContent(req, res, next);
+}
 
 const router = express.Router();
 
@@ -307,6 +328,7 @@ router.post(
       return next();
     });
   },
+  validateKnowledgeUploadContent,
   async (req, res, next) => {
     try {
       const result = await uploadDocument({

@@ -9,8 +9,11 @@
 //   * the surface keeps working even when the Prisma singleton is mocked to
 //     throw on every call (i.e. the DB is "down").
 //
-// The route is mounted BEFORE validateApiKey/jwtAuth, and in NODE_ENV=test the
-// production monitoring-token gate is a no-op, so requests need no auth here.
+// The route is mounted BEFORE validateApiKey/jwtAuth, but the monitoring-token
+// gate now fails CLOSED in every env (audit 2026-06-18 §4 Observability) — the
+// old NODE_ENV !== 'production' bypass was the vulnerability. So requests carry
+// an x-monitoring-token (the same pattern the k8s probes use). The DB-down
+// proof is unaffected: the gate is auth-only and touches no DB.
 
 import { jest } from '@jest/globals';
 import fs from 'fs';
@@ -47,6 +50,7 @@ jest.unstable_mockModule('../lib/prisma.js', () => ({
 
 const WARD_ID = 4242;
 const FIXTURE_HTML = '<!DOCTYPE html><html><body><h1>DOWNTIME PACK — STATIC FIXTURE WARD</h1></body></html>';
+const MONITORING_TOKEN = 'test-monitoring-token';
 
 let app;
 let mirrorDir;
@@ -54,6 +58,9 @@ let mirrorDir;
 beforeAll(async () => {
   mirrorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vhhealth-downtime-mirror-test-'));
   process.env.DOWNTIME_MIRROR_DIR = mirrorDir;
+  // Monitoring gate now fails closed off-prod too — supply a token for the
+  // mounted /downtime/static gate (set BEFORE app.js is imported below).
+  process.env.MONITORING_TOKEN = MONITORING_TOKEN;
   // Drop a fixture ward pack + an index — NO Prisma involved.
   fs.writeFileSync(path.join(mirrorDir, `ward-${WARD_ID}.html`), FIXTURE_HTML, 'utf8');
   fs.writeFileSync(
@@ -67,26 +74,33 @@ beforeAll(async () => {
 afterAll(() => {
   try { fs.rmSync(mirrorDir, { recursive: true, force: true }); } catch { /* ignore */ }
   delete process.env.DOWNTIME_MIRROR_DIR;
+  delete process.env.MONITORING_TOKEN;
 });
 
 describe('DB-free static downtime mirror (roadmap B2.5)', () => {
   it('serves a mirrored ward pack straight off disk (no Prisma)', async () => {
-    const res = await request(app).get(`/downtime/static/wards/${WARD_ID}`);
+    const res = await request(app).get(`/downtime/static/wards/${WARD_ID}`).set('x-monitoring-token', MONITORING_TOKEN);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.text).toContain('STATIC FIXTURE WARD');
   });
 
+  it('fails closed (401) without a monitoring token', async () => {
+    const res = await request(app).get(`/downtime/static/wards/${WARD_ID}`);
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('code', 'MONITORING_AUTH_REQUIRED');
+  });
+
   it('serves the mirror index off disk', async () => {
-    const res = await request(app).get('/downtime/static');
+    const res = await request(app).get('/downtime/static').set('x-monitoring-token', MONITORING_TOKEN);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.text).toContain('DOWNTIME WARD PACKS');
   });
 
   it('returns 200 + paper-fallback HTML for a ward with no mirrored pack', async () => {
-    const res = await request(app).get('/downtime/static/wards/999999');
+    const res = await request(app).get('/downtime/static/wards/999999').set('x-monitoring-token', MONITORING_TOKEN);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.headers['cache-control']).toBe('no-store');
@@ -95,7 +109,7 @@ describe('DB-free static downtime mirror (roadmap B2.5)', () => {
   });
 
   it('accepts a UUID ward id shape (fallback when absent, never 404/500)', async () => {
-    const res = await request(app).get('/downtime/static/wards/11111111-2222-3333-4444-555555555555');
+    const res = await request(app).get('/downtime/static/wards/11111111-2222-3333-4444-555555555555').set('x-monitoring-token', MONITORING_TOKEN);
     expect(res.status).toBe(200);
     expect(res.text).toContain('paper downtime forms');
   });
@@ -112,7 +126,7 @@ describe('DB-free static downtime mirror (roadmap B2.5)', () => {
         '/downtime/static/wards/%2e%2e%2f%2e%2e%2fpackage',
       ];
       for (const url of attempts) {
-        const res = await request(app).get(url);
+        const res = await request(app).get(url).set('x-monitoring-token', MONITORING_TOKEN);
         // Either a 200 fallback (handler reached, id rejected) or a 404 from the
         // router not matching — NEVER the secret content, NEVER a 500.
         expect([200, 404]).toContain(res.status);
@@ -128,7 +142,7 @@ describe('DB-free static downtime mirror (roadmap B2.5)', () => {
     const prismaMod = await import('../lib/prisma.js');
     await expect(prismaMod.default.$queryRaw`SELECT 1`).rejects.toThrow('DB is down (test)');
     // Yet the static surface still serves the pack.
-    const res = await request(app).get(`/downtime/static/wards/${WARD_ID}`);
+    const res = await request(app).get(`/downtime/static/wards/${WARD_ID}`).set('x-monitoring-token', MONITORING_TOKEN);
     expect(res.status).toBe(200);
     expect(res.text).toContain('STATIC FIXTURE WARD');
   });

@@ -246,12 +246,51 @@ async function runCDSChecks(patientUid, orderType, details) {
       result.safe = result.blockers.length === 0;
     }
   } catch (err) {
-    // CDS check failure should not block order creation — log and continue
-    logger.warn(`CDS check failed for patient=${patientUid}, orderType=${orderType}: ${err.message}`);
-    result.warnings.push('CDS safety check could not be completed');
+    // Fail CLOSED for MEDICATION orders (audit 2026-06-18 §4). Previously a CDS
+    // exception was downgraded to a soft warning and the order was created with
+    // safety screening silently skipped — a medication could be ordered with no
+    // allergy / interaction / dosing check having run. This now mirrors the
+    // fail-CLOSED prescription path (prescriptionSafetyCheck.validatePrescriptionSafety):
+    // a screening failure pushes a SAFETY_CHECK_ERROR blocker so createOrder /
+    // createOrdersBulk reject with CDS_BLOCKER. The override path remains
+    // available — callers can pass `override: { reason }` to record an explicit
+    // clinician override (manual review cleared the patient) instead of a silent skip.
+    // Non-medication order types carry no medication safety screen, so a fault
+    // there stays a non-blocking warning.
+    logger.error(`CDS check failed for patient=${patientUid}, orderType=${orderType}: ${err.message}`);
+    if (orderType === 'medication') {
+      result.cdsError = true;
+      result.blockers.push({
+        type: 'SAFETY_CHECK_ERROR',
+        message: 'Automated medication safety check failed — manual review and override required before ordering.',
+      });
+      result.safe = false;
+    } else {
+      result.warnings.push('CDS safety check could not be completed');
+    }
   }
 
   return result;
+}
+
+// A CDS result is overridable here ONLY when its block came purely from a
+// CDS EXCEPTION (the automated screen could not run — `cdsError`) and every
+// blocker is the SAFETY_CHECK_ERROR sentinel. Genuine deterministic blockers
+// (allergy conflict, paediatric dosing, interaction) are NOT overridable through
+// this path — they keep their hard block and their own CDS-modal override flow.
+function cdsBlockIsOverridable(cdsResult) {
+  if (!cdsResult?.cdsError || !Array.isArray(cdsResult.blockers) || cdsResult.blockers.length === 0) {
+    return false;
+  }
+  return cdsResult.blockers.every((b) => (typeof b === 'object' && b ? b.type : null) === 'SAFETY_CHECK_ERROR');
+}
+
+// Resolve a non-empty override reason from the caller payload (data.override.reason
+// or data.override_reason). Returns the trimmed reason or null.
+function overrideReasonOf(data) {
+  const raw = data?.override?.reason ?? data?.override_reason ?? null;
+  const reason = typeof raw === 'string' ? raw.trim() : '';
+  return reason || null;
 }
 
 /**
@@ -343,6 +382,7 @@ async function recordCanonicalOrderEvent({
   beforeState = null,
   afterState = null,
   safety = null,
+  override = null,
 } = {}) {
   if (!order?.id) return null;
   const status = eventStatus || order.status || null;
@@ -357,6 +397,11 @@ async function recordCanonicalOrderEvent({
       encounterId: order.encounter_id,
       clinicalOrderId: order.id,
       safety,
+      // When a CDS-exception blocker was overridden, thread the reason so the
+      // safety-review row records status 'overridden' (audit trail) instead of
+      // a silent skip. recordMedicationSafetyReviews marks the blocked finding
+      // 'overridden' when an override reason is present.
+      override: override?.reason ? { reason: override.reason, approvedBy: actorUid || order.ordered_by } : null,
       actorUid: actorUid || order.ordered_by,
     }, { db: tx });
   }
@@ -592,7 +637,14 @@ export async function createOrder(data) {
   // structured array as `details` so the staff-app CDS modal can show
   // per-blocker context + the override flow.
   const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details);
-  if (cdsResult.blockers.length > 0) {
+  // Fail-closed CDS-exception override (audit 2026-06-18 §4): when the only
+  // block is that the automated medication screen could not run, an explicit
+  // override-with-reason lets the order through and is recorded on a
+  // medication_safety_reviews row (status 'overridden'). Genuine deterministic
+  // blockers are not overridable here.
+  const cdsOverrideReason = overrideReasonOf(data);
+  const overrideApplied = cdsBlockIsOverridable(cdsResult) && !!cdsOverrideReason;
+  if (cdsResult.blockers.length > 0 && !overrideApplied) {
     throw AppError.badRequest(
       `Order blocked by safety checks: ${cdsResult.blockers.map(renderBlocker).join('; ')}`,
       'CDS_BLOCKER',
@@ -638,6 +690,7 @@ export async function createOrder(data) {
       actorUid: n.ordered_by,
       afterState: { status: row.status },
       safety: cdsResult,
+      override: overrideApplied ? { reason: cdsOverrideReason } : null,
     });
     return row;
   });
@@ -700,14 +753,24 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
       throw AppError.badRequest(`Order #${i + 1}: ${err.message}`, err.code, err.details);
     }
     const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details);
-    if (cdsResult.blockers.length > 0) {
+    // Fail-closed CDS-exception override (audit 2026-06-18 §4): same per-item
+    // override-with-reason path as createOrder. A genuine blocker (or a missing
+    // reason) still aborts the whole batch.
+    const itemOverrideReason = overrideReasonOf(items[i]);
+    const itemOverrideApplied = cdsBlockIsOverridable(cdsResult) && !!itemOverrideReason;
+    if (cdsResult.blockers.length > 0 && !itemOverrideApplied) {
       throw AppError.badRequest(
         `Order #${i + 1} blocked by safety checks: ${cdsResult.blockers.map(renderBlocker).join('; ')}`,
         'CDS_BLOCKER',
         { order_index: i, blockers: cdsResult.blockers, warnings: cdsResult.warnings },
       );
     }
-    prepared.push({ normalized, cds_warnings: cdsResult.warnings });
+    prepared.push({
+      normalized,
+      cds_warnings: cdsResult.warnings,
+      cds_blockers: itemOverrideApplied ? cdsResult.blockers : [],
+      override: itemOverrideApplied ? { reason: itemOverrideReason } : null,
+    });
   }
 
   // One DB read seeds the whole batch's order numbers.
@@ -755,8 +818,13 @@ export async function createOrdersBulk(items, { ordered_by, tenantId = null } = 
         payload: { bulk_order_count: prepared.length },
         afterState: { status: row.status },
         safety: row.order_type === 'medication'
-          ? { safe: true, warnings: prepared[i].cds_warnings || [], blockers: [] }
+          ? {
+            safe: (prepared[i].cds_blockers || []).length === 0,
+            warnings: prepared[i].cds_warnings || [],
+            blockers: prepared[i].cds_blockers || [],
+          }
           : null,
+        override: prepared[i].override,
       });
       rows.push(row);
     }

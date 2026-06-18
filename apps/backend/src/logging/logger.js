@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createLogger, format, transports } from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import phiRedactionFormat from './phiRedactionFormat.js';
+import { redactSensitiveQueryParams } from '../utils/urlRedaction.js';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);
@@ -136,7 +137,26 @@ logger.stream = {
   }
 };
 
-// Preconfigured morgan middleware
+// Morgan access-log URL redaction (audit 2026-06-18 §4 Observability).
+// Morgan's stock `combined` format logs the raw `:url` — including the query
+// string — so opaque secret params (?api_key=, ?token=, ?access_token=,
+// ?idToken=) leaked into the HTTP access log. phiRedactionFormat scrubs
+// phone/email/MRN/JWT shapes but NOT opaque key=value secrets, so we redact
+// the URL at the morgan-token layer before the line is ever formatted. The
+// endpoint contract is unchanged; only the LOGGED url is scrubbed.
+function morganSafeUrlToken(req) {
+  const raw = req.originalUrl || req.url || '';
+  return redactSensitiveQueryParams(raw);
+}
+// Override morgan's built-in `url` token so EVERY morgan format (incl.
+// `combined`) emits the redacted URL.
+morgan.token('url', morganSafeUrlToken);
+
+// Preconfigured morgan middleware. `combined` now resolves `:url` through the
+// redacting token above.
 logger.morganMiddleware = morgan('combined', { stream: logger.stream });
+
+// Exposed for unit tests / reuse (audit regression guard).
+logger.morganSafeUrlToken = morganSafeUrlToken;
 
 export default logger;

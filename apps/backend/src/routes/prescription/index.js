@@ -6,6 +6,7 @@ import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrd
 import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
+import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
 
 const router = express.Router();
@@ -37,6 +38,11 @@ wrapAutoRBAC(router, 'ePrescriptionCreateRoutes', {
         requireIdempotencyKey({ required: false, scope: 'prescription_create' }),
         rejectMobileClinicalWrite,
         upload.single('handwritten_photo'),
+        // Magic-byte content check: the multer fileFilter above only inspects
+        // the declared Content-Type, so a spoofed file (e.g. a script renamed
+        // .jpg with an image/jpeg MIME) would otherwise reach R2. Run after
+        // multer so the buffer is available, before the handler uploads it.
+        validateFileContent,
       ],
       ePrescriptionController.createPrescription],
     ['/safety-check', [], ePrescriptionController.previewSafetyCheck]

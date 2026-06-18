@@ -21,7 +21,10 @@ const phiRedactionFormat = format((info) => {
       continue;
     }
     try {
-      info[key] = scrubPhiDeep(info[key]);
+      // Pass the owning key so key-aware redaction fires at the TOP level too
+      // (e.g. logger.info('x', { mrn: '...' }) — the value alone has no
+      // adjacent label for the value regex to catch).
+      info[key] = scrubPhiDeep(info[key], 0, new WeakSet(), key);
     } catch {
       // Never let redaction break logging — leave the field as-is.
     }
