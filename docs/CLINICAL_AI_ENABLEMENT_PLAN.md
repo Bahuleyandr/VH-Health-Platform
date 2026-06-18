@@ -159,6 +159,15 @@ enablement audit. Treat silent `template_fallback` as a blocking failure.
    `retrieveFromKnowledgeBases` in the generation path for `antimicrobial_stewardship`,
    `pathway_bundle_compliance`, `medication_reconciliation`, `op_investigation_review`,
    `op_follow_up_plan`. Converts the entire B5.5 curated-KB investment from dark to live.
+   > ✅ **DONE (verified 2026-06-18; shipped earlier in `f8cd10a7` + WS5 B5.5).** All 5
+   > modules ground via `knowledgeGroundingService.groundWithKnowledgeBases`: direct calls in
+   > `antimicrobialStewardshipService`/`pathwayBundleComplianceService`, the admission
+   > workflow-graph `kb_grounding` node (`medication_reconciliation`), and `runExplainerPipeline`
+   > (`op_investigation_review`/`op_follow_up_plan`). Each declares `settings.knowledgeBases`;
+   > grounding is additive + curation-gated (`curation_status='approved'`) + citation-fail-close
+   > on base chart citations. Tests: `knowledgeGroundingService.test.js`,
+   > `clinicalAiKnowledgeGrounding*.test.js`, `clinicalAiWorkflowKbGroundingNode.test.js`. Live
+   > value still pending the Ollama embedder (`CLINICAL_AI_EMBED_URL`) + approved KB data (ops).
 2. **Ambient scribe** *(~2–3 wk)* — whole-consultation audio → structured note (diarization/
    STT/consent substrate already exists; net-new = capture UX + audio-retention governance).
 3. **Revenue-cycle automation loop** *(~2 wk after payer master)* — coding → denial → appeal →
