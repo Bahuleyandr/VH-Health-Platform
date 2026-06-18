@@ -45,7 +45,7 @@ import express from 'express';
 import { success, error } from '../../../utils/responseHelper.js';
 import prisma from '../../../lib/prisma.js';
 import { AppError } from '../../../utils/AppError.js';
-import { phiAccessLogger, patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
+import { phiAccessLogger, patientAccessGuard, patientAccessGuardForResource } from '../../../middleware/phiAccessMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../../services/security/accessDecisionService.js';
 import { logClinicalAiAudit } from './audit.js';
 import { requireClinicalAiUse, normalizeRole } from './shared.js';
@@ -234,7 +234,20 @@ router.post('/admission-ai-draft', async (req, res, next) => {
 // route-level phiAccessLogger('EHR_QUERY') (which reads patient_uid from the
 // body) record the patient the clinician queried.
 // ---------------------------------------------------------------------------
-router.post('/ehr-query', phiAccessLogger('EHR_QUERY'), async (req, res, next) => {
+router.post(
+  '/ehr-query',
+  // Direct patient guard (#2): the route takes a caller-asserted patient_uid and
+  // answerEhrQuery loads that patient's full timeline + admission packet —
+  // without this, any clinical-role caller could read ANY patient's chart by
+  // asserting the uid. patientAccessGuard resolves patient_uid from the body;
+  // care-team-mode-governed (shadow today, 403 at GO_LIVE). The hard
+  // tenant-scoping is threaded into the service loads.
+  patientAccessGuard('PATIENT_RECORD', {
+    policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
+    careTeamModeGoverned: true,
+  }),
+  phiAccessLogger('EHR_QUERY'),
+  async (req, res, next) => {
   try {
     const patientUid = req.body?.patient_uid;
     const question = req.body?.question;
@@ -631,7 +644,16 @@ router.post('/radiology-patient-explanations', guardRadiologyExplainer, async (r
   } catch (err) { return next(err); }
 });
 
-router.post('/patient-report-explanations', async (req, res, next) => {
+router.post(
+  '/patient-report-explanations',
+  // Parity with the admin-plane guard (#2/#7a): the report explainer takes a
+  // caller-asserted patient_uid; the shared generatePatientReportExplanation
+  // service additionally tenant-scopes + existence-checks it (load-bearing).
+  patientAccessGuard('PATIENT_RECORD', {
+    policyCode: ACCESS_POLICY_CODES.PATIENT_RECORD_VIEW,
+    careTeamModeGoverned: true,
+  }),
+  async (req, res, next) => {
   try {
     const result = await generatePatientReportExplanation({
       tenantId: req.tenantId,

@@ -302,7 +302,7 @@ async function answerEhrQuery({
 
   // CURRENT ADMISSION packet — only when in-scope and an admission exists.
   const cur = (scope !== 'history' && admId)
-    ? await collectAdmissionClinicalContext(admId)
+    ? await collectAdmissionClinicalContext(admId, tenantId)
     : null;
 
   // Attach the packet's own 1:1 citations onto its timeline events by zipping
@@ -325,7 +325,7 @@ async function answerEhrQuery({
   const histTo = cur?.context_window_from ?? (dateTo || null);
 
   const rawHistory = (scope !== 'current_admission')
-    ? await getPatientTimeline(patientUid, { dateFrom: histFrom, dateTo: histTo, limit: HISTORY_LIMIT })
+    ? await getPatientTimeline(patientUid, { dateFrom: histFrom, dateTo: histTo, limit: HISTORY_LIMIT, tenantId })
     : [];
 
   // History events carry no citation of their own; derive via the canonical
