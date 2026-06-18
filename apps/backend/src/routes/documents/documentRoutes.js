@@ -11,6 +11,10 @@ import {
   deriveTenantIdFromRequest,
   patientAccessErrorPayload,
 } from '../../services/security/accessDecisionService.js';
+import {
+  CARE_TEAM_ENFORCEMENT_MODES,
+  resolveEnforcementModeForRequest,
+} from '../../services/security/careTeamEnforcement.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success } from '../../utils/responseHelper.js';
@@ -24,14 +28,20 @@ function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
+// Care-team-governed (GO_LIVE): shadow by default (audit-only, never blocks),
+// real 403 only once the tenant flips care_team_enforcement_mode to 'enforce'.
+// Brings the clinical-document exports under the same per-tenant care-team ABAC
+// rollout as the FHIR / nursing-assessments / encounters mounts. Audit finding #5.
 const guardPatientDocumentExport = patientAccessGuard('CLINICAL_DOCUMENT', {
   requirePatientContext: true,
+  careTeamModeGoverned: true,
 });
 
 const guardDischargeSummaryExport = patientAccessGuardForResource('CLINICAL_DOCUMENT', {
   policyCode: ACCESS_POLICY_CODES.PATIENT_ADMISSION_VIEW,
   resourceType: 'admission',
   idParam: 'admissionId',
+  careTeamModeGoverned: true,
 });
 
 async function resolveInvestigationPatient(req) {
@@ -58,14 +68,22 @@ async function resolveInvestigationPatient(req) {
 }
 
 async function guardLabReportExport(req, res, next) {
+  const investigationId = Number.parseInt(req.params.investigationId, 10);
+  if (!Number.isInteger(investigationId) || investigationId <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'investigationId must be a positive integer',
+    });
+  }
+
+  // Care-team-governed (GO_LIVE), matching the other document export guards.
+  // `shadow` defaults to true so any failure resolving the mode fails OPEN.
+  let shadow = true;
   try {
-    const investigationId = Number.parseInt(req.params.investigationId, 10);
-    if (!Number.isInteger(investigationId) || investigationId <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'investigationId must be a positive integer',
-      });
-    }
+    const mode = await resolveEnforcementModeForRequest(req);
+    if (mode === CARE_TEAM_ENFORCEMENT_MODES.OFF) return next();
+    shadow = mode === CARE_TEAM_ENFORCEMENT_MODES.SHADOW;
+
     const patient = await resolveInvestigationPatient(req);
     const decision = await authorizePatientAccessRequest(req, {
       recordType: 'CLINICAL_DOCUMENT',
@@ -75,13 +93,25 @@ async function guardLabReportExport(req, res, next) {
         resourceId: req.params.investigationId,
       },
       requireResolvedPatient: true,
+      shadowMode: shadow,
     });
 
-    if (!decision.allowed) {
+    // Shadow coerces a would-be denial to allowed:true (after writing the deny
+    // audit row); a still-false decision only blocks in enforce mode. Shadow
+    // must NEVER block — including the requireResolvedPatient unresolved deny.
+    if (!shadow && !decision.allowed) {
       return res.status(403).json(patientAccessErrorPayload(decision));
     }
     return next();
   } catch (err) {
+    // Non-breaking guarantee: shadow fails OPEN; enforce keeps fail-closed 500.
+    if (shadow) {
+      logger.error('SECURITY ALERT: lab report patient access guard failed OPEN in shadow mode (allowing request)', {
+        path: req.originalUrl || req.url,
+        error: err?.message,
+      });
+      return next();
+    }
     logger.error('Lab report patient access guard failed:', err);
     return res.status(500).json({
       success: false,

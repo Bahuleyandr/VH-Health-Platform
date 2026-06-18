@@ -31,10 +31,6 @@ import {
   buildEncounterDischargeAlerts,
   buildEncounterStartAlerts,
 } from '../../services/cds/encounterCdsHelper.js';
-import {
-  authorizePatientAccessRequest,
-  patientAccessErrorPayload,
-} from '../../services/security/accessDecisionService.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -44,26 +40,13 @@ router.get('/', (_req, res) => {
   return res.json(buildDiscoveryResponse());
 });
 
-async function authorizeCdsPatientContext(req, res, patientUid) {
-  if (!patientUid) return true;
-
-  const decision = await authorizePatientAccessRequest(req, {
-    recordType: 'CDS_HOOKS',
-    patient: { uid: patientUid },
-    resourceContext: {
-      resourceType: 'cds_hooks_patient_context',
-      resourceId: patientUid,
-    },
-    requireResolvedPatient: true,
-  });
-
-  if (!decision.allowed) {
-    res.status(403).json(patientAccessErrorPayload(decision));
-    return false;
-  }
-  return true;
-}
-
+// Patient care-team ABAC is enforced at the mount, not here: app.js wires
+// cdsPatientContext (bridges context.patientId/patient → req.phiContext) +
+// patientAccessGuard('CDS_HOOKS', { careTeamModeGoverned: true }) ahead of this
+// router, so the access decision + shadow audit run uniformly with the other
+// PHI mounts and participate in the per-tenant shadow→enforce rollout. (The
+// former in-route authorizeCdsPatientContext enforce check was removed: it
+// duplicated that decision and hard-blocked regardless of tenant mode.)
 router.post('/:id', async (req, res, next) => {
   try {
     const service = findServiceById(req.params.id);
@@ -79,7 +62,6 @@ router.post('/:id', async (req, res, next) => {
     const context = body.context || {};
     const patientUid = extractPatientUid(context);
     const encounterId = extractEncounterId(context);
-    if (!(await authorizeCdsPatientContext(req, res, patientUid))) return;
 
     let alerts = [];
     switch (service.hook) {
