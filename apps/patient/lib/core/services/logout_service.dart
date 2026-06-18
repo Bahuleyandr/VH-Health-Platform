@@ -77,9 +77,11 @@ class LogoutService {
       debugPrint('LogoutService: temp/staging purge failed: $e');
     }
 
-    // 7. Clear cycle/period/fertility data — stored as plaintext in
-    //    SharedPreferences, must not survive for the next user on a
-    //    shared device.
+    // 7. Clear cycle/period/fertility data — PHI now stored encrypted-at-rest
+    //    in VHSecureStorage (step 3's deleteAll already wipes it; this is
+    //    defense-in-depth AND sweeps up any legacy plaintext SharedPreferences
+    //    keys from pre-migration installs). Must not survive for the next user
+    //    on a shared device.
     try {
       await CycleTrackerStore.clearAll();
     } catch (e) {
