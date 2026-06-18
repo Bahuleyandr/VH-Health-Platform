@@ -343,6 +343,7 @@ describe('billing v2 front-office audit logging', () => {
 
     const response = await request(makeApp())
       .post('/payments')
+      .set('Idempotency-Key', `fo-test-pay-90-${Date.now()}-${Math.random()}`)
       .send({
         invoice_id: 77,
         amount: 500,
@@ -406,9 +407,11 @@ describe('billing v2 front-office audit logging', () => {
       .send({ reason: 'Wrong invoice' });
     const advanceResponse = await request(staffApp)
       .post('/advances')
+      .set('Idempotency-Key', `fo-test-adv-15-${Date.now()}-${Math.random()}`)
       .send({ patient_uid: PATIENT_UID, admission_id: 44, amount: 2500, mode: 'UPI', reference: 'UPI-15' });
     const settleResponse = await request(staffApp)
       .post('/advances/15/settle')
+      .set('Idempotency-Key', `fo-test-settle-16-${Date.now()}-${Math.random()}`)
       .send({ invoice_id: 77, amount: 1000 });
 
     expect(reverseResponse.status).toBe(200);
@@ -492,6 +495,7 @@ describe('billing v2 front-office audit logging', () => {
     const approveResponse = await request(adminApp).post('/refunds/21/approve').send({});
     const payResponse = await request(staffApp)
       .post('/refunds/21/pay')
+      .set('Idempotency-Key', `fo-test-refundpay-21-${Date.now()}-${Math.random()}`)
       .send({ reference: 'UPI-REF-21' });
 
     expect(raiseResponse.status).toBe(200);
@@ -658,6 +662,7 @@ describe('billing v2 front-office audit logging', () => {
       .send({ channels: ['whatsapp', 'email'], patient_phone: '+919876543210', patient_email: 'patient@example.test' });
     const paidResponse = await request(app)
       .post('/payment-links/token-41/mark-paid')
+      .set('Idempotency-Key', `fo-test-link-41-${Date.now()}-${Math.random()}`)
       .send({ paid_via: 'upi', paid_reference: 'UPI-PAID-41' });
     const cancelResponse = await request(app)
       .post('/payment-links/token-42/cancel')
