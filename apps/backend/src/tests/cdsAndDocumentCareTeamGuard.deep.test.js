@@ -1,24 +1,25 @@
 // cdsAndDocumentCareTeamGuard.deep.test.js
 //
-// Audit finding #5 (companion to #4 / fhirCareTeamGuard.deep.test.js): two more
-// PHI mounts were tenant-filtered but not under the per-tenant care-team ABAC
-// rollout the way nursing-assessments / encounters / FHIR are:
+// Hard-enforce lock-in (#5). The #5 audit pass set out to add a care-team guard
+// to two PHI mounts that looked unguarded — but they were already ENFORCING
+// patient care-team ABAC (not merely tenant-filtered), so the decision was to
+// KEEP them hard-enforcing rather than fold them into the shadow rollout:
 //
-//   * /api/v1/cds-services — CDS Hooks; the patient lives in the POST body hook
-//     `context` (context.patientId / context.patient). A cdsPatientContext
-//     bridge lifts it onto req.phiContext so the governed mount guard can
-//     resolve it.
-//   * /api/v1/documents     — clinical document export; the patient is a
-//     :patientUid route param the generic resolver already reads. Its per-route
-//     export guards are now care-team-governed (shadow by default).
+//   * /api/v1/cds-services — CDS Hooks; cdsHooksRoutes' in-route
+//     authorizePatientAccessRequest (enforce + requireResolvedPatient) gates
+//     every invoke that carries a patient in the body hook context.
+//   * /api/v1/documents     — clinical document export; per-route enforce guards
+//     (guardPatientDocumentExport / guardDischargeSummaryExport /
+//     guardLabReportExport) gate each export by :patientUid or resource id.
 //
-// This proves the guard actually RESOLVES the patient and runs the access
-// decision in SHADOW mode — today it audits without blocking, and the GO_LIVE
-// per-tenant enforce flip then covers these mounts too. The airtight
-// non-cosmetic proof is the patient_access_audit_log row with
-// metadata.shadow_mode = true: it is only written once a patient is RESOLVED (a
-// cosmetic no_patient_context guard writes nothing). DB-backed — self-skips when
-// no test DB is configured.
+// A staff actor (DOCTOR) with NO care-team / referral / appointment / admission
+// / break-glass relationship to the patient must be BLOCKED with a real 403 —
+// and the block must be a genuine, patient-RESOLVED access decision, proven by a
+// patient_access_audit_log row with access_decision='deny' and
+// metadata.shadow_mode NOT true. This guards against a future refactor silently
+// downgrading either mount to shadow / pass-through (the enforce check is the
+// guarantee here, not just the tenant filter). DB-backed — self-skips when no
+// test DB is configured.
 
 import prisma from '../lib/prisma.js';
 
@@ -56,7 +57,7 @@ function metaOf(row) {
   return typeof m === 'string' ? JSON.parse(m) : (m || {});
 }
 
-d('CDS Hooks + clinical-document care-team guard parity (#5)', () => {
+d('CDS Hooks + clinical-document care-team guard (hard-enforce lock-in #5)', () => {
   beforeAll(async () => {
     await cleanup();
     const p = await prisma.$queryRawUnsafe(
@@ -81,21 +82,22 @@ d('CDS Hooks + clinical-document care-team guard parity (#5)', () => {
     ).catch(() => {});
   });
 
-  test('a CDS Hooks invoke (patient in body context) runs the ABAC in SHADOW and does not block', async () => {
+  test('a CDS Hooks invoke for an unrelated patient is BLOCKED (403) by the enforce guard', async () => {
     const res = await authClient('DOCTOR')
       .post('/api/v1/cds-services/vh-patient-view')
       .send({ hook: 'patient-view', context: { patientId: patientUid } });
 
-    // Shadow mode never blocks — CDS Hooks behaviour is unchanged today.
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.cards)).toBe(true);
+    // Hard enforce: a doctor with no relationship to this patient is denied.
+    expect(res.status).toBe(403);
 
-    // The guard RESOLVED the body-context patient (via the cdsPatientContext
-    // bridge) and ran the access decision — proof it is not a cosmetic
-    // no_patient_context pass-through.
+    // The block RESOLVED the body-context patient and recorded a real deny
+    // decision — proof it is genuine care-team ABAC enforcement, not a cosmetic
+    // pass-through (a no_patient_context guard would write nothing) and not
+    // shadow (which would have allowed + flagged shadow_mode).
     const row = await latestAuditRow();
     expect(row).not.toBeNull();
-    expect(metaOf(row).shadow_mode).toBe(true);
+    expect(row.access_decision).toBe('deny');
+    expect(metaOf(row).shadow_mode).not.toBe(true);
   });
 
   test('the CDS Hooks discovery endpoint carries no patient context and is not gated', async () => {
@@ -106,20 +108,15 @@ d('CDS Hooks + clinical-document care-team guard parity (#5)', () => {
     expect(await latestAuditRow()).toBeNull();
   });
 
-  test('a clinical-document export (/fhir-bundle/:patientUid) is audited in SHADOW and does not block', async () => {
+  test('a clinical-document export for an unrelated patient is BLOCKED (403) by the enforce guard', async () => {
     const res = await authClient('DOCTOR').get(`/api/v1/documents/fhir-bundle/${patientUid}`);
 
-    // Shadow mode never blocks: the request reaches the export handler instead
-    // of being turned away with a 403 by the care-team guard. The handler's own
-    // 2xx depends on downstream document-generation queries that are out of
-    // scope for this guard test (on a partial QA schema generatePatientBundle
-    // may 500) — a non-403 still proves the guard passed the request THROUGH
-    // rather than denying it. The shadow audit row below is the resolution proof.
-    expect(res.status).not.toBe(403);
+    // Hard enforce: blocked before the document is ever generated.
+    expect(res.status).toBe(403);
 
     const row = await latestAuditRow();
     expect(row).not.toBeNull();
-    expect(row.action).toBe('VIEW');
-    expect(metaOf(row).shadow_mode).toBe(true);
+    expect(row.access_decision).toBe('deny');
+    expect(metaOf(row).shadow_mode).not.toBe(true);
   });
 });
