@@ -173,6 +173,14 @@ const envSchema = Joi.object({
   // Signed public/integration callbacks. ABDM callbacks are public by mount
   // and HL7 inbound clinical writes intentionally sit before global JWT auth,
   // so production must fail closed if the HMAC secrets are not provisioned.
+  // Clinical AI operational alert sweep — advisory, flag-gated. Off by default.
+  // Enable in .env when the sweep is ready for a deployment.
+  CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',
