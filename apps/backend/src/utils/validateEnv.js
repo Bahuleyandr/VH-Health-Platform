@@ -181,6 +181,12 @@ const envSchema = Joi.object({
     .optional()
     .label('CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED'),
 
+  REVENUE_CYCLE_TRACKER_ENABLED: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('REVENUE_CYCLE_TRACKER_ENABLED'),
+
   ABDM_ENABLED: Joi.string().valid('true', 'false').default('false').label('ABDM_ENABLED'),
   ABDM_HIP_ID: Joi.when('ABDM_ENABLED', {
     is: 'true',
