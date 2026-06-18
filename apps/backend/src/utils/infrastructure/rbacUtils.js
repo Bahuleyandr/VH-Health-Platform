@@ -9,9 +9,22 @@ const PATIENT = 'PATIENT';
 // Role hierarchy configuration
 export const ROLE_HIERARCHY = getRbacRoleHierarchyFromPolicy();
 
-// Check if user can manage role
+// Check if user can manage (assign) a target role.
+//
+// SECURITY (#1 privilege-escalation guard): only a SUPER_ADMIN may assign the
+// SUPER_ADMIN role. Previously ADMIN returned true for ANY target — so an ADMIN
+// could promote any user (or themselves, or a PATIENT) to SUPER_ADMIN, the
+// RBAC-bypassing super-role. ADMIN retains management of every non-super-admin
+// role; everyone else is bounded by the role-policy hierarchy.
 export const canUserManageRole = (userRole, targetRole) => {
-  if ([SUPER_ADMIN, ADMIN].includes(userRole)) {
+  if (userRole === SUPER_ADMIN) {
+    return true;
+  }
+  // No one below SUPER_ADMIN may mint a SUPER_ADMIN.
+  if (targetRole === SUPER_ADMIN) {
+    return false;
+  }
+  if (userRole === ADMIN) {
     return true;
   }
   const roleData = ROLE_HIERARCHY[userRole];
@@ -41,8 +54,12 @@ export const checkRoleCapacity = async (role, _db) => {
 
 // Get manageable roles for user
 export const getManageableRoles = userRole => {
-  if ([SUPER_ADMIN, ADMIN].includes(userRole)) {
+  if (userRole === SUPER_ADMIN) {
     return Object.keys(ROLE_HIERARCHY);
+  }
+  // ADMIN manages every role EXCEPT SUPER_ADMIN (#1 privilege-escalation guard).
+  if (userRole === ADMIN) {
+    return Object.keys(ROLE_HIERARCHY).filter((r) => r !== SUPER_ADMIN);
   }
   return ROLE_HIERARCHY[userRole]?.canManageRoles || [];
 };
