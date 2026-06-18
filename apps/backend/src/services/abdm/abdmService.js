@@ -538,6 +538,42 @@ class ABDMService {
       throw AppError.forbidden('Consent has expired', 'CONSENT_EXPIRED');
     }
 
+    // Consent-scope clamp (#1): the request must NOT exceed the granted consent.
+    // Clamp the requested HI types to the grant's set and the requested date
+    // window to the grant's [from, to], so a misbehaving / over-broad HIU can
+    // never pull data types or a date range the patient never consented to. A
+    // request that omits a field inherits the grant value (unchanged); an
+    // out-of-scope request is narrowed to the consented intersection.
+    const grantedHiTypes = Array.isArray(consent.hi_types) ? consent.hi_types : [];
+    const requestedHiTypes = Array.isArray(hiTypes) && hiTypes.length > 0 ? hiTypes : null;
+    const effectiveHiTypes = requestedHiTypes
+      ? requestedHiTypes.filter((t) => grantedHiTypes.includes(t))
+      : grantedHiTypes;
+    if (requestedHiTypes && effectiveHiTypes.length === 0) {
+      throw AppError.forbidden(
+        'Requested HI types are outside the granted consent scope',
+        'ABDM_HITYPE_OUT_OF_SCOPE'
+      );
+    }
+
+    const grantFrom = consent.date_range_from ? new Date(consent.date_range_from) : null;
+    const grantTo = consent.date_range_to ? new Date(consent.date_range_to) : null;
+    const reqFrom = dateRange?.from ? new Date(dateRange.from) : null;
+    const reqTo = dateRange?.to ? new Date(dateRange.to) : null;
+    // Never start before the grant; never end after it.
+    const effectiveFrom = reqFrom && grantFrom
+      ? new Date(Math.max(reqFrom.getTime(), grantFrom.getTime()))
+      : (reqFrom || grantFrom);
+    const effectiveTo = reqTo && grantTo
+      ? new Date(Math.min(reqTo.getTime(), grantTo.getTime()))
+      : (reqTo || grantTo);
+    if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+      throw AppError.forbidden(
+        'Requested date range is outside the granted consent window',
+        'ABDM_DATERANGE_OUT_OF_SCOPE'
+      );
+    }
+
     // Create data request record
     const requestResult = await prisma.$queryRawUnsafe(
       `INSERT INTO abdm_data_requests
@@ -548,9 +584,9 @@ class ABDMService {
         transactionId,
         consentId,
         consent.patient_uid,
-        hiTypes || consent.hi_types || [],
-        dateRange?.from ? new Date(dateRange.from) : consent.date_range_from,
-        dateRange?.to ? new Date(dateRange.to) : consent.date_range_to,
+        effectiveHiTypes,
+        effectiveFrom,
+        effectiveTo,
         keyMaterial ? JSON.stringify(keyMaterial) : null,
         safeDataPushUrl,
 
@@ -561,9 +597,9 @@ class ABDMService {
       transactionId,
       consentId,
       consent.patient_uid,
-      hiTypes || consent.hi_types || [],
-      dateRange?.from || consent.date_range_from,
-      dateRange?.to || consent.date_range_to,
+      effectiveHiTypes,
+      effectiveFrom,
+      effectiveTo,
       keyMaterial,
       safeDataPushUrl
     ).catch((err) => {
