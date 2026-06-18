@@ -14,7 +14,7 @@ import {
 const router = express.Router();
 
 function parseTenantId(req) {
-  return req.user?.tenantId || req.query.tenantId || null;
+  return req.tenantId || req.user?.tenantId || req.user?.tenant_id || null;
 }
 
 /**
