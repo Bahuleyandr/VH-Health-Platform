@@ -13,6 +13,10 @@ dependencies:
     sdk: flutter
   http: ^1.4.0
   flutter_secure_storage: ^10.3.1
+  # AES-256-GCM at-rest encryption for the offline write queue's PHI body
+  # (audit 2026-06-18). Same package/scheme the patient app already uses for
+  # its encrypted API cache, so the workspace resolves a single version.
+  encrypt: ^5.0.3
   geolocator: ^14.0.1
   url_launcher: ^6.3.1
   web_socket_channel: ^3.0.1
@@ -38,6 +42,9 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # In-memory SQLite for OfflineQueue tests (encryption-at-rest + staff
+  # owner-scoping). Already in the workspace lock via apps/staff.
+  sqflite_common_ffi: ^2.4.0+3
   # OpenAPI → Dart codegen. Runs via `dart run build_runner build` and reads
   # swagger/api.yaml, emitting models + chopper client stubs into
   # lib/api/generated/. See docs/API_CODEGEN.md for the migration playbook.

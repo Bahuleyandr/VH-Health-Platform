@@ -73,6 +73,45 @@ class ApiCacheManager {
     return encrypter.decrypt(encrypt.Encrypted.fromBase64(parts[1]), iv: iv);
   }
 
+  /// Encrypt raw bytes (e.g. a downloaded PHI document) for storage at rest,
+  /// reusing the SAME per-device AES-256 key as the JSON cache above
+  /// (`cache_aes_key` in secure storage). Exposed so file-level callers
+  /// (`CacheFileUtils`, `DocumentOpener`) encrypt downloaded clinical
+  /// documents instead of writing cleartext PHI to disk — without inventing a
+  /// second key scheme.
+  ///
+  /// On-disk layout is binary: a random 12-byte GCM IV, then the GCM
+  /// ciphertext+tag. Keeping it binary (not base64) avoids inflating large
+  /// reports/scans by ~33%. Decrypt with [decryptBytes].
+  static Future<Uint8List> encryptBytes(List<int> plainBytes) async {
+    final key = await _getEncryptionKey();
+    final iv = encrypt.IV.fromSecureRandom(12);
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    );
+    final encrypted = encrypter.encryptBytes(plainBytes, iv: iv);
+    final out = Uint8List(iv.bytes.length + encrypted.bytes.length);
+    out.setRange(0, iv.bytes.length, iv.bytes);
+    out.setRange(iv.bytes.length, out.length, encrypted.bytes);
+    return out;
+  }
+
+  /// Decrypt bytes produced by [encryptBytes]. Throws if the payload is
+  /// truncated or the GCM tag fails to authenticate (tampered / wrong key).
+  static Future<Uint8List> decryptBytes(List<int> storedBytes) async {
+    if (storedBytes.length <= 12) {
+      throw const FormatException('Invalid encrypted file');
+    }
+    final key = await _getEncryptionKey();
+    final bytes = Uint8List.fromList(storedBytes);
+    final iv = encrypt.IV(Uint8List.sublistView(bytes, 0, 12));
+    final cipher = encrypt.Encrypted(Uint8List.sublistView(bytes, 12));
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(key, mode: encrypt.AESMode.gcm),
+    );
+    return Uint8List.fromList(encrypter.decryptBytes(cipher, iv: iv));
+  }
+
   static Future<String> _getCacheDir() async {
     if (_cacheDir != null) return _cacheDir!;
     final dir = await getApplicationDocumentsDirectory();
