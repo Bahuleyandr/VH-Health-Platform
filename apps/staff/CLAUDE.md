@@ -147,10 +147,12 @@ consistency. This is the canonical reference for which features each role
 sees — change `role_config.dart` and these tests catch the regression.
 
 Mock-heavy clinical-safety tests (MAR 5-rights, CDS allergy blocker, Code
-Blue receive, offline queue drain, biometric login) are the highest-value
-next batch. Plug-in-channel mocks (barcode scanner, `connectivity_plus`,
-`local_auth`) are the missing scaffolding. See `test/README.md` for the
-prioritised list.
+Blue receive, offline queue drain) are the highest-value next batch.
+Plug-in-channel mocks for the barcode scanner and `connectivity_plus` are
+the remaining scaffolding to add. Biometric login already has channel-mocked
+coverage — `test/features/auth/services/biometric_quick_login_test.dart`
+exercises `local_auth` (the dependency is live; do not remove it). See
+`test/README.md` for the prioritised list.
 
 ## Future Directions
 

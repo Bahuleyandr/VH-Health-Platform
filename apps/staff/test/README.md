@@ -37,7 +37,10 @@ These are the highest-value next tests; they were waiting on the plugin-channel 
 - **Offline queue drain** on reconnect (`ConnectivitySyncService.enqueue` + `MutationQueue` — needs `connectivity_plus` channel mock).
 - **Code Blue receive + wake-from-terminated** — needs FCM background handler harness + `flutter_local_notifications` mock + full-screen-intent permission stub.
 - **Employee-ID login lockout** after 5 failed attempts (login_service with mocked backend returning 423).
-- **Quick-login via biometric** (`local_auth` plugin mock).
+
+(Quick-login via biometric is **done** — it's the sample above,
+`biometric_quick_login_test.dart`, 6 passing cases via both the fake service
+and the raw `local_auth` channel mock.)
 
 Target: 15+ tests across these areas within Phase 2.
 
