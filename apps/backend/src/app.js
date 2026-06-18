@@ -207,6 +207,7 @@ import patientPortalRoutes from './routes/portal/patientPortalRoutes.js';
 import staffMessagingRoutes from './routes/portal/staffMessagingRoutes.js';
 import dischargeRoutes from './routes/discharge/dischargeRoutes.js';
 import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
+import revenueCycleTrackerRoutes from './routes/billing/revenueCycleTrackerRoutes.js';
 
 // Quality & Infection Control
 import qualityRoutes from './routes/quality/qualityRoutes.js';
@@ -1105,6 +1106,7 @@ app.use(
 );
 app.use('/api/v1/billing', requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'), billingRoutes);
 app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRoutes);
+app.use('/api/v1/billing/revenue-cycle', requireRole(...BILLING_ROUTE_ROLES), revenueCycleTrackerRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for
 // /lab/pathologist/signoff (route-level requirePathologistTier enforces
 // the inner gate). Including them at the mount-level requireRole keeps
