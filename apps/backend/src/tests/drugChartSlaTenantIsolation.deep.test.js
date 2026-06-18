@@ -243,23 +243,14 @@ describeIfDb('Drug-chart SLA sweep tenant isolation (audit 2026-06-18 §3)', () 
 
   it('inserts notifications carrying the admission tenant_id (not the literal default, not the other tenant)', async () => {
     const adm = admission();
-    // processMissingDrugChartAdmission runs the (fixed) tenant-scoped notification
-    // INSERT first, then a SEPARATE audit-log INSERT. That audit INSERT carries a
-    // PRE-EXISTING, out-of-scope untyped-param bug (action `$2` is used both as a
-    // SELECT value and in `WHERE action = $2` with no ::cast → Postgres 42P08
-    // "inconsistent types deduced for parameter $2"). It is untouched by this fix
-    // and lives in insertMissingDrugChartAudit. We let it throw, assert it is
-    // exactly that known defect (so a real regression in our INSERT would still
-    // surface), and then verify the notifications our fix produced.
-    let auditErr = null;
-    try {
-      await processMissingDrugChartAdmission({ admission: adm, now: new Date() });
-    } catch (err) {
-      auditErr = err;
-    }
-    if (auditErr) {
-      expect(String(auditErr.message)).toMatch(/42P08|inconsistent types deduced for parameter \$2/);
-    }
+    // processMissingDrugChartAdmission runs the tenant-scoped notification INSERT
+    // first, then a SEPARATE audit-log INSERT. Both must now succeed: the audit
+    // INSERT's action param (used both as a SELECT value AND in `WHERE action = $2`)
+    // is cast `$2::varchar` at both usages, so it no longer trips Postgres 42P08
+    // "inconsistent types deduced for parameter $2". The call must therefore
+    // complete without throwing and return a real audit row id.
+    const result = await processMissingDrugChartAdmission({ admission: adm, now: new Date() });
+    expect(result.audit_id).not.toBeNull();
 
     // Read back every notification this admission produced. setTenant with the
     // admission tenant is the canonical scoped read; it also proves the rows are
