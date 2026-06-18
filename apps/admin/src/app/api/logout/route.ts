@@ -3,28 +3,12 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
+import { assertSameOriginOrAllowed } from "@/lib/csrfOrigin";
 
 export async function POST(request: Request) {
-  // CSRF Origin validation
-  const origin = request.headers.get('origin');
-  const allowed = process.env.NEXT_PUBLIC_ALLOWED_ORIGIN || 'http://localhost:3000';
-  if (origin) {
-    const allowedHosts = allowed.split(',').map((s: string) => s.trim());
-    const originHost = new URL(origin).origin;
-    const isAllowed = allowedHosts.some((h: string) => {
-      if (h === origin) return true;
-      if (h.startsWith('https://') && h.endsWith('.vhhealth.app')) {
-        return originHost === h;
-      }
-      return false;
-    });
-    if (!isAllowed) {
-      return NextResponse.json(
-        { message: 'Forbidden: Origin not allowed', success: false },
-        { status: 403 },
-      );
-    }
-  }
+  // CSRF Origin validation (shared strict policy — see lib/csrfOrigin.ts)
+  const csrfError = assertSameOriginOrAllowed(request);
+  if (csrfError) return csrfError;
 
   const response = NextResponse.json({ success: true });
 

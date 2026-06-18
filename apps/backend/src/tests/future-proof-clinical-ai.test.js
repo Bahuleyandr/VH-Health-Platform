@@ -116,26 +116,35 @@ describe('future-proof clinical AI and privacy foundations', () => {
     return retried;
   }
 
+  // Patient-surface enablement guard (CLINICAL_AI_PATIENT_SURFACE_FORBIDDEN):
+  // patient-facing modules cannot be flipped ON without the explicit override.
+  // This integration suite deliberately enables patient-surface modules (e.g.
+  // patient_aftercare_instructions) to exercise downstream translation/review,
+  // so its enable helpers pass the sanctioned `allow_patient_surface` override.
+  const withPatientSurfaceOverride = (data) => ({ allow_patient_surface: true, ...data });
+
   async function patchGlobalModule(moduleKey, data, label) {
     await seedAcceptedEvalGate(moduleKey, data);
-    const first = await admin.patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`).send(data);
+    const body = withPatientSurfaceOverride(data);
+    const first = await admin.patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`).send(body);
     return approveIfRequired(
       first,
       (approvalId) => admin
         .patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`)
-        .send({ ...data, approval_id: approvalId }),
+        .send({ ...body, approval_id: approvalId }),
       label
     );
   }
 
   async function patchTenantModule(moduleKey, data, label) {
     await seedAcceptedEvalGate(moduleKey, data);
-    const first = await admin.patch(`/api/v1/admin/clinical-ai/tenant-modules/${moduleKey}`).send(data);
+    const body = withPatientSurfaceOverride(data);
+    const first = await admin.patch(`/api/v1/admin/clinical-ai/tenant-modules/${moduleKey}`).send(body);
     return approveIfRequired(
       first,
       (approvalId) => admin
         .patch(`/api/v1/admin/clinical-ai/tenant-modules/${moduleKey}`)
-        .send({ ...data, approval_id: approvalId }),
+        .send({ ...body, approval_id: approvalId }),
       label
     );
   }

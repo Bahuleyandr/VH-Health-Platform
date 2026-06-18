@@ -325,6 +325,138 @@ describe('clinical AI provider client', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  // ── External-region egress defaults FAIL-CLOSED (audit §3 / §6) ──────────
+  // Empty/unset CLINICAL_AI_EXTERNAL_REGIONS must NOT allow external PHI egress
+  // for a region-bearing tenant. The only documented escapes are an explicit
+  // `*` allowlist or a tenant that carries no region at all (single-tenant pilot).
+  describe('external-region egress fails closed when allowlist is empty', () => {
+    it('blocks external use for a region-bearing tenant when CLINICAL_AI_EXTERNAL_REGIONS is unset', async () => {
+      process.env.CLINICAL_AI_PROVIDER = 'openai';
+      process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      // CLINICAL_AI_EXTERNAL_REGIONS intentionally unset (resetClinicalEnv cleared it).
+      mockModule = { ...mockModule, external_allowed: true };
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        tenantRegion: 'IN',
+      });
+
+      expect(result).toMatchObject({
+        usedAi: false,
+        provider: 'openai',
+        generation_mode: 'blocked',
+        provider_status: 'blocked',
+        reason: 'external_provider_blocked_for_region:IN',
+      });
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('blocks external use for a region-bearing tenant when CLINICAL_AI_EXTERNAL_REGIONS is empty/whitespace', async () => {
+      process.env.CLINICAL_AI_PROVIDER = 'openai';
+      process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      process.env.CLINICAL_AI_EXTERNAL_REGIONS = '   ';
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      mockModule = { ...mockModule, external_allowed: true };
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        tenantRegion: 'US',
+      });
+
+      expect(result).toMatchObject({
+        usedAi: false,
+        generation_mode: 'blocked',
+        provider_status: 'blocked',
+        reason: 'external_provider_blocked_for_region:US',
+      });
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('permits external use when the tenant region is explicitly allow-listed', async () => {
+      process.env.CLINICAL_AI_PROVIDER = 'openai';
+      process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      process.env.CLINICAL_AI_EXTERNAL_REGIONS = 'US,AP';
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      mockModule = { ...mockModule, external_allowed: true };
+      global.fetch.mockResolvedValue(okJson({
+        id: 'chatcmpl-region',
+        choices: [{ message: { content: 'Allow-listed region draft' } }],
+        usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+      }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        tenantRegion: 'US',
+      });
+
+      expect(result).toMatchObject({
+        usedAi: true,
+        provider: 'openai',
+        generation_mode: 'ai',
+        text: 'Allow-listed region draft',
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves the single-tenant-pilot escape: no tenant region + empty allowlist is allowed', async () => {
+      process.env.CLINICAL_AI_PROVIDER = 'openai';
+      process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      // No CLINICAL_AI_EXTERNAL_REGIONS, no tenantRegion → single-tenant pilot.
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      mockModule = { ...mockModule, external_allowed: true };
+      global.fetch.mockResolvedValue(okJson({
+        id: 'chatcmpl-pilot',
+        choices: [{ message: { content: 'Pilot draft' } }],
+        usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+      }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        // tenantRegion omitted (null)
+      });
+
+      expect(result).toMatchObject({ usedAi: true, generation_mode: 'ai', text: 'Pilot draft' });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('honors an explicit wildcard allowlist (CLINICAL_AI_EXTERNAL_REGIONS=*) for a region-bearing tenant', async () => {
+      process.env.CLINICAL_AI_PROVIDER = 'openai';
+      process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+      process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+      process.env.CLINICAL_AI_EXTERNAL_REGIONS = '*';
+      process.env.OPENAI_API_KEY = 'test-openai-key';
+      mockModule = { ...mockModule, external_allowed: true };
+      global.fetch.mockResolvedValue(okJson({
+        id: 'chatcmpl-wild',
+        choices: [{ message: { content: 'Wildcard draft' } }],
+        usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+      }));
+
+      const result = await generateClinicalText({
+        systemPrompt: 'System safety prompt',
+        userPrompt: 'Patient context',
+        taskType: 'discharge_summary',
+        tenantRegion: 'ZZ',
+      });
+
+      expect(result).toMatchObject({ usedAi: true, generation_mode: 'ai', text: 'Wildcard draft' });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('calls Anthropic Messages API when external use is allowed', async () => {
     process.env.CLINICAL_AI_PROVIDER = 'anthropic';
     process.env.CLINICAL_AI_MODEL = 'claude-test-model';
@@ -450,6 +582,9 @@ describe('clinical AI provider client', () => {
     process.env.CLINICAL_AI_DEEP_PROVIDER = 'anthropic';
     process.env.CLINICAL_AI_DEEP_MODEL = 'claude-test-model';
     process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+    // Allow-list the tenant region so the region gate (now fail-closed by
+    // default) passes and this test isolates the ALLOW_EXTERNAL gate it asserts.
+    process.env.CLINICAL_AI_EXTERNAL_REGIONS = 'IN';
     mockModule = {
       ...mockModule,
       external_allowed: false,

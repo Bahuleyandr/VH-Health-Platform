@@ -447,6 +447,7 @@ model admissions {
   @@index([policy_id], map: "idx_admissions_policy_id", where: raw("(policy_id IS NOT NULL)"))
   @@index([prior_admission_id], map: "idx_admissions_prior_admission", where: raw("(prior_admission_id IS NOT NULL)"))
   @@index([ward, admitted_at], map: "idx_admissions_ward_admitted", where: raw("(ward IS NOT NULL)"))
+  @@index([tenant_id, patient_uid], map: "idx_admissions_tenant_patient")
 }
 
 model discharge_consults {
@@ -4649,6 +4650,7 @@ model e_prescriptions {
   tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_e_prescriptions_tenant")
   prescription_safety_overrides prescription_safety_overrides[]
 
+  @@unique([tenant_id, prescription_number], map: "uniq_e_prescriptions_tenant_number", where: raw("(prescription_number IS NOT NULL)"))
   @@index([pharmacy_order_id], map: "idx_e_prescriptions_pharmacy_order")
   @@index([tenant_id], map: "idx_e_prescriptions_tenant_id")
   @@index([lifecycle_status, created_at(sort: Desc)], map: "idx_e_prescriptions_lifecycle")
@@ -5865,6 +5867,7 @@ model investigations {
   @@index([collected_at], map: "idx_investigations_collected", where: raw("(collected_at IS NOT NULL)"))
   @@index([collected_at], map: "idx_investigations_collected_pending_upload", where: raw("((collected_at IS NOT NULL) AND (result_uploaded_at IS NULL))"))
   @@index([sample_rejected_at], map: "idx_investigations_sample_rejected_at", where: raw("(sample_rejected_at IS NOT NULL)"))
+  @@index([tenant_id, patient_uid], map: "idx_investigations_tenant_patient")
 }
 
 model investment_declarations {
@@ -6945,6 +6948,7 @@ model patient_vitals {
   @@index([tenant_id], map: "idx_patient_vitals_tenant_id")
   @@index([admission_id], map: "idx_patient_vitals_admission_id", where: raw("(admission_id IS NOT NULL)"))
   @@index([encounter_id], map: "idx_patient_vitals_encounter_id", where: raw("(encounter_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid], map: "idx_patient_vitals_tenant_patient")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7433,6 +7437,7 @@ model pharmacy_orders {
   users_pharmacy_orders_patient_idTousers    users?                   @relation("pharmacy_orders_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   users_pharmacy_orders_prescribed_byTousers users?                   @relation("pharmacy_orders_prescribed_byTousers", fields: [prescribed_by], references: [uid], onUpdate: NoAction)
 
+  @@unique([tenant_id, order_number], map: "uniq_pharmacy_orders_tenant_number", where: raw("(order_number IS NOT NULL)"))
   @@index([created_at])
   @@index([ordered_at])
   @@index([patient_id])
@@ -7831,6 +7836,7 @@ model prescriptions {
 
   @@index([patient_uid, status, issued_at], map: "idx_prescriptions_patient_status_issued")
   @@index([tenant_id], map: "idx_prescriptions_tenant_id")
+  @@index([tenant_id, patient_uid], map: "idx_prescriptions_tenant_patient")
 }
 
 model quality_incidents {

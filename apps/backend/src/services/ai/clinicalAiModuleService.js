@@ -2103,6 +2103,47 @@ function moduleApprovalPolicy(module) {
   return String(module?.settings?.approvalPolicy || '').toLowerCase();
 }
 
+function moduleSurface(module) {
+  return String(module?.settings?.surface || '').toLowerCase().trim();
+}
+
+function isPatientSurface(module) {
+  return moduleSurface(module) === 'patient';
+}
+
+/**
+ * Patient-surface enablement guard (audit 2026-06-18 §3 /
+ * CLINICAL_AI_ENABLEMENT_PLAN.md). Patient-facing AI must stay OFF until it is
+ * explicitly cleared, so no module whose registry `settings.surface === 'patient'`
+ * may be toggled into an ENABLED state through the normal enable path.
+ *
+ * Fires only on the OFF→ON transition for a patient-surface module, and only
+ * when no explicit override flag is present. A disable (enabled:false) or a
+ * no-op is never blocked. Throws AppError.forbidden with a clear code so the
+ * route surfaces a 403 instead of a generic 500.
+ *
+ * Escape hatch: pass `allow_patient_surface: true` (or `allowPatientSurface`)
+ * in the update payload to deliberately enable a cleared patient surface. The
+ * two-person / eval gates still apply on top of the override.
+ *
+ * @param {object} args
+ * @param {object} args.current  current (effective) module config
+ * @param {object} args.next     proposed (effective) module config
+ * @param {object} args.data     raw update payload (carries the override flag)
+ */
+function assertPatientSurfaceEnablementAllowed({ current, next, data = {} }) {
+  const enablingNow = !current?.enabled && next?.enabled === true;
+  if (!enablingNow) return;
+  if (!isPatientSurface(next)) return;
+  const override = data.allow_patient_surface === true || data.allowPatientSurface === true;
+  if (override) return;
+  throw AppError.forbidden(
+    'Patient-facing clinical AI modules cannot be enabled until patient surfaces are explicitly cleared',
+    'CLINICAL_AI_PATIENT_SURFACE_FORBIDDEN',
+    { module_key: next?.module_key || current?.module_key || null, surface: 'patient' }
+  );
+}
+
 function riskyChangedFields(current, next) {
   return RISKY_MODULE_FIELDS.filter((field) => valuesDiffer(current?.[field], next?.[field]));
 }
@@ -2620,6 +2661,9 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
       : current.settings || {},
   };
   const normalizedNext = normalizeModule({ ...current, ...next });
+  // Patient-surface enablement guard — reject an OFF→ON flip of a patient-facing
+  // module before any approval/eval work or DB write (absolute policy denial).
+  assertPatientSurfaceEnablementAllowed({ current, next: normalizedNext, data });
   const changedFields = riskyChangedFields(current, normalizedNext);
   const approvalReasons = changeRequiresApproval(current, normalizedNext, changedFields);
   let evalGate = null;
@@ -2762,6 +2806,9 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
       ...(next.settings || {}),
     },
   });
+  // Patient-surface enablement guard — reject an OFF→ON flip of a patient-facing
+  // module before any approval/eval work or DB write (absolute policy denial).
+  assertPatientSurfaceEnablementAllowed({ current, next: nextEffective, data });
   const changedFields = riskyChangedFields(current, nextEffective);
   const approvalReasons = changeRequiresApproval(current, nextEffective, changedFields);
   let evalGate = null;

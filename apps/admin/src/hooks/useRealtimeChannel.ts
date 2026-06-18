@@ -3,10 +3,19 @@
 // High-level hook that subscribes an admin-portal component to a VHHealth
 // real-time fabric channel. Handles the full handshake + keep-alive:
 //   1. POST /api/realtime-ticket → short-lived WS-scoped JWT
-//   2. Open WebSocket to /ws?token=<ticket>
-//   3. Send `subscribe` and wait for the server's `subscribed` ack before
-//      exposing `subscribed: true` to consumers
-//   4. Emit app-level `ping` every 15s; force-reconnect if no `pong` lands
+//   2. Open WebSocket to /ws (NO token in the URL)
+//   3. Send the ticket as the FIRST WS frame: {"action":"auth","token":<ticket>}
+//      The backend wsServer accepts auth via header, ?token= query, OR this
+//      first-frame message (see apps/backend/src/utils/websocket/wsServer.js).
+//      We use the message form so the short-lived ticket never lands in proxy/
+//      access logs or browser history (which a ?token= query string would).
+//   4. Wait for the server's `connected` welcome — which the backend only sends
+//      AFTER it has attached its persistent message handler — then send
+//      `subscribe`. Sending `subscribe` before `connected` would race the
+//      backend's one-shot auth-frame listener and could be dropped.
+//   5. Wait for the server's `subscribed` ack before exposing
+//      `subscribed: true` to consumers.
+//   6. Emit app-level `ping` every 15s; force-reconnect if no `pong` lands
 //      within 10s. Browsers hide the WS-frame ping from JS, so this is the
 //      only way to detect a half-open TCP connection from the client.
 // Re-acquires a fresh ticket on every reconnect (tickets TTL ~60s).
@@ -19,10 +28,13 @@ const API_BASE_URL =
 const PING_INTERVAL_MS = 15_000;
 const PONG_TIMEOUT_MS = 10_000;
 
-function wsUrlFromBase(httpBase: string, ticket: string): string {
+// Build the bare /ws URL. The auth ticket is intentionally NOT in the query
+// string — it is sent as the first WS frame instead (see connect() below) so
+// it never leaks into access logs or browser history.
+function wsUrlFromBase(httpBase: string): string {
   const u = new URL(httpBase);
   const scheme = u.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${u.host}/ws?token=${encodeURIComponent(ticket)}`;
+  return `${scheme}//${u.host}/ws`;
 }
 
 export type RealtimeMessage<T = unknown> = {
@@ -126,15 +138,22 @@ export function useRealtimeChannel<T = unknown>(
         return;
       }
 
-      const ws = new WebSocket(wsUrlFromBase(API_BASE_URL, ticket));
+      const ws = new WebSocket(wsUrlFromBase(API_BASE_URL));
       wsRef.current = ws;
 
       ws.addEventListener("open", () => {
         if (cancelled) return;
-        setConnected(true);
         backoffMs = 1000;
-        ws.send(JSON.stringify({ action: "subscribe", channel }));
-        startKeepAlive(ws);
+        // First frame MUST be the auth message (ticket off the URL). The
+        // backend authenticates on this frame, then sends `connected`; we
+        // defer `subscribe` + keep-alive until that welcome lands so we don't
+        // race the backend's one-shot auth listener.
+        try {
+          ws.send(JSON.stringify({ action: "auth", token: ticket }));
+        } catch {
+          // send failed → close handler reconnects
+          return;
+        }
       });
 
       ws.addEventListener("message", (ev) => {
@@ -143,6 +162,7 @@ export function useRealtimeChannel<T = unknown>(
           data?: unknown;
           channel?: string;
           reason?: string;
+          userId?: string;
           ts?: number | null;
           serverTs?: number;
         };
@@ -150,6 +170,22 @@ export function useRealtimeChannel<T = unknown>(
         try {
           parsed = JSON.parse(ev.data as string);
         } catch {
+          return;
+        }
+
+        // Auth accepted: the backend emits `connected` only AFTER attaching its
+        // persistent message handler, so it is now safe to subscribe + start
+        // the keep-alive loop. This is the post-auth equivalent of the old
+        // `open` handler.
+        if (parsed.event === "connected") {
+          if (cancelled || ws.readyState !== WebSocket.OPEN) return;
+          setConnected(true);
+          try {
+            ws.send(JSON.stringify({ action: "subscribe", channel }));
+          } catch {
+            return;
+          }
+          startKeepAlive(ws);
           return;
         }
 

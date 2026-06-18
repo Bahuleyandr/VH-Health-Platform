@@ -181,6 +181,18 @@ const envSchema = Joi.object({
     .optional()
     .label('CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED'),
 
+  // External clinical-AI PHI egress region allowlist (comma-separated, e.g.
+  // `US,AP`). FAIL-CLOSED default (audit 2026-06-18): when empty/unset, a tenant
+  // that carries a region is DENIED external use — external egress is allowed
+  // ONLY for explicitly allow-listed regions. A tenant with no region tagged is
+  // still allowed under an empty allowlist (single-tenant pilot escape). Set the
+  // literal sentinel `*` to deliberately allow EVERY region. Enforced in
+  // src/services/ai/localLlmClient.js#tenantCanUseExternal.
+  CLINICAL_AI_EXTERNAL_REGIONS: Joi.string()
+    .allow('')
+    .optional()
+    .label('CLINICAL_AI_EXTERNAL_REGIONS'),
+
   REVENUE_CYCLE_TRACKER_ENABLED: Joi.string()
     .valid('true', 'false')
     .allow('')
