@@ -54,6 +54,10 @@ import { runSweep } from '../services/ai/operationalAlertService.js';
 // for denied prior-auth requests that have no appeal letter / run yet.
 import { startPendingPriorAuthAppeals } from '../services/ai/priorAuthAppealChainService.js';
 
+// Revenue-cycle standing-queue tracker — flag-gated. Advisory tracker only.
+// Per-stage auto-generation triggers are DEFERRED (human-in-loop design).
+import { runRevenueCycleSweep } from '../services/billing/revenueCycleTrackerService.js';
+
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
 import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliveryService.js';
 
@@ -181,6 +185,16 @@ if (process.env.NODE_ENV !== 'test') {
     cron.schedule('*/30 * * * *', withJobLock('operational-alert-sweep', async () => {
       const r = await runSweep({});
       logger.info('operational-alert-sweep complete', r);
+    }));
+  }
+
+  // Revenue-cycle tracker sweep — flag-gated. Projects PA→appeal spine into
+  // revenue_cycle_runs standing queue every 5 minutes. Advisory/read-model
+  // only; never auto-submits or generates drafts.
+  if (String(process.env.REVENUE_CYCLE_TRACKER_ENABLED || '').toLowerCase() === 'true') {
+    cron.schedule('*/5 * * * *', withJobLock('revenue-cycle-tracker-sweep', async () => {
+      const r = await runRevenueCycleSweep({});
+      logger.info('revenue-cycle-tracker-sweep complete', r);
     }));
   }
 
