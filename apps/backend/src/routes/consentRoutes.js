@@ -40,6 +40,11 @@ const VALID_CONSENT_TYPES = [
   'financial_liability',
   'room_upgrade_liability',
   'ai_documentation',
+  // Explicit consent for ambient audio recording by the clinical AI scribe.
+  // Required by ambientDocumentationService and nursingAmbientDocumentationService
+  // (assertPatientConsentInTenant allowedTypes: ['recording_consent', 'treatment']).
+  // Also accepted by voicePatientAssistantIvrService.
+  'recording_consent',
 ];
 
 // Stage-5 — how consent was obtained. `thumbprint` / `verbal` are

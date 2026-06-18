@@ -65,6 +65,7 @@ import { reapStaleScheduledVisits } from '../services/appointment/appointmentRea
 import { runRosterDeadlineEscalation } from '../services/staff/rosterDeadlineService.js';
 import { purgeExpiredStaffMessages } from '../services/messaging/staffMessageRetentionService.js';
 import { purgeExpiredNoteDrafts } from '../services/emr/clinicalNoteDraftService.js';
+import { purgeExpiredAmbientAudio } from '../services/ai/ambientDocumentationService.js';
 
 // Inpatient drug-chart SLA — once a patient has reached a ward/ICU bed,
 // doctors and that ward's nurses must not silently miss first medication charting.
@@ -313,6 +314,23 @@ if (process.env.NODE_ENV !== 'test') {
 
   // 🗓️ Daily at 03:50 - Purge housekeeping photos past retention window
   cron.schedule('50 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
+
+  // 🗓️ Daily at 03:52 - Purge expired ambient audio encounters + sibling tables.
+  // Covers three tables that each carry a `retention_until DATE` column:
+  //   • clinical_ambient_encounters  (migration 027, 30-day default)
+  //   • clinical_voice_notes          (migration 016, 30-day default)
+  //   • clinical_nursing_ambient_sessions (migration 042, 365-day default)
+  // Safe to run cross-tenant: GUC unset → tenant_isolation policy permissive
+  // branch. Only deletes rows where retention_until < CURRENT_DATE.
+  cron.schedule('52 3 * * *', withJobLock('purge-expired-ambient-audio', async () => {
+    logger.info('Scheduled Task: Purging expired ambient audio records...');
+    const counts = await purgeExpiredAmbientAudio();
+    logger.info(
+      `Ambient audio cleanup: ${counts.ambientEncounters} encounter(s), ` +
+      `${counts.voiceNotes} voice note(s), ` +
+      `${counts.nursingAmbientSessions} nursing ambient session(s) deleted`,
+    );
+  }));
 
   // Every 5 minutes - Canary health check (synthetic tests against critical paths)
   cron.schedule('*/5 * * * *', withJobLock('canary-health-check', async () => {
