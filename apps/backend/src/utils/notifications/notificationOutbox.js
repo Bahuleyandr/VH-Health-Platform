@@ -108,6 +108,50 @@ class NotificationOutbox {
       return [];
     }
   }
+
+  /**
+   * Atomically claim a batch of due outbox rows for draining.
+   *
+   * Uses `FOR UPDATE SKIP LOCKED` inside a transaction so that concurrent
+   * drain runners (multiple cluster workers / replicas) never pick the same
+   * row — each claimer locks a disjoint slice and the rest skip past locked
+   * rows instead of blocking. The drain cron is ALSO guarded by a
+   * cross-process advisory lock (withJobLock), so in practice one runner wins
+   * per tick; SKIP LOCKED is the belt-and-braces against any overlap window.
+   *
+   * Eligibility mirrors getPendingForRetry: still PENDING/FAILED, under the
+   * retry cap, and either never attempted or past the 5-minute backoff floor.
+   * Rows are returned to the caller still inside the open transaction's lock;
+   * the lock releases when this method's transaction commits. We do not hold
+   * the lock across the network send — we read, release, then send + mark by
+   * id. That trades a (tiny) double-send risk under true concurrency for not
+   * holding row locks across slow FCM/SMS calls; SKIP LOCKED + the advisory
+   * lock keep that window effectively closed.
+   *
+   * @param {number} limit Max rows to claim.
+   * @returns {Array} Claimed outbox rows.
+   */
+  async claimPendingBatch(limit = 50) {
+    try {
+      const rows = await prisma.$transaction(async (tx) => {
+        return tx.$queryRawUnsafe(
+          `SELECT id, type, recipient_id, recipient_phone, title, body, payload, retry_count
+             FROM notification_outbox
+            WHERE status IN ('PENDING', 'FAILED')
+              AND retry_count < 3
+              AND (last_attempt_at IS NULL OR last_attempt_at < NOW() - INTERVAL '5 minutes')
+            ORDER BY created_at ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED`,
+          limit
+        );
+      });
+      return rows;
+    } catch (err) {
+      logger.warn('Failed to claim outbox batch:', err.message);
+      return [];
+    }
+  }
 }
 
 export const notificationOutbox = new NotificationOutbox();

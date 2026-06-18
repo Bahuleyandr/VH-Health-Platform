@@ -7,7 +7,7 @@ import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import { wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import * as authController from '../../controllers/auth/authController.js';
-import { otpRateLimiter } from '../../middleware/rateLimitMiddleware.js';
+import { otpRateLimiter, authRateLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { phoneValidator, phoneOtpValidator } from '../../validators/auth/authValidator.js';
 
 const router = express.Router();
@@ -57,8 +57,12 @@ wrapRoutesWithValidation(
       ],
       
       // Refresh JWT Token (works for all auth methods)
-      ['/refresh-token', authController.refreshToken],
-      
+      // C-9 (audit 2026-06-18): this endpoint mints a fresh live session, so
+      // it must be throttled like the login endpoints — an attacker holding a
+      // captured refresh token could otherwise hammer it unbounded. authRateLimiter
+      // is 5 attempts / 15 min, keyed by IP (refresh carries no account body).
+      ['/refresh-token', authRateLimiter, authController.refreshToken],
+
       // Logout (works for all auth methods)
       ['/logout', authController.logout],
       
@@ -75,7 +79,8 @@ wrapRoutesWithValidation(
         handleValidation,
         authController.register
       ],
-      ['/token', authController.refreshToken]
+      // Alias of /refresh-token — same throttle (C-9).
+      ['/token', authRateLimiter, authController.refreshToken]
     ],
     
     get: [

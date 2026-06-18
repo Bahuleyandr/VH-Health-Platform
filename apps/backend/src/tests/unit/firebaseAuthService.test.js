@@ -7,6 +7,7 @@ const prismaMock = {
 
 const verifyIdTokenMock = jest.fn();
 const issueAccessTokenAndClaimSessionMock = jest.fn();
+const generateRefreshTokenMock = jest.fn();
 const ensureHospitalNumberMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -47,6 +48,7 @@ jest.unstable_mockModule('../../services/patient/patientIdentifierService.js', (
 
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: issueAccessTokenAndClaimSessionMock,
+  generateRefreshToken: generateRefreshTokenMock,
 }));
 
 const { authenticateWithFirebase } = await import(
@@ -65,6 +67,7 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
     issueAccessTokenAndClaimSessionMock.mockResolvedValue({
       accessToken: 'vh-jwt-token',
     });
+    generateRefreshTokenMock.mockReturnValue('vh-refresh-token');
     ensureHospitalNumberMock.mockResolvedValue('VH-000123');
     prismaMock.$executeRawUnsafe.mockResolvedValue(undefined);
   });
@@ -113,8 +116,21 @@ describe('firebaseAuthService.authenticateWithFirebase', () => {
         }),
       }),
     );
+    // C-9 companion (audit 2026-06-18): the PRIMARY patient login path must
+    // mint a SEPARATE type:'refresh' token, else the access token is the only
+    // credential and the bearer-rotation it used to rely on now 401s at
+    // /refresh-token. Mirror the identity AuthService._generateRefreshToken uses.
+    expect(generateRefreshTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uid: insertedUser.uid,
+        id: insertedUser.id,
+        phone: insertedUser.phone,
+        role: 'PATIENT',
+      }),
+    );
     expect(result).toMatchObject({
       accessToken: 'vh-jwt-token',
+      refreshToken: 'vh-refresh-token',
       isNewUser: true,
       user: {
         uid: insertedUser.uid,

@@ -11,6 +11,7 @@ import abdmService from '../../services/abdm/abdmService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { ROLES, isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { verifySignedRequest } from '../../utils/signedRequest.js';
+import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 
 // ====================================
 // CALLBACK ROUTER — Public (no JWT)
@@ -18,6 +19,9 @@ import { verifySignedRequest } from '../../utils/signedRequest.js';
 // ====================================
 
 const callbackRouter = Router();
+// Audit 2026-06-18: throttle the unauthenticated ABDM callback surface — each
+// request does DB + HMAC work, so brute-force/DoS must be capped before that.
+callbackRouter.use(genericLimiter);
 const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
 
 /**

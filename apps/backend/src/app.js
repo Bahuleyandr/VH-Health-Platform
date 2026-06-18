@@ -111,7 +111,6 @@ import adminForecastRoutes from './routes/admin/forecastRoutes.js';
 // exposing the rest of the admin tasks/workflow/escalation surface to them.
 import clinicalInboxRoutes from './routes/clinicalInboxRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
-import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
@@ -682,8 +681,9 @@ app.use('/api/v1/gdpr', dataExportRateLimiter, gdprRoutes);
 // Session Management (view/revoke active sessions)
 app.use('/api/v1/sessions', sessionRoutes);
 
-// Admin 2FA (TOTP) — some endpoints public (verify), some require auth
-app.use('/api/v1/auth/admin/totp', totpRoutes);
+// Admin 2FA (TOTP): the live MFA path is adminAuthController (/auth/admin/mfa/*).
+// The legacy /auth/admin/totp router was deleted (audit 2026-06-18 §3 Auth) — it
+// referenced non-existent columns and minted tokens with a malformed identity.
 
 // HIPAA Consent Management (requires JWT + role check; IDOR enforced in route file)
 app.use('/api/v1/consent', requireRole(...CONSENT_ROUTE_ROLES), consentRoutes);
@@ -1104,7 +1104,7 @@ app.use(
   billingPhiAccessLogger(),
   billingV2Routes,
 );
-app.use('/api/v1/billing', requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'), billingRoutes);
+app.use('/api/v1/billing', requireRole(...BILLING_V2_ROUTE_ROLES, 'PATIENT'), billingPhiAccessLogger(), billingRoutes);
 app.use('/api/v1/billing', requireRole(...BILLING_ROUTE_ROLES), revenueCycleRoutes);
 app.use('/api/v1/billing/revenue-cycle', requireRole(...BILLING_ROUTE_ROLES), revenueCycleTrackerRoutes);
 // PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for

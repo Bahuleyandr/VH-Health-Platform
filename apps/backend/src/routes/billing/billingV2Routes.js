@@ -13,6 +13,7 @@ import logger from '../../logging/logger.js';
 import * as billing from '../../services/billing/billingV2Service.js';
 import * as cashDrawer from '../../services/billing/cashDrawerService.js';
 import * as payLinks from '../../services/billing/paymentLinkService.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
@@ -29,6 +30,15 @@ const BILLING_V2_EXTRA_STAFF_ROLES = [
   'RECEPTION_INCHARGE',
 ];
 const CASH_DRAWER_REVIEWER_ROLES = ['ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE'];
+// Segregation of duties (audit §3 "cash-out paths reachable by non-finance
+// staff"): the actual money-OUT steps — paying a refund, settling an advance
+// against an invoice — are restricted to finance/cashier roles + admin. The
+// broader BILLING_V2_EXTRA_STAFF_ROLES (receptionists, admission officers, etc.)
+// may raise/approve but not perform the payout/settle disbursement.
+const BILLING_CASH_OUT_ROLES = [
+  'ADMIN', 'SUPER_ADMIN',
+  'FINANCE_INCHARGE', 'BILLING_INCHARGE', 'BILLING_STAFF', 'CASHIER',
+];
 
 // Wrap each handler with try/catch + AppError → response so route
 // definitions stay terse.
@@ -63,6 +73,16 @@ function requireCashDrawerReviewer(req, res, next) {
   const role = String(req.user?.role || '').trim().toUpperCase();
   if (!CASH_DRAWER_REVIEWER_ROLES.includes(role)) {
     return error(res, 'Cash-drawer review requires FINANCE_INCHARGE or admin', 403);
+  }
+  next();
+}
+
+// Restrict money-OUT (refund payout, advance settlement) to finance/cashier
+// roles — segregation of duties from generic billing-staff write access.
+function requireCashOut(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!BILLING_CASH_OUT_ROLES.includes(role)) {
+    return error(res, 'Refund payout / advance settlement requires a finance, cashier, or admin role', 403);
   }
   next();
 }
@@ -334,7 +354,7 @@ router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res, ne
 });
 
 // ── Payments ──────────────────────────────────────────────────────────
-router.post('/payments', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/payments', requireStaffOrAdmin, requireIdempotencyKey({ required: true, scope: 'billing_payment' }), wrap(async (req) => {
   const payment = await billing.collectPayment({
     ...req.body,
     tenantId: tenantOf(req),
@@ -382,7 +402,7 @@ router.post('/payments/:id/reverse', requireAdmin, wrap(async (req) => {
 }));
 
 // ── Advances ──────────────────────────────────────────────────────────
-router.post('/advances', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/advances', requireStaffOrAdmin, requireIdempotencyKey({ required: true, scope: 'billing_advance' }), wrap(async (req) => {
   const advance = await billing.collectAdvance({
     ...req.body,
     tenantId: tenantOf(req),
@@ -409,7 +429,7 @@ router.get('/advances', requireStaffOrAdmin, wrap(async (req) => billing.listAdv
   status: req.query.status,
 })));
 
-router.post('/advances/:id/settle', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/advances/:id/settle', requireCashOut, requireIdempotencyKey({ required: true, scope: 'billing_advance_settle' }), wrap(async (req) => {
   const settlement = await billing.settleAdvance({
     tenantId: tenantOf(req),
     advance_id: req.params.id,
@@ -491,7 +511,7 @@ router.post('/refunds/:id/reject', requireAdmin, wrap(async (req) => {
   return refund;
 }));
 
-router.post('/refunds/:id/pay', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/refunds/:id/pay', requireCashOut, requireIdempotencyKey({ required: true, scope: 'billing_refund_pay' }), wrap(async (req) => {
   const refund = await billing.markRefundPaid(req.params.id, {
     ...req.body,
     tenantId: tenantOf(req),
@@ -691,7 +711,7 @@ router.post('/payment-links/:token/send', requireStaffOrAdmin, wrap(async (req) 
   return link;
 }));
 
-router.post('/payment-links/:token/mark-paid', requireStaffOrAdmin, wrap(async (req) => {
+router.post('/payment-links/:token/mark-paid', requireStaffOrAdmin, requireIdempotencyKey({ required: true, scope: 'billing_payment_link_mark_paid' }), wrap(async (req) => {
   const result = await payLinks.markPaymentLinkPaid({
     tenantId: tenantOf(req),
     link_token: req.params.token,

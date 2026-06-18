@@ -12,6 +12,7 @@
 
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { generateToken } from '../../utils/jwtUtils.js';
@@ -57,6 +58,40 @@ async function resolveTenantIdForUid(uid) {
   }
   tenantCache.set(uid, tenantId);
   return tenantId;
+}
+
+/**
+ * Mint a long-lived refresh token (type:'refresh') for a patient / admin /
+ * Firebase session. This is the SINGLE source of truth for the refresh-token
+ * shape across every login realm — both AuthService (patient OTP, admin) and
+ * firebaseAuthService (the primary patient path) mint through here, so no
+ * realm can accidentally ship a refresh credential that the C-9 type guard at
+ * /refresh-token would reject.
+ *
+ * The refresh token is a SEPARATE credential from the short-lived access
+ * token: it carries `type:'refresh'` (the only token type
+ * AuthService.refreshToken will rotate), a long refresh expiry, and a `jti`
+ * (auto-stamped by generateToken) so it can be revoked on rotation / logout.
+ * `id` and `phone` are included only when supplied (admin tokens carry neither).
+ *
+ * @param {Object} identity
+ * @param {string} identity.uid - users.uid (becomes the `sub` claim).
+ * @param {number|string} [identity.id] - DB integer id, when known.
+ * @param {string} [identity.phone] - E.164 phone, when known.
+ * @param {string} identity.role - normalized role (e.g. 'PATIENT', 'ADMIN').
+ * @returns {string} signed refresh JWT (expires per SECURITY_CONFIG.jwt.refreshExpiry).
+ */
+export function generateRefreshToken({ uid, id, phone, role }) {
+  return generateToken(
+    {
+      uid,
+      ...(id !== undefined && id !== null ? { id } : {}),
+      ...(phone ? { phone } : {}),
+      role,
+      type: 'refresh',
+    },
+    SECURITY_CONFIG.jwt.refreshExpiry,
+  );
 }
 
 /**

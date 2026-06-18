@@ -1,8 +1,8 @@
 // src/utils/scheduler.js
 
 import cron from 'node-cron';
+import pg from 'pg';
 import path from 'path';
-import backupDb from '../../admin/backup-db.js';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
 import prisma from '../lib/prisma.js';
@@ -10,6 +10,137 @@ import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
 
 const runningJobs = new Set();
+
+// node-cron task handles, kept so gracefulShutdown (bin/www.js) can .stop()
+// every timer before prisma.$disconnect() — otherwise a tick can fire mid-
+// disconnect and throw. registerCron() pushes each scheduled task here.
+const scheduledTasks = [];
+
+function registerCron(...args) {
+  const task = cron.schedule(...args);
+  scheduledTasks.push(task);
+  return task;
+}
+
+/**
+ * Stop every registered node-cron task. Idempotent. Called by
+ * bin/www.js gracefulShutdown BEFORE prisma.$disconnect() so no cron tick
+ * races a closing DB connection. node-cron's .stop() prevents future
+ * invocations; an already-running tick finishes against the still-open pool.
+ */
+export function stopAllScheduledTasks() {
+  for (const task of scheduledTasks) {
+    try {
+      task.stop();
+    } catch (err) {
+      logger.warn('Failed to stop a scheduled task during shutdown:', err.message);
+    }
+  }
+  logger.info(`Stopped ${scheduledTasks.length} scheduled task(s).`);
+}
+
+// ─── Cross-process job lock (C-5) ────────────────────────────────────────────
+//
+// cluster.js forks CLUSTER_WORKERS workers per pod, and the Deployment runs
+// 3 replicas — up to 6 processes each registering the same crons. The legacy
+// in-process `runningJobs` Set only dedupes ticks *within one process*, so
+// every mutating sweep could run up to 6× concurrently (duplicate patient SMS,
+// double escalations/audit rows, 6 concurrent pg_dumps). See audit C-5.
+//
+// Fix: a Postgres advisory lock keyed on the job name. Exactly one process
+// across the whole fleet acquires it per tick; the rest skip. We use a
+// SESSION-level lock (pg_try_advisory_lock) held on a DEDICATED short-lived
+// pg connection for the full duration of the job body, then released
+// (pg_advisory_unlock) and the connection closed in finally.
+//
+// Why a dedicated pg.Client and not prisma.$queryRaw: the Prisma pg adapter
+// pools connections, so a pg_try_advisory_lock issued on one pooled connection
+// and the matching pg_advisory_unlock issued later could land on DIFFERENT
+// physical connections — leaking the lock forever. A lock we own end-to-end on
+// one connection cannot leak. The body itself still runs on the normal prisma
+// pool; the lock connection just sits idle holding the lock.
+//
+// Failure-open posture: if the lock connection can't be established (DB blip),
+// we fall back to running the job WITHOUT the cross-process guard rather than
+// silently skipping a sweep fleet-wide. The in-process Set still prevents
+// same-process overlap in that degraded window.
+const ADVISORY_LOCK_NAMESPACE = 0x5648; // 'VH' — keeps our keyspace clear of other apps' hashtext() locks.
+
+function advisoryConnectionString() {
+  // Never pin a statement_timeout on the lock connection: it holds the lock
+  // idle across a possibly-long job body and must not be reaped mid-run.
+  return process.env.SCHEDULER_LOCK_DATABASE_URL || process.env.DATABASE_URL;
+}
+
+/**
+ * Acquire a fleet-wide advisory lock for `jobName`, run `fn`, release the lock.
+ * Returns true if the lock was acquired (job ran), false if another process
+ * held it (job skipped). On connection failure, runs `fn` un-guarded and
+ * returns true (fail-open — see note above).
+ *
+ * Exported for tests (proves a second concurrent caller is skipped).
+ */
+export async function withDbAdvisoryLock(jobName, fn) {
+  const connectionString = advisoryConnectionString();
+  if (!connectionString) {
+    // No DB configured (shouldn't happen in real runs) — run un-guarded.
+    await fn();
+    return true;
+  }
+
+  const client = new pg.Client({ connectionString });
+  let connected = false;
+  try {
+    await client.connect();
+    connected = true;
+  } catch (err) {
+    logger.warn(
+      `Advisory-lock connection failed for ${jobName} — running without cross-process guard:`,
+      err.message,
+    );
+    await fn();
+    return true;
+  }
+
+  let acquired = false;
+  try {
+    // pg_try_advisory_lock(int4, int4): namespace + a stable hash of the job
+    // name. hashtext() is deterministic across processes/replicas, so all
+    // workers contend for the SAME lock id per job.
+    const res = await client.query(
+      'SELECT pg_try_advisory_lock($1, hashtext($2)) AS locked',
+      [ADVISORY_LOCK_NAMESPACE, jobName],
+    );
+    acquired = res.rows?.[0]?.locked === true;
+    if (!acquired) {
+      logger.info(`Skipping ${jobName} — advisory lock held by another process/replica`);
+      return false;
+    }
+    await fn();
+    return true;
+  } finally {
+    if (acquired) {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1, hashtext($2))', [
+          ADVISORY_LOCK_NAMESPACE,
+          jobName,
+        ]);
+      } catch (err) {
+        // Unlock on the same connection we acquired on; if it fails the
+        // connection is about to close anyway, which releases the lock.
+        logger.warn(`Advisory unlock failed for ${jobName}:`, err.message);
+      }
+    }
+    if (connected) {
+      try {
+        await client.end();
+      } catch {
+        // Closing the connection is best-effort; the session lock is released
+        // by the backend terminating regardless.
+      }
+    }
+  }
+}
 
 // Phase-2 RLS: scheduled jobs run outside the Express request scope, so
 // they have no AsyncLocalStorage tenant context. Wrapping every job body
@@ -19,6 +150,12 @@ const runningJobs = new Set();
 // allow the scan when AUTH_ENFORCE_TENANT_RLS=true. Jobs that need
 // per-tenant scoping should loop over tenants with runInTenantContext
 // inside their own body.
+//
+// Two layers of overlap protection:
+//   1. in-process `runningJobs` Set — fast-path, prevents a tick stacking on
+//      the previous run within THIS process.
+//   2. cross-process Postgres advisory lock (withDbAdvisoryLock) — prevents
+//      the same job running concurrently across the 6-process cluster fleet.
 function withJobLock(jobName, fn) {
   return async () => {
     if (runningJobs.has(jobName)) {
@@ -28,8 +165,10 @@ function withJobLock(jobName, fn) {
     runningJobs.add(jobName);
     const start = Date.now();
     try {
-      await runWithSuperAdmin(fn);
-      logger.info(`Job ${jobName} completed in ${Date.now() - start}ms`);
+      const ran = await withDbAdvisoryLock(jobName, () => runWithSuperAdmin(fn));
+      if (ran) {
+        logger.info(`Job ${jobName} completed in ${Date.now() - start}ms`);
+      }
     } catch (err) {
       logger.error(`Job ${jobName} failed after ${Date.now() - start}ms:`, err);
     } finally {
@@ -90,20 +229,140 @@ import { sweepExpiredBreakGlass } from '../services/security/breakGlassService.j
 import { runEscalationSweep } from '../services/workflow/escalationEngineService.js';
 
 // Notifications
-import { verifyLatestBackup } from './backupVerification.js';
-import { runCanaryChecks } from './canaryHealthCheck.js';
+// NB: backupVerification / canaryHealthCheck / wardDowntimePackService entry-
+// points are intentionally NOT imported here anymore — those jobs are owned by
+// dedicated k8s CronJobs (audit C-5), not the in-process scheduler.
 import { tickAdminKpi } from './kpiAggregator.js';
 import { purgeHousekeepingPhotos } from './housekeepingPurgeJob.js';
 import { sendAppointmentReminders, sendTimedReminders, processPendingScheduledNotifications } from './notifications/appointmentReminderJob.js';
 import { sendInvestigationNotifications } from './notifications/InvestigationNotificationJob.js';
 import { escalateStuckOrders } from './notifications/stuckOrderEscalation.js';
 import { scheduleCleanupJob as scheduleR2CleanupJob, executeCleanup } from './r2CleanupJob.js';
-import { generateWardDowntimePacks } from '../services/downtime/wardDowntimePackService.js';
 import { deliverPendingFeedMessages } from '../services/hl7/hl7OutboundService.js';
 import { sweepWaitlists } from '../services/scheduling/schedulingOptimizationService.js';
 import { expiryRadarSweep } from '../services/staff/credentialingService.js';
 import { detectSchemaDrift } from './schemaDriftDetector.js';
 import loadSwaggerDocument from './swaggerLoader.js';
+
+// Notification outbox drain (audit C-6). The outbox persists notification
+// intent before the inline send; getPendingForRetry had zero callers, so the
+// durable-retry guarantee was inert — breach/critical-lab/escalation notices
+// were lost whenever the inline send failed. The drain below is the missing
+// consumer.
+import { notificationOutbox } from './notifications/notificationOutbox.js';
+import { sendPushNotification } from './notifications/sendPushNotification.js';
+import { sendSMS } from '../services/smsService.js';
+
+/**
+ * Resolve a recipient_id (stored as text — may be an integer users.id or a
+ * uuid uid) to its known FCM/device tokens across the three device homes:
+ * users.device_token, user_devices.fcm_token, staff_devices.device_token.
+ * Returns a de-duplicated, non-empty token array (may be empty).
+ */
+async function resolveRecipientTokens(recipientId) {
+  if (recipientId === null || recipientId === undefined || recipientId === '') return [];
+  const idText = String(recipientId);
+  const tokens = new Set();
+  try {
+    // users.device_token — match on int id OR uuid uid (text-cast for safety).
+    const userRows = await prisma.$queryRawUnsafe(
+      `SELECT device_token AS t FROM users
+        WHERE device_token IS NOT NULL
+          AND (id::text = $1 OR uid::text = $1)`,
+      idText,
+    );
+    for (const r of userRows) if (r.t) tokens.add(r.t);
+  } catch (err) {
+    logger.warn('outbox-drain: users token lookup failed:', err.message);
+  }
+  try {
+    const udRows = await prisma.$queryRawUnsafe(
+      `SELECT fcm_token AS t FROM user_devices
+        WHERE fcm_token IS NOT NULL AND user_uid::text = $1`,
+      idText,
+    );
+    for (const r of udRows) if (r.t) tokens.add(r.t);
+  } catch (err) {
+    logger.warn('outbox-drain: user_devices token lookup failed:', err.message);
+  }
+  // staff_devices keys on an integer staff_id — only probe when numeric.
+  if (/^\d+$/.test(idText)) {
+    try {
+      const sdRows = await prisma.$queryRawUnsafe(
+        `SELECT device_token AS t FROM staff_devices
+          WHERE device_token IS NOT NULL AND is_active = true AND staff_id = $1::int`,
+        idText,
+      );
+      for (const r of sdRows) if (r.t) tokens.add(r.t);
+    } catch (err) {
+      logger.warn('outbox-drain: staff_devices token lookup failed:', err.message);
+    }
+  }
+  return [...tokens];
+}
+
+/**
+ * Drain the notification outbox: claim a batch of due PENDING/FAILED rows
+ * (FOR UPDATE SKIP LOCKED), attempt delivery via the real send path, and mark
+ * each row SENT or FAILED (with the existing 5-min backoff + 3-attempt cap).
+ *
+ * Send-path routing per row:
+ *   - SMS rows  (type='sms' or only a recipient_phone)        → sendSMS
+ *   - push rows (everything else, resolve device tokens)      → sendPushNotification
+ * Push also fires a WebSocket delivery via userId inside sendPushNotification.
+ *
+ * A row with no deliverable target (no phone, no resolvable token) is marked
+ * FAILED with a reason and backs off — after 3 such attempts it drops out of
+ * the eligible set (retry_count >= 3), which is the intended dead-letter state.
+ *
+ * Exported for tests (proves a pending row is marked SENT after a drain).
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.limit=50] Max rows per drain tick.
+ * @returns {{ claimed:number, sent:number, failed:number }}
+ */
+export async function drainNotificationOutbox({ limit = 50 } = {}) {
+  const batch = await notificationOutbox.claimPendingBatch(limit);
+  if (!batch.length) return { claimed: 0, sent: 0, failed: 0 };
+
+  let sent = 0;
+  let failed = 0;
+  for (const row of batch) {
+    const isSms = String(row.type || '').toLowerCase() === 'sms'
+      || (!!row.recipient_phone && !row.recipient_id);
+    try {
+      if (isSms) {
+        if (!row.recipient_phone) throw new Error('SMS outbox row has no recipient_phone');
+        await sendSMS(row.recipient_phone, row.body || row.title || '');
+      } else {
+        const tokens = await resolveRecipientTokens(row.recipient_id);
+        const data = row.payload && typeof row.payload === 'object' ? row.payload : {};
+        if (!tokens.length && !row.recipient_id) {
+          throw new Error('push outbox row has no resolvable device token or recipient_id');
+        }
+        // sendPushNotification handles an empty token list gracefully (WS-only
+        // delivery via userId) and never throws on zero tokens, so a row with a
+        // recipient_id but no live token still resolves as "sent" (WS attempt)
+        // rather than looping forever.
+        await sendPushNotification({
+          tokens,
+          title: row.title || '',
+          body: row.body || '',
+          data,
+          userId: row.recipient_id || null,
+        });
+      }
+      await notificationOutbox.markSent(row.id);
+      sent += 1;
+    } catch (err) {
+      await notificationOutbox.markFailed(row.id, String(err.message || err).slice(0, 500));
+      failed += 1;
+      logger.warn(`outbox-drain: delivery failed for row ${row.id}:`, err.message);
+    }
+  }
+  logger.info(`Notification outbox drain: claimed ${batch.length}, sent ${sent}, failed ${failed}`);
+  return { claimed: batch.length, sent, failed };
+}
 
 // CI-8 open-handle guard: every cron timer below is registered at import
 // time and keeps the Node event loop alive, which leaks Jest open handles.
@@ -111,13 +370,13 @@ import loadSwaggerDocument from './swaggerLoader.js';
 // registration under NODE_ENV==="test" is behaviour-identical outside tests.
 if (process.env.NODE_ENV !== 'test') {
   // 🗓️ Daily at 00:00 - Purge old logs
-  cron.schedule('0 0 * * *', withJobLock('purge-logs', async () => {
+  registerCron('0 0 * * *', withJobLock('purge-logs', async () => {
     logger.info('Scheduled Task: Purging old logs...');
     await purgeLogs();
   }));
 
   // 🗓️ Daily at 00:00 - Swagger validation
-  cron.schedule('0 0 * * *', withJobLock('swagger-validation', async () => {
+  registerCron('0 0 * * *', withJobLock('swagger-validation', async () => {
     logger.info('Scheduled Task: Validating Swagger...');
     const swaggerDocument = loadSwaggerDocument();
     if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
@@ -125,13 +384,12 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🗓️ Daily at 02:00 - Backup database + verification
-  cron.schedule('0 2 * * *', withJobLock('backup-db', async () => {
-    logger.info('Scheduled Task: Backing up database...');
-    await backupDb('.env', 'local');
-    // After a small delay, verify the latest backup
-    await new Promise(resolve => setTimeout(resolve, 30000));
-    await verifyLatestBackup();
-  }));
+  //
+  // REMOVED in-process registration (audit C-5). The database backup is owned
+  // by a dedicated k8s CronJob — see infra/kubernetes/base/cnpg/ (CNPG
+  // scheduled backups) and the ops runbook in docs/DEPLOYMENT_GUIDE.md. Running
+  // it in-process too meant up to 6 concurrent nightly pg_dumps across the
+  // worker×replica fleet. The CronJob is the single authoritative runner.
 
   // 🗓️ Monthly on 1st at 02:00 - Archive migration
   scheduleArchiveMigrationJob();
@@ -140,49 +398,58 @@ if (process.env.NODE_ENV !== 'test') {
   scheduleR2CleanupJob();
 
   // 🗓️ Weekly on Sunday at 03:00 - Purge archived logs
-  cron.schedule('0 3 * * 0', withJobLock('purge-archives', async () => {
+  registerCron('0 3 * * 0', withJobLock('purge-archives', async () => {
     logger.info('Scheduled Task: Purging .gz archived logs...');
     await purgeArchives();
   }));
 
   // 🗓️ Weekly on Sunday at 04:00 - Cleanup old backups
-  cron.schedule('0 4 * * 0', withJobLock('cleanup-backups', async () => {
+  registerCron('0 4 * * 0', withJobLock('cleanup-backups', async () => {
     logger.info('Scheduled Task: Cleaning up old backups...');
     await cleanupBackups(path.resolve('backups', 'local'));
     await cleanupBackups(path.resolve('backups', 'render'));
   }));
 
   // 🕗 Daily at 08:00 - Send appointment reminders (existing daily push-only)
-  cron.schedule('0 8 * * *', withJobLock('send-appointment-reminders', sendAppointmentReminders));
+  registerCron('0 8 * * *', withJobLock('send-appointment-reminders', sendAppointmentReminders));
 
   // ⏰ Every hour - Send 24h and 1h SMS+push appointment reminders
-  cron.schedule('0 * * * *', withJobLock('timed-reminders', sendTimedReminders));
+  registerCron('0 * * * *', withJobLock('timed-reminders', sendTimedReminders));
 
   // 🔔 Every 5 minutes - Process pending scheduled notifications (feedback requests, etc.)
-  cron.schedule('*/5 * * * *', withJobLock('process-scheduled-notifications', processPendingScheduledNotifications));
+  registerCron('*/5 * * * *', withJobLock('process-scheduled-notifications', processPendingScheduledNotifications));
 
   // 💊 Every 5 minutes - Alert if an active ward/ICU admission still has no drug chart after 1 hour.
-  cron.schedule('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
+  registerCron('*/5 * * * *', withJobLock('drug-chart-missing-sla', async () => {
     await runMissingDrugChartSweep();
   }));
 
   // 🔄 Every 5 minutes - Retry failed push/SMS notifications (exponential backoff)
-  cron.schedule('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
+  registerCron('*/5 * * * *', withJobLock('retry-failed-notifications', retryFailedNotifications));
+
+  // 📤 Every 2 minutes - drain the notification outbox (audit C-6). Claims due
+  // PENDING/FAILED rows via FOR UPDATE SKIP LOCKED, delivers via the real send
+  // path, marks SENT/FAILED with backoff. Cross-process-safe via withJobLock's
+  // advisory lock + the SKIP LOCKED claim. Without this the durable-retry
+  // guarantee for breach/critical-lab/escalation notices was inert.
+  registerCron('*/2 * * * *', withJobLock('notification-outbox-drain', async () => {
+    await drainNotificationOutbox({ limit: 100 });
+  }));
 
   // 🚨 Every 10 minutes - escalate unread critical notifications so safety
   // alerts cannot remain invisible without an auditable event.
-  cron.schedule('*/10 * * * *', withJobLock('unread-critical-notification-escalation', async () => {
+  registerCron('*/10 * * * *', withJobLock('unread-critical-notification-escalation', async () => {
     await runUnreadCriticalEscalation();
   }));
 
   // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
-  cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
+  registerCron('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
 
   // Operational forecast alert sweep — advisory, flag-gated. Mirrors the
   // every-30-min cadence of escalate-stuck-orders. Default tenant today; wrap
   // in runWithSuperAdmin for cross-tenant fan-out when multi-tenant.
   if (String(process.env.CLINICAL_AI_OPERATIONAL_ALERTS_ENABLED || '').toLowerCase() === 'true') {
-    cron.schedule('*/30 * * * *', withJobLock('operational-alert-sweep', async () => {
+    registerCron('*/30 * * * *', withJobLock('operational-alert-sweep', async () => {
       const r = await runSweep({});
       logger.info('operational-alert-sweep complete', r);
     }));
@@ -192,36 +459,38 @@ if (process.env.NODE_ENV !== 'test') {
   // revenue_cycle_runs standing queue every 5 minutes. Advisory/read-model
   // only; never auto-submits or generates drafts.
   if (String(process.env.REVENUE_CYCLE_TRACKER_ENABLED || '').toLowerCase() === 'true') {
-    cron.schedule('*/5 * * * *', withJobLock('revenue-cycle-tracker-sweep', async () => {
+    registerCron('*/5 * * * *', withJobLock('revenue-cycle-tracker-sweep', async () => {
       const r = await runRevenueCycleSweep({});
       logger.info('revenue-cycle-tracker-sweep complete', r);
     }));
   }
 
   // 🖨️ Every 15 minutes - regenerate per-ward downtime packs (roadmap A3).
-  // The packs must already exist when an outage starts — never generated
-  // on demand. See docs/DOWNTIME_PROCEDURE.md for the ops procedure.
-  cron.schedule('*/15 * * * *', withJobLock('ward-downtime-packs', async () => {
-    await generateWardDowntimePacks();
-  }));
+  //
+  // REMOVED in-process registration (audit C-5). A dedicated k8s CronJob owns
+  // ward-downtime-pack regeneration (see infra/kubernetes/ + the manifest that
+  // runs `generateWardDowntimePacks` on a schedule, docs/DOWNTIME_PROCEDURE.md).
+  // The packs must already exist when an outage starts — never generated on
+  // demand — but regeneration must run exactly once per tick, not once per
+  // worker×replica. The CronJob is authoritative.
 
   // 📡 Every 2 minutes — deliver queued outbound HL7v2 feed messages
   // (roadmap C2). Per-message exponential backoff; dead after 7 attempts;
   // replay via POST /api/v1/hl7-feeds/messages/:id/replay.
-  cron.schedule('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
+  registerCron('*/2 * * * *', withJobLock('hl7-outbound-feeds', async () => {
     await deliverPendingFeedMessages({ limit: 50 });
   }));
 
   // 📅 Every 10 minutes — waitlist auto-fill sweep (roadmap D2): freed
   // capacity for today/tomorrow is offered to waiting patients
   // priority-then-FIFO.
-  cron.schedule('*/10 * * * *', withJobLock('waitlist-auto-fill', async () => {
+  registerCron('*/10 * * * *', withJobLock('waitlist-auto-fill', async () => {
     await sweepWaitlists();
   }));
 
   // 🪪 Daily at 06:30 — credential expiry radar (roadmap D3): surfaces
   // registrations/privileges expiring within 30 days. NABH wants the trail.
-  cron.schedule('30 6 * * *', withJobLock('credential-expiry-radar', async () => {
+  registerCron('30 6 * * *', withJobLock('credential-expiry-radar', async () => {
     await expiryRadarSweep();
   }));
 
@@ -230,14 +499,14 @@ if (process.env.NODE_ENV !== 'test') {
   // a system-attributed appointment_status_history row. Doesn't touch
   // admin_override=true rows. Default grace is 60 min; tune via the
   // service entrypoint.
-  cron.schedule('*/15 * * * *', withJobLock('reap-stale-visits', async () => {
+  registerCron('*/15 * * * *', withJobLock('reap-stale-visits', async () => {
     await reapStaleScheduledVisits();
   }));
 
   // 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
   // inspections that have outlived their expires_at as 'expired' so
   // the receptionist UI doesn't keep showing stale shortlists.
-  cron.schedule('0 * * * *', withJobLock('expire-bed-inspections', async () => {
+  registerCron('0 * * * *', withJobLock('expire-bed-inspections', async () => {
     await expireStaleInspections();
   }));
 
@@ -246,7 +515,7 @@ if (process.env.NODE_ENV !== 'test') {
   // records the transition in status history. Audit-cleanliness only: the ABAC
   // engine already ignores time-expired rows, so this never changes an access
   // decision. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper).
-  cron.schedule('*/5 * * * *', withJobLock('expire-break-glass', async () => {
+  registerCron('*/5 * * * *', withJobLock('expire-break-glass', async () => {
     await sweepExpiredBreakGlass();
   }));
 
@@ -257,17 +526,17 @@ if (process.env.NODE_ENV !== 'test') {
   // security webhook), and backfills any breached SLA instance that lost its
   // task. Runs cross-tenant under runWithSuperAdmin (withJobLock wrapper); each
   // tenant's writes re-scope via setTenantTx.
-  cron.schedule('*/2 * * * *', withJobLock('results-inbox-escalation', async () => {
+  registerCron('*/2 * * * *', withJobLock('results-inbox-escalation', async () => {
     await runEscalationSweep({});
   }));
 
   // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
-  cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
+  registerCron('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
 
   // 🗓️ Friday 17:00 by default — next week's roster deadline.
   // Override with ROSTER_NEXT_WEEK_DEADLINE_CRON plus the weekday/hour envs used
   // by the service when hospitals pick a different cutoff.
-  cron.schedule(
+  registerCron(
     process.env.ROSTER_NEXT_WEEK_DEADLINE_CRON || '0 17 * * 5',
     withJobLock('roster-deadline-escalation', async () => {
       await runRosterDeadlineEscalation({ force: true });
@@ -276,7 +545,7 @@ if (process.env.NODE_ENV !== 'test') {
   );
 
   // 🗓️ Daily at 03:30 - Purge audit logs older than 90 days
-  cron.schedule('30 3 * * *', withJobLock('purge-audit-logs', async () => {
+  registerCron('30 3 * * *', withJobLock('purge-audit-logs', async () => {
     logger.info('Scheduled Task: Purging audit logs older than 90 days...');
     const result = await prisma.$queryRawUnsafe(
       `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'`
@@ -286,21 +555,21 @@ if (process.env.NODE_ENV !== 'test') {
 
   // Daily at 03:32 - Purge staff messages older than the configured retention
   // window. Default is 30 days.
-  cron.schedule('32 3 * * *', withJobLock('purge-staff-messages', async () => {
+  registerCron('32 3 * * *', withJobLock('purge-staff-messages', async () => {
     await purgeExpiredStaffMessages();
   }));
 
   // 🗓️ Daily at 03:38 - Purge expired clinical note drafts (autosave scratch
   // past its 14-day TTL). Drafts carry no canonical-record meaning, so this is a
   // pure cleanup. Cross-tenant under runWithSuperAdmin (withJobLock wrapper).
-  cron.schedule('38 3 * * *', withJobLock('purge-expired-note-drafts', async () => {
+  registerCron('38 3 * * *', withJobLock('purge-expired-note-drafts', async () => {
     logger.info('Scheduled Task: Purging expired clinical note drafts...');
     const removed = await purgeExpiredNoteDrafts();
     logger.info(`Note-drafts cleanup: ${removed} expired draft(s) deleted`);
   }));
 
   // 🗓️ Daily at 03:35 - Purge expired token blacklist entries
-  cron.schedule('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
+  registerCron('35 3 * * *', withJobLock('purge-invalidated-tokens', async () => {
     logger.info('Scheduled Task: Purging expired invalidated tokens...');
     const result = await prisma.$queryRawUnsafe(
       `DELETE FROM invalidated_tokens WHERE expires_at < NOW()`
@@ -309,7 +578,7 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🗓️ Daily at 03:40 - Purge expired OTP sessions
-  cron.schedule('40 3 * * *', withJobLock('purge-expired-otps', async () => {
+  registerCron('40 3 * * *', withJobLock('purge-expired-otps', async () => {
     logger.info('Scheduled Task: Purging expired OTP sessions...');
     const result = await prisma.$queryRawUnsafe(
       `DELETE FROM otp_sessions WHERE expires_at < NOW() - INTERVAL '1 day'`
@@ -318,7 +587,7 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🗓️ Daily at 03:45 - Purge file deletion log entries older than 90 days
-  cron.schedule('45 3 * * *', withJobLock('purge-file-deletion-log', async () => {
+  registerCron('45 3 * * *', withJobLock('purge-file-deletion-log', async () => {
     logger.info('Scheduled Task: Purging file_deletion_log entries older than 90 days...');
     const result = await prisma.$queryRawUnsafe(
       `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
@@ -327,7 +596,7 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🗓️ Daily at 03:50 - Purge housekeeping photos past retention window
-  cron.schedule('50 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
+  registerCron('50 3 * * *', withJobLock('purge-housekeeping-photos', purgeHousekeepingPhotos));
 
   // 🗓️ Daily at 03:52 - Purge expired ambient audio encounters + sibling tables.
   // Covers three tables that each carry a `retention_until DATE` column:
@@ -336,7 +605,7 @@ if (process.env.NODE_ENV !== 'test') {
   //   • clinical_nursing_ambient_sessions (migration 042, 365-day default)
   // Safe to run cross-tenant: GUC unset → tenant_isolation policy permissive
   // branch. Only deletes rows where retention_until < CURRENT_DATE.
-  cron.schedule('52 3 * * *', withJobLock('purge-expired-ambient-audio', async () => {
+  registerCron('52 3 * * *', withJobLock('purge-expired-ambient-audio', async () => {
     logger.info('Scheduled Task: Purging expired ambient audio records...');
     const counts = await purgeExpiredAmbientAudio();
     logger.info(
@@ -347,14 +616,17 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // Every 5 minutes - Canary health check (synthetic tests against critical paths)
-  cron.schedule('*/5 * * * *', withJobLock('canary-health-check', async () => {
-    await runCanaryChecks();
-  }));
+  //
+  // REMOVED in-process registration (audit C-5). A dedicated k8s CronJob owns
+  // the canary synthetic checks (see infra/kubernetes/ canary CronJob manifest)
+  // so they run exactly once per tick fleet-wide instead of once per
+  // worker×replica. `runCanaryChecks` is the shared entrypoint the CronJob
+  // invokes.
 
   // Every 30 seconds — admin:kpi aggregator tick. Short cadence is safe because
   // tickAdminKpi runs two indexed count queries and emits over WebSocket only.
   // withJobLock guarantees no overlap if a tick ever backs up.
-  cron.schedule('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
+  registerCron('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
 
   // Every 30 seconds — clinical-AI workflow resume scheduler (Phase 5 of
   // the rollout, docs/CLINICAL_AI_ROLLOUT_PLAN.md). Polls
@@ -362,20 +634,20 @@ if (process.env.NODE_ENV !== 'test') {
   // gate has fired (e.g. 'await_governance' → matching
   // clinical_ai_approvals.status='approved'), and calls resumeWorkflow().
   // Bounded at 25 resumes per tick to avoid runaway fan-out.
-  cron.schedule('*/30 * * * * *', withJobLock('clinical-ai-workflow-resume', async () => {
+  registerCron('*/30 * * * * *', withJobLock('clinical-ai-workflow-resume', async () => {
     await runPausedWorkflowSweep({ maxResumes: 25 });
   }));
 
   // Every 60 seconds — prior-auth → appeal chain starter sweep (Task 6).
   // Finds denied prior-auth requests with no appeal letter / workflow run
   // and auto-starts the appeal chain for each. Bounded at 25 per tick.
-  cron.schedule('*/60 * * * * *', withJobLock('clinical-ai-prior-auth-appeal-start', () => startPendingPriorAuthAppeals({ maxStarts: 25 })));
+  registerCron('*/60 * * * * *', withJobLock('clinical-ai-prior-auth-appeal-start', () => startPendingPriorAuthAppeals({ maxStarts: 25 })));
 
   // Every 30 seconds — webhook delivery dispatcher. Claims pending /
   // retryable-failed rows from webhook_deliveries via FOR UPDATE SKIP
   // LOCKED, signs + POSTs each, and writes per-attempt audit through
   // integration_logs. Bounded at 25 deliveries per tick.
-  cron.schedule('*/30 * * * * *', withJobLock('webhook-delivery-dispatch', async () => {
+  registerCron('*/30 * * * * *', withJobLock('webhook-delivery-dispatch', async () => {
     await dispatchPendingDeliveries({ batchSize: 25 });
   }));
 
@@ -391,10 +663,35 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-// ✅ Manual Trigger for all tasks
+// ✅ Manual Trigger for all tasks.
+//
+// Boot-time gating (audit C-6/§4 "runAllScheduledTasksNow fire-and-forget on
+// every worker boot → SMS/backup stampede on deploy"):
+//
+//   • bin/www.js calls this on EVERY worker boot. With 6 processes that meant
+//     6× immediate runs of heavy MUTATING jobs (appointment SMS reminders,
+//     timed reminders, escalations) on every deploy — a patient-SMS stampede.
+//   • Each mutating call is now wrapped in withDbAdvisoryLock under a STABLE
+//     job name, so even if every process enters this function on boot, exactly
+//     one acquires each job's fleet-wide lock and the rest skip. The lock names
+//     intentionally match the cron job names so a boot run and a concurrent
+//     cron tick also dedupe against each other.
+//   • The whole heavy block is ALSO opt-in via RUN_STARTUP_TASKS (default off):
+//     in normal cluster operation the registered crons already cover these on
+//     their schedules, so firing them again at boot is redundant. Set
+//     RUN_STARTUP_TASKS=true only for single-process/manual invocations
+//     (e.g. `npm run scheduler:run-now`) where you want an immediate sweep.
+//
+// Cheap, idempotent housekeeping (log/swagger validation) always runs; the
+// outbox drain always runs (idempotent + advisory-locked) so a manual call
+// flushes anything queued.
 export async function runAllScheduledTasksNow() {
-  logger.info('Running all scheduled tasks manually...');
+  const runStartupTasks = String(process.env.RUN_STARTUP_TASKS || '').toLowerCase() === 'true';
+  logger.info(
+    `Running scheduled tasks manually (RUN_STARTUP_TASKS=${runStartupTasks ? 'on' : 'off'})...`,
+  );
   try {
+    // Cheap, idempotent, non-fan-out housekeeping — safe on every boot.
     await purgeLogs();
     await purgeArchives();
 
@@ -402,28 +699,44 @@ export async function runAllScheduledTasksNow() {
     if (!swaggerDocument) {throw new Error('Swagger document not loaded');}
     logger.info('✅ Swagger documentation validated.');
 
-    await backupDb('.env', 'local');
-    await executeCleanup();
+    // Always drain the outbox once on boot — idempotent + advisory-locked, so
+    // only one process across the fleet actually flushes the batch.
+    await withDbAdvisoryLock('notification-outbox-drain', () => drainNotificationOutbox({ limit: 100 }));
 
-    await cleanupBackups(path.resolve('backups', 'local'));
-    await cleanupBackups(path.resolve('backups', 'render'));
+    if (!runStartupTasks) {
+      logger.info('Skipping heavy startup sweeps (RUN_STARTUP_TASKS not set). Registered crons own these.');
+      return;
+    }
 
-    await sendAppointmentReminders();
-    await sendTimedReminders();
-    await processPendingScheduledNotifications();
-    await runMissingDrugChartSweep();
-    await runUnreadCriticalEscalation();
-    await purgeExpiredStaffMessages();
-    await sendInvestigationNotifications();
-    await runRosterDeadlineEscalation({ force: true });
-    await sweepExpiredBreakGlass();
-    await runEscalationSweep({});
+    // NB: database backup is NOT triggered here — it is owned by a dedicated
+    // k8s CronJob (audit C-5). Triggering it from every worker boot caused a
+    // pg_dump stampede on deploy.
+    await withDbAdvisoryLock('startup-r2-cleanup', () => executeCleanup());
+    await withDbAdvisoryLock('cleanup-backups', async () => {
+      await cleanupBackups(path.resolve('backups', 'local'));
+      await cleanupBackups(path.resolve('backups', 'render'));
+    });
+
+    // Heavy MUTATING / fan-out jobs — each fleet-wide single-runner via the
+    // advisory lock so a boot stampede can't multiply patient SMS / escalations.
+    await withDbAdvisoryLock('send-appointment-reminders', () => runWithSuperAdmin(sendAppointmentReminders));
+    await withDbAdvisoryLock('timed-reminders', () => runWithSuperAdmin(sendTimedReminders));
+    await withDbAdvisoryLock('process-scheduled-notifications', () => runWithSuperAdmin(processPendingScheduledNotifications));
+    await withDbAdvisoryLock('drug-chart-missing-sla', () => runWithSuperAdmin(runMissingDrugChartSweep));
+    await withDbAdvisoryLock('unread-critical-notification-escalation', () => runWithSuperAdmin(runUnreadCriticalEscalation));
+    await withDbAdvisoryLock('purge-staff-messages', () => runWithSuperAdmin(purgeExpiredStaffMessages));
+    await withDbAdvisoryLock('investigation-notifications', () => runWithSuperAdmin(sendInvestigationNotifications));
+    await withDbAdvisoryLock('roster-deadline-escalation', () => runWithSuperAdmin(() => runRosterDeadlineEscalation({ force: true })));
+    await withDbAdvisoryLock('expire-break-glass', () => runWithSuperAdmin(sweepExpiredBreakGlass));
+    await withDbAdvisoryLock('results-inbox-escalation', () => runWithSuperAdmin(() => runEscalationSweep({})));
 
     // Purge file deletion log entries older than 90 days
-    const fileDeletionResult = await prisma.$queryRawUnsafe(
-      `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
-    );
-    logger.info(`File deletion log cleanup: ${Number(fileDeletionResult) || 0} rows deleted`);
+    await withDbAdvisoryLock('purge-file-deletion-log', () => runWithSuperAdmin(async () => {
+      const fileDeletionResult = await prisma.$queryRawUnsafe(
+        `DELETE FROM file_deletion_log WHERE deleted_at < NOW() - INTERVAL '90 days'`
+      );
+      logger.info(`File deletion log cleanup: ${Number(fileDeletionResult) || 0} rows deleted`);
+    }));
 
     logger.info('✅ All manual tasks completed.');
   } catch (err) {
@@ -435,7 +748,7 @@ if (process.env.NODE_ENV !== 'test') {
   // ─── Payroll Crons ───────────────────────────────────────────────────────────
 
   // 🗓️ Monthly on 1st at 06:00 — Auto-generate payroll for previous month
-  cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
+  registerCron('0 6 1 * *', withJobLock('monthly-payroll', async () => {
     logger.info('Scheduled Task: Monthly payroll generation...');
     const now = new Date();
     let month = now.getMonth(); // 0-based = last month
@@ -497,7 +810,7 @@ if (process.env.NODE_ENV !== 'test') {
   }));
 
   // 🗓️ Weekly Monday 02:30 — ClinicalTrials.gov catalog sync for every active tenant
-  cron.schedule('30 2 * * 1', withJobLock('trial-catalog-sync', async () => {
+  registerCron('30 2 * * 1', withJobLock('trial-catalog-sync', async () => {
     logger.info('Scheduled Task: Clinical trial catalog sync (weekly)');
     const { syncTrialsFromPublicRegistry } = await import('../services/ai/trialCatalogSyncService.js');
     const tenants = await prisma.$queryRawUnsafe(
@@ -527,7 +840,7 @@ if (process.env.NODE_ENV !== 'test') {
   // summaries current. Imported docs land curation_status='pending' (dark to
   // retrieval) until a human signs them off — the refresh never auto-approves.
   // Idempotent: unchanged source rows dedup on file_hash and are skipped.
-  cron.schedule(
+  registerCron(
     process.env.KNOWLEDGE_CORPUS_REFRESH_CRON || '15 3 * * 1',
     withJobLock('knowledge-corpus-refresh', async () => {
       logger.info('Scheduled Task: Clinical-AI knowledge corpus refresh (weekly)');
@@ -579,7 +892,7 @@ if (process.env.NODE_ENV !== 'test') {
   );
 
   // 🗓️ Annual on Dec 1 at 08:00 — Annual salary review reminder
-  cron.schedule('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
+  registerCron('0 8 1 12 *', withJobLock('annual-salary-review', async () => {
     logger.info('Scheduled Task: Annual salary review reminder...');
     const year = new Date().getFullYear();
     await prisma.$queryRawUnsafe(`
