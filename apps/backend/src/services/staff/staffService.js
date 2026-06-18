@@ -1,4 +1,5 @@
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import bcrypt from 'bcrypt';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -393,7 +394,7 @@ async function resolveOrCreateStaffUser(data) {
     throw new Error('STAFF_ACCOUNT_FIELDS_REQUIRED');
   }
   if (!validStaffRoles.includes(role)) throw new Error('INVALID_ROLE');
-  if (password.length < 6) throw new Error('WEAK_PASSWORD');
+  if (password.length < SECURITY_CONFIG.password.minLength) throw new Error('WEAK_PASSWORD');
 
   const existing = await prisma.$queryRawUnsafe(
     'SELECT id, uid FROM users WHERE phone = $1 LIMIT 1',

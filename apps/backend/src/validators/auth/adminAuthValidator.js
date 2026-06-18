@@ -1,6 +1,9 @@
 // validators/auth/adminAuthValidator.js
 import { body, param, oneOf } from 'express-validator';
 import { deviceTypeValidator } from './authValidator.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
+
+const PASSWORD_MIN_LENGTH = SECURITY_CONFIG.password.minLength;
 
 // --- Admin login (username OR email) ---
 export const adminLoginValidator = [
@@ -19,6 +22,10 @@ export const adminLoginValidator = [
     ],
     'Provide username or email'
   ),
+  // Login must NOT enforce the raised policy floor: doing so would lock out an
+  // existing admin whose password predates the floor (the create path accepted
+  // min:6 historically). Length policy is enforced at set/change/reset time;
+  // login only needs basic input sanity, so this stays permissive.
   body('password')
     .exists({ checkFalsy: true }).withMessage('Password is required')
     .isLength({ min: 6, max: 100 }).withMessage('Password must be between 6 and 100 characters'),
@@ -44,7 +51,7 @@ export const changeAdminPasswordValidator = [
     .notEmpty().withMessage('Current password is required'),
   body('newPassword')
     .notEmpty().withMessage('New password is required')
-    .isLength({ min: 6 }).withMessage('New password must be at least 6 characters long')
+    .isLength({ min: PASSWORD_MIN_LENGTH }).withMessage(`New password must be at least ${PASSWORD_MIN_LENGTH} characters long`)
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
     .withMessage('Password must contain uppercase, lowercase, number and special character')
     .custom((value, { req }) => value !== req.body.currentPassword)
@@ -85,7 +92,7 @@ export const createAdminValidator = [
     .matches(/^[a-zA-Z0-9_-]+$/).withMessage('Username can only contain letters, numbers, underscore, and hyphen'),
   body('password')
     .notEmpty().withMessage('Password is required')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long')
+    .isLength({ min: PASSWORD_MIN_LENGTH }).withMessage(`Password must be at least ${PASSWORD_MIN_LENGTH} characters long`)
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
     .withMessage('Password must contain uppercase, lowercase, number and special character'),
   body('email')

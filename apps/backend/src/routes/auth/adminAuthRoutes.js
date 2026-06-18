@@ -18,6 +18,9 @@ import {
   changeAdminPasswordValidator,
 } from '../../validators/auth/adminAuthValidator.js';
 import { passwordComplexityMiddleware } from '../../validators/passwordValidator.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
+
+const PASSWORD_MIN_LENGTH = SECURITY_CONFIG.password.minLength;
 
 const router = express.Router();
 
@@ -56,7 +59,7 @@ const resetPasswordValidator = [
   body('otp').exists({ checkFalsy: true }).isLength({ min: 4, max: 8 }).withMessage('OTP is required'),
   body('newPassword')
     .exists({ checkFalsy: true }).withMessage('New password is required')
-    .isLength({ min: 6 }).withMessage('New password must be at least 6 characters long')
+    .isLength({ min: PASSWORD_MIN_LENGTH }).withMessage(`New password must be at least ${PASSWORD_MIN_LENGTH} characters long`)
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
     .withMessage('Password must contain uppercase, lowercase, number and special character'),
 ];
