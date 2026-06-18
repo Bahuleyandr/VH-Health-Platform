@@ -77,4 +77,12 @@ Other deferred mediums (from the audit, not yet scheduled): SMART-on-FHIR scope 
 Known pre-existing bug filed as background task: drugChartSla 42P08 audit-insert; canonicalOperationalBridge safeCanonical broad swallow.
 
 ## W4 — Low (not started)
-Password floors (min 6→8); composite/FK indexes (overlaps the deferred 325); dead-code removal (admin (protected)/ProtectedRoute/SystemAlerts/dead actions, staff biometric/remember-me); doc/config drift (express.json 1mb→10mb vs HTTP_BODY_LIMIT, STATEMENT_TIMEOUT note, SESSION_HANDOFF stale); misc grouped lows from the audit §5.
+Password floors (min 6→8); composite/FK indexes (overlaps the deferred perf-index migration); dead-code removal (admin (protected)/ProtectedRoute/SystemAlerts/dead actions, staff biometric/remember-me); doc/config drift (express.json 1mb→10mb vs HTTP_BODY_LIMIT, STATEMENT_TIMEOUT note, SESSION_HANDOFF stale); misc grouped lows from the audit §5.
+
+## 4-parallel-session review + corrected all-green (2026-06-18 eve) — local main `577ba1df`, NOT pushed
+Reviewed the 4 background/sibling-session commits (drug-chart 42P08 `f87987db`, admitValidation `1605d37c`, C-9 patient-refresh `79a22493`, safeCanonical narrowing `1bd21671`): all individually correct. A clean **`jest --bail=0` full sweep** (the chunked `test:ci` runner stops at the first failing chunk, so prior gates only proved a prefix — the pre-merge "full green" was overstated) surfaced **7 latent failures, all fixed → 655/655 suites, 8468 tests, 0 fail**:
+- **REAL: admin 2FA was non-functional** — `totp_challenges` table was never created by any migration. Created → **migration 325** (`ff9846c9`).  ⚠️ The deferred "perf/unique index migration" above must now use **326+**, not 325.
+- **REAL: injection-detector regression** — W3 newline-collapsing normalizer broke the newline-anchored `INSTRUCTION_BLOCK_INJECTION` rule; now scans raw text (`577ba1df`).
+- **5 stale tests** vs correct W1/W3 behavior: billingV2FrontOfficeAudit + tpa-journey (idempotency-key required; `7971e740`/`caff5cd6`), mfa-enforcement (mig 325), priorAuth from-state guard + paymentLink `setTenantTx` 2nd arg (`577ba1df`), future-proof stale AI-module rows (`373db42d`).
+- The two "known pre-existing bug" background tasks above are now BOTH FIXED: drug-chart 42P08 (`f87987db`) + canonicalOperationalBridge safeCanonical swallow (`1bd21671`).
+- Migrations now **317–325**. Branch synced to main. Authoritative all-green = `jest --bail=0 --maxWorkers=2` (a single chunked run never proves full green).
