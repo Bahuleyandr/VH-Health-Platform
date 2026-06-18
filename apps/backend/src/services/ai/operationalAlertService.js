@@ -1,13 +1,12 @@
 // src/services/ai/operationalAlertService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { setTenant } from '../../lib/prisma.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { OPERATIONAL_ALERT_EVALUATORS } from './operationalAlertEvaluators.js';
 import { publishEvent } from '../events/eventOutboxService.js';
-import notificationOutbox from '../../utils/notifications/notificationOutbox.js';
+import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 
 const SEVERITY = ['unknown', 'low', 'moderate', 'high', 'critical'];
 const PUSH_SEVERITIES = new Set(['high', 'critical']);
@@ -142,7 +141,10 @@ export async function runSweep({ tenantId = null, moduleKeys = null, now = new D
     let module;
     try {
       module = await getClinicalAiModule(evaluator.module_key, { tenantId: tid });
-    } catch { module = { enabled: false }; }
+    } catch (err) {
+      logger.warn('operational module gate lookup failed', { module_key: evaluator.module_key, error: err?.message });
+      module = { enabled: false };
+    }
     if (!module?.enabled) continue;
 
     summary.evaluated += 1;
@@ -158,20 +160,28 @@ export async function runSweep({ tenantId = null, moduleKeys = null, now = new D
     const open = await loadOpenAlerts(tid, evaluator.module_key);
     const { toInsert, toUpdate, toResolve, toNotify } = reconcile(open, candidates);
 
-    await setTenant(tid, async () => {
-      for (const c of [...toInsert, ...toUpdate.map((u) => u.candidate)]) {
-        await upsertCandidate(tid, c);
-      }
-      for (const a of toResolve) { await resolveAlert(tid, a.id); summary.resolved += 1; }
-    });
+    // Collect upserted ids so the notify pass reuses them (no re-SELECT). The
+    // whole write+notify body is fault-isolated per evaluator: a DB error on one
+    // module records into summary.errors and continues — it never aborts the
+    // sweep for the remaining modules.
+    const upsertedIds = new Map(); // scope_key → id
+    try {
+      await setTenant(tid, async () => {
+        for (const c of [...toInsert, ...toUpdate.map((u) => u.candidate)]) {
+          const id = await upsertCandidate(tid, c);
+          if (id != null) upsertedIds.set(c.scope_key, id);
+        }
+        for (const a of toResolve) { await resolveAlert(tid, a.id); summary.resolved += 1; }
+      });
 
-    for (const c of toNotify) {
-      const [row] = await prisma.$queryRawUnsafe(
-        `SELECT id FROM clinical_ai_operational_alerts
-          WHERE tenant_id=$1::uuid AND module_key=$2 AND scope_key=$3 AND system_status='active' LIMIT 1`,
-        tid, c.module_key, c.scope_key,
-      );
-      if (row?.id) { await notifyAndStamp(tid, c, row.id); summary.raised += 1; }
+      for (const c of toNotify) {
+        const alertId = upsertedIds.get(c.scope_key);
+        if (alertId) { await notifyAndStamp(tid, c, alertId); summary.raised += 1; }
+      }
+    } catch (err) {
+      summary.errors.push({ module_key: evaluator.module_key, error: err?.message });
+      logger.warn('operational alert write/notify pass failed', { module_key: evaluator.module_key, error: err?.message });
+      continue;
     }
   }
   return summary;
