@@ -9286,6 +9286,7 @@ model tenants {
   research_enrollments                       research_enrollments[]
   research_registries                        research_registries[]
   resource_bookings                          resource_bookings[]
+  revenue_cycle_runs                         revenue_cycle_runs[]
   roster_calendar_events                     roster_calendar_events[]
   roster_weather_signals                     roster_weather_signals[]
   service_catalog                            service_catalog[]
@@ -14413,4 +14414,32 @@ model clinical_ai_operational_alerts {
   @@index([tenant_id, reviewer_decision, created_at(sort: Desc)], map: "idx_operational_alerts_tenant_decision_created")
   @@index([tenant_id, domain, last_evaluated_at(sort: Desc)], map: "idx_operational_alerts_tenant_domain_eval")
   @@index([tenant_id, system_status, severity, last_evaluated_at(sort: Desc)], map: "idx_operational_alerts_tenant_status_sev_eval")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model revenue_cycle_runs {
+  id                        Int       @id @default(autoincrement())
+  tenant_id                 String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_key                  String    @db.VarChar(120)
+  patient_uid               String?   @db.Uuid
+  current_stage             String    @default("prior_auth") @db.VarChar(30)
+  status                    String    @default("open") @db.VarChar(20)
+  payer_name                String?   @db.VarChar(200)
+  claim_id                  Int?
+  coding_generation_id      Int?
+  denial_risk_generation_id Int?
+  prior_auth_id             Int?
+  appeal_id                 Int?
+  stage_history             Json      @default("[]")
+  metadata                  Json      @default("{}")
+  first_seen_at             DateTime  @default(now()) @db.Timestamptz(6)
+  last_evaluated_at         DateTime  @default(now()) @db.Timestamptz(6)
+  resolved_at               DateTime? @db.Timestamptz(6)
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, case_key], map: "uq_revenue_cycle_runs_case")
+  @@index([tenant_id, status, current_stage, last_evaluated_at(sort: Desc)], map: "idx_revenue_cycle_runs_tenant_stage")
 }
