@@ -983,6 +983,19 @@ export async function decideLabAutoverification({
     tid
   );
   if (!rows[0]) throw AppError.notFound('Lab autoverification review not found');
+
+  // Results-inbox wiring (#4): an ACCEPTED autoverification is a confirmed
+  // actionable result — promote it into the ack-tracked results inbox. The
+  // bridge gates on the module being enabled and never throws; the outer guard
+  // ensures a wiring hiccup never blocks the decision response.
+  if (normalized === 'accepted') {
+    try {
+      const { promoteLabAutoverification } = await import('../results/resultsInboxService.js');
+      await promoteLabAutoverification(rows[0], { tenantId: tid });
+    } catch (err) {
+      logger.warn('promoteLabAutoverification wiring failed', { error: err?.message });
+    }
+  }
   return normalizeReviewRow(rows[0]);
 }
 

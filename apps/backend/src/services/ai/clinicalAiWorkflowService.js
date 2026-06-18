@@ -1834,6 +1834,34 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
     }
   }
 
+  // Results-inbox wiring (#4): when an abnormal_result_triage review is
+  // ACCEPTED, promote it into the ack-tracked results-inbox via the
+  // pre-existing bridge in resultsInboxService.  Best-effort (never throws,
+  // never blocks the accept response).  The bridge itself gates on the module
+  // being enabled for the tenant, so a disabled module is a silent no-op.
+  if (decision === 'accepted' && review.module_key === 'abnormal_result_triage') {
+    try {
+      const { promoteAbnormalTriageResult } = await import('../results/resultsInboxService.js');
+      await promoteAbnormalTriageResult(
+        {
+          generationId: review.generation_id,
+          patientUid: review.patient_uid || null,
+          // The draft's urgency_band may be in the generation row; pass what we
+          // have — the bridge defaults gracefully to 'high' when absent.
+          urgencyBand: null,
+          title: null,
+          summary: null,
+        },
+        { tenantId: tid },
+      );
+    } catch (err) {
+      logger.warn('abnormal_result_triage inbox promotion skipped', {
+        reviewId: review.id,
+        error: err.message,
+      });
+    }
+  }
+
   return review;
 }
 
