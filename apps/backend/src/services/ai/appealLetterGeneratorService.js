@@ -446,6 +446,11 @@ function mapPriorAuthToAppealSubject(pa) {
 }
 
 async function loadClaim(tenantId, claimId) {
+  // Tenant-scope the lookup (audit §3 / fix 7): insurance_claims carries
+  // tenant_id (migration 239) but this query previously matched on id only —
+  // a cross-tenant claim id would load another tenant's claim into the appeal
+  // generator. SERIAL ids are not globally unique, so the tenant predicate is
+  // load-bearing defense-in-depth even before the RLS enforce flip.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT c.id, c.claim_number, c.patient_uid, c.invoice_id,
             c.insurance_provider, c.policy_number, c.claim_amount,
@@ -455,8 +460,10 @@ async function loadClaim(tenantId, claimId) {
      FROM insurance_claims c
      LEFT JOIN users u ON u.uid = c.patient_uid
      WHERE c.id = $1
+       AND c.tenant_id = $2::uuid
      LIMIT 1`,
-    claimId
+    claimId,
+    resolveTenantId({ tenantId }),
   );
   const claim = rows[0];
   if (!claim) throw AppError.notFound('Insurance claim not found');

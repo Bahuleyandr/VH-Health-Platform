@@ -14,6 +14,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import {
   recordCanonicalClinicalEvent,
   recordClinicalAuditEvent,
@@ -22,6 +23,261 @@ import {
 
 export const REC_TYPES = Object.freeze(['admission', 'transfer', 'discharge']);
 export const ITEM_DECISIONS = Object.freeze(['continue', 'stop', 'change', 'new', 'hold']);
+export const DISCREPANCY_TYPES = Object.freeze(['added', 'omitted', 'dose_changed', 'duplicate', 'unchanged']);
+
+// ---------------------------------------------------------------------------
+// Ingredient normalization + high-alert classification (audit §C-2)
+// ---------------------------------------------------------------------------
+//
+// The reconciliation engine must align the home list against the inpatient /
+// active list by INGREDIENT, not by raw name — otherwise a brand on one side
+// and the generic on the other read as an add + an omission (two false
+// discrepancies), and the genuine drop of a home anticoagulant hides in the
+// noise. prescriptionSafetyCheck.js already curates brand→generic aliases for
+// the antithrombotic class, but it does not export a general ingredient
+// normalizer, and its table only covers the bleeding-risk class. Rather than
+// reach into another module's private internals, this service keeps its own
+// curated INGREDIENT_ALIASES table whose antithrombotic rows are copied
+// verbatim from prescriptionSafetyCheck.ANTITHROMBOTIC_DRUGS (same generics,
+// same India-first brand aliases) and extends it with the other high-alert
+// classes the audit names (insulin / antiepileptic / opioid / chemotherapy).
+// Keep the two antithrombotic alias sets in sync if either changes.
+//
+// HIGH_ALERT_CLASSES is the ISMP "high-alert medication" subset this fix
+// guards: omitting or silently dose-changing one of these across a transition
+// of care is the canonical med-rec harm (lost anticoagulation, missed insulin,
+// breakthrough seizures, uncontrolled pain, interrupted chemo).
+
+// brand/generic aliases → canonical ingredient + optional high-alert class.
+// Aliases are matched case-insensitively as substrings against the
+// strength/form-stripped name (same matching approach as the safety checker).
+const INGREDIENT_ALIASES = [
+  // --- Anticoagulants (high-alert) — mirrors prescriptionSafetyCheck.ANTITHROMBOTIC_DRUGS
+  { ingredient: 'warfarin', klass: 'anticoagulant', aliases: ['warfarin', 'coumadin'] },
+  { ingredient: 'enoxaparin', klass: 'anticoagulant', aliases: ['enoxaparin', 'clexane', 'lovenox'] },
+  { ingredient: 'heparin', klass: 'anticoagulant', aliases: ['heparin'] },
+  { ingredient: 'apixaban', klass: 'anticoagulant', aliases: ['apixaban', 'eliquis'] },
+  { ingredient: 'rivaroxaban', klass: 'anticoagulant', aliases: ['rivaroxaban', 'xarelto'] },
+  { ingredient: 'dabigatran', klass: 'anticoagulant', aliases: ['dabigatran', 'pradaxa'] },
+  { ingredient: 'acenocoumarol', klass: 'anticoagulant', aliases: ['acenocoumarol', 'acitrom'] },
+  // --- Insulins (high-alert)
+  { ingredient: 'insulin glargine', klass: 'insulin', aliases: ['insulin glargine', 'glargine', 'lantus', 'basalog', 'glaritus'] },
+  { ingredient: 'insulin aspart', klass: 'insulin', aliases: ['insulin aspart', 'aspart', 'novorapid', 'novolog'] },
+  { ingredient: 'insulin lispro', klass: 'insulin', aliases: ['insulin lispro', 'lispro', 'humalog'] },
+  { ingredient: 'insulin detemir', klass: 'insulin', aliases: ['insulin detemir', 'detemir', 'levemir'] },
+  { ingredient: 'insulin degludec', klass: 'insulin', aliases: ['insulin degludec', 'degludec', 'tresiba'] },
+  { ingredient: 'insulin', klass: 'insulin', aliases: ['insulin', 'huminsulin', 'actrapid', 'mixtard', 'novomix', 'human mixtard'] },
+  // --- Antiepileptics (high-alert)
+  { ingredient: 'phenytoin', klass: 'antiepileptic', aliases: ['phenytoin', 'eptoin', 'dilantin'] },
+  { ingredient: 'valproate', klass: 'antiepileptic', aliases: ['valproate', 'valproic', 'divalproex', 'sodium valproate', 'valparin', 'encorate', 'depakote'] },
+  { ingredient: 'levetiracetam', klass: 'antiepileptic', aliases: ['levetiracetam', 'keppra', 'levipil', 'levesam'] },
+  { ingredient: 'carbamazepine', klass: 'antiepileptic', aliases: ['carbamazepine', 'tegretol', 'mazetol', 'zeptol'] },
+  { ingredient: 'lamotrigine', klass: 'antiepileptic', aliases: ['lamotrigine', 'lamictal', 'lametec'] },
+  { ingredient: 'phenobarbital', klass: 'antiepileptic', aliases: ['phenobarbital', 'phenobarbitone', 'gardenal'] },
+  { ingredient: 'lacosamide', klass: 'antiepileptic', aliases: ['lacosamide', 'vimpat'] },
+  { ingredient: 'oxcarbazepine', klass: 'antiepileptic', aliases: ['oxcarbazepine', 'oxetol', 'trileptal'] },
+  // --- Opioids (high-alert)
+  { ingredient: 'morphine', klass: 'opioid', aliases: ['morphine'] },
+  { ingredient: 'fentanyl', klass: 'opioid', aliases: ['fentanyl'] },
+  { ingredient: 'oxycodone', klass: 'opioid', aliases: ['oxycodone', 'oxycontin'] },
+  { ingredient: 'tramadol', klass: 'opioid', aliases: ['tramadol', 'ultracet'] },
+  { ingredient: 'buprenorphine', klass: 'opioid', aliases: ['buprenorphine', 'buprenex', 'norspan'] },
+  { ingredient: 'hydromorphone', klass: 'opioid', aliases: ['hydromorphone', 'dilaudid'] },
+  { ingredient: 'methadone', klass: 'opioid', aliases: ['methadone'] },
+  { ingredient: 'tapentadol', klass: 'opioid', aliases: ['tapentadol', 'nucynta'] },
+  // --- Chemotherapy / cytotoxics (high-alert)
+  { ingredient: 'cisplatin', klass: 'chemotherapy', aliases: ['cisplatin'] },
+  { ingredient: 'carboplatin', klass: 'chemotherapy', aliases: ['carboplatin'] },
+  { ingredient: 'cyclophosphamide', klass: 'chemotherapy', aliases: ['cyclophosphamide', 'endoxan'] },
+  { ingredient: 'methotrexate', klass: 'chemotherapy', aliases: ['methotrexate'] },
+  { ingredient: 'doxorubicin', klass: 'chemotherapy', aliases: ['doxorubicin', 'adriamycin'] },
+  { ingredient: 'vincristine', klass: 'chemotherapy', aliases: ['vincristine', 'oncovin'] },
+  { ingredient: 'paclitaxel', klass: 'chemotherapy', aliases: ['paclitaxel', 'taxol'] },
+  { ingredient: 'fluorouracil', klass: 'chemotherapy', aliases: ['fluorouracil', '5-fu', '5 fu'] },
+  { ingredient: 'capecitabine', klass: 'chemotherapy', aliases: ['capecitabine', 'xeloda'] },
+  { ingredient: 'imatinib', klass: 'chemotherapy', aliases: ['imatinib', 'gleevec', 'glivec'] },
+  // --- Common non-high-alert chronic meds, aliased so brand/generic align
+  // (prevents false add/omission discrepancies; klass null = not high-alert).
+  { ingredient: 'atorvastatin', klass: null, aliases: ['atorvastatin', 'lipitor', 'atorva', 'storvas'] },
+  { ingredient: 'rosuvastatin', klass: null, aliases: ['rosuvastatin', 'crestor', 'rosuvas'] },
+  { ingredient: 'metformin', klass: null, aliases: ['metformin', 'glycomet', 'glucophage'] },
+  { ingredient: 'telmisartan', klass: null, aliases: ['telmisartan', 'telma', 'micardis'] },
+  { ingredient: 'amlodipine', klass: null, aliases: ['amlodipine', 'amlong', 'norvasc'] },
+  { ingredient: 'pantoprazole', klass: null, aliases: ['pantoprazole', 'pantocid', 'pan 40', 'protonix'] },
+  { ingredient: 'amoxicillin', klass: null, aliases: ['amoxicillin', 'amoxil', 'mox'] },
+];
+
+// Strength / form / route / frequency tokens that are NOT part of the
+// ingredient identity. Stripped before matching + as the fallback ingredient
+// key when no alias is known (so "Drug 5mg" and "Drug 10mg" still collapse).
+const STRENGTH_FORM_RX = new RegExp(
+  [
+    '\\b\\d+(?:\\.\\d+)?\\s*(?:mg|mcg|µg|ug|g|ml|iu|units?|u|%)\\b', // strengths/units
+    '\\b\\d+(?:\\.\\d+)?\\s*mg\\s*\\/\\s*\\d*(?:\\.\\d+)?\\s*ml\\b', // mg/ml strengths
+    '\\b(?:tablet|tab|capsule|cap|syrup|suspension|susp|injection|inj|drops?|cream|ointment|gel|patch|spray|inhaler|solution|soln|sachet|powder|sr|xr|er|cr|od|bd|tds|qid|hs|sos|stat|prn|once|twice|daily|oral|iv|im|sc|s\\/c|po|pr|sl|topical)\\b', // forms/routes/freqs
+    '[(),]',
+  ].join('|'),
+  'gi',
+);
+
+/**
+ * Reduce a medication name to a canonical ingredient key. Brand → generic via
+ * the curated alias table; otherwise the strength/form-stripped, whitespace-
+ * collapsed lower-cased remainder. Pure — exported for unit tests.
+ */
+export function normalizeMedicationIngredient(name) {
+  const raw = String(name || '').toLowerCase().trim();
+  if (!raw) return '';
+  const stripped = raw.replace(STRENGTH_FORM_RX, ' ').replace(/\s+/g, ' ').trim();
+  const haystack = stripped || raw;
+  for (const entry of INGREDIENT_ALIASES) {
+    if (entry.aliases.some((alias) => haystack.includes(alias))) return entry.ingredient;
+  }
+  // No known alias — fall back to the stripped name so at least
+  // strength/form variants of the same unknown drug collapse together.
+  return haystack;
+}
+
+/**
+ * Return the high-alert medication class for a name, or null. Brand or generic.
+ * Classes: anticoagulant / insulin / antiepileptic / opioid / chemotherapy
+ * (ISMP high-alert subset relevant to transition-of-care omission). Pure —
+ * exported for unit tests.
+ */
+export function classifyHighAlertIngredient(name) {
+  const haystack = String(name || '').toLowerCase();
+  if (!haystack.trim()) return null;
+  for (const entry of INGREDIENT_ALIASES) {
+    if (!entry.klass) continue;
+    if (entry.aliases.some((alias) => haystack.includes(alias))) return entry.klass;
+  }
+  return null;
+}
+
+// Normalize a dose/route/frequency tuple into a comparable signature so
+// "500mg" vs "500 mg" don't read as a dose change but "500mg" vs "1g" do.
+// Returns '' when no regimen field is populated — the caller treats an empty
+// signature on EITHER side as "not comparable" rather than a change, so a home
+// med captured as free text (no structured dose) vs an active order with a
+// parsed dose is not a false dose_changed. The high-alert OMISSION gate is the
+// hard safety net; we deliberately do not manufacture a dose-change discrepancy
+// out of missing structured data.
+function regimenSignature(item) {
+  const sig = ['dose', 'route', 'frequency']
+    .map((f) => String(item?.[f] ?? '').toLowerCase().replace(/\s+/g, '').trim())
+    .join('|');
+  return /[^|]/.test(sig) ? sig : '';
+}
+
+// Build ingredient → entry maps for the home side and the (active ∪ MAR) side
+// from a start-time source snapshot. First occurrence wins per ingredient.
+function buildSourceIndex(sources = {}) {
+  const homeList = Array.isArray(sources.home) ? sources.home : [];
+  const otherList = [
+    ...(Array.isArray(sources.active_prescriptions) ? sources.active_prescriptions : []),
+    ...(Array.isArray(sources.inpatient_mar) ? sources.inpatient_mar : []),
+  ];
+  const homeByIngredient = new Map();
+  for (const m of homeList) {
+    const ing = normalizeMedicationIngredient(m.medication_name);
+    if (ing && !homeByIngredient.has(ing)) homeByIngredient.set(ing, m);
+  }
+  const otherByIngredient = new Map();
+  for (const m of otherList) {
+    const ing = normalizeMedicationIngredient(m.medication_name);
+    if (ing && !otherByIngredient.has(ing)) otherByIngredient.set(ing, m);
+  }
+  return { homeByIngredient, otherByIngredient };
+}
+
+/**
+ * Classify a list of medication items against a start-time source snapshot,
+ * aligning the home list vs (active orders ∪ inpatient MAR) by ingredient.
+ *
+ * `keyFn(item, index)` selects the key the verdict is filed under — the DB id
+ * at completion, or the array index at start (before ids exist). Returns a
+ * Map<key, discrepancyType> plus per-type counts. An item is:
+ *   - omitted      : ingredient on the home list, absent from the active/MAR
+ *                    side (the drug is being dropped at this transition).
+ *   - added        : ingredient on the active/MAR side, not on the home list.
+ *   - dose_changed : ingredient on both sides, both regimens known and differ.
+ *   - duplicate    : a later item whose ingredient an earlier item already
+ *                    represented.
+ *   - unchanged    : ingredient on both sides with the same (or unknown)
+ *                    regimen, or an item with no counterpart to compare.
+ *
+ * Pure — exported for unit tests.
+ */
+export function classifyDiscrepancies(items, sources, keyFn = (item) => item.id) {
+  const { homeByIngredient, otherByIngredient } = buildSourceIndex(sources || {});
+  const byType = {};
+  const result = new Map();
+  const seenIngredients = new Set();
+  (items || []).forEach((item, index) => {
+    const ing = normalizeMedicationIngredient(item.medication_name);
+    let type;
+    if (ing && seenIngredients.has(ing)) {
+      type = 'duplicate';
+    } else {
+      const inHome = homeByIngredient.has(ing);
+      const inOther = otherByIngredient.has(ing);
+      if (inHome && !inOther) {
+        type = 'omitted';
+      } else if (!inHome && inOther) {
+        type = 'added';
+      } else if (inHome && inOther) {
+        const a = regimenSignature(homeByIngredient.get(ing));
+        const b = regimenSignature(otherByIngredient.get(ing));
+        // Only call a dose change when BOTH sides carry a comparable regimen
+        // and they differ; missing structured data ≠ a change.
+        type = (a && b && a !== b) ? 'dose_changed' : 'unchanged';
+      } else {
+        // Ingredient resolved to neither snapshot bucket (e.g. a manually-added
+        // line) — nothing to diff against, treat as unchanged.
+        type = 'unchanged';
+      }
+    }
+    if (ing) seenIngredients.add(ing);
+    result.set(keyFn(item, index), type);
+    byType[type] = (byType[type] || 0) + 1;
+  });
+  return { byKey: result, counts: byType };
+}
+
+/**
+ * Convenience wrapper that classifies a persisted reconciliation (items carry
+ * DB ids; the snapshot is `rec.source_lists`). Returns { byItemId, counts }.
+ */
+export function computeDiscrepancies(rec) {
+  const { byKey, counts } = classifyDiscrepancies(rec?.items || [], rec?.source_lists || {});
+  return { byItemId: byKey, counts };
+}
+
+/**
+ * Decide whether a discrepancy on a high-alert drug has been explicitly
+ * addressed by a clinician. An `omitted` or `dose_changed` high-alert item must
+ * carry a deliberate, reasoned decision: stop/hold/change with a reason
+ * (decision_reason), or a change spelling out the new regimen. A bare
+ * `continue` does NOT resolve an omission — continue on an item whose drug was
+ * dropped from the active list is precisely the silent loss the gate exists to
+ * catch.
+ */
+function highAlertDiscrepancyResolved(item, discrepancyType) {
+  const reason = String(item.decision_reason || '').trim();
+  if (discrepancyType === 'omitted') {
+    // An omission is resolved only by a documented decision to stop/hold the
+    // drug (with reason) or to re-add/continue it WITH an explicit reason that
+    // shows the clinician saw the gap.
+    return ['stop', 'hold', 'change', 'new'].includes(item.decision) && reason.length > 0
+      || (item.decision === 'continue' && reason.length > 0);
+  }
+  if (discrepancyType === 'dose_changed') {
+    // A dose change on a high-alert drug must be an explicit `change` (which
+    // already requires a reason + change detail) — never an unexamined continue.
+    return item.decision === 'change' && reason.length > 0;
+  }
+  return true;
+}
 
 function tenantIdFromContext(context = {}) {
   return context.tenantId || context.tenant_id || null;
@@ -167,7 +423,7 @@ export async function getReconciliation(recId, { includeItems = true, tenantId =
     `SELECT id, medication_name, dose, frequency, route, source, source_ref,
             decision, decision_reason, new_instructions,
             changed_dose, changed_route, changed_frequency, safety_review_id,
-            decided_by, decided_at
+            discrepancy_type, decided_by, decided_at
        FROM medication_reconciliation_items
       WHERE reconciliation_id = $1::uuid${itemTenantFilter}
       ORDER BY id`,
@@ -241,6 +497,12 @@ export async function startReconciliation({
     : [sources.inpatient_mar, sources.active_prescriptions, sources.home];
   const items = mergeMedicationLists(...orderedLists);
 
+  // Classify each item against the source snapshot up front (audit §C-2) so the
+  // discrepancy verdict — especially an `omitted` high-alert home drug — is
+  // visible the moment the reconciliation opens, not only at completion. Keyed
+  // by array index because the DB ids don't exist until insert.
+  const { byKey: discrepancyByIndex } = classifyDiscrepancies(items, sources, (_item, index) => index);
+
   const rec = await scopedTx(patient.tenant_id, async (tx) => {
     const recRows = await tx.$queryRawUnsafe(
       `INSERT INTO medication_reconciliations
@@ -262,11 +524,11 @@ export async function startReconciliation({
     );
     const created = recRows[0];
 
-    for (const item of items) {
+    for (const [index, item] of items.entries()) {
       await tx.$queryRawUnsafe(
         `INSERT INTO medication_reconciliation_items
-           (reconciliation_id, tenant_id, medication_name, dose, frequency, route, source, source_ref)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8)`,
+           (reconciliation_id, tenant_id, medication_name, dose, frequency, route, source, source_ref, discrepancy_type)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9)`,
         created.id,
         created.tenant_id,
         item.medication_name,
@@ -275,6 +537,7 @@ export async function startReconciliation({
         item.route,
         item.source,
         item.source_ref,
+        discrepancyByIndex.get(index) || 'unchanged',
       );
     }
 
@@ -491,6 +754,73 @@ export async function completeReconciliation(recId, context = {}) {
     );
   }
 
+  // --- Discrepancy engine (audit §C-2) -------------------------------------
+  // Align home vs (active ∪ MAR) by ingredient and classify each item. Persist
+  // the verdict per item, then BLOCK completion when a high-alert drug
+  // (anticoagulant / insulin / antiepileptic / opioid / chemotherapy) is
+  // omitted or dose-changed without a deliberate, reasoned clinician decision.
+  // "Every item got a decision" is NOT enough — a bare `continue` on a dropped
+  // home anticoagulant is exactly the silent omission med-rec exists to catch.
+  const { byItemId: discrepancyByItemId, counts: discrepancyCounts } = computeDiscrepancies(rec);
+
+  const unresolvedHighAlert = [];
+  for (const item of rec.items) {
+    const discrepancyType = discrepancyByItemId.get(item.id) || 'unchanged';
+    const highAlertClass = classifyHighAlertIngredient(item.medication_name);
+    if (!highAlertClass) continue;
+    if (!['omitted', 'dose_changed'].includes(discrepancyType)) continue;
+    if (highAlertDiscrepancyResolved(item, discrepancyType)) continue;
+    unresolvedHighAlert.push({
+      id: item.id,
+      medication_name: item.medication_name,
+      high_alert_class: highAlertClass,
+      discrepancy_type: discrepancyType,
+      decision: item.decision || null,
+    });
+  }
+  if (unresolvedHighAlert.length > 0) {
+    throw AppError.conflict(
+      `${unresolvedHighAlert.length} high-alert medication discrepancy(ies) need an explicit, documented decision before completion`,
+      'MEDREC_UNRESOLVED_DISCREPANCIES',
+      { discrepancies: unresolvedHighAlert },
+    );
+  }
+
+  // --- Medication safety screen over the reconciled (kept) list ------------
+  // Run the existing prescription safety checker over the drugs this
+  // reconciliation will carry forward (continue/change/new) and surface any
+  // hard blockers. Best-effort: a checker failure (it fails CLOSED with a
+  // SAFETY_CHECK_ERROR blocker) still blocks here, but never 500s the path.
+  const keptForScreen = rec.items
+    .filter((i) => ['continue', 'change', 'new'].includes(i.decision))
+    .map((i) => ({
+      name: i.medication_name,
+      medication_name: i.medication_name,
+      dose: i.decision === 'change' ? (i.changed_dose ?? i.dose) : i.dose,
+      frequency: i.decision === 'change' ? (i.changed_frequency ?? i.frequency) : i.frequency,
+      route: i.decision === 'change' ? (i.changed_route ?? i.route) : i.route,
+    }));
+  let safety = { safe: true, warnings: [], blockers: [] };
+  if (keptForScreen.length > 0 && rec.patient_id != null) {
+    try {
+      safety = await validatePrescriptionSafety(rec.patient_id, keptForScreen);
+    } catch (err) {
+      logger.error('Med-rec safety screen failed (blocking completion):', err.message);
+      safety = {
+        safe: false,
+        warnings: [],
+        blockers: [{ type: 'SAFETY_CHECK_ERROR', message: 'Automated safety screen failed — manual review required before completing reconciliation.' }],
+      };
+    }
+  }
+  if (!safety.safe && safety.blockers.length > 0) {
+    throw AppError.conflict(
+      `${safety.blockers.length} medication safety blocker(s) on the reconciled list must be resolved before completion`,
+      'MEDREC_SAFETY_BLOCKERS',
+      { blockers: safety.blockers },
+    );
+  }
+
   const counts = {};
   for (const item of rec.items) counts[item.decision] = (counts[item.decision] || 0) + 1;
   const takeHomeList = rec.rec_type === 'discharge'
@@ -517,6 +847,20 @@ export async function completeReconciliation(recId, context = {}) {
     : null;
 
   const updated = await scopedTx(rec.tenant_id, async (tx) => {
+    // Persist each item's discrepancy verdict in the same tx as the status
+    // flip so the completed reconciliation is a self-consistent record.
+    for (const item of rec.items) {
+      await tx.$queryRawUnsafe(
+        `UPDATE medication_reconciliation_items
+            SET discrepancy_type = $3, updated_at = NOW()
+          WHERE id = $1::int AND reconciliation_id = $2::uuid AND tenant_id = $4::uuid`,
+        item.id,
+        recId,
+        discrepancyByItemId.get(item.id) || 'unchanged',
+        rec.tenant_id,
+      );
+    }
+
     const rows = await tx.$queryRawUnsafe(
       `UPDATE medication_reconciliations SET
          status = 'completed', completed_by = $2::uuid, completed_at = NOW(),
@@ -525,7 +869,11 @@ export async function completeReconciliation(recId, context = {}) {
        RETURNING ${REC_COLUMNS}`,
       recId,
       context.actorUid || null,
-      JSON.stringify({ decision_counts: counts, take_home_list: takeHomeList }),
+      JSON.stringify({
+        decision_counts: counts,
+        discrepancy_counts: discrepancyCounts,
+        take_home_list: takeHomeList,
+      }),
       rec.tenant_id,
     );
     const row = rows[0];
@@ -549,6 +897,7 @@ export async function completeReconciliation(recId, context = {}) {
         reconciliation_id: row.id,
         rec_type: row.rec_type,
         decision_counts: counts,
+        discrepancy_counts: discrepancyCounts,
         take_home_list: takeHomeList,
         item_count: rec.items.length,
       },
@@ -563,17 +912,33 @@ export async function completeReconciliation(recId, context = {}) {
   });
 
   logger.info('Medication reconciliation completed', {
-    reconciliation_id: recId, rec_type: updated.rec_type, counts,
+    reconciliation_id: recId, rec_type: updated.rec_type, counts, discrepancy_counts: discrepancyCounts,
   });
-  return { ...updated, items: rec.items, take_home_list: takeHomeList, decision_counts: counts };
+  // Re-read items so callers see the persisted discrepancy_type verdicts.
+  const finalItems = rec.items.map((i) => ({
+    ...i,
+    discrepancy_type: discrepancyByItemId.get(i.id) || 'unchanged',
+  }));
+  return {
+    ...updated,
+    items: finalItems,
+    take_home_list: takeHomeList,
+    decision_counts: counts,
+    discrepancy_counts: discrepancyCounts,
+  };
 }
 
 export default {
   REC_TYPES,
   ITEM_DECISIONS,
+  DISCREPANCY_TYPES,
   normalizeMedicationEntry,
   mergeMedicationLists,
   buildChangeDetail,
+  normalizeMedicationIngredient,
+  classifyHighAlertIngredient,
+  classifyDiscrepancies,
+  computeDiscrepancies,
   gatherMedicationSources,
   getReconciliation,
   listReconciliations,

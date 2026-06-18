@@ -56,6 +56,24 @@ spec:
                     subjectRegExp: "^https://github\\.com/Bahuleyandr/VH-Health-Platform/\\.github/workflows/(release-images|deploy-dalekdefender)\\.yml@.*$"
                     rekor:
                       url: https://rekor.sigstore.dev
+                # Audit 2026-06-18 (CRITICAL): GitHub Actions is billing-blocked, so
+                # images are actually built+signed by Forgejo with a PRIVATE KEY
+                # (`cosign sign --key env://COSIGN_PRIVATE_KEY`), which the keyless
+                # entry above can NEVER verify. `count: 1` means EITHER the GitHub
+                # keyless OR this Forgejo key signature satisfies admission, so the
+                # policy now matches the real signer and flipping to Enforce will not
+                # reject the very images in production.
+                # OPERATOR (before Enforce): create the public-key Secret holding the
+                # Forgejo `cosign.pub`, and confirm the transparency-log setting below
+                # matches how Forgejo signs (tlog upload on/off):
+                #   kubectl -n kyverno create secret generic vhhealth-cosign-public-key \
+                #     --from-file=cosign.pub=cosign.pub
+                - keys:
+                    secret:
+                      name: vhhealth-cosign-public-key
+                      namespace: kyverno
+                    ctlog:
+                      ignoreSCT: true
           # Resolve tags to digests at admission so what was verified is
           # exactly what runs (complements the H11 digest pinning).
           mutateDigest: true

@@ -527,6 +527,12 @@ export async function recordVitals(data) {
   // the recorded vitals. The canonical timeline event therefore carries the
   // vitals row + provenance labelling (the load-bearing clinical record);
   // the enrichment is attached to the service response only.
+  //
+  // EXCEPTION (audit 2026-06-18 §4): NEWS2 persistence is now part of the atomic
+  // clinical write — persistNews2 runs on `tx` so the news2_scores row commits
+  // or rolls back WITH the vitals row. Captured here so the post-commit
+  // escalation (alert + CDS surfacing) can run after the tx closes.
+  let news2Persisted = null;
   const record = await setTenantTx(resolvedTenantId || DEFAULT_TENANT_ID, async (tx) => {
     const row = await tx.vitals_chart.create({
       data: {
@@ -602,8 +608,36 @@ export async function recordVitals(data) {
       tags: row.source === 'device' ? ['vitals', 'device-synced', 'unverified'] : ['vitals'],
     }, tx);
 
+    // NEWS2 persistence is now ATOMIC with the vitals write (audit 2026-06-18
+    // §4): the news2_scores row is written ON THE SAME tx so it rolls back with
+    // the vitals row instead of being a post-commit best-effort that could be
+    // lost. Partial scoring (persistNews2 → calculateNEWS2) means a partial
+    // vitals set still records a score; pass the ACTUAL values (no fabricated
+    // normal temp/consciousness) so absent params are omitted, not scored as 0.
+    // Escalation (alert + CDS) runs POST-COMMIT below — it touches other
+    // tables / the CDS module and must not be inside the clinical write tx.
+    news2Persisted = await news2Service.persistNews2(resolvedPatientUid, {
+      respiration_rate: respiratory_rate,
+      spo2,
+      temperature: normalizedTemperature,
+      systolic_bp,
+      heart_rate,
+      consciousness,
+      supplemental_o2: supplemental_o2 || false,
+    }, recorded_by, { db: tx });
+
     return row;
   });
+
+  // NEWS2 escalation — POST-COMMIT. A high-NEWS2 (>=5) escalation failure is
+  // LOUD (escalateNews2 throws); a low-score CDS hiccup stays best-effort.
+  let news2Result = null;
+  if (news2Persisted) {
+    news2Result = news2Persisted.record;
+    await news2Service.escalateNews2(
+      resolvedPatientUid, news2Persisted.record, news2Persisted.computed,
+    );
+  }
 
   let triage = null;
   if (normalizedAcuity != null) {
@@ -617,23 +651,6 @@ export async function recordVitals(data) {
   }
 
   let alerts = [];
-  let news2Result = null;
-
-  if (respiratory_rate != null && spo2 != null && systolic_bp != null && heart_rate != null) {
-    try {
-      news2Result = await news2Service.recordNEWS2(resolvedPatientUid, {
-        respiration_rate: respiratory_rate,
-        spo2,
-        temperature: normalizedTemperature ?? 37,
-        systolic_bp,
-        heart_rate,
-        consciousness: consciousness || 'A',
-        supplemental_o2: supplemental_o2 || false,
-      }, recorded_by);
-    } catch (err) {
-      logger.warn(`NEWS2 auto-calculation failed for patient=${resolvedPatientUid}: ${err.message}`);
-    }
-  }
 
   try {
     const vitalsForCheck = {};
@@ -664,7 +681,22 @@ export async function recordVitals(data) {
       }
     }
   } catch (err) {
-    logger.warn(`Vital anomaly check failed for patient=${resolvedPatientUid}: ${err.message}`);
+    // checkVitalAnomalies persists the clinical_alerts fan-out atomically and
+    // re-throws on a persistence failure (it never throws for a benign
+    // no-alert path). A CRITICAL vital sign alert must NEVER be silently lost
+    // behind a warn + 200 — so when the alert persistence fails we escalate to
+    // a high-severity error and PROPAGATE, surfacing the failure to the caller
+    // (and the global error handler / Sentry) instead of swallowing it.
+    // Non-persistence anomaly-check hiccups (e.g. a realtime emit) don't reach
+    // here because the post-commit fan-out is individually best-effort.
+    if (err instanceof AppError) throw err;
+    logger.error(
+      `Vital anomaly alert persistence failed for patient=${resolvedPatientUid}: ${err?.message}`,
+    );
+    throw AppError.internal(
+      'Vitals were recorded but a clinical alert could not be persisted — escalate to the responsible clinician.',
+      'CLINICAL_ALERT_PERSIST_FAILED',
+    );
   }
 
   // Paediatric growth percentile — when weight/height is recorded for a

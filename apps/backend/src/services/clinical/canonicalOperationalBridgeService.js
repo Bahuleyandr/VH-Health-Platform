@@ -86,6 +86,51 @@ async function resolveInvestigationForLabAlert(db, alert = {}) {
   });
 }
 
+// Terminate the open results-inbox task for a given result resource on
+// acknowledgement, so the ack closes the accountable task (audit C-3) and the
+// escalation engine's backfill won't re-create one (it skips resources that
+// already have a terminal task). Best-effort + never-throws + idempotent: it
+// only flips a task still in an open/in_progress/blocked/overdue state, stamps
+// the terminal SLA-completion marker, and is a no-op when no such task exists.
+// An explicit tenant_id predicate keeps it correct whether run on the singleton
+// (GUC unset → mig-075 permissive) or a tenant-scoped tx.
+async function completeOpenResultTask({
+  db = null,
+  tenantId = null,
+  resourceType,
+  resourceId,
+  actorUid = null,
+} = {}) {
+  const client = dbClient(db);
+  const tid = cleanUuid(tenantId);
+  const type = cleanText(resourceType);
+  const id = cleanText(resourceId);
+  if (!tid || !type || !id) return null;
+  return safeCanonical('results-inbox task completion on ack', async () => {
+    const rows = await client.$queryRawUnsafe(
+      `UPDATE tasks
+          SET status = 'completed',
+              completed_at = NOW(),
+              metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object('completed_via', 'critical_result_ack'::text)
+                || CASE WHEN $4::text IS NOT NULL
+                        THEN jsonb_build_object('acknowledged_by', $4::text)
+                        ELSE '{}'::jsonb END,
+              updated_at = NOW()
+        WHERE tenant_id = $1::uuid
+          AND related_resource_type = $2
+          AND related_resource_id = $3
+          AND status IN ('open', 'in_progress', 'blocked', 'overdue')
+        RETURNING id`,
+      tid,
+      type,
+      id,
+      actorUid ? String(actorUid) : null,
+    );
+    return rows[0] || null;
+  });
+}
+
 export async function emitPharmacyOrderEvent({
   db = null,
   order = {},
@@ -509,6 +554,44 @@ export async function emitCriticalLabAlertAcknowledged({
       auditIdempotencyKey: `lab_critical_alerts:${alert.id}:audit:acknowledged`,
     }, { db: client });
 
+    // PRIMARY: complete the SLA the lab producer actually started. The
+    // results-inbox producer (labResultsService → enqueueCriticalResultTask)
+    // keys the critical_result_ack SLA + task to sourceTable='lab_result',
+    // source_id = lab_results.id. Historically the ack path here completed only
+    // 'investigations' / 'lab_critical_alerts' — never 'lab_result' — so the
+    // HL7 lab-panic SLA stayed active/breached forever and the escalation
+    // backfill kept re-creating a task for an already-acknowledged result
+    // (audit C-3). Unify the key: acknowledge the SAME ('lab_result', result_id)
+    // resource the producer started.
+    const resultId = alert.result_id != null ? String(alert.result_id) : null;
+    if (resultId) {
+      await completeWorkflowSla({
+        tenantId: alert.tenant_id || linked?.tenant_id,
+        ruleCode: 'critical_result_ack',
+        sourceTable: 'lab_result',
+        sourceId: resultId,
+        metadata: {
+          alert_id: alert.id,
+          acknowledged_by: actorUid || null,
+        },
+      }, { db: client });
+
+      // Also terminate the open results-inbox task for this lab_result resource,
+      // so the ack closes the accountable task (not just the SLA clock) and the
+      // engine's backfill won't re-alert (it skips resources with a terminal
+      // task). Best-effort + idempotent: only flips a still-open task.
+      await completeOpenResultTask({
+        db: client,
+        tenantId: alert.tenant_id || linked?.tenant_id,
+        resourceType: 'lab_result',
+        resourceId: resultId,
+        actorUid,
+      });
+    }
+
+    // Back-compat: also complete the investigation-keyed and alert-keyed SLAs
+    // (older producers / the manual investigation path may have started one of
+    // these). completeWorkflowSla is a no-op when no matching instance exists.
     if (linked?.investigation_id) {
       await completeWorkflowSla({
         tenantId: alert.tenant_id || linked.tenant_id,

@@ -25,9 +25,12 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 // loginSessionHelper pulls in websocket/redis at import — stub it so importing
 // authService.js stays hermetic. adminResetPassword/adminForgotPassword don't
-// use it anyway.
+// use it anyway. generateRefreshToken is included because authService.js now
+// statically imports it (ESM mock linking requires every named import to exist,
+// even when unused on these code paths).
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: jest.fn(),
+  generateRefreshToken: jest.fn(),
 }));
 
 // firebaseAuthService (not exercised here, just needs to resolve)

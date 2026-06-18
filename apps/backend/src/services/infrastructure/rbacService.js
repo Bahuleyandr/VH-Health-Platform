@@ -1,6 +1,7 @@
 // services/infrastructure/rbacService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import {
@@ -28,6 +29,32 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 export class RBACService {
   static getPolicy() {
     return getRolePolicy();
+  }
+
+  // Resolve the acting admin's tenant_id so cross-tenant user mutations
+  // (changeRole / toggleUserStatus) can be confined to the actor's tenant.
+  // Prefers an explicit `adminInfo.tenant_id` when the caller already carries
+  // it; otherwise resolves it once from `users` by the actor uid. Throws
+  // forbidden when the actor or its tenant cannot be resolved — without it we
+  // cannot scope the mutation, so failing closed is the only safe outcome.
+  static async _resolveActorTenantId(adminInfo) {
+    const explicit = adminInfo?.tenant_id || adminInfo?.tenantId;
+    if (explicit) return explicit;
+
+    const actorUid = adminInfo?.uid;
+    if (!actorUid) {
+      throw AppError.forbidden('Acting user could not be identified');
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT tenant_id FROM users WHERE uid = $1::uuid',
+      actorUid
+    );
+    const tenantId = rows?.[0]?.tenant_id;
+    if (!tenantId) {
+      throw AppError.forbidden('Acting user could not be identified');
+    }
+    return String(tenantId);
   }
 
   // Get all available roles with details
@@ -281,8 +308,15 @@ export class RBACService {
     }
   }
 
-  // Assign role to user — runs under prisma.$transaction. Errors roll back
-  // the UPDATE + audit INSERT atomically.
+  // Assign role to user — runs under setTenantTx (RLS tenant scope). Errors
+  // roll back the UPDATE + audit INSERT atomically. Confined to the acting
+  // admin's tenant: `users.phone` is globally unique, so a bare
+  // prisma.$transaction (RLS permissive, GUC unset) would let a tenant-A admin
+  // mutate a tenant-B user by phone. We resolve the actor's tenant, scope both
+  // the SELECT and the UPDATE with `AND tenant_id = $::uuid`, and wrap the
+  // whole tx in setTenantTx so RLS WITH CHECK fires too. A foreign-tenant
+  // phone resolves to 0 rows → AppError.notFound (never a silent cross-tenant
+  // write).
   static async assignRole(data, adminInfo) {
     const { phone, role, reason = 'Admin assignment' } = data;
     const normalizedPhone = normalizePhone(phone);
@@ -291,6 +325,8 @@ export class RBACService {
     if (!canUserManageRole(adminInfo.role, targetRole)) {
       throw new Error('Insufficient permissions to assign this role');
     }
+
+    const actorTenantId = await this._resolveActorTenantId(adminInfo);
 
     // Capacity + user lookup can be done outside the transaction (both are
     // read-only; no isolation concern). Capacity-vs-change race is accepted
@@ -301,12 +337,12 @@ export class RBACService {
     }
 
     try {
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await setTenantTx(actorTenantId, async (tx) => {
         const userResult = await tx.$queryRawUnsafe(
-          'SELECT uid, role, name FROM users WHERE phone = $1',
-          normalizedPhone
+          'SELECT uid, role, name FROM users WHERE phone = $1 AND tenant_id = $2::uuid',
+          normalizedPhone, actorTenantId
         );
-        if (userResult.length === 0) throw new Error('User not found');
+        if (userResult.length === 0) throw AppError.notFound('User not found');
 
         const user = userResult[0];
         const oldRole = user.role;
@@ -322,8 +358,8 @@ export class RBACService {
         }
 
         await tx.$executeRawUnsafe(
-          'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2',
-          targetRole, normalizedPhone
+          'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2 AND tenant_id = $3::uuid',
+          targetRole, normalizedPhone, actorTenantId
         );
 
         await tx.$executeRawUnsafe(
@@ -556,26 +592,34 @@ export class RBACService {
   }
 
   // Toggle user status (lock/unlock) — atomic UPDATE + audit INSERT under
-  // prisma.$transaction; thrown errors roll back the UPDATE.
+  // setTenantTx (RLS tenant scope); thrown errors roll back the UPDATE.
+  // Confined to the acting admin's tenant: `users.phone` is globally unique, so
+  // a bare prisma.$transaction (RLS permissive, GUC unset) would let a tenant-A
+  // admin lock/unlock a tenant-B user by phone. We resolve the actor's tenant,
+  // scope the UPDATE with `AND tenant_id = $::uuid`, and wrap the tx in
+  // setTenantTx so RLS WITH CHECK fires too. A foreign-tenant phone resolves to
+  // 0 rows → AppError.notFound (never a silent cross-tenant write).
   static async toggleUserStatus(data, adminInfo) {
     const { phone, action, reason = 'Admin action' } = data;
     const normalizedPhone = normalizePhone(phone);
     const isActive = action === 'unlock';
 
+    const actorTenantId = await this._resolveActorTenantId(adminInfo);
+
     try {
-      const user = await prisma.$transaction(async (tx) => {
+      const user = await setTenantTx(actorTenantId, async (tx) => {
         const result = await tx.$queryRawUnsafe(
           `UPDATE users SET
             is_active = $1,
             status_updated_at = NOW(),
             status_updated_by = $2::uuid,
             status_reason = $3
-           WHERE phone = $4
+           WHERE phone = $4 AND tenant_id = $5::uuid
            RETURNING uid, name, role, is_active`,
-          isActive, adminInfo.uid, reason, normalizedPhone
+          isActive, adminInfo.uid, reason, normalizedPhone, actorTenantId
         );
 
-        if (result.length === 0) throw new Error('User not found');
+        if (result.length === 0) throw AppError.notFound('User not found');
         const row = result[0];
 
         await tx.$executeRawUnsafe(

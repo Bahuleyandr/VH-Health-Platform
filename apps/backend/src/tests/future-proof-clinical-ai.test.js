@@ -195,6 +195,13 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_voice_ivr_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
+    // Drop any leftover per-tenant module overrides for the test tenant. A stale
+    // `clinical_ai_tenant_modules` row with `enabled = false` shadows the global
+    // enable that `enableModule()` performs, so the module-draft routes would 403
+    // ("module is disabled") even though the global module is on. The tenant-override
+    // sub-test (denial_risk_assist) creates and resets its own row, so wiping this
+    // table keeps the suite self-contained and deterministic across QA-DB reuse.
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_tenant_modules WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_approvals WHERE reason LIKE '%[test]%' OR payload::text LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_prompts WHERE title LIKE '%[test]%'`).catch(() => {});
@@ -236,6 +243,16 @@ describe('future-proof clinical AI and privacy foundations', () => {
       PATIENT_UID
     );
     consentReference = String(consentRows[0].id);
+
+    // Audit 2026-06-18 §3 finding #3: the FHIR $everything export (exercised
+    // below) now requires an active data_sharing consent (requireConsent gate in
+    // fhirRoutes.js). Grant it alongside the treatment consent.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_consents
+         (patient_uid, consent_type, granted, status, granted_at, granted_by)
+       VALUES ($1::uuid, 'data_sharing', true, 'active', NOW(), 'patient')`,
+      PATIENT_UID
+    );
 
     const admissions = await prisma.$queryRawUnsafe(
       `INSERT INTO admissions
@@ -386,6 +403,13 @@ describe('future-proof clinical AI and privacy foundations', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_voice_ivr_sessions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_task_candidates WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_safety_reviews WHERE module_key LIKE '%'`).catch(() => {});
+    // Drop any leftover per-tenant module overrides for the test tenant. A stale
+    // `clinical_ai_tenant_modules` row with `enabled = false` shadows the global
+    // enable that `enableModule()` performs, so the module-draft routes would 403
+    // ("module is disabled") even though the global module is on. The tenant-override
+    // sub-test (denial_risk_assist) creates and resets its own row, so wiping this
+    // table keeps the suite self-contained and deterministic across QA-DB reuse.
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_tenant_modules WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_reviews WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_approvals WHERE reason LIKE '%[test]%' OR payload::text LIKE '%[test]%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_prompts WHERE title LIKE '%[test]%'`).catch(() => {});

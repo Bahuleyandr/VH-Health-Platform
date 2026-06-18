@@ -6,15 +6,44 @@ import { fileURLToPath } from 'url';
 import { createLogger, format, transports } from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import phiRedactionFormat from './phiRedactionFormat.js';
+import { redactSensitiveQueryParams } from '../utils/urlRedaction.js';
 
 // ESM __dirname replacement
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure logs directory exists
-const logsDir = path.join(__dirname, '../logs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+const isTest = process.env.NODE_ENV === 'test';
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Where rotated file logs live. In production the container runs with
+// readOnlyRootFilesystem:true (only /tmp, /app/tmp, /app/node_modules/.prisma
+// are writable — see infra/kubernetes), so the default `../logs` under the app
+// root is NOT writable and mkdirSync there throws EROFS at import → boot crash
+// (audit C-8). Prod also logs structured JSON to stdout already, so file
+// transports are silenced there (see fileTransportsSilent below) and this dir
+// is only a fallback target. Override with LOG_DIR if a writable log volume is
+// mounted. Default to a writable tmp path in production.
+const logsDir = process.env.LOG_DIR
+  || (isProduction ? path.join('/app', 'tmp', 'logs') : path.join(__dirname, '../logs'));
+
+// File transports are silent in test (keep logs/ clean) AND in production
+// (stdout/json is the prod log path; the FS is read-only). So we only ever
+// create the dir / write files in dev. Guard mkdirSync so a read-only or
+// permission-denied FS can never throw at module load — fall back to silent
+// file transports instead of crashing the process.
+let fileTransportsSilent = isTest || isProduction;
+
+if (!fileTransportsSilent) {
+  try {
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+  } catch (err) {
+    // Read-only FS / EACCES — degrade to stdout-only rather than crash at import.
+    // console.error (not the winston logger — it isn't constructed yet here).
+    fileTransportsSilent = true;
+    console.error(`Logger: log directory not writable (${logsDir}); file transports disabled: ${err.message}`);
+  }
 }
 
 // Define log format (includes metadata so extra args are not silently dropped).
@@ -33,16 +62,13 @@ const logFormat = format.printf(({ timestamp, level, message, stack, ...meta }) 
   return `[${timestamp}] ${level}: ${message}${metaStr}${stackStr}`;
 });
 
-const isTest = process.env.NODE_ENV === 'test';
-const isProduction = process.env.NODE_ENV === 'production';
-
 // In test mode, still surface ERROR-level logs to the console — Jest unit
 // tests stay quiet (almost nothing logs at error level under happy paths)
 // but the smoke E2E pipeline can see backend exceptions instead of getting a
 // generic "Failed to fetch ..." with no stack. File transports stay silent
-// to keep the logs/ dir clean across test runs.
+// to keep the logs/ dir clean across test runs (and in prod — see
+// fileTransportsSilent above, set near logsDir).
 const consoleSilent = false;
-const fileTransportsSilent = isTest;
 
 // Structured (JSON) output for production log aggregators (CloudWatch/Loki/
 // Datadog). Opt-in via LOG_FORMAT=json or enabled by default in production so
@@ -111,7 +137,26 @@ logger.stream = {
   }
 };
 
-// Preconfigured morgan middleware
+// Morgan access-log URL redaction (audit 2026-06-18 §4 Observability).
+// Morgan's stock `combined` format logs the raw `:url` — including the query
+// string — so opaque secret params (?api_key=, ?token=, ?access_token=,
+// ?idToken=) leaked into the HTTP access log. phiRedactionFormat scrubs
+// phone/email/MRN/JWT shapes but NOT opaque key=value secrets, so we redact
+// the URL at the morgan-token layer before the line is ever formatted. The
+// endpoint contract is unchanged; only the LOGGED url is scrubbed.
+function morganSafeUrlToken(req) {
+  const raw = req.originalUrl || req.url || '';
+  return redactSensitiveQueryParams(raw);
+}
+// Override morgan's built-in `url` token so EVERY morgan format (incl.
+// `combined`) emits the redacted URL.
+morgan.token('url', morganSafeUrlToken);
+
+// Preconfigured morgan middleware. `combined` now resolves `:url` through the
+// redacting token above.
 logger.morganMiddleware = morgan('combined', { stream: logger.stream });
+
+// Exposed for unit tests / reuse (audit regression guard).
+logger.morganSafeUrlToken = morganSafeUrlToken;
 
 export default logger;

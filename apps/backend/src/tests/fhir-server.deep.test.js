@@ -24,6 +24,9 @@ async function cleanup() {
     `DELETE FROM vitals_chart WHERE notes LIKE '%FHIR Observation create%'
        AND patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
   ).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM patient_consents WHERE patient_uid IN (SELECT uid FROM users WHERE name = 'C3TEST Patient')`,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE name = 'C3TEST Patient'`).catch(() => {});
 }
 
@@ -187,6 +190,18 @@ d('FHIR R4 server — write interactions (roadmap C3)', () => {
   });
 
   test('$everything carries the problem-list Condition', async () => {
+    // Audit 2026-06-18 §3 finding #3: $everything is a disclosure-EXPORT and now
+    // requires an active data_sharing consent (requireConsent gate in
+    // fhirRoutes.js). Grant it so this export proceeds. The patient + the DOCTOR
+    // token both resolve to DEFAULT_TENANT_ID.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_consents
+         (patient_uid, consent_type, granted, status, granted_at,
+          data_categories, version, source, tenant_id, created_at, updated_at)
+       VALUES ($1::uuid, 'data_sharing', true, 'active', NOW(),
+          '[]'::jsonb, 'v1', 'test', '00000000-0000-4000-8000-000000000001'::uuid, NOW(), NOW())`,
+      patientUid,
+    );
     const res = await authClient('DOCTOR').get(`/api/v1/fhir/Patient/${patientUid}/$everything`);
     expect(res.status).toBe(200);
     const conditions = res.body.entry

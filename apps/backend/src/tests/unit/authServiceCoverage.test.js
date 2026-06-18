@@ -99,10 +99,16 @@ const mockFb = {
 };
 jest.unstable_mockModule('../../services/auth/firebaseAuthService.js', () => ({ ...mockFb }));
 
-// loginSessionHelper — issues access token + claims single active session
+// loginSessionHelper — issues access token + claims single active session.
+// generateRefreshToken is the SHARED refresh-token minter AuthService now
+// delegates to (dedup of the old inline _generateRefreshToken). Mirror the real
+// helper here — stamp type:'refresh' and forward to generateToken — so the C-9
+// assertions below (refresh token minted with type:'refresh') still hold.
 const mockIssueSession = jest.fn().mockResolvedValue({ accessToken: 'session-access-token' });
+const mockGenerateRefreshToken = jest.fn((payload) => mockGenerateToken({ ...payload, type: 'refresh' }, '30d'));
 jest.unstable_mockModule('../../services/auth/loginSessionHelper.js', () => ({
   issueAccessTokenAndClaimSession: mockIssueSession,
+  generateRefreshToken: mockGenerateRefreshToken,
 }));
 
 // tokenBlacklist (redis fast-path + DB fallback)
@@ -344,7 +350,10 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
     );
   });
 
-  it('falls through to issue a challenge even when the totp_challenges insert throws', async () => {
+  it('FAILS CLOSED (503, no JWT) when the totp_challenges insert throws (audit 2026-06-18 §3)', async () => {
+    // A 2FA-enabled admin must NEVER be downgraded to a full JWT because the
+    // challenge could not be persisted. The login must abort with an error and
+    // issue no token of any kind.
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     mockGenerateChallengeToken.mockReturnValue({ challengeToken: 'chal-2', expiresAt });
     mockPrisma.admins.findFirst.mockResolvedValue({ ...baseAdmin, role: 'ADMIN', totp_enabled: true });
@@ -352,10 +361,13 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
     mockPrisma.admins.update.mockResolvedValue({});
     mockPrisma.$queryRawUnsafe.mockRejectedValue(new Error('relation "totp_challenges" does not exist'));
 
-    const res = await AuthService.adminLogin('root', 'pw');
-
-    expect(res.requiresTwoFactor).toBe(true);
-    expect(res.challengeToken).toBe('chal-2');
+    await expect(AuthService.adminLogin('root', 'pw')).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'MFA_UNAVAILABLE',
+    });
+    // Crucially: no full-access JWT was ever minted via the session helper.
+    expect(mockIssueSession).not.toHaveBeenCalled();
+    expect(mockLogSecurityEvent).toHaveBeenCalledWith('MFA_CHALLENGE_STORE_FAILED', expect.any(Object));
   });
 
   it('issues a full admin JWT via the session helper when MFA is off and no TOTP', async () => {
@@ -369,6 +381,12 @@ describe('AuthService.adminLogin — MFA / TOTP branches', () => {
       const res = await AuthService.adminLogin('root', 'pw', { ip: '1.2.3.4' }, { deviceType: 'web' });
 
       expect(res.token).toBe('session-access-token');
+      // C-9: a separate refresh token must accompany the admin access token.
+      expect(res.refreshToken).toBe('mock-jwt-token');
+      expect(mockGenerateToken).toHaveBeenCalledWith(
+        expect.objectContaining({ uid: 'admin-uid-1', role: 'ADMIN', type: 'refresh' }),
+        '30d',
+      );
       expect(res.admin).toMatchObject({ uid: 'admin-uid-1', username: 'root', role: 'ADMIN' });
       expect(mockIssueSession).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -843,17 +861,37 @@ describe('AuthService.getAdminProfile', () => {
 // ====================================================================
 // Tokens / sessions: refreshToken rotation+blacklist, logout, revokeAllTokens
 // ====================================================================
-describe('AuthService.refreshToken — rotation + blacklist', () => {
-  it('rejects a token whose jti is already blacklisted (replay protection)', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999 });
+describe('AuthService.refreshToken — rotation + blacklist + type guard', () => {
+  it('C-9: rejects an ACCESS token (no type:refresh claim) presented at refresh', async () => {
+    // The whole point of C-9: an access token must NOT be rotatable into a
+    // fresh session. verifyToken returns a valid-but-typeless payload.
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999 });
+
+    await expect(AuthService.refreshToken('access-tok')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
+    // Must reject BEFORE touching the blacklist / DB / session helper.
+    expect(mockIsTokenBlacklisted).not.toHaveBeenCalled();
+    expect(mockIssueSession).not.toHaveBeenCalled();
+  });
+
+  it('C-9: rejects a token explicitly typed as something other than refresh', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'j', exp: 9999999999, type: 'access' });
+    await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+    expect(mockIssueSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a refresh token whose jti is already blacklisted (replay protection)', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, type: 'refresh' });
     mockIsTokenBlacklisted.mockResolvedValue(true);
 
-    await expect(AuthService.refreshToken('tok')).rejects.toThrow('Token has been revoked');
+    await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_REVOKED' });
     expect(mockIsTokenBlacklisted).toHaveBeenCalledWith('jti-1');
   });
 
-  it('blacklists the rotated jti and mints a new token via the session helper', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, deviceType: 'ios' });
+  it('accepts a type:refresh token: blacklists its jti, mints new access + refresh tokens', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', jti: 'jti-1', exp: 9999999999, deviceType: 'ios', type: 'refresh' });
     mockIsTokenBlacklisted.mockResolvedValue(false);
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
 
@@ -864,26 +902,35 @@ describe('AuthService.refreshToken — rotation + blacklist', () => {
       expect.objectContaining({ userUid: 'u1', deviceType: 'ios', pushRevoked: false }),
     );
     expect(res.token).toBe('session-access-token');
+    // A rotated refresh token (type:'refresh', 30d) is returned to the client.
+    expect(res.refreshToken).toBe('mock-jwt-token');
+    expect(mockGenerateToken).toHaveBeenCalledWith(
+      expect.objectContaining({ uid: 'u1', role: 'PATIENT', type: 'refresh' }),
+      '30d',
+    );
     expect(res.user).toMatchObject({ uid: 'u1', id: 7, role: 'PATIENT' });
   });
 
-  it('does not blacklist when the token has no jti/exp', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'u1' });
+  it('does not blacklist when the refresh token has no jti/exp', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue({ uid: 'u1', id: 7, phone: '+91', name: 'A', role: 'PATIENT' });
 
     await AuthService.refreshToken('tok');
     expect(mockBlacklistToken).not.toHaveBeenCalled();
   });
 
-  it('throws on an invalid signature', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue(null);
-    await expect(AuthService.refreshToken('bad')).rejects.toThrow('Invalid token signature');
+  it('throws on an invalid/expired signature (verifyToken returns null)', async () => {
+    mockVerifyToken.mockReturnValue(null);
+    await expect(AuthService.refreshToken('bad')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
   });
 
   it('throws when the user no longer exists', async () => {
-    mockVerifyTokenAllowExpired.mockReturnValue({ uid: 'gone', jti: 'j', exp: 1 });
+    mockVerifyToken.mockReturnValue({ uid: 'gone', jti: 'j', exp: 9999999999, type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue(null);
-    await expect(AuthService.refreshToken('tok')).rejects.toThrow('User not found');
+    await expect(AuthService.refreshToken('tok')).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
   });
 });
 

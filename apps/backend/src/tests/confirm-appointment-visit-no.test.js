@@ -53,7 +53,23 @@ async function ensureUser(uid, role, phone, name) {
   return rows[0].id;
 }
 
+// Each seeded appointment gets a DISTINCT clock-time slot. Migration 322 adds a
+// partial UNIQUE index on (tenant_id, doctor_id, appointment_date,
+// appointment_time) for active rows, so two fixtures sharing one doctor/date/time
+// would (correctly) be rejected as a double-booking. These fixtures only need to
+// be distinct appointments for the same doctor, not the same slot — so we hand
+// out a unique time per call (09:00, 09:05, 09:10, …).
+let seedSlotCounter = 0;
+function nextSeedSlot() {
+  const minutes = 9 * 60 + seedSlotCounter * 5; // start 09:00, step 5 min
+  seedSlotCounter += 1;
+  const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+  const mm = String(minutes % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
 async function seedAppointment({ department }) {
+  const slot = nextSeedSlot();
   // Dev DB may not carry appointments.tenant_id (migration 075). Probe.
   const colCheck = await prisma.$queryRawUnsafe(
     `SELECT 1 FROM information_schema.columns
@@ -65,20 +81,20 @@ async function seedAppointment({ department }) {
            (uid, phone, patient_id, doctor_id, appointment_date,
             appointment_time, status, department, tenant_id, updated_at)
          VALUES (gen_random_uuid(), $1, $2::int, $3::int,
-                 CURRENT_DATE + INTERVAL '1 day', '11:00', 'PENDING', $4,
+                 CURRENT_DATE + INTERVAL '1 day', $5, 'PENDING', $4,
                  '00000000-0000-4000-8000-000000000001'::uuid, NOW())
          RETURNING id`,
-        '9700655001', patientId, doctorId, department,
+        '9700655001', patientId, doctorId, department, slot,
       )
     : await prisma.$queryRawUnsafe(
         `INSERT INTO appointments
            (uid, phone, patient_id, doctor_id, appointment_date,
             appointment_time, status, department, updated_at)
          VALUES (gen_random_uuid(), $1, $2::int, $3::int,
-                 CURRENT_DATE + INTERVAL '1 day', '11:00', 'PENDING', $4,
+                 CURRENT_DATE + INTERVAL '1 day', $5, 'PENDING', $4,
                  NOW())
          RETURNING id`,
-        '9700655001', patientId, doctorId, department,
+        '9700655001', patientId, doctorId, department, slot,
       );
   createdApptIds.push(rows[0].id);
   return rows[0].id;

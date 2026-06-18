@@ -11,7 +11,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
-import { emitBedMarkedReady } from '../clinical/canonicalOperationalBridgeService.js';
+import { emitBedMarkedReady, emitFinalDischargeCompleted } from '../clinical/canonicalOperationalBridgeService.js';
 
 function tenantOf(options = {}) {
   return options.tenantId || getCurrentTenantId() || null;
@@ -206,18 +206,21 @@ class BedManagementService {
       const activeAdmission = activeAdmissionRows[0] || null;
       const dischargePatientUid = patientUid || activeAdmission?.patient_uid || null;
 
+      let closedAdmission = null;
       if (activeAdmission) {
-        await tx.$executeRawUnsafe(
+        const closedRows = await tx.$queryRawUnsafe(
           `UPDATE admissions
               SET status = 'discharged',
                   discharged_at = NOW(),
                   discharge_type = COALESCE(discharge_type, 'home'),
                   updated_at = NOW()
             WHERE id = $1
-              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          RETURNING id, tenant_id, patient_uid, encounter_id, status, discharge_type, discharged_at`,
           activeAdmission.id,
           tenantId,
         );
+        closedAdmission = closedRows[0] || null;
       }
 
       // bed_transfers.patient_uid is NOT NULL; skip the audit row for beds
@@ -250,7 +253,29 @@ class BedManagementService {
         tenantId,
       );
 
-      return { updated: updated[0], patientUid: dischargePatientUid, admissionId: activeAdmission?.id || null };
+      // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+      // a bed-side discharge that closes an admission must persist the canonical
+      // discharge.completed timeline + audit events in the SAME transaction as
+      // the admission close + bed turnover — not just flip the bed. Emitted on
+      // `tx` so a canonical-write failure rolls the whole discharge back rather
+      // than leaving a discharged admission with no timeline/audit row. Only
+      // fires when an admission was actually closed (a bedService-legacy bed with
+      // no admission row has nothing to record here).
+      if (closedAdmission) {
+        await emitFinalDischargeCompleted({
+          db: tx,
+          admission: closedAdmission,
+          actorUid: dischargedBy,
+          actorRole: 'DISCHARGE',
+          payload: { bed_id: bedId, discharge_path: 'bed_management' },
+        });
+      }
+
+      return {
+        updated: updated[0],
+        patientUid: dischargePatientUid,
+        admissionId: activeAdmission?.id || null,
+      };
     });
 
     logger.info(
@@ -607,63 +632,110 @@ class BedManagementService {
   // =========================================================================
   // markBedReady — Cleaning complete, set bed to available
   //
-  // Writes an audit_logs row capturing actor + optional cleaning evidence
-  // (ticket, cleaner, free-text notes) so a later auditor can prove who
-  // closed the cleaning loop. Finding:
+  // Requires PROOF-OF-CLEANING (audit 2026-06-18 §4): a bed cannot go
+  // cleaning → available unless the caller supplies either a `cleanerId` (a
+  // direct attestation that a named cleaner did the turnover) OR a
+  // `cleaningTicketId` that resolves to a housekeeping_requests row in a
+  // RESOLVED state (completed/verified). Previously a bed could be readied with
+  // no ticket and no cleaner — an infection-control proof gap.
+  //
+  // The bed flip + audit row are written SYNCHRONOUSLY in ONE transaction (was
+  // a fire-and-forget setImmediate audit that could be lost on crash/exit), so
+  // every bed that goes available carries a durable record of who closed the
+  // cleaning loop with what proof.
+  // Findings:
   //   2026-05-09-inpatient-admission-housekeeping-bed-ready-no-proof-required
   // =========================================================================
   async markBedReady(bedId, { actorUid = null, cleaningTicketId = null, cleanerId = null, notes = null, tenantId = null } = {}) {
     const effectiveTenantId = tenantOf({ tenantId });
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE beds
-       SET status = 'available', updated_at = NOW()
-       WHERE id = $1 AND status = 'cleaning'
-         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
-       RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-      bedId,
-      effectiveTenantId,
-    );
 
-    if (!rows.length) {
-      // Check if bed exists at all
-      const check = await prisma.$queryRawUnsafe(
-        `SELECT id, status FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+    // Proof-of-cleaning gate. A cleanerId is direct attestation; otherwise the
+    // cleaning ticket must exist and be resolved. Pre-flight on plain prisma so
+    // a P2025/validation issue surfaces as a 4xx, not a 500 inside the tx.
+    if (!cleanerId && !cleaningTicketId) {
+      throw AppError.badRequest(
+        'Proof of cleaning required to mark a bed ready — supply a resolved cleaning_ticket_id or the cleaner_id who performed the turnover.',
+        'BED_READY_PROOF_REQUIRED',
+      );
+    }
+    if (!cleanerId && cleaningTicketId) {
+      // housekeeping_requests has no tenant_id column (it is keyed by
+      // requester_id / zone), so the ticket id is the scope here.
+      const ticketRows = await prisma.$queryRawUnsafe(
+        `SELECT id, status, completed_at, verified_at
+           FROM housekeeping_requests
+          WHERE id = $1
+          LIMIT 1`,
+        Number(cleaningTicketId),
+      );
+      const ticket = ticketRows[0];
+      // Resolved = a real completion signal. An 'open'/'assigned'/'in_progress'
+      // ticket is NOT proof the room was actually cleaned.
+      const resolved = ticket
+        && (['completed', 'verified'].includes(String(ticket.status || '').toLowerCase())
+          || ticket.completed_at != null
+          || ticket.verified_at != null);
+      if (!resolved) {
+        throw AppError.badRequest(
+          `Cleaning ticket ${cleaningTicketId} is not resolved — a bed can only be readied against a completed/verified cleaning ticket (or with a cleaner_id attestation).`,
+          'BED_READY_PROOF_UNRESOLVED',
+        );
+      }
+    }
+
+    // Atomic: the bed flip + audit row commit together (synchronous, no
+    // setImmediate). RLS-scoped under the beds tenant_isolation policy.
+    const rows = await setTenantTx(effectiveTenantId || DEFAULT_TENANT_ID, async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE beds
+         SET status = 'available', updated_at = NOW()
+         WHERE id = $1 AND status = 'cleaning'
+           AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+         RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
         bedId,
         effectiveTenantId,
       );
-      if (!check.length) {
-        throw AppError.notFound('Bed not found');
-      }
-      throw AppError.badRequest(
-        `Bed is not in cleaning status (current status: ${check[0].status})`
-      );
-    }
 
-    // Fire-and-forget audit log — failure must not block bed availability.
-    setImmediate(async () => {
-      try {
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata)
-           VALUES ($1::uuid, 'BED_MARKED_READY', 'bed', $2, $3::jsonb)`,
-          actorUid ? String(actorUid) : null,
-          String(bedId),
-          JSON.stringify({
-            prior_status: 'cleaning',
-            new_status: 'available',
-            bed_number: rows[0].bed_number,
-            ward_id: rows[0].ward_id,
-            cleaning_ticket_id: cleaningTicketId || null,
-            cleaner_id: cleanerId || null,
-            notes: notes || null,
-            transition_at: new Date().toISOString(),
-          })
+      if (!updated.length) {
+        // Check if bed exists at all (still inside the tx — a read is harmless).
+        const check = await tx.$queryRawUnsafe(
+          `SELECT id, status FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+          bedId,
+          effectiveTenantId,
         );
-      } catch (err) {
-        logger.warn(`markBedReady: audit log failed for bed ${bedId}: ${err.message}`);
+        if (!check.length) {
+          throw AppError.notFound('Bed not found');
+        }
+        throw AppError.badRequest(
+          `Bed is not in cleaning status (current status: ${check[0].status})`,
+        );
       }
+
+      // Synchronous audit write (audit 2026-06-18 §4): in-band + in-tx so it is
+      // never lost to a deferred-callback race.
+      await tx.$executeRawUnsafe(
+        `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata)
+         VALUES ($1::uuid, 'BED_MARKED_READY', 'bed', $2, $3::jsonb)`,
+        actorUid ? String(actorUid) : null,
+        String(bedId),
+        JSON.stringify({
+          prior_status: 'cleaning',
+          new_status: 'available',
+          bed_number: updated[0].bed_number,
+          ward_id: updated[0].ward_id,
+          cleaning_ticket_id: cleaningTicketId || null,
+          cleaner_id: cleanerId || null,
+          notes: notes || null,
+          transition_at: new Date().toISOString(),
+        }),
+      );
+
+      return updated;
     });
 
     logger.info(`Bed ${bedId} marked as available by ${actorUid || 'unknown'}`);
+    // Canonical bed.ready timeline/audit + cleaning-SLA completion — best-effort
+    // (the operational bridge swallows internally) and post-commit.
     await emitBedMarkedReady({
       bed: rows[0],
       bedId,

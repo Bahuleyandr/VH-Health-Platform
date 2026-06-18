@@ -90,25 +90,15 @@ router.get('/ready', requireProductionMonitoringAccess, async (_req, res) => {
     logger.warn('Readiness probe failed:', err.message);
   }
 
-  try {
-    const tenantRls = await tenantRlsRolePosture();
-    if (tenantRls.enforced && tenantRls.ok === false) {
-      checks.tenant_rls = {
-        status: 'error',
-        reason: tenantRls.reason,
-        effective_role: tenantRls.effectiveRole,
-      };
-    } else {
-      checks.tenant_rls = {
-        status: 'ok',
-        enforced: tenantRls.enforced,
-        reason: tenantRls.reason,
-      };
-    }
-  } catch (err) {
-    checks.tenant_rls = { status: 'error', message: 'Tenant RLS posture check failed' };
-    logger.warn('Tenant RLS readiness probe failed:', err.message);
-  }
+  // NB: tenant-RLS *security posture* is deliberately NOT part of the readiness
+  // gate (audit C-7). It used to be — an `ok:false` posture (e.g. an unforced
+  // table after a migration, or a bypassing role) made `ready` false on EVERY
+  // replica simultaneously → a full API outage triggered by a security WARNING,
+  // not by the service being unable to serve traffic. Readiness now gates only
+  // on DB reachability + the migration-106 schema check. RLS posture is still
+  // surfaced loudly elsewhere: a boot-time ERROR (logTenantRlsRolePosture in
+  // bin/www.js) and a live signal on GET /health/metrics (`tenant_rls`), which
+  // is where alerting should hang — not on the traffic-admission probe.
 
   const ready = Object.values(checks).every((c) => c.status === 'ok');
   res.status(ready ? 200 : 503).json({

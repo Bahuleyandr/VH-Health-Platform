@@ -1,6 +1,14 @@
 // src/middleware/consentMiddleware.js
 // HIPAA Consent Verification Middleware
 // Checks that a patient has granted the required consent type before allowing access.
+//
+// SCOPE (audit 2026-06-18 §3 finding #3): this gate belongs on third-party /
+// interop DISCLOSURE-EXPORT surfaces — the surfaces where a patient's record
+// leaves the hospital to an external consumer (FHIR $everything bundle, C-CDA /
+// FHIR-bundle document export). It is NOT for routine care reads: those are
+// governed by requireRole + patientAccessGuard (care-team ABAC), and adding a
+// consent gate there would both be the wrong compliance model and break clinical
+// access. Mount it as requireConsent('data_sharing') on export routes only.
 
 import prisma from '../lib/prisma.js';
 import logger from '../logging/logger.js';
@@ -9,28 +17,45 @@ import { normalizeAuditLogUserId } from '../utils/auditLogIdentity.js';
 
 /**
  * Factory middleware: requires active consent of a given type for the patient
- * whose data is being accessed.
+ * whose data is being disclosed/exported.
  *
- * Patient UID is extracted from req.params.patientUid, req.params.patient_uid,
- * req.body.patient_uid, or req.query.patient_uid (in that priority order).
+ * Patient UID is extracted (by default) from req.params.patientUid,
+ * req.params.patient_uid, req.body.patient_uid, or req.query.patient_uid (in
+ * that priority order). Surfaces that address the patient differently — e.g.
+ * FHIR's /Patient/<uuid> path or ?patient=/subject.reference — pass a
+ * `resolvePatientUid(req)` hook so the same generic consent check applies
+ * without coupling this middleware to any one addressing scheme.
  *
- * @param {string} consentType - The consent type to check (e.g. 'data_access', 'treatment', 'research')
+ * @param {string} consentType - The consent type to check (e.g. 'data_sharing', 'data_access', 'research')
+ * @param {object} [options]
+ * @param {(req: import('express').Request) => (string|null|undefined)} [options.resolvePatientUid]
+ *        Optional resolver for the patient uid; falls back to the standard
+ *        param/body/query keys when it returns nothing.
+ * @param {(res: import('express').Response, info: {status:number, code:string, message:string}) => void} [options.errorResponder]
+ *        Optional custom error responder so a surface with its own response
+ *        contract (e.g. FHIR OperationOutcome) can render denials in its own
+ *        shape. Defaults to the platform `{ success:false, message }` envelope.
  * @returns {import('express').RequestHandler}
  */
-export function requireConsent(consentType) {
+export function requireConsent(consentType, options = {}) {
+  const { resolvePatientUid, errorResponder } = options;
+  const denyWith = (res, status, code, message) => {
+    if (typeof errorResponder === 'function') {
+      return errorResponder(res, { status, code, message });
+    }
+    return res.status(status).json({ success: false, message });
+  };
   return async (req, res, next) => {
     try {
       const patientUid =
+        (typeof resolvePatientUid === 'function' ? resolvePatientUid(req) : null) ||
         req.params.patientUid ||
         req.params.patient_uid ||
         req.body?.patient_uid ||
         req.query?.patient_uid;
 
       if (!patientUid) {
-        return res.status(400).json({
-          success: false,
-          message: 'Patient UID is required for consent verification',
-        });
+        return denyWith(res, 400, 'CONSENT_PATIENT_UID_REQUIRED', 'Patient UID is required for consent verification');
       }
 
       // ── Ownership check (audit finding M4) ─────────────────────────────
@@ -46,10 +71,7 @@ export function requireConsent(consentType) {
         logger.warn('Consent check denied: PATIENT requested another patient uid', {
           path: req.originalUrl || req.url,
         });
-        return res.status(403).json({
-          success: false,
-          message: 'Forbidden',
-        });
+        return denyWith(res, 403, 'CONSENT_FORBIDDEN', 'Forbidden');
       }
 
       // Tenant scoping (audit finding M4): the consent row must belong to
@@ -58,10 +80,7 @@ export function requireConsent(consentType) {
       const tenantId = req.tenantId || req.user?.tenant_id || req.user?.tenantId;
       if (!tenantId) {
         logger.error('Consent check failed closed: no tenant context on request');
-        return res.status(403).json({
-          success: false,
-          message: 'Tenant context required for consent verification',
-        });
+        return denyWith(res, 403, 'CONSENT_TENANT_REQUIRED', 'Tenant context required for consent verification');
       }
 
       // Query for active consent (granted = true, not revoked, same tenant)
@@ -123,10 +142,7 @@ export function requireConsent(consentType) {
           requestId: req.id,
         });
 
-        return res.status(403).json({
-          success: false,
-          message: 'Patient consent required for this action',
-        });
+        return denyWith(res, 403, 'PATIENT_CONSENT_REQUIRED', 'Patient consent required for this action');
       }
 
       // Consent exists — attach to request for downstream use

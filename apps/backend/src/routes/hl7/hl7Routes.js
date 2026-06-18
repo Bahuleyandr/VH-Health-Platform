@@ -2,10 +2,11 @@
 // HL7v2 messaging routes — HTTP bridge for MLLP-style HL7v2 message exchange.
 
 import express from 'express';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import jwtAuth from '../../middleware/jwtMiddleware.js';
 import tenantContextMiddleware from '../../middleware/tenantContextMiddleware.js';
+import { genericLimiter } from '../../middleware/rateLimitMiddleware.js';
 import { requireAnyRole } from '../../middleware/rbacMiddleware.js';
 import { parseHL7, generateACK } from '../../services/hl7/hl7Parser.js';
 import {
@@ -17,10 +18,17 @@ import {
   parseORMToOrder,
 } from '../../services/hl7/hl7Transformer.js';
 import { AppError } from '../../utils/AppError.js';
-import { verifySignedRequest } from '../../utils/signedRequest.js';
+import { verifySignedRequest, assertSharedReplayOnce } from '../../utils/signedRequest.js';
 
 const router = express.Router();
 const HL7_EXPORT_ROLES = ['ADMIN', 'SUPER_ADMIN', 'INTEGRATION_ADMIN', 'MEDICAL_RECORDS'];
+
+// C-4: this router is mounted BEFORE the global JWT auth + rate limiters
+// (app.js), and /receive is unauthenticated (HMAC-signed only). DB work happens
+// around the HMAC check, so without a limiter here it is a brute-force / DoS
+// surface. Throttle every inbound HL7 request per-IP (the generic profile keys
+// by IP when no JWT/api-key identity is present).
+router.use(genericLimiter);
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -29,25 +37,49 @@ function wrapAsync(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-function assertHl7InboundAuthentic(req, { message, controlId }) {
+async function assertHl7InboundAuthentic(req, { message, controlId }) {
+  const requestId = req.headers['x-hl7-message-id'] || req.headers['x-request-id'] || controlId;
+  const signature = req.headers['x-hl7-signature'] || req.headers['x-vhhealth-hl7-signature'];
+  const timestamp = req.headers['x-hl7-timestamp'] || req.headers.timestamp;
+  // Sync fast-path: HMAC + freshness + same-process replay.
   verifySignedRequest({
     secret: process.env.HL7_INBOUND_SHARED_SECRET || '',
-    signature: req.headers['x-hl7-signature'] || req.headers['x-vhhealth-hl7-signature'],
-    timestamp: req.headers['x-hl7-timestamp'] || req.headers.timestamp,
-    requestId: req.headers['x-hl7-message-id'] || req.headers['x-request-id'] || controlId,
+    signature,
+    timestamp,
+    requestId,
     payload: message,
     context: 'HL7 inbound message',
     codePrefix: 'HL7_INBOUND',
     replayNamespace: 'hl7-inbound',
   });
+  // Cross-replica replay guard (the per-process Map above is defeated by the
+  // multi-worker / multi-replica cluster).
+  await assertSharedReplayOnce({
+    replayNamespace: 'hl7-inbound',
+    requestId,
+    timestamp,
+    signature,
+    context: 'HL7 inbound message',
+    codePrefix: 'HL7_INBOUND',
+  });
 }
 
+// Resolve the patient by uid GLOBALLY (the sender's tenant is not in the
+// message; the patient uid is the only identifier). This read intentionally
+// runs on plain prisma so it can find the patient in whichever tenant they
+// belong to — but EVERY subsequent write is then scoped to that patient's
+// tenant via setTenant(), so a non-default patient's clinical rows can never be
+// stamped into the default (or any other) tenant. Returns null if not found.
 async function loadHl7Patient(patientUid) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT uid, tenant_id FROM users WHERE uid = $1::uuid AND is_active = true LIMIT 1`,
+    `SELECT uid, tenant_id::text AS tenant_id, phone FROM users WHERE uid = $1::uuid AND is_active = true LIMIT 1`,
     patientUid,
   );
-  return rows[0] || null;
+  const row = rows[0] || null;
+  // A patient with no tenant_id cannot be safely scoped — refuse rather than
+  // fall back to the default tenant for a non-default patient.
+  if (row && !row.tenant_id) return null;
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +113,7 @@ router.post(
     const controlId = parsed.msh.messageControlId || '';
 
     try {
-      assertHl7InboundAuthentic(req, { message, controlId });
+      await assertHl7InboundAuthentic(req, { message, controlId });
     } catch (err) {
       logger.warn('HL7 inbound message rejected by authenticity check', {
         messageType,
@@ -118,25 +150,26 @@ router.post(
         }
 
         if (messageType === 'ADT^A01' || messageType === 'ADT^A02') {
-          // Create admission
-          await prisma.$queryRawUnsafe(
+          // Create admission — scoped to the patient's tenant so the RLS
+          // WITH CHECK confirms the row lands in that tenant (and the
+          // tenant_id GUC default resolves to it).
+          await setTenant(patientRow.tenant_id, (tx) => tx.$queryRawUnsafe(
             `INSERT INTO admissions (patient_uid, status, ward, bed_number, admitting_doctor, admitted_at, reason, tenant_id, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8::uuid, NOW())
              ON CONFLICT DO NOTHING`,
-            
-              patient.uid,
-              admission.status || 'ADMITTED',
-              admission.ward || null,
-              admission.bed_number || null,
-              admission.admitting_doctor || null,
-              admission.admitted_at || new Date().toISOString(),
-              null,
-              patientRow.tenant_id,
-            
-          );
+            patient.uid,
+            admission.status || 'ADMITTED',
+            admission.ward || null,
+            admission.bed_number || null,
+            admission.admitting_doctor || null,
+            admission.admitted_at || new Date().toISOString(),
+            null,
+            patientRow.tenant_id,
+          ));
         } else if (messageType === 'ADT^A03') {
-          // Discharge — update most recent admission for this patient
-          await prisma.$queryRawUnsafe(
+          // Discharge — update most recent admission for this patient, scoped
+          // to the patient's tenant.
+          await setTenant(patientRow.tenant_id, (tx) => tx.$queryRawUnsafe(
             `UPDATE admissions SET status = 'DISCHARGED', discharged_at = $2
              WHERE id = (
                SELECT id FROM admissions
@@ -144,8 +177,8 @@ router.post(
                 ORDER BY admitted_at DESC
                 LIMIT 1
              )`,
-            patient.uid, admission.discharged_at || new Date().toISOString(), patientRow.tenant_id
-          );
+            patient.uid, admission.discharged_at || new Date().toISOString(), patientRow.tenant_id,
+          ));
         }
 
         logger.info('HL7 ADT processed', { messageType, patientUid: patient.uid, requestId: req.id });
@@ -166,17 +199,16 @@ router.post(
           return res.status(404).send(generateACK(controlId, 'AE', 'Patient is not registered at this facility'));
         }
 
-        await prisma.$queryRawUnsafe(
-          `INSERT INTO investigations (patient_uid, test_name, status, requested_at, tenant_id, created_at)
-           VALUES ($1, $2, $3, $4, $5::uuid, NOW())`,
-
-            patient.uid,
-            order.test_name || 'Unknown Test',
-            order.status || 'PENDING',
-            order.ordered_at || new Date().toISOString(),
-            patientRow.tenant_id,
-
-        );
+        await setTenant(patientRow.tenant_id, (tx) => tx.$queryRawUnsafe(
+          `INSERT INTO investigations (patient_uid, phone, test_name, status, requested_at, tenant_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6::uuid, NOW(), NOW())`,
+          patient.uid,
+          patientRow.phone,
+          order.test_name || 'Unknown Test',
+          order.status || 'PENDING',
+          order.ordered_at || new Date().toISOString(),
+          patientRow.tenant_id,
+        ));
 
         logger.info('HL7 ORM processed', { testName: order.test_name, patientUid: patient.uid, requestId: req.id });
         res.setHeader('Content-Type', 'application/hl7-v2; charset=utf-8');
@@ -211,41 +243,48 @@ router.post(
 
         const testName = parsed.obr?.universalServiceId || observations[0]?.code || 'Lab Result';
 
-        const matched = await prisma.$queryRawUnsafe(
-          `UPDATE investigations
-              SET structured_results = $2::jsonb,
-                  status = 'COMPLETED',
-                  completed_at = NOW(),
-                  result_uploaded_at = NOW()
-            WHERE patient_uid = $1::uuid
-              AND tenant_id = $4::uuid
-              AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
-              AND (test_name = $3 OR test_name = 'Unknown Test')
-              AND id = (
-                SELECT id FROM investigations
-                 WHERE patient_uid = $1::uuid
-                   AND tenant_id = $4::uuid
-                   AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
-                 ORDER BY requested_at DESC
-                 LIMIT 1
-              )
-            RETURNING id`,
-          patientUid,
-          JSON.stringify(observations),
-          testName,
-          patientRow.tenant_id,
-        );
-
-        if (matched.length === 0) {
-          await prisma.$queryRawUnsafe(
-            `INSERT INTO investigations (patient_uid, test_name, status, structured_results, completed_at, tenant_id, created_at)
-             VALUES ($1::uuid, $2, 'COMPLETED', $3::jsonb, NOW(), $4::uuid, NOW())`,
+        // Attach-or-create scoped to the patient's tenant. The match + the
+        // fallback insert share one setTenant scope so both are RLS-checked
+        // against THAT tenant.
+        const matched = await setTenant(patientRow.tenant_id, async (tx) => {
+          const updated = await tx.$queryRawUnsafe(
+            `UPDATE investigations
+                SET structured_results = $2::jsonb,
+                    status = 'COMPLETED',
+                    completed_at = NOW(),
+                    result_uploaded_at = NOW()
+              WHERE patient_uid = $1::uuid
+                AND tenant_id = $4::uuid
+                AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
+                AND (test_name = $3 OR test_name = 'Unknown Test')
+                AND id = (
+                  SELECT id FROM investigations
+                   WHERE patient_uid = $1::uuid
+                     AND tenant_id = $4::uuid
+                     AND status IN ('REQUESTED', 'PENDING', 'IN_PROGRESS')
+                   ORDER BY requested_at DESC
+                   LIMIT 1
+                )
+              RETURNING id`,
             patientUid,
-            testName,
             JSON.stringify(observations),
+            testName,
             patientRow.tenant_id,
           );
-        }
+
+          if (updated.length === 0) {
+            await tx.$queryRawUnsafe(
+              `INSERT INTO investigations (patient_uid, phone, test_name, status, structured_results, completed_at, tenant_id, created_at, updated_at)
+               VALUES ($1::uuid, $2, $3, 'COMPLETED', $4::jsonb, NOW(), $5::uuid, NOW(), NOW())`,
+              patientUid,
+              patientRow.phone,
+              testName,
+              JSON.stringify(observations),
+              patientRow.tenant_id,
+            );
+          }
+          return updated;
+        });
 
         logger.info('HL7 ORU processed', {
           patientUid,

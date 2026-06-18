@@ -25,7 +25,7 @@ import { initRedis, disconnectRedis } from '../lib/redis.js';
 import logger from '../logging/logger.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
-import { runAllScheduledTasksNow } from '../utils/scheduler.js';
+import { runAllScheduledTasksNow, stopAllScheduledTasks } from '../utils/scheduler.js';
 import { checkSchemaHealth } from '../utils/schemaHealthCheck.js';
 import { initWebSocket } from '../utils/websocket/wsServer.js';
 
@@ -162,7 +162,15 @@ async function onListening() {
     logger.warn('Redis initialization failed — running without cache:', err.message);
   }
 
-  runAllScheduledTasksNow();
+  // Boot-time sweep. Awaited so a rejection is surfaced/handled rather than
+  // becoming an unhandledRejection that tears the process down. The heavy
+  // mutating jobs inside are advisory-locked + gated behind RUN_STARTUP_TASKS
+  // (see scheduler.js) so this does NOT stampede across the worker fleet.
+  try {
+    await runAllScheduledTasksNow();
+  } catch (err) {
+    logger.error('Boot-time runAllScheduledTasksNow failed:', err.message || err);
+  }
 }
 
 // Graceful shutdown
@@ -170,6 +178,15 @@ function gracefulShutdown(signal) {
   logger.info(`${signal} received. Starting graceful shutdown...`);
   server.close(async () => {
     logger.info('HTTP server closed.');
+    // Stop all node-cron tasks BEFORE disconnecting Prisma so no scheduled
+    // tick fires a query against a closing connection (audit §4 "graceful
+    // shutdown never stops crons"). .stop() prevents future invocations; any
+    // in-flight tick finishes against the still-open pool below.
+    try {
+      stopAllScheduledTasks();
+    } catch (err) {
+      logger.error('Error stopping scheduled tasks:', err.message);
+    }
     try {
       // Disconnect Prisma primary + read-replica (if configured). Both
       // clients come from src/lib/prisma.js; prismaReadOnly is the same

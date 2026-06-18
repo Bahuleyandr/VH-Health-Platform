@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -157,8 +156,10 @@ class ConnectivitySyncService extends ChangeNotifier {
         final id = write['id'] as int;
         final endpoint = write['endpoint'] as String;
         final method = (write['method'] as String).toUpperCase();
-        final body =
-            jsonDecode(write['body'] as String) as Map<String, dynamic>;
+        // `body` is stored AES-256-GCM-encrypted at rest (audit 2026-06-18);
+        // decodeBody() decrypts it (and transparently reads legacy plaintext
+        // rows queued before the v4 migration).
+        final body = await OfflineQueue.decodeBody(write['body'] as String);
         final retryCount = write['retry_count'] as int? ?? 0;
         // Stable per-write key persisted at enqueue time. Reusing it on every
         // redrain lets the backend de-duplicate a lost-2xx replay rather than

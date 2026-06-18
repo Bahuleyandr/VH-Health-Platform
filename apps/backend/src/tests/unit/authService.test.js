@@ -272,8 +272,8 @@ describe('AuthService.verifyOtp', () => {
 
 // ---------- refreshToken ----------
 describe('AuthService.refreshToken', () => {
-  it('returns a new token for a valid token', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919876543210', role: 'PATIENT' });
+  it('returns a new access + refresh token for a valid type:refresh token', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919876543210', role: 'PATIENT', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue({
       uid: 'u1',
       phone: '+919876543210',
@@ -281,23 +281,38 @@ describe('AuthService.refreshToken', () => {
       role: 'PATIENT',
     });
 
-    const result = await AuthService.refreshToken('old-token');
+    const result = await AuthService.refreshToken('old-refresh-token');
 
-    expect(mockVerifyToken).toHaveBeenCalledWith('old-token');
+    expect(mockVerifyToken).toHaveBeenCalledWith('old-refresh-token');
     expect(result.token).toBe('mock-jwt-token');
+    expect(result.refreshToken).toBe('mock-jwt-token');
     expect(result.user.uid).toBe('u1');
   });
 
-  it('throws when token is invalid', async () => {
+  it('C-9: rejects an access token (no type:refresh) at the refresh endpoint', async () => {
+    mockVerifyToken.mockReturnValue({ uid: 'u1', phone: '+919876543210', role: 'PATIENT' });
+
+    await expect(AuthService.refreshToken('access-token')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
+  });
+
+  it('throws when token is invalid/expired', async () => {
     mockVerifyToken.mockReturnValue(null);
 
-    await expect(AuthService.refreshToken('bad-token')).rejects.toThrow('Invalid token signature');
+    await expect(AuthService.refreshToken('bad-token')).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'TOKEN_INVALID',
+    });
   });
 
   it('throws when user no longer exists', async () => {
-    mockVerifyToken.mockReturnValue({ uid: 'deleted-uid' });
+    mockVerifyToken.mockReturnValue({ uid: 'deleted-uid', type: 'refresh' });
     mockPrisma.users.findUnique.mockResolvedValue(null);
 
-    await expect(AuthService.refreshToken('valid-token-deleted-user')).rejects.toThrow('User not found');
+    await expect(AuthService.refreshToken('valid-token-deleted-user')).rejects.toMatchObject({
+      code: 'TOKEN_INVALID',
+    });
   });
 });

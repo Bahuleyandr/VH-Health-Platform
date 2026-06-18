@@ -20,6 +20,16 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   pickTenantClient: () => __prismaDefaultMock,
 }));
 
+// Each surgical mutation now emits a canonical timeline + audit event in the
+// same setTenantTx (audit 2026-06-18 §3 fix #1). Those writes are covered
+// end-to-end in theatre-clinical-safety.deep.test.js; mock them here so they
+// don't consume the per-test queryUnsafeMock sequence that asserts the
+// detail-row SQL.
+const recordCanonicalClinicalEventMock = jest.fn(async () => ({ timeline: null, audit: null }));
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+}));
+
 const {
   acknowledgeComplicationAlert,
   detectSiteSideMismatch,
@@ -46,6 +56,12 @@ const USER = '22222222-2222-4222-8222-222222222222';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  recordCanonicalClinicalEventMock.mockClear();
+  // Real $queryRawUnsafe always resolves to an array. Default any call beyond
+  // the explicitly-queued ones (e.g. the post-insert patient_uid backfill in
+  // emitSurgicalCanonicalEvent when the mocked insert row omits patient_uid)
+  // to [] so it behaves like a real empty result instead of undefined.
+  queryUnsafeMock.mockResolvedValue([]);
 });
 
 function mockSchedule() {

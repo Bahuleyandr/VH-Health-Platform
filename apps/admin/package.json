@@ -25,6 +25,7 @@
     "clean:windows": "rmdir /s /q node_modules .next && del package-lock.json",
     "clean:unix": "rm -rf node_modules package-lock.json .next",
     "check:clinical-ai-bundle": "node scripts/check-clinical-ai-bundle.mjs",
+    "check:no-public-secrets": "node scripts/check-no-public-secrets.mjs",
     "generate:types": "npx openapi-typescript ../backend/src/docs/swagger-complete.yaml -o src/lib/api-types.generated.ts"
   },
   "dependencies": {

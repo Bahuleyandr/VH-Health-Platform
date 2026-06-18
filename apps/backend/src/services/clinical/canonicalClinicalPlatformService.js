@@ -160,13 +160,41 @@ function hasRawClient(db) {
   return db && typeof db.$queryRawUnsafe === 'function';
 }
 
+// The canonical tables these helpers write to. The swallow below is restricted
+// to a genuinely-ABSENT one of these — never a column-drift or a generic fault.
+const CANONICAL_TABLE_NAMES = [
+  'clinical_timeline_events',
+  'clinical_audit_events',
+  'patient_encounters',
+  'workflow_sla_instances',
+  'workflow_sla_rules',
+  'medication_safety_reviews',
+];
+
+// Narrowed (audit 2026-06-18 §4): the swallow is intentionally limited to
+// SQLSTATE 42P01 (undefined_table) for one of the canonical tables above —
+// i.e. the additive canonical layer hasn't been migrated onto this DB yet, so
+// emitting the timeline/audit row is genuinely impossible and the detail write
+// should still commit. It deliberately does NOT match 42703 (undefined_column)
+// or a "...does not exist" message regex: on schema DRIFT (a real canonical
+// table missing a column) or any transient/generic write fault, swallowing
+// would silently break the atomic timeline invariant — a detail row with no
+// timeline+audit row. Those now PROPAGATE so the in-tx writers
+// (recordCanonicalOrderEvent / recordCanonicalVitalsEvent) abort their
+// transaction and the failure surfaces / alarms.
 function isSchemaMissing(err) {
   const code = err?.meta?.code
     || err?.meta?.driverAdapterError?.cause?.originalCode
     || err?.code;
-  return code === '42P01'
-    || code === '42703'
-    || /relation .* does not exist|column .* does not exist/i.test(String(err?.message || ''));
+  if (code !== '42P01') return false;
+  // 42P01 from an unrelated relation (defensive — every query here targets a
+  // canonical table) must not be swallowed either: confirm the absent relation
+  // is one of ours when the message names it. A 42P01 with no parseable
+  // relation name (some adapter shapes) is treated as a canonical-table miss.
+  const message = String(err?.message || '');
+  const named = /relation ["']?([a-z_]+)["']? does not exist/i.exec(message);
+  if (!named) return true;
+  return CANONICAL_TABLE_NAMES.includes(named[1].toLowerCase());
 }
 
 function logCanonicalFailure(context, err) {

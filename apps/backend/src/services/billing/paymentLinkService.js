@@ -5,7 +5,7 @@
 // notification infrastructure for distribution.
 
 import { randomBytes } from 'node:crypto';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendEmail } from '../../utils/notifications/sendEmailNotification.js';
 import { sendWhatsApp } from '../../utils/notifications/sendWhatsAppNotification.js';
@@ -172,7 +172,8 @@ export async function sendPaymentLink({
       await sendWhatsApp({ to: patient_phone, body: messageBody });
       updates.sent_via_whatsapp_at = 'NOW()';
     } catch (e) {
-      logger.warn('paymentLink WA send failed', { error: e.message, link_token });
+      // Never log link_token — it is a bearer credential for the payment link.
+      logger.warn('paymentLink WA send failed', { error: e.message, link_id: link.id });
     }
   }
   if (channels.includes('email') && patient_email) {
@@ -222,12 +223,6 @@ export async function sendPaymentLink({
 export async function markPaymentLinkPaid({
   tenantId, link_token, paid_via, paid_reference, performed_by,
 }) {
-  const link = await getPaymentLink({ tenantId, link_token });
-  if (link.status === 'paid') throw AppError.badRequest('Already paid');
-  if (link.status === 'cancelled' || link.status === 'expired') {
-    throw AppError.badRequest(`Link is ${link.status}`);
-  }
-
   // Convert paid_via to billing_payments mode. UPI / Card / etc.
   const modeMap = {
     upi: 'UPI', card: 'CARD', netbanking: 'NETBANKING',
@@ -235,27 +230,49 @@ export async function markPaymentLinkPaid({
   };
   const mode = modeMap[(paid_via || 'upi').toLowerCase()] || 'UPI';
 
-  // Create the payment row through the existing service so the parent
-  // invoice's totals update consistently.
-  const payment = await collectPayment({
-    tenantId,
-    invoice_id: link.invoice_id,
-    patient_uid: link.patient_uid,
-    amount: link.amount,
-    mode,
-    reference: paid_reference || link.upi_transaction_ref,
-    collected_by: performed_by,
-    notes: `Payment link ${link.link_token}`,
-  });
+  // One atomic transaction for the whole reconcile: lock the link row FOR
+  // UPDATE (so a double webhook / double-click can't both pass the
+  // already-paid check), create the payment via collectPayment ON THE SAME tx
+  // (no nested setTenantTx), then flip the link to paid. The payment INSERT is
+  // additionally backstopped by migration 317's unique (tenant_id, reference,
+  // mode) index, so even two links re-presenting the same gateway reference
+  // collapse to one payment row.
+  const payment = await setTenantTx(tenantId || DEFAULT_TENANT_ID, async (tx) => {
+    const linkRows = await tx.$queryRawUnsafe(
+      `SELECT id, invoice_id, patient_uid, amount, upi_transaction_ref, status
+         FROM billing_payment_links
+        WHERE link_token = $1 AND tenant_id = $2::uuid
+        FOR UPDATE`,
+      String(link_token), normalizeTenantId(tenantId),
+    );
+    if (!linkRows.length) throw AppError.notFound('Payment link not found');
+    const link = linkRows[0];
+    if (link.status === 'paid') throw AppError.badRequest('Already paid');
+    if (link.status === 'cancelled' || link.status === 'expired') {
+      throw AppError.badRequest(`Link is ${link.status}`);
+    }
 
-  await prisma.$executeRawUnsafe(
-    `UPDATE billing_payment_links
-        SET status = 'paid', paid_at = NOW(),
-            paid_via = $1, paid_reference = $2,
-            linked_payment_id = $3::int, updated_at = NOW()
-      WHERE id = $4::int`,
-    paid_via || 'upi', paid_reference || null, payment.id, link.id,
-  );
+    const createdPayment = await collectPayment({
+      tenantId,
+      invoice_id: link.invoice_id,
+      patient_uid: link.patient_uid,
+      amount: link.amount,
+      mode,
+      reference: paid_reference || link.upi_transaction_ref,
+      collected_by: performed_by,
+      notes: `Payment link ${link_token}`,
+    }, { tx });
+
+    await tx.$executeRawUnsafe(
+      `UPDATE billing_payment_links
+          SET status = 'paid', paid_at = NOW(),
+              paid_via = $1, paid_reference = $2,
+              linked_payment_id = $3::int, updated_at = NOW()
+        WHERE id = $4::int`,
+      paid_via || 'upi', paid_reference || null, createdPayment.id, link.id,
+    );
+    return createdPayment;
+  });
 
   return { link: await getPaymentLink({ tenantId, link_token }), payment };
 }

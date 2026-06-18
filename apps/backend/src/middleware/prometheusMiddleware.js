@@ -199,13 +199,51 @@ export function recordDeepTemplateFallback({ module = '', tier = '' } = {}) {
 // Middleware — records request duration and count
 // ---------------------------------------------------------------------------
 
-function normalizeRoute(req) {
+// Patterns that collapse high-cardinality / PHI-bearing path segments to
+// stable placeholders. Mirrors src/utils/sentryScrubber.js#normalizeSentryPath
+// (kept inline rather than imported: this metrics module is intentionally
+// dependency-light — it must not pull the Sentry scrubber's graph in just for
+// one regex, and prisma.js imports a symbol from here so the load graph stays
+// shallow). UUID first (would otherwise be partially eaten by the numeric
+// rule), then VH-#### hospital ids, E.164 phones, bare 10-digit mobiles, and
+// long numeric ids. Order matters.
+const ROUTE_LABEL_PATTERNS = [
+  [/\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=\/|$)/gi, '/:uuid'],
+  [/\/VH-\d{4,}(?=\/|$)/gi, '/:hospitalId'],
+  // Phone: a +-prefixed or separator-bearing number (a bare digit run is
+  // treated as a numeric id by the next rule, not a phone — both are safe
+  // placeholders, this just keeps the label intuitive).
+  [/\/\+\d[\d\s-]{7,}\d(?=\/|$)/g, '/:phone'],
+  [/\/\d[\d\s-]*[\s-][\d\s-]*\d(?=\/|$)/g, '/:phone'],
+  [/\/\d+(?=\/|$)/g, '/:id'],
+];
+
+// Above this many path segments we assume the request never matched an Express
+// route (matched routes use req.route.path and never reach this fallback) — a
+// 404 / probe sweep otherwise mints a unique label per URL. Real deep API
+// routes always match a pattern, so they never hit this cap.
+const MAX_ROUTE_SEGMENTS = 6;
+
+export function normalizeRoute(req) {
   // Use the matched Express route pattern when available to avoid high cardinality
   if (req.route && req.route.path) {
     return req.baseUrl + req.route.path;
   }
-  // Fallback: collapse numeric path segments
-  return req.path.replace(/\/\d+/g, '/:id');
+  // Fallback: collapse UUID / hospital-id / phone / numeric segments so an
+  // unmatched path can neither carry PHI into a metric label nor explode
+  // label cardinality. Strip any query string first (defensive — req.path
+  // normally excludes it).
+  let path = String(req.path || '').split('?')[0] || '/';
+  for (const [pattern, replacement] of ROUTE_LABEL_PATTERNS) {
+    path = path.replace(pattern, replacement);
+  }
+  // Catch-all: an over-deep path that still didn't match any route is a
+  // never-seen surface — fold it into one bucket instead of a unique label.
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length > MAX_ROUTE_SEGMENTS) {
+    return '/__unmatched__';
+  }
+  return path;
 }
 
 export function prometheusMiddleware(req, res, next) {

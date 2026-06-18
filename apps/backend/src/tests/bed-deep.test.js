@@ -364,63 +364,150 @@ describe('Bed + ward management — deep integration', () => {
     });
   });
 
-  describe('admit + discharge flow (simple bedService path)', () => {
+  describe('admit + discharge flow (bedService path, C-2 hardened)', () => {
+    // C-2 (audit 2026-06-18): the bed-board quick-admit must create a REAL
+    // admission (not occupy a bed with patient_uid/admission_id NULL), and the
+    // bed-board discharge must close that admission + send the bed to 'cleaning'
+    // (not straight to 'available'). These tests pin that corrected behaviour.
     let admitBedId;
+    const ADMIT_PATIENT_UID = 'a8888888-8888-4888-8888-888888888c01';
+    const ADMIT_PATIENT_PHONE = '9000088801';
+    let admitPatientId;
 
     beforeAll(async () => {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, ADMIT_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM admissions WHERE patient_uid = $1::uuid`, ADMIT_PATIENT_UID,
+      ).catch(() => {});
+      // users.phone is globally unique — clear by uid OR phone so a leftover
+      // row under a different uid can't collide on the insert below.
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users WHERE uid = $1::uuid OR phone = $2`, ADMIT_PATIENT_UID, ADMIT_PATIENT_PHONE,
+      ).catch(() => {});
+      const p = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, $2, 'Bed Deep Admit Patient', 'PATIENT', true, NOW())
+         RETURNING id`,
+        ADMIT_PATIENT_UID, ADMIT_PATIENT_PHONE,
+      );
+      admitPatientId = p[0].id;
+
       const res = await admin.post('/api/v1/beds').send({
         ward_id: wardId, bed_number: 'BD-DEEP-ADMIT',
       });
       admitBedId = res.body.data.bed.id;
     });
 
-    it('rejects admission without patient_name', async () => {
-      const res = await admin.post(`/api/v1/beds/${admitBedId}/admit`).send({});
-      expect(res.statusCode).toBe(400);
+    afterAll(async () => {
+      // The discharge-workflow test leaves the bed occupied (markForDischarge
+      // keeps it occupied), so the bed still references patient_id — drop it
+      // before the user to avoid a beds_patient_id_fkey violation.
+      if (admitBedId) {
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE id = $1`, admitBedId).catch(() => {});
+      }
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, ADMIT_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM discharge_consults WHERE patient_uid = $1::uuid`, ADMIT_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM admissions WHERE patient_uid = $1::uuid`, ADMIT_PATIENT_UID,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users WHERE uid = $1::uuid`, ADMIT_PATIENT_UID,
+      ).catch(() => {});
     });
 
-    it('admits a patient, flips status to occupied with admitted_at stamped', async () => {
+    it('rejects admission with no patient reference (no half-populated bed)', async () => {
       const res = await admin.post(`/api/v1/beds/${admitBedId}/admit`).send({
-        patient_name: 'John Doe', notes: 'Fever',
+        patient_name: 'Ghost No-Patient',
+      });
+      // Validator now requires a resolvable patient reference (patient_id or
+      // patient_uid); the service enforces the same. A name with neither cannot
+      // create an admission → not 2xx (the dedicated test below pins that the
+      // validator is what rejects it).
+      expect(res.statusCode).toBeGreaterThanOrEqual(400);
+      const stillAvailable = await prisma.$queryRawUnsafe(
+        `SELECT status, admission_id, patient_uid FROM beds WHERE id = $1`, admitBedId,
+      );
+      expect(stillAvailable[0].status).toBe('available');
+      expect(stillAvailable[0].admission_id).toBeNull();
+      expect(stillAvailable[0].patient_uid).toBeNull();
+    });
+
+    it('rejects a name-only admit body at the validator layer (400 "Validation failed", not the service)', async () => {
+      // C-2 contract: the bed admit body must carry a resolvable patient
+      // reference. This pins that a name-only body is rejected by admitValidation
+      // at the EDGE — the express-validator envelope is
+      // { success:false, message:'Validation failed', errors:[...] } — so the bad
+      // request never reaches bedService / the admission path at all. (The service
+      // AppError would instead surface message 'patient_uid or patient_id is
+      // required to admit a patient (...)' with no `errors` array.)
+      const res = await admin.post(`/api/v1/beds/${admitBedId}/admit`).send({
+        patient_name: 'Validator Reject No-Ref',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toBe('Validation failed');
+      expect(Array.isArray(res.body.errors)).toBe(true);
+      expect(res.body.errors.some((e) => /patient_uid or patient_id is required/i.test(e.msg))).toBe(true);
+    });
+
+    it('admits a real patient: occupied + admission row + bed_transfers (fully linked)', async () => {
+      const res = await admin.post(`/api/v1/beds/${admitBedId}/admit`).send({
+        patient_id: admitPatientId, patient_name: 'Bed Deep Admit Patient', notes: 'Fever',
       });
       expect(res.statusCode).toBe(200);
       const b = res.body.data.bed;
       expect(b.status).toBe('occupied');
-      expect(b.patient_name).toBe('John Doe');
       expect(b.admitted_at).toBeTruthy();
       expect(b.assigned_at).toBeTruthy();
+      // NOT half-populated: patient_uid + admission_id are set.
+      expect(b.patient_uid).toBe(ADMIT_PATIENT_UID);
+      expect(b.admission_id).toBeTruthy();
+
+      // A real admissions row exists and is active.
+      const adm = await prisma.$queryRawUnsafe(
+        `SELECT id, status, bed_id FROM admissions
+          WHERE patient_uid = $1::uuid AND status = 'admitted'`,
+        ADMIT_PATIENT_UID,
+      );
+      expect(adm).toHaveLength(1);
+      expect(Number(adm[0].bed_id)).toBe(Number(admitBedId));
+
+      // A bed_transfers admission audit row exists.
+      const xfer = await prisma.$queryRawUnsafe(
+        `SELECT id, reason, to_bed_id FROM bed_transfers
+          WHERE patient_uid = $1::uuid AND reason = 'Admission'`,
+        ADMIT_PATIENT_UID,
+      );
+      expect(xfer.length).toBeGreaterThanOrEqual(1);
+      expect(Number(xfer[0].to_bed_id)).toBe(Number(admitBedId));
     });
 
     it('refuses to admit an already-occupied bed', async () => {
       const res = await admin.post(`/api/v1/beds/${admitBedId}/admit`).send({
-        patient_name: 'Jane Doe',
+        patient_id: admitPatientId, patient_name: 'Bed Deep Admit Patient',
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBeGreaterThanOrEqual(400);
     });
 
-    it('refuses to start discharge workflow when no active admission is linked', async () => {
+    it('bed-board discharge endpoint now FINDS the admission (workflow opens; pre-fix it 400d "No active admission")', async () => {
+      // POST /api/v1/beds/:id/discharge is the discharge-WORKFLOW opener
+      // (bedManagementRoutes → markForDischarge): it keeps the bed occupied
+      // until the final /emr discharge. Pre-C-2 the legacy admit left
+      // admission_id NULL, so getActiveAdmissionForBed 400'd here. Now that
+      // admit creates a real admission, the workflow opens successfully and the
+      // bed stays occupied (not vacated).
       const res = await admin.post(`/api/v1/beds/${admitBedId}/discharge`);
-      expect(res.statusCode).toBe(400);
-      expect(res.body.message).toMatch(/No active admission/i);
-
-      await prisma.$executeRawUnsafe(
-        `UPDATE beds
-            SET status = 'available',
-                patient_id = NULL,
-                patient_name = NULL,
-                patient_uid = NULL,
-                admission_id = NULL,
-                admitted_at = NULL,
-                expected_discharge = NULL,
-                updated_at = NOW()
-          WHERE id = $1`,
-        admitBedId,
+      expect(res.statusCode).toBe(201);
+      const bed = await prisma.$queryRawUnsafe(
+        `SELECT status, admission_id FROM beds WHERE id = $1`, admitBedId,
       );
-    });
-
-    it('refuses to discharge a non-occupied bed', async () => {
-      const res = await admin.post(`/api/v1/beds/${admitBedId}/discharge`);
-      expect(res.statusCode).toBe(400);
+      expect(bed[0].status).toBe('occupied');
+      expect(bed[0].admission_id).toBeTruthy();
     });
   });
 
@@ -549,8 +636,24 @@ describe('Bed + ward management — deep integration', () => {
   // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
   describe('ICU tier gate', () => {
     let icuBedId;
+    const ICU_PATIENT_UID = 'a8888888-8888-4888-8888-888888888c02';
+    const ICU_PATIENT_PHONE = '9000088802';
+    let icuPatientId;
 
     beforeAll(async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, ICU_PATIENT_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, ICU_PATIENT_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users WHERE uid = $1::uuid OR phone = $2`, ICU_PATIENT_UID, ICU_PATIENT_PHONE,
+      ).catch(() => {});
+      const p = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, $2, 'ICU Test Patient', 'PATIENT', true, NOW())
+         RETURNING id`,
+        ICU_PATIENT_UID, ICU_PATIENT_PHONE,
+      );
+      icuPatientId = p[0].id;
+
       const created = await prisma.$queryRawUnsafe(
         `INSERT INTO beds (ward_id, bed_number, status, bed_type)
          VALUES ($1, 'BD-DEEP-ICU-001', 'available', 'icu')
@@ -558,6 +661,17 @@ describe('Bed + ward management — deep integration', () => {
         wardId,
       );
       icuBedId = created[0].id;
+    });
+
+    afterAll(async () => {
+      // Drop the ICU bed first — the ADMIN-allocates test leaves it occupied,
+      // so it still holds a beds_patient_id_fkey reference to the patient user.
+      if (icuBedId) {
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE id = $1`, icuBedId).catch(() => {});
+      }
+      await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, ICU_PATIENT_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, ICU_PATIENT_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, ICU_PATIENT_UID).catch(() => {});
     });
 
     function nurseAs() {
@@ -570,10 +684,10 @@ describe('Bed + ward management — deep integration', () => {
       };
     }
 
-    it('forbids NURSING_STAFF from allocating an ICU bed', async () => {
+    it('forbids NURSING_STAFF from allocating an ICU bed (tier gate fires before patient resolution)', async () => {
       const nurse = nurseAs();
       const res = await nurse.post(`/api/v1/beds/${icuBedId}/admit`).send({
-        patient_name: 'ICU Test',
+        patient_id: icuPatientId, patient_name: 'ICU Test Patient',
       });
       expect(res.statusCode).toBe(403);
 
@@ -582,12 +696,13 @@ describe('Bed + ward management — deep integration', () => {
       expect(rows[0].status).toBe('available');
     });
 
-    it('allows ADMIN to allocate the same ICU bed', async () => {
+    it('allows ADMIN to allocate the same ICU bed (real admission created)', async () => {
       const res = await admin.post(`/api/v1/beds/${icuBedId}/admit`).send({
-        patient_name: 'ICU Test Admin',
+        patient_id: icuPatientId, patient_name: 'ICU Test Patient',
       });
       expect(res.statusCode).toBe(200);
       expect(res.body.data.bed.status).toBe('occupied');
+      expect(res.body.data.bed.admission_id).toBeTruthy();
     });
   });
 });
