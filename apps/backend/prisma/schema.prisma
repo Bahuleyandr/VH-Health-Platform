@@ -6119,10 +6119,12 @@ model medication_reconciliation_items {
   changed_route              String?                    @db.VarChar(40)
   changed_frequency          String?                    @db.VarChar(120)
   safety_review_id           String?                    @db.Uuid
+  discrepancy_type           String?                    @db.VarChar(20)
   medication_safety_reviews  medication_safety_reviews? @relation(fields: [safety_review_id], references: [id], onUpdate: NoAction, map: "fk_medication_reconciliation_items_safety_review")
   tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_reconciliation_items_tenant")
   medication_reconciliations medication_reconciliations @relation(fields: [reconciliation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@index([reconciliation_id, discrepancy_type], map: "idx_medication_reconciliation_items_discrepancy", where: raw("(discrepancy_type IS NOT NULL)"))
   @@index([reconciliation_id, id], map: "idx_medication_reconciliation_items_rec")
   @@index([safety_review_id], map: "idx_medication_reconciliation_items_safety_review", where: raw("(safety_review_id IS NOT NULL)"))
 }
@@ -6383,6 +6385,7 @@ model notification_outbox {
 
   @@index([created_at])
   @@index([status, retry_count])
+  @@index([status, last_attempt_at], map: "notification_outbox_drain_idx", where: raw("(status = ANY (ARRAY['PENDING'::text, 'FAILED'::text]))"))
 }
 
 model notification_templates {
@@ -10488,6 +10491,7 @@ model billing_payments {
   billing_payment_links billing_payment_links[]
   billing_invoices      billing_invoices?       @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
 
+  @@unique([tenant_id, reference, mode], map: "uq_billing_payments_tenant_reference_mode", where: raw("((reference IS NOT NULL) AND ((reference)::text <> ''::text))"))
   @@index([collected_at(sort: Desc)], map: "idx_payments_collected_at")
   @@index([mode, collected_at(sort: Desc)], map: "idx_payments_mode")
   @@index([patient_uid], map: "idx_payments_patient")
@@ -14442,4 +14446,15 @@ model revenue_cycle_runs {
 
   @@unique([tenant_id, case_key], map: "uq_revenue_cycle_runs_case")
   @@index([tenant_id, status, current_stage, last_evaluated_at(sort: Desc)], map: "idx_revenue_cycle_runs_tenant_stage")
+}
+
+model interop_replay_guard {
+  id         BigInt   @id @default(autoincrement())
+  namespace  String   @db.VarChar(64)
+  request_id String   @db.VarChar(256)
+  seen_at    DateTime @default(now()) @db.Timestamptz(6)
+  expires_at DateTime @db.Timestamptz(6)
+
+  @@unique([namespace, request_id], map: "uq_interop_replay_guard_ns_rid")
+  @@index([expires_at], map: "idx_interop_replay_guard_expires_at")
 }

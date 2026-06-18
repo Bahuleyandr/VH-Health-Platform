@@ -18,10 +18,17 @@ beforeEach(() => {
 });
 
 describe('anesthesiaChartService.recordEntry', () => {
-  it('creates the chart row and syncs drug/totals into the case anesthesia record', async () => {
+  // The chart-entry INSERT and the case-record rollup recompute now run in
+  // ONE setTenantTx transaction, and the rollup is recomputed deterministically
+  // from the chart rows via SUM()/jsonb_agg (audit 2026-06-18 §3 fix #5) — no
+  // incremental accumulator params. The numeric correctness of the SUM rollup
+  // under concurrency is proven against the real DB in
+  // theatre-clinical-safety.deep.test.js; here we assert the two statements
+  // run in order inside the tx.
+  it('creates the chart row then recomputes the case anesthesia record rollup in one tx', async () => {
     queryUnsafeMock
-      .mockResolvedValueOnce([{ id: 11, ot_schedule_id: 42 }])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([{ id: 11, ot_schedule_id: 42 }]) // INSERT chart entry
+      .mockResolvedValueOnce([]); // recompute INSERT INTO anesthesia_records
 
     const row = await recordEntry({
       tenantId: '00000000-0000-4000-8000-000000000001',
@@ -40,10 +47,15 @@ describe('anesthesiaChartService.recordEntry', () => {
     expect(row.id).toBe(11);
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
     expect(queryUnsafeMock.mock.calls[0][0]).toMatch(/INSERT INTO anesthesia_chart_entries/);
+    // Rollup is recomputed from the chart entries (CTE with SUM), not an
+    // incremental accumulator: the recompute statement aggregates and upserts.
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/SUM\(iv_fluids_ml\)/);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO anesthesia_records/);
     expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\) DO UPDATE/);
-    expect(JSON.parse(queryUnsafeMock.mock.calls[1][4])).toEqual([
-      { name: 'midazolam', dose: '2 mg', route: 'IV' },
+    // Recompute takes only tenant + schedule id (no per-entry accumulator args).
+    expect(queryUnsafeMock.mock.calls[1].slice(1)).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      42,
     ]);
   });
 });

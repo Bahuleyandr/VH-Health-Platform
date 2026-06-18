@@ -664,7 +664,22 @@ export async function recordVitals(data) {
       }
     }
   } catch (err) {
-    logger.warn(`Vital anomaly check failed for patient=${resolvedPatientUid}: ${err.message}`);
+    // checkVitalAnomalies persists the clinical_alerts fan-out atomically and
+    // re-throws on a persistence failure (it never throws for a benign
+    // no-alert path). A CRITICAL vital sign alert must NEVER be silently lost
+    // behind a warn + 200 — so when the alert persistence fails we escalate to
+    // a high-severity error and PROPAGATE, surfacing the failure to the caller
+    // (and the global error handler / Sentry) instead of swallowing it.
+    // Non-persistence anomaly-check hiccups (e.g. a realtime emit) don't reach
+    // here because the post-commit fan-out is individually best-effort.
+    if (err instanceof AppError) throw err;
+    logger.error(
+      `Vital anomaly alert persistence failed for patient=${resolvedPatientUid}: ${err?.message}`,
+    );
+    throw AppError.internal(
+      'Vitals were recorded but a clinical alert could not be persisted — escalate to the responsible clinician.',
+      'CLINICAL_ALERT_PERSIST_FAILED',
+    );
   }
 
   // Paediatric growth percentile — when weight/height is recorded for a

@@ -1,6 +1,7 @@
 // src/services/bed/bedService.js
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { getCurrentTenantId } from '../../lib/tenantContext.js';
+import { DEFAULT_TENANT_ID as TENANT_FALLBACK_ID } from '../tenant/tenantService.js';
 import {
   MINIMIZED_INPATIENT_PAYLOAD_ROLES,
   resolveInpatientLocationScope,
@@ -8,6 +9,31 @@ import {
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { normalizeRole as normalizePlatformRole } from '../../utils/roles.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import bedManagementService from './bedManagementService.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(value) {
+  return typeof value === 'string' && UUID_RE.test(value.trim());
+}
+function normalizeTenantId(value) {
+  return isUuid(value) ? String(value).trim() : null;
+}
+function parseExpectedDischarge(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+// the admission detail row + its canonical timeline/audit events persist in the
+// SAME transaction. Runs on the tx client and is NOT swallowed — a failure
+// aborts the tx so the bed/admission mutation rolls back rather than leaving the
+// timeline/audit layer out of sync (recordCanonicalClinicalEvent still tolerates
+// a genuinely-absent canonical table, SQLSTATE 42P01).
+function recordCanonicalAdmissionEvent(input, tx) {
+  return recordCanonicalClinicalEvent(input, { db: tx });
+}
 
 const BED_RETURNING = `id, ward_id, ward_name, floor, bed_number, bed_type, status,
     patient_id, patient_name, patient_uid, admission_id, admitted_at,
@@ -756,62 +782,227 @@ class BedService {
     return rows[0] ?? null;
   }
 
-  async admitPatient(bedId, { patient_id, patient_name, notes }, actorRole = null, options = {}) {
+  // Admit a patient to a bed via the bed board's quick-admit endpoint
+  // (POST /api/v1/beds/:id/admit).
+  //
+  // C-2 (audit 2026-06-18): the previous implementation was a bypass — an
+  // unlocked SELECT + a conditional `UPDATE beds ... WHERE status='available'`
+  // that occupied the bed WITHOUT ever creating an `admissions` row. The bed
+  // ended up half-populated (patient_uid / admission_id NULL), nothing landed
+  // in bed_transfers, no canonical timeline/audit row was written, and the
+  // discharge workflow (which resolves the active admission for the bed) could
+  // never find an admission to close. This now does a real, atomic admission:
+  //   (a) locks the bed row FOR UPDATE (serialises concurrent admits),
+  //   (b) creates the admissions row (status='admitted') so the bed is fully
+  //       linked and the discharge workflow can close it,
+  //   (c) sets the bed occupied with patient_id + patient_name + patient_uid +
+  //       admission_id back-links,
+  //   (d) writes the bed_transfers admission audit row, and
+  //   (e) emits the canonical admission.created timeline/audit events —
+  // all inside ONE setTenantTx so a failure rolls the whole thing back rather
+  // than leaving a half-populated bed or an orphan admission.
+  //
+  // A resolvable patient is required (patient_uid, or patient_id → users.uid):
+  // admissions.patient_uid and bed_transfers.patient_uid are both NOT NULL, so a
+  // name-only occupancy cannot create the admission the discharge path needs.
+  async admitPatient(bedId, { patient_id, patient_uid, patient_name, notes, expected_discharge } = {}, actorRole = null, options = {}) {
     const tenantId = tenantOf(options);
-    // Stage-4-C — ICU/CCU beds require physician/admin sign-off; a ward
-    // nurse cannot independently allocate an intensive-care bed. Probe
-    // bed_type first; throw forbidden when the actor lacks the tier.
-    // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
+    const parsedBedId = parseInt(bedId, 10);
+
+    // Stage-4-C — ICU/CCU tier gate fires FIRST (before patient validation),
+    // matching the legacy pre-lock bed_type probe: a ward nurse must be told she
+    // lacks ICU-allocation authority (403) even on an incomplete request, rather
+    // than getting a generic "patient required" 400 that masks the real reason.
+    // The authoritative re-check still happens on the FOR UPDATE-locked row in
+    // the transaction below. Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
     const typeRows = await prisma.$queryRawUnsafe(
       `SELECT bed_type FROM beds WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
-      parseInt(bedId),
+      parsedBedId,
       tenantId,
     );
     if (typeRows.length && ICU_BED_TYPES.has(typeRows[0].bed_type) && !canAllocateIcu(actorRole)) {
       throw AppError.forbidden('ICU/CCU bed allocation requires physician or admission-officer authorisation');
     }
 
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE beds SET
-         status = 'occupied',
-         patient_id = $1,
-         patient_name = $2,
-         admitted_at = NOW(),
-         assigned_at = NOW(),
-         notes = COALESCE($3, notes),
-         updated_at = NOW()
-       WHERE id = $4 AND status = 'available'
-         AND ($5::uuid IS NULL OR tenant_id = $5::uuid)
-       RETURNING ${BED_RETURNING}`,
-      patient_id ?? null, patient_name, notes ?? null, parseInt(bedId), tenantId,
+    // Resolve a patient_uid (the load-bearing key for the admission). Accept an
+    // explicit patient_uid, else resolve the int patient_id → users.uid.
+    let resolvedPatientUid = isUuid(patient_uid) ? String(patient_uid).trim() : null;
+    let resolvedPatientId = Number.isInteger(patient_id) ? patient_id
+      : (patient_id != null && /^\d+$/.test(String(patient_id)) ? parseInt(patient_id, 10) : null);
+    let resolvedPatientName = patient_name ?? null;
+
+    if (!resolvedPatientUid && resolvedPatientId == null) {
+      throw AppError.badRequest(
+        'patient_uid or patient_id is required to admit a patient (a bed cannot be occupied without an admission record)',
+        'ADMIT_PATIENT_REQUIRED',
+      );
+    }
+
+    const patientRows = await prisma.$queryRawUnsafe(
+      `SELECT id, uid, name, role, tenant_id
+         FROM users
+        WHERE ($1::uuid IS NOT NULL AND uid = $1::uuid)
+           OR ($2::int  IS NOT NULL AND id  = $2::int)
+        LIMIT 1`,
+      resolvedPatientUid,
+      resolvedPatientId,
     );
-    return rows[0];
+    const patient = patientRows[0] ?? null;
+    if (!patient) throw AppError.notFound('Patient not found', 'PATIENT_NOT_FOUND');
+    if (String(patient.role || '').toUpperCase() !== 'PATIENT') {
+      throw AppError.badRequest('Referenced user is not a patient', 'NOT_A_PATIENT');
+    }
+    resolvedPatientUid = String(patient.uid);
+    resolvedPatientId = patient.id;
+    resolvedPatientName = resolvedPatientName ?? patient.name ?? null;
+    const resolvedTenantId = tenantId || normalizeTenantId(patient.tenant_id) || TENANT_FALLBACK_ID;
+
+    const expectedDischarge = parseExpectedDischarge(expected_discharge);
+
+    const result = await setTenantTx(resolvedTenantId, async (tx) => {
+      // (a) Lock the bed row FOR UPDATE so two concurrent admits can't both
+      // occupy it (the legacy unlocked UPDATE could double-allocate).
+      const bedRows = await tx.$queryRawUnsafe(
+        `SELECT id, tenant_id, status, bed_number, bed_type
+           FROM beds
+          WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          FOR UPDATE`,
+        parsedBedId,
+        tenantId,
+      );
+      if (!bedRows.length) throw AppError.notFound('Bed not found', 'BED_NOT_FOUND');
+      const bed = bedRows[0];
+
+      // Stage-4-C — ICU/CCU beds require physician/admin sign-off; a ward
+      // nurse cannot independently allocate an intensive-care bed.
+      // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
+      if (ICU_BED_TYPES.has(bed.bed_type) && !canAllocateIcu(actorRole)) {
+        throw AppError.forbidden('ICU/CCU bed allocation requires physician or admission-officer authorisation');
+      }
+      if (bed.status !== 'available') {
+        throw AppError.badRequest(
+          `Bed ${bed.bed_number} is not available (current status: ${bed.status})`,
+          'BED_NOT_AVAILABLE',
+        );
+      }
+
+      // Guard the patient against a double admission (mirrors
+      // bedManagementService.admitPatient).
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT id FROM admissions
+          WHERE patient_uid = $1::uuid
+            AND status IN ('admitted', 'transferred')
+            AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          LIMIT 1`,
+        resolvedPatientUid,
+        tenantId,
+      );
+      if (existing.length) {
+        throw AppError.conflict('Patient already has an active admission', 'PATIENT_ALREADY_ADMITTED');
+      }
+
+      // (b) Create the admission row so the bed is fully linked and the
+      // discharge workflow can close it. Minimal payload — the bed board's
+      // quick-admit carries no doctor / chief-complaint; those nullable
+      // columns are filled later through the full ADT surface.
+      const admission = await tx.admissions.create({
+        data: {
+          patient_uid: resolvedPatientUid,
+          tenant_id: resolvedTenantId,
+          status: 'admitted',
+          bed_id: parsedBedId,
+          bed_number: bed.bed_number,
+          admission_type: 'elective',
+          admitted_at: new Date(),
+        },
+        select: {
+          id: true, tenant_id: true, patient_uid: true, encounter_id: true,
+          status: true, admission_type: true, bed_id: true, bed_number: true,
+        },
+      });
+
+      // (c) Occupy the bed with full back-links (no half-populated row).
+      const rows = await tx.$queryRawUnsafe(
+        `UPDATE beds SET
+           status = 'occupied',
+           patient_id = $1,
+           patient_name = $2,
+           patient_uid = $3::uuid,
+           admission_id = $4,
+           admitted_at = NOW(),
+           assigned_at = NOW(),
+           expected_discharge = $5,
+           notes = COALESCE($6, notes),
+           updated_at = NOW()
+         WHERE id = $7
+           AND ($8::uuid IS NULL OR tenant_id = $8::uuid)
+         RETURNING ${BED_RETURNING}`,
+        resolvedPatientId,
+        resolvedPatientName,
+        resolvedPatientUid,
+        admission.id,
+        expectedDischarge,
+        notes ?? null,
+        parsedBedId,
+        tenantId,
+      );
+
+      // (d) bed_transfers admission audit row (patient_uid + tenant NOT NULL).
+      await tx.$executeRawUnsafe(
+        `INSERT INTO bed_transfers (tenant_id, patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
+         VALUES ($1::uuid, $2::uuid, $3, NULL, $4, 'Admission', $2::uuid)`,
+        bed.tenant_id || resolvedTenantId,
+        resolvedPatientUid,
+        admission.id,
+        parsedBedId,
+      );
+
+      // (e) Canonical clinical timeline invariant — admission.created on `tx`.
+      await recordCanonicalAdmissionEvent({
+        tenantId: admission.tenant_id || resolvedTenantId,
+        patientUid: admission.patient_uid,
+        encounterId: admission.encounter_id,
+        eventType: 'admission.created',
+        eventSubtype: admission.admission_type,
+        eventStatus: admission.status,
+        sourceTable: 'admissions',
+        sourceId: admission.id,
+        resourceType: 'admission',
+        resourceId: admission.id,
+        actorUid: null,
+        summary: `${resolvedPatientName || 'Patient'} admitted to bed ${bed.bed_number}`,
+        payload: {
+          admission_id: admission.id,
+          bed_id: parsedBedId,
+          bed_number: bed.bed_number,
+          admit_path: 'bed_board_quick_admit',
+        },
+        afterState: admission,
+        timelineIdempotencyKey: `admissions:${admission.id}:created`,
+        auditIdempotencyKey: `admissions:${admission.id}:audit:created`,
+      }, tx);
+
+      return rows[0];
+    });
+
+    return result;
   }
 
+  // Discharge a patient from a bed via the bed board (POST /api/v1/beds/:id/discharge).
+  //
+  // C-2 (audit 2026-06-18): the previous implementation flipped the bed straight
+  // to 'available' — skipping the mandatory 'cleaning' turnover (an
+  // infection-control bypass), starting no cleaning SLA / housekeeping ticket,
+  // writing no canonical event, and never closing the open admissions row.
+  // It now delegates to the typed bedManagementService.dischargePatient, which
+  // does all of that atomically under a FOR UPDATE lock: bed → 'cleaning',
+  // admission closed, bed_transfers audit row, canonical discharge.completed
+  // event in-tx, and a post-commit housekeeping cleaning ticket. No orphan bed,
+  // no open admission.
   async dischargePatient(bedId, options = {}) {
-    const tenantId = tenantOf(options);
-    // F-2 — clear patient_uid and admission_id alongside patient_id /
-    // patient_name. Leaving the uuid FK behind made the bed appear
-    // available on the map while still pointing at a previous occupant
-    // (who, after a fresh admit elsewhere, surfaced on two rows).
-    // Finding: 2026-05-10-dynamic-acute-abdomen-admission-available-bed-retains-active-patient.
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE beds SET
-         status = 'available',
-         patient_id = NULL,
-         patient_name = NULL,
-         patient_uid = NULL,
-         admission_id = NULL,
-         admitted_at = NULL,
-         expected_discharge = NULL,
-         updated_at = NOW()
-       WHERE id = $1 AND status = 'occupied'
-         AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
-       RETURNING ${BED_RETURNING}`,
-      parseInt(bedId),
-      tenantId,
-    );
-    return rows[0];
+    const parsedBedId = parseInt(bedId, 10);
+    const dischargedBy = options.dischargedBy || options.actorUid || null;
+    return bedManagementService.dischargePatient(parsedBedId, dischargedBy, options);
   }
 }
 

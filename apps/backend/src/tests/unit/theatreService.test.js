@@ -15,6 +15,16 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), error: jest.fn() },
 }));
 
+// Canonical timeline/audit writes are emitted in the same tx as each mutation
+// (audit 2026-06-18 §3 fix #1). They are exercised end-to-end in the deep
+// integration suite (theatre-clinical-safety.deep.test.js); here they are
+// mocked so the unit tests keep asserting the detail-row SQL without the
+// canonical-event queries consuming the mock sequence.
+const recordCanonicalClinicalEventMock = jest.fn(async () => ({ timeline: null, audit: null }));
+jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
+  recordCanonicalClinicalEvent: recordCanonicalClinicalEventMock,
+}));
+
 const theatreService = (await import('../../services/theatre/theatreService.js')).default;
 
 const SURGEON_UID = 'ba000000-0000-4000-8000-00000000a002';
@@ -26,6 +36,7 @@ const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  recordCanonicalClinicalEventMock.mockClear();
 });
 
 function rightEyeSchedule() {
@@ -165,19 +176,35 @@ describe('theatreService.updateStatus closure gates', () => {
 
   it('accepts consent documented on the legacy theatre checklist', async () => {
     queryUnsafeMock
-      .mockResolvedValueOnce([currentSchedule()])
-      .mockResolvedValueOnce([closureSchedule({
+      .mockResolvedValueOnce([currentSchedule()]) // SELECT ... FOR UPDATE
+      .mockResolvedValueOnce([closureSchedule({   // _assertReadyForClosure: schedule
         consent_obtained: false,
         pre_op_checklist: { consent_signed: true },
       })])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // preop_checklist (no structured consent row)
       .mockResolvedValueOnce([finalizedAnesthesia()])
       .mockResolvedValueOnce([finalizedIntraop()])
-      .mockResolvedValueOnce([{ id: 42, status: 'post_op' }]);
+      .mockResolvedValueOnce([{ status: 'complete' }]) // WHO sign_out (fix #4)
+      .mockResolvedValueOnce([{ id: 42, status: 'post_op' }]); // UPDATE ... AND status=$current
 
     const result = await theatreService.updateStatus(42, 'post_op', ADMIN_UID);
 
     expect(result.status).toBe('post_op');
+  });
+
+  it('rejects closure when the WHO sign-out is not complete', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([currentSchedule()])
+      .mockResolvedValueOnce([closureSchedule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([finalizedAnesthesia()])
+      .mockResolvedValueOnce([finalizedIntraop()])
+      .mockResolvedValueOnce([]); // no sign_out row
+
+    await expect(theatreService.updateStatus(42, 'post_op', ADMIN_UID)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'WHO_SIGNOUT_REQUIRED',
+    });
   });
 
   it('rejects closure when sponge, sharp, or instrument counts are not all correct', async () => {

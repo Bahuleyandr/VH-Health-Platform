@@ -1,8 +1,22 @@
 // src/services/theatre/theatreService.js
 
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+
+// Postgres exclusion_violation — raised by migration 319's
+// excl_ot_schedules_room_no_overlap when an insert/update would create a
+// true room+window double-booking (even via the app `force` override).
+const PG_EXCLUSION_VIOLATION = '23P01';
+
+function isExclusionViolation(err) {
+  const code = err?.meta?.code
+    || err?.meta?.driverAdapterError?.cause?.originalCode
+    || err?.code;
+  return code === PG_EXCLUSION_VIOLATION
+    || /exclusion constraint|excl_ot_schedules_room_no_overlap/i.test(String(err?.message || ''));
+}
 
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VALID_STATUSES = ['scheduled', 'pre_op', 'in_progress', 'post_op', 'completed', 'cancelled'];
@@ -133,7 +147,7 @@ async function isDiabeticPatient(patientUid) {
   }
 }
 
-async function createStructuredPreopFromOtReady(schedule, checklist, { completedBy = null, tenantId = null } = {}) {
+async function createStructuredPreopFromOtReady(schedule, checklist, { completedBy = null, tenantId = null, db = prisma } = {}) {
   if (!checklist || typeof checklist !== 'object' || Array.isArray(checklist) || checklist.ot_ready !== true) {
     return null;
   }
@@ -144,7 +158,7 @@ async function createStructuredPreopFromOtReady(schedule, checklist, { completed
     checklist.blood_glucose_value,
     checklist.glucose,
   ));
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `INSERT INTO preop_checklists
        (tenant_id, ot_schedule_id, patient_uid,
         consent_signed, npo_status_confirmed, site_marked,
@@ -240,8 +254,57 @@ function assertOtReadySiteMark(checklist, schedule) {
 }
 
 class TheatreService {
-  async _assertReadyForClosure(scheduleId, tenantId = DEFAULT_TENANT_ID) {
-    const [schedule] = await prisma.$queryRawUnsafe(
+  // Shared surgical-consent gate. Consent counts as documented when the OT
+  // schedule's consent_obtained flag is set, OR the legacy embedded checklist
+  // marks consent, OR the structured preop_checklists row is consent_signed.
+  // Used both before knife-to-skin (pre_op → in_progress) and at close.
+  // `schedule` may be a pre-fetched/locked row to avoid a redundant read.
+  async _assertConsentDocumented(scheduleId, tenantId, schedule = null, db = prisma) {
+    let row = schedule;
+    if (!row) {
+      [row] = await db.$queryRawUnsafe(
+        `SELECT consent_obtained, pre_op_checklist
+           FROM ot_schedules
+          WHERE id = $1 AND tenant_id = $2::uuid
+          LIMIT 1`,
+        scheduleId, tenantOr(tenantId),
+      );
+      if (!row) throw AppError.notFound('OT schedule not found');
+    }
+
+    const [preopChecklist] = await db.$queryRawUnsafe(
+      `SELECT consent_signed
+         FROM preop_checklists
+        WHERE ot_schedule_id = $1 AND tenant_id = $2::uuid
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      scheduleId, tenantOr(tenantId),
+    );
+
+    const legacyChecklist = row.pre_op_checklist
+      && typeof row.pre_op_checklist === 'object'
+      && !Array.isArray(row.pre_op_checklist)
+      ? row.pre_op_checklist
+      : {};
+    const consentDocumented = row.consent_obtained === true
+      || legacyChecklist.consent_signed === true
+      || legacyChecklist.consent_obtained === true
+      || preopChecklist?.consent_signed === true;
+    if (!consentDocumented) {
+      throw AppError.badRequest(
+        'Surgical consent must be documented before the case starts',
+        'SURGICAL_CONSENT_REQUIRED',
+        {
+          consent_obtained: row.consent_obtained,
+          checklist_consent_signed: legacyChecklist.consent_signed ?? null,
+          preop_consent_signed: preopChecklist?.consent_signed ?? null,
+        },
+      );
+    }
+  }
+
+  async _assertReadyForClosure(scheduleId, tenantId = DEFAULT_TENANT_ID, db = prisma) {
+    const [schedule] = await db.$queryRawUnsafe(
       `SELECT surgeon, consent_obtained, pre_op_checklist
          FROM ot_schedules
         WHERE id = $1 AND tenant_id = $2::uuid
@@ -250,37 +313,9 @@ class TheatreService {
     );
     if (!schedule) throw AppError.notFound('OT schedule not found');
 
-    const [preopChecklist] = await prisma.$queryRawUnsafe(
-      `SELECT consent_signed, consent_signed_at, status
-         FROM preop_checklists
-        WHERE ot_schedule_id = $1 AND tenant_id = $2::uuid
-        ORDER BY updated_at DESC
-        LIMIT 1`,
-      scheduleId, tenantOr(tenantId),
-    );
+    await this._assertConsentDocumented(scheduleId, tenantId, schedule, db);
 
-    const legacyChecklist = schedule.pre_op_checklist
-      && typeof schedule.pre_op_checklist === 'object'
-      && !Array.isArray(schedule.pre_op_checklist)
-      ? schedule.pre_op_checklist
-      : {};
-    const consentDocumented = schedule.consent_obtained === true
-      || legacyChecklist.consent_signed === true
-      || legacyChecklist.consent_obtained === true
-      || preopChecklist?.consent_signed === true;
-    if (!consentDocumented) {
-      throw AppError.badRequest(
-        'Cannot close OT case until surgical consent is documented',
-        'SURGICAL_CONSENT_REQUIRED',
-        {
-          consent_obtained: schedule.consent_obtained,
-          checklist_consent_signed: legacyChecklist.consent_signed ?? null,
-          preop_consent_signed: preopChecklist?.consent_signed ?? null,
-        },
-      );
-    }
-
-    const [anesthesia] = await prisma.$queryRawUnsafe(
+    const [anesthesia] = await db.$queryRawUnsafe(
       `SELECT status, finalized_by, finalized_at
          FROM anesthesia_records
         WHERE ot_schedule_id = $1 AND tenant_id = $2::uuid
@@ -296,7 +331,7 @@ class TheatreService {
       );
     }
 
-    const [intraop] = await prisma.$queryRawUnsafe(
+    const [intraop] = await db.$queryRawUnsafe(
       `SELECT status, finalized_by, finalized_at,
               sponge_count_correct, sharp_count_correct, instrument_count_correct
          FROM intraop_notes
@@ -338,6 +373,35 @@ class TheatreService {
         },
       );
     }
+
+    // WHO sign-out gate (audit §3 fix #4). The third WHO phase — the
+    // sign-out — is the final count/specimen/equipment-concerns
+    // read-aloud before the patient leaves the room. A case must not be
+    // marked post_op/completed until sign-out is recorded complete (or an
+    // explicit, authorized override is on file), so a retained-object or
+    // unresolved-concern close cannot pass silently. Mirrors the time-out
+    // gate on incision start.
+    const [signOut] = await db.$queryRawUnsafe(
+      `SELECT status, override_reason, override_authorized_by
+         FROM surgical_safety_checklists
+        WHERE ot_schedule_id = $1
+          AND tenant_id = $2::uuid
+          AND phase = 'sign_out'
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      scheduleId, tenantOr(tenantId),
+    );
+    const signOutComplete = signOut?.status === 'complete'
+      || (signOut?.status === 'incomplete_with_override'
+        && String(signOut?.override_reason || '').trim() !== ''
+        && signOut?.override_authorized_by != null);
+    if (!signOutComplete) {
+      throw AppError.badRequest(
+        'Cannot close OT case until the WHO sign-out is completed (or an authorized override is recorded)',
+        'WHO_SIGNOUT_REQUIRED',
+        { sign_out_status: signOut?.status ?? null },
+      );
+    }
   }
 
   async scheduleSurgery(data) {
@@ -375,22 +439,64 @@ class TheatreService {
       }
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO ot_schedules
-        (patient_uid, encounter_id, surgeon, anesthetist, procedure_name, procedure_code,
-         ot_room, scheduled_date, scheduled_time, estimated_duration, status,
-         equipment_needed, blood_arranged, consent_obtained, tenant_id, created_at, updated_at)
-       VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::time,
-         $10, 'scheduled', $11::text[], $12, $13, $14::uuid, NOW(), NOW())
-       RETURNING ${OT_RETURNING}`,
-      patient_uid, encounterIdInt, surgeon, anesthetist || null,
-      procedure_name, procedure_code || null, ot_room || null,
-      scheduled_date, scheduled_time || null, estimated_duration || null,
-      equipment_needed, blood_arranged, consent_obtained, tenantId
-    );
+    // Canonical clinical write: the case row + a clinical_timeline_events +
+    // clinical_audit_events row in ONE tx, so the medico-legal trail exists
+    // for the scheduling decision. setTenantTx scopes the tx under RLS.
+    let created;
+    try {
+      created = await setTenantTx(tenantId, async (tx) => {
+        const rows = await tx.$queryRawUnsafe(
+          `INSERT INTO ot_schedules
+            (patient_uid, encounter_id, surgeon, anesthetist, procedure_name, procedure_code,
+             ot_room, scheduled_date, scheduled_time, estimated_duration, status,
+             equipment_needed, blood_arranged, consent_obtained, tenant_id, created_at, updated_at)
+           VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::time,
+             $10, 'scheduled', $11::text[], $12, $13, $14::uuid, NOW(), NOW())
+           RETURNING ${OT_RETURNING}`,
+          patient_uid, encounterIdInt, surgeon, anesthetist || null,
+          procedure_name, procedure_code || null, ot_room || null,
+          scheduled_date, scheduled_time || null, estimated_duration || null,
+          equipment_needed, blood_arranged, consent_obtained, tenantId
+        );
+        const schedule = rows[0];
+        await recordCanonicalClinicalEvent({
+          tenantId,
+          patientUid: patient_uid,
+          eventType: 'surgery.scheduled',
+          eventStatus: 'scheduled',
+          sourceTable: 'ot_schedules',
+          sourceId: schedule.id,
+          resourceType: 'ot_schedule',
+          actorUid: data.scheduledBy || data.actorUid || null,
+          actorRole: data.actorRole || null,
+          summary: `Surgery scheduled: ${procedure_name}${ot_room ? ` in ${ot_room}` : ''} on ${scheduled_date}${scheduled_time ? ` ${scheduled_time}` : ''}`,
+          payload: {
+            procedure_name,
+            procedure_code: procedure_code || null,
+            surgeon,
+            anesthetist: anesthetist || null,
+            ot_room: ot_room || null,
+            scheduled_date,
+            scheduled_time: scheduled_time || null,
+            estimated_duration: estimated_duration || null,
+            consent_obtained: schedule.consent_obtained,
+          },
+        }, { db: tx });
+        return schedule;
+      });
+    } catch (err) {
+      if (isExclusionViolation(err)) {
+        throw AppError.conflict(
+          'OT room is already booked for an overlapping time window',
+          'OT_ROOM_DOUBLE_BOOKED',
+          { ot_room: ot_room || null, scheduled_date, scheduled_time: scheduled_time || null },
+        );
+      }
+      throw err;
+    }
 
-    logger.info('Surgery scheduled', { scheduleId: result[0].id, procedure_name, surgeon });
-    return result[0];
+    logger.info('Surgery scheduled', { scheduleId: created.id, procedure_name, surgeon });
+    return created;
   }
 
   async getTodaySchedule(filters = {}) {
@@ -425,61 +531,107 @@ class TheatreService {
     }
 
     const scheduleId = requireIntId(id);
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1 AND tenant_id = $2::uuid`,
-      scheduleId, tenantId);
-    if (existing.length === 0) throw AppError.notFound('OT schedule not found');
 
-    const currentStatus = existing[0].status;
-    const allowed = VALID_TRANSITIONS[currentStatus] || [];
-    if (!allowed.includes(newStatus)) {
-      throw AppError.invalidTransition(currentStatus, newStatus, allowed);
-    }
+    // Lock-safe status transition (audit §3 fix #2). The whole read → gates →
+    // write runs in ONE tenant-scoped transaction; the row is locked with
+    // SELECT ... FOR UPDATE and the UPDATE carries an `AND status = <current>`
+    // from-state predicate. A concurrent writer that wins the lock and moves
+    // the row first makes our UPDATE match 0 rows → 409, instead of two
+    // callers both "succeeding" (double-start, or advancing past the WHO
+    // time-out gate under concurrency). The canonical timeline + audit event
+    // is emitted in the same tx so the medico-legal trail can't desync.
+    return setTenantTx(tenantId, async (tx) => {
+      const locked = await tx.$queryRawUnsafe(
+        `SELECT id, status, patient_uid, consent_obtained, pre_op_checklist
+           FROM ot_schedules
+          WHERE id = $1 AND tenant_id = $2::uuid
+          FOR UPDATE`,
+        scheduleId, tenantId);
+      if (locked.length === 0) throw AppError.notFound('OT schedule not found');
 
-    if (currentStatus === 'pre_op' && newStatus === 'in_progress') {
-      const timeOutRows = await prisma.$queryRawUnsafe(
-        `SELECT id FROM surgical_safety_checklists
-         WHERE ot_schedule_id = $1
-           AND tenant_id = $2::uuid
-           AND phase = 'time_out'
-           AND (
-             status = 'complete'
-             OR (
-               status = 'incomplete_with_override'
-               AND NULLIF(TRIM(override_reason), '') IS NOT NULL
-               AND override_authorized_by IS NOT NULL
+      const current = locked[0];
+      const currentStatus = current.status;
+      const allowed = VALID_TRANSITIONS[currentStatus] || [];
+      if (!allowed.includes(newStatus)) {
+        throw AppError.invalidTransition(currentStatus, newStatus, allowed);
+      }
+
+      if (currentStatus === 'pre_op' && newStatus === 'in_progress') {
+        // Consent gate on knife-to-skin (audit §3 fix #4): surgical consent
+        // must be documented before the case starts, not only checked at
+        // close. Reuses the same consent sources as the closure gate.
+        await this._assertConsentDocumented(scheduleId, tenantId, current, tx);
+
+        const timeOutRows = await tx.$queryRawUnsafe(
+          `SELECT id FROM surgical_safety_checklists
+           WHERE ot_schedule_id = $1
+             AND tenant_id = $2::uuid
+             AND phase = 'time_out'
+             AND (
+               status = 'complete'
+               OR (
+                 status = 'incomplete_with_override'
+                 AND NULLIF(TRIM(override_reason), '') IS NOT NULL
+                 AND override_authorized_by IS NOT NULL
+               )
              )
-           )
-         LIMIT 1`,
-        scheduleId, tenantId
+           LIMIT 1`,
+          scheduleId, tenantId
+        );
+        if (timeOutRows.length === 0) {
+          throw AppError.badRequest(
+            'WHO time-out must be completed before moving an OT case to in_progress',
+            'WHO_TIMEOUT_REQUIRED'
+          );
+        }
+      }
+
+      // Wave-2 + audit §3 fix #4: gate post_op + completed on signed
+      // anaesthesia + intraop notes + correct instrument counts + WHO
+      // sign-out. An OT case cannot transition past in_progress until the
+      // surgeon's intraop note and the anaesthetist's anaesthesia record are
+      // finalized, the closing sponge/sharp/instrument counts are correct,
+      // and the WHO sign-out is complete (or authorized override on file).
+      if (newStatus === 'post_op' || newStatus === 'completed') {
+        await this._assertReadyForClosure(scheduleId, tenantId, tx);
+      }
+
+      const result = await tx.$queryRawUnsafe(
+        `UPDATE ot_schedules SET status = $1, updated_at = NOW()
+         WHERE id = $2 AND tenant_id = $3::uuid AND status = $4
+         RETURNING ${OT_RETURNING}`,
+        newStatus, scheduleId, tenantId, currentStatus
       );
-      if (timeOutRows.length === 0) {
-        throw AppError.badRequest(
-          'WHO time-out must be completed before moving an OT case to in_progress',
-          'WHO_TIMEOUT_REQUIRED'
+      // from-state predicate matched 0 rows → another tx changed status after
+      // our FOR UPDATE read (only possible if the lock was released between
+      // statements, e.g. a SAVEPOINT abort); treat as a concurrency conflict.
+      if (result.length === 0) {
+        throw AppError.conflict(
+          `OT case is no longer in '${currentStatus}' — status changed concurrently`,
+          'OT_STATUS_CONFLICT',
+          { expected_from: currentStatus, to: newStatus },
         );
       }
-    }
 
-    // Wave-2 fix: gate post_op + completed on signed anaesthesia + intraop
-    // notes + correct instrument counts. An OT case cannot transition past
-    // in_progress until both the surgeon's intraop note and the
-    // anaesthetist's anaesthesia record are finalized, and the closing
-    // sponge/sharp/instrument counts are correct. Finding:
-    // 2026-05-09-surgical-day-care-ot-staff-case-close-no-gate.
-    if (newStatus === 'post_op' || newStatus === 'completed') {
-      await this._assertReadyForClosure(scheduleId, tenantId);
-    }
+      await recordCanonicalClinicalEvent({
+        tenantId,
+        patientUid: current.patient_uid,
+        eventType: `surgery.${newStatus}`,
+        eventStatus: newStatus,
+        sourceTable: 'ot_schedules',
+        sourceId: scheduleId,
+        resourceType: 'ot_schedule',
+        actorUid: updatedBy || null,
+        actorRole: options.actorRole || null,
+        summary: `OT case status ${currentStatus} → ${newStatus}`,
+        payload: { from_status: currentStatus, to_status: newStatus },
+        beforeState: { status: currentStatus },
+        afterState: { status: newStatus },
+      }, { db: tx });
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET status = $1, updated_at = NOW()
-       WHERE id = $2 AND tenant_id = $3::uuid
-       RETURNING ${OT_RETURNING}`,
-      newStatus, scheduleId, tenantId
-    );
-
-    logger.info('OT schedule status updated', { scheduleId: id, from: currentStatus, to: newStatus, updatedBy });
-    return result[0];
+      logger.info('OT schedule status updated', { scheduleId: id, from: currentStatus, to: newStatus, updatedBy });
+      return result[0];
+    });
   }
 
   async completeChecklist(id, checklist, { tenantId = null, completedBy = null } = {}) {
@@ -514,19 +666,44 @@ class TheatreService {
       }
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
-       WHERE id = $2 AND tenant_id = $3::uuid
-       RETURNING ${OT_RETURNING}`,
-      JSON.stringify(checklist ?? {}), requireIntId(id), tid
-    );
+    // Canonical clinical write: the checklist update + structured preop row +
+    // a clinical_timeline_events + clinical_audit_events row in ONE tx.
+    const scheduleId = requireIntId(id);
+    return setTenantTx(tid, async (tx) => {
+      const result = await tx.$queryRawUnsafe(
+        `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
+         WHERE id = $2 AND tenant_id = $3::uuid
+         RETURNING ${OT_RETURNING}`,
+        JSON.stringify(checklist ?? {}), scheduleId, tid
+      );
 
-    const preop = await createStructuredPreopFromOtReady(existing[0], checklist, { tenantId: tid, completedBy });
-    const row = result[0];
-    if (preop?.id) row.pre_op_check_id = preop.id;
+      const preop = await createStructuredPreopFromOtReady(existing[0], checklist, { tenantId: tid, completedBy, db: tx });
+      const row = result[0];
+      if (preop?.id) row.pre_op_check_id = preop.id;
 
-    logger.info('Pre-op checklist updated', { scheduleId: id, preopCheckId: preop?.id || null });
-    return row;
+      const otReady = !!(checklist && typeof checklist === 'object' && !Array.isArray(checklist) && checklist.ot_ready === true);
+      await recordCanonicalClinicalEvent({
+        tenantId: tid,
+        patientUid: existing[0].patient_uid,
+        eventType: otReady ? 'surgery.preop_checklist.ot_ready' : 'surgery.preop_checklist.updated',
+        eventStatus: otReady ? 'ot_ready' : 'updated',
+        sourceTable: 'ot_schedules',
+        sourceId: scheduleId,
+        resourceType: 'ot_schedule',
+        actorUid: completedBy || null,
+        summary: otReady
+          ? `Pre-op checklist marked OT-ready: ${existing[0].procedure_name}`
+          : `Pre-op checklist updated: ${existing[0].procedure_name}`,
+        payload: {
+          ot_ready: otReady,
+          pre_op_check_id: preop?.id || null,
+          procedure_name: existing[0].procedure_name,
+        },
+      }, { db: tx });
+
+      logger.info('Pre-op checklist updated', { scheduleId: id, preopCheckId: preop?.id || null });
+      return row;
+    });
   }
 
   async getAvailableRooms(date, options = {}) {
@@ -562,23 +739,55 @@ class TheatreService {
 
   async cancelSurgery(id, cancelledBy, options = {}) {
     const tenantId = tenantOr(options.tenantId || options.tenant_id);
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1 AND tenant_id = $2::uuid`,
-      requireIntId(id), tenantId);
-    if (existing.length === 0) throw AppError.notFound('OT schedule not found');
-    if (['completed', 'cancelled'].includes(existing[0].status)) {
-      throw AppError.badRequest(`Cannot cancel a surgery that is already ${existing[0].status}`);
-    }
+    const scheduleId = requireIntId(id);
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE ot_schedules SET status = 'cancelled', updated_at = NOW()
-       WHERE id = $1 AND tenant_id = $2::uuid
-       RETURNING ${OT_RETURNING}`,
-      requireIntId(id), tenantId
-    );
+    // Lock-safe cancel + canonical clinical write in ONE tenant-scoped tx.
+    return setTenantTx(tenantId, async (tx) => {
+      const locked = await tx.$queryRawUnsafe(
+        `SELECT id, status, patient_uid, procedure_name
+           FROM ot_schedules
+          WHERE id = $1 AND tenant_id = $2::uuid
+          FOR UPDATE`,
+        scheduleId, tenantId);
+      if (locked.length === 0) throw AppError.notFound('OT schedule not found');
+      const current = locked[0];
+      if (['completed', 'cancelled'].includes(current.status)) {
+        throw AppError.badRequest(`Cannot cancel a surgery that is already ${current.status}`);
+      }
 
-    logger.info('Surgery cancelled', { scheduleId: id, cancelledBy });
-    return result[0];
+      const result = await tx.$queryRawUnsafe(
+        `UPDATE ot_schedules SET status = 'cancelled', updated_at = NOW()
+         WHERE id = $1 AND tenant_id = $2::uuid AND status = $3
+         RETURNING ${OT_RETURNING}`,
+        scheduleId, tenantId, current.status
+      );
+      if (result.length === 0) {
+        throw AppError.conflict(
+          `OT case is no longer in '${current.status}' — status changed concurrently`,
+          'OT_STATUS_CONFLICT',
+          { expected_from: current.status, to: 'cancelled' },
+        );
+      }
+
+      await recordCanonicalClinicalEvent({
+        tenantId,
+        patientUid: current.patient_uid,
+        eventType: 'surgery.cancelled',
+        eventStatus: 'cancelled',
+        sourceTable: 'ot_schedules',
+        sourceId: scheduleId,
+        resourceType: 'ot_schedule',
+        actorUid: cancelledBy || null,
+        actorRole: options.actorRole || null,
+        summary: `Surgery cancelled: ${current.procedure_name}`,
+        payload: { from_status: current.status, to_status: 'cancelled' },
+        beforeState: { status: current.status },
+        afterState: { status: 'cancelled' },
+      }, { db: tx });
+
+      logger.info('Surgery cancelled', { scheduleId: id, cancelledBy });
+      return result[0];
+    });
   }
 }
 

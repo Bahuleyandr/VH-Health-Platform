@@ -148,6 +148,13 @@ export async function scheduleWithConflictCheck(payload) {
     estimated_duration: payload.estimated_duration,
     tenantId: payload.tenantId || payload.tenant_id,
   });
+  // `force` only skips this friendly pre-check (which exists to give the
+  // coordinator a readable conflict list). It is NOT an override for a real
+  // double-booking: migration 319's gist EXCLUDE constraint
+  // (excl_ot_schedules_room_no_overlap) is the durable guard. If `force=true`
+  // would create a genuine overlap, theatreService.scheduleSurgery surfaces the
+  // 23P01 exclusion_violation as AppError.conflict('OT_ROOM_DOUBLE_BOOKED')
+  // (409) — the insert is rejected at the DB layer regardless of `force`.
   if (conflicts.length && !payload.force) {
     throw AppError.badRequest(
       `Booking conflicts with ${conflicts.length} existing case(s). ` +

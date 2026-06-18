@@ -11,7 +11,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 import { createBedCleaningRequest } from '../staff/housekeepingTaskDispatchService.js';
-import { emitBedMarkedReady } from '../clinical/canonicalOperationalBridgeService.js';
+import { emitBedMarkedReady, emitFinalDischargeCompleted } from '../clinical/canonicalOperationalBridgeService.js';
 
 function tenantOf(options = {}) {
   return options.tenantId || getCurrentTenantId() || null;
@@ -206,18 +206,21 @@ class BedManagementService {
       const activeAdmission = activeAdmissionRows[0] || null;
       const dischargePatientUid = patientUid || activeAdmission?.patient_uid || null;
 
+      let closedAdmission = null;
       if (activeAdmission) {
-        await tx.$executeRawUnsafe(
+        const closedRows = await tx.$queryRawUnsafe(
           `UPDATE admissions
               SET status = 'discharged',
                   discharged_at = NOW(),
                   discharge_type = COALESCE(discharge_type, 'home'),
                   updated_at = NOW()
             WHERE id = $1
-              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,
+              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+          RETURNING id, tenant_id, patient_uid, encounter_id, status, discharge_type, discharged_at`,
           activeAdmission.id,
           tenantId,
         );
+        closedAdmission = closedRows[0] || null;
       }
 
       // bed_transfers.patient_uid is NOT NULL; skip the audit row for beds
@@ -250,7 +253,29 @@ class BedManagementService {
         tenantId,
       );
 
-      return { updated: updated[0], patientUid: dischargePatientUid, admissionId: activeAdmission?.id || null };
+      // Canonical clinical timeline invariant (docs/CANONICAL_CLINICAL_TIMELINE.md):
+      // a bed-side discharge that closes an admission must persist the canonical
+      // discharge.completed timeline + audit events in the SAME transaction as
+      // the admission close + bed turnover — not just flip the bed. Emitted on
+      // `tx` so a canonical-write failure rolls the whole discharge back rather
+      // than leaving a discharged admission with no timeline/audit row. Only
+      // fires when an admission was actually closed (a bedService-legacy bed with
+      // no admission row has nothing to record here).
+      if (closedAdmission) {
+        await emitFinalDischargeCompleted({
+          db: tx,
+          admission: closedAdmission,
+          actorUid: dischargedBy,
+          actorRole: 'DISCHARGE',
+          payload: { bed_id: bedId, discharge_path: 'bed_management' },
+        });
+      }
+
+      return {
+        updated: updated[0],
+        patientUid: dischargePatientUid,
+        admissionId: activeAdmission?.id || null,
+      };
     });
 
     logger.info(
